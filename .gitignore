@@ -1,0 +1,43 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.pytest-local-tmp/
+.pytest-basetemp/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Private design drafts
+# docs/design/
+# docs/old/
+
+# Runtime and demo outputs
+home/workspace/**
+!home/workspace/.gitkeep
+**/.tinysoul_runtime/
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Packaging/build outputs
+build/
+dist/
+*.egg-info/

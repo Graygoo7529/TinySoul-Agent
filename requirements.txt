@@ -1,0 +1,4 @@
+# conda activate TinySoul(python 3.13.x)
+
+openai>=1.0
+pytest
