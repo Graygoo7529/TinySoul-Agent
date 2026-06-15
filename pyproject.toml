@@ -25,3 +25,7 @@ include = ["tinysoul*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ty.environment]
+python = "C:/Anaconda3/envs/TinySoul/python.exe"
+root = ["."]
