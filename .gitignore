@@ -20,9 +20,8 @@ ENV/
 .env.*
 !.env.example
 
-# Private design drafts
-# docs/design/
-# docs/old/
+# Local references
+reference
 
 # Runtime and demo outputs
 home/workspace/**
