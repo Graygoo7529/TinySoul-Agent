@@ -1,4 +1,4 @@
-"""Typed configuration loading."""
+"""Unified configuration environment."""
 
 from __future__ import annotations
 
@@ -8,20 +8,27 @@ from enum import Enum
 import os
 from pathlib import Path
 from types import NoneType
-from typing import TypeVar, get_args, get_origin, get_type_hints
+from typing import TypeVar, cast, get_args, get_origin, get_type_hints
 
 from .dotenv import DotenvSource, _env_mapping_to_dotted
 from .errors import ConfigError
-from .project_file import ProjectConfigFile
+from .project import ProjectConfig
 from .source import ConfigSource
+from .toml_file import deep_copy_mapping
 
 T = TypeVar("T")
 
 
-class ConfigLoader:
-    """Load typed configuration objects from ordered configuration sources."""
+class ConfigEnvironment:
+    """Project configuration tree plus ordered runtime configuration sources."""
 
-    def __init__(self, sources: list[ConfigSource]) -> None:
+    def __init__(
+        self,
+        *,
+        project: ProjectConfig,
+        sources: list[ConfigSource],
+    ) -> None:
+        self._project = project
         self._sources = list(sources)
 
     @classmethod
@@ -33,10 +40,11 @@ class ConfigLoader:
         dotenv_name: str = ".env",
         env: Mapping[str, str] | None = None,
         overrides: Mapping[str, object] | None = None,
-    ) -> "ConfigLoader":
+    ) -> "ConfigEnvironment":
+        project = ProjectConfig(root=root, main_file_name=project_file_name)
         sources = [
-            ProjectConfigFile(root / project_file_name).to_source(),
-            DotenvSource(root / dotenv_name).load(),
+            project.to_source(),
+            DotenvSource(project.env_file_path(default_name=dotenv_name)).load(),
             ConfigSource(
                 name="environment",
                 values=_env_mapping_to_dotted(dict(env if env is not None else os.environ)),
@@ -44,7 +52,37 @@ class ConfigLoader:
         ]
         if overrides:
             sources.append(ConfigSource(name="overrides", values=dict(overrides)))
-        return cls(sources)
+        return cls(project=project, sources=sources)
+
+    @property
+    def project_tree(self) -> dict[str, object]:
+        return self._project.data
+
+    @property
+    def sources(self) -> tuple[ConfigSource, ...]:
+        return tuple(self._sources)
+
+    def section_tree(self, section: str) -> dict[str, object]:
+        if not section:
+            raise ValueError("section must be non-empty")
+        tree: dict[str, object] = {}
+        prefix = f"{section}."
+        for source in self._sources:
+            for key, value in source.values.items():
+                if key == section:
+                    if isinstance(value, Mapping):
+                        tree = deep_copy_mapping(cast(Mapping[str, object], value))
+                        continue
+                    raise ConfigError(
+                        "Section key cannot be assigned a scalar value",
+                        key=key,
+                        source=source.name,
+                        value=value,
+                    )
+                if not key.startswith(prefix):
+                    continue
+                _set_dotted_value(tree, key[len(prefix) :], value)
+        return tree
 
     def load_section(self, section: str, settings_type: type[T]) -> T:
         if not is_dataclass(settings_type):
@@ -100,6 +138,26 @@ class ConfigLoader:
     @staticmethod
     def _default_field_names(settings_type: type[object]) -> set[str]:
         return {field.name for field in fields(settings_type)}
+
+
+def _set_dotted_value(tree: dict[str, object], dotted_key: str, value: object) -> None:
+    parts = dotted_key.split(".")
+    current = tree
+    for part in parts[:-1]:
+        existing = current.get(part)
+        if existing is None:
+            nested: dict[str, object] = {}
+            current[part] = nested
+            current = nested
+            continue
+        if not isinstance(existing, dict):
+            raise ConfigError(
+                "Cannot set nested configuration key below scalar value",
+                key=dotted_key,
+                value=value,
+            )
+        current = cast(dict[str, object], existing)
+    current[parts[-1]] = value
 
 
 def _convert_value(value: object, target_type: object, *, key: str, source: str) -> object:

@@ -1,0 +1,38 @@
+[llm.models.kimi_k2_7]
+provider = "kimi"
+provider_model = "kimi-k2.7-code"
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "reasoning_output",
+  "prompt_cache",
+]
+
+[llm.models.deepseek_v4]
+provider = "deepseek"
+provider_model = "deepseek-v4-pro"
+capabilities = [
+  "text_input",
+  "json_object_output",
+  "reasoning_output",
+]
+
+[llm.models.glm_5_1]
+provider = "glm"
+provider_model = "glm-5.1"
+capabilities = [
+  "text_input",
+  "json_object_output",
+  "reasoning_output",
+]
+
+[llm.models.minimax_m3]
+provider = "minimax"
+provider_model = "MiniMax-M3"
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "reasoning_output",
+]

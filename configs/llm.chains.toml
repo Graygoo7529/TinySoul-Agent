@@ -1,0 +1,15 @@
+[llm.chains.framework_default]
+models = ["kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3"]
+max_retries_per_model = 2
+retry_wait_seconds = 1.0
+switch_wait_seconds = 2.0
+max_cycles = 10
+prefer_successful_model_seconds = 600
+
+[llm.chains.action_behavior]
+models = ["kimi_k2_7", "minimax_m3", "deepseek_v4", "glm_5_1"]
+max_retries_per_model = 2
+retry_wait_seconds = 1.0
+switch_wait_seconds = 2.0
+max_cycles = 10
+prefer_successful_model_seconds = 600

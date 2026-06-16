@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from tinysoul.infra.config import ConfigError, ConfigLoader, ConfigSource
+from tinysoul.infra.config import ConfigEnvironment, ConfigError, ConfigSource, ProjectConfig
 
 
 class LogLevel(Enum):
@@ -30,33 +31,38 @@ class LoggingSettings:
     color: bool = True
 
 
-def test_loader_uses_dataclass_defaults_when_no_source() -> None:
-    loader = ConfigLoader([])
+def test_environment_uses_dataclass_defaults_when_no_source(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[],
+    )
 
-    settings = loader.load_section("infra.runtime", RuntimeSettings)
+    settings = environment.load_section("infra.runtime", RuntimeSettings)
 
     assert settings.max_turns == 20
     assert settings.parallel_workers == 5
 
 
-def test_loader_applies_sources_in_order() -> None:
-    loader = ConfigLoader(
-        [
+def test_environment_applies_sources_in_order(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[
             ConfigSource("project", {"infra.runtime.max_turns": 21}),
             ConfigSource("dotenv", {"infra.runtime.max_turns": "22"}),
             ConfigSource("environment", {"infra.runtime.max_turns": "23"}),
             ConfigSource("overrides", {"infra.runtime.max_turns": 24}),
-        ]
+        ],
     )
 
-    settings = loader.load_section("infra.runtime", RuntimeSettings)
+    settings = environment.load_section("infra.runtime", RuntimeSettings)
 
     assert settings.max_turns == 24
 
 
-def test_loader_converts_supported_types() -> None:
-    loader = ConfigLoader(
-        [
+def test_environment_converts_supported_types(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[
             ConfigSource(
                 "source",
                 {
@@ -70,11 +76,11 @@ def test_loader_converts_supported_types() -> None:
                     "infra.logging.color": "yes",
                 },
             )
-        ]
+        ],
     )
 
-    runtime = loader.load_section("infra.runtime", RuntimeSettings)
-    logging = loader.load_section("infra.logging", LoggingSettings)
+    runtime = environment.load_section("infra.runtime", RuntimeSettings)
+    logging = environment.load_section("infra.logging", LoggingSettings)
 
     assert runtime.max_turns == 30
     assert runtime.parallel_workers == 6
@@ -86,11 +92,14 @@ def test_loader_converts_supported_types() -> None:
     assert logging.color is True
 
 
-def test_loader_reports_unknown_project_key() -> None:
-    loader = ConfigLoader([ConfigSource("project", {"infra.runtime.unknown": 1})])
+def test_environment_reports_unknown_project_key(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[ConfigSource("project", {"infra.runtime.unknown": 1})],
+    )
 
     with pytest.raises(ConfigError) as exc_info:
-        loader.load_section("infra.runtime", RuntimeSettings)
+        environment.load_section("infra.runtime", RuntimeSettings)
 
     message = str(exc_info.value)
     assert "Unknown configuration key" in message
@@ -98,11 +107,14 @@ def test_loader_reports_unknown_project_key() -> None:
     assert "project" in message
 
 
-def test_loader_reports_type_errors_with_source_and_value() -> None:
-    loader = ConfigLoader([ConfigSource("project", {"infra.runtime.max_turns": "bad"})])
+def test_environment_reports_type_errors_with_source_and_value(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[ConfigSource("project", {"infra.runtime.max_turns": "bad"})],
+    )
 
     with pytest.raises(ConfigError) as exc_info:
-        loader.load_section("infra.runtime", RuntimeSettings)
+        environment.load_section("infra.runtime", RuntimeSettings)
 
     message = str(exc_info.value)
     assert "infra.runtime.max_turns" in message
@@ -111,7 +123,7 @@ def test_loader_reports_type_errors_with_source_and_value() -> None:
     assert "int" in message
 
 
-def test_from_project_root_precedence(local_tmp: Path, monkeypatch) -> None:
+def test_environment_from_project_root_precedence(local_tmp: Path, monkeypatch) -> None:
     (local_tmp / "tinysoul.toml").write_text(
         "[infra.runtime]\nmax_turns = 21\n", encoding="utf-8"
     )
@@ -120,10 +132,37 @@ def test_from_project_root_precedence(local_tmp: Path, monkeypatch) -> None:
     )
     monkeypatch.setenv("TINYSOUL_INFRA_RUNTIME_MAX_TURNS", "23")
 
-    loader = ConfigLoader.from_project_root(
+    environment = ConfigEnvironment.from_project_root(
         local_tmp,
         overrides={"infra.runtime.max_turns": 24},
     )
-    settings = loader.load_section("infra.runtime", RuntimeSettings)
+    settings = environment.load_section("infra.runtime", RuntimeSettings)
 
     assert settings.max_turns == 24
+
+
+def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
+    (local_tmp / "tinysoul.toml").write_text(
+        """
+        [llm.models.kimi_k2_7]
+        provider = "kimi"
+        provider_model = "kimi-k2.7-code"
+        """,
+        encoding="utf-8",
+    )
+
+    environment = ConfigEnvironment.from_project_root(
+        local_tmp,
+        overrides={"llm.models.kimi_k2_7.provider_model": "kimi-k2.7"},
+    )
+
+    tree = environment.section_tree("llm")
+    models = tree["models"]
+    assert isinstance(models, dict)
+    typed_models = cast(dict[str, object], models)
+    kimi = typed_models["kimi_k2_7"]
+    assert isinstance(kimi, dict)
+    typed_kimi = cast(dict[str, object], kimi)
+
+    assert typed_kimi["provider"] == "kimi"
+    assert typed_kimi["provider_model"] == "kimi-k2.7"
