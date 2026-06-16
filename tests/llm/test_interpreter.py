@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+import pytest
+
+from tinysoul.llm.responses import (
+    ModelResponse,
+    ResponseContract,
+    ResponseInterpretError,
+    ResponseInterpreter,
+)
+
+
+def test_interpreter_extracts_json_object_from_fenced_text() -> None:
+    response = ModelResponse(
+        text='```json\n{"ok": true, "count": 2}\n```',
+        model_id="model-a",
+        provider_id="provider-a",
+    )
+
+    result = ResponseInterpreter().interpret(response, ResponseContract.JSON_OBJECT)
+
+    assert result.json_object == {"ok": True, "count": 2}
+
+
+def test_interpreter_rejects_json_array_for_json_object_contract() -> None:
+    response = ModelResponse(
+        text="[1, 2]",
+        model_id="model-a",
+        provider_id="provider-a",
+    )
+
+    with pytest.raises(ResponseInterpretError):
+        ResponseInterpreter().interpret(response, ResponseContract.JSON_OBJECT)

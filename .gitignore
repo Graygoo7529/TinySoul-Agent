@@ -32,6 +32,7 @@ home/workspace/**
 # Editor and OS files
 .idea/
 .vscode/
+.zed/
 *.swp
 *.swo
 .DS_Store
