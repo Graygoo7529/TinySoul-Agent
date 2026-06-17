@@ -7,7 +7,6 @@ import time
 from typing import Callable, TypeVar
 
 from .requests import CallSettings, TaskProfile
-from .responses import ResponseContract
 
 T = TypeVar("T")
 
@@ -59,7 +58,6 @@ class TaskSpec:
 
     profile: str
     chain: ModelChain
-    response_contract: ResponseContract = ResponseContract.JSON_OBJECT
     settings: CallSettings = field(default_factory=CallSettings)
 
 

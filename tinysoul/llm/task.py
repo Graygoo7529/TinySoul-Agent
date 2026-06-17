@@ -78,10 +78,12 @@ class LLMTaskRunner:
 
     def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
         model = self._models.get(model_id)
-        response_contract = call.overrides.response_contract or task.response_contract
+        settings = self._resolve_settings(call, task)
+        response_contract = settings.response_contract
+        if response_contract is None:
+            raise LLMTaskError(f"Task '{task.profile}' has no response contract")
         self._check_capabilities(call, model, response_contract=response_contract)
         provider = self._providers.get(model.provider_id)
-        settings = self._resolve_settings(call, task)
         last_error: ProviderError | None = None
 
         for attempt in range(task.chain.retry_policy.max_retries_per_model):

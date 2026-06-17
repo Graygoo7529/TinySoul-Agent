@@ -8,6 +8,7 @@ from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser, ProviderApiStyle
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.requests import TaskProfile
+from tinysoul.llm.responses import ResponseContract
 
 
 def test_llm_config_parses_project_config_files() -> None:
@@ -31,6 +32,7 @@ def test_llm_config_parses_project_config_files() -> None:
     assert framework.chain.model_ids == ("kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3")
     assert framework.chain.retry_policy.max_retries_per_model == 2
     assert framework.chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
+    assert framework.settings.response_contract is ResponseContract.JSON_OBJECT
     assert framework.settings.temperature == pytest.approx(0.6)
     assert framework.settings.max_output_tokens == 4096
 

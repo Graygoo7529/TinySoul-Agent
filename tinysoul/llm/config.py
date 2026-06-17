@@ -189,15 +189,15 @@ class LLMConfigParser:
                             ),
                         ),
                     ),
-                    response_contract=ResponseContract(
-                        _optional_str(
-                            task_table,
-                            "response_contract",
-                            default=ResponseContract.JSON_OBJECT.value,
-                            key=f"llm.tasks.{profile}",
-                        )
-                    ),
                     settings=CallSettings(
+                        response_contract=ResponseContract(
+                            _optional_str(
+                                task_table,
+                                "response_contract",
+                                default=ResponseContract.JSON_OBJECT.value,
+                                key=f"llm.tasks.{profile}",
+                            )
+                        ),
                         temperature=_optional_float_or_none(
                             task_table,
                             "temperature",

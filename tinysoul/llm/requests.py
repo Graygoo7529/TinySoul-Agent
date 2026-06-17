@@ -21,11 +21,15 @@ class TaskProfile(StrEnum):
 class CallSettings:
     """Common settings for a model call."""
 
+    response_contract: ResponseContract | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
 
     def override_with(self, other: "CallSettings") -> "CallSettings":
         return CallSettings(
+            response_contract=other.response_contract
+            if other.response_contract is not None
+            else self.response_contract,
             temperature=other.temperature
             if other.temperature is not None
             else self.temperature,
@@ -39,7 +43,6 @@ class CallSettings:
 class TaskCallOverrides:
     """Optional per-call overrides for task configuration."""
 
-    response_contract: ResponseContract | None = None
     settings: CallSettings = field(default_factory=CallSettings)
 
 

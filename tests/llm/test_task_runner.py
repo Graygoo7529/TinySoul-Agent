@@ -18,7 +18,7 @@ from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, Provi
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import CallSettings, TaskCall, TaskCallOverrides
-from tinysoul.llm.responses import ModelResponse
+from tinysoul.llm.responses import ModelResponse, ResponseContract
 from tinysoul.llm.task import LLMTaskError, LLMTaskRunner, ModelCapabilityError
 
 
@@ -236,6 +236,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
                     profile="framework",
                     chain=ModelChain(profile="framework", model_ids=("a",)),
                     settings=CallSettings(
+                        response_contract=ResponseContract.JSON_OBJECT,
                         temperature=0.6,
                         max_output_tokens=4096,
                     ),
@@ -281,5 +282,13 @@ def _models(*ids: str) -> ModelRegistry:
 
 
 def _tasks(chain: ModelChain) -> TaskSpecTable:
-    return TaskSpecTable([TaskSpec(profile=chain.profile, chain=chain)])
+    return TaskSpecTable(
+        [
+            TaskSpec(
+                profile=chain.profile,
+                chain=chain,
+                settings=CallSettings(response_contract=ResponseContract.JSON_OBJECT),
+            )
+        ]
+    )
 
