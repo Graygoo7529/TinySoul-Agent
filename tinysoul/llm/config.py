@@ -9,8 +9,10 @@ from typing import cast
 
 from tinysoul.infra.config import ConfigError
 
-from .model_chain import ModelChain, ModelChainTable, RetryPolicy
-from .models import ModelCapability, ModelRegistry, ModelSpec
+from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
+from .models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
+from .requests import CallSettings
+from .responses import ResponseContract
 
 
 class ProviderApiStyle(StrEnum):
@@ -36,7 +38,7 @@ class LLMConfig:
 
     providers: tuple[ProviderSpec, ...]
     models: ModelRegistry
-    chains: ModelChainTable
+    tasks: TaskSpecTable
 
     def provider(self, provider_id: str) -> ProviderSpec:
         for provider in self.providers:
@@ -55,11 +57,15 @@ class LLMConfigParser:
             _required_table(llm_tree, "models", key="llm"),
             provider_ids=provider_ids,
         )
-        chains = self._parse_chains(
-            _required_table(llm_tree, "chains", key="llm"),
+        tasks = self._parse_tasks(
+            _required_table(llm_tree, "tasks", key="llm"),
             models=models,
         )
-        return LLMConfig(providers=tuple(providers), models=models, chains=chains)
+        return LLMConfig(
+            providers=tuple(providers),
+            models=models,
+            tasks=tasks,
+        )
 
     def _parse_providers(self, table: Mapping[str, object]) -> list[ProviderSpec]:
         providers: list[ProviderSpec] = []
@@ -116,69 +122,98 @@ class LLMConfigParser:
                             key=f"llm.models.{model_id}",
                         )
                     ),
+                    provider_options=_optional_provider_options(
+                        model_table,
+                        key=f"llm.models.{model_id}",
+                    ),
                 )
             )
         return registry
 
-    def _parse_chains(
+    def _parse_tasks(
         self,
         table: Mapping[str, object],
         *,
         models: ModelRegistry,
-    ) -> ModelChainTable:
-        chains = ModelChainTable()
+    ) -> TaskSpecTable:
+        tasks = TaskSpecTable()
         for raw_profile, value in table.items():
-            profile = _profile_name(raw_profile)
-            chain_table = _as_table(value, key=f"llm.chains.{profile}")
+            profile = raw_profile
+            task_table = _as_table(value, key=f"llm.tasks.{profile}")
             model_ids = tuple(
-                _required_str_list(chain_table, "models", key=f"llm.chains.{profile}")
+                _required_str_list(task_table, "models", key=f"llm.tasks.{profile}")
             )
             for model_id in model_ids:
                 if not models.has(model_id):
                     raise ConfigError(
-                        "Model chain references unknown model",
-                        key=f"llm.chains.{profile}.models",
+                        "Task references unknown model",
+                        key=f"llm.tasks.{profile}.models",
                         value=model_id,
                     )
-            chains.register(
-                ModelChain(
+            tasks.register(
+                TaskSpec(
                     profile=profile,
-                    model_ids=model_ids,
-                    retry_policy=RetryPolicy(
-                        max_retries_per_model=_optional_int(
-                            chain_table,
-                            "max_retries_per_model",
-                            default=RetryPolicy().max_retries_per_model,
-                            key=f"llm.chains.{profile}",
+                    chain=ModelChain(
+                        profile=profile,
+                        model_ids=model_ids,
+                        retry_policy=RetryPolicy(
+                            max_retries_per_model=_optional_int(
+                                task_table,
+                                "max_retries_per_model",
+                                default=RetryPolicy().max_retries_per_model,
+                                key=f"llm.tasks.{profile}",
+                            ),
+                            retry_wait_seconds=_optional_float(
+                                task_table,
+                                "retry_wait_seconds",
+                                default=RetryPolicy().retry_wait_seconds,
+                                key=f"llm.tasks.{profile}",
+                            ),
+                            switch_wait_seconds=_optional_float(
+                                task_table,
+                                "switch_wait_seconds",
+                                default=RetryPolicy().switch_wait_seconds,
+                                key=f"llm.tasks.{profile}",
+                            ),
+                            max_cycles=_optional_int_or_none(
+                                task_table,
+                                "max_cycles",
+                                default=RetryPolicy().max_cycles,
+                                key=f"llm.tasks.{profile}",
+                            ),
+                            prefer_successful_model_seconds=_optional_float_or_none(
+                                task_table,
+                                "prefer_successful_model_seconds",
+                                default=RetryPolicy().prefer_successful_model_seconds,
+                                key=f"llm.tasks.{profile}",
+                            ),
                         ),
-                        retry_wait_seconds=_optional_float(
-                            chain_table,
-                            "retry_wait_seconds",
-                            default=RetryPolicy().retry_wait_seconds,
-                            key=f"llm.chains.{profile}",
+                    ),
+                    response_contract=ResponseContract(
+                        _optional_str(
+                            task_table,
+                            "response_contract",
+                            default=ResponseContract.JSON_OBJECT.value,
+                            key=f"llm.tasks.{profile}",
+                        )
+                    ),
+                    settings=CallSettings(
+                        temperature=_optional_float_or_none(
+                            task_table,
+                            "temperature",
+                            default=None,
+                            key=f"llm.tasks.{profile}",
                         ),
-                        switch_wait_seconds=_optional_float(
-                            chain_table,
-                            "switch_wait_seconds",
-                            default=RetryPolicy().switch_wait_seconds,
-                            key=f"llm.chains.{profile}",
-                        ),
-                        max_cycles=_optional_int_or_none(
-                            chain_table,
-                            "max_cycles",
-                            default=RetryPolicy().max_cycles,
-                            key=f"llm.chains.{profile}",
-                        ),
-                        prefer_successful_model_seconds=_optional_float_or_none(
-                            chain_table,
-                            "prefer_successful_model_seconds",
-                            default=RetryPolicy().prefer_successful_model_seconds,
-                            key=f"llm.chains.{profile}",
+                        max_output_tokens=_optional_int_or_none(
+                            task_table,
+                            "max_output_tokens",
+                            default=None,
+                            key=f"llm.tasks.{profile}",
                         ),
                     ),
                 )
             )
-        return chains
+        return tasks
 
 
 def _required_table(
@@ -191,14 +226,6 @@ def _required_table(
     if value is None:
         raise ConfigError("Missing configuration table", key=f"{key}.{name}")
     return _as_table(value, key=f"{key}.{name}")
-
-
-def _profile_name(raw_profile: str) -> str:
-    if raw_profile == "framework_default":
-        return "framework.default"
-    if raw_profile == "action_behavior":
-        return "action.behavior"
-    return raw_profile
 
 
 def _as_table(value: object, *, key: str) -> Mapping[str, object]:
@@ -214,6 +241,24 @@ def _as_table(value: object, *, key: str) -> Mapping[str, object]:
 
 def _required_str(table: Mapping[str, object], name: str, *, key: str) -> str:
     value = table.get(name)
+    if not isinstance(value, str) or not value:
+        raise ConfigError(
+            "Configuration value must be a non-empty string",
+            key=f"{key}.{name}",
+            value=value,
+            expected="str",
+        )
+    return value
+
+
+def _optional_str(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    default: str,
+    key: str,
+) -> str:
+    value = table.get(name, default)
     if not isinstance(value, str) or not value:
         raise ConfigError(
             "Configuration value must be a non-empty string",
@@ -244,6 +289,24 @@ def _required_str_list(table: Mapping[str, object], name: str, *, key: str) -> l
             )
         result.append(item)
     return result
+
+
+def _optional_provider_options(
+    table: Mapping[str, object],
+    *,
+    key: str,
+) -> ProviderOptions:
+    value = table.get("provider_options")
+    if value is None:
+        return ProviderOptions()
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Configuration value must be a table",
+            key=f"{key}.provider_options",
+            value=value,
+            expected="table",
+        )
+    return ProviderOptions(cast(Mapping[str, object], value))
 
 
 def _optional_int(

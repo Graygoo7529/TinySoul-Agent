@@ -6,8 +6,8 @@ import pytest
 
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser, ProviderApiStyle
-from tinysoul.llm.model_chain import TaskProfile
 from tinysoul.llm.models import ModelCapability
+from tinysoul.llm.requests import TaskProfile
 
 
 def test_llm_config_parses_project_config_files() -> None:
@@ -25,11 +25,18 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.provider_model == "kimi-k2.7-code"
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
+    assert kimi_model.provider_options.values == {"thinking": "enabled"}
 
-    chain = config.chains.get(TaskProfile.FRAMEWORK_DEFAULT)
-    assert chain.model_ids == ("kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3")
-    assert chain.retry_policy.max_retries_per_model == 2
-    assert chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
+    framework = config.tasks.get(TaskProfile.FRAMEWORK)
+    assert framework.chain.model_ids == ("kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3")
+    assert framework.chain.retry_policy.max_retries_per_model == 2
+    assert framework.chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
+    assert framework.settings.temperature == pytest.approx(0.6)
+    assert framework.settings.max_output_tokens == 4096
+
+    llm_action = config.tasks.get(TaskProfile.LLM_ACTION)
+    assert llm_action.settings.temperature == pytest.approx(0.3)
+    assert llm_action.settings.max_output_tokens == 2048
 
 
 def test_llm_config_rejects_model_with_unknown_provider() -> None:
@@ -48,8 +55,8 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
                 "capabilities": ["text_input"],
             }
         },
-        "chains": {
-            "framework.default": {
+        "tasks": {
+            "framework": {
                 "models": ["bad"],
             }
         },
@@ -59,7 +66,7 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
         LLMConfigParser().parse(tree)
 
 
-def test_llm_config_rejects_chain_with_unknown_model() -> None:
+def test_llm_config_rejects_task_with_unknown_model() -> None:
     tree = {
         "providers": {
             "kimi": {
@@ -75,8 +82,8 @@ def test_llm_config_rejects_chain_with_unknown_model() -> None:
                 "capabilities": ["text_input"],
             }
         },
-        "chains": {
-            "framework.default": {
+        "tasks": {
+            "framework": {
                 "models": ["missing"],
             }
         },
@@ -102,8 +109,8 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
                 "capabilities": ["text_input"],
             }
         },
-        "chains": {
-            "framework.default": {
+        "tasks": {
+            "framework": {
                 "models": ["kimi_k2_7"],
             }
         },
@@ -111,6 +118,6 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
 
     config = LLMConfigParser().parse(tree)
 
-    chain = config.chains.get("framework.default")
-    assert chain.retry_policy.max_cycles == 10
-    assert chain.retry_policy.max_retries_per_model == 1
+    task = config.tasks.get("framework")
+    assert task.chain.retry_policy.max_cycles == 10
+    assert task.chain.retry_policy.max_retries_per_model == 1

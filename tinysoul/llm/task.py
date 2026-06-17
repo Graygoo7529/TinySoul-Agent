@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from .cache import PromptCache
-from .messages import FilePart, ImagePart, MessageStack
+from .messages import ImagePart, MessageStack
 from .model_chain import (
     Clock,
     ModelChainExhaustedError,
     ModelChainPlanner,
     ModelChainRunner,
     ModelChainState,
-    ModelChainTable,
     Sleeper,
-    TaskProfile,
+    TaskSpec,
+    TaskSpecTable,
 )
 from .models import ModelCapability, ModelRegistry, ModelSpec
 from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
+from .requests import CallSettings, TaskCall, TaskProfile
 from .responses import (
     ResponseContract,
     ResponseInterpretError,
@@ -34,18 +32,6 @@ class ModelCapabilityError(LLMTaskError):
     """Raised when a model cannot satisfy a request."""
 
 
-@dataclass(frozen=True)
-class TaskCall:
-    """A provider-neutral LLM task call."""
-
-    profile: TaskProfile | str
-    messages: MessageStack
-    response_contract: ResponseContract = ResponseContract.JSON_OBJECT
-    prompt_cache: PromptCache | None = None
-    temperature: float | None = None
-    max_output_tokens: int | None = None
-
-
 class LLMTaskRunner:
     """Execute LLM task calls over registered model chains."""
 
@@ -54,7 +40,7 @@ class LLMTaskRunner:
         *,
         models: ModelRegistry,
         providers: ProviderRegistry,
-        chains: ModelChainTable,
+        tasks: TaskSpecTable,
         interpreter: ResponseInterpreter | None = None,
         chain_state: ModelChainState | None = None,
         chain_planner: ModelChainPlanner | None = None,
@@ -64,7 +50,7 @@ class LLMTaskRunner:
     ) -> None:
         self._models = models
         self._providers = providers
-        self._chains = chains
+        self._tasks = tasks
         self._interpreter = interpreter or ResponseInterpreter()
         self._sleeper = sleeper or Sleeper()
         self._chain_runner = chain_runner or ModelChainRunner(
@@ -75,11 +61,11 @@ class LLMTaskRunner:
         )
 
     def run(self, call: TaskCall) -> TaskResult:
-        chain = self._chains.get(call.profile)
+        task = self._tasks.get(call.profile)
         try:
             return self._chain_runner.run(
-                chain,
-                lambda model_id: self._try_model(call, model_id),
+                task.chain,
+                lambda model_id: self._try_model(call, task, model_id),
                 is_fatal=self._is_fatal_error,
             )
         except ModelChainExhaustedError as exc:
@@ -90,25 +76,27 @@ class LLMTaskRunner:
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
         self._chain_runner.reset(profile)
 
-    def _try_model(self, call: TaskCall, model_id: str) -> TaskResult:
+    def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
         model = self._models.get(model_id)
-        self._check_capabilities(call, model)
+        response_contract = call.overrides.response_contract or task.response_contract
+        self._check_capabilities(call, model, response_contract=response_contract)
         provider = self._providers.get(model.provider_id)
-        chain = self._chains.get(call.profile)
+        settings = self._resolve_settings(call, task)
         last_error: ProviderError | None = None
 
-        for attempt in range(chain.retry_policy.max_retries_per_model):
+        for attempt in range(task.chain.retry_policy.max_retries_per_model):
             if attempt > 0:
-                self._sleeper.sleep(chain.retry_policy.retry_wait_seconds)
+                self._sleeper.sleep(task.chain.retry_policy.retry_wait_seconds)
             try:
                 response = provider.invoke(
                     ProviderRequest(
                         model=model,
                         messages=call.messages,
-                        response_contract=call.response_contract,
+                        response_contract=response_contract,
                         prompt_cache=call.prompt_cache,
-                        temperature=call.temperature,
-                        max_output_tokens=call.max_output_tokens,
+                        temperature=settings.temperature,
+                        max_output_tokens=settings.max_output_tokens,
+                        provider_options=dict(model.provider_options.values),
                     )
                 )
             except ProviderError as exc:
@@ -116,7 +104,7 @@ class LLMTaskRunner:
                     raise
                 last_error = exc
                 continue
-            return self._interpreter.interpret(response, call.response_contract)
+            return self._interpreter.interpret(response, response_contract)
 
         if last_error is None:
             raise LLMTaskError("Model retry failed without a provider error")
@@ -133,19 +121,30 @@ class LLMTaskRunner:
             }
         return False
 
-    def _check_capabilities(self, call: TaskCall, model: ModelSpec) -> None:
+    def _check_capabilities(
+        self,
+        call: TaskCall,
+        model: ModelSpec,
+        *,
+        response_contract: ResponseContract,
+    ) -> None:
         required = {ModelCapability.TEXT_INPUT}
-        if call.response_contract is ResponseContract.JSON_OBJECT:
+        if response_contract is ResponseContract.JSON_OBJECT:
             required.add(ModelCapability.JSON_OBJECT_OUTPUT)
 
         for message in call.messages.messages:
             for part in message.parts:
                 if isinstance(part, ImagePart):
                     required.add(ModelCapability.IMAGE_INPUT)
-                elif isinstance(part, FilePart):
-                    required.add(ModelCapability.NATIVE_FILE_INPUT)
 
         missing = [capability for capability in required if not model.supports(capability)]
         if missing:
             names = ", ".join(capability.value for capability in missing)
             raise ModelCapabilityError(f"Model '{model.id}' lacks required capabilities: {names}")
+
+    def _resolve_settings(
+        self,
+        call: TaskCall,
+        task: TaskSpec,
+    ) -> CallSettings:
+        return task.settings.override_with(call.overrides.settings)

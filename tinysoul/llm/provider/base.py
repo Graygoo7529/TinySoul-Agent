@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from collections.abc import Mapping
 from typing import Protocol
 
 from tinysoul.llm.cache import PromptCache
@@ -41,6 +42,7 @@ class ProviderRequest:
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
+    provider_options: Mapping[str, object] | None = None
 
 
 class ProviderAdapter(Protocol):

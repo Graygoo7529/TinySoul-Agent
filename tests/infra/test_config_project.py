@@ -13,7 +13,7 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     (local_tmp / "tinysoul.toml").write_text(
         """
         [config]
-        include = ["configs/llm.models.toml", "configs/llm.chains.toml"]
+        include = ["configs/llm.models.toml", "configs/llm.tasks.toml"]
 
         [llm.models.kimi_k2_7]
         provider = "kimi"
@@ -27,9 +27,9 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
         """,
         encoding="utf-8",
     )
-    (config_dir / "llm.chains.toml").write_text(
+    (config_dir / "llm.tasks.toml").write_text(
         """
-        [llm.chains.framework_default]
+        [llm.tasks.framework]
         models = ["kimi_k2_7", "deepseek_v4"]
         """,
         encoding="utf-8",
@@ -41,7 +41,7 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     source = config.to_source()
     assert source.values["llm.models.kimi_k2_7.provider"] == "kimi"
     assert source.values["llm.models.deepseek_v4.provider"] == "deepseek"
-    assert source.values["llm.chains.framework_default.models"] == [
+    assert source.values["llm.tasks.framework.models"] == [
         "kimi_k2_7",
         "deepseek_v4",
     ]
@@ -98,4 +98,3 @@ def test_project_config_uses_configured_env_file(local_tmp: Path) -> None:
     )
 
     assert ProjectConfig(local_tmp).env_file_path() == local_tmp / "configs" / ".env"
-

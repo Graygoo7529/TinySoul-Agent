@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -10,14 +10,16 @@ from tinysoul.llm.model_chain import (
     Clock,
     ModelChain,
     ModelChainState,
-    ModelChainTable,
     RetryPolicy,
+    TaskSpec,
+    TaskSpecTable,
 )
-from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec
+from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
-from tinysoul.llm.responses import ModelResponse, ResponseContract
-from tinysoul.llm.task import LLMTaskError, LLMTaskRunner, ModelCapabilityError, TaskCall
+from tinysoul.llm.requests import CallSettings, TaskCall, TaskCallOverrides
+from tinysoul.llm.responses import ModelResponse
+from tinysoul.llm.task import LLMTaskError, LLMTaskRunner, ModelCapabilityError
 
 
 @dataclass
@@ -25,10 +27,12 @@ class FakeProvider:
     provider_id: str
     failures: dict[str, int] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
+    requests: list[ProviderRequest] = field(default_factory=list)
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         model_id = request.model.id
         self.calls.append(model_id)
+        self.requests.append(request)
         remaining = self.failures.get(model_id, 0)
         if remaining > 0:
             self.failures[model_id] = remaining - 1
@@ -51,7 +55,7 @@ class FakeClock(Clock):
 def test_runner_uses_current_model_then_continues_forward_after_failure() -> None:
     provider = FakeProvider(provider_id="fake", failures={"b": 1})
     chain = ModelChain(
-        profile="framework.default",
+        profile="framework",
         model_ids=("a", "b", "c"),
         retry_policy=RetryPolicy(
             max_retries_per_model=1,
@@ -63,13 +67,12 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
     runner = LLMTaskRunner(
         models=_models("a", "b", "c"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable([chain]),
+        tasks=_tasks(chain),
         chain_state=chain_state,
     )
     call = TaskCall(
-        profile="framework.default",
+        profile="framework",
         messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
-        response_contract=ResponseContract.JSON_OBJECT,
     )
 
     result = runner.run(call)
@@ -86,24 +89,22 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     runner = LLMTaskRunner(
         models=_models("a", "b", "c"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable(
-            [
-                ModelChain(
-                    profile="framework.default",
-                    model_ids=("a", "b", "c"),
-                    retry_policy=RetryPolicy(
-                        max_retries_per_model=1,
-                        max_cycles=2,
-                    ),
-                )
-            ]
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b", "c"),
+                retry_policy=RetryPolicy(
+                    max_retries_per_model=1,
+                    max_cycles=2,
+                ),
+            )
         ),
     )
 
     with pytest.raises(LLMTaskError):
         runner.run(
             TaskCall(
-                profile="framework.default",
+                profile="framework",
                 messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
             )
         )
@@ -115,7 +116,7 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     provider = FakeProvider(provider_id="fake", failures={"a": 1, "b": 1})
     clock = FakeClock()
     chain = ModelChain(
-        profile="framework.default",
+        profile="framework",
         model_ids=("a", "b", "c"),
         retry_policy=RetryPolicy(
             max_retries_per_model=1,
@@ -126,11 +127,11 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     runner = LLMTaskRunner(
         models=_models("a", "b", "c"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable([chain]),
+        tasks=_tasks(chain),
         clock=clock,
     )
     call = TaskCall(
-        profile="framework.default",
+        profile="framework",
         messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
     )
 
@@ -151,20 +152,18 @@ def test_runner_retries_transient_error_on_same_model() -> None:
     runner = LLMTaskRunner(
         models=_models("a"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable(
-            [
-                ModelChain(
-                    profile="framework.default",
-                    model_ids=("a",),
-                    retry_policy=RetryPolicy(max_retries_per_model=2, max_cycles=1),
-                )
-            ]
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a",),
+                retry_policy=RetryPolicy(max_retries_per_model=2, max_cycles=1),
+            )
         ),
     )
 
     result = runner.run(
         TaskCall(
-            profile="framework.default",
+            profile="framework",
             messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
         )
     )
@@ -182,14 +181,14 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     runner = LLMTaskRunner(
         models=_models("a"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable([ModelChain(profile="framework.default", model_ids=("a",))]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
     result = runner.run(
         TaskCall(
-            profile="framework.default",
+            profile="framework",
             messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
-            prompt_cache=PromptCache(key="framework.default:test"),
+            prompt_cache=PromptCache(key="framework:test"),
         )
     )
 
@@ -201,7 +200,7 @@ def test_runner_rejects_missing_image_capability() -> None:
     runner = LLMTaskRunner(
         models=_models("a"),
         providers=ProviderRegistry([provider]),
-        chains=ModelChainTable([ModelChain(profile="framework.default", model_ids=("a",))]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
     stack = MessageStack.of(
         Message(
@@ -211,7 +210,54 @@ def test_runner_rejects_missing_image_capability() -> None:
     )
 
     with pytest.raises(ModelCapabilityError):
-        runner.run(TaskCall(profile="framework.default", messages=stack))
+        runner.run(TaskCall(profile="framework", messages=stack))
+
+
+def test_runner_resolves_task_settings_and_call_overrides() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="a",
+        provider_id="fake",
+        provider_model="a",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.JSON_OBJECT_OUTPUT,
+            }
+        ),
+        provider_options=ProviderOptions({"thinking": "enabled"}),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="framework",
+                    chain=ModelChain(profile="framework", model_ids=("a",)),
+                    settings=CallSettings(
+                        temperature=0.6,
+                        max_output_tokens=4096,
+                    ),
+                )
+            ]
+        ),
+    )
+
+    runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            overrides=TaskCallOverrides(
+                settings=CallSettings(max_output_tokens=1024),
+            ),
+        )
+    )
+
+    request = provider.requests[0]
+    assert request.temperature == pytest.approx(0.6)
+    assert request.max_output_tokens == 1024
+    assert request.provider_options == {"thinking": "enabled"}
 
 
 def _models(*ids: str) -> ModelRegistry:
@@ -232,3 +278,8 @@ def _models(*ids: str) -> ModelRegistry:
             for model_id in ids
         ]
     )
+
+
+def _tasks(chain: ModelChain) -> TaskSpecTable:
+    return TaskSpecTable([TaskSpec(profile=chain.profile, chain=chain)])
+

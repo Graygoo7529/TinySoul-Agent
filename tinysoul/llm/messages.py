@@ -16,17 +16,6 @@ class MessageRole(StrEnum):
     TOOL = "tool"
 
 
-class MessageScope(StrEnum):
-    """TinySoul-visible message scope for tracing, caching, and budgeting."""
-
-    SYSTEM_PROMPT = "system_prompt"
-    STABLE_CONTEXT = "stable_context"
-    SESSION = "session"
-    TASK = "task"
-    INPUT = "input"
-    ATTACHMENT = "attachment"
-
-
 @dataclass(frozen=True)
 class TextPart:
     """A plain text message part."""
@@ -50,16 +39,7 @@ class ImagePart:
             raise ValueError("ImagePart requires exactly one of data, path, or url")
 
 
-@dataclass(frozen=True)
-class FilePart:
-    """A native file input message part for providers that support it."""
-
-    path: Path
-    mime_type: str | None = None
-    name: str = ""
-
-
-MessagePart = TextPart | ImagePart | FilePart
+MessagePart = TextPart | ImagePart
 
 
 @dataclass(frozen=True)
@@ -68,7 +48,6 @@ class Message:
 
     role: MessageRole
     parts: tuple[MessagePart, ...]
-    scope: MessageScope = MessageScope.INPUT
     label: str = ""
 
     @classmethod
@@ -77,10 +56,9 @@ class Message:
         role: MessageRole,
         text: str,
         *,
-        scope: MessageScope = MessageScope.INPUT,
         label: str = "",
     ) -> "Message":
-        return cls(role=role, parts=(TextPart(text),), scope=scope, label=label)
+        return cls(role=role, parts=(TextPart(text),), label=label)
 
 
 @dataclass(frozen=True)
@@ -95,4 +73,3 @@ class MessageStack:
     @classmethod
     def of(cls, *messages: Message) -> "MessageStack":
         return cls(messages=tuple(messages))
-

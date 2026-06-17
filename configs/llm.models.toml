@@ -9,6 +9,9 @@ capabilities = [
   "prompt_cache",
 ]
 
+[llm.models.kimi_k2_7.provider_options]
+thinking = "enabled"
+
 [llm.models.deepseek_v4]
 provider = "deepseek"
 provider_model = "deepseek-v4-pro"

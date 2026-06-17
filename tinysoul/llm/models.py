@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -11,10 +12,16 @@ class ModelCapability(StrEnum):
 
     TEXT_INPUT = "text_input"
     IMAGE_INPUT = "image_input"
-    NATIVE_FILE_INPUT = "native_file_input"
     JSON_OBJECT_OUTPUT = "json_object_output"
     REASONING_OUTPUT = "reasoning_output"
     PROMPT_CACHE = "prompt_cache"
+
+
+@dataclass(frozen=True)
+class ProviderOptions:
+    """Provider-specific model options."""
+
+    values: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,7 @@ class ModelSpec:
     capabilities: frozenset[ModelCapability] = field(
         default_factory=lambda: frozenset({ModelCapability.TEXT_INPUT})
     )
+    provider_options: ProviderOptions = field(default_factory=ProviderOptions)
 
     def supports(self, capability: ModelCapability) -> bool:
         return capability in self.capabilities

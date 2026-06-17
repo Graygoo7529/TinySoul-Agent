@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
+from dataclasses import dataclass, field
 import time
 from typing import Callable, TypeVar
 
+from .requests import CallSettings, TaskProfile
+from .responses import ResponseContract
+
 T = TypeVar("T")
-
-
-class TaskProfile(StrEnum):
-    """Built-in LLM task profiles."""
-
-    FRAMEWORK_DEFAULT = "framework.default"
-    ACTION_BEHAVIOR = "action.behavior"
 
 
 @dataclass(frozen=True)
@@ -58,23 +53,33 @@ class ModelChain:
             raise ValueError("model_ids must be non-empty")
 
 
-class ModelChainTable:
-    """Registry of model chains by task profile."""
+@dataclass(frozen=True)
+class TaskSpec:
+    """Configured LLM task behavior."""
 
-    def __init__(self, chains: list[ModelChain] | None = None) -> None:
-        self._chains: dict[str, ModelChain] = {}
-        for chain in chains or []:
-            self.register(chain)
+    profile: str
+    chain: ModelChain
+    response_contract: ResponseContract = ResponseContract.JSON_OBJECT
+    settings: CallSettings = field(default_factory=CallSettings)
 
-    def register(self, chain: ModelChain) -> None:
-        if chain.profile in self._chains:
-            raise ValueError(f"Model chain already registered: {chain.profile}")
-        self._chains[chain.profile] = chain
 
-    def get(self, profile: TaskProfile | str) -> ModelChain:
+class TaskSpecTable:
+    """Registry of configured LLM tasks."""
+
+    def __init__(self, specs: list[TaskSpec] | None = None) -> None:
+        self._specs: dict[str, TaskSpec] = {}
+        for spec in specs or []:
+            self.register(spec)
+
+    def register(self, spec: TaskSpec) -> None:
+        if spec.profile in self._specs:
+            raise ValueError(f"Task already registered: {spec.profile}")
+        self._specs[spec.profile] = spec
+
+    def get(self, profile: TaskProfile | str) -> TaskSpec:
         profile_name = profile.value if isinstance(profile, TaskProfile) else profile
         try:
-            return self._chains[profile_name]
+            return self._specs[profile_name]
         except KeyError as exc:
             raise KeyError(f"Unknown task profile: {profile_name}") from exc
 
