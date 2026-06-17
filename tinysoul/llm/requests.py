@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from .cache import PromptCache
 from .messages import MessageStack
+from .models import ModelCapability
 from .responses import ResponseContract
 
 
@@ -24,6 +25,7 @@ class CallSettings:
     response_contract: ResponseContract | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
+    required_capabilities: frozenset[ModelCapability] = field(default_factory=frozenset)
 
     def override_with(self, other: "CallSettings") -> "CallSettings":
         return CallSettings(
@@ -36,15 +38,9 @@ class CallSettings:
             max_output_tokens=other.max_output_tokens
             if other.max_output_tokens is not None
             else self.max_output_tokens,
+            required_capabilities=self.required_capabilities
+            | other.required_capabilities,
         )
-
-
-@dataclass(frozen=True)
-class TaskCallOverrides:
-    """Optional per-call overrides for task configuration."""
-
-    settings: CallSettings = field(default_factory=CallSettings)
-
 
 @dataclass(frozen=True)
 class TaskCall:
@@ -53,4 +49,4 @@ class TaskCall:
     profile: TaskProfile | str
     messages: MessageStack
     prompt_cache: PromptCache | None = None
-    overrides: TaskCallOverrides = field(default_factory=TaskCallOverrides)
+    settings: CallSettings = field(default_factory=CallSettings)

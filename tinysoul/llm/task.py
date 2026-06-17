@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from .messages import ImagePart, MessageStack
+from dataclasses import dataclass
+
+from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
     Clock,
     ModelChainExhaustedError,
@@ -32,6 +34,58 @@ class ModelCapabilityError(LLMTaskError):
     """Raised when a model cannot satisfy a request."""
 
 
+@dataclass(frozen=True)
+class CurrentModelCapabilities:
+    """Current preferred model capability view for a task."""
+
+    profile: str
+    model_id: str
+    provider_id: str
+    provider_model: str
+    capabilities: frozenset[ModelCapability]
+
+    def supports(self, capability: ModelCapability) -> bool:
+        return capability in self.capabilities
+
+
+class CapabilityPolicy:
+    """Resolve and validate hard model capabilities for a task call."""
+
+    def required_capabilities(
+        self,
+        call: TaskCall,
+        *,
+        settings: CallSettings,
+    ) -> frozenset[ModelCapability]:
+        required = {ModelCapability.TEXT_INPUT} | set(settings.required_capabilities)
+        for message in call.messages.messages:
+            for part in message.parts:
+                if isinstance(part, ImagePart):
+                    required.add(ModelCapability.IMAGE_INPUT)
+                if isinstance(part, ImageUrlPart):
+                    required.add(ModelCapability.IMAGE_REMOTE_URL)
+        return frozenset(required)
+
+    def missing_capabilities(
+        self,
+        model: ModelSpec,
+        required: frozenset[ModelCapability],
+    ) -> tuple[ModelCapability, ...]:
+        return tuple(capability for capability in required if not model.supports(capability))
+
+    def ensure_supported(
+        self,
+        model: ModelSpec,
+        required: frozenset[ModelCapability],
+    ) -> None:
+        missing = self.missing_capabilities(model, required)
+        if missing:
+            names = ", ".join(capability.value for capability in missing)
+            raise ModelCapabilityError(
+                f"Model '{model.id}' lacks required capabilities: {names}"
+            )
+
+
 class LLMTaskRunner:
     """Execute LLM task calls over registered model chains."""
 
@@ -47,11 +101,13 @@ class LLMTaskRunner:
         sleeper: Sleeper | None = None,
         clock: Clock | None = None,
         chain_runner: ModelChainRunner | None = None,
+        capability_policy: CapabilityPolicy | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
         self._tasks = tasks
         self._interpreter = interpreter or ResponseInterpreter()
+        self._capability_policy = capability_policy or CapabilityPolicy()
         self._sleeper = sleeper or Sleeper()
         self._chain_runner = chain_runner or ModelChainRunner(
             state=chain_state,
@@ -76,13 +132,31 @@ class LLMTaskRunner:
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
         self._chain_runner.reset(profile)
 
+    def current_model_capabilities(
+        self,
+        profile: TaskProfile | str,
+    ) -> CurrentModelCapabilities:
+        task = self._tasks.get(profile)
+        model_id = self._chain_runner.current_model_id(task.chain)
+        model = self._models.get(model_id)
+        return CurrentModelCapabilities(
+            profile=task.profile,
+            model_id=model.id,
+            provider_id=model.provider_id,
+            provider_model=model.provider_model,
+            capabilities=model.capabilities,
+        )
+
     def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
         model = self._models.get(model_id)
         settings = self._resolve_settings(call, task)
         response_contract = settings.response_contract
         if response_contract is None:
             raise LLMTaskError(f"Task '{task.profile}' has no response contract")
-        self._check_capabilities(call, model, response_contract=response_contract)
+        self._capability_policy.ensure_supported(
+            model,
+            self._capability_policy.required_capabilities(call, settings=settings),
+        )
         provider = self._providers.get(model.provider_id)
         last_error: ProviderError | None = None
 
@@ -123,30 +197,9 @@ class LLMTaskRunner:
             }
         return False
 
-    def _check_capabilities(
-        self,
-        call: TaskCall,
-        model: ModelSpec,
-        *,
-        response_contract: ResponseContract,
-    ) -> None:
-        required = {ModelCapability.TEXT_INPUT}
-        if response_contract is ResponseContract.JSON_OBJECT:
-            required.add(ModelCapability.JSON_OBJECT_OUTPUT)
-
-        for message in call.messages.messages:
-            for part in message.parts:
-                if isinstance(part, ImagePart):
-                    required.add(ModelCapability.IMAGE_INPUT)
-
-        missing = [capability for capability in required if not model.supports(capability)]
-        if missing:
-            names = ", ".join(capability.value for capability in missing)
-            raise ModelCapabilityError(f"Model '{model.id}' lacks required capabilities: {names}")
-
     def _resolve_settings(
         self,
         call: TaskCall,
         task: TaskSpec,
     ) -> CallSettings:
-        return task.settings.override_with(call.overrides.settings)
+        return task.settings.override_with(call.settings)

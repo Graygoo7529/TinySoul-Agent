@@ -21,6 +21,14 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_provider.base_url == "https://api.moonshot.cn/v1"
     assert kimi_provider.api_key_envs == ("KIMI_API_KEY", "MOONSHOT_API_KEY")
 
+    openai_model = config.models.get("gpt_5_5")
+    assert openai_model.provider_id == "openai"
+    assert openai_model.provider_model == "gpt-5.5"
+    assert openai_model.supports(ModelCapability.IMAGE_INPUT)
+    assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
+    assert openai_model.supports(ModelCapability.PROMPT_CACHE)
+    assert openai_model.provider_options.values == {"prompt_cache_retention": "24h"}
+
     kimi_model = config.models.get("kimi_k2_7")
     assert kimi_model.provider_id == "kimi"
     assert kimi_model.provider_model == "kimi-k2.7-code"
@@ -29,7 +37,13 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.provider_options.values == {"thinking": "enabled"}
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
-    assert framework.chain.model_ids == ("kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3")
+    assert framework.chain.model_ids == (
+        "gpt_5_5",
+        "kimi_k2_7",
+        "deepseek_v4",
+        "glm_5_1",
+        "minimax_m3",
+    )
     assert framework.chain.retry_policy.max_retries_per_model == 2
     assert framework.chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
     assert framework.settings.response_contract is ResponseContract.JSON_OBJECT
@@ -123,3 +137,31 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
     task = config.tasks.get("framework")
     assert task.chain.retry_policy.max_cycles == 10
     assert task.chain.retry_policy.max_retries_per_model == 1
+
+
+def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "text_model": {
+                "provider": "kimi",
+                "provider_model": "text-model",
+                "capabilities": ["text_input"],
+            }
+        },
+        "tasks": {
+            "framework": {
+                "models": ["text_model"],
+                "required_capabilities": ["image_input"],
+            }
+        },
+    }
+
+    with pytest.raises(ConfigError):
+        LLMConfigParser().parse(tree)

@@ -31,6 +31,18 @@ class ProviderSpec:
     base_url: str
     api_key_envs: tuple[str, ...]
 
+    def resolve_api_key(self, values: Mapping[str, str]) -> str:
+        for name in self.api_key_envs:
+            value = values.get(name)
+            if value:
+                return value
+        names = ", ".join(self.api_key_envs)
+        raise ConfigError(
+            "Provider API key is not configured",
+            key=f"llm.providers.{self.id}.api_key_envs",
+            value=names,
+        )
+
 
 @dataclass(frozen=True)
 class LLMConfig:
@@ -150,6 +162,17 @@ class LLMConfigParser:
                         key=f"llm.tasks.{profile}.models",
                         value=model_id,
                     )
+            required_capabilities = _optional_capability_set(
+                task_table,
+                "required_capabilities",
+                key=f"llm.tasks.{profile}",
+            )
+            self._validate_task_required_capabilities(
+                profile=profile,
+                model_ids=model_ids,
+                models=models,
+                required_capabilities=required_capabilities,
+            )
             tasks.register(
                 TaskSpec(
                     profile=profile,
@@ -210,10 +233,36 @@ class LLMConfigParser:
                             default=None,
                             key=f"llm.tasks.{profile}",
                         ),
+                        required_capabilities=required_capabilities,
                     ),
                 )
             )
         return tasks
+
+    def _validate_task_required_capabilities(
+        self,
+        *,
+        profile: str,
+        model_ids: tuple[str, ...],
+        models: ModelRegistry,
+        required_capabilities: frozenset[ModelCapability],
+    ) -> None:
+        if not required_capabilities:
+            return
+        for model_id in model_ids:
+            model = models.get(model_id)
+            missing = [
+                capability
+                for capability in required_capabilities
+                if not model.supports(capability)
+            ]
+            if missing:
+                names = ", ".join(capability.value for capability in missing)
+                raise ConfigError(
+                    "Task model lacks required capabilities",
+                    key=f"llm.tasks.{profile}.required_capabilities",
+                    value=f"{model_id}: {names}",
+                )
 
 
 def _required_table(
@@ -307,6 +356,19 @@ def _optional_provider_options(
             expected="table",
         )
     return ProviderOptions(cast(Mapping[str, object], value))
+
+
+def _optional_capability_set(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> frozenset[ModelCapability]:
+    value = table.get(name)
+    if value is None:
+        return frozenset()
+    capabilities = _required_str_list(table, name, key=key)
+    return frozenset(ModelCapability(capability) for capability in capabilities)
 
 
 def _optional_int(

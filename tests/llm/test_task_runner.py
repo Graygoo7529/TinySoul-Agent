@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.messages import ImagePart, Message, MessageRole, MessageStack
+from tinysoul.llm.messages import ImagePart, ImageUrlPart, Message, MessageRole, MessageStack
 from tinysoul.llm.model_chain import (
     Clock,
     ModelChain,
@@ -17,9 +17,13 @@ from tinysoul.llm.model_chain import (
 from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
-from tinysoul.llm.requests import CallSettings, TaskCall, TaskCallOverrides
+from tinysoul.llm.requests import CallSettings, TaskCall
 from tinysoul.llm.responses import ModelResponse, ResponseContract
-from tinysoul.llm.task import LLMTaskError, LLMTaskRunner, ModelCapabilityError
+from tinysoul.llm.task import (
+    LLMTaskError,
+    LLMTaskRunner,
+    ModelCapabilityError,
+)
 
 
 @dataclass
@@ -176,6 +180,93 @@ def test_retry_policy_defaults_to_ten_cycles() -> None:
     assert RetryPolicy().max_cycles == 10
 
 
+def test_runner_reports_chain_head_capabilities_by_default() -> None:
+    model = ModelSpec(
+        id="vision",
+        provider_id="fake",
+        provider_model="vision-model",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.IMAGE_INPUT,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([FakeProvider(provider_id="fake")]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("vision",))),
+    )
+
+    capabilities = runner.current_model_capabilities("framework")
+
+    assert capabilities.profile == "framework"
+    assert capabilities.model_id == "vision"
+    assert capabilities.provider_id == "fake"
+    assert capabilities.provider_model == "vision-model"
+    assert capabilities.supports(ModelCapability.IMAGE_INPUT)
+    assert not capabilities.supports(ModelCapability.IMAGE_REMOTE_URL)
+
+
+def test_runner_reports_successful_fallback_model_during_preference_window() -> None:
+    provider = FakeProvider(provider_id="fake", failures={"a": 1})
+    clock = FakeClock()
+    chain = ModelChain(
+        profile="framework",
+        model_ids=("a", "b"),
+        retry_policy=RetryPolicy(
+            max_retries_per_model=1,
+            max_cycles=1,
+            prefer_successful_model_seconds=5.0,
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(chain),
+        clock=clock,
+    )
+
+    runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+        )
+    )
+
+    assert runner.current_model_capabilities("framework").model_id == "b"
+
+
+def test_runner_capability_query_returns_to_head_after_preference_expires() -> None:
+    provider = FakeProvider(provider_id="fake", failures={"a": 1})
+    clock = FakeClock()
+    chain = ModelChain(
+        profile="framework",
+        model_ids=("a", "b"),
+        retry_policy=RetryPolicy(
+            max_retries_per_model=1,
+            max_cycles=1,
+            prefer_successful_model_seconds=5.0,
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(chain),
+        clock=clock,
+    )
+
+    runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+        )
+    )
+    clock.current = 6.0
+
+    assert runner.current_model_capabilities("framework").model_id == "a"
+
+
 def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
@@ -195,6 +286,30 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     assert result.json_object == {"model": "a"}
 
 
+def test_json_object_contract_does_not_require_native_json_capability() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="a",
+        provider_id="fake",
+        provider_model="a",
+        capabilities=frozenset({ModelCapability.TEXT_INPUT}),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+        )
+    )
+
+    assert result.json_object == {"model": "a"}
+
+
 def test_runner_rejects_missing_image_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
@@ -205,12 +320,52 @@ def test_runner_rejects_missing_image_capability() -> None:
     stack = MessageStack.of(
         Message(
             role=MessageRole.USER,
-            parts=(ImagePart(url="https://example.test/image.png"),),
+            parts=(ImagePart(data=b"abc", mime_type="image/png"),),
         )
     )
 
     with pytest.raises(ModelCapabilityError):
         runner.run(TaskCall(profile="framework", messages=stack))
+
+
+def test_runner_rejects_missing_remote_image_url_capability() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+    stack = MessageStack.of(
+        Message(
+            role=MessageRole.USER,
+            parts=(ImageUrlPart(url="https://example.test/image.png"),),
+        )
+    )
+
+    with pytest.raises(ModelCapabilityError):
+        runner.run(TaskCall(profile="framework", messages=stack))
+
+
+def test_call_settings_can_add_required_capabilities() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+
+    with pytest.raises(ModelCapabilityError):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                settings=CallSettings(
+                    required_capabilities=frozenset(
+                        {ModelCapability.IMAGE_REMOTE_URL}
+                    )
+                ),
+            )
+        )
 
 
 def test_runner_resolves_task_settings_and_call_overrides() -> None:
@@ -249,9 +404,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
         TaskCall(
             profile="framework",
             messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
-            overrides=TaskCallOverrides(
-                settings=CallSettings(max_output_tokens=1024),
-            ),
+            settings=CallSettings(max_output_tokens=1024),
         )
     )
 

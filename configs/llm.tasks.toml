@@ -1,5 +1,6 @@
 [llm.tasks.framework]
-models = ["kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3"]
+models = ["gpt_5_5", "kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3"]
+required_capabilities = ["text_input"]
 response_contract = "json_object"
 temperature = 0.6
 max_output_tokens = 4096
@@ -10,7 +11,8 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.llm_action]
-models = ["kimi_k2_7", "minimax_m3", "deepseek_v4", "glm_5_1"]
+models = ["gpt_5_5", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+required_capabilities = ["text_input"]
 response_contract = "json_object"
 temperature = 0.3
 max_output_tokens = 2048

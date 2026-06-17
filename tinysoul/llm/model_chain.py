@@ -202,6 +202,10 @@ class ModelChainRunner:
     def reset(self, profile: TaskProfile | str | None = None) -> None:
         self._state.reset(profile)
 
+    def current_model_id(self, chain: ModelChain) -> str:
+        index = self._state.current_index(chain, now=self._clock.now())
+        return chain.model_ids[index]
+
 
 class ModelChainExhaustedError(Exception):
     """Raised when a model chain cannot produce a result."""

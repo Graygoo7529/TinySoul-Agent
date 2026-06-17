@@ -1,3 +1,18 @@
+[llm.models.gpt_5_5]
+provider = "openai"
+provider_model = "gpt-5.5"
+capabilities = [
+  "text_input",
+  "image_input",
+  "image_remote_url",
+  "json_object_output",
+  "reasoning_output",
+  "prompt_cache",
+]
+
+[llm.models.gpt_5_5.provider_options]
+prompt_cache_retention = "24h"
+
 [llm.models.kimi_k2_7]
 provider = "kimi"
 provider_model = "kimi-k2.7-code"

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from tinysoul.llm.messages import ImagePart, Message, MessageRole, MessageStack, TextPart
+from tinysoul.llm.messages import (
+    ImagePart,
+    ImageUrlPart,
+    Message,
+    MessageRole,
+    MessageStack,
+    TextPart,
+)
 
 
 def test_message_stack_appends_immutably() -> None:
@@ -16,10 +21,14 @@ def test_message_stack_appends_immutably() -> None:
     assert isinstance(updated.messages[1].parts[0], TextPart)
 
 
-def test_image_part_requires_one_source() -> None:
+def test_image_part_requires_data_and_mime_type() -> None:
     with pytest.raises(ValueError):
-        ImagePart()
+        ImagePart(data=b"", mime_type="image/png")
 
     with pytest.raises(ValueError):
-        ImagePart(path=Path("a.png"), url="https://example.test/a.png")
+        ImagePart(data=b"abc", mime_type="")
 
+
+def test_image_url_part_requires_url() -> None:
+    with pytest.raises(ValueError):
+        ImageUrlPart(url="")

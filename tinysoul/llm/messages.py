@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path
 
 
 class MessageRole(StrEnum):
@@ -27,19 +26,28 @@ class TextPart:
 class ImagePart:
     """An image message part."""
 
-    data: bytes | None = None
-    path: Path | None = None
-    url: str | None = None
-    mime_type: str | None = None
-    name: str = ""
+    data: bytes
+    mime_type: str
 
     def __post_init__(self) -> None:
-        provided = sum(item is not None for item in (self.data, self.path, self.url))
-        if provided != 1:
-            raise ValueError("ImagePart requires exactly one of data, path, or url")
+        if not self.data:
+            raise ValueError("ImagePart requires non-empty image data")
+        if not self.mime_type:
+            raise ValueError("ImagePart requires a non-empty MIME type")
 
 
-MessagePart = TextPart | ImagePart
+@dataclass(frozen=True)
+class ImageUrlPart:
+    """A remote image URL message part."""
+
+    url: str
+
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("ImageUrlPart requires a non-empty URL")
+
+
+MessagePart = TextPart | ImagePart | ImageUrlPart
 
 
 @dataclass(frozen=True)
