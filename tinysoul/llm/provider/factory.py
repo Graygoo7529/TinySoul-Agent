@@ -8,6 +8,7 @@ from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 
 from .base import ProviderAdapter, ProviderError, ProviderErrorKind
 from .deepseek import DeepSeekProviderAdapter
+from .glm import GlmProviderAdapter
 from .kimi import KimiProviderAdapter
 from .open_ai import OpenAIProviderAdapter
 from .openai_sdk import OpenAICompatibleChatAdapter, OpenAIResponsesAdapter
@@ -41,6 +42,14 @@ def build_provider_registry(
         if provider.id == "deepseek":
             adapters.append(
                 DeepSeekProviderAdapter(
+                    provider=provider,
+                    api_key=api_key,
+                )
+            )
+            continue
+        if provider.id == "glm":
+            adapters.append(
+                GlmProviderAdapter(
                     provider=provider,
                     api_key=api_key,
                 )

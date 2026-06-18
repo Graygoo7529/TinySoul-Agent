@@ -19,6 +19,7 @@ from tinysoul.llm.models import ModelCapability, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
 from tinysoul.llm.provider.factory import build_provider_registry
+from tinysoul.llm.provider.glm import GlmProviderAdapter
 from tinysoul.llm.provider.kimi import KimiProviderAdapter
 from tinysoul.llm.provider.open_ai import OpenAIProviderAdapter
 from tinysoul.llm.provider.openai_sdk import (
@@ -239,6 +240,72 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     }
 
 
+def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
+    message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={"prompt_tokens": 10, "completion_tokens": 4},
+            id="chat_3",
+            model="glm-5.1",
+        )
+    )
+    adapter = GlmProviderAdapter(
+        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="glm",
+                provider_model="glm-5.1",
+                options={"thinking": "enabled"},
+            ),
+            messages=MessageStack.of(Message.text(MessageRole.USER, "json please")),
+            response_contract=ResponseContract.JSON_OBJECT,
+            max_output_tokens=128,
+            provider_options={"thinking": "enabled"},
+        )
+    )
+
+    call = client.calls[0]
+    assert call["model"] == "glm-5.1"
+    assert call["response_format"] == {"type": "json_object"}
+    assert call["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert call["max_tokens"] == 128
+    assert "max_completion_tokens" not in call
+    assert response.reasoning_text == "reasoning"
+    assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
+
+
+def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = GlmProviderAdapter(
+        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="glm", provider_model="glm-5.2"),
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+            provider_options={"reasoning_effort": "max"},
+        )
+    )
+
+    assert client.calls[0]["reasoning_effort"] == "max"
+
+
 def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
     message = SimpleNamespace(content='{"ok": true}')
     client = FakeCreateClient(
@@ -362,6 +429,22 @@ def test_build_provider_registry_uses_deepseek_adapter() -> None:
     )
 
     assert registry.get("deepseek").provider_id == "deepseek"
+
+
+def test_build_provider_registry_uses_glm_adapter() -> None:
+    registry = build_provider_registry(
+        (
+            ProviderSpec(
+                id="glm",
+                api_style=ProviderApiStyle.OPENAI_CHAT,
+                base_url="https://open.bigmodel.cn/api/paas/v4",
+                api_key_envs=("GLM_API_KEY",),
+            ),
+        ),
+        env={"GLM_API_KEY": "glm"},
+    )
+
+    assert registry.get("glm").provider_id == "glm"
 
 
 def test_provider_spec_reports_missing_api_key() -> None:

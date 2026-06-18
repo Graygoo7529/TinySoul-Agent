@@ -51,6 +51,9 @@ capabilities = [
   "reasoning_output",
 ]
 
+[llm.models.glm_5_1.provider_options]
+thinking = "enabled"
+
 [llm.models.minimax_m3]
 provider = "minimax"
 provider_model = "MiniMax-M3"

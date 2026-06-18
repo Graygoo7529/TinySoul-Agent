@@ -48,6 +48,11 @@ def test_llm_config_parses_project_config_files() -> None:
         "reasoning_effort": "high",
     }
 
+    glm_model = config.models.get("glm_5_1")
+    assert glm_model.provider_id == "glm"
+    assert glm_model.provider_model == "glm-5.1"
+    assert glm_model.provider_options.values == {"thinking": "enabled"}
+
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
         "gpt_5_5",

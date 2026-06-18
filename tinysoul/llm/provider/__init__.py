@@ -3,6 +3,7 @@
 from .base import ProviderAdapter, ProviderError, ProviderErrorKind, ProviderRequest
 from .deepseek import DeepSeekProviderAdapter
 from .factory import build_provider_registry
+from .glm import GlmProviderAdapter
 from .kimi import KimiProviderAdapter
 from .open_ai import OpenAIProviderAdapter
 from .openai_sdk import (
@@ -13,6 +14,7 @@ from .registry import ProviderRegistry
 
 __all__ = [
     "KimiProviderAdapter",
+    "GlmProviderAdapter",
     "OpenAICompatibleChatAdapter",
     "OpenAIProviderAdapter",
     "OpenAIResponsesAdapter",
