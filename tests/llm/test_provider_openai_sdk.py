@@ -17,10 +17,13 @@ from tinysoul.llm.messages import (
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
+from tinysoul.llm.provider.factory import build_provider_registry
+from tinysoul.llm.provider.kimi import KimiProviderAdapter
+from tinysoul.llm.provider.open_ai import OpenAIProviderAdapter
 from tinysoul.llm.provider.openai_sdk import (
-    OpenAIChatCompletionsAdapter,
+    OpenAICompatibleChatAdapter,
     OpenAIResponsesAdapter,
-    build_provider_registry,
 )
 from tinysoul.llm.responses import ResponseContract
 
@@ -46,7 +49,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             status="completed",
         )
     )
-    adapter = OpenAIResponsesAdapter(
+    adapter = OpenAIProviderAdapter(
         provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
         api_key="key",
         responses=client,
@@ -57,7 +60,11 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             model=_model(
                 provider_id="openai",
                 provider_model="gpt-5.5",
-                options={"prompt_cache_retention": "24h"},
+                options={
+                    "prompt_cache_retention": "24h",
+                    "reasoning_effort": "high",
+                    "verbosity": "medium",
+                },
             ),
             messages=MessageStack.of(
                 Message.text(MessageRole.SYSTEM, "system"),
@@ -70,7 +77,11 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             prompt_cache=PromptCache("stable-prefix"),
             temperature=0.2,
             max_output_tokens=256,
-            provider_options={"prompt_cache_retention": "24h"},
+            provider_options={
+                "prompt_cache_retention": "24h",
+                "reasoning_effort": "high",
+                "verbosity": "medium",
+            },
         )
     )
 
@@ -80,9 +91,65 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
     assert call["max_output_tokens"] == 256
     assert call["prompt_cache_key"] == "stable-prefix"
     assert call["prompt_cache_retention"] == "24h"
-    assert call["text"] == {"format": {"type": "json_object"}}
+    assert call["reasoning"] == {"effort": "high"}
+    assert call["text"] == {
+        "format": {"type": "json_object"},
+        "verbosity": "medium",
+    }
+    assert "reasoning_effort" not in call
     assert response.text == '{"ok": true}'
     assert response.usage == {"input_tokens": 10, "output_tokens": 3}
+
+
+def test_openai_provider_rejects_raw_reasoning_table() -> None:
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                response_contract=ResponseContract.TEXT,
+                provider_options={"reasoning": {"effort": "high"}},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_openai_responses_adapter_extracts_reasoning_content() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="done",
+            output=[
+                SimpleNamespace(
+                    type="reasoning",
+                    summary=[SimpleNamespace(text="summary")],
+                    content=[SimpleNamespace(text="detail")],
+                )
+            ],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert response.reasoning_text == "summary\ndetail"
 
 
 def test_chat_adapter_maps_kimi_request_payload() -> None:
@@ -95,7 +162,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
             model="kimi-k2.7-code",
         )
     )
-    adapter = OpenAIChatCompletionsAdapter(
+    adapter = KimiProviderAdapter(
         provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
@@ -128,6 +195,50 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert response.reasoning_text == "thinking"
 
 
+def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
+    message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={"prompt_cache_hit_tokens": 8, "prompt_cache_miss_tokens": 2},
+            id="chat_2",
+            model="deepseek-v4-pro",
+        )
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="deepseek",
+                provider_model="deepseek-v4-pro",
+                options={"thinking": "enabled", "reasoning_effort": "high"},
+            ),
+            messages=MessageStack.of(Message.text(MessageRole.USER, "json please")),
+            response_contract=ResponseContract.JSON_OBJECT,
+            temperature=0.7,
+            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+        )
+    )
+
+    call = client.calls[0]
+    assert call["model"] == "deepseek-v4-pro"
+    assert call["response_format"] == {"type": "json_object"}
+    assert call["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert call["reasoning_effort"] == "high"
+    assert "temperature" not in call
+    assert "prompt_cache_key" not in call
+    assert response.reasoning_text == "reasoning"
+    assert response.usage == {
+        "prompt_cache_hit_tokens": 8,
+        "prompt_cache_miss_tokens": 2,
+    }
+
+
 def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
     message = SimpleNamespace(content='{"ok": true}')
     client = FakeCreateClient(
@@ -136,7 +247,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
             usage={},
         )
     )
-    adapter = OpenAIChatCompletionsAdapter(
+    adapter = OpenAICompatibleChatAdapter(
         provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
@@ -169,7 +280,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
             usage={},
         )
     )
-    adapter = OpenAIChatCompletionsAdapter(
+    adapter = OpenAICompatibleChatAdapter(
         provider=_provider("openai", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
@@ -202,7 +313,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
 
 
 def test_provider_option_rejects_unknown_key() -> None:
-    adapter = OpenAIChatCompletionsAdapter(
+    adapter = OpenAICompatibleChatAdapter(
         provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=FakeCreateClient(response=object()),
@@ -235,6 +346,22 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
     )
 
     assert registry.get("kimi").provider_id == "kimi"
+
+
+def test_build_provider_registry_uses_deepseek_adapter() -> None:
+    registry = build_provider_registry(
+        (
+            ProviderSpec(
+                id="deepseek",
+                api_style=ProviderApiStyle.OPENAI_CHAT,
+                base_url="https://api.deepseek.com",
+                api_key_envs=("DEEPSEEK_API_KEY",),
+            ),
+        ),
+        env={"DEEPSEEK_API_KEY": "deepseek"},
+    )
+
+    assert registry.get("deepseek").provider_id == "deepseek"
 
 
 def test_provider_spec_reports_missing_api_key() -> None:

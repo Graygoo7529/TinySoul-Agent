@@ -12,6 +12,8 @@ capabilities = [
 
 [llm.models.gpt_5_5.provider_options]
 prompt_cache_retention = "24h"
+verbosity = "medium"
+reasoning_effort = "high"
 
 [llm.models.kimi_k2_7]
 provider = "kimi"
@@ -35,6 +37,10 @@ capabilities = [
   "json_object_output",
   "reasoning_output",
 ]
+
+[llm.models.deepseek_v4.provider_options]
+thinking = "enabled"
+reasoning_effort = "high"
 
 [llm.models.glm_5_1]
 provider = "glm"

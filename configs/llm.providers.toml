@@ -1,7 +1,8 @@
 [llm.providers.openai]
 api_style = "openai_responses"
-base_url = "https://api.openai.com/v1"
-api_key_envs = ["OPENAI_API_KEY"]
+# base_url = "https://api.openai.com/v1"
+base_url = "https://api.sublyx.org/v1"
+api_key_envs = ["SUBLYX_API_KEY", "OPENAI_API_KEY"]
 
 [llm.providers.deepseek]
 api_style = "openai_chat"

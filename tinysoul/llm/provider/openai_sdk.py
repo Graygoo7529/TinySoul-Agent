@@ -1,4 +1,4 @@
-"""OpenAI SDK backed provider adapters."""
+"""OpenAI SDK backed provider adapter foundations."""
 
 from __future__ import annotations
 
@@ -20,12 +20,11 @@ from tinysoul.llm.messages import (
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.responses import ModelResponse, ResponseContract
 
-from .base import ProviderAdapter, ProviderError, ProviderErrorKind, ProviderRequest
-from .registry import ProviderRegistry
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 
 
 class OpenAIResponsesClient(Protocol):
-    """Narrow SDK surface used by the OpenAI Responses adapter."""
+    """Narrow SDK surface used by the Responses adapter."""
 
     def create(self, **kwargs: object) -> object:
         ...
@@ -45,8 +44,31 @@ class ModelDumpable(Protocol):
         ...
 
 
+class OpenAIAdapterBehavior:
+    """Supplier-specific behavior for OpenAI SDK shaped APIs."""
+
+    def apply_options(
+        self,
+        kwargs: dict[str, object],
+        options: Mapping[str, object] | None,
+    ) -> None:
+        if not options:
+            return
+        key = next(iter(options))
+        raise ProviderError(
+            f"Unsupported provider option: {key}",
+            kind=ProviderErrorKind.CONFIG,
+        )
+
+    def chat_reasoning_text(self, message: object) -> str | None:
+        return _reasoning_text(message)
+
+    def responses_reasoning_text(self, response: object) -> str | None:
+        return _responses_reasoning_text(response)
+
+
 class OpenAIResponsesAdapter:
-    """Provider adapter for the OpenAI Responses API."""
+    """Reusable adapter for OpenAI Responses shaped APIs."""
 
     def __init__(
         self,
@@ -54,8 +76,10 @@ class OpenAIResponsesAdapter:
         provider: ProviderSpec,
         api_key: str,
         responses: OpenAIResponsesClient | None = None,
+        behavior: OpenAIAdapterBehavior | None = None,
     ) -> None:
         self.provider_id = provider.id
+        self._behavior = behavior or OpenAIAdapterBehavior()
         if responses is None:
             self._client: OpenAIResponsesClient = cast(
                 OpenAIResponsesClient,
@@ -72,7 +96,7 @@ class OpenAIResponsesAdapter:
         kwargs["input"] = _to_responses_input(request)
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
-        _apply_provider_options(kwargs, request.provider_options)
+        self._behavior.apply_options(kwargs, request.provider_options)
 
         try:
             response = self._client.create(**kwargs)
@@ -83,14 +107,14 @@ class OpenAIResponsesAdapter:
             text=_responses_text(response),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning_text=_responses_reasoning_text(response),
+            reasoning_text=self._behavior.responses_reasoning_text(response),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
 
 
-class OpenAIChatCompletionsAdapter:
-    """Provider adapter for OpenAI-compatible Chat Completions APIs."""
+class OpenAICompatibleChatAdapter:
+    """Reusable adapter for OpenAI-compatible Chat Completions APIs."""
 
     def __init__(
         self,
@@ -98,8 +122,10 @@ class OpenAIChatCompletionsAdapter:
         provider: ProviderSpec,
         api_key: str,
         completions: OpenAIChatCompletionsClient | None = None,
+        behavior: OpenAIAdapterBehavior | None = None,
     ) -> None:
         self.provider_id = provider.id
+        self._behavior = behavior or OpenAIAdapterBehavior()
         if completions is None:
             self._client: OpenAIChatCompletionsClient = cast(
                 OpenAIChatCompletionsClient,
@@ -119,7 +145,7 @@ class OpenAIChatCompletionsAdapter:
             kwargs["max_completion_tokens"] = request.max_output_tokens
         if _uses_native_json_output(request):
             kwargs["response_format"] = {"type": "json_object"}
-        _apply_provider_options(kwargs, request.provider_options)
+        self._behavior.apply_options(kwargs, request.provider_options)
 
         try:
             response = self._client.create(**kwargs)
@@ -131,41 +157,10 @@ class OpenAIChatCompletionsAdapter:
             text=_message_text(message),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning_text=_reasoning_text(message),
+            reasoning_text=self._behavior.chat_reasoning_text(message),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
-
-
-def build_provider_registry(
-    providers: tuple[ProviderSpec, ...],
-    *,
-    env: Mapping[str, str],
-) -> ProviderRegistry:
-    adapters: list[ProviderAdapter] = []
-    for provider in providers:
-        api_key = provider.resolve_api_key(env)
-        if provider.api_style is ProviderApiStyle.OPENAI_RESPONSES:
-            adapters.append(
-                OpenAIResponsesAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.api_style is ProviderApiStyle.OPENAI_CHAT:
-            adapters.append(
-                OpenAIChatCompletionsAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        raise ProviderError(
-            f"Unsupported provider API style: {provider.api_style}",
-            kind=ProviderErrorKind.CONFIG,
-        )
-    return ProviderRegistry(adapters)
 
 
 def _common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
@@ -256,36 +251,6 @@ def _image_data_url(part: ImagePart) -> str:
     return f"data:{part.mime_type};base64,{encoded}"
 
 
-def _apply_provider_options(
-    kwargs: dict[str, object],
-    options: Mapping[str, object] | None,
-) -> None:
-    if not options:
-        return
-    extra_body: dict[str, object] = {}
-    for key, value in options.items():
-        if key == "thinking":
-            extra_body["thinking"] = value
-            continue
-        if key in {
-            "prompt_cache_retention",
-            "reasoning",
-            "reasoning_effort",
-            "service_tier",
-            "store",
-            "top_p",
-            "verbosity",
-        }:
-            kwargs[key] = value
-            continue
-        raise ProviderError(
-            f"Unsupported provider option: {key}",
-            kind=ProviderErrorKind.CONFIG,
-        )
-    if extra_body:
-        kwargs["extra_body"] = extra_body
-
-
 def _provider_error(error: Exception) -> ProviderError:
     if isinstance(error, ProviderError):
         return error
@@ -329,13 +294,24 @@ def _responses_reasoning_text(response: object) -> str | None:
         item_type = _get_attr(item, "type")
         if item_type != "reasoning":
             continue
-        summary = _get_attr(item, "summary")
-        if isinstance(summary, list):
-            for part in summary:
-                text = _get_attr(part, "text")
-                if isinstance(text, str):
-                    texts.append(text)
+        _append_text_parts(texts, _get_attr(item, "summary"))
+        _append_text_parts(texts, _get_attr(item, "content"))
     return "\n".join(texts) if texts else None
+
+
+def _append_text_parts(texts: list[str], value: object) -> None:
+    if isinstance(value, str):
+        texts.append(value)
+        return
+    if not isinstance(value, list):
+        return
+    for part in value:
+        if isinstance(part, str):
+            texts.append(part)
+            continue
+        text = _get_attr(part, "text")
+        if isinstance(text, str):
+            texts.append(text)
 
 
 def _first_choice_message(response: object) -> object:

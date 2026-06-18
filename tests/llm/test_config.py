@@ -27,7 +27,11 @@ def test_llm_config_parses_project_config_files() -> None:
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert openai_model.supports(ModelCapability.PROMPT_CACHE)
-    assert openai_model.provider_options.values == {"prompt_cache_retention": "24h"}
+    assert openai_model.provider_options.values == {
+        "prompt_cache_retention": "24h",
+        "verbosity": "medium",
+        "reasoning_effort": "high",
+    }
 
     kimi_model = config.models.get("kimi_k2_7")
     assert kimi_model.provider_id == "kimi"
@@ -35,6 +39,14 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
     assert kimi_model.provider_options.values == {"thinking": "enabled"}
+
+    deepseek_model = config.models.get("deepseek_v4")
+    assert deepseek_model.provider_id == "deepseek"
+    assert deepseek_model.provider_model == "deepseek-v4-pro"
+    assert deepseek_model.provider_options.values == {
+        "thinking": "enabled",
+        "reasoning_effort": "high",
+    }
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
