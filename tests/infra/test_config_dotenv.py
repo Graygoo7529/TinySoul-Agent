@@ -52,3 +52,17 @@ def test_dotenv_source_does_not_mutate_process_environment(local_tmp: Path) -> N
 
     assert before == after
     assert source.values["infra.runtime.max_turns"] == "33"
+
+
+def test_dotenv_source_can_load_raw_environment_names(local_tmp: Path) -> None:
+    path = local_tmp / ".env"
+    path.write_text(
+        "OPENAI_API_KEY=from-dotenv\n"
+        "TINYSOUL_INFRA_RUNTIME_MAX_TURNS=33\n",
+        encoding="utf-8",
+    )
+
+    values = DotenvSource(path).load_raw()
+
+    assert values["OPENAI_API_KEY"] == "from-dotenv"
+    assert values["TINYSOUL_INFRA_RUNTIME_MAX_TURNS"] == "33"

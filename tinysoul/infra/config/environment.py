@@ -27,9 +27,11 @@ class ConfigEnvironment:
         *,
         project: ProjectConfig,
         sources: list[ConfigSource],
+        runtime_env: Mapping[str, str] | None = None,
     ) -> None:
         self._project = project
         self._sources = list(sources)
+        self._runtime_env = dict(runtime_env or {})
 
     @classmethod
     def from_project_root(
@@ -42,17 +44,24 @@ class ConfigEnvironment:
         overrides: Mapping[str, object] | None = None,
     ) -> "ConfigEnvironment":
         project = ProjectConfig(root=root, main_file_name=project_file_name)
+        dotenv = DotenvSource(project.env_file_path(default_name=dotenv_name))
+        dotenv_raw = dotenv.load_raw()
+        process_env = dict(env if env is not None else os.environ)
         sources = [
             project.to_source(),
-            DotenvSource(project.env_file_path(default_name=dotenv_name)).load(),
+            dotenv.load(),
             ConfigSource(
                 name="environment",
-                values=_env_mapping_to_dotted(dict(env if env is not None else os.environ)),
+                values=_env_mapping_to_dotted(process_env),
             ),
         ]
         if overrides:
             sources.append(ConfigSource(name="overrides", values=dict(overrides)))
-        return cls(project=project, sources=sources)
+        return cls(
+            project=project,
+            sources=sources,
+            runtime_env={**dotenv_raw, **process_env},
+        )
 
     @property
     def project_tree(self) -> dict[str, object]:
@@ -61,6 +70,10 @@ class ConfigEnvironment:
     @property
     def sources(self) -> tuple[ConfigSource, ...]:
         return tuple(self._sources)
+
+    @property
+    def runtime_env(self) -> dict[str, str]:
+        return dict(self._runtime_env)
 
     def section_tree(self, section: str) -> dict[str, object]:
         if not section:

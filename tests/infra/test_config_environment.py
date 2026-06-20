@@ -141,6 +141,23 @@ def test_environment_from_project_root_precedence(local_tmp: Path, monkeypatch) 
     assert settings.max_turns == 24
 
 
+def test_environment_runtime_env_merges_dotenv_and_process_env(
+    local_tmp: Path, monkeypatch
+) -> None:
+    (local_tmp / "tinysoul.toml").write_text("", encoding="utf-8")
+    (local_tmp / ".env").write_text(
+        "OPENAI_API_KEY=from-dotenv\n"
+        "KIMI_API_KEY=from-dotenv\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "from-process")
+
+    environment = ConfigEnvironment.from_project_root(local_tmp)
+
+    assert environment.runtime_env["OPENAI_API_KEY"] == "from-process"
+    assert environment.runtime_env["KIMI_API_KEY"] == "from-dotenv"
+
+
 def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
     (local_tmp / "tinysoul.toml").write_text(
         """

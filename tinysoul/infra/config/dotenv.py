@@ -87,6 +87,12 @@ class DotenvSource:
             values=_env_mapping_to_dotted(values, prefix=self.prefix),
         )
 
+    def load_raw(self) -> dict[str, str]:
+        """Load dotenv values using their original environment variable names."""
+        if not self.path.exists():
+            return {}
+        return parse_dotenv(self.path.read_text(encoding="utf-8"))
+
 
 def _env_mapping_to_dotted(
     values: dict[str, str], *, prefix: str = "TINYSOUL_"
