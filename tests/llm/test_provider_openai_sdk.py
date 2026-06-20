@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
+from collections.abc import Mapping
 
 import pytest
 
@@ -10,6 +11,7 @@ from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import (
     ImagePart,
     ImageUrlPart,
+    JsonPart,
     Message,
     MessageRole,
     MessageStack,
@@ -68,10 +70,11 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 },
             ),
             messages=MessageStack.of(
-                Message.text(MessageRole.SYSTEM, "system"),
-                Message(
-                    role=MessageRole.USER,
-                    parts=(TextPart("look"), ImagePart(data=b"abc", mime_type="image/png")),
+                Message.from_text(MessageRole.SYSTEM, "system"),
+                Message.from_parts(
+                    MessageRole.USER,
+                    TextPart("look"),
+                    ImagePart(data=b"abc", mime_type="image/png"),
                 ),
             ),
             response_contract=ResponseContract.JSON_OBJECT,
@@ -98,7 +101,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
         "verbosity": "medium",
     }
     assert "reasoning_effort" not in call
-    assert response.text == '{"ok": true}'
+    assert response.answer == '{"ok": true}'
     assert response.usage == {"input_tokens": 10, "output_tokens": 3}
 
 
@@ -113,7 +116,7 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"reasoning": {"effort": "high"}},
             )
@@ -145,12 +148,57 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
     response = adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             response_contract=ResponseContract.TEXT,
         )
     )
 
-    assert response.reasoning_text == "summary\ndetail"
+    assert response.reasoning is not None
+    assert response.reasoning.summary == "summary\ndetail"
+
+
+def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="ok",
+            output=[],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                Message.from_parts(
+                    MessageRole.USER,
+                    TextPart("工具返回如下："),
+                    JsonPart({"source": "tool_result", "ok": True}),
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        '工具返回如下：\n\n```json\n'
+                        '{"ok":true,"source":"tool_result"}\n```'
+                    ),
+                }
+            ],
+        }
+    ]
 
 
 def test_chat_adapter_maps_kimi_request_payload() -> None:
@@ -176,7 +224,14 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
                 provider_model="kimi-k2.7-code",
                 options={"thinking": "enabled"},
             ),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(
+                Message.from_text(MessageRole.USER, "hello"),
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    '{"draft": true}',
+                    reasoning="thinking trace",
+                ),
+            ),
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=PromptCache("kimi-prefix"),
             max_output_tokens=128,
@@ -186,14 +241,22 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
 
     call = client.calls[0]
     assert call["model"] == "kimi-k2.7-code"
-    assert call["messages"] == [{"role": "user", "content": "hello"}]
+    assert call["messages"] == [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": '{"draft": true}',
+            "reasoning_content": "thinking trace",
+        },
+    ]
     assert call["max_completion_tokens"] == 128
     assert "max_output_tokens" not in call
     assert call["response_format"] == {"type": "json_object"}
     assert call["prompt_cache_key"] == "kimi-prefix"
     assert call["extra_body"] == {"thinking": "enabled"}
-    assert response.text == '{"ok": true}'
-    assert response.reasoning_text == "thinking"
+    assert response.answer == '{"ok": true}'
+    assert response.reasoning is not None
+    assert response.reasoning.content == "thinking"
 
 
 def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
@@ -219,7 +282,14 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
                 provider_model="deepseek-v4-pro",
                 options={"thinking": "enabled", "reasoning_effort": "high"},
             ),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "json please")),
+            messages=MessageStack.of(
+                Message.from_text(MessageRole.USER, "json please"),
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    '{"plan": "call action"}',
+                    reasoning="reasoning trace",
+                ),
+            ),
             response_contract=ResponseContract.JSON_OBJECT,
             temperature=0.7,
             provider_options={"thinking": "enabled", "reasoning_effort": "high"},
@@ -228,12 +298,15 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
 
     call = client.calls[0]
     assert call["model"] == "deepseek-v4-pro"
+    messages = _message_payloads(call["messages"])
+    assert messages[1]["reasoning_content"] == "reasoning trace"
     assert call["response_format"] == {"type": "json_object"}
     assert call["extra_body"] == {"thinking": {"type": "enabled"}}
     assert call["reasoning_effort"] == "high"
     assert "temperature" not in call
     assert "prompt_cache_key" not in call
-    assert response.reasoning_text == "reasoning"
+    assert response.reasoning is not None
+    assert response.reasoning.content == "reasoning"
     assert response.usage == {
         "prompt_cache_hit_tokens": 8,
         "prompt_cache_miss_tokens": 2,
@@ -263,7 +336,14 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
                 provider_model="glm-5.1",
                 options={"thinking": "enabled"},
             ),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "json please")),
+            messages=MessageStack.of(
+                Message.from_text(MessageRole.USER, "json please"),
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    '{"plan": "call action"}',
+                    reasoning="reasoning trace",
+                ),
+            ),
             response_contract=ResponseContract.JSON_OBJECT,
             max_output_tokens=128,
             provider_options={"thinking": "enabled"},
@@ -272,11 +352,14 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
 
     call = client.calls[0]
     assert call["model"] == "glm-5.1"
+    messages = _message_payloads(call["messages"])
+    assert messages[1]["reasoning_content"] == "reasoning trace"
     assert call["response_format"] == {"type": "json_object"}
     assert call["extra_body"] == {"thinking": {"type": "enabled"}}
     assert call["max_tokens"] == 128
     assert "max_completion_tokens" not in call
-    assert response.reasoning_text == "reasoning"
+    assert response.reasoning is not None
+    assert response.reasoning.content == "reasoning"
     assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
 
 
@@ -297,7 +380,7 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
     adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.2"),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             response_contract=ResponseContract.TEXT,
             provider_options={"reasoning_effort": "max"},
         )
@@ -328,7 +411,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
                 provider_model="text-model",
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=PromptCache("prefix"),
         )
@@ -357,9 +440,9 @@ def test_adapter_maps_remote_image_url_part() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
-                Message(
-                    role=MessageRole.USER,
-                    parts=(ImageUrlPart(url="https://example.test/image.png"),),
+                Message.from_parts(
+                    MessageRole.USER,
+                    ImageUrlPart(url="https://example.test/image.png"),
                 )
             ),
             response_contract=ResponseContract.TEXT,
@@ -379,6 +462,108 @@ def test_adapter_maps_remote_image_url_part() -> None:
     ]
 
 
+def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="generic", provider_model="generic-model"),
+            messages=MessageStack.of(
+                Message.from_parts(
+                    MessageRole.USER,
+                    TextPart("工具返回如下："),
+                    JsonPart(
+                        {
+                            "kind": "action_result",
+                            "result": {"weather": "晴"},
+                        }
+                    ),
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {
+            "role": "user",
+            "content": (
+                '工具返回如下：\n\n```json\n'
+                '{"kind":"action_result","result":{"weather":"晴"}}\n```'
+            ),
+        }
+    ]
+
+
+def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="generic", provider_model="generic-model"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning="local reasoning",
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {"role": "assistant", "content": "previous answer"}
+    ]
+
+
+def test_openai_responses_adapter_rejects_message_reasoning_input() -> None:
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                messages=MessageStack.of(
+                    Message.from_text(
+                        MessageRole.ASSISTANT,
+                        "previous answer",
+                        reasoning="local reasoning",
+                    )
+                ),
+                response_contract=ResponseContract.TEXT,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
 def test_provider_option_rejects_unknown_key() -> None:
     adapter = OpenAICompatibleChatAdapter(
         provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
@@ -390,7 +575,7 @@ def test_provider_option_rejects_unknown_key() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
-                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"unknown": "value"},
             )
@@ -489,3 +674,14 @@ def _model(
         ),
         provider_options=ProviderOptions(options or {}),
     )
+
+
+def _message_payloads(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise AssertionError("Expected list of message payloads")
+    result: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise AssertionError("Expected message payload mapping")
+        result.append({str(key): payload for key, payload in item.items()})
+    return result

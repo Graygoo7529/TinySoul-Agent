@@ -7,6 +7,10 @@ from enum import StrEnum
 import json
 import re
 
+from tinysoul.infra.json import JsonObject, to_json_object
+
+from .reasoning import Reasoning
+
 
 class ResponseContract(StrEnum):
     """Expected model output shape."""
@@ -19,10 +23,10 @@ class ResponseContract(StrEnum):
 class ModelResponse:
     """Provider-normalized model response."""
 
-    text: str
+    answer: str
     model_id: str
     provider_id: str
-    reasoning_text: str | None = None
+    reasoning: Reasoning | None = None
     usage: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
 
@@ -32,8 +36,7 @@ class TaskResult:
     """Interpreted task result."""
 
     response: ModelResponse
-    text: str
-    json_object: dict[str, object] | None = None
+    json_object: JsonObject | None = None
 
 
 class ResponseInterpretError(Exception):
@@ -49,16 +52,15 @@ class ResponseInterpreter:
         contract: ResponseContract,
     ) -> TaskResult:
         if contract is ResponseContract.TEXT:
-            return TaskResult(response=response, text=response.text)
+            return TaskResult(response=response)
         if contract is ResponseContract.JSON_OBJECT:
             return TaskResult(
                 response=response,
-                text=response.text,
-                json_object=self._parse_json_object(response.text),
+                json_object=self._parse_json_object(response.answer),
             )
         raise ResponseInterpretError(f"Unsupported response contract: {contract}")
 
-    def _parse_json_object(self, text: str) -> dict[str, object]:
+    def _parse_json_object(self, text: str) -> JsonObject:
         cleaned = _extract_json_text(text)
         try:
             value = json.loads(cleaned)
@@ -70,7 +72,7 @@ class ResponseInterpreter:
             raise ResponseInterpretError(
                 f"Expected JSON object, got {type(value).__name__}"
             )
-        return {str(key): item for key, item in value.items()}
+        return to_json_object(value)
 
 
 def _extract_json_text(text: str) -> str:

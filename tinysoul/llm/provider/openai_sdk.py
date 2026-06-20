@@ -9,15 +9,16 @@ from typing import Protocol, cast
 from openai import APIConnectionError, APIError, APIStatusError, OpenAI
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
-from tinysoul.llm.messages import (
-    ImagePart,
-    ImageUrlPart,
-    Message,
-    MessagePart,
-    MessageRole,
-    TextPart,
+from tinysoul.llm.message_rendering import (
+    MessageContentRenderer,
+    RenderedContentPart,
+    RenderedImage,
+    RenderedImageUrl,
+    RenderedText,
 )
+from tinysoul.llm.messages import Message
 from tinysoul.llm.models import ModelCapability
+from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.responses import ModelResponse, ResponseContract
 
 from .base import ProviderError, ProviderErrorKind, ProviderRequest
@@ -60,11 +61,20 @@ class OpenAIAdapterBehavior:
             kind=ProviderErrorKind.CONFIG,
         )
 
-    def chat_reasoning_text(self, message: object) -> str | None:
-        return _reasoning_text(message)
+    def chat_reasoning(self, message: object) -> Reasoning | None:
+        content = _chat_reasoning_content(message)
+        if content is None:
+            return None
+        return Reasoning(content=content)
 
-    def responses_reasoning_text(self, response: object) -> str | None:
-        return _responses_reasoning_text(response)
+    def responses_reasoning(self, response: object) -> Reasoning | None:
+        summary = _responses_reasoning_summary(response)
+        if summary is None:
+            return None
+        return Reasoning(summary=summary)
+
+    def include_chat_message_reasoning(self, message: Message) -> bool:
+        return False
 
 
 class OpenAIResponsesAdapter:
@@ -90,10 +100,11 @@ class OpenAIResponsesAdapter:
             )
         else:
             self._client = responses
+        self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         kwargs = _common_create_kwargs(request)
-        kwargs["input"] = _to_responses_input(request)
+        kwargs["input"] = _to_responses_input(request, renderer=self._renderer)
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
         self._behavior.apply_options(kwargs, request.provider_options)
@@ -104,10 +115,10 @@ class OpenAIResponsesAdapter:
             raise _provider_error(exc) from exc
 
         return ModelResponse(
-            text=_responses_text(response),
+            answer=_responses_text(response),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning_text=self._behavior.responses_reasoning_text(response),
+            reasoning=self._behavior.responses_reasoning(response),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
@@ -136,10 +147,15 @@ class OpenAICompatibleChatAdapter:
             )
         else:
             self._client = completions
+        self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         kwargs = _common_create_kwargs(request)
-        kwargs["messages"] = _to_chat_messages(request)
+        kwargs["messages"] = _to_chat_messages(
+            request,
+            behavior=self._behavior,
+            renderer=self._renderer,
+        )
         if request.max_output_tokens is not None:
             kwargs.pop("max_output_tokens", None)
             kwargs["max_completion_tokens"] = request.max_output_tokens
@@ -154,10 +170,10 @@ class OpenAICompatibleChatAdapter:
 
         message = _first_choice_message(response)
         return ModelResponse(
-            text=_message_text(message),
+            answer=_message_text(message),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning_text=self._behavior.chat_reasoning_text(message),
+            reasoning=self._behavior.chat_reasoning(message),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
@@ -182,41 +198,66 @@ def _uses_native_json_output(request: ProviderRequest) -> bool:
     )
 
 
-def _to_responses_input(request: ProviderRequest) -> list[dict[str, object]]:
+def _to_responses_input(
+    request: ProviderRequest,
+    *,
+    renderer: MessageContentRenderer,
+) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for message in request.messages.messages:
-        role = _responses_role(message.role)
+        role = _responses_role(message)
+        rendered = renderer.render(message.parts)
         items.append(
             {
                 "role": role,
-                "content": [_to_responses_part(part) for part in message.parts],
+                "content": _to_responses_content(rendered),
             }
         )
     return items
 
 
-def _to_chat_messages(request: ProviderRequest) -> list[dict[str, object]]:
+def _to_chat_messages(
+    request: ProviderRequest,
+    *,
+    behavior: OpenAIAdapterBehavior,
+    renderer: MessageContentRenderer,
+) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for message in request.messages.messages:
-        items.append(
-            {
-                "role": message.role.value,
-                "content": _to_chat_content(message),
-            }
-        )
+        rendered = renderer.render(message.parts)
+        item: dict[str, object] = {
+            "role": message.role.value,
+            "content": _to_chat_content(rendered),
+        }
+        if message.reasoning is not None and behavior.include_chat_message_reasoning(
+            message
+        ):
+            if message.reasoning.content is not None:
+                item["reasoning_content"] = message.reasoning.content
+        items.append(item)
     return items
 
 
-def _to_chat_content(message: Message) -> str | list[dict[str, object]]:
-    if len(message.parts) == 1 and isinstance(message.parts[0], TextPart):
-        return message.parts[0].text
-    return [_to_chat_part(part) for part in message.parts]
+def _to_chat_content(
+    rendered: str | tuple[RenderedContentPart, ...],
+) -> str | list[dict[str, object]]:
+    if isinstance(rendered, str):
+        return rendered
+    return [_to_chat_part(part) for part in rendered]
 
 
-def _to_responses_part(part: MessagePart) -> dict[str, object]:
-    if isinstance(part, TextPart):
+def _to_responses_content(
+    rendered: str | tuple[RenderedContentPart, ...],
+) -> list[dict[str, object]]:
+    if isinstance(rendered, str):
+        return [{"type": "input_text", "text": rendered}]
+    return [_to_responses_part(part) for part in rendered]
+
+
+def _to_responses_part(part: RenderedContentPart) -> dict[str, object]:
+    if isinstance(part, RenderedText):
         return {"type": "input_text", "text": part.text}
-    if isinstance(part, ImageUrlPart):
+    if isinstance(part, RenderedImageUrl):
         return {
             "type": "input_image",
             "image_url": part.url,
@@ -229,24 +270,24 @@ def _to_responses_part(part: MessagePart) -> dict[str, object]:
     }
 
 
-def _to_chat_part(part: MessagePart) -> dict[str, object]:
-    if isinstance(part, TextPart):
+def _to_chat_part(part: RenderedContentPart) -> dict[str, object]:
+    if isinstance(part, RenderedText):
         return {"type": "text", "text": part.text}
-    if isinstance(part, ImageUrlPart):
+    if isinstance(part, RenderedImageUrl):
         return {"type": "image_url", "image_url": {"url": part.url}}
     return {"type": "image_url", "image_url": {"url": _image_data_url(part)}}
 
 
-def _responses_role(role: MessageRole) -> str:
-    if role is MessageRole.TOOL:
+def _responses_role(message: Message) -> str:
+    if message.reasoning is not None:
         raise ProviderError(
-            "OpenAI Responses input does not accept tool messages through this adapter",
+            "OpenAI Responses input does not accept TinySoul message reasoning",
             kind=ProviderErrorKind.CONFIG,
         )
-    return role.value
+    return message.role.value
 
 
-def _image_data_url(part: ImagePart) -> str:
+def _image_data_url(part: RenderedImage) -> str:
     encoded = base64.b64encode(part.data).decode("ascii")
     return f"data:{part.mime_type};base64,{encoded}"
 
@@ -285,7 +326,7 @@ def _responses_text(response: object) -> str:
     return ""
 
 
-def _responses_reasoning_text(response: object) -> str | None:
+def _responses_reasoning_summary(response: object) -> str | None:
     output = _get_attr(response, "output")
     if not isinstance(output, list):
         return None
@@ -335,7 +376,7 @@ def _message_text(message: object) -> str:
     return ""
 
 
-def _reasoning_text(message: object) -> str | None:
+def _chat_reasoning_content(message: object) -> str | None:
     value = _get_attr(message, "reasoning_content")
     if isinstance(value, str):
         return value

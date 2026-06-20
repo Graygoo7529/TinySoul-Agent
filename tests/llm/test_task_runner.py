@@ -42,7 +42,7 @@ class FakeProvider:
             self.failures[model_id] = remaining - 1
             raise ProviderError("temporary failure", kind=ProviderErrorKind.TRANSIENT)
         return ModelResponse(
-            text='{"model": "' + model_id + '"}',
+            answer='{"model": "' + model_id + '"}',
             model_id=model_id,
             provider_id=self.provider_id,
         )
@@ -76,7 +76,7 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
     )
     call = TaskCall(
         profile="framework",
-        messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+        messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
     )
 
     result = runner.run(call)
@@ -109,7 +109,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
         runner.run(
             TaskCall(
                 profile="framework",
-                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             )
         )
 
@@ -136,7 +136,7 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     )
     call = TaskCall(
         profile="framework",
-        messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+        messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
     )
 
     first = runner.run(call)
@@ -168,7 +168,7 @@ def test_runner_retries_transient_error_on_same_model() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
         )
     )
 
@@ -230,7 +230,7 @@ def test_runner_reports_successful_fallback_model_during_preference_window() -> 
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
         )
     )
 
@@ -259,7 +259,7 @@ def test_runner_capability_query_returns_to_head_after_preference_expires() -> N
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
         )
     )
     clock.current = 6.0
@@ -278,7 +278,7 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             prompt_cache=PromptCache(key="framework:test"),
         )
     )
@@ -303,7 +303,7 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
         )
     )
 
@@ -358,7 +358,7 @@ def test_call_settings_can_add_required_capabilities() -> None:
         runner.run(
             TaskCall(
                 profile="framework",
-                messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
                 settings=CallSettings(
                     required_capabilities=frozenset(
                         {ModelCapability.IMAGE_REMOTE_URL}
@@ -403,7 +403,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
             settings=CallSettings(max_output_tokens=1024),
         )
     )

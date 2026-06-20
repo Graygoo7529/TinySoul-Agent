@@ -12,7 +12,7 @@ from tinysoul.llm.responses import (
 
 def test_interpreter_extracts_json_object_from_fenced_text() -> None:
     response = ModelResponse(
-        text='```json\n{"ok": true, "count": 2}\n```',
+        answer='```json\n{"ok": true, "count": 2}\n```',
         model_id="model-a",
         provider_id="provider-a",
     )
@@ -24,7 +24,7 @@ def test_interpreter_extracts_json_object_from_fenced_text() -> None:
 
 def test_interpreter_rejects_json_array_for_json_object_contract() -> None:
     response = ModelResponse(
-        text="[1, 2]",
+        answer="[1, 2]",
         model_id="model-a",
         provider_id="provider-a",
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.messages import Message, MessageRole
 
 from .base import ProviderError, ProviderErrorKind
 from .openai_sdk import (
@@ -16,6 +17,9 @@ from .openai_sdk import (
 
 class GlmProviderBehavior(OpenAIAdapterBehavior):
     """GLM-specific option mapping."""
+
+    def include_chat_message_reasoning(self, message: Message) -> bool:
+        return message.role is MessageRole.ASSISTANT
 
     def apply_options(
         self,
