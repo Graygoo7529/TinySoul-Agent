@@ -7,6 +7,7 @@ import pytest
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser, ProviderApiStyle
 from tinysoul.llm.models import ModelCapability
+from tinysoul.llm.reasoning import ReasoningKeep
 from tinysoul.llm.requests import TaskProfile
 from tinysoul.llm.responses import ResponseContract
 
@@ -27,7 +28,9 @@ def test_llm_config_parses_project_config_files() -> None:
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert openai_model.supports(ModelCapability.PROMPT_CACHE)
+    assert openai_model.provider_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
     assert openai_model.provider_options.values == {
+        "reasoning_keep": "encrypted",
         "prompt_cache_retention": "24h",
         "verbosity": "medium",
         "reasoning_effort": "high",
@@ -38,11 +41,16 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.provider_model == "kimi-k2.7-code"
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
-    assert kimi_model.provider_options.values == {"thinking": "enabled"}
+    assert kimi_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert kimi_model.provider_options.values == {
+        "reasoning_keep": "content",
+        "thinking": "enabled",
+    }
 
     deepseek_model = config.models.get("deepseek_v4")
     assert deepseek_model.provider_id == "deepseek"
     assert deepseek_model.provider_model == "deepseek-v4-pro"
+    assert deepseek_model.provider_options.reasoning_keep() is ReasoningKeep.NONE
     assert deepseek_model.provider_options.values == {
         "thinking": "enabled",
         "reasoning_effort": "high",
@@ -51,7 +59,11 @@ def test_llm_config_parses_project_config_files() -> None:
     glm_model = config.models.get("glm_5_1")
     assert glm_model.provider_id == "glm"
     assert glm_model.provider_model == "glm-5.1"
-    assert glm_model.provider_options.values == {"thinking": "enabled"}
+    assert glm_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert glm_model.provider_options.values == {
+        "reasoning_keep": "content",
+        "thinking": "enabled",
+    }
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
@@ -154,6 +166,36 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
     task = config.tasks.get("framework")
     assert task.chain.retry_policy.max_cycles == 10
     assert task.chain.retry_policy.max_retries_per_model == 1
+
+
+def test_provider_options_rejects_unknown_reasoning_keep() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "kimi_k2_7": {
+                "provider": "kimi",
+                "provider_model": "kimi-k2.7-code",
+                "capabilities": ["text_input"],
+                "provider_options": {"reasoning_keep": "forever"},
+            }
+        },
+        "tasks": {
+            "framework": {
+                "models": ["kimi_k2_7"],
+            }
+        },
+    }
+
+    config = LLMConfigParser().parse(tree)
+
+    with pytest.raises(ValueError):
+        config.models.get("kimi_k2_7").provider_options.reasoning_keep()
 
 
 def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:

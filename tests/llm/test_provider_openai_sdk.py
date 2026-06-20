@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -235,7 +235,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=PromptCache("kimi-prefix"),
             max_output_tokens=128,
-            provider_options={"thinking": "enabled"},
+            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
     )
 
@@ -253,7 +253,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert "max_output_tokens" not in call
     assert call["response_format"] == {"type": "json_object"}
     assert call["prompt_cache_key"] == "kimi-prefix"
-    assert call["extra_body"] == {"thinking": "enabled"}
+    assert call["extra_body"] == {"thinking": {"type": "enabled", "keep": "all"}}
     assert response.answer == '{"ok": true}'
     assert response.reasoning is not None
     assert response.reasoning.content == "thinking"
@@ -346,7 +346,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
             ),
             response_contract=ResponseContract.JSON_OBJECT,
             max_output_tokens=128,
-            provider_options={"thinking": "enabled"},
+            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
     )
 
@@ -355,12 +355,86 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     messages = _message_payloads(call["messages"])
     assert messages[1]["reasoning_content"] == "reasoning trace"
     assert call["response_format"] == {"type": "json_object"}
-    assert call["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert call["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False}
+    }
     assert call["max_tokens"] == 128
     assert "max_completion_tokens" not in call
     assert response.reasoning is not None
     assert response.reasoning.content == "reasoning"
     assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
+
+
+def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning="thinking trace",
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+            provider_options={"thinking": "enabled"},
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {"role": "assistant", "content": "previous answer"}
+    ]
+    assert client.calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = GlmProviderAdapter(
+        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="glm", provider_model="glm-5.1"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning="thinking trace",
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+            provider_options={"thinking": "enabled"},
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {"role": "assistant", "content": "previous answer"}
+    ]
+    assert client.calls[0]["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": True}
+    }
 
 
 def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:

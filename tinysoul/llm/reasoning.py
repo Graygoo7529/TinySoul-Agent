@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject
+
+
+class ReasoningKeep(StrEnum):
+    """How TinySoul should preserve assistant reasoning for a model."""
+
+    NONE = "none"
+    CONTENT = "content"
+    ENCRYPTED = "encrypted"
 
 
 @dataclass(frozen=True)

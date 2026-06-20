@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from .reasoning import ReasoningKeep
+
 
 class ModelCapability(StrEnum):
     """Abstract model capability used by TinySoul routing."""
@@ -23,6 +25,14 @@ class ProviderOptions:
     """Provider-specific model options."""
 
     values: Mapping[str, object] = field(default_factory=dict)
+
+    def reasoning_keep(self) -> ReasoningKeep:
+        value = self.values.get("reasoning_keep")
+        if value is None:
+            return ReasoningKeep.NONE
+        if isinstance(value, str):
+            return ReasoningKeep(value)
+        raise TypeError("reasoning_keep must be a string")
 
 
 @dataclass(frozen=True)

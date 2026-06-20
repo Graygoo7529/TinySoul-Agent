@@ -11,6 +11,7 @@ capabilities = [
 ]
 
 [llm.models.gpt_5_5.provider_options]
+reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"
 reasoning_effort = "high"
@@ -27,6 +28,7 @@ capabilities = [
 ]
 
 [llm.models.kimi_k2_7.provider_options]
+reasoning_keep = "content"
 thinking = "enabled"
 
 [llm.models.deepseek_v4]
@@ -52,6 +54,7 @@ capabilities = [
 ]
 
 [llm.models.glm_5_1.provider_options]
+reasoning_keep = "content"
 thinking = "enabled"
 
 [llm.models.minimax_m3]

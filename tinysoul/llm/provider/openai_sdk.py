@@ -73,8 +73,12 @@ class OpenAIAdapterBehavior:
             return None
         return Reasoning(summary=summary)
 
-    def include_chat_message_reasoning(self, message: Message) -> bool:
-        return False
+    def chat_message_reasoning_content(
+        self,
+        message: Message,
+        options: Mapping[str, object] | None,
+    ) -> str | None:
+        return None
 
 
 class OpenAIResponsesAdapter:
@@ -229,11 +233,12 @@ def _to_chat_messages(
             "role": message.role.value,
             "content": _to_chat_content(rendered),
         }
-        if message.reasoning is not None and behavior.include_chat_message_reasoning(
-            message
-        ):
-            if message.reasoning.content is not None:
-                item["reasoning_content"] = message.reasoning.content
+        reasoning_content = behavior.chat_message_reasoning_content(
+            message,
+            request.provider_options,
+        )
+        if reasoning_content is not None:
+            item["reasoning_content"] = reasoning_content
         items.append(item)
     return items
 

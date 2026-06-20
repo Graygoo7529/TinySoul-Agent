@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.reasoning import ReasoningKeep
 
 from .base import ProviderError, ProviderErrorKind
 from .openai_sdk import (
@@ -18,8 +19,16 @@ from .openai_sdk import (
 class GlmProviderBehavior(OpenAIAdapterBehavior):
     """GLM-specific option mapping."""
 
-    def include_chat_message_reasoning(self, message: Message) -> bool:
-        return message.role is MessageRole.ASSISTANT
+    def chat_message_reasoning_content(
+        self,
+        message: Message,
+        options: Mapping[str, object] | None,
+    ) -> str | None:
+        if _reasoning_keep(options) is not ReasoningKeep.CONTENT:
+            return None
+        if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
+            return None
+        return message.reasoning.content
 
     def apply_options(
         self,
@@ -31,9 +40,12 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
             return
 
         extra_body: dict[str, object] = {}
+        thinking: dict[str, object] | None = None
         for key, value in options.items():
             if key == "thinking":
-                extra_body["thinking"] = _thinking_option(value)
+                thinking = _thinking_option(value)
+                continue
+            if key == "reasoning_keep":
                 continue
             if key == "reasoning_effort":
                 kwargs[key] = _string_option(value, key=key)
@@ -52,6 +64,17 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
                 kind=ProviderErrorKind.CONFIG,
             )
 
+        keep = _reasoning_keep(options)
+        if keep is ReasoningKeep.ENCRYPTED:
+            raise ProviderError(
+                "GLM does not support encrypted reasoning keep",
+                kind=ProviderErrorKind.CONFIG,
+            )
+        if thinking is None and keep is not ReasoningKeep.NONE:
+            thinking = {"type": "enabled"}
+        if thinking is not None:
+            thinking["clear_thinking"] = keep is not ReasoningKeep.CONTENT
+            extra_body["thinking"] = thinking
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -110,6 +133,20 @@ def _thinking_option(value: object) -> dict[str, object]:
         return result
     raise ProviderError(
         "GLM thinking must be a string or table",
+        kind=ProviderErrorKind.CONFIG,
+    )
+
+
+def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
+    if options is None:
+        return ReasoningKeep.NONE
+    value = options.get("reasoning_keep")
+    if value is None:
+        return ReasoningKeep.NONE
+    if isinstance(value, str):
+        return ReasoningKeep(value)
+    raise ProviderError(
+        "GLM reasoning_keep must be a string",
         kind=ProviderErrorKind.CONFIG,
     )
 

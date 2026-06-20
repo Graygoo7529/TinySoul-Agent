@@ -18,8 +18,14 @@ from .openai_sdk import (
 class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     """DeepSeek-specific option mapping."""
 
-    def include_chat_message_reasoning(self, message: Message) -> bool:
-        return message.role is MessageRole.ASSISTANT
+    def chat_message_reasoning_content(
+        self,
+        message: Message,
+        options: Mapping[str, object] | None,
+    ) -> str | None:
+        if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
+            return None
+        return message.reasoning.content
 
     def apply_options(
         self,
