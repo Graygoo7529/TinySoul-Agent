@@ -67,6 +67,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 options={
                     "prompt_cache_retention": "24h",
                     "reasoning_effort": "high",
+                    "reasoning_summary": "auto",
                     "reasoning_keep": "encrypted",
                     "verbosity": "medium",
                 },
@@ -86,6 +87,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             provider_options={
                 "prompt_cache_retention": "24h",
                 "reasoning_effort": "high",
+                "reasoning_summary": "auto",
                 "reasoning_keep": "encrypted",
                 "verbosity": "medium",
             },
@@ -98,7 +100,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
     assert call["max_output_tokens"] == 256
     assert call["prompt_cache_key"] == "stable-prefix"
     assert call["prompt_cache_retention"] == "24h"
-    assert call["reasoning"] == {"effort": "high"}
+    assert call["reasoning"] == {"effort": "high", "summary": "auto"}
     assert call["include"] == ["reasoning.encrypted_content"]
     assert call["text"] == {
         "format": {"type": "json_object"},
@@ -300,6 +302,26 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
                 messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"reasoning_keep": "content"},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                response_contract=ResponseContract.TEXT,
+                provider_options={"reasoning_summary": "full"},
             )
         )
 
@@ -647,6 +669,78 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
     )
 
     assert client.calls[0]["reasoning_effort"] == "max"
+
+
+def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> None:
+    for adapter, provider_id, provider_model in (
+        (
+            KimiProviderAdapter(
+                provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+                api_key="key",
+                completions=FakeCreateClient(response=object()),
+            ),
+            "kimi",
+            "kimi-k2.7-code",
+        ),
+        (
+            DeepSeekProviderAdapter(
+                provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+                api_key="key",
+                completions=FakeCreateClient(response=object()),
+            ),
+            "deepseek",
+            "deepseek-v4-pro",
+        ),
+        (
+            GlmProviderAdapter(
+                provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+                api_key="key",
+                completions=FakeCreateClient(response=object()),
+            ),
+            "glm",
+            "glm-5.1",
+        ),
+    ):
+        with pytest.raises(ProviderError) as exc:
+            adapter.invoke(
+                ProviderRequest(
+                    model=_model(
+                        provider_id=provider_id,
+                        provider_model=provider_model,
+                    ),
+                    messages=MessageStack.of(
+                        Message.from_text(
+                            MessageRole.ASSISTANT,
+                            "previous answer",
+                            reasoning="trace",
+                        )
+                    ),
+                    response_contract=ResponseContract.TEXT,
+                    provider_options={"reasoning_keep": "forever"},
+                )
+            )
+
+        assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_kimi_adapter_rejects_partial_provider_option() -> None:
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                response_contract=ResponseContract.TEXT,
+                provider_options={"partial": True},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
 def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:

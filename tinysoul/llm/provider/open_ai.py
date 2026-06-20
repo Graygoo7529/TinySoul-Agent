@@ -14,6 +14,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIResponsesAdapter,
     OpenAIResponsesClient,
+    provider_reasoning_keep,
 )
 
 
@@ -33,7 +34,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
                 "OpenAI does not support text reasoning content input",
                 kind=ProviderErrorKind.CONFIG,
             )
-        keep = _reasoning_keep(options)
+        keep = provider_reasoning_keep(options, provider="OpenAI")
         if keep is ReasoningKeep.NONE:
             return ()
         if keep is ReasoningKeep.ENCRYPTED:
@@ -58,8 +59,15 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
                     _string_option(value, key=key),
                 )
                 continue
+            if key == "reasoning_summary":
+                _merge_reasoning_option(
+                    kwargs,
+                    "summary",
+                    _reasoning_summary_option(value),
+                )
+                continue
             if key == "reasoning_keep":
-                keep = _reasoning_keep(options)
+                keep = provider_reasoning_keep(options, provider="OpenAI")
                 if keep is ReasoningKeep.ENCRYPTED:
                     _merge_include(kwargs, "reasoning.encrypted_content")
                     continue
@@ -111,26 +119,6 @@ class OpenAIProviderAdapter(OpenAIResponsesAdapter):
         )
 
 
-def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
-    if options is None:
-        return ReasoningKeep.NONE
-    value = options.get("reasoning_keep")
-    if value is None:
-        return ReasoningKeep.NONE
-    if isinstance(value, str):
-        try:
-            return ReasoningKeep(value)
-        except ValueError as exc:
-            raise ProviderError(
-                "OpenAI reasoning_keep must be 'none', 'content', or 'encrypted'",
-                kind=ProviderErrorKind.CONFIG,
-            ) from exc
-    raise ProviderError(
-        "OpenAI reasoning_keep must be a string",
-        kind=ProviderErrorKind.CONFIG,
-    )
-
-
 def _merge_reasoning_option(
     kwargs: dict[str, object],
     key: str,
@@ -179,6 +167,15 @@ def _merge_include(kwargs: dict[str, object], value: str) -> None:
         )
     if value not in include:
         kwargs["include"] = [*include, value]
+
+
+def _reasoning_summary_option(value: object) -> str:
+    if value not in {"auto", "concise", "detailed"}:
+        raise ProviderError(
+            "OpenAI reasoning_summary must be 'auto', 'concise', or 'detailed'",
+            kind=ProviderErrorKind.CONFIG,
+        )
+    return str(value)
 
 
 def _string_option(value: object, *, key: str) -> str:

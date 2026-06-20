@@ -15,6 +15,7 @@ reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"
 reasoning_effort = "high"
+reasoning_summary = "auto"
 
 [llm.models.kimi_k2_7]
 provider = "kimi"

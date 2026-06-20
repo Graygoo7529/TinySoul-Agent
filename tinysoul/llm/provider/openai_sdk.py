@@ -18,7 +18,7 @@ from tinysoul.llm.message_rendering import (
 )
 from tinysoul.llm.messages import Message
 from tinysoul.llm.models import ModelCapability
-from tinysoul.llm.reasoning import Reasoning
+from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 from tinysoul.llm.responses import ModelResponse, ResponseContract
 from tinysoul.infra.json import JsonObject, to_json_object
 
@@ -228,11 +228,10 @@ def _to_responses_input(
             request.provider_options,
         ):
             items.append({key: value for key, value in reasoning_item.items()})
-        role = _responses_role(message)
         rendered = renderer.render(message.parts)
         items.append(
             {
-                "role": role,
+                "role": _responses_role(message),
                 "content": _to_responses_content(rendered),
             }
         )
@@ -303,12 +302,31 @@ def _to_chat_part(part: RenderedContentPart) -> dict[str, object]:
 
 
 def _responses_role(message: Message) -> str:
-    if message.reasoning is not None and message.reasoning.content is not None:
+    return message.role.value
+
+
+def provider_reasoning_keep(
+    options: Mapping[str, object] | None,
+    *,
+    provider: str,
+) -> ReasoningKeep:
+    if options is None:
+        return ReasoningKeep.NONE
+    value = options.get("reasoning_keep")
+    if value is None:
+        return ReasoningKeep.NONE
+    if not isinstance(value, str):
         raise ProviderError(
-            "OpenAI Responses input does not accept text reasoning content",
+            f"{provider} reasoning_keep must be a string",
             kind=ProviderErrorKind.CONFIG,
         )
-    return message.role.value
+    try:
+        return ReasoningKeep(value)
+    except ValueError as exc:
+        raise ProviderError(
+            f"{provider} reasoning_keep must be 'none', 'content', or 'encrypted'",
+            kind=ProviderErrorKind.CONFIG,
+        ) from exc
 
 
 def _image_data_url(part: RenderedImage) -> str:

@@ -13,6 +13,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
+    provider_reasoning_keep,
 )
 
 
@@ -24,7 +25,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if _reasoning_keep(options) is not ReasoningKeep.CONTENT:
+        if provider_reasoning_keep(options, provider="Kimi") is not ReasoningKeep.CONTENT:
             return None
         if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
             return None
@@ -44,7 +45,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                 thinking["type"] = _thinking_type(value)
                 continue
             if key == "reasoning_keep":
-                keep = _reasoning_keep(options)
+                keep = provider_reasoning_keep(options, provider="Kimi")
                 if keep is ReasoningKeep.CONTENT:
                     thinking["keep"] = "all"
                     continue
@@ -55,7 +56,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                     kind=ProviderErrorKind.CONFIG,
                 )
                 continue
-            if key in {"partial", "top_p"}:
+            if key == "top_p":
                 kwargs[key] = value
                 continue
             raise ProviderError(
@@ -99,16 +100,3 @@ def _thinking_type(value: object) -> str:
         )
     return str(value)
 
-
-def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
-    if options is None:
-        return ReasoningKeep.NONE
-    value = options.get("reasoning_keep")
-    if value is None:
-        return ReasoningKeep.NONE
-    if isinstance(value, str):
-        return ReasoningKeep(value)
-    raise ProviderError(
-        "Kimi reasoning_keep must be a string",
-        kind=ProviderErrorKind.CONFIG,
-    )

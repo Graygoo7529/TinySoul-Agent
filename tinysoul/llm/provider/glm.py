@@ -13,6 +13,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
+    provider_reasoning_keep,
 )
 
 
@@ -24,7 +25,7 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if _reasoning_keep(options) is not ReasoningKeep.CONTENT:
+        if provider_reasoning_keep(options, provider="GLM") is not ReasoningKeep.CONTENT:
             return None
         if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
             return None
@@ -64,7 +65,7 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
                 kind=ProviderErrorKind.CONFIG,
             )
 
-        keep = _reasoning_keep(options)
+        keep = provider_reasoning_keep(options, provider="GLM")
         if keep is ReasoningKeep.ENCRYPTED:
             raise ProviderError(
                 "GLM does not support encrypted reasoning keep",
@@ -133,20 +134,6 @@ def _thinking_option(value: object) -> dict[str, object]:
         return result
     raise ProviderError(
         "GLM thinking must be a string or table",
-        kind=ProviderErrorKind.CONFIG,
-    )
-
-
-def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
-    if options is None:
-        return ReasoningKeep.NONE
-    value = options.get("reasoning_keep")
-    if value is None:
-        return ReasoningKeep.NONE
-    if isinstance(value, str):
-        return ReasoningKeep(value)
-    raise ProviderError(
-        "GLM reasoning_keep must be a string",
         kind=ProviderErrorKind.CONFIG,
     )
 

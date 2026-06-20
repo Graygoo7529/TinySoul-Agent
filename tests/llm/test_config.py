@@ -34,6 +34,7 @@ def test_llm_config_parses_project_config_files() -> None:
         "prompt_cache_retention": "24h",
         "verbosity": "medium",
         "reasoning_effort": "high",
+        "reasoning_summary": "auto",
     }
 
     kimi_model = config.models.get("kimi_k2_7")
