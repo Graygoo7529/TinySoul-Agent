@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.messages import ImagePart, ImageUrlPart, Message, MessageRole, MessageStack
 from tinysoul.llm.model_chain import (
@@ -18,7 +19,12 @@ from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, Provi
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import CallSettings, TaskCall
-from tinysoul.llm.responses import ModelResponse, ResponseContract
+from tinysoul.llm.responses import (
+    JsonObjectTaskOutput,
+    ModelResponse,
+    ResponseContract,
+    TaskResult,
+)
 from tinysoul.llm.task import (
     LLMTaskError,
     LLMTaskRunner,
@@ -81,7 +87,7 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
 
     result = runner.run(call)
 
-    assert result.json_object == {"model": "c"}
+    assert _json_output(result) == {"model": "c"}
     assert provider.calls == ["b", "c"]
 
 
@@ -145,9 +151,9 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     clock.current = 6.0
     third = runner.run(call)
 
-    assert first.json_object == {"model": "c"}
-    assert second.json_object == {"model": "c"}
-    assert third.json_object == {"model": "a"}
+    assert _json_output(first) == {"model": "c"}
+    assert _json_output(second) == {"model": "c"}
+    assert _json_output(third) == {"model": "a"}
     assert provider.calls == ["a", "b", "c", "c", "a"]
 
 
@@ -172,7 +178,7 @@ def test_runner_retries_transient_error_on_same_model() -> None:
         )
     )
 
-    assert result.json_object == {"model": "a"}
+    assert _json_output(result) == {"model": "a"}
     assert provider.calls == ["a", "a"]
 
 
@@ -283,7 +289,7 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
         )
     )
 
-    assert result.json_object == {"model": "a"}
+    assert _json_output(result) == {"model": "a"}
 
 
 def test_json_object_contract_does_not_require_native_json_capability() -> None:
@@ -307,7 +313,7 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
         )
     )
 
-    assert result.json_object == {"model": "a"}
+    assert _json_output(result) == {"model": "a"}
 
 
 def test_runner_rejects_missing_image_capability() -> None:
@@ -444,4 +450,10 @@ def _tasks(chain: ModelChain) -> TaskSpecTable:
             )
         ]
     )
+
+
+def _json_output(result: TaskResult) -> JsonObject:
+    if not isinstance(result.output, JsonObjectTaskOutput):
+        raise AssertionError("Expected JSON object task output")
+    return result.output.value
 

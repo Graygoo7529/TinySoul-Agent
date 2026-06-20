@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 import pytest
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import (
@@ -164,7 +165,7 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
 
 
 def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
-    encrypted_item = {
+    encrypted_item: JsonObject = {
         "id": "rs_1",
         "type": "reasoning",
         "summary": [{"type": "summary_text", "text": "summary"}],
@@ -198,7 +199,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
 
 
 def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
-    encrypted_item = {
+    encrypted_item: JsonObject = {
         "id": "rs_1",
         "type": "reasoning",
         "summary": [],
@@ -248,7 +249,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
 
 
 def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> None:
-    encrypted_item = {
+    encrypted_item: JsonObject = {
         "type": "reasoning",
         "encrypted_content": "encrypted-state",
     }

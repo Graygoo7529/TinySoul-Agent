@@ -32,11 +32,28 @@ class ModelResponse:
 
 
 @dataclass(frozen=True)
+class TextTaskOutput:
+    """Interpreted text task output."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class JsonObjectTaskOutput:
+    """Interpreted JSON object task output."""
+
+    value: JsonObject
+
+
+TaskOutput = TextTaskOutput | JsonObjectTaskOutput
+
+
+@dataclass(frozen=True)
 class TaskResult:
     """Interpreted task result."""
 
     response: ModelResponse
-    json_object: JsonObject | None = None
+    output: TaskOutput
 
 
 class ResponseInterpretError(Exception):
@@ -52,11 +69,14 @@ class ResponseInterpreter:
         contract: ResponseContract,
     ) -> TaskResult:
         if contract is ResponseContract.TEXT:
-            return TaskResult(response=response)
+            return TaskResult(
+                response=response,
+                output=TextTaskOutput(response.answer),
+            )
         if contract is ResponseContract.JSON_OBJECT:
             return TaskResult(
                 response=response,
-                json_object=self._parse_json_object(response.answer),
+                output=JsonObjectTaskOutput(self._parse_json_object(response.answer)),
             )
         raise ResponseInterpretError(f"Unsupported response contract: {contract}")
 
