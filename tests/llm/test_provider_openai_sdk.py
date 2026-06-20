@@ -257,6 +257,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert response.answer == '{"ok": true}'
     assert response.reasoning is not None
     assert response.reasoning.content == "thinking"
+    assert response.reasoning.summary == "thinking"
 
 
 def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
@@ -292,7 +293,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             ),
             response_contract=ResponseContract.JSON_OBJECT,
             temperature=0.7,
-            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+            provider_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
         )
     )
 
@@ -307,10 +308,45 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     assert "prompt_cache_key" not in call
     assert response.reasoning is not None
     assert response.reasoning.content == "reasoning"
+    assert response.reasoning.summary == "reasoning"
     assert response.usage == {
         "prompt_cache_hit_tokens": 8,
         "prompt_cache_miss_tokens": 2,
     }
+
+
+def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+    message = SimpleNamespace(content="ok", reasoning_content="reasoning")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="deepseek", provider_model="deepseek-v4-pro"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning="reasoning trace",
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {"role": "assistant", "content": "previous answer"}
+    ]
 
 
 def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
@@ -362,6 +398,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     assert "max_completion_tokens" not in call
     assert response.reasoning is not None
     assert response.reasoning.content == "reasoning"
+    assert response.reasoning.summary == "reasoning"
     assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
 
 

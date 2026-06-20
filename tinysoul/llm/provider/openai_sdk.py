@@ -65,7 +65,7 @@ class OpenAIAdapterBehavior:
         content = _chat_reasoning_content(message)
         if content is None:
             return None
-        return Reasoning(content=content)
+        return Reasoning(content=content, summary=content)
 
     def responses_reasoning(self, response: object) -> Reasoning | None:
         summary = _responses_reasoning_summary(response)

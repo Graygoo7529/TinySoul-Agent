@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.reasoning import ReasoningKeep
 
 from .base import ProviderError, ProviderErrorKind
 from .openai_sdk import (
@@ -23,6 +24,8 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
+        if _reasoning_keep(options) is not ReasoningKeep.CONTENT:
+            return None
         if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
             return None
         return message.reasoning.content
@@ -38,6 +41,14 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         thinking_enabled = False
 
         for key, value in options.items():
+            if key == "reasoning_keep":
+                keep = _reasoning_keep(options)
+                if keep is ReasoningKeep.ENCRYPTED:
+                    raise ProviderError(
+                        "DeepSeek does not support encrypted reasoning keep",
+                        kind=ProviderErrorKind.CONFIG,
+                    )
+                continue
             if key == "thinking":
                 thinking = _thinking_option(value)
                 extra_body["thinking"] = thinking
@@ -115,3 +126,17 @@ def _reasoning_effort(value: object) -> str:
             kind=ProviderErrorKind.CONFIG,
         )
     return str(value)
+
+
+def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
+    if options is None:
+        return ReasoningKeep.NONE
+    value = options.get("reasoning_keep")
+    if value is None:
+        return ReasoningKeep.NONE
+    if isinstance(value, str):
+        return ReasoningKeep(value)
+    raise ProviderError(
+        "DeepSeek reasoning_keep must be a string",
+        kind=ProviderErrorKind.CONFIG,
+    )
