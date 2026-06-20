@@ -28,6 +28,7 @@ from tinysoul.llm.provider.openai_sdk import (
     OpenAICompatibleChatAdapter,
     OpenAIResponsesAdapter,
 )
+from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.responses import ResponseContract
 
 
@@ -66,6 +67,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 options={
                     "prompt_cache_retention": "24h",
                     "reasoning_effort": "high",
+                    "reasoning_keep": "encrypted",
                     "verbosity": "medium",
                 },
             ),
@@ -84,6 +86,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             provider_options={
                 "prompt_cache_retention": "24h",
                 "reasoning_effort": "high",
+                "reasoning_keep": "encrypted",
                 "verbosity": "medium",
             },
         )
@@ -96,6 +99,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
     assert call["prompt_cache_key"] == "stable-prefix"
     assert call["prompt_cache_retention"] == "24h"
     assert call["reasoning"] == {"effort": "high"}
+    assert call["include"] == ["reasoning.encrypted_content"]
     assert call["text"] == {
         "format": {"type": "json_object"},
         "verbosity": "medium",
@@ -155,6 +159,151 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
 
     assert response.reasoning is not None
     assert response.reasoning.summary == "summary\ndetail"
+
+
+def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
+    encrypted_item = {
+        "id": "rs_1",
+        "type": "reasoning",
+        "summary": [{"type": "summary_text", "text": "summary"}],
+        "encrypted_content": "encrypted-state",
+    }
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="done",
+            output=[encrypted_item],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert response.reasoning is not None
+    assert response.reasoning.summary == "summary"
+    assert response.reasoning.content is None
+    assert response.reasoning.encrypted_items == (encrypted_item,)
+
+
+def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
+    encrypted_item = {
+        "id": "rs_1",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "encrypted-state",
+    }
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="ok",
+            output=[],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning=Reasoning(encrypted_items=(encrypted_item,)),
+                ),
+                Message.from_text(MessageRole.USER, "continue"),
+            ),
+            response_contract=ResponseContract.TEXT,
+            provider_options={"reasoning_keep": "encrypted"},
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        encrypted_item,
+        {
+            "role": "assistant",
+            "content": [{"type": "input_text", "text": "previous answer"}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "continue"}],
+        },
+    ]
+    assert client.calls[0]["include"] == ["reasoning.encrypted_content"]
+
+
+def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> None:
+    encrypted_item = {
+        "type": "reasoning",
+        "encrypted_content": "encrypted-state",
+    }
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="ok",
+            output=[],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    "previous answer",
+                    reasoning=Reasoning(encrypted_items=(encrypted_item,)),
+                )
+            ),
+            response_contract=ResponseContract.TEXT,
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "assistant",
+            "content": [{"type": "input_text", "text": "previous answer"}],
+        }
+    ]
+    assert "include" not in client.calls[0]
+
+
+def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                response_contract=ResponseContract.TEXT,
+                provider_options={"reasoning_keep": "content"},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
 def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:

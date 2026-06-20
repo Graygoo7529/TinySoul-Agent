@@ -20,6 +20,7 @@ from tinysoul.llm.messages import Message
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.responses import ModelResponse, ResponseContract
+from tinysoul.infra.json import JsonObject, to_json_object
 
 from .base import ProviderError, ProviderErrorKind, ProviderRequest
 
@@ -61,24 +62,32 @@ class OpenAIAdapterBehavior:
             kind=ProviderErrorKind.CONFIG,
         )
 
-    def chat_reasoning(self, message: object) -> Reasoning | None:
+    def chat_output_reasoning(self, message: object) -> Reasoning | None:
         content = _chat_reasoning_content(message)
         if content is None:
             return None
         return Reasoning(content=content, summary=content)
 
-    def responses_reasoning(self, response: object) -> Reasoning | None:
+    def responses_output_reasoning(self, response: object) -> Reasoning | None:
         summary = _responses_reasoning_summary(response)
-        if summary is None:
+        encrypted_items = _responses_encrypted_reasoning_items(response)
+        if summary is None and not encrypted_items:
             return None
-        return Reasoning(summary=summary)
+        return Reasoning(summary=summary, encrypted_items=encrypted_items)
 
-    def chat_message_reasoning_content(
+    def chat_input_reasoning(
         self,
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
         return None
+
+    def responses_input_reasoning(
+        self,
+        message: Message,
+        options: Mapping[str, object] | None,
+    ) -> tuple[JsonObject, ...]:
+        return ()
 
 
 class OpenAIResponsesAdapter:
@@ -108,7 +117,11 @@ class OpenAIResponsesAdapter:
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         kwargs = _common_create_kwargs(request)
-        kwargs["input"] = _to_responses_input(request, renderer=self._renderer)
+        kwargs["input"] = _to_responses_input(
+            request,
+            behavior=self._behavior,
+            renderer=self._renderer,
+        )
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
         self._behavior.apply_options(kwargs, request.provider_options)
@@ -122,7 +135,7 @@ class OpenAIResponsesAdapter:
             answer=_responses_text(response),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning=self._behavior.responses_reasoning(response),
+            reasoning=self._behavior.responses_output_reasoning(response),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
@@ -177,7 +190,7 @@ class OpenAICompatibleChatAdapter:
             answer=_message_text(message),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            reasoning=self._behavior.chat_reasoning(message),
+            reasoning=self._behavior.chat_output_reasoning(message),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
         )
@@ -205,10 +218,16 @@ def _uses_native_json_output(request: ProviderRequest) -> bool:
 def _to_responses_input(
     request: ProviderRequest,
     *,
+    behavior: OpenAIAdapterBehavior,
     renderer: MessageContentRenderer,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for message in request.messages.messages:
+        for reasoning_item in behavior.responses_input_reasoning(
+            message,
+            request.provider_options,
+        ):
+            items.append({key: value for key, value in reasoning_item.items()})
         role = _responses_role(message)
         rendered = renderer.render(message.parts)
         items.append(
@@ -233,7 +252,7 @@ def _to_chat_messages(
             "role": message.role.value,
             "content": _to_chat_content(rendered),
         }
-        reasoning_content = behavior.chat_message_reasoning_content(
+        reasoning_content = behavior.chat_input_reasoning(
             message,
             request.provider_options,
         )
@@ -284,9 +303,9 @@ def _to_chat_part(part: RenderedContentPart) -> dict[str, object]:
 
 
 def _responses_role(message: Message) -> str:
-    if message.reasoning is not None:
+    if message.reasoning is not None and message.reasoning.content is not None:
         raise ProviderError(
-            "OpenAI Responses input does not accept TinySoul message reasoning",
+            "OpenAI Responses input does not accept text reasoning content",
             kind=ProviderErrorKind.CONFIG,
         )
     return message.role.value
@@ -343,6 +362,20 @@ def _responses_reasoning_summary(response: object) -> str | None:
         _append_text_parts(texts, _get_attr(item, "summary"))
         _append_text_parts(texts, _get_attr(item, "content"))
     return "\n".join(texts) if texts else None
+
+
+def _responses_encrypted_reasoning_items(response: object) -> tuple[JsonObject, ...]:
+    output = _get_attr(response, "output")
+    if not isinstance(output, list):
+        return ()
+    items: list[JsonObject] = []
+    for item in output:
+        item_type = _get_attr(item, "type")
+        encrypted_content = _get_attr(item, "encrypted_content")
+        if item_type != "reasoning" or not isinstance(encrypted_content, str):
+            continue
+        items.append(to_json_object(_model_dump_mapping(item)))
+    return tuple(items)
 
 
 def _append_text_parts(texts: list[str], value: object) -> None:

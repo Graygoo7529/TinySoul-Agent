@@ -19,7 +19,7 @@ from .openai_sdk import (
 class KimiProviderBehavior(OpenAIAdapterBehavior):
     """Kimi-specific option mapping."""
 
-    def chat_message_reasoning_content(
+    def chat_input_reasoning(
         self,
         message: Message,
         options: Mapping[str, object] | None,

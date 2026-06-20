@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.messages import Message
+from tinysoul.llm.reasoning import ReasoningKeep
 
 from .base import ProviderError, ProviderErrorKind
 from .openai_sdk import (
@@ -17,6 +20,29 @@ from .openai_sdk import (
 class OpenAIProviderBehavior(OpenAIAdapterBehavior):
     """OpenAI Responses option mapping."""
 
+    def responses_input_reasoning(
+        self,
+        message: Message,
+        options: Mapping[str, object] | None,
+    ) -> tuple[JsonObject, ...]:
+        reasoning = message.reasoning
+        if reasoning is None:
+            return ()
+        if reasoning.content is not None:
+            raise ProviderError(
+                "OpenAI does not support text reasoning content input",
+                kind=ProviderErrorKind.CONFIG,
+            )
+        keep = _reasoning_keep(options)
+        if keep is ReasoningKeep.NONE:
+            return ()
+        if keep is ReasoningKeep.ENCRYPTED:
+            return reasoning.encrypted_items
+        raise ProviderError(
+            "OpenAI does not support text reasoning keep",
+            kind=ProviderErrorKind.CONFIG,
+        )
+
     def apply_options(
         self,
         kwargs: dict[str, object],
@@ -26,7 +52,23 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
             return
         for key, value in options.items():
             if key == "reasoning_effort":
-                kwargs["reasoning"] = {"effort": _string_option(value, key=key)}
+                _merge_reasoning_option(
+                    kwargs,
+                    "effort",
+                    _string_option(value, key=key),
+                )
+                continue
+            if key == "reasoning_keep":
+                keep = _reasoning_keep(options)
+                if keep is ReasoningKeep.ENCRYPTED:
+                    _merge_include(kwargs, "reasoning.encrypted_content")
+                    continue
+                if keep is ReasoningKeep.NONE:
+                    continue
+                raise ProviderError(
+                    "OpenAI does not support text reasoning keep",
+                    kind=ProviderErrorKind.CONFIG,
+                )
                 continue
             if key == "verbosity":
                 _merge_text_option(kwargs, "verbosity", _string_option(value, key=key))
@@ -69,6 +111,45 @@ class OpenAIProviderAdapter(OpenAIResponsesAdapter):
         )
 
 
+def _reasoning_keep(options: Mapping[str, object] | None) -> ReasoningKeep:
+    if options is None:
+        return ReasoningKeep.NONE
+    value = options.get("reasoning_keep")
+    if value is None:
+        return ReasoningKeep.NONE
+    if isinstance(value, str):
+        try:
+            return ReasoningKeep(value)
+        except ValueError as exc:
+            raise ProviderError(
+                "OpenAI reasoning_keep must be 'none', 'content', or 'encrypted'",
+                kind=ProviderErrorKind.CONFIG,
+            ) from exc
+    raise ProviderError(
+        "OpenAI reasoning_keep must be a string",
+        kind=ProviderErrorKind.CONFIG,
+    )
+
+
+def _merge_reasoning_option(
+    kwargs: dict[str, object],
+    key: str,
+    value: object,
+) -> None:
+    reasoning = kwargs.get("reasoning")
+    if reasoning is None:
+        kwargs["reasoning"] = {key: value}
+        return
+    if not isinstance(reasoning, Mapping):
+        raise ProviderError(
+            "OpenAI reasoning option cannot be merged",
+            kind=ProviderErrorKind.CONFIG,
+        )
+    merged = {str(item_key): item for item_key, item in reasoning.items()}
+    merged[key] = value
+    kwargs["reasoning"] = merged
+
+
 def _merge_text_option(kwargs: dict[str, object], key: str, value: object) -> None:
     text = kwargs.get("text")
     if text is None:
@@ -82,6 +163,22 @@ def _merge_text_option(kwargs: dict[str, object], key: str, value: object) -> No
     merged = {str(item_key): item for item_key, item in text.items()}
     merged[key] = value
     kwargs["text"] = merged
+
+
+def _merge_include(kwargs: dict[str, object], value: str) -> None:
+    include = kwargs.get("include")
+    if include is None:
+        kwargs["include"] = [value]
+        return
+    if not isinstance(include, list) or not all(
+        isinstance(item, str) for item in include
+    ):
+        raise ProviderError(
+            "OpenAI include option cannot be merged",
+            kind=ProviderErrorKind.CONFIG,
+        )
+    if value not in include:
+        kwargs["include"] = [*include, value]
 
 
 def _string_option(value: object, *, key: str) -> str:
