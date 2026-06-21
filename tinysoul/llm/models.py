@@ -21,6 +21,14 @@ class ModelCapability(StrEnum):
 
 
 @dataclass(frozen=True)
+class ProviderRequestOverrides:
+    """Model-level overrides for provider-neutral request settings."""
+
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
 class ProviderOptions:
     """Provider-specific model options."""
 
@@ -33,6 +41,52 @@ class ProviderOptions:
         if isinstance(value, str):
             return ReasoningKeep(value)
         raise TypeError("reasoning_keep must be a string")
+
+    def request_overrides(self) -> ProviderRequestOverrides:
+        value = self.values.get("request_overrides")
+        if value is None:
+            return ProviderRequestOverrides()
+        if not isinstance(value, Mapping):
+            raise TypeError("request_overrides must be a table")
+        items: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("request_overrides keys must be strings")
+            items[key] = item
+        known_keys = {"temperature", "max_output_tokens"}
+        unknown_keys = sorted(key for key in items if key not in known_keys)
+        if unknown_keys:
+            names = ", ".join(unknown_keys)
+            raise ValueError(f"Unsupported request_overrides keys: {names}")
+        return ProviderRequestOverrides(
+            temperature=_optional_float(items, "temperature"),
+            max_output_tokens=_optional_int(items, "max_output_tokens"),
+        )
+
+    def provider_values(self) -> dict[str, object]:
+        return {
+            str(key): value
+            for key, value in self.values.items()
+            if key != "request_overrides"
+        }
+
+
+def _optional_float(table: Mapping[str, object], key: str) -> float | None:
+    value = table.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{key} must be a number")
+    return float(value)
+
+
+def _optional_int(table: Mapping[str, object], key: str) -> int | None:
+    value = table.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{key} must be an integer")
+    return value
 
 
 @dataclass(frozen=True)

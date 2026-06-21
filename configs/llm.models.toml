@@ -32,6 +32,9 @@ capabilities = [
 reasoning_keep = "content"
 thinking = "enabled"
 
+[llm.models.kimi_k2_7.provider_options.request_overrides]
+temperature = 1.0
+
 [llm.models.deepseek_v4]
 provider = "deepseek"
 provider_model = "deepseek-v4-pro"

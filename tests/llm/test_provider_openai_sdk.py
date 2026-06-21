@@ -132,6 +132,46 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
+def test_openai_responses_adapter_applies_request_overrides() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text="ok", output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="openai",
+                provider_model="gpt-5.5",
+                options={
+                    "request_overrides": {
+                        "temperature": 1.0,
+                        "max_output_tokens": 128,
+                    }
+                },
+            ),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+            temperature=0.2,
+            max_output_tokens=256,
+            provider_options={
+                "request_overrides": {
+                    "temperature": 1.0,
+                    "max_output_tokens": 128,
+                }
+            },
+        )
+    )
+
+    call = client.calls[0]
+    assert call["temperature"] == pytest.approx(1.0)
+    assert call["max_output_tokens"] == 128
+
+
 def test_openai_responses_adapter_extracts_reasoning_content() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -406,13 +446,19 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
             ),
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=PromptCache("kimi-prefix"),
+            temperature=0.2,
             max_output_tokens=128,
-            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
+            provider_options={
+                "thinking": "enabled",
+                "reasoning_keep": "content",
+                "request_overrides": {"temperature": 1.0},
+            },
         )
     )
 
     call = client.calls[0]
     assert call["model"] == "kimi-k2.7-code"
+    assert call["temperature"] == pytest.approx(1.0)
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
         {
@@ -738,6 +784,26 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
                 messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"partial": True},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_adapter_rejects_invalid_request_override_value() -> None:
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                response_contract=ResponseContract.TEXT,
+                provider_options={"request_overrides": {"temperature": True}},
             )
         )
 

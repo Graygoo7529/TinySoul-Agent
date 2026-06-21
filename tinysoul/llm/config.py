@@ -355,7 +355,16 @@ def _optional_provider_options(
             value=value,
             expected="table",
         )
-    return ProviderOptions(cast(Mapping[str, object], value))
+    options = ProviderOptions(cast(Mapping[str, object], value))
+    try:
+        options.request_overrides()
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            str(exc),
+            key=f"{key}.provider_options.request_overrides",
+            value=value,
+        ) from exc
+    return options
 
 
 def _optional_capability_set(

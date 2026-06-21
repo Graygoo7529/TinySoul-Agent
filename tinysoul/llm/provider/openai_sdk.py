@@ -17,7 +17,7 @@ from tinysoul.llm.message_rendering import (
     RenderedText,
 )
 from tinysoul.llm.messages import Message
-from tinysoul.llm.models import ModelCapability
+from tinysoul.llm.models import ModelCapability, ProviderOptions, ProviderRequestOverrides
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 from tinysoul.llm.responses import ModelResponse, ResponseContract
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -116,6 +116,7 @@ class OpenAIResponsesAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
+        provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
         kwargs["input"] = _to_responses_input(
             request,
@@ -124,7 +125,7 @@ class OpenAIResponsesAdapter:
         )
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
-        self._behavior.apply_options(kwargs, request.provider_options)
+        self._behavior.apply_options(kwargs, provider_options)
 
         try:
             response = self._client.create(**kwargs)
@@ -167,18 +168,19 @@ class OpenAICompatibleChatAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> ModelResponse:
+        provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
         kwargs["messages"] = _to_chat_messages(
             request,
             behavior=self._behavior,
             renderer=self._renderer,
         )
-        if request.max_output_tokens is not None:
-            kwargs.pop("max_output_tokens", None)
-            kwargs["max_completion_tokens"] = request.max_output_tokens
+        max_output_tokens = kwargs.pop("max_output_tokens", None)
+        if max_output_tokens is not None:
+            kwargs["max_completion_tokens"] = max_output_tokens
         if _uses_native_json_output(request):
             kwargs["response_format"] = {"type": "json_object"}
-        self._behavior.apply_options(kwargs, request.provider_options)
+        self._behavior.apply_options(kwargs, provider_options)
 
         try:
             response = self._client.create(**kwargs)
@@ -197,16 +199,61 @@ class OpenAICompatibleChatAdapter:
 
 
 def _common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
+    overrides = _request_overrides(request.provider_options)
     kwargs: dict[str, object] = {"model": request.model.provider_model}
-    if request.temperature is not None:
-        kwargs["temperature"] = request.temperature
-    if request.max_output_tokens is not None:
-        kwargs["max_output_tokens"] = request.max_output_tokens
+    temperature = _effective_temperature(request, overrides=overrides)
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    max_output_tokens = _effective_max_output_tokens(request, overrides=overrides)
+    if max_output_tokens is not None:
+        kwargs["max_output_tokens"] = max_output_tokens
     if request.prompt_cache is not None and request.model.supports(
         ModelCapability.PROMPT_CACHE
     ):
         kwargs["prompt_cache_key"] = request.prompt_cache.key
     return kwargs
+
+
+def _effective_temperature(
+    request: ProviderRequest,
+    *,
+    overrides: ProviderRequestOverrides | None = None,
+) -> float | None:
+    resolved = overrides or _request_overrides(request.provider_options)
+    return (
+        resolved.temperature
+        if resolved.temperature is not None
+        else request.temperature
+    )
+
+
+def _effective_max_output_tokens(
+    request: ProviderRequest,
+    *,
+    overrides: ProviderRequestOverrides | None = None,
+) -> int | None:
+    resolved = overrides or _request_overrides(request.provider_options)
+    return (
+        resolved.max_output_tokens
+        if resolved.max_output_tokens is not None
+        else request.max_output_tokens
+    )
+
+
+def _request_overrides(
+    options: Mapping[str, object] | None,
+) -> ProviderRequestOverrides:
+    try:
+        return ProviderOptions(options or {}).request_overrides()
+    except (TypeError, ValueError) as exc:
+        raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
+
+
+def _provider_options(options: Mapping[str, object] | None) -> dict[str, object]:
+    try:
+        return ProviderOptions(options or {}).provider_values()
+    except (TypeError, ValueError) as exc:
+        raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
 
 
 def _uses_native_json_output(request: ProviderRequest) -> bool:

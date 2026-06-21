@@ -46,7 +46,14 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.provider_options.values == {
         "reasoning_keep": "content",
         "thinking": "enabled",
+        "request_overrides": {
+            "temperature": 1.0,
+        },
     }
+    assert kimi_model.provider_options.request_overrides().temperature == pytest.approx(
+        1.0
+    )
+    assert kimi_model.provider_options.request_overrides().max_output_tokens is None
 
     deepseek_model = config.models.get("deepseek_v4")
     assert deepseek_model.provider_id == "deepseek"
@@ -197,6 +204,36 @@ def test_provider_options_rejects_unknown_reasoning_keep() -> None:
 
     with pytest.raises(ValueError):
         config.models.get("kimi_k2_7").provider_options.reasoning_keep()
+
+
+def test_llm_config_rejects_invalid_request_override() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "kimi_k2_7": {
+                "provider": "kimi",
+                "provider_model": "kimi-k2.7-code",
+                "capabilities": ["text_input"],
+                "provider_options": {
+                    "request_overrides": {"temperature": True},
+                },
+            }
+        },
+        "tasks": {
+            "framework": {
+                "models": ["kimi_k2_7"],
+            }
+        },
+    }
+
+    with pytest.raises(ConfigError):
+        LLMConfigParser().parse(tree)
 
 
 def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:
