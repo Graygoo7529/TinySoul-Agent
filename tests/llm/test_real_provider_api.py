@@ -49,6 +49,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         _first_user_message(model),
     )
     prompt_cache = PromptCache(key=f"real-api:{model.id}:stable-context")
+    max_output_tokens = _test_max_output_tokens(model)
     _print_run_header(model, provider)
 
     first_response = adapter.invoke(
@@ -58,7 +59,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=prompt_cache,
             temperature=0.2,
-            max_output_tokens=512,
+            max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
         )
     )
@@ -101,7 +102,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=prompt_cache,
             temperature=0.2,
-            max_output_tokens=512,
+            max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
         )
     )
@@ -147,6 +148,12 @@ def _first_user_message(model: ModelSpec) -> Message:
             payload,
         )
     return Message.from_parts(MessageRole.USER, text, payload)
+
+
+def _test_max_output_tokens(model: ModelSpec) -> int:
+    if model.provider_id == "glm":
+        return 2048
+    return 512
 
 
 def _sample_png() -> bytes:
