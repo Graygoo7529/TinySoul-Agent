@@ -278,7 +278,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
         encrypted_item,
         {
             "role": "assistant",
-            "content": [{"type": "input_text", "text": "previous answer"}],
+            "content": [{"type": "output_text", "text": "previous answer"}],
         },
         {
             "role": "user",
@@ -323,7 +323,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
     assert client.calls[0]["input"] == [
         {
             "role": "assistant",
-            "content": [{"type": "input_text", "text": "previous answer"}],
+            "content": [{"type": "output_text", "text": "previous answer"}],
         }
     ]
     assert "include" not in client.calls[0]

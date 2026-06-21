@@ -16,7 +16,7 @@ from tinysoul.llm.message_rendering import (
     RenderedImageUrl,
     RenderedText,
 )
-from tinysoul.llm.messages import Message
+from tinysoul.llm.messages import Message, MessageRole
 from tinysoul.llm.models import ModelCapability, ProviderOptions, ProviderRequestOverrides
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 from tinysoul.llm.responses import ModelResponse, ResponseContract
@@ -279,7 +279,7 @@ def _to_responses_input(
         items.append(
             {
                 "role": _responses_role(message),
-                "content": _to_responses_content(rendered),
+                "content": _to_responses_content(rendered, role=message.role),
             }
         )
     return items
@@ -318,15 +318,21 @@ def _to_chat_content(
 
 def _to_responses_content(
     rendered: str | tuple[RenderedContentPart, ...],
+    *,
+    role: MessageRole,
 ) -> list[dict[str, object]]:
     if isinstance(rendered, str):
-        return [{"type": "input_text", "text": rendered}]
-    return [_to_responses_part(part) for part in rendered]
+        return [{"type": _responses_text_type(role), "text": rendered}]
+    return [_to_responses_part(part, role=role) for part in rendered]
 
 
-def _to_responses_part(part: RenderedContentPart) -> dict[str, object]:
+def _to_responses_part(
+    part: RenderedContentPart,
+    *,
+    role: MessageRole,
+) -> dict[str, object]:
     if isinstance(part, RenderedText):
-        return {"type": "input_text", "text": part.text}
+        return {"type": _responses_text_type(role), "text": part.text}
     if isinstance(part, RenderedImageUrl):
         return {
             "type": "input_image",
@@ -338,6 +344,12 @@ def _to_responses_part(part: RenderedContentPart) -> dict[str, object]:
         "image_url": _image_data_url(part),
         "detail": "auto",
     }
+
+
+def _responses_text_type(role: MessageRole) -> str:
+    if role is MessageRole.ASSISTANT:
+        return "output_text"
+    return "input_text"
 
 
 def _to_chat_part(part: RenderedContentPart) -> dict[str, object]:
