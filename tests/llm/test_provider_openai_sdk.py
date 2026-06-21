@@ -24,6 +24,7 @@ from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.provider.glm import GlmProviderAdapter
 from tinysoul.llm.provider.kimi import KimiProviderAdapter
+from tinysoul.llm.provider.minimax import MiniMaxProviderAdapter
 from tinysoul.llm.provider.open_ai import OpenAIProviderAdapter
 from tinysoul.llm.provider.openai_sdk import (
     OpenAICompatibleChatAdapter,
@@ -718,6 +719,111 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
     assert client.calls[0]["reasoning_effort"] == "max"
 
 
+def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
+    message = SimpleNamespace(
+        content='{"ok": true}',
+        reasoning_content="reasoning",
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={"prompt_tokens": 10, "completion_tokens": 4},
+            id="chat_4",
+            model="MiniMax-M3",
+        )
+    )
+    adapter = MiniMaxProviderAdapter(
+        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=ModelSpec(
+                id="minimax_m3",
+                provider_id="minimax",
+                provider_model="MiniMax-M3",
+                capabilities=frozenset(
+                    {
+                        ModelCapability.TEXT_INPUT,
+                        ModelCapability.IMAGE_INPUT,
+                        ModelCapability.IMAGE_REMOTE_URL,
+                        ModelCapability.REASONING_OUTPUT,
+                    }
+                ),
+            ),
+            messages=MessageStack.of(
+                Message.from_text(MessageRole.USER, "json please"),
+                Message.from_text(
+                    MessageRole.ASSISTANT,
+                    '{"plan": "continue"}',
+                    reasoning="reasoning trace",
+                ),
+            ),
+            response_contract=ResponseContract.JSON_OBJECT,
+            max_output_tokens=128,
+            provider_options={
+                "thinking": "adaptive",
+                "reasoning_split": True,
+                "reasoning_keep": "content",
+            },
+        )
+    )
+
+    call = client.calls[0]
+    assert call["model"] == "MiniMax-M3"
+    messages = _message_payloads(call["messages"])
+    assert messages[1]["reasoning_content"] == "reasoning trace"
+    assert call["max_completion_tokens"] == 128
+    assert "response_format" not in call
+    assert call["extra_body"] == {
+        "thinking": {"type": "adaptive"},
+        "reasoning_split": True,
+    }
+    assert response.answer == '{"ok": true}'
+    assert response.reasoning is not None
+    assert response.reasoning.content == "reasoning"
+    assert response.reasoning.summary == "reasoning"
+
+
+def test_minimax_adapter_extracts_reasoning_details() -> None:
+    message = SimpleNamespace(
+        content="ok",
+        reasoning_details=[
+            {"text": "step 1"},
+            SimpleNamespace(text="step 2"),
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = MiniMaxProviderAdapter(
+        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+            provider_options={
+                "thinking": "adaptive",
+                "reasoning_split": True,
+            },
+        )
+    )
+
+    assert response.reasoning is not None
+    assert response.reasoning.content == "step 1\nstep 2"
+    assert response.reasoning.summary == "step 1\nstep 2"
+
+
 def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> None:
     for adapter, provider_id, provider_model in (
         (
@@ -746,6 +852,15 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
             ),
             "glm",
             "glm-5.1",
+        ),
+        (
+            MiniMaxProviderAdapter(
+                provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+                api_key="key",
+                completions=FakeCreateClient(response=object()),
+            ),
+            "minimax",
+            "MiniMax-M3",
         ),
     ):
         with pytest.raises(ProviderError) as exc:
@@ -1051,6 +1166,22 @@ def test_build_provider_registry_uses_glm_adapter() -> None:
     )
 
     assert registry.get("glm").provider_id == "glm"
+
+
+def test_build_provider_registry_uses_minimax_adapter() -> None:
+    registry = build_provider_registry(
+        (
+            ProviderSpec(
+                id="minimax",
+                api_style=ProviderApiStyle.OPENAI_CHAT,
+                base_url="https://api.minimaxi.com/v1",
+                api_key_envs=("MINIMAX_API_KEY",),
+            ),
+        ),
+        env={"MINIMAX_API_KEY": "minimax"},
+    )
+
+    assert registry.get("minimax").provider_id == "minimax"
 
 
 def test_provider_spec_reports_missing_api_key() -> None:

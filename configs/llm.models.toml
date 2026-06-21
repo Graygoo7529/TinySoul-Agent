@@ -67,6 +67,11 @@ provider_model = "MiniMax-M3"
 capabilities = [
   "text_input",
   "image_input",
-  "json_object_output",
+  "image_remote_url",
   "reasoning_output",
 ]
+
+[llm.models.minimax_m3.provider_options]
+reasoning_keep = "content"
+thinking = "adaptive"
+reasoning_split = true

@@ -21,5 +21,5 @@ api_key_envs = ["GLM_API_KEY", "ZHIPU_API_KEY"]
 
 [llm.providers.minimax]
 api_style = "openai_chat"
-base_url = "https://api.minimaxi.com"
+base_url = "https://api.minimaxi.com/v1"
 api_key_envs = ["MINIMAX_API_KEY"]

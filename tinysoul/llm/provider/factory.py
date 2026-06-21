@@ -10,6 +10,7 @@ from .base import ProviderAdapter, ProviderError, ProviderErrorKind
 from .deepseek import DeepSeekProviderAdapter
 from .glm import GlmProviderAdapter
 from .kimi import KimiProviderAdapter
+from .minimax import MiniMaxProviderAdapter
 from .open_ai import OpenAIProviderAdapter
 from .openai_sdk import OpenAICompatibleChatAdapter, OpenAIResponsesAdapter
 from .registry import ProviderRegistry
@@ -50,6 +51,14 @@ def build_provider_registry(
         if provider.id == "glm":
             adapters.append(
                 GlmProviderAdapter(
+                    provider=provider,
+                    api_key=api_key,
+                )
+            )
+            continue
+        if provider.id == "minimax":
+            adapters.append(
+                MiniMaxProviderAdapter(
                     provider=provider,
                     api_key=api_key,
                 )

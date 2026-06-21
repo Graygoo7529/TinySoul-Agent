@@ -73,6 +73,23 @@ def test_llm_config_parses_project_config_files() -> None:
         "thinking": "enabled",
     }
 
+    minimax_provider = config.provider("minimax")
+    assert minimax_provider.api_style is ProviderApiStyle.OPENAI_CHAT
+    assert minimax_provider.base_url == "https://api.minimaxi.com/v1"
+
+    minimax_model = config.models.get("minimax_m3")
+    assert minimax_model.provider_id == "minimax"
+    assert minimax_model.provider_model == "MiniMax-M3"
+    assert minimax_model.supports(ModelCapability.IMAGE_INPUT)
+    assert minimax_model.supports(ModelCapability.IMAGE_REMOTE_URL)
+    assert not minimax_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
+    assert minimax_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert minimax_model.provider_options.values == {
+        "reasoning_keep": "content",
+        "thinking": "adaptive",
+        "reasoning_split": True,
+    }
+
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
         "gpt_5_5",
