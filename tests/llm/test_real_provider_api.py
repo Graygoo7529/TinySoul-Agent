@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import base64
 import os
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -142,16 +143,34 @@ def _first_user_message(model: ModelSpec) -> Message:
         return Message.from_parts(
             MessageRole.USER,
             text,
-            ImagePart(data=_tiny_png(), mime_type="image/png"),
+            ImagePart(data=_sample_png(), mime_type="image/png"),
             payload,
         )
     return Message.from_parts(MessageRole.USER, text, payload)
 
 
-def _tiny_png() -> bytes:
-    return base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-        "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+def _sample_png() -> bytes:
+    width = 64
+    height = 64
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        for x in range(width):
+            rows.extend(((x * 4) % 256, (y * 4) % 256, 160))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(bytes(rows)))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
     )
 
 
