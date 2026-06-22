@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -73,6 +74,49 @@ def test_project_config_include_overrides_main_tree(local_tmp: Path) -> None:
 
     assert source.values["infra.runtime.max_turns"] == 20
     assert source.values["infra.runtime.timeout"] == 1.0
+
+
+def test_project_config_data_deep_copies_nested_list_items(local_tmp: Path) -> None:
+    (local_tmp / "tinysoul.toml").write_text(
+        """
+        [[infra.sources]]
+        name = "a"
+
+        [infra.sources.options]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+
+    config = ProjectConfig(local_tmp)
+
+    first = config.data
+    sources = first["infra"]
+    assert isinstance(sources, dict)
+    typed_sources = cast(dict[str, object], sources)
+    source_items = typed_sources["sources"]
+    assert isinstance(source_items, list)
+    item = source_items[0]
+    assert isinstance(item, dict)
+    typed_item = cast(dict[str, object], item)
+    options = typed_item["options"]
+    assert isinstance(options, dict)
+    typed_options = cast(dict[str, object], options)
+    typed_options["enabled"] = False
+
+    second = config.data
+    second_infra = second["infra"]
+    assert isinstance(second_infra, dict)
+    typed_second_infra = cast(dict[str, object], second_infra)
+    second_sources = typed_second_infra["sources"]
+    assert isinstance(second_sources, list)
+    second_item = second_sources[0]
+    assert isinstance(second_item, dict)
+    typed_second_item = cast(dict[str, object], second_item)
+    second_options = typed_second_item["options"]
+    assert isinstance(second_options, dict)
+    typed_second_options = cast(dict[str, object], second_options)
+    assert typed_second_options["enabled"] is True
 
 
 def test_project_config_reports_missing_include(local_tmp: Path) -> None:

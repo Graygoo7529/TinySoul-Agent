@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 
 @dataclass(frozen=True)
@@ -16,4 +16,3 @@ class ConfigSource:
     @classmethod
     def empty(cls, name: str) -> "ConfigSource":
         return cls(name=name, values={})
-

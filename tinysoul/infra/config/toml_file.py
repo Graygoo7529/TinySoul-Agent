@@ -66,14 +66,7 @@ def flatten_mapping(data: Mapping[str, object], prefix: str = "") -> dict[str, o
 def deep_copy_mapping(data: Mapping[str, object]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in data.items():
-        if isinstance(value, Mapping):
-            result[str(key)] = deep_copy_mapping(
-                _string_key_mapping(cast(Mapping[str, object], value))
-            )
-        elif isinstance(value, list):
-            result[str(key)] = list(value)
-        else:
-            result[str(key)] = value
+        result[str(key)] = _copy_value(value)
     return result
 
 
@@ -103,7 +96,7 @@ def _copy_value(value: object) -> object:
     if isinstance(value, Mapping):
         return deep_copy_mapping(_string_key_mapping(cast(Mapping[str, object], value)))
     if isinstance(value, list):
-        return list(value)
+        return [_copy_value(item) for item in value]
     return value
 
 
@@ -167,4 +160,3 @@ def _quote(value: str) -> str:
         .replace("\t", "\\t")
     )
     return f'"{escaped}"'
-

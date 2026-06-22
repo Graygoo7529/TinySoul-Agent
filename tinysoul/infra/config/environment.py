@@ -193,9 +193,6 @@ def _convert_value(value: object, target_type: object, *, key: str, source: str)
             for item in items
         ]
 
-    if origin in (NoneType,):
-        return value
-
     if origin is not None and NoneType in args:
         non_none = [arg for arg in args if arg is not NoneType]
         if value is None:
