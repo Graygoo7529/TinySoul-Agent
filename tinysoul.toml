@@ -1,7 +1,7 @@
 [config]
 include = [
   "configs/llm.providers.toml",
-  "configs/llm.models.toml",
+  "configs/llm.models/*.toml",
   "configs/llm.tasks.toml",
 ]
 env_file = ".env"

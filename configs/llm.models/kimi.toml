@@ -1,0 +1,17 @@
+[llm.models.kimi_k2_7]
+provider = "kimi"
+provider_model = "kimi-k2.7-code"
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "reasoning_output",
+  "prompt_cache",
+]
+
+[llm.models.kimi_k2_7.provider_options]
+reasoning_keep = "content"
+thinking = "enabled"
+
+[llm.models.kimi_k2_7.provider_options.request_overrides]
+temperature = 1.0

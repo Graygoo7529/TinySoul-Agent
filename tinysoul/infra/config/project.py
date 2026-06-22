@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+import glob
 
 from .errors import ConfigError
 from .source import ConfigSource
@@ -34,25 +35,71 @@ class ProjectConfig:
     def _load(self) -> dict[str, object]:
         main = ConfigFileToml(self.main_path).data
         result = deep_copy_mapping(main)
-        for include in _get_config_string_list(main, "include"):
-            include_path = self.root / include
-            if not include_path.exists():
-                raise ConfigError(
-                    "Included configuration file does not exist",
-                    key="config.include",
-                    source=str(self.main_path),
-                    value=include,
-                )
+        for include_path in _expand_include_paths(
+            self.root,
+            _get_config_string_list(main, "include"),
+            source=str(self.main_path),
+        ):
             include_data = ConfigFileToml(include_path).data
             if _get_config_string_list(include_data, "include"):
                 raise ConfigError(
                     "Nested configuration includes are not supported",
                     key="config.include",
                     source=str(include_path),
-                    value=include,
+                    value=str(include_path),
                 )
             result = merge_trees(result, include_data)
         return result
+
+
+def _expand_include_paths(root: Path, includes: list[str], *, source: str) -> list[Path]:
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for include in includes:
+        matches = _include_matches(root, include, source=source)
+        for path in matches:
+            normalized = path.resolve()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(path)
+    return result
+
+
+def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:
+    if _has_glob_pattern(include):
+        matches = sorted(root.glob(include), key=lambda path: path.as_posix())
+        if not matches:
+            raise ConfigError(
+                "Configuration include pattern did not match any files",
+                key="config.include",
+                source=source,
+                value=include,
+            )
+        paths = matches
+    else:
+        path = root / include
+        if not path.exists():
+            raise ConfigError(
+                "Included configuration file does not exist",
+                key="config.include",
+                source=source,
+                value=include,
+            )
+        paths = [path]
+    for path in paths:
+        if not path.is_file():
+            raise ConfigError(
+                "Configuration include must reference TOML files",
+                key="config.include",
+                source=source,
+                value=include,
+            )
+    return paths
+
+
+def _has_glob_pattern(value: str) -> bool:
+    return glob.has_magic(value)
 
 
 def _get_config_string(data: Mapping[str, object], key: str) -> str | None:
