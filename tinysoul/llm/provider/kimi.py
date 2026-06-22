@@ -6,9 +6,10 @@ from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -19,6 +20,17 @@ from .openai_sdk import (
 
 class KimiProviderBehavior(OpenAIAdapterBehavior):
     """Kimi-specific option mapping."""
+
+    def apply_prompt_cache(
+        self,
+        kwargs: dict[str, object],
+        request: ProviderRequest,
+    ) -> None:
+        if request.prompt_cache is None:
+            return
+        if not request.model.supports(ModelCapability.PROMPT_CACHE):
+            return
+        kwargs["prompt_cache_key"] = request.prompt_cache.key
 
     def chat_input_reasoning(
         self,
@@ -99,4 +111,3 @@ def _thinking_type(value: object) -> str:
             kind=ProviderErrorKind.CONFIG,
         )
     return str(value)
-

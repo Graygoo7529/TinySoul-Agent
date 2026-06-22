@@ -62,6 +62,13 @@ class OpenAIAdapterBehavior:
             kind=ProviderErrorKind.CONFIG,
         )
 
+    def apply_prompt_cache(
+        self,
+        kwargs: dict[str, object],
+        request: ProviderRequest,
+    ) -> None:
+        return
+
     def chat_output_reasoning(self, message: object) -> Reasoning | None:
         content = _chat_reasoning_content(message)
         if content is None:
@@ -118,6 +125,7 @@ class OpenAIResponsesAdapter:
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
+        self._behavior.apply_prompt_cache(kwargs, request)
         kwargs["input"] = _to_responses_input(
             request,
             behavior=self._behavior,
@@ -170,6 +178,7 @@ class OpenAICompatibleChatAdapter:
     def invoke(self, request: ProviderRequest) -> ModelResponse:
         provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
+        self._behavior.apply_prompt_cache(kwargs, request)
         kwargs["messages"] = _to_chat_messages(
             request,
             behavior=self._behavior,
@@ -207,10 +216,6 @@ def _common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
     max_output_tokens = _effective_max_output_tokens(request, overrides=overrides)
     if max_output_tokens is not None:
         kwargs["max_output_tokens"] = max_output_tokens
-    if request.prompt_cache is not None and request.model.supports(
-        ModelCapability.PROMPT_CACHE
-    ):
-        kwargs["prompt_cache_key"] = request.prompt_cache.key
     return kwargs
 
 

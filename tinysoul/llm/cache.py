@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PromptCache:
-    """A request-level prompt caching intent."""
+    """Provider-neutral prompt cache intent.
+
+    The key identifies a stable prompt prefix for providers that support
+    cache routing or cache retention hints.
+    """
 
     key: str

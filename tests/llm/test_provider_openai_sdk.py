@@ -958,6 +958,32 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
     assert "prompt_cache_key" not in call
 
 
+def test_generic_chat_adapter_does_not_map_prompt_cache_key() -> None:
+    message = SimpleNamespace(content="ok")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="generic", provider_model="generic-model"),
+            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            response_contract=ResponseContract.TEXT,
+            prompt_cache=PromptCache("stable-prefix"),
+        )
+    )
+
+    assert "prompt_cache_key" not in client.calls[0]
+
+
 def test_adapter_maps_remote_image_url_part() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
