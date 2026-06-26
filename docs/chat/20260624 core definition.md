@@ -15,14 +15,19 @@
 
 LLM Task/Call “构造式” MessageStack：LLM Task/Call 主要输入为 MessageStack；MessageStack 可以分为多个区段，分别由上层不同的模块提供语境（Context）或附加任务提示（task prompt），并在实际 LLM Task 前“构造”为完整的 MessageStack；除了上述的语境，task prompt 会包含 task_guide、task_input、task_output_desc 以引导模型的生成（例如，Phase1、Phase2 会说明当前处于执行轮/Agent Cycle的哪一个阶段和期望输出；Phase2、Phase3 会附加 Action 级别 Drafts，见关于 Skill/Draft 的定义）；“构造式”为每次 LLM Task 制定不同的 MessageStack，并在上层维护通用的语境，并在 Task 完成后对语境进行反馈和修改
 
-工作区/WorkSpace：每日会话为 Agent 维护一个专用的可操作的本地路径，Agent 可以在其中操作文件和执行脚本；WorkSpace 内资源在语境中有专属的 链接/Link 标识（例如 workspace@doc/doc.md），并使用相对路径获得其中资源的读取；WorkSpace 有一个专用的描述文件来记录工作区结构和其中文件的摘要，并可在用户轮开始时映射到 WorkingContext 语境中，并采取一种约定的目录结构和命名风格；工作区中文件的读取具有特定约定，文件内容（如文档、脚本、图片）通常不应当出现在语境/Context 中，也就是说行动/工具执行结果不应返回实际内容记录到 TurnTraceContext，语境（工具的输入和输出）仅仅记录相关资源的链接/Link（例如需要修改的文档，可以作为参考的相关文档或图片等等），在 Phase3 具体执行中才去读取具体文件作为临时性 Task Prompt
+工作区/WorkSpace：每日会话为 Agent 维护一个专用的可操作的本地路径，Agent 可以在其中操作文件和执行脚本；WorkSpace 内资源在语境中有专属的 链接/Link 标识（例如 workspace:doc/doc.md），并使用相对路径获得其中资源的读取；WorkSpace 有一个专用的描述文件来记录工作区结构和其中文件的摘要，并可在用户轮开始时映射到 WorkingContext 语境中，并采取一种约定的目录结构和命名风格；工作区中文件的读取具有特定约定，文件内容（如文档、脚本、图片）通常不应当出现在语境/Context 中，也就是说行动/工具执行结果不应返回实际内容记录到 TurnTraceContext，语境（工具的输入和输出）仅仅记录相关资源的链接/Link（例如需要修改的文档，可以作为参考的相关文档或图片等等），在 Phase3 具体执行中才去读取具体文件作为临时性 Task Prompt
 
-Agent Home 与链接/Link：Agent Home 存储持久化的语境，包含 Agent 记忆、知识、技能。Agent Home 主要以 Markdown 文档进行组织，分为顶层内容和渐进式内容；顶层内容默认或逐步（通过 Phase1）加载到 BackgroundContext，顶层内容通过特殊链接（例如使用@=而非@）；而渐进式内容不放在 BackgroundContext 中，主要通过行为/工具以工具结果返回到 TurnTraceContext 里。以下分别描述相关语境在 Agent Home 中的形式和在运行中的位置与链接：
-（1）AGENT.md 是顶层内容，类似一本参考全书，记录 AGENT 所具有的整体规范，行为设定，核心规则，用户偏好等（AGENT 可以以链接指向多个顶层内容，例如 agent@=user/user.md；在 user.md 可以进一步链接渐进式内容；
-（2）WHAT 是一个 Knowledge 库，在语境中通过 what@=what_name 标识，用于标注（a）实体（b）领域概念，what 使用 what_name.md 记录对于实体和概念的定义以及关联的内容（通过链接/Link），what_name.md 是顶层内容，并可通过语义匹配 top-k why 交付语境模块；并可通过工具反向查询 Agent Home 中具有 what_name 标识的其它顶层内容；what_name.md 不应有时间戳，只记录当前认为正确且重要的；AGENT 规约应当说明 WHAT 的使用方式，并要求 llm 在输出时也使用这种标识；
-（3）WHY 是另一个 Konwledge 库，在语境中通过 why@=question_content 标识，用于标注问题的原因和解答，使用 question_content.md 记录问题的具体内容以及关联的内容（通过链接/Link），question_content.md 是顶层内容，并可通过语义匹配 top-k why 交付语境模块；
-（4）HOW 是另一个 Konwledge 库，它是当前智能体设计中 Skill 的变种，在语境中通过 how@=skill_name 标识，skill 下 skill_name.md 是顶层内容，并可通过链接渐进式加载相关内容，如 how@skill_name/ref.md、how@skill_name/script.py；所有的 skill_name 和 skill_desc 应形成一份清单（或通过 metadata 动态扫描），这份描述清单也是顶层内容，且 AGENT 规约应当说明 HOW 的使用方式；除了 Skill 这种顶层的 HOW，还有一种与具体工具/行动绑定的 HOW （how to use action_name），可以自动在 Phase2、Phase3 对于具体行动提出引导，在 task prompt 添加
-（5）MEMORY 是长期记忆库，每天形成一个 yyyy-mm-dd.md 的日志，且日志是可以通过 memory@=yyyy-mm-dd 标识的顶层内容。记录当天的记忆内容，并在日志中使用链接指向关联的内容；也可通过工具反向查询 Agent Home 中具有 yyyy-mm-dd 标识的其它顶层内容；可通过语义匹配 top-k memory 交付语境模块，且 AGENT 规约应当说明 MEMORY 的使用方式；
+Agent Home 与链接/Link：Agent Home 存储持久化的语境，包含 Agent 记忆、知识、技能。Agent Home 主要以 Markdown 文档进行组织，分为顶层内容和渐进式内容；顶层内容默认或逐步（通过 Phase1）加载到 BackgroundContext，顶层内容通过特殊链接（例如使用@而非/）；而渐进式内容不放在 BackgroundContext 中，主要通过行为/工具以工具结果返回到 TurnTraceContext 里。以下分别描述相关语境在 Agent Home 中的形式和在运行中的位置与链接：
+（1）AGENT.md 是顶层内容，类似一本参考全书，记录 AGENT 所具有的整体规范，行为设定，核心规则，用户偏好等（AGENT 可以以链接指向多个顶层内容，例如 home:agent/user/user.md；在 user.md 可以进一步链接渐进式内容；
+（2）WHAT 是一个 Knowledge 库，在语境中通过 home:what@what_name 标识，用于标注（a）实体（b）领域概念，what 使用 what_name.md 记录对于实体和概念的定义以及关联的内容（通过链接/Link），what_name.md 是顶层内容，并可通过语义匹配 top-k why 交付语境模块；并可通过工具反向查询 Agent Home 中具有 what_name 标识的其它顶层内容；what_name.md 不应有时间戳，只记录当前认为正确且重要的；AGENT 规约应当说明 WHAT 的使用方式，并要求 llm 在输出时也使用这种标识；
+（3）WHY 是另一个 Konwledge 库，在语境中通过 home:why@question_content 标识，用于标注问题的原因和解答，使用 question_content.md 记录问题的具体内容以及关联的内容（通过链接/Link），question_content.md 是顶层内容，并可通过语义匹配 top-k why 交付语境模块；
+（4）HOW 是另一个 Konwledge 库，它是当前智能体设计中 Skill 的变种，在语境中通过 home:how@skill_name 标识，skill 下 skill_name.md 是顶层内容，并可通过链接渐进式加载相关内容，如 home:how/skill_name/ref.md、home:how/skill_name/script.py；所有的 skill_name 和 skill_desc 应形成一份清单（或通过 metadata 动态扫描），这份描述清单也是顶层内容，且 AGENT 规约应当说明 HOW 的使用方式；除了 Skill 这种顶层的 HOW，还有一种与具体工具/行动绑定的 HOW （how to use action_name），可以自动在 Phase2、Phase3 对于具体行动提出引导，在 task prompt 添加
+（5）MEMORY 是长期记忆库，每天形成一个 yyyy-mm-dd.md 的日志，且日志是可以通过 home:memory@yyyy-mm-dd 标识的顶层内容。记录当天的记忆内容，并在日志中使用链接指向关联的内容；也可通过工具反向查询 Agent Home 中具有 yyyy-mm-dd 标识的其它顶层内容；可通过语义匹配 top-k memory 交付语境模块，且 AGENT 规约应当说明 MEMORY 的使用方式；
+基于以上设计，只要存在三种链接/Link：（1）链接指向顶层内容，主要通过自动加载/Phase1直接去加载到 BackgroundContext；（2）链接指向 agent home 中的非顶层内容，agent 可通过Phase1选择加载行动，在Phase2中指定加载链接，并通过行动结果加载到 TurnTraceContext；（3）workspace 链接，指向工作区资源，agent 可在Phase2生成相关行动的参数中使用它们，标识这些行动的操作目标或参考资料，但工作区资源本身不会被加载到 context 中
+（1）home:xxx@ 表示“加载为背景语境的顶层知识”
+（2）home:xxx/  表示“可被行动读取或使用的资源”
+（3）workspace: 永远是工作区资源句柄
+
 
 一个用户轮由多个执行轮/Agent Cycle构成，执行轮依次进行执行单元/Phase
 （Phase1）更新语境与决策行动：基于完整语境/Context，调用 LLM Task（action meta 作为 task prompt），执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择多个可以并行执行的行动；
