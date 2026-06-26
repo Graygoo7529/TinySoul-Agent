@@ -2,7 +2,7 @@
 
 本文档约定 TinySoul 项目的分析、设计、实现和文档维护规则。目标是保持设计清晰、代码干净、讨论充分，并让文档与实际实现长期一致。
 
-## 核心定义
+## 核心定义（AGENT 请不要修改这一个标题下的内容）
 
 用户轮/User Turn：从用户发起一轮输入开始，到响应该输入的一次完整 Agent 执行结束；其中包含多次模型调用和工具调用，也包含期间用户追加的提示、Agent 自发提示的插入，以及最终回答。
 
@@ -10,7 +10,9 @@
 
 模型轮/LLM Call/LLM Task：一次模型调用。TinySoul 通过 /llm 模块提供模型调用抽象；LLM Task 的主要输入是构造完成的 message stack，由整体语境（context）和临时性的本次任务提示（task prompt）共同构成。
 
-行动执行/工具调用/Action/Tool Call：一次工具调用。TinySoul 通过 /action 模块提供行动执行抽象；全局 action 会在启动时检测执行环境并注册；Phase1 会将当前可用 actions（meta）作为 task prompt input 反馈给模型；Phase2 会将选择执行的 actions（detail）反馈给模型并生成参数；Phase3 再进行实际工具执行，其中也可能发生 LLM Task。行动主要由两类构成，一类是 NATIVE 内部函数调用，一类是 Terminal（python/cli/bash 指令）。对于 python，还可区分临时脚本和长期脚本：在语境中可以使用工作区链接的相对路径引用临时脚本，使用 HOW 链接引用长期脚本。
+行动执行/Action：一次智能体行动执行。TinySoul 通过 /action 模块提供行动执行抽象；全局 Action 会在启动时检测执行环境并注册；Phase1 会将当前可用 Actions（meta）作为 task prompt input 或模型侧工具选择范围反馈给模型；Phase2 会将选择执行的 Actions（detail）反馈给模型并生成参数；Phase3 再进行实际行动执行，其中也可能发生 LLM Task。行动主要由两类构成，一类是 NATIVE 内部函数调用，一类是 Terminal（python/cli/bash 指令）。对于 python，还可区分临时脚本和长期脚本：在语境中可以使用工作区链接的相对路径引用临时脚本，使用 HOW 链接引用长期脚本。
+
+模型侧工具/Tool Message：TinySoul 可以在 LLM Task 中向模型提供模型侧工具定义，用于约束模型生成结构化调用意图。模型侧工具分为两类：（1）Control Tools，框架内部控制工具，用于在 Phase1 中生成对于 WorkingContext、BackgroundContext 和用于 Phase2 行动选择等操作意图；（2）Action Tools，智能体行动工具，用于在 Phase2 中为已选择的 Action 生成调用参数。模型侧工具只表达模型输出协议，不等同于实际工具执行。Control Tools 的结果由 Phase1 汇聚、校验并转化为内部操作信号后，由对应上层模块消费；Action Tools 的结果由 Phase2 归一化为 Action 参数，再交由 Phase3 执行。
 
 持久化/内存/模型反馈：表述和编码时要注意三个层次。模型反馈是最终查询给模型的提示词（构造后的 message stack）；内存是各个上层模块维护的数据结构与信息；持久化是本地目录下组织的文档、资源和知识库。三者应当保持一致性：上层模块维护运行时各段消息的状态，依据运行状态在调用 llm task 时“构造” message stack，并将状态变更同步回写到持久化的本地文件系统中。
 
@@ -41,8 +43,8 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 
 
 一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
-（Phase1）更新语境与决策行动：基于完整语境/Context，调用 LLM Task（action meta 作为 task prompt），执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择多个可以并行执行的行动；
-（Phase2）生成行动参数：为上一步决策的多个行动生成行动参数，调用 LLM Task（自动使用对应的 action detail 和 how 文档作为 task prompt）；
+（Phase1）更新语境与决策行动：基于完整语境/Context，调用 LLM Task。Phase1 可以向模型提供框架内部 Control Tools，例如状态更新工具、背景更新工具和 Phase2 行动选择工具；模型返回的 Control Tool Calls 不直接修改状态，而是在 Phase1 结束后被汇聚、校验、归一化并转化为内部操作信号，由 WorkingContext、BackgroundContext、Loop 等上层模块分别消费；从而执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择多个可以并行执行的行动；Phase1 选择进入 Phase2 的行动时，只选择 action 名称和执行意图，不生成完整行动参数；
+（Phase2）生成行动参数：为 Phase1 选择的多个行动生成行动参数，调用 LLM Task。Phase2 只向模型提供被 Phase1 选中的 Action Tools，以及对应 action detail 和 how 文档；模型返回的 Action Tool Calls 被归一化为 Action 调用参数；
 （Phase3）采取行动：一个 map-reduce 风格的并行执行器，将 Phase2 的行动决策转为实际执行。事实上，每个行动除了反馈给模型的 meta-detail 外，还有框架内配置，例如超时时长、是否允许并行，以及专用参数检查 hook 等。action 执行器会（a）先获得一个执行 invoke，包含运行时 action id、执行参数、框架配置等；（b）然后对每个 action 执行通用/专用 hook 检查；（c）等待全部行动执行完成或超时，每个 action 返回结构化 action result（包括执行过程中的检查和超时等错误）；（d）渲染和处理 action result，例如需要反馈给模型的结果、日志记录的结果等。
 
 每日任务与 WorkSpace、Agent Home 内容加载和变更：WorkSpace、Agent Home 都具有“每日”属性，WorkSpace 每日归档，Agent Home 知识和记忆每日沉淀。在实现中，可以通过独立接口触发执行，调用独立 LLM Task 完成 Agent Home 知识和记忆的每日沉淀（待开发完成并部署时定时触发）。另一方面，Agent Home 在当日可能被修改和变更，但最终应该在每日沉淀中进行 diff，并决策最终合并。因此，对于模型来说，它只知道通过链接/Link 加载或编辑 Agent Home 中的文档或代码；但事实上，TinySoul 框架层需要进行额外处理：原始 Agent Home 在每日更新任务以外只读，Agent 在运行时自动或通过链接加载 Agent Home 内容时（语义检索等只读操作仍看原始内容），同步将原始 Agent Home 所需内容拷贝到运行时副本（保持目录结构）。之后，Agent 对语境内容的变更都在副本中进行。进一步地，对于 HOW 类型技能包（与实际任务相关，变更可能频繁），还会为其维护一份内部的 SKILL_MEMORY.md，用于记录当日处理任务时使用该技能包的情况、反馈、变更记录等。最后，每日归档任务基于 Agent Home 当日副本情况，再分析和考虑是否提交与合并修改。由于 WorkSpace、Agent Home 事实上都是基于链接/Link/相对路径的读写机制，因此在实现层面应当在 infra 中维护公共读写机制。上述机制可以用目录结构描述：
@@ -70,12 +72,14 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 
 ## 项目规划
 
-- TinySoul 拥有独立的上层动作层。动作选择、工具或技能选择、上下文选择、参数生成和动作执行结果管理不依赖模型供应商的原生 tool calling 接口。
-- LLM 模块只负责模型调用输入输出的统一表达、供应商适配、能力校验、模型选择、重试切换和输出解释，不负责直接执行动作，也不把供应商 tool call 语义作为核心抽象。
-- LLM 通用消息语义只使用 `system`、`user`、`assistant` 三类角色。不要把 provider 原生 `tool` message、`tool_calls` 或 `tool_call_id` 作为 TinySoul 通用消息结构的一部分。
+- TinySoul 拥有独立的上层动作层。动作选择、上下文选择、参数生成、动作执行结果管理不依赖模型供应商的原生 tool calling 接口；供应商原生 tool calling 只作为 LLM 适配层可选映射方式。
+- LLM 模块负责模型调用输入输出的统一表达、供应商适配、能力校验、模型选择、重试切换、输出解释，以及 TinySoul 模型侧工具语义与供应商工具协议之间的映射。LLM 模块不负责执行工具、不修改 Context，也不消费 Control Tool 或 Action Tool 的业务语义。
+- TinySoul 可以定义自己的 tool message 语义，用于表达模型侧工具定义、工具调用意图和工具结果回放。Provider 原生 `tool` message、`tool_calls`、`tool_call_id` 或 Responses `function_call` 不直接进入 TinySoul 核心语义，应由供应商适配层映射为 TinySoul 内部工具调用结构。
 - Assistant 消息表达模型历史输出，可以包含可见内容和可选推理内容。推理内容用于上层在构造后续上下文时保留模型推理轨迹，但是否保留、如何压缩和如何回放由上层语境或动作层决定。
-- TinySoul 的动作规划通过解析 assistant 可见内容完成，通常以 JSON 对象作为模型输出契约，再由上层动作层映射为工具调用、技能调用或其他内部动作。
-- 工具、技能或外部动作执行结果应由上层整理为普通上下文输入，再以 `user` 消息提供给模型。消息内容可以标注其来源、动作名称、参数、结果和状态，但它在 LLM 通用语义中不是 provider tool message。
+- Phase1 使用 Control Tools 表达框架内部控制操作。Control Tool Calls 在 Phase1 汇聚后转化为操作信号，并由对应上层模块事务式消费。
+- Phase2 使用 Action Tools 表达行动参数生成。Phase2 只接收 Phase1 选择的 action 名称和执行意图，并基于 action detail、HOW 和工具 schema 生成 Action Invoke Draft。
+- 工具、技能或外部动作执行结果应由上层整理为普通上下文输入，或在需要进行模型侧工具结果回放时转换为 TinySoul tool result message。消息内容可以标注其来源、动作名称、参数、结果和状态，但 provider 原生 tool message 只存在于供应商适配层。
+- TinySoul 内部应使用自己的 tool call id；供应商 tool call id 只作为适配层相关性信息保留，不应成为 Context、Action 或 Loop 模块依赖的主键。
 - LLM 消息内容需要支持灵活的多片段结构，以表达文本、图像和由上层构造的结构化上下文。结构化上下文属于消息内容的一部分，而不是供应商 tool calling 协议的一部分。
 
 ## 工作方式
