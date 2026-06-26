@@ -11,6 +11,7 @@ from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.models import ModelSpec
 from tinysoul.llm.responses import ModelResponse, ResponseContract
+from tinysoul.llm.tools import ToolChoice, ToolSpec
 
 
 class ProviderErrorKind(StrEnum):
@@ -39,6 +40,8 @@ class ProviderRequest:
     model: ModelSpec
     messages: MessageStack
     response_contract: ResponseContract
+    tools: tuple[ToolSpec, ...] = ()
+    tool_choice: ToolChoice | None = None
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None

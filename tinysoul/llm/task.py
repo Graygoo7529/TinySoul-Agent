@@ -58,6 +58,8 @@ class CapabilityPolicy:
         settings: CallSettings,
     ) -> frozenset[ModelCapability]:
         required = {ModelCapability.TEXT_INPUT} | set(settings.required_capabilities)
+        if call.tools or settings.response_contract is ResponseContract.TOOL_CALLS:
+            required.add(ModelCapability.TOOL_CALLING)
         for message in call.messages.messages:
             for part in message.parts:
                 if isinstance(part, ImagePart):
@@ -169,6 +171,8 @@ class LLMTaskRunner:
                         model=model,
                         messages=call.messages,
                         response_contract=response_contract,
+                        tools=call.tools,
+                        tool_choice=call.tool_choice,
                         prompt_cache=call.prompt_cache,
                         temperature=settings.temperature,
                         max_output_tokens=settings.max_output_tokens,

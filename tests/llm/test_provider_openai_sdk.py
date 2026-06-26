@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -10,13 +10,15 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import (
+    AssistantMessage,
     ImagePart,
     ImageUrlPart,
     JsonPart,
-    Message,
-    MessageRole,
     MessageStack,
+    SystemMessage,
     TextPart,
+    ToolResultMessage,
+    UserMessage,
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
@@ -32,6 +34,7 @@ from tinysoul.llm.provider.openai_sdk import (
 )
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.responses import ResponseContract
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec
 
 
 @dataclass
@@ -75,9 +78,8 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 },
             ),
             messages=MessageStack.of(
-                Message.from_text(MessageRole.SYSTEM, "system"),
-                Message.from_parts(
-                    MessageRole.USER,
+                SystemMessage.from_text("system"),
+                UserMessage.from_parts(
                     TextPart("look"),
                     ImagePart(data=b"abc", mime_type="image/png"),
                 ),
@@ -124,7 +126,7 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"reasoning": {"effort": "high"}},
             )
@@ -155,7 +157,7 @@ def test_openai_responses_adapter_applies_request_overrides() -> None:
                     }
                 },
             ),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
             temperature=0.2,
             max_output_tokens=256,
@@ -196,7 +198,7 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
     response = adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
         )
     )
@@ -228,7 +230,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
     response = adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
         )
     )
@@ -263,12 +265,10 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning=Reasoning(encrypted_items=(encrypted_item,)),
                 ),
-                Message.from_text(MessageRole.USER, "continue"),
+                UserMessage.from_text("continue"),
             ),
             response_contract=ResponseContract.TEXT,
             provider_options={"reasoning_keep": "encrypted"},
@@ -311,9 +311,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning=Reasoning(encrypted_items=(encrypted_item,)),
                 )
             ),
@@ -341,7 +339,7 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"reasoning_keep": "content"},
             )
@@ -361,7 +359,7 @@ def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"reasoning_summary": "full"},
             )
@@ -388,8 +386,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
-                Message.from_parts(
-                    MessageRole.USER,
+                UserMessage.from_parts(
                     TextPart("工具返回如下："),
                     JsonPart({"source": "tool_result", "ok": True}),
                 )
@@ -412,6 +409,69 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
             ],
         }
     ]
+
+
+def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="provider_call_2",
+                    name="read_file",
+                    arguments='{"path":"workspace:next.md"}',
+                )
+            ],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    tool_call = ToolCallRecord(
+        id="call_1",
+        name="read_file",
+        arguments={"path": "workspace:doc.md"},
+        provider_call_id="provider_call_1",
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(tool_call),
+                ToolResultMessage.from_json(
+                    call_id="call_1",
+                    provider_call_id="provider_call_1",
+                    tool_name="read_file",
+                    value={"ok": True},
+                ),
+            ),
+            response_contract=ResponseContract.TOOL_CALLS,
+            tools=(_tool(),),
+        )
+    )
+
+    call = client.calls[0]
+    assert call["tools"] == [_provider_tool_payload()]
+    assert call["input"] == [
+        {
+            "type": "function_call",
+            "call_id": "provider_call_1",
+            "name": "read_file",
+            "arguments": '{"path":"workspace:doc.md"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "provider_call_1",
+            "output": '```json\n{"ok":true}\n```',
+        },
+    ]
+    assert response.tool_calls[0].provider_call_id == "provider_call_2"
+    assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
 def test_chat_adapter_maps_kimi_request_payload() -> None:
@@ -438,10 +498,8 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
                 options={"thinking": "enabled"},
             ),
             messages=MessageStack.of(
-                Message.from_text(MessageRole.USER, "hello"),
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    '{"draft": true}',
+                UserMessage.from_text("hello"),
+                AssistantMessage.from_text('{"draft": true}',
                     reasoning="thinking trace",
                 ),
             ),
@@ -479,6 +537,82 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert response.reasoning.summary == "thinking"
 
 
+def test_chat_adapter_maps_tools_and_tool_results() -> None:
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="provider_call_2",
+                type="function",
+                function=SimpleNamespace(
+                    name="read_file",
+                    arguments='{"path":"workspace:next.md"}',
+                ),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    tool_call = ToolCallRecord(
+        id="call_1",
+        name="read_file",
+        arguments={"path": "workspace:doc.md"},
+        provider_call_id="provider_call_1",
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="generic", provider_model="generic-model"),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(tool_call),
+                ToolResultMessage.from_json(
+                    call_id="call_1",
+                    provider_call_id="provider_call_1",
+                    tool_name="read_file",
+                    value={"ok": True},
+                ),
+            ),
+            response_contract=ResponseContract.TOOL_CALLS,
+            tools=(_tool(),),
+        )
+    )
+
+    call = client.calls[0]
+    assert call["tools"] == [_provider_tool_payload()]
+    assert call["messages"] == [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "provider_call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path":"workspace:doc.md"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "provider_call_1",
+            "content": '```json\n{"ok":true}\n```',
+        },
+    ]
+    assert response.tool_calls[0].provider_call_id == "provider_call_2"
+    assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
+
+
 def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
     client = FakeCreateClient(
@@ -503,10 +637,8 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
                 options={"thinking": "enabled", "reasoning_effort": "high"},
             ),
             messages=MessageStack.of(
-                Message.from_text(MessageRole.USER, "json please"),
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    '{"plan": "call action"}',
+                UserMessage.from_text("json please"),
+                AssistantMessage.from_text('{"plan": "call action"}',
                     reasoning="reasoning trace",
                 ),
             ),
@@ -552,9 +684,7 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
         ProviderRequest(
             model=_model(provider_id="deepseek", provider_model="deepseek-v4-pro"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning="reasoning trace",
                 )
             ),
@@ -592,10 +722,8 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
                 options={"thinking": "enabled"},
             ),
             messages=MessageStack.of(
-                Message.from_text(MessageRole.USER, "json please"),
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    '{"plan": "call action"}',
+                UserMessage.from_text("json please"),
+                AssistantMessage.from_text('{"plan": "call action"}',
                     reasoning="reasoning trace",
                 ),
             ),
@@ -639,9 +767,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         ProviderRequest(
             model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning="thinking trace",
                 )
             ),
@@ -674,9 +800,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.1"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning="thinking trace",
                 )
             ),
@@ -710,7 +834,7 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
     adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.2"),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
             provider_options={"reasoning_effort": "max"},
         )
@@ -754,10 +878,8 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
                 ),
             ),
             messages=MessageStack.of(
-                Message.from_text(MessageRole.USER, "json please"),
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    '{"plan": "continue"}',
+                UserMessage.from_text("json please"),
+                AssistantMessage.from_text('{"plan": "continue"}',
                     reasoning="reasoning trace",
                 ),
             ),
@@ -810,7 +932,7 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
     response = adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
             provider_options={
                 "thinking": "adaptive",
@@ -871,9 +993,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
                         provider_model=provider_model,
                     ),
                     messages=MessageStack.of(
-                        Message.from_text(
-                            MessageRole.ASSISTANT,
-                            "previous answer",
+                        AssistantMessage.from_text("previous answer",
                             reasoning="trace",
                         )
                     ),
@@ -896,9 +1016,64 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"partial": True},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_kimi_adapter_validates_tool_names_and_count() -> None:
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                response_contract=ResponseContract.TEXT,
+                tools=(
+                    ToolSpec(
+                        name="1bad",
+                        description="bad",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                ),
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                response_contract=ResponseContract.TEXT,
+                tools=(
+                    ToolSpec(
+                        name="read_file",
+                        description="Read",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                        strict=True,
+                    ),
+                ),
             )
         )
 
@@ -916,7 +1091,7 @@ def test_adapter_rejects_invalid_request_override_value() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"request_overrides": {"temperature": True}},
             )
@@ -947,7 +1122,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
                 provider_model="text-model",
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.JSON_OBJECT,
             prompt_cache=PromptCache("prefix"),
         )
@@ -975,7 +1150,7 @@ def test_generic_chat_adapter_does_not_map_prompt_cache_key() -> None:
     adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="generic", provider_model="generic-model"),
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             response_contract=ResponseContract.TEXT,
             prompt_cache=PromptCache("stable-prefix"),
         )
@@ -1002,8 +1177,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
-                Message.from_parts(
-                    MessageRole.USER,
+                UserMessage.from_parts(
                     ImageUrlPart(url="https://example.test/image.png"),
                 )
             ),
@@ -1042,8 +1216,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
         ProviderRequest(
             model=_model(provider_id="generic", provider_model="generic-model"),
             messages=MessageStack.of(
-                Message.from_parts(
-                    MessageRole.USER,
+                UserMessage.from_parts(
                     TextPart("工具返回如下："),
                     JsonPart(
                         {
@@ -1086,9 +1259,7 @@ def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
         ProviderRequest(
             model=_model(provider_id="generic", provider_model="generic-model"),
             messages=MessageStack.of(
-                Message.from_text(
-                    MessageRole.ASSISTANT,
-                    "previous answer",
+                AssistantMessage.from_text("previous answer",
                     reasoning="local reasoning",
                 )
             ),
@@ -1113,9 +1284,7 @@ def test_openai_responses_adapter_rejects_message_reasoning_input() -> None:
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(
-                    Message.from_text(
-                        MessageRole.ASSISTANT,
-                        "previous answer",
+                    AssistantMessage.from_text("previous answer",
                         reasoning="local reasoning",
                     )
                 ),
@@ -1137,7 +1306,7 @@ def test_provider_option_rejects_unknown_key() -> None:
         adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 response_contract=ResponseContract.TEXT,
                 provider_options={"unknown": "value"},
             )
@@ -1254,6 +1423,29 @@ def _model(
     )
 
 
+def _tool() -> ToolSpec:
+    return ToolSpec(
+        name="read_file",
+        description="Read a workspace file",
+        parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        kind=ToolKind.ACTION,
+    )
+
+
+def _provider_tool_payload() -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a workspace file",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+            },
+        },
+    }
+
+
 def _message_payloads(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         raise AssertionError("Expected list of message payloads")
@@ -1263,3 +1455,4 @@ def _message_payloads(value: object) -> list[dict[str, object]]:
             raise AssertionError("Expected message payload mapping")
         result.append({str(key): payload for key, payload in item.items()})
     return result
+

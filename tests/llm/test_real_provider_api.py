@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import struct
@@ -11,12 +11,13 @@ from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.config import LLMConfigParser, ProviderSpec
 from tinysoul.llm.messages import (
+    AssistantMessage,
     ImagePart,
     JsonPart,
-    Message,
-    MessageRole,
     MessageStack,
+    SystemMessage,
     TextPart,
+    UserMessage,
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec
 from tinysoul.llm.provider import ProviderAdapter, ProviderRequest
@@ -42,9 +43,7 @@ PRIMARY_MODEL_IDS = (
 def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     model, provider, adapter = _load_model_adapter(model_id)
     messages = MessageStack.of(
-        Message.from_text(
-            MessageRole.SYSTEM,
-            "Return only a compact JSON object. Do not include markdown.",
+        SystemMessage.from_text("Return only a compact JSON object. Do not include markdown.",
         ),
         _first_user_message(model),
     )
@@ -72,14 +71,11 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     _print_response_summary(round_number=1, answer=first_response.answer, response=first_response)
 
     messages = messages.append(
-        Message.from_text(
-            MessageRole.ASSISTANT,
-            first_response.answer,
+        AssistantMessage.from_text(first_response.answer,
             reasoning=first_response.reasoning,
         )
     ).append(
-        Message.from_parts(
-            MessageRole.USER,
+        UserMessage.from_parts(
             TextPart("Continue the same task and return only JSON."),
             JsonPart(
                 {
@@ -141,13 +137,12 @@ def _first_user_message(model: ModelSpec) -> Message:
         }
     )
     if model.supports(ModelCapability.IMAGE_INPUT):
-        return Message.from_parts(
-            MessageRole.USER,
+        return UserMessage.from_parts(
             text,
             ImagePart(data=_sample_png(), mime_type="image/png"),
             payload,
         )
-    return Message.from_parts(MessageRole.USER, text, payload)
+    return UserMessage.from_parts( text, payload)
 
 
 def _test_max_output_tokens(model: ModelSpec) -> int:
@@ -243,3 +238,4 @@ def _reasoning_summary(reasoning: object) -> dict[str, object]:
         "summary_len": len(summary) if isinstance(summary, str) else 0,
         "encrypted_items": len(encrypted_items),
     }
+

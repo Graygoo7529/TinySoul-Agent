@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
-from tinysoul.llm.messages import Message
+from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 
@@ -39,7 +39,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
         options: Mapping[str, object] | None,
     ) -> tuple[JsonObject, ...]:
         reasoning = message.reasoning
-        if reasoning is None:
+        if not isinstance(message, AssistantMessage) or reasoning is None:
             return ()
         if reasoning.content is not None:
             raise ProviderError(

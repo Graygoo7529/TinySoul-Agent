@@ -16,6 +16,7 @@ class ModelCapability(StrEnum):
     IMAGE_INPUT = "image_input"
     IMAGE_REMOTE_URL = "image_remote_url"
     JSON_OBJECT_OUTPUT = "json_object_output"
+    TOOL_CALLING = "tool_calling"
     REASONING_OUTPUT = "reasoning_output"
     PROMPT_CACHE = "prompt_cache"
 

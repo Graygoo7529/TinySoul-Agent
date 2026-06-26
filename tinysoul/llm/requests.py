@@ -9,6 +9,7 @@ from .cache import PromptCache
 from .messages import MessageStack
 from .models import ModelCapability
 from .responses import ResponseContract
+from .tools import ToolChoice, ToolSpec
 
 
 class TaskProfile(StrEnum):
@@ -48,5 +49,7 @@ class TaskCall:
 
     profile: TaskProfile | str
     messages: MessageStack
+    tools: tuple[ToolSpec, ...] = field(default_factory=tuple)
+    tool_choice: ToolChoice | None = None
     prompt_cache: PromptCache | None = None
     settings: CallSettings = field(default_factory=CallSettings)

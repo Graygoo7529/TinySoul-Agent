@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
-from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 
 from .base import ProviderError, ProviderErrorKind
@@ -27,7 +27,7 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
     ) -> str | None:
         if provider_reasoning_keep(options, provider="MiniMax") is not ReasoningKeep.CONTENT:
             return None
-        if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
+        if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
         return message.reasoning.content
 

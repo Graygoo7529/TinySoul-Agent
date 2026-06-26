@@ -10,6 +10,7 @@ import re
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .reasoning import Reasoning
+from .tools import ToolCallRecord
 
 
 class ResponseContract(StrEnum):
@@ -17,6 +18,7 @@ class ResponseContract(StrEnum):
 
     TEXT = "text"
     JSON_OBJECT = "json_object"
+    TOOL_CALLS = "tool_calls"
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,7 @@ class ModelResponse:
     answer: str
     model_id: str
     provider_id: str
+    tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
     reasoning: Reasoning | None = None
     usage: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
@@ -45,7 +48,14 @@ class JsonObjectTaskOutput:
     value: JsonObject
 
 
-TaskOutput = TextTaskOutput | JsonObjectTaskOutput
+@dataclass(frozen=True)
+class ToolCallTaskOutput:
+    """Interpreted tool call task output."""
+
+    calls: tuple[ToolCallRecord, ...]
+
+
+TaskOutput = TextTaskOutput | JsonObjectTaskOutput | ToolCallTaskOutput
 
 
 @dataclass(frozen=True)
@@ -77,6 +87,13 @@ class ResponseInterpreter:
             return TaskResult(
                 response=response,
                 output=JsonObjectTaskOutput(self._parse_json_object(response.answer)),
+            )
+        if contract is ResponseContract.TOOL_CALLS:
+            if not response.tool_calls:
+                raise ResponseInterpretError("Expected at least one tool call")
+            return TaskResult(
+                response=response,
+                output=ToolCallTaskOutput(response.tool_calls),
             )
         raise ResponseInterpretError(f"Unsupported response contract: {contract}")
 

@@ -6,7 +6,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.messages import ImagePart, ImageUrlPart, Message, MessageRole, MessageStack
+from tinysoul.llm.messages import ImagePart, ImageUrlPart, MessageStack, UserMessage
 from tinysoul.llm.model_chain import (
     Clock,
     ModelChain,
@@ -24,12 +24,14 @@ from tinysoul.llm.responses import (
     ModelResponse,
     ResponseContract,
     TaskResult,
+    ToolCallTaskOutput,
 )
 from tinysoul.llm.task import (
     LLMTaskError,
     LLMTaskRunner,
     ModelCapabilityError,
 )
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec
 
 
 @dataclass
@@ -82,7 +84,7 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
     )
     call = TaskCall(
         profile="framework",
-        messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+        messages=MessageStack.of(UserMessage.from_text("hello")),
     )
 
     result = runner.run(call)
@@ -115,7 +117,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
         runner.run(
             TaskCall(
                 profile="framework",
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
             )
         )
 
@@ -142,7 +144,7 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     )
     call = TaskCall(
         profile="framework",
-        messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+        messages=MessageStack.of(UserMessage.from_text("hello")),
     )
 
     first = runner.run(call)
@@ -174,7 +176,7 @@ def test_runner_retries_transient_error_on_same_model() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
         )
     )
 
@@ -236,7 +238,7 @@ def test_runner_reports_successful_fallback_model_during_preference_window() -> 
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
         )
     )
 
@@ -265,7 +267,7 @@ def test_runner_capability_query_returns_to_head_after_preference_expires() -> N
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
         )
     )
     clock.current = 6.0
@@ -284,7 +286,7 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             prompt_cache=PromptCache(key="framework:test"),
         )
     )
@@ -309,7 +311,7 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
     result = runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
         )
     )
 
@@ -324,10 +326,7 @@ def test_runner_rejects_missing_image_capability() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
     stack = MessageStack.of(
-        Message(
-            role=MessageRole.USER,
-            parts=(ImagePart(data=b"abc", mime_type="image/png"),),
-        )
+        UserMessage.from_parts(ImagePart(data=b"abc", mime_type="image/png"))
     )
 
     with pytest.raises(ModelCapabilityError):
@@ -342,10 +341,7 @@ def test_runner_rejects_missing_remote_image_url_capability() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
     stack = MessageStack.of(
-        Message(
-            role=MessageRole.USER,
-            parts=(ImageUrlPart(url="https://example.test/image.png"),),
-        )
+        UserMessage.from_parts(ImageUrlPart(url="https://example.test/image.png"))
     )
 
     with pytest.raises(ModelCapabilityError):
@@ -364,7 +360,7 @@ def test_call_settings_can_add_required_capabilities() -> None:
         runner.run(
             TaskCall(
                 profile="framework",
-                messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
                 settings=CallSettings(
                     required_capabilities=frozenset(
                         {ModelCapability.IMAGE_REMOTE_URL}
@@ -409,7 +405,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     runner.run(
         TaskCall(
             profile="framework",
-            messages=MessageStack.of(Message.from_text(MessageRole.USER, "hello")),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
             settings=CallSettings(max_output_tokens=1024),
         )
     )
@@ -418,6 +414,85 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     assert request.temperature == pytest.approx(0.6)
     assert request.max_output_tokens == 1024
     assert request.provider_options == {"thinking": "enabled"}
+
+
+def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+
+    with pytest.raises(ModelCapabilityError):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                tools=(_tool(),),
+                settings=CallSettings(response_contract=ResponseContract.TOOL_CALLS),
+            )
+        )
+
+
+def test_runner_interprets_tool_call_output() -> None:
+    tool_call = ToolCallRecord(
+        id="call_1",
+        name="read_file",
+        arguments={"path": "workspace:doc.md"},
+        kind=ToolKind.ACTION,
+    )
+
+    @dataclass
+    class ToolProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> ModelResponse:
+            self.requests.append(request)
+            return ModelResponse(
+                answer="",
+                model_id=request.model.id,
+                provider_id=self.provider_id,
+                tool_calls=(tool_call,),
+            )
+
+    model = ModelSpec(
+        id="tool_model",
+        provider_id="fake",
+        provider_model="tool-model",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.TOOL_CALLING,
+            }
+        ),
+    )
+    provider = ToolProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="framework",
+                    chain=ModelChain(profile="framework", model_ids=("tool_model",)),
+                    settings=CallSettings(
+                        response_contract=ResponseContract.TOOL_CALLS,
+                    ),
+                )
+            ]
+        ),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            tools=(_tool(),),
+        )
+    )
+
+    assert isinstance(result.output, ToolCallTaskOutput)
+    assert result.output.calls == (tool_call,)
+    assert provider.requests[0].tools == (_tool(),)
 
 
 def _models(*ids: str) -> ModelRegistry:
@@ -452,8 +527,18 @@ def _tasks(chain: ModelChain) -> TaskSpecTable:
     )
 
 
+def _tool() -> ToolSpec:
+    return ToolSpec(
+        name="read_file",
+        description="Read a workspace file",
+        parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        kind=ToolKind.ACTION,
+    )
+
+
 def _json_output(result: TaskResult) -> JsonObject:
     if not isinstance(result.output, JsonObjectTaskOutput):
         raise AssertionError("Expected JSON object task output")
     return result.output.value
+
 

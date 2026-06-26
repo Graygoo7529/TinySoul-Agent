@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
-from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -20,6 +20,18 @@ from .openai_sdk import (
 class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     """DeepSeek-specific option mapping."""
 
+    def validate_tools(self, request: ProviderRequest) -> None:
+        # DeepSeek strict function calling is a beta capability. The provider
+        # adapter rejects strict tools unless the configured endpoint is beta.
+        for tool in request.tools:
+            if tool.strict:
+                provider_options = request.provider_options
+                if not _deepseek_beta_enabled(provider_options):
+                    raise ProviderError(
+                        "DeepSeek strict tool calling requires beta endpoint opt-in",
+                        kind=ProviderErrorKind.CONFIG,
+                    )
+
     def chat_input_reasoning(
         self,
         message: Message,
@@ -27,7 +39,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     ) -> str | None:
         if provider_reasoning_keep(options, provider="DeepSeek") is not ReasoningKeep.CONTENT:
             return None
-        if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
+        if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
         return message.reasoning.content
 
@@ -128,3 +140,8 @@ def _reasoning_effort(value: object) -> str:
         )
     return str(value)
 
+
+def _deepseek_beta_enabled(options: Mapping[str, object] | None) -> bool:
+    if not options:
+        return False
+    return options.get("beta") is True

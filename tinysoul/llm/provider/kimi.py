@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
-from tinysoul.llm.messages import Message, MessageRole
+from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 
@@ -20,6 +21,25 @@ from .openai_sdk import (
 
 class KimiProviderBehavior(OpenAIAdapterBehavior):
     """Kimi-specific option mapping."""
+
+    def validate_tools(self, request: ProviderRequest) -> None:
+        if len(request.tools) > 128:
+            raise ProviderError(
+                "Kimi supports at most 128 tools",
+                kind=ProviderErrorKind.CONFIG,
+            )
+        for tool in request.tools:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", tool.name):
+                raise ProviderError(
+                    f"Invalid Kimi tool name: {tool.name}",
+                    kind=ProviderErrorKind.CONFIG,
+                )
+            parameters_type = tool.parameters.get("type")
+            if parameters_type != "object":
+                raise ProviderError(
+                    "Kimi tool parameters root type must be object",
+                    kind=ProviderErrorKind.CONFIG,
+                )
 
     def apply_prompt_cache(
         self,
@@ -39,7 +59,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
     ) -> str | None:
         if provider_reasoning_keep(options, provider="Kimi") is not ReasoningKeep.CONTENT:
             return None
-        if message.role is not MessageRole.ASSISTANT or message.reasoning is None:
+        if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
         return message.reasoning.content
 
