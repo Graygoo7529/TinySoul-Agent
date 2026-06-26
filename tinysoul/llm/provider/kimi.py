@@ -23,12 +23,13 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
     """Kimi-specific option mapping."""
 
     def validate_tools(self, request: ProviderRequest) -> None:
-        if len(request.tool_scope.tools) > 128:
+        tools = request.tool_scope.visible_tools()
+        if len(tools) > 128:
             raise ProviderError(
                 "Kimi supports at most 128 tools",
                 kind=ProviderErrorKind.CONFIG,
             )
-        for tool in request.tool_scope.tools:
+        for tool in tools:
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", tool.name):
                 raise ProviderError(
                     f"Invalid Kimi tool name: {tool.name}",

@@ -509,6 +509,38 @@ def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
     }
 
 
+def test_openai_responses_adapter_maps_only_visible_tools() -> None:
+    hidden_tool = ToolSpec(
+        name="write_file",
+        description="Write a workspace file",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text="", output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.NONE,
+            tool_scope=ToolScope(
+                tools=(_tool(), hidden_tool),
+                selection=ToolSelection(("read_file",)),
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tools"] == [_provider_tool_payload()]
+
+
 def test_chat_adapter_maps_kimi_request_payload() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="thinking")
     client = FakeCreateClient(
@@ -1118,6 +1150,41 @@ def test_kimi_adapter_validates_tool_names_and_count() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
+def test_kimi_adapter_validates_only_visible_tools() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(
+                    _tool(),
+                    ToolSpec(
+                        name="1bad",
+                        description="bad",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                ),
+                selection=ToolSelection(("read_file",)),
+            ),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+
+    assert client.calls[0]["tools"] == [_provider_tool_payload()]
+
+
 def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
     adapter = DeepSeekProviderAdapter(
         provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
@@ -1146,6 +1213,42 @@ def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
         )
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
+def test_deepseek_adapter_validates_only_visible_tools() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(
+                    _tool(),
+                    ToolSpec(
+                        name="strict_hidden",
+                        description="Hidden strict tool",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                        strict=True,
+                    ),
+                ),
+                selection=ToolSelection(("read_file",)),
+            ),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+
+    assert client.calls[0]["tools"] == [_provider_tool_payload()]
 
 
 def test_adapter_rejects_invalid_request_override_value() -> None:

@@ -64,6 +64,30 @@ def test_tool_scope_validates_selection_against_tools() -> None:
         )
 
 
+def test_tool_scope_reports_visible_tools_and_empty_state() -> None:
+    read_tool = ToolSpec(
+        name="read_file",
+        description="Read",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )
+    write_tool = ToolSpec(
+        name="write_file",
+        description="Write",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )
+
+    assert ToolScope().is_empty()
+    scope = ToolScope(
+        tools=(read_tool, write_tool),
+        selection=ToolSelection(("read_file",)),
+    )
+
+    assert not scope.is_empty()
+    assert scope.visible_tools() == (read_tool,)
+
+
 def test_tool_call_record_normalizes_arguments() -> None:
     call = ToolCallRecord(
         id="call_1",
@@ -93,3 +117,4 @@ def test_default_tool_call_id_mapper_generates_provider_friendly_id() -> None:
         mapper.to_tinysoul_id("1 bad", index=1, tool_name="read/file")
         == "read_file_2"
     )
+    assert mapper.to_provider_id("read_file_2") == "read_file_2"

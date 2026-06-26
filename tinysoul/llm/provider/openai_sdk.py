@@ -461,7 +461,7 @@ def _apply_tools_kwargs(
         )
     if request.tool_use is ToolUse.DISABLED:
         return
-    tools = _selected_tools(request)
+    tools = request.tool_scope.visible_tools()
     if not tools:
         return
     kwargs["tools"] = [_to_provider_tool(tool) for tool in tools]
@@ -470,14 +470,6 @@ def _apply_tools_kwargs(
         kwargs["tool_choice"] = tool_choice
     elif request.tool_use is ToolUse.REQUIRED:
         kwargs["tool_choice"] = "required"
-
-
-def _selected_tools(request: ProviderRequest) -> tuple[ToolSpec, ...]:
-    if not request.tool_scope.selection.allowed_names:
-        return request.tool_scope.tools
-    allowed = set(request.tool_scope.selection.allowed_names)
-    return tuple(tool for tool in request.tool_scope.tools if tool.name in allowed)
-
 
 def _tool_choice(
     selection: ToolSelection,

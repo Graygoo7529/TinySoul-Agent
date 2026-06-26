@@ -89,6 +89,26 @@ class CapabilityPolicy:
             )
 
 
+class TaskCallValidator:
+    """Validate semantic consistency of a task call."""
+
+    def validate(self, call: TaskCall, *, settings: CallSettings) -> None:
+        tool_use = settings.tool_use
+        if tool_use is None:
+            raise LLMTaskError("Task has no tool use policy")
+        if tool_use is ToolUse.DISABLED:
+            if not call.tool_scope.is_empty():
+                raise LLMTaskError("Tool scope must be empty when tool use is disabled")
+            return
+        if not call.tool_scope.visible_tools():
+            raise LLMTaskError("Tool use requires at least one visible tool")
+        if (
+            call.tool_scope.selection.forced_name is not None
+            and tool_use is not ToolUse.REQUIRED
+        ):
+            raise LLMTaskError("Forced tool selection requires required tool use")
+
+
 class LLMTaskRunner:
     """Execute LLM task calls over registered model chains."""
 
@@ -105,12 +125,14 @@ class LLMTaskRunner:
         clock: Clock | None = None,
         chain_runner: ModelChainRunner | None = None,
         capability_policy: CapabilityPolicy | None = None,
+        call_validator: TaskCallValidator | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
         self._tasks = tasks
         self._interpreter = interpreter or ResponseInterpreter()
         self._capability_policy = capability_policy or CapabilityPolicy()
+        self._call_validator = call_validator or TaskCallValidator()
         self._sleeper = sleeper or Sleeper()
         self._chain_runner = chain_runner or ModelChainRunner(
             state=chain_state,
@@ -159,11 +181,7 @@ class LLMTaskRunner:
         tool_use = settings.tool_use
         if tool_use is None:
             raise LLMTaskError(f"Task '{task.profile}' has no tool use policy")
-        if (
-            call.tool_scope.selection.forced_name is not None
-            and tool_use is not ToolUse.REQUIRED
-        ):
-            raise LLMTaskError("Forced tool selection requires required tool use")
+        self._call_validator.validate(call, settings=settings)
         self._capability_policy.ensure_supported(
             model,
             self._capability_policy.required_capabilities(call, settings=settings),

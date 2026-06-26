@@ -23,7 +23,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     def validate_tools(self, request: ProviderRequest) -> None:
         # DeepSeek strict function calling is a beta capability. The provider
         # adapter rejects strict tools unless the configured endpoint is beta.
-        for tool in request.tool_scope.tools:
+        for tool in request.tool_scope.visible_tools():
             if tool.strict:
                 provider_options = request.provider_options
                 if not _deepseek_beta_enabled(provider_options):

@@ -89,6 +89,21 @@ class ToolScope:
                 f"Unknown forced tool name: {self.selection.forced_name}"
             )
 
+    def visible_tools(self) -> tuple[ToolSpec, ...]:
+        """Return the tools visible to this model call."""
+        if not self.selection.allowed_names:
+            return self.tools
+        allowed = set(self.selection.allowed_names)
+        return tuple(tool for tool in self.tools if tool.name in allowed)
+
+    def is_empty(self) -> bool:
+        """Return whether no tool definition or selection constraint is present."""
+        return (
+            not self.tools
+            and not self.selection.allowed_names
+            and self.selection.forced_name is None
+        )
+
 
 @dataclass(frozen=True)
 class ToolCallRecord:

@@ -62,7 +62,7 @@ class TaskResult:
 
 
 class ResponseInterpretError(Exception):
-    """Raised when a model response cannot satisfy its response contract."""
+    """Raised when a model response cannot satisfy task settings."""
 
 
 class ResponseInterpreter:

@@ -445,6 +445,74 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
         )
 
 
+def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="tool_model",
+        provider_id="fake",
+        provider_model="tool-model",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.TOOL_CALLING,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("tool_model",))),
+    )
+
+    with pytest.raises(LLMTaskError):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                tool_scope=ToolScope(tools=(_tool(),)),
+            )
+        )
+
+
+def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="tool_model",
+        provider_id="fake",
+        provider_model="tool-model",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.TOOL_CALLING,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="framework",
+                    chain=ModelChain(profile="framework", model_ids=("tool_model",)),
+                    settings=CallSettings(
+                        answer_format=AnswerFormat.NONE,
+                        tool_use=ToolUse.REQUIRED,
+                    ),
+                )
+            ]
+        ),
+    )
+
+    with pytest.raises(LLMTaskError):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+
 def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
@@ -595,6 +663,6 @@ def _tool() -> ToolSpec:
 
 def _json_output(result: TaskResult) -> JsonObject:
     if not isinstance(result.answer, JsonAnswer):
-        raise AssertionError("Expected JSON object task output")
+        raise AssertionError("Expected JSON answer")
     return result.answer.value
 
