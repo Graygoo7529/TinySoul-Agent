@@ -34,7 +34,14 @@ from tinysoul.llm.provider.openai_sdk import (
 )
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.responses import AnswerFormat
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec, ToolUse
+from tinysoul.llm.tools import (
+    ToolCallRecord,
+    ToolKind,
+    ToolScope,
+    ToolSelection,
+    ToolSpec,
+    ToolUse,
+)
 
 
 @dataclass
@@ -449,7 +456,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
                 ),
             ),
             answer_format=AnswerFormat.NONE,
-            tools=(_tool(),),
+            tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
         )
     )
@@ -471,6 +478,35 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     ]
     assert response.tool_calls[0].id == "provider_call_2"
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
+
+
+def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text="", output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.NONE,
+            tool_scope=ToolScope(
+                tools=(_tool(),),
+                selection=ToolSelection(forced_name="read_file"),
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == {
+        "type": "function",
+        "name": "read_file",
+    }
 
 
 def test_chat_adapter_maps_kimi_request_payload() -> None:
@@ -579,7 +615,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
                 ),
             ),
             answer_format=AnswerFormat.NONE,
-            tools=(_tool(),),
+            tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
         )
     )
@@ -609,6 +645,36 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
     ]
     assert response.tool_calls[0].id == "provider_call_2"
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
+
+
+def test_chat_adapter_maps_forced_tool_choice() -> None:
+    message = SimpleNamespace(content=None, tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="generic", provider_model="generic-model"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.NONE,
+            tool_scope=ToolScope(
+                tools=(_tool(),),
+                selection=ToolSelection(forced_name="read_file"),
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "read_file"},
+    }
 
 
 def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
@@ -1036,12 +1102,14 @@ def test_kimi_adapter_validates_tool_names_and_count() -> None:
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                tools=(
-                    ToolSpec(
-                        name="1bad",
-                        description="bad",
-                        parameters={"type": "object"},
-                        kind=ToolKind.ACTION,
+                tool_scope=ToolScope(
+                    tools=(
+                        ToolSpec(
+                            name="1bad",
+                            description="bad",
+                            parameters={"type": "object"},
+                            kind=ToolKind.ACTION,
+                        ),
                     ),
                 ),
             )
@@ -1063,13 +1131,15 @@ def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
                 model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                tools=(
-                    ToolSpec(
-                        name="read_file",
-                        description="Read",
-                        parameters={"type": "object"},
-                        kind=ToolKind.ACTION,
-                        strict=True,
+                tool_scope=ToolScope(
+                    tools=(
+                        ToolSpec(
+                            name="read_file",
+                            description="Read",
+                            parameters={"type": "object"},
+                            kind=ToolKind.ACTION,
+                            strict=True,
+                        ),
                     ),
                 ),
             )

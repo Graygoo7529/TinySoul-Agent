@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -52,6 +52,7 @@ class ToolSelection:
     """Tool selection constraints prepared by the caller."""
 
     allowed_names: tuple[str, ...] = ()
+    forced_name: str | None = None
 
     def __post_init__(self) -> None:
         seen: set[str] = set()
@@ -60,6 +61,33 @@ class ToolSelection:
             if name in seen:
                 raise ValueError(f"Duplicate tool selection name: {name}")
             seen.add(name)
+        if self.forced_name is not None:
+            _require_name(self.forced_name, field="ToolSelection.forced_name")
+            if self.allowed_names and self.forced_name not in seen:
+                raise ValueError("ToolSelection.forced_name must be in allowed_names")
+
+
+@dataclass(frozen=True)
+class ToolScope:
+    """Tools visible to a model call plus selection constraints."""
+
+    tools: tuple[ToolSpec, ...] = field(default_factory=tuple)
+    selection: ToolSelection = field(default_factory=ToolSelection)
+
+    def __post_init__(self) -> None:
+        names = {tool.name for tool in self.tools}
+        missing_allowed = [
+            name for name in self.selection.allowed_names if name not in names
+        ]
+        if missing_allowed:
+            raise ValueError(f"Unknown tool selection name: {missing_allowed[0]}")
+        if (
+            self.selection.forced_name is not None
+            and self.selection.forced_name not in names
+        ):
+            raise ValueError(
+                f"Unknown forced tool name: {self.selection.forced_name}"
+            )
 
 
 @dataclass(frozen=True)

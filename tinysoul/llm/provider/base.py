@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from collections.abc import Mapping
 from typing import Protocol
@@ -11,7 +11,7 @@ from tinysoul.llm.cache import PromptCache
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.models import ModelSpec
 from tinysoul.llm.responses import AnswerFormat, RawResponse
-from tinysoul.llm.tools import ToolSelection, ToolSpec, ToolUse
+from tinysoul.llm.tools import ToolScope, ToolUse
 
 
 class ProviderErrorKind(StrEnum):
@@ -41,8 +41,7 @@ class ProviderRequest:
     messages: MessageStack
     answer_format: AnswerFormat
     tool_use: ToolUse = ToolUse.DISABLED
-    tools: tuple[ToolSpec, ...] = ()
-    tool_selection: ToolSelection | None = None
+    tool_scope: ToolScope = field(default_factory=ToolScope)
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None

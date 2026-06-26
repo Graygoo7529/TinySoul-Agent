@@ -30,7 +30,14 @@ from tinysoul.llm.task import (
     LLMTaskRunner,
     ModelCapabilityError,
 )
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec, ToolUse
+from tinysoul.llm.tools import (
+    ToolCallRecord,
+    ToolKind,
+    ToolScope,
+    ToolSelection,
+    ToolSpec,
+    ToolUse,
+)
 
 
 @dataclass
@@ -429,10 +436,53 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                tools=(_tool(),),
+                tool_scope=ToolScope(tools=(_tool(),)),
                 settings=CallSettings(
                     answer_format=AnswerFormat.NONE,
                     tool_use=ToolUse.REQUIRED,
+                ),
+            )
+        )
+
+
+def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="tool_model",
+        provider_id="fake",
+        provider_model="tool-model",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.TOOL_CALLING,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="framework",
+                    chain=ModelChain(profile="framework", model_ids=("tool_model",)),
+                    settings=CallSettings(
+                        answer_format=AnswerFormat.NONE,
+                        tool_use=ToolUse.OPTIONAL,
+                    ),
+                )
+            ]
+        ),
+    )
+
+    with pytest.raises(LLMTaskError):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                tool_scope=ToolScope(
+                    tools=(_tool(),),
+                    selection=ToolSelection(forced_name="read_file"),
                 ),
             )
         )
@@ -490,13 +540,13 @@ def test_runner_interprets_tool_call_output() -> None:
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            tools=(_tool(),),
+            tool_scope=ToolScope(tools=(_tool(),)),
         )
     )
 
     assert result.answer is None
     assert result.tool_calls == (tool_call,)
-    assert provider.requests[0].tools == (_tool(),)
+    assert provider.requests[0].tool_scope.tools == (_tool(),)
 
 
 def _models(*ids: str) -> ModelRegistry:

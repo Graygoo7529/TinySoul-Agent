@@ -159,6 +159,11 @@ class LLMTaskRunner:
         tool_use = settings.tool_use
         if tool_use is None:
             raise LLMTaskError(f"Task '{task.profile}' has no tool use policy")
+        if (
+            call.tool_scope.selection.forced_name is not None
+            and tool_use is not ToolUse.REQUIRED
+        ):
+            raise LLMTaskError("Forced tool selection requires required tool use")
         self._capability_policy.ensure_supported(
             model,
             self._capability_policy.required_capabilities(call, settings=settings),
@@ -176,8 +181,7 @@ class LLMTaskRunner:
                         messages=call.messages,
                         answer_format=answer_format,
                         tool_use=tool_use,
-                        tools=call.tools,
-                        tool_selection=call.tool_selection,
+                        tool_scope=call.tool_scope,
                         prompt_cache=call.prompt_cache,
                         temperature=settings.temperature,
                         max_output_tokens=settings.max_output_tokens,

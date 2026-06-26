@@ -6,6 +6,7 @@ from tinysoul.llm.tools import (
     DefaultToolCallIdMapper,
     ToolCallRecord,
     ToolKind,
+    ToolScope,
     ToolSelection,
     ToolSpec,
 )
@@ -31,12 +32,36 @@ def test_tool_spec_requires_name_and_description() -> None:
 
 def test_tool_selection_validates_names() -> None:
     assert ToolSelection(("read_file",)).allowed_names == ("read_file",)
+    assert ToolSelection(("read_file",), forced_name="read_file").forced_name == "read_file"
 
     with pytest.raises(ValueError):
         ToolSelection(("",))
 
     with pytest.raises(ValueError):
         ToolSelection(("read_file", "read_file"))
+
+    with pytest.raises(ValueError):
+        ToolSelection(("read_file",), forced_name="write_file")
+
+
+def test_tool_scope_validates_selection_against_tools() -> None:
+    tool = ToolSpec(
+        name="read_file",
+        description="Read",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )
+
+    assert ToolScope(
+        tools=(tool,),
+        selection=ToolSelection(forced_name="read_file"),
+    ).selection.forced_name == "read_file"
+
+    with pytest.raises(ValueError):
+        ToolScope(
+            tools=(tool,),
+            selection=ToolSelection(("write_file",)),
+        )
 
 
 def test_tool_call_record_normalizes_arguments() -> None:

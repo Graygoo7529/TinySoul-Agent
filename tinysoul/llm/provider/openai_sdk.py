@@ -33,6 +33,7 @@ from tinysoul.llm.tools import (
     ToolCallIdMapper,
     ToolKind,
     ToolResultStatus,
+    ToolSelection,
     ToolUse,
     ToolSpec,
 )
@@ -154,7 +155,7 @@ class OpenAIResponsesAdapter:
             renderer=self._renderer,
             id_mapper=self._id_mapper,
         )
-        _apply_tools_kwargs(kwargs, request)
+        _apply_tools_kwargs(kwargs, request, api_style=ProviderApiStyle.OPENAI_RESPONSES)
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
         self._behavior.apply_options(kwargs, provider_options)
@@ -214,7 +215,7 @@ class OpenAICompatibleChatAdapter:
             renderer=self._renderer,
             id_mapper=self._id_mapper,
         )
-        _apply_tools_kwargs(kwargs, request)
+        _apply_tools_kwargs(kwargs, request, api_style=ProviderApiStyle.OPENAI_CHAT)
         max_output_tokens = kwargs.pop("max_output_tokens", None)
         if max_output_tokens is not None:
             kwargs["max_completion_tokens"] = max_output_tokens
@@ -447,22 +448,53 @@ def _to_chat_part(part: RenderedContentPart) -> dict[str, object]:
 def _apply_tools_kwargs(
     kwargs: dict[str, object],
     request: ProviderRequest,
+    *,
+    api_style: ProviderApiStyle,
 ) -> None:
+    if (
+        request.tool_scope.selection.forced_name is not None
+        and request.tool_use is not ToolUse.REQUIRED
+    ):
+        raise ProviderError(
+            "Forced tool selection requires required tool use",
+            kind=ProviderErrorKind.CONFIG,
+        )
     if request.tool_use is ToolUse.DISABLED:
         return
     tools = _selected_tools(request)
     if not tools:
         return
     kwargs["tools"] = [_to_provider_tool(tool) for tool in tools]
-    if request.tool_use is ToolUse.REQUIRED:
+    tool_choice = _tool_choice(request.tool_scope.selection, api_style=api_style)
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+    elif request.tool_use is ToolUse.REQUIRED:
         kwargs["tool_choice"] = "required"
 
 
 def _selected_tools(request: ProviderRequest) -> tuple[ToolSpec, ...]:
-    if request.tool_selection is None or not request.tool_selection.allowed_names:
-        return request.tools
-    allowed = set(request.tool_selection.allowed_names)
-    return tuple(tool for tool in request.tools if tool.name in allowed)
+    if not request.tool_scope.selection.allowed_names:
+        return request.tool_scope.tools
+    allowed = set(request.tool_scope.selection.allowed_names)
+    return tuple(tool for tool in request.tool_scope.tools if tool.name in allowed)
+
+
+def _tool_choice(
+    selection: ToolSelection,
+    *,
+    api_style: ProviderApiStyle,
+) -> object | None:
+    if selection.forced_name is None:
+        return None
+    if api_style is ProviderApiStyle.OPENAI_RESPONSES:
+        return {
+            "type": "function",
+            "name": selection.forced_name,
+        }
+    return {
+        "type": "function",
+        "function": {"name": selection.forced_name},
+    }
 
 
 def _to_provider_tool(tool: ToolSpec) -> dict[str, object]:
