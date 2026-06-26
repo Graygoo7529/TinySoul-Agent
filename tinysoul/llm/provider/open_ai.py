@@ -38,9 +38,9 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> tuple[JsonObject, ...]:
-        reasoning = message.reasoning
-        if not isinstance(message, AssistantMessage) or reasoning is None:
+        if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return ()
+        reasoning = message.reasoning
         if reasoning.content is not None:
             raise ProviderError(
                 "OpenAI does not support text reasoning content input",

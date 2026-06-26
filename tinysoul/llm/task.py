@@ -19,11 +19,12 @@ from .models import ModelCapability, ModelRegistry, ModelSpec
 from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
 from .requests import CallSettings, TaskCall, TaskProfile
 from .responses import (
-    ResponseContract,
+    AnswerFormat,
     ResponseInterpretError,
     ResponseInterpreter,
     TaskResult,
 )
+from .tools import ToolUse
 
 
 class LLMTaskError(Exception):
@@ -58,7 +59,7 @@ class CapabilityPolicy:
         settings: CallSettings,
     ) -> frozenset[ModelCapability]:
         required = {ModelCapability.TEXT_INPUT} | set(settings.required_capabilities)
-        if call.tools or settings.response_contract is ResponseContract.TOOL_CALLS:
+        if settings.tool_use is not ToolUse.DISABLED:
             required.add(ModelCapability.TOOL_CALLING)
         for message in call.messages.messages:
             for part in message.parts:
@@ -152,9 +153,12 @@ class LLMTaskRunner:
     def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
         model = self._models.get(model_id)
         settings = self._resolve_settings(call, task)
-        response_contract = settings.response_contract
-        if response_contract is None:
-            raise LLMTaskError(f"Task '{task.profile}' has no response contract")
+        answer_format = settings.answer_format
+        if answer_format is None:
+            raise LLMTaskError(f"Task '{task.profile}' has no answer format")
+        tool_use = settings.tool_use
+        if tool_use is None:
+            raise LLMTaskError(f"Task '{task.profile}' has no tool use policy")
         self._capability_policy.ensure_supported(
             model,
             self._capability_policy.required_capabilities(call, settings=settings),
@@ -170,9 +174,10 @@ class LLMTaskRunner:
                     ProviderRequest(
                         model=model,
                         messages=call.messages,
-                        response_contract=response_contract,
+                        answer_format=answer_format,
+                        tool_use=tool_use,
                         tools=call.tools,
-                        tool_choice=call.tool_choice,
+                        tool_selection=call.tool_selection,
                         prompt_cache=call.prompt_cache,
                         temperature=settings.temperature,
                         max_output_tokens=settings.max_output_tokens,
@@ -184,7 +189,7 @@ class LLMTaskRunner:
                     raise
                 last_error = exc
                 continue
-            return self._interpreter.interpret(response, response_contract)
+            return self._interpreter.interpret(response, answer_format, tool_use)
 
         if last_error is None:
             raise LLMTaskError("Model retry failed without a provider error")

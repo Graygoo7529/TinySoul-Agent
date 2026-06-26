@@ -15,12 +15,12 @@ class ToolKind(StrEnum):
     ACTION = "action"
 
 
-class ToolChoiceMode(StrEnum):
-    """Tool selection mode for a model call."""
+class ToolUse(StrEnum):
+    """Tool use policy for a model call."""
 
-    AUTO = "auto"
+    DISABLED = "disabled"
+    OPTIONAL = "optional"
     REQUIRED = "required"
-    NONE = "none"
 
 
 class ToolResultStatus(StrEnum):
@@ -48,44 +48,18 @@ class ToolSpec:
 
 
 @dataclass(frozen=True)
-class ToolChoice:
-    """Tool selection constraints for a model call."""
+class ToolSelection:
+    """Tool selection constraints prepared by the caller."""
 
-    mode: ToolChoiceMode
     allowed_names: tuple[str, ...] = ()
-    forced_name: str | None = None
 
     def __post_init__(self) -> None:
+        seen: set[str] = set()
         for name in self.allowed_names:
-            _require_name(name, field="ToolChoice.allowed_names")
-        if self.forced_name is not None:
-            _require_name(self.forced_name, field="ToolChoice.forced_name")
-        if self.mode is ToolChoiceMode.NONE:
-            if self.allowed_names or self.forced_name is not None:
-                raise ValueError("ToolChoice.NONE cannot constrain tool names")
-        if self.mode is not ToolChoiceMode.REQUIRED and self.forced_name is not None:
-            raise ValueError("ToolChoice.forced_name requires REQUIRED mode")
-
-    @classmethod
-    def auto(cls, *allowed_names: str) -> "ToolChoice":
-        return cls(mode=ToolChoiceMode.AUTO, allowed_names=tuple(allowed_names))
-
-    @classmethod
-    def required(
-        cls,
-        *,
-        forced_name: str | None = None,
-        allowed_names: tuple[str, ...] = (),
-    ) -> "ToolChoice":
-        return cls(
-            mode=ToolChoiceMode.REQUIRED,
-            allowed_names=allowed_names,
-            forced_name=forced_name,
-        )
-
-    @classmethod
-    def none(cls) -> "ToolChoice":
-        return cls(mode=ToolChoiceMode.NONE)
+            _require_name(name, field="ToolSelection.allowed_names")
+            if name in seen:
+                raise ValueError(f"Duplicate tool selection name: {name}")
+            seen.add(name)
 
 
 @dataclass(frozen=True)
@@ -96,26 +70,67 @@ class ToolCallRecord:
     name: str
     arguments: JsonObject
     kind: ToolKind | None = None
-    provider_call_id: str | None = None
-    raw_provider_payload: JsonObject | None = None
 
     def __post_init__(self) -> None:
         _require_name(self.id, field="ToolCallRecord.id")
         _require_name(self.name, field="ToolCallRecord.name")
         object.__setattr__(self, "arguments", to_json_object(self.arguments))
-        if self.provider_call_id is not None:
-            _require_name(
-                self.provider_call_id,
-                field="ToolCallRecord.provider_call_id",
-            )
-        if self.raw_provider_payload is not None:
-            object.__setattr__(
-                self,
-                "raw_provider_payload",
-                to_json_object(self.raw_provider_payload),
-            )
+
+
+class ToolCallIdMapper:
+    """Map between TinySoul and provider tool call ids."""
+
+    def to_tinysoul_id(
+        self,
+        provider_call_id: str | None,
+        *,
+        index: int,
+        tool_name: str,
+    ) -> str:
+        """Return a TinySoul tool call id for a provider call."""
+        raise NotImplementedError
+
+    def to_provider_id(self, tinysoul_id: str) -> str:
+        """Return a provider call id for a TinySoul call id."""
+        raise NotImplementedError
+
+
+class DefaultToolCallIdMapper(ToolCallIdMapper):
+    """Provider-friendly id mapping that keeps valid provider ids."""
+
+    def to_tinysoul_id(
+        self,
+        provider_call_id: str | None,
+        *,
+        index: int,
+        tool_name: str,
+    ) -> str:
+        if provider_call_id and _valid_tool_call_id(provider_call_id):
+            return provider_call_id
+        safe_tool_name = "".join(
+            char if char.isalnum() or char in {"_", "-"} else "_"
+            for char in tool_name
+        )
+        if not safe_tool_name or not (
+            safe_tool_name[0].isalpha() or safe_tool_name[0] == "_"
+        ):
+            safe_tool_name = f"tool_{safe_tool_name}"
+        return f"{safe_tool_name}_{index + 1}"
+
+    def to_provider_id(self, tinysoul_id: str) -> str:
+        _require_name(tinysoul_id, field="tinysoul_id")
+        return tinysoul_id
 
 
 def _require_name(value: str, *, field: str) -> None:
     if not value:
         raise ValueError(f"{field} must be non-empty")
+
+
+def _valid_tool_call_id(value: str) -> bool:
+    if not value:
+        return False
+    first = value[0]
+    if not (first.isalpha() or first == "_"):
+        return False
+    return all(char.isalnum() or char in {"_", "-"} for char in value)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -9,7 +9,8 @@ from tinysoul.llm.config import LLMConfigParser, ProviderApiStyle
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 from tinysoul.llm.requests import TaskProfile
-from tinysoul.llm.responses import ResponseContract
+from tinysoul.llm.responses import AnswerFormat
+from tinysoul.llm.tools import ToolUse
 
 
 def test_llm_config_parses_project_config_files() -> None:
@@ -100,7 +101,8 @@ def test_llm_config_parses_project_config_files() -> None:
     )
     assert framework.chain.retry_policy.max_retries_per_model == 2
     assert framework.chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
-    assert framework.settings.response_contract is ResponseContract.JSON_OBJECT
+    assert framework.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert framework.settings.tool_use is ToolUse.DISABLED
     assert framework.settings.temperature == pytest.approx(0.6)
     assert framework.settings.max_output_tokens == 4096
 
@@ -251,7 +253,6 @@ def test_llm_config_rejects_invalid_request_override() -> None:
 
     with pytest.raises(ConfigError):
         LLMConfigParser().parse(tree)
-
 
 def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:
     tree = {

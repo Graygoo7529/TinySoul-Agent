@@ -10,60 +10,55 @@ import re
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .reasoning import Reasoning
-from .tools import ToolCallRecord
+from .tools import ToolCallRecord, ToolUse
 
 
-class ResponseContract(StrEnum):
-    """Expected model output shape."""
+class AnswerFormat(StrEnum):
+    """Expected model answer format."""
 
+    NONE = "none"
     TEXT = "text"
     JSON_OBJECT = "json_object"
-    TOOL_CALLS = "tool_calls"
 
 
 @dataclass(frozen=True)
-class ModelResponse:
-    """Provider-normalized model response."""
+class RawResponse:
+    """Provider-normalized raw model response."""
 
-    answer: str
+    answer_text: str
     model_id: str
     provider_id: str
     tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
     reasoning: Reasoning | None = None
     usage: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
+    provider_payload: JsonObject | None = None
 
 
 @dataclass(frozen=True)
-class TextTaskOutput:
-    """Interpreted text task output."""
+class TextAnswer:
+    """Interpreted text answer."""
 
     text: str
 
 
 @dataclass(frozen=True)
-class JsonObjectTaskOutput:
-    """Interpreted JSON object task output."""
+class JsonAnswer:
+    """Interpreted JSON object answer."""
 
     value: JsonObject
 
 
-@dataclass(frozen=True)
-class ToolCallTaskOutput:
-    """Interpreted tool call task output."""
-
-    calls: tuple[ToolCallRecord, ...]
-
-
-TaskOutput = TextTaskOutput | JsonObjectTaskOutput | ToolCallTaskOutput
+Answer = TextAnswer | JsonAnswer
 
 
 @dataclass(frozen=True)
 class TaskResult:
     """Interpreted task result."""
 
-    response: ModelResponse
-    output: TaskOutput
+    raw_response: RawResponse
+    answer: Answer | None
+    tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
 
 
 class ResponseInterpretError(Exception):
@@ -71,31 +66,47 @@ class ResponseInterpretError(Exception):
 
 
 class ResponseInterpreter:
-    """Interpret model responses according to a response contract."""
+    """Interpret raw model responses according to task settings."""
 
     def interpret(
         self,
-        response: ModelResponse,
-        contract: ResponseContract,
+        response: RawResponse,
+        answer_format: AnswerFormat,
+        tool_use: ToolUse,
     ) -> TaskResult:
-        if contract is ResponseContract.TEXT:
-            return TaskResult(
-                response=response,
-                output=TextTaskOutput(response.answer),
-            )
-        if contract is ResponseContract.JSON_OBJECT:
-            return TaskResult(
-                response=response,
-                output=JsonObjectTaskOutput(self._parse_json_object(response.answer)),
-            )
-        if contract is ResponseContract.TOOL_CALLS:
+        answer: Answer | None
+        if answer_format is AnswerFormat.NONE:
+            answer = None
+        elif answer_format is AnswerFormat.TEXT:
+            answer = TextAnswer(response.answer_text)
+        elif answer_format is AnswerFormat.JSON_OBJECT:
+            answer = JsonAnswer(self._parse_json_object(response.answer_text))
+        else:
+            raise ResponseInterpretError(f"Unsupported answer format: {answer_format}")
+
+        tool_calls = self._interpret_tool_calls(response, tool_use)
+        return TaskResult(
+            raw_response=response,
+            answer=answer,
+            tool_calls=tool_calls,
+        )
+
+    def _interpret_tool_calls(
+        self,
+        response: RawResponse,
+        tool_use: ToolUse,
+    ) -> tuple[ToolCallRecord, ...]:
+        if tool_use is ToolUse.DISABLED:
+            if response.tool_calls:
+                raise ResponseInterpretError("Tool calls are disabled for this task")
+            return ()
+        if tool_use is ToolUse.OPTIONAL:
+            return response.tool_calls
+        if tool_use is ToolUse.REQUIRED:
             if not response.tool_calls:
                 raise ResponseInterpretError("Expected at least one tool call")
-            return TaskResult(
-                response=response,
-                output=ToolCallTaskOutput(response.tool_calls),
-            )
-        raise ResponseInterpretError(f"Unsupported response contract: {contract}")
+            return response.tool_calls
+        raise ResponseInterpretError(f"Unsupported tool use: {tool_use}")
 
     def _parse_json_object(self, text: str) -> JsonObject:
         cleaned = _extract_json_text(text)

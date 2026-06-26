@@ -14,6 +14,7 @@ from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
     JsonPart,
+    Message,
     MessageStack,
     SystemMessage,
     TextPart,
@@ -22,7 +23,7 @@ from tinysoul.llm.messages import (
 from tinysoul.llm.models import ModelCapability, ModelSpec
 from tinysoul.llm.provider import ProviderAdapter, ProviderRequest
 from tinysoul.llm.provider.factory import build_provider_registry
-from tinysoul.llm.responses import ResponseContract
+from tinysoul.llm.responses import AnswerFormat
 
 
 pytestmark = pytest.mark.skipif(
@@ -55,7 +56,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         ProviderRequest(
             model=model,
             messages=messages,
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
@@ -63,15 +64,15 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         )
     )
     _assert_provider_returned(
-        first_response.answer,
+        first_response.answer_text,
         provider_id=provider.id,
         model_id=model.id,
         round_number=1,
     )
-    _print_response_summary(round_number=1, answer=first_response.answer, response=first_response)
+    _print_response_summary(round_number=1, answer=first_response.answer_text, response=first_response)
 
     messages = messages.append(
-        AssistantMessage.from_text(first_response.answer,
+        AssistantMessage.from_text(first_response.answer_text,
             reasoning=first_response.reasoning,
         )
     ).append(
@@ -95,7 +96,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         ProviderRequest(
             model=model,
             messages=messages,
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
@@ -103,12 +104,12 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         )
     )
     _assert_provider_returned(
-        second_response.answer,
+        second_response.answer_text,
         provider_id=provider.id,
         model_id=model.id,
         round_number=2,
     )
-    _print_response_summary(round_number=2, answer=second_response.answer, response=second_response)
+    _print_response_summary(round_number=2, answer=second_response.answer_text, response=second_response)
 
 
 def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, ProviderAdapter]:

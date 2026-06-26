@@ -20,18 +20,17 @@ from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequ
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import CallSettings, TaskCall
 from tinysoul.llm.responses import (
-    JsonObjectTaskOutput,
-    ModelResponse,
-    ResponseContract,
+    JsonAnswer,
+    RawResponse,
+    AnswerFormat,
     TaskResult,
-    ToolCallTaskOutput,
 )
 from tinysoul.llm.task import (
     LLMTaskError,
     LLMTaskRunner,
     ModelCapabilityError,
 )
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec, ToolUse
 
 
 @dataclass
@@ -41,7 +40,7 @@ class FakeProvider:
     calls: list[str] = field(default_factory=list)
     requests: list[ProviderRequest] = field(default_factory=list)
 
-    def invoke(self, request: ProviderRequest) -> ModelResponse:
+    def invoke(self, request: ProviderRequest) -> RawResponse:
         model_id = request.model.id
         self.calls.append(model_id)
         self.requests.append(request)
@@ -49,8 +48,8 @@ class FakeProvider:
         if remaining > 0:
             self.failures[model_id] = remaining - 1
             raise ProviderError("temporary failure", kind=ProviderErrorKind.TRANSIENT)
-        return ModelResponse(
-            answer='{"model": "' + model_id + '"}',
+        return RawResponse(
+            answer_text='{"model": "' + model_id + '"}',
             model_id=model_id,
             provider_id=self.provider_id,
         )
@@ -393,7 +392,8 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
                     profile="framework",
                     chain=ModelChain(profile="framework", model_ids=("a",)),
                     settings=CallSettings(
-                        response_contract=ResponseContract.JSON_OBJECT,
+                        answer_format=AnswerFormat.JSON_OBJECT,
+                        tool_use=ToolUse.DISABLED,
                         temperature=0.6,
                         max_output_tokens=4096,
                     ),
@@ -430,7 +430,10 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 tools=(_tool(),),
-                settings=CallSettings(response_contract=ResponseContract.TOOL_CALLS),
+                settings=CallSettings(
+                    answer_format=AnswerFormat.NONE,
+                    tool_use=ToolUse.REQUIRED,
+                ),
             )
         )
 
@@ -445,10 +448,10 @@ def test_runner_interprets_tool_call_output() -> None:
 
     @dataclass
     class ToolProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> ModelResponse:
+        def invoke(self, request: ProviderRequest) -> RawResponse:
             self.requests.append(request)
-            return ModelResponse(
-                answer="",
+            return RawResponse(
+                answer_text="",
                 model_id=request.model.id,
                 provider_id=self.provider_id,
                 tool_calls=(tool_call,),
@@ -475,7 +478,8 @@ def test_runner_interprets_tool_call_output() -> None:
                     profile="framework",
                     chain=ModelChain(profile="framework", model_ids=("tool_model",)),
                     settings=CallSettings(
-                        response_contract=ResponseContract.TOOL_CALLS,
+                        answer_format=AnswerFormat.NONE,
+                        tool_use=ToolUse.REQUIRED,
                     ),
                 )
             ]
@@ -490,8 +494,8 @@ def test_runner_interprets_tool_call_output() -> None:
         )
     )
 
-    assert isinstance(result.output, ToolCallTaskOutput)
-    assert result.output.calls == (tool_call,)
+    assert result.answer is None
+    assert result.tool_calls == (tool_call,)
     assert provider.requests[0].tools == (_tool(),)
 
 
@@ -521,7 +525,10 @@ def _tasks(chain: ModelChain) -> TaskSpecTable:
             TaskSpec(
                 profile=chain.profile,
                 chain=chain,
-                settings=CallSettings(response_contract=ResponseContract.JSON_OBJECT),
+                settings=CallSettings(
+                    answer_format=AnswerFormat.JSON_OBJECT,
+                    tool_use=ToolUse.DISABLED,
+                ),
             )
         ]
     )
@@ -537,8 +544,7 @@ def _tool() -> ToolSpec:
 
 
 def _json_output(result: TaskResult) -> JsonObject:
-    if not isinstance(result.output, JsonObjectTaskOutput):
+    if not isinstance(result.answer, JsonAnswer):
         raise AssertionError("Expected JSON object task output")
-    return result.output.value
-
+    return result.answer.value
 

@@ -12,7 +12,8 @@ from tinysoul.infra.config import ConfigError
 from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
 from .models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
 from .requests import CallSettings
-from .responses import ResponseContract
+from .responses import AnswerFormat
+from .tools import ToolUse
 
 
 class ProviderApiStyle(StrEnum):
@@ -213,11 +214,19 @@ class LLMConfigParser:
                         ),
                     ),
                     settings=CallSettings(
-                        response_contract=ResponseContract(
+                        answer_format=AnswerFormat(
                             _optional_str(
                                 task_table,
-                                "response_contract",
-                                default=ResponseContract.JSON_OBJECT.value,
+                                "answer_format",
+                                default=AnswerFormat.JSON_OBJECT.value,
+                                key=f"llm.tasks.{profile}",
+                            )
+                        ),
+                        tool_use=ToolUse(
+                            _optional_str(
+                                task_table,
+                                "tool_use",
+                                default=ToolUse.DISABLED.value,
                                 key=f"llm.tasks.{profile}",
                             )
                         ),

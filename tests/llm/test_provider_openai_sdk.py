@@ -33,8 +33,8 @@ from tinysoul.llm.provider.openai_sdk import (
     OpenAIResponsesAdapter,
 )
 from tinysoul.llm.reasoning import Reasoning
-from tinysoul.llm.responses import ResponseContract
-from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec
+from tinysoul.llm.responses import AnswerFormat
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolSpec, ToolUse
 
 
 @dataclass
@@ -84,7 +84,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                     ImagePart(data=b"abc", mime_type="image/png"),
                 ),
             ),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=PromptCache("stable-prefix"),
             temperature=0.2,
             max_output_tokens=256,
@@ -111,7 +111,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
         "verbosity": "medium",
     }
     assert "reasoning_effort" not in call
-    assert response.answer == '{"ok": true}'
+    assert response.answer_text == '{"ok": true}'
     assert response.usage == {"input_tokens": 10, "output_tokens": 3}
 
 
@@ -127,7 +127,7 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"reasoning": {"effort": "high"}},
             )
         )
@@ -158,7 +158,7 @@ def test_openai_responses_adapter_applies_request_overrides() -> None:
                 },
             ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             temperature=0.2,
             max_output_tokens=256,
             provider_options={
@@ -199,7 +199,7 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -231,7 +231,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -270,7 +270,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
                 ),
                 UserMessage.from_text("continue"),
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={"reasoning_keep": "encrypted"},
         )
     )
@@ -315,7 +315,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
                     reasoning=Reasoning(encrypted_items=(encrypted_item,)),
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -340,7 +340,7 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"reasoning_keep": "content"},
             )
         )
@@ -360,7 +360,7 @@ def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"reasoning_summary": "full"},
             )
         )
@@ -391,7 +391,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
                     JsonPart({"source": "tool_result", "ok": True}),
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -432,10 +432,9 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
         responses=client,
     )
     tool_call = ToolCallRecord(
-        id="call_1",
+        id="provider_call_1",
         name="read_file",
         arguments={"path": "workspace:doc.md"},
-        provider_call_id="provider_call_1",
     )
 
     response = adapter.invoke(
@@ -444,14 +443,14 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
             messages=MessageStack.of(
                 AssistantMessage.from_tool_calls(tool_call),
                 ToolResultMessage.from_json(
-                    call_id="call_1",
-                    provider_call_id="provider_call_1",
+                    call_id="provider_call_1",
                     tool_name="read_file",
                     value={"ok": True},
                 ),
             ),
-            response_contract=ResponseContract.TOOL_CALLS,
+            answer_format=AnswerFormat.NONE,
             tools=(_tool(),),
+            tool_use=ToolUse.REQUIRED,
         )
     )
 
@@ -470,7 +469,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
             "output": '```json\n{"ok":true}\n```',
         },
     ]
-    assert response.tool_calls[0].provider_call_id == "provider_call_2"
+    assert response.tool_calls[0].id == "provider_call_2"
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
@@ -503,7 +502,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
                     reasoning="thinking trace",
                 ),
             ),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=PromptCache("kimi-prefix"),
             temperature=0.2,
             max_output_tokens=128,
@@ -531,7 +530,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert call["response_format"] == {"type": "json_object"}
     assert call["prompt_cache_key"] == "kimi-prefix"
     assert call["extra_body"] == {"thinking": {"type": "enabled", "keep": "all"}}
-    assert response.answer == '{"ok": true}'
+    assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
     assert response.reasoning.content == "thinking"
     assert response.reasoning.summary == "thinking"
@@ -563,10 +562,9 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
         completions=client,
     )
     tool_call = ToolCallRecord(
-        id="call_1",
+        id="provider_call_1",
         name="read_file",
         arguments={"path": "workspace:doc.md"},
-        provider_call_id="provider_call_1",
     )
 
     response = adapter.invoke(
@@ -575,14 +573,14 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
             messages=MessageStack.of(
                 AssistantMessage.from_tool_calls(tool_call),
                 ToolResultMessage.from_json(
-                    call_id="call_1",
-                    provider_call_id="provider_call_1",
+                    call_id="provider_call_1",
                     tool_name="read_file",
                     value={"ok": True},
                 ),
             ),
-            response_contract=ResponseContract.TOOL_CALLS,
+            answer_format=AnswerFormat.NONE,
             tools=(_tool(),),
+            tool_use=ToolUse.REQUIRED,
         )
     )
 
@@ -609,7 +607,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
             "content": '```json\n{"ok":true}\n```',
         },
     ]
-    assert response.tool_calls[0].provider_call_id == "provider_call_2"
+    assert response.tool_calls[0].id == "provider_call_2"
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
@@ -642,7 +640,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
                     reasoning="reasoning trace",
                 ),
             ),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             temperature=0.7,
             provider_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
         )
@@ -688,7 +686,7 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
                     reasoning="reasoning trace",
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={"thinking": "enabled", "reasoning_effort": "high"},
         )
     )
@@ -727,7 +725,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
                     reasoning="reasoning trace",
                 ),
             ),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             max_output_tokens=128,
             provider_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
@@ -771,7 +769,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
                     reasoning="thinking trace",
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={"thinking": "enabled"},
         )
     )
@@ -804,7 +802,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
                     reasoning="thinking trace",
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={"thinking": "enabled"},
         )
     )
@@ -835,7 +833,7 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.2"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={"reasoning_effort": "max"},
         )
     )
@@ -883,7 +881,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
                     reasoning="reasoning trace",
                 ),
             ),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             max_output_tokens=128,
             provider_options={
                 "thinking": "adaptive",
@@ -903,7 +901,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
         "thinking": {"type": "adaptive"},
         "reasoning_split": True,
     }
-    assert response.answer == '{"ok": true}'
+    assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
     assert response.reasoning.content == "reasoning"
     assert response.reasoning.summary == "reasoning"
@@ -933,7 +931,7 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
         ProviderRequest(
             model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             provider_options={
                 "thinking": "adaptive",
                 "reasoning_split": True,
@@ -997,7 +995,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
                             reasoning="trace",
                         )
                     ),
-                    response_contract=ResponseContract.TEXT,
+                    answer_format=AnswerFormat.TEXT,
                     provider_options={"reasoning_keep": "forever"},
                 )
             )
@@ -1017,7 +1015,7 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"partial": True},
             )
         )
@@ -1037,7 +1035,7 @@ def test_kimi_adapter_validates_tool_names_and_count() -> None:
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 tools=(
                     ToolSpec(
                         name="1bad",
@@ -1064,7 +1062,7 @@ def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
             ProviderRequest(
                 model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 tools=(
                     ToolSpec(
                         name="read_file",
@@ -1092,7 +1090,7 @@ def test_adapter_rejects_invalid_request_override_value() -> None:
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"request_overrides": {"temperature": True}},
             )
         )
@@ -1123,7 +1121,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.JSON_OBJECT,
+            answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=PromptCache("prefix"),
         )
     )
@@ -1151,7 +1149,7 @@ def test_generic_chat_adapter_does_not_map_prompt_cache_key() -> None:
         ProviderRequest(
             model=_model(provider_id="generic", provider_model="generic-model"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
             prompt_cache=PromptCache("stable-prefix"),
         )
     )
@@ -1181,7 +1179,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
                     ImageUrlPart(url="https://example.test/image.png"),
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -1226,7 +1224,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
                     ),
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -1263,7 +1261,7 @@ def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
                     reasoning="local reasoning",
                 )
             ),
-            response_contract=ResponseContract.TEXT,
+            answer_format=AnswerFormat.TEXT,
         )
     )
 
@@ -1288,7 +1286,7 @@ def test_openai_responses_adapter_rejects_message_reasoning_input() -> None:
                         reasoning="local reasoning",
                     )
                 ),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
             )
         )
 
@@ -1307,7 +1305,7 @@ def test_provider_option_rejects_unknown_key() -> None:
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                response_contract=ResponseContract.TEXT,
+                answer_format=AnswerFormat.TEXT,
                 provider_options={"unknown": "value"},
             )
         )

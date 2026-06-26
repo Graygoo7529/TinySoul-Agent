@@ -26,12 +26,14 @@ from tinysoul.llm.messages import (
 )
 from tinysoul.llm.models import ModelCapability, ProviderOptions, ProviderRequestOverrides
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
-from tinysoul.llm.responses import ModelResponse, ResponseContract
+from tinysoul.llm.responses import AnswerFormat, RawResponse
 from tinysoul.llm.tools import (
+    DefaultToolCallIdMapper,
     ToolCallRecord,
-    ToolChoiceMode,
+    ToolCallIdMapper,
     ToolKind,
     ToolResultStatus,
+    ToolUse,
     ToolSpec,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -124,9 +126,11 @@ class OpenAIResponsesAdapter:
         api_key: str,
         responses: OpenAIResponsesClient | None = None,
         behavior: OpenAIAdapterBehavior | None = None,
+        id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
         self._behavior = behavior or OpenAIAdapterBehavior()
+        self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if responses is None:
             self._client: OpenAIResponsesClient = cast(
                 OpenAIResponsesClient,
@@ -139,7 +143,7 @@ class OpenAIResponsesAdapter:
             self._client = responses
         self._renderer = MessageContentRenderer()
 
-    def invoke(self, request: ProviderRequest) -> ModelResponse:
+    def invoke(self, request: ProviderRequest) -> RawResponse:
         provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
         self._behavior.validate_tools(request)
@@ -148,6 +152,7 @@ class OpenAIResponsesAdapter:
             request,
             behavior=self._behavior,
             renderer=self._renderer,
+            id_mapper=self._id_mapper,
         )
         _apply_tools_kwargs(kwargs, request)
         if _uses_native_json_output(request):
@@ -159,14 +164,15 @@ class OpenAIResponsesAdapter:
         except Exception as exc:
             raise _provider_error(exc) from exc
 
-        return ModelResponse(
-            answer=_responses_text(response),
+        return RawResponse(
+            answer_text=_responses_text(response),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            tool_calls=_responses_tool_calls(response),
+            tool_calls=_responses_tool_calls(response, id_mapper=self._id_mapper),
             reasoning=self._behavior.responses_output_reasoning(response),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
+            provider_payload=to_json_object(_model_dump_mapping(response)),
         )
 
 
@@ -180,9 +186,11 @@ class OpenAICompatibleChatAdapter:
         api_key: str,
         completions: OpenAIChatCompletionsClient | None = None,
         behavior: OpenAIAdapterBehavior | None = None,
+        id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
         self._behavior = behavior or OpenAIAdapterBehavior()
+        self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if completions is None:
             self._client: OpenAIChatCompletionsClient = cast(
                 OpenAIChatCompletionsClient,
@@ -195,7 +203,7 @@ class OpenAICompatibleChatAdapter:
             self._client = completions
         self._renderer = MessageContentRenderer()
 
-    def invoke(self, request: ProviderRequest) -> ModelResponse:
+    def invoke(self, request: ProviderRequest) -> RawResponse:
         provider_options = _provider_options(request.provider_options)
         kwargs = _common_create_kwargs(request)
         self._behavior.validate_tools(request)
@@ -204,6 +212,7 @@ class OpenAICompatibleChatAdapter:
             request,
             behavior=self._behavior,
             renderer=self._renderer,
+            id_mapper=self._id_mapper,
         )
         _apply_tools_kwargs(kwargs, request)
         max_output_tokens = kwargs.pop("max_output_tokens", None)
@@ -219,14 +228,15 @@ class OpenAICompatibleChatAdapter:
             raise _provider_error(exc) from exc
 
         message = _first_choice_message(response)
-        return ModelResponse(
-            answer=_message_text(message),
+        return RawResponse(
+            answer_text=_message_text(message),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            tool_calls=_chat_tool_calls(message),
+            tool_calls=_chat_tool_calls(message, id_mapper=self._id_mapper),
             reasoning=self._behavior.chat_output_reasoning(message),
             usage=_model_dump_mapping(_get_attr(response, "usage")),
             metadata=_response_metadata(response),
+            provider_payload=to_json_object(_model_dump_mapping(response)),
         )
 
 
@@ -285,7 +295,7 @@ def _provider_options(options: Mapping[str, object] | None) -> dict[str, object]
 
 
 def _uses_native_json_output(request: ProviderRequest) -> bool:
-    return request.response_contract is ResponseContract.JSON_OBJECT and request.model.supports(
+    return request.answer_format is AnswerFormat.JSON_OBJECT and request.model.supports(
         ModelCapability.JSON_OBJECT_OUTPUT
     )
 
@@ -295,11 +305,18 @@ def _to_responses_input(
     *,
     behavior: OpenAIAdapterBehavior,
     renderer: MessageContentRenderer,
+    id_mapper: ToolCallIdMapper,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for message in request.messages.messages:
         if isinstance(message, ToolResultMessage):
-            items.append(_to_responses_tool_result(message, renderer=renderer))
+            items.append(
+                _to_responses_tool_result(
+                    message,
+                    renderer=renderer,
+                    id_mapper=id_mapper,
+                )
+            )
             continue
         if isinstance(message, AssistantMessage):
             for reasoning_item in behavior.responses_input_reasoning(
@@ -319,7 +336,9 @@ def _to_responses_input(
                     }
                 )
             for tool_call in message.tool_calls:
-                items.append(_to_responses_function_call(tool_call))
+                items.append(
+                    _to_responses_function_call(tool_call, id_mapper=id_mapper)
+                )
             continue
         rendered = renderer.render(message.parts)
         items.append(
@@ -339,11 +358,18 @@ def _to_chat_messages(
     *,
     behavior: OpenAIAdapterBehavior,
     renderer: MessageContentRenderer,
+    id_mapper: ToolCallIdMapper,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     for message in request.messages.messages:
         if isinstance(message, ToolResultMessage):
-            items.append(_to_chat_tool_result(message, renderer=renderer))
+            items.append(
+                _to_chat_tool_result(
+                    message,
+                    renderer=renderer,
+                    id_mapper=id_mapper,
+                )
+            )
             continue
         rendered = renderer.render(message.parts)
         item: dict[str, object] = {
@@ -359,7 +385,7 @@ def _to_chat_messages(
                 item["reasoning_content"] = reasoning_content
             if message.tool_calls:
                 item["tool_calls"] = [
-                    _to_chat_tool_call(tool_call)
+                    _to_chat_tool_call(tool_call, id_mapper=id_mapper)
                     for tool_call in message.tool_calls
                 ]
         items.append(item)
@@ -422,20 +448,21 @@ def _apply_tools_kwargs(
     kwargs: dict[str, object],
     request: ProviderRequest,
 ) -> None:
-    if request.tools:
-        kwargs["tools"] = [_to_provider_tool(tool) for tool in request.tools]
-    if request.tool_choice is None:
+    if request.tool_use is ToolUse.DISABLED:
         return
-    if request.tool_choice.mode is ToolChoiceMode.NONE:
-        kwargs["tool_choice"] = "none"
+    tools = _selected_tools(request)
+    if not tools:
         return
-    if request.tool_choice.forced_name is not None:
-        kwargs["tool_choice"] = {
-            "type": "function",
-            "function": {"name": request.tool_choice.forced_name},
-        }
-        return
-    kwargs["tool_choice"] = request.tool_choice.mode.value
+    kwargs["tools"] = [_to_provider_tool(tool) for tool in tools]
+    if request.tool_use is ToolUse.REQUIRED:
+        kwargs["tool_choice"] = "required"
+
+
+def _selected_tools(request: ProviderRequest) -> tuple[ToolSpec, ...]:
+    if request.tool_selection is None or not request.tool_selection.allowed_names:
+        return request.tools
+    allowed = set(request.tool_selection.allowed_names)
+    return tuple(tool for tool in request.tools if tool.name in allowed)
 
 
 def _to_provider_tool(tool: ToolSpec) -> dict[str, object]:
@@ -452,9 +479,13 @@ def _to_provider_tool(tool: ToolSpec) -> dict[str, object]:
     }
 
 
-def _to_chat_tool_call(tool_call: ToolCallRecord) -> dict[str, object]:
+def _to_chat_tool_call(
+    tool_call: ToolCallRecord,
+    *,
+    id_mapper: ToolCallIdMapper,
+) -> dict[str, object]:
     return {
-        "id": _provider_call_id(tool_call),
+        "id": id_mapper.to_provider_id(tool_call.id),
         "type": "function",
         "function": {
             "name": tool_call.name,
@@ -471,18 +502,23 @@ def _to_chat_tool_result(
     message: ToolResultMessage,
     *,
     renderer: MessageContentRenderer,
+    id_mapper: ToolCallIdMapper,
 ) -> dict[str, object]:
     return {
         "role": "tool",
-        "tool_call_id": message.provider_call_id or message.call_id,
+        "tool_call_id": id_mapper.to_provider_id(message.call_id),
         "content": _tool_result_content(message, renderer=renderer),
     }
 
 
-def _to_responses_function_call(tool_call: ToolCallRecord) -> dict[str, object]:
+def _to_responses_function_call(
+    tool_call: ToolCallRecord,
+    *,
+    id_mapper: ToolCallIdMapper,
+) -> dict[str, object]:
     return {
         "type": "function_call",
-        "call_id": _provider_call_id(tool_call),
+        "call_id": id_mapper.to_provider_id(tool_call.id),
         "name": tool_call.name,
         "arguments": json.dumps(
             tool_call.arguments,
@@ -496,10 +532,11 @@ def _to_responses_tool_result(
     message: ToolResultMessage,
     *,
     renderer: MessageContentRenderer,
+    id_mapper: ToolCallIdMapper,
 ) -> dict[str, object]:
     return {
         "type": "function_call_output",
-        "call_id": message.provider_call_id or message.call_id,
+        "call_id": id_mapper.to_provider_id(message.call_id),
         "output": _tool_result_content(message, renderer=renderer),
     }
 
@@ -522,10 +559,6 @@ def _tool_result_content(
     if message.status is ToolResultStatus.OK:
         return text
     return f"status: {message.status.value}\n\n{text}"
-
-
-def _provider_call_id(tool_call: ToolCallRecord) -> str:
-    return tool_call.provider_call_id or tool_call.id
 
 
 def _responses_role(message: Message) -> str:
@@ -617,12 +650,16 @@ def _responses_text(response: object) -> str:
     return ""
 
 
-def _responses_tool_calls(response: object) -> tuple[ToolCallRecord, ...]:
+def _responses_tool_calls(
+    response: object,
+    *,
+    id_mapper: ToolCallIdMapper,
+) -> tuple[ToolCallRecord, ...]:
     output = _get_attr(response, "output")
     if not isinstance(output, list):
         return ()
     records: list[ToolCallRecord] = []
-    for item in output:
+    for index, item in enumerate(output):
         item_type = _get_attr(item, "type")
         if item_type != "function_call":
             continue
@@ -634,11 +671,13 @@ def _responses_tool_calls(response: object) -> tuple[ToolCallRecord, ...]:
         parsed_arguments = _parse_tool_arguments(arguments)
         records.append(
             ToolCallRecord(
-                id=call_id,
+                id=id_mapper.to_tinysoul_id(
+                    call_id,
+                    index=index,
+                    tool_name=name,
+                ),
                 name=name,
                 arguments=parsed_arguments,
-                provider_call_id=call_id,
-                raw_provider_payload=to_json_object(_model_dump_mapping(item)),
             )
         )
     return tuple(records)
@@ -708,12 +747,16 @@ def _message_text(message: object) -> str:
     return ""
 
 
-def _chat_tool_calls(message: object) -> tuple[ToolCallRecord, ...]:
+def _chat_tool_calls(
+    message: object,
+    *,
+    id_mapper: ToolCallIdMapper,
+) -> tuple[ToolCallRecord, ...]:
     tool_calls = _get_attr(message, "tool_calls")
     if not isinstance(tool_calls, list):
         return ()
     records: list[ToolCallRecord] = []
-    for item in tool_calls:
+    for index, item in enumerate(tool_calls):
         item_type = _get_attr(item, "type")
         if item_type not in {None, "function"}:
             continue
@@ -725,11 +768,13 @@ def _chat_tool_calls(message: object) -> tuple[ToolCallRecord, ...]:
             continue
         records.append(
             ToolCallRecord(
-                id=call_id,
+                id=id_mapper.to_tinysoul_id(
+                    call_id,
+                    index=index,
+                    tool_name=name,
+                ),
                 name=name,
                 arguments=_parse_tool_arguments(arguments),
-                provider_call_id=call_id,
-                raw_provider_payload=to_json_object(_model_dump_mapping(item)),
             )
         )
     return tuple(records)

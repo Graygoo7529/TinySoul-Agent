@@ -204,7 +204,6 @@ class ToolResultMessage:
     tool_name: str
     parts: tuple[MessagePart, ...]
     status: ToolResultStatus = ToolResultStatus.OK
-    provider_call_id: str | None = None
     label: str = ""
 
     def __post_init__(self) -> None:
@@ -212,8 +211,6 @@ class ToolResultMessage:
             raise ValueError("ToolResultMessage.call_id must be non-empty")
         if not self.tool_name:
             raise ValueError("ToolResultMessage.tool_name must be non-empty")
-        if self.provider_call_id is not None and not self.provider_call_id:
-            raise ValueError("ToolResultMessage.provider_call_id must be non-empty")
 
     @classmethod
     def from_text(
@@ -223,7 +220,6 @@ class ToolResultMessage:
         tool_name: str,
         text: str,
         status: ToolResultStatus = ToolResultStatus.OK,
-        provider_call_id: str | None = None,
         label: str = "",
     ) -> "ToolResultMessage":
         return cls(
@@ -231,7 +227,6 @@ class ToolResultMessage:
             tool_name=tool_name,
             parts=(TextPart(text),),
             status=status,
-            provider_call_id=provider_call_id,
             label=label,
         )
 
@@ -243,7 +238,6 @@ class ToolResultMessage:
         tool_name: str,
         value: object,
         status: ToolResultStatus = ToolResultStatus.OK,
-        provider_call_id: str | None = None,
         label: str = "",
     ) -> "ToolResultMessage":
         return cls(
@@ -251,7 +245,6 @@ class ToolResultMessage:
             tool_name=tool_name,
             parts=(JsonPart(to_json_object(value)),),
             status=status,
-            provider_call_id=provider_call_id,
             label=label,
         )
 
@@ -263,7 +256,6 @@ class ToolResultMessage:
         tool_name: str,
         parts: tuple[MessagePart, ...],
         status: ToolResultStatus = ToolResultStatus.OK,
-        provider_call_id: str | None = None,
         label: str = "",
     ) -> "ToolResultMessage":
         return cls(
@@ -271,7 +263,6 @@ class ToolResultMessage:
             tool_name=tool_name,
             parts=parts,
             status=status,
-            provider_call_id=provider_call_id,
             label=label,
         )
 
