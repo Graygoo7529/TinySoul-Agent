@@ -614,6 +614,11 @@ def _tool_result_content(
     for part in rendered:
         if isinstance(part, RenderedText):
             text_parts.append(part.text)
+            continue
+        raise ProviderError(
+            "ToolResultMessage can only be rendered as text content",
+            kind=ProviderErrorKind.CONFIG,
+        )
     text = "\n\n".join(text_parts)
     if message.status is ToolResultStatus.OK:
         return text

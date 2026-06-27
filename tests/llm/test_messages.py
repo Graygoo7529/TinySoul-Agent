@@ -74,6 +74,24 @@ def test_tool_result_message_uses_message_parts() -> None:
     assert message.parts[0].value == {"ok": True}
 
 
+def test_tool_result_message_rejects_image_part() -> None:
+    with pytest.raises(ValueError):
+        ToolResultMessage.from_parts(
+            call_id="call_1",
+            tool_name="read_file",
+            parts=(ImagePart(data=b"abc", mime_type="image/png"),),
+        )
+
+
+def test_tool_result_message_rejects_image_url_part() -> None:
+    with pytest.raises(ValueError):
+        ToolResultMessage.from_parts(
+            call_id="call_1",
+            tool_name="read_file",
+            parts=(ImageUrlPart(url="https://example.test/image.png"),),
+        )
+
+
 def test_image_part_requires_data_and_mime_type() -> None:
     with pytest.raises(ValueError):
         ImagePart(data=b"", mime_type="image/png")

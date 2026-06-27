@@ -211,6 +211,12 @@ class ToolResultMessage:
             raise ValueError("ToolResultMessage.call_id must be non-empty")
         if not self.tool_name:
             raise ValueError("ToolResultMessage.tool_name must be non-empty")
+        for part in self.parts:
+            if not isinstance(part, (TextPart, JsonPart)):
+                raise ValueError(
+                    "ToolResultMessage only supports text and JSON parts; "
+                    "non-text resources should be passed by rebuilding MessageStack"
+                )
 
     @classmethod
     def from_text(
