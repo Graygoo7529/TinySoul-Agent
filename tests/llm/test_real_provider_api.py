@@ -52,6 +52,7 @@ TOOL_MODEL_IDS = (
     "gpt_5_5",
     "kimi_k2_7",
     "deepseek_v4",
+    "glm_5_1",
 )
 
 

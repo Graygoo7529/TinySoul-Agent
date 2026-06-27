@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import ReasoningKeep
+from tinysoul.llm.tools import ToolUse
 
 from .base import ProviderError, ProviderErrorKind
 from .openai_sdk import (
@@ -19,6 +21,34 @@ from .openai_sdk import (
 
 class GlmProviderBehavior(OpenAIAdapterBehavior):
     """GLM-specific option mapping."""
+
+    def validate_tools(self, request: ProviderRequest) -> None:
+        for tool in request.tool_scope.visible_tools():
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", tool.name):
+                raise ProviderError(
+                    f"Invalid GLM tool name: {tool.name}",
+                    kind=ProviderErrorKind.CONFIG,
+                )
+            if tool.parameters.get("type") != "object":
+                raise ProviderError(
+                    "GLM tool parameters root type must be object",
+                    kind=ProviderErrorKind.CONFIG,
+                )
+            if tool.strict is not None:
+                raise ProviderError(
+                    "GLM does not support strict tool calling",
+                    kind=ProviderErrorKind.CONFIG,
+                )
+
+    def tool_choice_payload(
+        self,
+        request: ProviderRequest,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> object | None:
+        if request.tool_use is ToolUse.DISABLED:
+            return None
+        return "auto"
 
     def chat_input_reasoning(
         self,

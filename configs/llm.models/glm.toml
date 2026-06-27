@@ -4,6 +4,7 @@ provider_model = "glm-5.1"
 capabilities = [
   "text_input",
   "json_object_output",
+  "tool_calling",
   "reasoning_output",
 ]
 

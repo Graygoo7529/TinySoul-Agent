@@ -941,6 +941,82 @@ def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> N
     assert client.calls[0]["tool_choice"] == "auto"
 
 
+def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
+    write_tool = ToolSpec(
+        name="write_file",
+        description="Write a workspace file",
+        parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        kind=ToolKind.ACTION,
+    )
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="provider_call_1",
+                type="function",
+                function=SimpleNamespace(name="read_file", arguments="{}"),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = GlmProviderAdapter(
+        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="glm", provider_model="glm-5.1"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(_tool(), write_tool),
+                selection=ToolSelection(forced_name="read_file"),
+            ),
+            tool_use=ToolUse.REQUIRED,
+            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == "auto"
+    assert client.calls[0]["tools"] == [
+        _provider_tool_payload(),
+        _write_provider_tool_payload(),
+    ]
+
+
+def test_glm_adapter_rejects_strict_tool_calling() -> None:
+    strict_tool = ToolSpec(
+        name="read_file",
+        description="Read a workspace file",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+        strict=True,
+    )
+    adapter = GlmProviderAdapter(
+        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="glm", provider_model="glm-5.1"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.TEXT,
+                tool_scope=ToolScope(tools=(strict_tool,)),
+                tool_use=ToolUse.REQUIRED,
+                provider_options={"thinking": "enabled"},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+
+
 def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
     client = FakeCreateClient(

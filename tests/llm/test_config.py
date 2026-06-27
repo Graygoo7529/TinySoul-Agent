@@ -72,6 +72,7 @@ def test_llm_config_parses_project_config_files() -> None:
     glm_model = config.models.get("glm_5_1")
     assert glm_model.provider_id == "glm"
     assert glm_model.provider_model == "glm-5.1"
+    assert glm_model.supports(ModelCapability.TOOL_CALLING)
     assert glm_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert glm_model.provider_options.values == {
         "reasoning_keep": "content",
