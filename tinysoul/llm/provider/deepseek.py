@@ -48,6 +48,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
     ) -> None:
+        _rename_max_tokens(kwargs)
         if not options:
             return
         extra_body: dict[str, object] = {}
@@ -139,6 +140,12 @@ def _reasoning_effort(value: object) -> str:
             kind=ProviderErrorKind.CONFIG,
         )
     return str(value)
+
+
+def _rename_max_tokens(kwargs: dict[str, object]) -> None:
+    value = kwargs.pop("max_completion_tokens", None)
+    if value is not None:
+        kwargs["max_tokens"] = value
 
 
 def _deepseek_beta_enabled(options: Mapping[str, object] | None) -> bool:

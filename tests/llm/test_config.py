@@ -59,10 +59,12 @@ def test_llm_config_parses_project_config_files() -> None:
     deepseek_model = config.models.get("deepseek_v4")
     assert deepseek_model.provider_id == "deepseek"
     assert deepseek_model.provider_model == "deepseek-v4-pro"
-    assert deepseek_model.provider_options.reasoning_keep() is ReasoningKeep.NONE
+    assert deepseek_model.supports(ModelCapability.TOOL_CALLING)
+    assert deepseek_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert deepseek_model.provider_options.values == {
         "thinking": "enabled",
         "reasoning_effort": "high",
+        "reasoning_keep": "content",
     }
 
     glm_model = config.models.get("glm_5_1")

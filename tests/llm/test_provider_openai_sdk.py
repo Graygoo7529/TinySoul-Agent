@@ -850,6 +850,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             temperature=0.7,
+            max_output_tokens=128,
             provider_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
         )
     )
@@ -861,6 +862,8 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     assert call["response_format"] == {"type": "json_object"}
     assert call["extra_body"] == {"thinking": {"type": "enabled"}}
     assert call["reasoning_effort"] == "high"
+    assert call["max_tokens"] == 128
+    assert "max_completion_tokens" not in call
     assert "temperature" not in call
     assert "prompt_cache_key" not in call
     assert response.reasoning is not None
