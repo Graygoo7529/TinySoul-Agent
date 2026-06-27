@@ -28,6 +28,7 @@ def test_llm_config_parses_project_config_files() -> None:
     assert openai_model.provider_model == "gpt-5.5"
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
+    assert openai_model.supports(ModelCapability.TOOL_CALLING)
     assert openai_model.supports(ModelCapability.PROMPT_CACHE)
     assert openai_model.provider_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
     assert openai_model.provider_options.values == {
@@ -42,6 +43,7 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_model.provider_id == "kimi"
     assert kimi_model.provider_model == "kimi-k2.7-code"
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
+    assert kimi_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
     assert kimi_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert kimi_model.provider_options.values == {

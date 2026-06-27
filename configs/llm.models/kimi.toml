@@ -5,6 +5,7 @@ capabilities = [
   "text_input",
   "image_input",
   "json_object_output",
+  "tool_calling",
   "reasoning_output",
   "prompt_cache",
 ]

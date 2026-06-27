@@ -18,12 +18,21 @@ from tinysoul.llm.messages import (
     MessageStack,
     SystemMessage,
     TextPart,
+    ToolResultMessage,
     UserMessage,
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec
 from tinysoul.llm.provider import ProviderAdapter, ProviderRequest
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.responses import AnswerFormat
+from tinysoul.llm.tools import (
+    ToolCallRecord,
+    ToolKind,
+    ToolScope,
+    ToolSelection,
+    ToolSpec,
+    ToolUse,
+)
 
 
 pytestmark = pytest.mark.skipif(
@@ -37,6 +46,12 @@ PRIMARY_MODEL_IDS = (
     "deepseek_v4",
     "glm_5_1",
     "minimax_m3",
+)
+
+TOOL_MODEL_IDS = (
+    "gpt_5_5",
+    "kimi_k2_7",
+    "deepseek_v4",
 )
 
 
@@ -110,6 +125,121 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         round_number=2,
     )
     _print_response_summary(round_number=2, answer=second_response.answer_text, response=second_response)
+
+
+@pytest.mark.parametrize("model_id", TOOL_MODEL_IDS)
+def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
+    model, provider, adapter = _load_model_adapter(model_id)
+    if not model.supports(ModelCapability.TOOL_CALLING):
+        pytest.skip(f"{model.id} does not declare tool calling capability")
+    prompt_cache = PromptCache(key=f"real-api:{model.id}:tool-context")
+    max_output_tokens = _test_max_output_tokens(model)
+    tool_scope = ToolScope(
+        tools=(_lookup_tool(), _summarize_tool()),
+        selection=ToolSelection(forced_name="lookup_workspace_note"),
+    )
+    messages = MessageStack.of(
+        SystemMessage.from_text(
+            "Use the provided tools. Return concise responses and do not invent tool results."
+        ),
+        UserMessage.from_parts(
+            TextPart(
+                "First call lookup_workspace_note for note_id alpha. "
+                "Then wait for the tool result."
+            ),
+            JsonPart({"expected_tool": "lookup_workspace_note", "note_id": "alpha"}),
+        ),
+    )
+    _print_run_header(model, provider)
+
+    first_response = adapter.invoke(
+        ProviderRequest(
+            model=model,
+            messages=messages,
+            answer_format=AnswerFormat.NONE,
+            tool_use=ToolUse.REQUIRED,
+            tool_scope=tool_scope,
+            prompt_cache=prompt_cache,
+            temperature=0.2,
+            max_output_tokens=max_output_tokens,
+            provider_options=dict(model.provider_options.values),
+        )
+    )
+    _assert_tool_call_returned(
+        first_response.tool_calls,
+        expected_name="lookup_workspace_note",
+        provider_id=provider.id,
+        model_id=model.id,
+        round_number=1,
+    )
+    first_call = _tool_call_by_name(
+        first_response.tool_calls,
+        "lookup_workspace_note",
+    )
+    _print_tool_response_summary(
+        round_number=1,
+        response=first_response,
+        tool_calls=first_response.tool_calls,
+    )
+
+    messages = messages.append(
+        AssistantMessage.from_tool_calls(
+            first_call,
+        )
+    ).append(
+        ToolResultMessage.from_json(
+            call_id=first_call.id,
+            tool_name="lookup_workspace_note",
+            value={
+                "note_id": "alpha",
+                "workspace_link": "workspace:notes/alpha.md",
+                "summary": "Alpha note says the release checklist has three items.",
+                "status": "ok",
+            },
+        )
+    ).append(
+        UserMessage.from_parts(
+            TextPart(
+                "Now call summarize_workspace_note using the workspace link "
+                "from the tool result."
+            ),
+            JsonPart(
+                {
+                    "expected_tool": "summarize_workspace_note",
+                    "workspace_link": "workspace:notes/alpha.md",
+                }
+            ),
+        )
+    )
+
+    second_response = adapter.invoke(
+        ProviderRequest(
+            model=model,
+            messages=messages,
+            answer_format=AnswerFormat.NONE,
+            tool_use=ToolUse.REQUIRED,
+            tool_scope=ToolScope(
+                tools=(_lookup_tool(), _summarize_tool()),
+                selection=ToolSelection(forced_name="summarize_workspace_note"),
+            ),
+            prompt_cache=prompt_cache,
+            temperature=0.2,
+            max_output_tokens=max_output_tokens,
+            provider_options=dict(model.provider_options.values),
+        )
+    )
+    _assert_tool_call_returned(
+        second_response.tool_calls,
+        expected_name="summarize_workspace_note",
+        provider_id=provider.id,
+        model_id=model.id,
+        round_number=2,
+    )
+    _print_tool_response_summary(
+        round_number=2,
+        response=second_response,
+        tool_calls=second_response.tool_calls,
+    )
 
 
 def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, ProviderAdapter]:
@@ -189,6 +319,73 @@ def _assert_provider_returned(
     )
 
 
+def _assert_tool_call_returned(
+    tool_calls: tuple[ToolCallRecord, ...],
+    *,
+    expected_name: str,
+    provider_id: str,
+    model_id: str,
+    round_number: int,
+) -> None:
+    assert tool_calls, (
+        f"{provider_id}/{model_id} round {round_number} returned no tool calls"
+    )
+    assert any(tool_call.name == expected_name for tool_call in tool_calls), (
+        f"{provider_id}/{model_id} round {round_number} did not return "
+        f"expected tool {expected_name}; got {[call.name for call in tool_calls]}"
+    )
+
+
+def _tool_call_by_name(
+    tool_calls: tuple[ToolCallRecord, ...],
+    name: str,
+) -> ToolCallRecord:
+    for tool_call in tool_calls:
+        if tool_call.name == name:
+            return tool_call
+    raise AssertionError(f"Missing tool call: {name}")
+
+
+def _lookup_tool() -> ToolSpec:
+    return ToolSpec(
+        name="lookup_workspace_note",
+        description="Look up a TinySoul workspace note by id.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "note_id": {
+                    "type": "string",
+                    "description": "Workspace note id to look up.",
+                }
+            },
+            "required": ["note_id"],
+        },
+        kind=ToolKind.ACTION,
+    )
+
+
+def _summarize_tool() -> ToolSpec:
+    return ToolSpec(
+        name="summarize_workspace_note",
+        description="Summarize a TinySoul workspace note from a workspace link.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "workspace_link": {
+                    "type": "string",
+                    "description": "Workspace link returned by lookup_workspace_note.",
+                },
+                "focus": {
+                    "type": "string",
+                    "description": "Optional summary focus.",
+                },
+            },
+            "required": ["workspace_link"],
+        },
+        kind=ToolKind.ACTION,
+    )
+
+
 def _print_run_header(model: ModelSpec, provider: ProviderSpec) -> None:
     capabilities = ", ".join(sorted(capability.value for capability in model.capabilities))
     print(
@@ -218,6 +415,26 @@ def _print_response_summary(
     )
     print(f"[real-llm] round={round_number} usage={usage}")
     print(f"[real-llm] round={round_number} metadata={metadata}")
+
+
+def _print_tool_response_summary(
+    *,
+    round_number: int,
+    response: object,
+    tool_calls: tuple[ToolCallRecord, ...],
+) -> None:
+    usage = getattr(response, "usage", {})
+    metadata = getattr(response, "metadata", {})
+    print(
+        f"[real-llm] tool_round={round_number} calls="
+        f"{[(call.id, call.name, call.arguments) for call in tool_calls]}"
+    )
+    print(
+        f"[real-llm] tool_round={round_number} "
+        f"reasoning={_reasoning_summary(getattr(response, 'reasoning', None))}"
+    )
+    print(f"[real-llm] tool_round={round_number} usage={usage}")
+    print(f"[real-llm] tool_round={round_number} metadata={metadata}")
 
 
 def _preview(text: str, limit: int = 180) -> str:
