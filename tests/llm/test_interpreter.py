@@ -10,7 +10,7 @@ from tinysoul.llm.responses import (
     ResponseInterpreter,
     TextAnswer,
 )
-from tinysoul.llm.tools import ToolCallRecord, ToolUse
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelection, ToolSpec, ToolUse
 
 
 def test_interpreter_extracts_json_object_from_fenced_text() -> None:
@@ -114,3 +114,86 @@ def test_interpreter_requires_tool_calls_when_required() -> None:
             AnswerFormat.NONE,
             ToolUse.REQUIRED,
         )
+
+
+def test_interpreter_accepts_forced_tool_among_other_tool_calls() -> None:
+    read_call = ToolCallRecord(
+        id="call_1",
+        name="read_file",
+        arguments={"path": "workspace:doc.md"},
+    )
+    write_call = ToolCallRecord(
+        id="call_2",
+        name="write_file",
+        arguments={"path": "workspace:out.md"},
+    )
+    response = RawResponse(
+        answer_text="",
+        model_id="model-a",
+        provider_id="provider-a",
+        tool_calls=(write_call, read_call),
+    )
+    tool_scope = ToolScope(
+        tools=(_tool("read_file"), _tool("write_file")),
+        selection=ToolSelection(forced_name="read_file"),
+    )
+
+    result = ResponseInterpreter().interpret(
+        response,
+        AnswerFormat.NONE,
+        ToolUse.REQUIRED,
+        tool_scope=tool_scope,
+    )
+
+    assert result.tool_calls == (write_call, read_call)
+
+
+def test_interpreter_rejects_missing_forced_tool_call() -> None:
+    response = RawResponse(
+        answer_text="",
+        model_id="model-a",
+        provider_id="provider-a",
+        tool_calls=(
+            ToolCallRecord(id="call_1", name="write_file", arguments={}),
+        ),
+    )
+    tool_scope = ToolScope(
+        tools=(_tool("read_file"), _tool("write_file")),
+        selection=ToolSelection(forced_name="read_file"),
+    )
+
+    with pytest.raises(ResponseInterpretError):
+        ResponseInterpreter().interpret(
+            response,
+            AnswerFormat.NONE,
+            ToolUse.REQUIRED,
+            tool_scope=tool_scope,
+        )
+
+
+def test_interpreter_rejects_unexpected_tool_call() -> None:
+    response = RawResponse(
+        answer_text="",
+        model_id="model-a",
+        provider_id="provider-a",
+        tool_calls=(
+            ToolCallRecord(id="call_1", name="write_file", arguments={}),
+        ),
+    )
+
+    with pytest.raises(ResponseInterpretError):
+        ResponseInterpreter().interpret(
+            response,
+            AnswerFormat.NONE,
+            ToolUse.REQUIRED,
+            tool_scope=ToolScope(tools=(_tool("read_file"),)),
+        )
+
+
+def _tool(name: str) -> ToolSpec:
+    return ToolSpec(
+        name=name,
+        description=f"{name} tool",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )

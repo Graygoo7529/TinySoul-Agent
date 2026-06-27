@@ -211,7 +211,12 @@ class LLMTaskRunner:
                     raise
                 last_error = exc
                 continue
-            return self._interpreter.interpret(response, answer_format, tool_use)
+            return self._interpreter.interpret(
+                response,
+                answer_format,
+                tool_use,
+                tool_scope=call.tool_scope,
+            )
 
         if last_error is None:
             raise LLMTaskError("Model retry failed without a provider error")

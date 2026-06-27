@@ -33,7 +33,6 @@ from tinysoul.llm.tools import (
     ToolCallIdMapper,
     ToolKind,
     ToolResultStatus,
-    ToolSelection,
     ToolUse,
     ToolSpec,
 )
@@ -81,6 +80,30 @@ class OpenAIAdapterBehavior:
 
     def validate_tools(self, request: ProviderRequest) -> None:
         return
+
+    def validate_tool_choice(self, request: ProviderRequest) -> None:
+        return
+
+    def tool_payload(
+        self,
+        tool: ToolSpec,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> dict[str, object]:
+        if api_style is ProviderApiStyle.OPENAI_RESPONSES:
+            return _to_responses_tool(tool)
+        return _to_chat_tool(tool)
+
+    def tool_choice_payload(
+        self,
+        request: ProviderRequest,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> object | None:
+        return None
+
+    def include_chat_tool_result_name(self) -> bool:
+        return False
 
     def apply_prompt_cache(
         self,
@@ -155,7 +178,12 @@ class OpenAIResponsesAdapter:
             renderer=self._renderer,
             id_mapper=self._id_mapper,
         )
-        _apply_tools_kwargs(kwargs, request, api_style=ProviderApiStyle.OPENAI_RESPONSES)
+        _apply_tools_kwargs(
+            kwargs,
+            request,
+            api_style=ProviderApiStyle.OPENAI_RESPONSES,
+            behavior=self._behavior,
+        )
         if _uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
         self._behavior.apply_options(kwargs, provider_options)
@@ -215,7 +243,12 @@ class OpenAICompatibleChatAdapter:
             renderer=self._renderer,
             id_mapper=self._id_mapper,
         )
-        _apply_tools_kwargs(kwargs, request, api_style=ProviderApiStyle.OPENAI_CHAT)
+        _apply_tools_kwargs(
+            kwargs,
+            request,
+            api_style=ProviderApiStyle.OPENAI_CHAT,
+            behavior=self._behavior,
+        )
         max_output_tokens = kwargs.pop("max_output_tokens", None)
         if max_output_tokens is not None:
             kwargs["max_completion_tokens"] = max_output_tokens
@@ -367,6 +400,7 @@ def _to_chat_messages(
             items.append(
                 _to_chat_tool_result(
                     message,
+                    behavior=behavior,
                     renderer=renderer,
                     id_mapper=id_mapper,
                 )
@@ -450,6 +484,7 @@ def _apply_tools_kwargs(
     request: ProviderRequest,
     *,
     api_style: ProviderApiStyle,
+    behavior: OpenAIAdapterBehavior,
 ) -> None:
     if (
         request.tool_scope.selection.forced_name is not None
@@ -464,32 +499,17 @@ def _apply_tools_kwargs(
     tools = request.tool_scope.visible_tools()
     if not tools:
         return
-    kwargs["tools"] = [_to_provider_tool(tool) for tool in tools]
-    tool_choice = _tool_choice(request.tool_scope.selection, api_style=api_style)
+    behavior.validate_tool_choice(request)
+    kwargs["tools"] = [
+        behavior.tool_payload(tool, api_style=api_style) for tool in tools
+    ]
+    tool_choice = behavior.tool_choice_payload(request, api_style=api_style)
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
     elif request.tool_use is ToolUse.REQUIRED:
         kwargs["tool_choice"] = "required"
 
-def _tool_choice(
-    selection: ToolSelection,
-    *,
-    api_style: ProviderApiStyle,
-) -> object | None:
-    if selection.forced_name is None:
-        return None
-    if api_style is ProviderApiStyle.OPENAI_RESPONSES:
-        return {
-            "type": "function",
-            "name": selection.forced_name,
-        }
-    return {
-        "type": "function",
-        "function": {"name": selection.forced_name},
-    }
-
-
-def _to_provider_tool(tool: ToolSpec) -> dict[str, object]:
+def _function_payload(tool: ToolSpec) -> dict[str, object]:
     function: dict[str, object] = {
         "name": tool.name,
         "description": tool.description,
@@ -497,9 +517,20 @@ def _to_provider_tool(tool: ToolSpec) -> dict[str, object]:
     }
     if tool.strict is not None:
         function["strict"] = tool.strict
+    return function
+
+
+def _to_chat_tool(tool: ToolSpec) -> dict[str, object]:
     return {
         "type": "function",
-        "function": function,
+        "function": _function_payload(tool),
+    }
+
+
+def _to_responses_tool(tool: ToolSpec) -> dict[str, object]:
+    return {
+        "type": "function",
+        **_function_payload(tool),
     }
 
 
@@ -525,14 +556,18 @@ def _to_chat_tool_call(
 def _to_chat_tool_result(
     message: ToolResultMessage,
     *,
+    behavior: OpenAIAdapterBehavior,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
 ) -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "role": "tool",
         "tool_call_id": id_mapper.to_provider_id(message.call_id),
         "content": _tool_result_content(message, renderer=renderer),
     }
+    if behavior.include_chat_tool_result_name():
+        item["name"] = message.tool_name
+    return item
 
 
 def _to_responses_function_call(

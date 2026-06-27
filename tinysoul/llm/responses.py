@@ -10,7 +10,7 @@ import re
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .reasoning import Reasoning
-from .tools import ToolCallRecord, ToolUse
+from .tools import ToolCallRecord, ToolScope, ToolUse
 
 
 class AnswerFormat(StrEnum):
@@ -73,6 +73,8 @@ class ResponseInterpreter:
         response: RawResponse,
         answer_format: AnswerFormat,
         tool_use: ToolUse,
+        *,
+        tool_scope: ToolScope | None = None,
     ) -> TaskResult:
         answer: Answer | None
         if answer_format is AnswerFormat.NONE:
@@ -84,7 +86,11 @@ class ResponseInterpreter:
         else:
             raise ResponseInterpretError(f"Unsupported answer format: {answer_format}")
 
-        tool_calls = self._interpret_tool_calls(response, tool_use)
+        tool_calls = self._interpret_tool_calls(
+            response,
+            tool_use,
+            tool_scope=tool_scope,
+        )
         return TaskResult(
             raw_response=response,
             answer=answer,
@@ -95,18 +101,40 @@ class ResponseInterpreter:
         self,
         response: RawResponse,
         tool_use: ToolUse,
+        *,
+        tool_scope: ToolScope | None,
     ) -> tuple[ToolCallRecord, ...]:
         if tool_use is ToolUse.DISABLED:
             if response.tool_calls:
                 raise ResponseInterpretError("Tool calls are disabled for this task")
             return ()
         if tool_use is ToolUse.OPTIONAL:
-            return response.tool_calls
+            return self._validate_tool_scope(response.tool_calls, tool_scope)
         if tool_use is ToolUse.REQUIRED:
             if not response.tool_calls:
                 raise ResponseInterpretError("Expected at least one tool call")
-            return response.tool_calls
+            return self._validate_tool_scope(response.tool_calls, tool_scope)
         raise ResponseInterpretError(f"Unsupported tool use: {tool_use}")
+
+    def _validate_tool_scope(
+        self,
+        tool_calls: tuple[ToolCallRecord, ...],
+        tool_scope: ToolScope | None,
+    ) -> tuple[ToolCallRecord, ...]:
+        if not tool_calls or tool_scope is None:
+            return tool_calls
+        visible_names = {tool.name for tool in tool_scope.visible_tools()}
+        for tool_call in tool_calls:
+            if tool_call.name not in visible_names:
+                raise ResponseInterpretError(
+                    f"Unexpected tool call: {tool_call.name}"
+                )
+        forced_name = tool_scope.selection.forced_name
+        if forced_name is not None and not any(
+            tool_call.name == forced_name for tool_call in tool_calls
+        ):
+            raise ResponseInterpretError(f"Expected forced tool call: {forced_name}")
+        return tool_calls
 
     def _parse_json_object(self, text: str) -> JsonObject:
         cleaned = _extract_json_text(text)

@@ -9,6 +9,7 @@ from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
+from tinysoul.llm.tools import ToolUse
 
 from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
@@ -41,6 +42,19 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                     "Kimi tool parameters root type must be object",
                     kind=ProviderErrorKind.CONFIG,
                 )
+
+    def tool_choice_payload(
+        self,
+        request: ProviderRequest,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> object | None:
+        if request.tool_use is ToolUse.DISABLED:
+            return None
+        return "auto"
+
+    def include_chat_tool_result_name(self) -> bool:
+        return True
 
     def apply_prompt_cache(
         self,

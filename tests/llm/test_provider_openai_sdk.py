@@ -462,7 +462,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     )
 
     call = client.calls[0]
-    assert call["tools"] == [_provider_tool_payload()]
+    assert call["tools"] == [_responses_tool_payload()]
     assert call["input"] == [
         {
             "type": "function_call",
@@ -503,10 +503,7 @@ def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
         )
     )
 
-    assert client.calls[0]["tool_choice"] == {
-        "type": "function",
-        "name": "read_file",
-    }
+    assert client.calls[0]["tool_choice"] == "required"
 
 
 def test_openai_responses_adapter_maps_only_visible_tools() -> None:
@@ -538,7 +535,7 @@ def test_openai_responses_adapter_maps_only_visible_tools() -> None:
         )
     )
 
-    assert client.calls[0]["tools"] == [_provider_tool_payload()]
+    assert client.calls[0]["tools"] == [_responses_tool_payload()]
 
 
 def test_chat_adapter_maps_kimi_request_payload() -> None:
@@ -679,6 +676,43 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
+def test_kimi_adapter_maps_tool_result_name() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(
+                ToolResultMessage.from_json(
+                    call_id="provider_call_1",
+                    tool_name="read_file",
+                    value={"ok": True},
+                ),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {
+            "role": "tool",
+            "tool_call_id": "provider_call_1",
+            "content": '```json\n{"ok":true}\n```',
+            "name": "read_file",
+        }
+    ]
+
+
 def test_chat_adapter_maps_forced_tool_choice() -> None:
     message = SimpleNamespace(content=None, tool_calls=[])
     client = FakeCreateClient(
@@ -703,10 +737,86 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
         )
     )
 
-    assert client.calls[0]["tool_choice"] == {
-        "type": "function",
-        "function": {"name": "read_file"},
-    }
+    assert client.calls[0]["tool_choice"] == "required"
+
+
+def test_kimi_adapter_maps_required_tool_choice_to_auto() -> None:
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="provider_call_1",
+                type="function",
+                function=SimpleNamespace(name="read_file", arguments="{}"),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == "auto"
+
+
+def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
+    write_tool = ToolSpec(
+        name="write_file",
+        description="Write a workspace file",
+        parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        kind=ToolKind.ACTION,
+    )
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="provider_call_1",
+                type="function",
+                function=SimpleNamespace(name="read_file", arguments="{}"),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(
+                tools=(_tool(), write_tool),
+                selection=ToolSelection(forced_name="read_file"),
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == "auto"
+    assert client.calls[0]["tools"] == [
+        _provider_tool_payload(),
+        _write_provider_tool_payload(),
+    ]
 
 
 def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
@@ -1613,6 +1723,32 @@ def _provider_tool_payload() -> dict[str, object]:
                 "type": "object",
                 "properties": {"path": {"type": "string"}},
             },
+        },
+    }
+
+
+def _write_provider_tool_payload() -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write a workspace file",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+            },
+        },
+    }
+
+
+def _responses_tool_payload() -> dict[str, object]:
+    return {
+        "type": "function",
+        "name": "read_file",
+        "description": "Read a workspace file",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
         },
     }
 
