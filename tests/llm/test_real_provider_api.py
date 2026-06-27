@@ -60,7 +60,10 @@ TOOL_MODEL_IDS = (
 def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     model, provider, adapter = _load_model_adapter(model_id)
     messages = MessageStack.of(
-        SystemMessage.from_text("Return only a compact JSON object. Do not include markdown.",
+        SystemMessage.from_text(
+            "Return only a compact JSON object. Do not include markdown. "
+            "When the user provides an expected JSON object, copy the requested "
+            "keys into your answer and do not replace them with a summary."
         ),
         _first_user_message(model),
     )
@@ -93,7 +96,11 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         )
     ).append(
         UserMessage.from_parts(
-            TextPart("Continue the same task and return only JSON."),
+            TextPart(
+                "Continue the same task. Return only a JSON object that includes "
+                "the keys provider, model, round, must_return_json_object, and "
+                "uses_previous_reasoning_when_available."
+            ),
             JsonPart(
                 {
                     "provider": provider.id,
@@ -257,7 +264,9 @@ def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, Provide
 
 def _first_user_message(model: ModelSpec) -> Message:
     text = TextPart(
-        "Inspect the supplied TinySoul test input and return only a JSON object."
+        "Return only a JSON object that includes the keys model, round, "
+        "must_return_json_object, contains_json_part, and contains_image_part. "
+        "Use the values from the supplied JSON object."
     )
     payload = JsonPart(
         {
@@ -278,7 +287,9 @@ def _first_user_message(model: ModelSpec) -> Message:
 
 
 def _test_max_output_tokens(model: ModelSpec) -> int:
-    if model.provider_id in {"deepseek", "glm", "minimax"}:
+    if model.provider_id == "glm":
+        return 4096
+    if model.provider_id in {"deepseek", "minimax"}:
         return 2048
     return 512
 
