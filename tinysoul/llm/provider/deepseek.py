@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import ReasoningKeep
+from tinysoul.llm.tools import ToolUse
 
 from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
@@ -31,6 +32,18 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
                         "DeepSeek strict tool calling requires beta endpoint opt-in",
                         kind=ProviderErrorKind.CONFIG,
                     )
+
+    def tool_choice_payload(
+        self,
+        request: ProviderRequest,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> object | None:
+        if request.tool_use is ToolUse.DISABLED:
+            return None
+        if _deepseek_thinking_enabled(request.provider_options):
+            return "auto"
+        return None
 
     def chat_input_reasoning(
         self,
@@ -152,3 +165,14 @@ def _deepseek_beta_enabled(options: Mapping[str, object] | None) -> bool:
     if not options:
         return False
     return options.get("beta") is True
+
+
+def _deepseek_thinking_enabled(options: Mapping[str, object] | None) -> bool:
+    if not options:
+        return False
+    value = options.get("thinking")
+    if value == "enabled":
+        return True
+    if isinstance(value, Mapping):
+        return value.get("type") == "enabled"
+    return False

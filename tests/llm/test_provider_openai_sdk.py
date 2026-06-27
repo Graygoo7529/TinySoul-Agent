@@ -907,6 +907,40 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
     ]
 
 
+def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> None:
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="provider_call_1",
+                type="function",
+                function=SimpleNamespace(name="read_file", arguments="{}"),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="deepseek", provider_model="deepseek-v4-pro"),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_use=ToolUse.REQUIRED,
+            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+        )
+    )
+
+    assert client.calls[0]["tool_choice"] == "auto"
+
+
 def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
     client = FakeCreateClient(

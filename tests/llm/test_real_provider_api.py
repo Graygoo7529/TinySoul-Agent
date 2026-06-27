@@ -277,7 +277,7 @@ def _first_user_message(model: ModelSpec) -> Message:
 
 
 def _test_max_output_tokens(model: ModelSpec) -> int:
-    if model.provider_id in {"glm", "minimax"}:
+    if model.provider_id in {"deepseek", "glm", "minimax"}:
         return 2048
     return 512
 
