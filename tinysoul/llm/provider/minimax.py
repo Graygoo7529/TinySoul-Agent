@@ -8,7 +8,7 @@ from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -19,6 +19,19 @@ from .openai_sdk import (
 
 class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
     """MiniMax-specific option mapping."""
+
+    def validate_tools(self, request: ProviderRequest) -> None:
+        for tool in request.tool_scope.visible_tools():
+            if tool.parameters.get("type") != "object":
+                raise ProviderError(
+                    "MiniMax tool parameters root type must be object",
+                    kind=ProviderErrorKind.CONFIG,
+                )
+            if tool.strict is not None:
+                raise ProviderError(
+                    "MiniMax does not support strict tool calling",
+                    kind=ProviderErrorKind.CONFIG,
+                )
 
     def chat_input_reasoning(
         self,
@@ -42,6 +55,7 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
     ) -> None:
+        kwargs.pop("tool_choice", None)
         if not options:
             return
 

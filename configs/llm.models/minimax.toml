@@ -5,6 +5,7 @@ capabilities = [
   "text_input",
   "image_input",
   "image_remote_url",
+  "tool_calling",
   "reasoning_output",
 ]
 

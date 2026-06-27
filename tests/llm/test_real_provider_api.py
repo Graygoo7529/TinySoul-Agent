@@ -53,6 +53,7 @@ TOOL_MODEL_IDS = (
     "kimi_k2_7",
     "deepseek_v4",
     "glm_5_1",
+    "minimax_m3",
 )
 
 

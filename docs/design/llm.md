@@ -136,7 +136,7 @@ DeepSeek 采用兼容 OpenAI Chat Completions 的接口形态。其推理开关�
 
 GLM 采用兼容 OpenAI Chat Completions 的接口形态，但输出长度、思考模式和推理强度参数需要按智谱接口语义映射。GLM 的思考开关属于模型 option，推理轨迹保留方式映射为是否清除历史思考内容；只有声明保留文本推理内容时，适配层才把助手历史消息中的文本推理内容传入供应商请求。模型侧工具调用可以映射为 Chat Completions 的 tools、assistant tool_calls 和 tool role 消息。GLM 的工具选择参数当前只表达自动选择，因此适配层应把 TinySoul 的工具启用和要求调用语义映射为供应商允许的自动工具选择，并由任务解释层校验 required 和 forced_name 等 TinySoul 语义。GLM 的工具 schema 约束属于供应商能力差异，应由适配层解释和校验。结构化输出可使用 Chat Completions 的 JSON 对象输出参数。GLM 的上下文缓存是服务端自动前缀缓存，不使用请求侧缓存键，因此不应把提示缓存意图映射为显式缓存参数。
 
-MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式和推理拆分属于供应商扩展参数，由模型额外选项映射到底层请求；启用推理拆分时，适配层把供应商返回的推理内容保留为统一推理信息，并把可见回答作为正式模型回答。只有声明保留文本推理内容时，适配层才把助手历史消息中的文本推理内容传入供应商请求。MiniMax 的 JSON 对象原生输出能力未作为当前模型能力声明；需要 JSON 对象时，由回答格式和本地解释逻辑处理模型可见回答。
+MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式和推理拆分属于供应商扩展参数，由模型额外选项映射到底层请求；启用推理拆分时，适配层把供应商返回的推理内容保留为统一推理信息，并把可见回答作为正式模型回答。模型侧工具调用可以映射为 Chat Completions 的 tools、assistant tool_calls 和 tool role 消息。MiniMax 当前适配不发送工具选择参数；当 TinySoul 要求工具调用或指定 forced_name 时，适配层只暴露工具定义，具体 required 和 forced_name 语义由任务解释层校验。只有声明保留文本推理内容时，适配层才把助手历史消息中的文本推理内容传入供应商请求；MiniMax 的 reasoning_details 会被提取为 TinySoul 的文本推理内容，但这只是供应商结构化推理细节的文本投影，不等同于完整结构回放。MiniMax 的 JSON 对象原生输出能力未作为当前模型能力声明；需要 JSON 对象时，由回答格式和本地解释逻辑处理模型可见回答。
 
 供应商密钥按配置中的环境变量顺序读取第一个非空值。若同一供应商配置了多个可选环境变量，靠前名称具有更高优先级。
 

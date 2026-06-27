@@ -88,6 +88,7 @@ def test_llm_config_parses_project_config_files() -> None:
     assert minimax_model.provider_model == "MiniMax-M3"
     assert minimax_model.supports(ModelCapability.IMAGE_INPUT)
     assert minimax_model.supports(ModelCapability.IMAGE_REMOTE_URL)
+    assert minimax_model.supports(ModelCapability.TOOL_CALLING)
     assert not minimax_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
     assert minimax_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert minimax_model.provider_options.values == {
