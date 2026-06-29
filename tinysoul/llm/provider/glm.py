@@ -10,7 +10,7 @@ from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import ReasoningKeep
 from tinysoul.llm.tools import ToolUse
 
-from .base import ProviderError, ProviderErrorKind
+from .base import ProviderError, ProviderErrorKind, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
