@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Self
+from typing import Iterator, Self
 
 
 class RunLevel(StrEnum):
@@ -55,7 +55,7 @@ class RunScope:
         return self.frames[-1]
 
     def push(self, level: RunLevel, name: str) -> Self:
-        return RunScope(frames=(*self.frames, RunFrame(level=level, name=name)))
+        return type(self)(frames=(*self.frames, RunFrame(level=level, name=name)))
 
     def nearest(self, level: RunLevel) -> RunFrame | None:
         for frame in reversed(self.frames):
@@ -63,7 +63,7 @@ class RunScope:
                 return frame
         return None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[RunFrame]:
         return iter(self.frames)
 
     def __len__(self) -> int:

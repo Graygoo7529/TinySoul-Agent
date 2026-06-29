@@ -7,7 +7,7 @@ from typing import Protocol
 
 from ..transfer import RuntimeTransfer
 from ..signals.base import Signal
-from .context import TrapSnap
+from .snap import TrapSnap
 
 
 @dataclass(frozen=True)

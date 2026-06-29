@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..exception import RuntimeException
 from ..scope import RunScope
-from .context import TrapSnap
+from .snap import TrapSnap
 from .handler import TrapResult
 from .registry import TrapHandlerRegistry
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
-from tinysoul.infra.json import JsonTypeError
+from tinysoul.infra.json import JsonObject, JsonTypeError
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
 from tinysoul.runtime.signals import Signal, SignalBus, SignalHandlerRegistry
 
@@ -33,7 +35,7 @@ def test_signal_bus_rejects_non_signal() -> None:
     bus = SignalBus()
 
     with pytest.raises(TypeError):
-        bus.emit("bad")  # type: ignore[arg-type]
+        bus.emit(cast(Signal, "bad"))
 
 
 def test_signal_normalizes_payload() -> None:
@@ -48,7 +50,7 @@ def test_signal_rejects_non_object_payload() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
 
     with pytest.raises(JsonTypeError):
-        Signal("runtime.trace", "trap", scope, ["x"])  # type: ignore[arg-type]
+        Signal("runtime.trace", "trap", scope, cast(JsonObject, ["x"]))
 
 
 def test_signal_registry_dispatches_exact_and_prefix() -> None:

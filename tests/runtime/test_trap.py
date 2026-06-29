@@ -40,7 +40,9 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
         RunFrame(RunLevel.CYCLE, "1"),
         RunFrame(RunLevel.PHASE, "phase1"),
     )
-    handler = _Handler(transfer=RuntimeTransfer.retry(scope.current()))
+    current = scope.current()
+    assert current is not None
+    handler = _Handler(transfer=RuntimeTransfer.retry(current))
     registry = TrapHandlerRegistry()
     registry.register(CONTEXT_COMPRESSION_REQUIRED, handler)
     trap = RuntimeTrap(registry=registry)
@@ -54,7 +56,7 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
         scope,
     )
 
-    assert result.transfer == RuntimeTransfer.retry(scope.current())
+    assert result.transfer == RuntimeTransfer.retry(current)
     assert handler.snaps[0].reason == CONTEXT_COMPRESSION_REQUIRED
     assert handler.snaps[0].scope == scope
     assert handler.snaps[0].payload == {"limit": 100}
@@ -62,7 +64,9 @@ def test_trap_captures_snap_and_dispatches_handler() -> None:
 
 def test_trap_registry_supports_prefix_handlers() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
-    handler = _Handler(transfer=RuntimeTransfer.end(scope.current()))
+    current = scope.current()
+    assert current is not None
+    handler = _Handler(transfer=RuntimeTransfer.end(current))
     registry = TrapHandlerRegistry()
     registry.register_prefix("runtime", handler)
     trap = RuntimeTrap(registry=registry)
@@ -76,15 +80,17 @@ def test_trap_registry_supports_prefix_handlers() -> None:
         scope,
     )
 
-    assert result.transfer == RuntimeTransfer.end(scope.current())
+    assert result.transfer == RuntimeTransfer.end(current)
     assert handler.snaps[0].reason == PROGRAM_END_REQUESTED
 
 
 def test_trap_handler_can_emit_signals() -> None:
     scope = RunScope.of(RunFrame(RunLevel.TURN, "user"))
     signal = Signal("turn.trace.append_requested", "trap", scope, {"note": "x"})
+    current = scope.current()
+    assert current is not None
     handler = _Handler(
-        transfer=RuntimeTransfer.end(scope.current()),
+        transfer=RuntimeTransfer.end(current),
         emitted=(signal,),
     )
     registry = TrapHandlerRegistry()

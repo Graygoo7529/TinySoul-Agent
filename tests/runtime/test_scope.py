@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
@@ -29,4 +31,4 @@ def test_frame_and_scope_validate() -> None:
         RunFrame(RunLevel.PROGRAM, "")
 
     with pytest.raises(TypeError):
-        RunScope(frames=("bad",))  # type: ignore[arg-type]
+        RunScope(frames=cast(tuple[RunFrame, ...], ("bad",)))

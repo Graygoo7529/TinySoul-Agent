@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
-from tinysoul.infra.json import JsonTypeError
+from tinysoul.infra.json import JsonObject, JsonTypeError
 from tinysoul.runtime.exception import (
     CONTEXT_COMPRESSION_REQUIRED,
     RuntimeException,
@@ -25,7 +27,7 @@ def test_runtime_exception_rejects_non_object_payload() -> None:
         RuntimeException(
             reason="runtime.bad",
             message="bad",
-            payload=["x"],  # type: ignore[arg-type]
+            payload=cast(JsonObject, ["x"]),
         )
 
 
