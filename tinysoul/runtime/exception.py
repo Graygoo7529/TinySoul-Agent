@@ -8,6 +8,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 RUNTIME_STARTUP_FAILED = "runtime.startup_failed"
 RUNTIME_UNHANDLED_FAILURE = "runtime.unhandled_failure"
+LLM_MODEL_CHAIN_EXHAUSTED = "llm.model_chain_exhausted"
 RUNTIME_TURN_END_REQUESTED = "runtime.turn_end_requested"
 RUNTIME_CYCLE_END_REQUESTED = "runtime.cycle_end_requested"
 PROGRAM_END_REQUESTED = "runtime.program_end_requested"
@@ -15,7 +16,7 @@ CONTEXT_COMPRESSION_REQUIRED = "context.compression_required"
 HOME_RUNTIME_COPY_REQUIRED = "home.runtime_copy_required"
 
 
-@dataclass(frozen=True)
+@dataclass
 class RuntimeException(Exception):
     """A stable runtime-level exception with a handler reason."""
 

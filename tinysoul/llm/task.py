@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.runtime import RuntimeException
+from tinysoul.runtime.bridge import RuntimeLLMBridge
+
 from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
     Clock,
@@ -22,6 +25,8 @@ from .responses import (
     AnswerFormat,
     ResponseInterpretError,
     ResponseInterpreter,
+    TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED,
+    TaskFailure,
     TaskResult,
 )
 from .tools import ToolUse
@@ -126,6 +131,7 @@ class LLMTaskRunner:
         chain_runner: ModelChainRunner | None = None,
         capability_policy: CapabilityPolicy | None = None,
         call_validator: TaskCallValidator | None = None,
+        runtime_bridge: RuntimeLLMBridge | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
@@ -134,6 +140,7 @@ class LLMTaskRunner:
         self._capability_policy = capability_policy or CapabilityPolicy()
         self._call_validator = call_validator or TaskCallValidator()
         self._sleeper = sleeper or Sleeper()
+        self._runtime_bridge = runtime_bridge or RuntimeLLMBridge()
         self._chain_runner = chain_runner or ModelChainRunner(
             state=chain_state,
             planner=chain_planner,
@@ -150,9 +157,23 @@ class LLMTaskRunner:
                 is_fatal=self._is_fatal_error,
             )
         except ModelChainExhaustedError as exc:
-            raise LLMTaskError(str(exc)) from exc
+            raise self._runtime_bridge.model_chain_exhausted(
+                message=str(exc),
+                payload={"profile": task.profile},
+            ) from exc
         except ProviderError as exc:
-            raise LLMTaskError(str(exc)) from exc
+            raise self._runtime_bridge.unhandled_failure(
+                message=str(exc),
+                payload={
+                    "profile": task.profile,
+                    "kind": exc.kind.value,
+                },
+            ) from exc
+        except LLMTaskError as exc:
+            raise self._runtime_bridge.unhandled_failure(
+                message=str(exc),
+                payload={"profile": task.profile},
+            ) from exc
 
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
         self._chain_runner.reset(profile)
@@ -211,27 +232,37 @@ class LLMTaskRunner:
                     raise
                 last_error = exc
                 continue
-            return self._interpreter.interpret(
-                response,
-                answer_format,
-                tool_use,
-                tool_scope=call.tool_scope,
-            )
+            try:
+                return self._interpreter.interpret(
+                    response,
+                    answer_format,
+                    tool_use,
+                    tool_scope=call.tool_scope,
+                )
+            except ResponseInterpretError as exc:
+                return TaskResult.failure_result(
+                    raw_response=response,
+                    failure=TaskFailure(
+                        kind=TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED,
+                        model_feedback=str(exc),
+                        frame_data={
+                            "task_profile": task.profile,
+                            "model_id": model.id,
+                            "provider_id": model.provider_id,
+                        },
+                    ),
+                )
 
         if last_error is None:
             raise LLMTaskError("Model retry failed without a provider error")
         raise last_error
 
     def _is_fatal_error(self, error: Exception) -> bool:
-        if isinstance(error, ModelCapabilityError):
+        if isinstance(error, RuntimeException):
             return True
         if isinstance(error, ProviderError):
-            return error.kind in {
-                ProviderErrorKind.AUTH,
-                ProviderErrorKind.CONFIG,
-                ProviderErrorKind.CAPABILITY,
-            }
-        return False
+            return error.kind is not ProviderErrorKind.TRANSIENT
+        return isinstance(error, LLMTaskError)
 
     def _resolve_settings(
         self,

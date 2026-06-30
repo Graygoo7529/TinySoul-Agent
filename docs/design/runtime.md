@@ -114,6 +114,8 @@ LLM 模块保持现有边界：它负责模型调用输入输出的统一表达�
 
 LLM 内部的 transient provider 错误、模型链切换和有限重试属于局部恢复，不进入 Runtime。模型链耗尽、调用设置不满足、模型输出无法满足任务协议等情况，在 LLM 或调用它的 Phase 边界转换为 Runtime 语义异常。Phase 可以先进行局部反馈和重试；局部策略耗尽后，再交给 Runtime 陷入处理。
 
+LLM 输出解释失败不默认进入 Runtime。若模型调用已经成功返回，但回答无法解析或工具调用不满足任务解释协议，LLM Task 可以返回失败任务结果，其中包含给模型看的简短反馈和框架内部结构化数据。调用方模块据此决定是否把反馈加入下一次任务提示、结束当前 Cycle，或在局部策略耗尽后再通过 Runtime 语义异常进入 Trap。模型链耗尽、调用契约错误、非暂时性供应商错误等需要改变运行控制流的情况，才通过专门桥接层转换为 Runtime 语义异常。
+
 模型侧工具调用仍属于 LLM 输出协议。Control Tool Calls 和 Action Tool Calls 的业务含义由上层模块解释，并通过信号或 Action Invoke 进入后续流程。Provider 原生 tool calling 结构不进入 Runtime。
 
 ## 与 Infra 的关系

@@ -23,12 +23,16 @@ from tinysoul.llm.responses import (
     JsonAnswer,
     RawResponse,
     AnswerFormat,
+    TaskResultStatus,
     TaskResult,
 )
 from tinysoul.llm.task import (
-    LLMTaskError,
     LLMTaskRunner,
-    ModelCapabilityError,
+)
+from tinysoul.runtime.exception import (
+    LLM_MODEL_CHAIN_EXHAUSTED,
+    RUNTIME_UNHANDLED_FAILURE,
+    RuntimeException,
 )
 from tinysoul.llm.tools import (
     ToolCallRecord,
@@ -119,7 +123,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
         ),
     )
 
-    with pytest.raises(LLMTaskError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
@@ -127,6 +131,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
             )
         )
 
+    assert exc_info.value.reason == LLM_MODEL_CHAIN_EXHAUSTED
     assert provider.calls == ["a", "b", "c", "a", "b", "c"]
 
 
@@ -335,8 +340,10 @@ def test_runner_rejects_missing_image_capability() -> None:
         UserMessage.from_parts(ImagePart(data=b"abc", mime_type="image/png"))
     )
 
-    with pytest.raises(ModelCapabilityError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(TaskCall(profile="framework", messages=stack))
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_rejects_missing_remote_image_url_capability() -> None:
@@ -350,8 +357,10 @@ def test_runner_rejects_missing_remote_image_url_capability() -> None:
         UserMessage.from_parts(ImageUrlPart(url="https://example.test/image.png"))
     )
 
-    with pytest.raises(ModelCapabilityError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(TaskCall(profile="framework", messages=stack))
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_call_settings_can_add_required_capabilities() -> None:
@@ -362,7 +371,7 @@ def test_call_settings_can_add_required_capabilities() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
-    with pytest.raises(ModelCapabilityError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
@@ -374,6 +383,8 @@ def test_call_settings_can_add_required_capabilities() -> None:
                 ),
             )
         )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_resolves_task_settings_and_call_overrides() -> None:
@@ -431,7 +442,7 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
-    with pytest.raises(ModelCapabilityError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
@@ -443,6 +454,8 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
                 ),
             )
         )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
@@ -464,7 +477,7 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("tool_model",))),
     )
 
-    with pytest.raises(LLMTaskError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
@@ -472,6 +485,8 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
                 tool_scope=ToolScope(tools=(_tool(),)),
             )
         )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
@@ -504,13 +519,15 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
         ),
     )
 
-    with pytest.raises(LLMTaskError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
         )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
@@ -543,7 +560,7 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
         ),
     )
 
-    with pytest.raises(LLMTaskError):
+    with pytest.raises(RuntimeException) as exc_info:
         runner.run(
             TaskCall(
                 profile="framework",
@@ -554,6 +571,8 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
                 ),
             )
         )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def test_runner_interprets_tool_call_output() -> None:
@@ -615,6 +634,88 @@ def test_runner_interprets_tool_call_output() -> None:
     assert result.answer is None
     assert result.tool_calls == (tool_call,)
     assert provider.requests[0].tool_scope.tools == (_tool(),)
+
+
+def test_runner_returns_failure_result_for_json_parse_error() -> None:
+    class BadJsonProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.requests.append(request)
+            return RawResponse(
+                answer_text="{bad json",
+                model_id=request.model.id,
+                provider_id=self.provider_id,
+            )
+
+    provider = BadJsonProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+        )
+    )
+
+    assert result.status is TaskResultStatus.FAILURE
+    assert result.failure is not None
+    assert result.failure.kind == "llm.response_interpretation_failed"
+    assert result.failure.model_feedback is not None
+    assert "Failed to parse model response as JSON object" in result.failure.model_feedback
+
+
+def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
+    provider = FakeProvider(
+        provider_id="fake",
+        failures={"a": 2, "b": 2},
+    )
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b"),
+                retry_policy=RetryPolicy(
+                    max_retries_per_model=1,
+                    max_cycles=1,
+                ),
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.reason == LLM_MODEL_CHAIN_EXHAUSTED
+
+
+def test_contract_failure_becomes_runtime_unhandled_failure() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                tool_scope=ToolScope(tools=(_tool(),)),
+            )
+        )
+
+    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
 
 
 def _models(*ids: str) -> ModelRegistry:

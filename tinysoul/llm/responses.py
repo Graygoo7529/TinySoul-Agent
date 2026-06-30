@@ -52,13 +52,82 @@ class JsonAnswer:
 Answer = TextAnswer | JsonAnswer
 
 
+class TaskResultStatus(StrEnum):
+    """Completion status of a task result."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED = "llm.response_interpretation_failed"
+
+
+@dataclass(frozen=True)
+class TaskFailure:
+    """Feedback and frame data for a failed task result."""
+
+    kind: str
+    model_feedback: str | None = None
+    frame_data: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.kind:
+            raise ValueError("TaskFailure.kind must be non-empty")
+        object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
+
+
 @dataclass(frozen=True)
 class TaskResult:
     """Interpreted task result."""
 
+    status: TaskResultStatus
     raw_response: RawResponse
     answer: Answer | None
     tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
+    failure: TaskFailure | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, TaskResultStatus):
+            raise TypeError("TaskResult.status must be a TaskResultStatus")
+        if self.status is TaskResultStatus.SUCCESS and self.failure is not None:
+            raise ValueError("Successful task results cannot carry failure data")
+        if self.status is TaskResultStatus.FAILURE and self.failure is None:
+            raise ValueError("Failed task results must carry failure data")
+        object.__setattr__(self, "tool_calls", tuple(self.tool_calls))
+        if self.failure is not None and not isinstance(self.failure, TaskFailure):
+            raise TypeError("TaskResult.failure must be a TaskFailure or None")
+
+    @classmethod
+    def success(
+        cls,
+        *,
+        raw_response: RawResponse,
+        answer: Answer | None,
+        tool_calls: tuple[ToolCallRecord, ...],
+    ) -> "TaskResult":
+        return cls(
+            status=TaskResultStatus.SUCCESS,
+            raw_response=raw_response,
+            answer=answer,
+            tool_calls=tool_calls,
+        )
+
+    @classmethod
+    def failure_result(
+        cls,
+        *,
+        raw_response: RawResponse,
+        failure: TaskFailure,
+        answer: Answer | None = None,
+        tool_calls: tuple[ToolCallRecord, ...] = (),
+    ) -> "TaskResult":
+        return cls(
+            status=TaskResultStatus.FAILURE,
+            raw_response=raw_response,
+            answer=answer,
+            tool_calls=tool_calls,
+            failure=failure,
+        )
 
 
 class ResponseInterpretError(Exception):
@@ -91,7 +160,7 @@ class ResponseInterpreter:
             tool_use,
             tool_scope=tool_scope,
         )
-        return TaskResult(
+        return TaskResult.success(
             raw_response=response,
             answer=answer,
             tool_calls=tool_calls,
