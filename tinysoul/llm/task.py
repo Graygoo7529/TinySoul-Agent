@@ -252,7 +252,6 @@ class LLMTaskRunner:
                 return TaskResult.failure_result(
                     raw_response=response,
                     failure=TaskFailure(
-                        kind=LLMFailureKind.RESPONSE_INTERPRETATION_FAILED,
                         model_feedback=str(exc),
                         frame_data={
                             "task_profile": task.profile,

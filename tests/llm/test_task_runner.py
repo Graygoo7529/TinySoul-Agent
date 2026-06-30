@@ -700,7 +700,6 @@ def test_runner_returns_failure_result_for_json_parse_error() -> None:
 
     assert result.status is TaskResultStatus.FAILURE
     assert result.failure is not None
-    assert result.failure.kind is LLMFailureKind.RESPONSE_INTERPRETATION_FAILED
     assert result.failure.model_feedback is not None
     assert "Failed to parse model response as JSON object" in result.failure.model_feedback
 
