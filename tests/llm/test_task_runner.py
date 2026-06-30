@@ -133,6 +133,8 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.payload["last_error_type"] == "ProviderError"
+    assert exc_info.value.payload["provider_error_kind"] == "transient"
     assert provider.calls == ["a", "b", "c", "a", "b", "c"]
 
 
@@ -734,9 +736,49 @@ def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.payload["last_error_type"] == "ProviderError"
+    assert exc_info.value.payload["provider_error_kind"] == "transient"
 
 
-def test_contract_failure_becomes_runtime_unhandled_failure() -> None:
+def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -> None:
+    @dataclass
+    class ConfigFailingProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG)
+
+    provider = ConfigFailingProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b"),
+                retry_policy=RetryPolicy(
+                    max_retries_per_model=3,
+                    max_cycles=1,
+                ),
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.payload["last_error_type"] == "ProviderError"
+    assert exc_info.value.payload["provider_error_kind"] == "config"
+    assert provider.calls == ["a", "b"]
+
+
+def test_contract_failure_maps_to_runtime_turn_end() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),

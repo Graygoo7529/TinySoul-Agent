@@ -197,7 +197,10 @@ class ModelChainRunner:
 
             start_index = 0
 
-        raise ModelChainExhaustedError("Model chain exhausted") from last_error
+        raise ModelChainExhaustedError(
+            "Model chain exhausted",
+            last_error=last_error,
+        ) from last_error
 
     def reset(self, profile: TaskProfile | str | None = None) -> None:
         self._state.reset(profile)
@@ -209,3 +212,12 @@ class ModelChainRunner:
 
 class ModelChainExhaustedError(Exception):
     """Raised when a model chain cannot produce a result."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        last_error: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.last_error = last_error

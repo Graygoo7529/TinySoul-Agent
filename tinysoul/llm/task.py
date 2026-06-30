@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RuntimeException
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
@@ -160,7 +161,7 @@ class LLMTaskRunner:
             raise self._runtime_bridge.from_exception(
                 LLMFailureKind.MODEL_CHAIN_EXHAUSTED,
                 exc,
-                payload={"profile": call.profile},
+                payload=self._model_chain_exhausted_payload(call, exc),
             ) from exc
         except ProviderError as exc:
             raise self._runtime_bridge.from_exception(
@@ -269,6 +270,20 @@ class LLMTaskRunner:
         if isinstance(error, RuntimeException):
             return True
         return isinstance(error, LLMTaskError)
+
+    def _model_chain_exhausted_payload(
+        self,
+        call: TaskCall,
+        error: ModelChainExhaustedError,
+    ) -> JsonObject:
+        payload: JsonObject = {"profile": call.profile}
+        last_error = error.last_error
+        if last_error is None:
+            return payload
+        payload["last_error_type"] = type(last_error).__name__
+        if isinstance(last_error, ProviderError):
+            payload["provider_error_kind"] = last_error.kind.value
+        return payload
 
     def _resolve_settings(
         self,
