@@ -6,42 +6,59 @@ from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, to_json_value
+from tinysoul.llm.failures import LLMFailureKind
 
 from ..exception import (
-    LLM_MODEL_CHAIN_EXHAUSTED,
     RUNTIME_STARTUP_FAILED,
-    RUNTIME_UNHANDLED_FAILURE,
+    RUNTIME_TURN_END,
     RuntimeException,
 )
+
+LLM_RUNTIME_REASON_MAP: dict[LLMFailureKind, str] = {
+    LLMFailureKind.MODEL_CHAIN_EXHAUSTED: RUNTIME_TURN_END,
+    LLMFailureKind.PROVIDER_FAILURE: RUNTIME_TURN_END,
+    LLMFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
+    LLMFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
+    LLMFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
+}
 
 
 @dataclass(frozen=True)
 class RuntimeLLMBridge:
     """Convert LLM boundary failures into runtime semantic exceptions."""
 
-    def model_chain_exhausted(
+    def from_failure(
         self,
+        kind: LLMFailureKind,
         *,
         message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
+        runtime_payload: JsonObject = {}
+        if payload is not None:
+            runtime_payload = payload
+        runtime_payload = {
+            **runtime_payload,
+            "module": "llm",
+            "kind": kind.value,
+        }
         return RuntimeException(
-            reason=LLM_MODEL_CHAIN_EXHAUSTED,
+            reason=LLM_RUNTIME_REASON_MAP[kind],
             message=message,
-            payload=payload if payload is not None else {},
+            payload=runtime_payload,
         )
 
-    def unhandled_failure(
+    def from_exception(
         self,
+        kind: LLMFailureKind,
+        error: Exception,
         *,
-        message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        return RuntimeException(
-            reason=RUNTIME_UNHANDLED_FAILURE,
-            message=message,
-            payload=payload if payload is not None else {},
-        )
+        runtime_payload: JsonObject = {"error_type": type(error).__name__}
+        if payload is not None:
+            runtime_payload = {**runtime_payload, **payload}
+        return self.from_failure(kind, message=str(error), payload=runtime_payload)
 
     def startup_failure(
         self,
@@ -49,10 +66,10 @@ class RuntimeLLMBridge:
         message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        return RuntimeException(
-            reason=RUNTIME_STARTUP_FAILED,
+        return self.from_failure(
+            LLMFailureKind.CONFIGURATION_FAILED,
             message=message,
-            payload=payload if payload is not None else {},
+            payload=payload,
         )
 
     def from_config_error(self, error: ConfigError) -> RuntimeException:
@@ -63,4 +80,8 @@ class RuntimeLLMBridge:
         }
         if error.value is not None:
             payload = {**payload, "value": to_json_value(error.value)}
-        return self.startup_failure(message=error.message, payload=payload)
+        return self.from_failure(
+            LLMFailureKind.CONFIGURATION_FAILED,
+            message=error.message,
+            payload=payload,
+        )

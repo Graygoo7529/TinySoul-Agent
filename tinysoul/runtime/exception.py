@@ -7,11 +7,9 @@ from dataclasses import dataclass, field
 from tinysoul.infra.json import JsonObject, to_json_object
 
 RUNTIME_STARTUP_FAILED = "runtime.startup_failed"
-RUNTIME_UNHANDLED_FAILURE = "runtime.unhandled_failure"
-LLM_MODEL_CHAIN_EXHAUSTED = "llm.model_chain_exhausted"
-RUNTIME_TURN_END_REQUESTED = "runtime.turn_end_requested"
-RUNTIME_CYCLE_END_REQUESTED = "runtime.cycle_end_requested"
-PROGRAM_END_REQUESTED = "runtime.program_end_requested"
+RUNTIME_TURN_END = "runtime.turn_end"
+RUNTIME_CYCLE_END = "runtime.cycle_end"
+RUNTIME_PROGRAM_END = "runtime.program_end"
 CONTEXT_COMPRESSION_REQUIRED = "context.compression_required"
 HOME_RUNTIME_COPY_REQUIRED = "home.runtime_copy_required"
 

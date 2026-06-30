@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from tinysoul.runtime import RuntimeException
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
+from .failures import LLMFailureKind
 from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
     Clock,
@@ -25,7 +26,6 @@ from .responses import (
     AnswerFormat,
     ResponseInterpretError,
     ResponseInterpreter,
-    TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED,
     TaskFailure,
     TaskResult,
 )
@@ -149,30 +149,39 @@ class LLMTaskRunner:
         )
 
     def run(self, call: TaskCall) -> TaskResult:
-        task = self._tasks.get(call.profile)
         try:
+            task = self._tasks.get(call.profile)
             return self._chain_runner.run(
                 task.chain,
                 lambda model_id: self._try_model(call, task, model_id),
                 is_fatal=self._is_fatal_error,
             )
         except ModelChainExhaustedError as exc:
-            raise self._runtime_bridge.model_chain_exhausted(
-                message=str(exc),
-                payload={"profile": task.profile},
+            raise self._runtime_bridge.from_exception(
+                LLMFailureKind.MODEL_CHAIN_EXHAUSTED,
+                exc,
+                payload={"profile": call.profile},
             ) from exc
         except ProviderError as exc:
-            raise self._runtime_bridge.unhandled_failure(
-                message=str(exc),
+            raise self._runtime_bridge.from_exception(
+                LLMFailureKind.PROVIDER_FAILURE,
+                exc,
                 payload={
-                    "profile": task.profile,
-                    "kind": exc.kind.value,
+                    "profile": call.profile,
+                    "provider_error_kind": exc.kind.value,
                 },
             ) from exc
         except LLMTaskError as exc:
-            raise self._runtime_bridge.unhandled_failure(
-                message=str(exc),
-                payload={"profile": task.profile},
+            raise self._runtime_bridge.from_exception(
+                LLMFailureKind.CONTRACT_VIOLATION,
+                exc,
+                payload={"profile": call.profile},
+            ) from exc
+        except (KeyError, ValueError, TypeError) as exc:
+            raise self._runtime_bridge.from_exception(
+                LLMFailureKind.CONTRACT_VIOLATION,
+                exc,
+                payload={"profile": call.profile},
             ) from exc
 
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
@@ -243,7 +252,7 @@ class LLMTaskRunner:
                 return TaskResult.failure_result(
                     raw_response=response,
                     failure=TaskFailure(
-                        kind=TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED,
+                        kind=LLMFailureKind.RESPONSE_INTERPRETATION_FAILED,
                         model_feedback=str(exc),
                         frame_data={
                             "task_profile": task.profile,
@@ -260,8 +269,6 @@ class LLMTaskRunner:
     def _is_fatal_error(self, error: Exception) -> bool:
         if isinstance(error, RuntimeException):
             return True
-        if isinstance(error, ProviderError):
-            return error.kind is not ProviderErrorKind.TRANSIENT
         return isinstance(error, LLMTaskError)
 
     def _resolve_settings(

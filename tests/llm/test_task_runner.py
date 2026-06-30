@@ -26,12 +26,12 @@ from tinysoul.llm.responses import (
     TaskResultStatus,
     TaskResult,
 )
+from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.llm.task import (
     LLMTaskRunner,
 )
 from tinysoul.runtime.exception import (
-    LLM_MODEL_CHAIN_EXHAUSTED,
-    RUNTIME_UNHANDLED_FAILURE,
+    RUNTIME_TURN_END,
     RuntimeException,
 )
 from tinysoul.llm.tools import (
@@ -131,7 +131,8 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
             )
         )
 
-    assert exc_info.value.reason == LLM_MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
     assert provider.calls == ["a", "b", "c", "a", "b", "c"]
 
 
@@ -193,6 +194,43 @@ def test_runner_retries_transient_error_on_same_model() -> None:
 
     assert _json_output(result) == {"model": "a"}
     assert provider.calls == ["a", "a"]
+
+
+def test_runner_switches_model_without_retry_for_non_transient_provider_error() -> None:
+    @dataclass
+    class ConfigFailingProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            if request.model.id == "a":
+                raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG)
+            return RawResponse(
+                answer_text='{"model": "' + request.model.id + '"}',
+                model_id=request.model.id,
+                provider_id=self.provider_id,
+            )
+
+    provider = ConfigFailingProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b"),
+                retry_policy=RetryPolicy(max_retries_per_model=3, max_cycles=1),
+            )
+        ),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+        )
+    )
+
+    assert _json_output(result) == {"model": "b"}
+    assert provider.calls == ["a", "b"]
 
 
 def test_retry_policy_defaults_to_ten_cycles() -> None:
@@ -343,7 +381,7 @@ def test_runner_rejects_missing_image_capability() -> None:
     with pytest.raises(RuntimeException) as exc_info:
         runner.run(TaskCall(profile="framework", messages=stack))
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_rejects_missing_remote_image_url_capability() -> None:
@@ -360,7 +398,7 @@ def test_runner_rejects_missing_remote_image_url_capability() -> None:
     with pytest.raises(RuntimeException) as exc_info:
         runner.run(TaskCall(profile="framework", messages=stack))
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_call_settings_can_add_required_capabilities() -> None:
@@ -384,7 +422,7 @@ def test_call_settings_can_add_required_capabilities() -> None:
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_resolves_task_settings_and_call_overrides() -> None:
@@ -455,7 +493,7 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
@@ -486,7 +524,7 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
@@ -527,7 +565,7 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
@@ -572,7 +610,7 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
 
 
 def test_runner_interprets_tool_call_output() -> None:
@@ -662,7 +700,7 @@ def test_runner_returns_failure_result_for_json_parse_error() -> None:
 
     assert result.status is TaskResultStatus.FAILURE
     assert result.failure is not None
-    assert result.failure.kind == "llm.response_interpretation_failed"
+    assert result.failure.kind is LLMFailureKind.RESPONSE_INTERPRETATION_FAILED
     assert result.failure.model_feedback is not None
     assert "Failed to parse model response as JSON object" in result.failure.model_feedback
 
@@ -695,7 +733,8 @@ def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
             )
         )
 
-    assert exc_info.value.reason == LLM_MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
 
 
 def test_contract_failure_becomes_runtime_unhandled_failure() -> None:
@@ -715,7 +754,8 @@ def test_contract_failure_becomes_runtime_unhandled_failure() -> None:
             )
         )
 
-    assert exc_info.value.reason == RUNTIME_UNHANDLED_FAILURE
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
 def _models(*ids: str) -> ModelRegistry:
@@ -766,4 +806,5 @@ def _json_output(result: TaskResult) -> JsonObject:
     if not isinstance(result.answer, JsonAnswer):
         raise AssertionError("Expected JSON answer")
     return result.answer.value
+
 

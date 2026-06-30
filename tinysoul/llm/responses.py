@@ -9,6 +9,7 @@ import re
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .failures import LLMFailureKind
 from .reasoning import Reasoning
 from .tools import ToolCallRecord, ToolScope, ToolUse
 
@@ -59,20 +60,17 @@ class TaskResultStatus(StrEnum):
     FAILURE = "failure"
 
 
-TASK_FAILURE_RESPONSE_INTERPRETATION_FAILED = "llm.response_interpretation_failed"
-
-
 @dataclass(frozen=True)
 class TaskFailure:
     """Feedback and frame data for a failed task result."""
 
-    kind: str
+    kind: LLMFailureKind
     model_feedback: str | None = None
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.kind:
-            raise ValueError("TaskFailure.kind must be non-empty")
+        if not isinstance(self.kind, LLMFailureKind):
+            raise TypeError("TaskFailure.kind must be an LLMFailureKind")
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
 

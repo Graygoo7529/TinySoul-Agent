@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from tinysoul.runtime.exception import (
     CONTEXT_COMPRESSION_REQUIRED,
     HOME_RUNTIME_COPY_REQUIRED,
-    PROGRAM_END_REQUESTED,
-    RUNTIME_CYCLE_END_REQUESTED,
+    RUNTIME_CYCLE_END,
+    RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
-    RUNTIME_TURN_END_REQUESTED,
+    RUNTIME_TURN_END,
     RuntimeException,
 )
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
@@ -73,7 +73,7 @@ def test_trap_registry_supports_prefix_handlers() -> None:
 
     result = trap.capture(
         RuntimeException(
-            reason=PROGRAM_END_REQUESTED,
+            reason=RUNTIME_PROGRAM_END,
             message="exit",
             payload={},
         ),
@@ -81,7 +81,7 @@ def test_trap_registry_supports_prefix_handlers() -> None:
     )
 
     assert result.transfer == RuntimeTransfer.end(current)
-    assert handler.snaps[0].reason == PROGRAM_END_REQUESTED
+    assert handler.snaps[0].reason == RUNTIME_PROGRAM_END
 
 
 def test_trap_handler_can_emit_signals() -> None:
@@ -94,12 +94,12 @@ def test_trap_handler_can_emit_signals() -> None:
         emitted=(signal,),
     )
     registry = TrapHandlerRegistry()
-    registry.register(RUNTIME_TURN_END_REQUESTED, handler)
+    registry.register(RUNTIME_TURN_END, handler)
     trap = RuntimeTrap(registry=registry)
 
     result = trap.capture(
         RuntimeException(
-            reason=RUNTIME_TURN_END_REQUESTED,
+            reason=RUNTIME_TURN_END,
             message="stop",
             payload={},
         ),
@@ -126,4 +126,4 @@ def test_trap_unknown_reason_raises_lookup_error() -> None:
 
 def test_common_reasons_are_constants() -> None:
     assert RUNTIME_STARTUP_FAILED == "runtime.startup_failed"
-    assert RUNTIME_CYCLE_END_REQUESTED == "runtime.cycle_end_requested"
+    assert RUNTIME_CYCLE_END == "runtime.cycle_end"
