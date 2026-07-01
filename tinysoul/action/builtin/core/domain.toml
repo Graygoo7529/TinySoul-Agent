@@ -1,0 +1,7 @@
+name = "core"
+description = "Core conversation and control actions."
+selection_hint = "Use when the task should answer, ask for clarification, or produce a final response."
+
+[runtime]
+timeout_seconds = 10
+parallel_policy = "allowed"

@@ -1,0 +1,20 @@
+name = "workspace.scan"
+domain = "workspace"
+
+[tool]
+description = "Scan workspace resources and refresh the workspace resource list."
+schema = { type = "object", properties = {}, required = [], additionalProperties = false }
+
+[semantic]
+use_when = ["Workspace state may be stale", "Need to discover available workspace resources"]
+avoid_when = ["Workspace state is already known and no refresh is needed"]
+effects = ["read_only"]
+examples = ["Scan before deciding which file to read"]
+
+[runtime]
+parallel_policy = "serial"
+hooks = []
+
+[backend]
+kind = "native"
+handler = "workspace.scan"

@@ -1,0 +1,7 @@
+name = "shell"
+description = "Controlled command execution actions."
+selection_hint = "Use when a known shell command is needed and allowed by runtime policy."
+
+[runtime]
+timeout_seconds = 30
+parallel_policy = "serial"

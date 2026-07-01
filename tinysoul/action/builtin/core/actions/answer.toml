@@ -1,0 +1,20 @@
+name = "core.answer"
+domain = "core"
+
+[tool]
+description = "Provide a final user-facing answer."
+schema = { type = "object", properties = { text = { type = "string", description = "Final answer text." } }, required = ["text"], additionalProperties = false }
+
+[semantic]
+use_when = ["The task is complete and the user should receive an answer"]
+avoid_when = ["More actions are required before answering"]
+effects = ["read_only"]
+examples = ["Answer the user's direct question after gathering enough context"]
+
+[runtime]
+parallel_policy = "serial"
+hooks = []
+
+[backend]
+kind = "native"
+handler = "core.answer"

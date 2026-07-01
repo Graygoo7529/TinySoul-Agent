@@ -1,0 +1,7 @@
+name = "script"
+description = "Temporary script creation and execution actions."
+selection_hint = "Use when a task needs custom repeatable computation over workspace resources."
+
+[runtime]
+timeout_seconds = 60
+parallel_policy = "serial"
