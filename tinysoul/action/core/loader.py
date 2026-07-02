@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.toml_file import ConfigFileToml
@@ -23,6 +24,8 @@ from .specs import (
     ActionToolSpec,
 )
 
+E = TypeVar("E", bound=StrEnum)
+
 
 class ActionCatalogLoader:
     """Load domain packages from a catalog root directory."""
@@ -31,6 +34,18 @@ class ActionCatalogLoader:
         self._parser = parser or ActionTomlParser()
 
     def load(self, root_path: Path) -> ActionCatalog:
+        if not root_path.exists():
+            raise ConfigError(
+                "Action catalog root does not exist",
+                key=str(root_path),
+                expected="directory",
+            )
+        if not root_path.is_dir():
+            raise ConfigError(
+                "Action catalog root must be a directory",
+                key=str(root_path),
+                expected="directory",
+            )
         domains: list[ActionDomainSpec] = []
         actions: list[ActionSpec] = []
         domain_dirs = sorted(
@@ -103,9 +118,8 @@ class ActionTomlParser:
         runtime = self.parse_runtime(
             _optional_table(table, "runtime", key=source),
             key=f"{source}.runtime",
+            base=default_runtime,
         )
-        if default_runtime is not None:
-            runtime = default_runtime.override_with(runtime)
         backend = self.parse_backend(
             _required_table(table, "backend", key=source),
             key=f"{source}.backend",
@@ -140,7 +154,7 @@ class ActionTomlParser:
         key: str,
     ) -> ActionSemanticSpec:
         effects = tuple(
-            ActionEnvironmentEffect(value)
+            _enum_value(ActionEnvironmentEffect, value, key=f"{key}.effects")
             for value in _optional_str_list(table, "effects", key=key)
         )
         return ActionSemanticSpec(
@@ -155,21 +169,37 @@ class ActionTomlParser:
         table: Mapping[str, object],
         *,
         key: str,
+        base: ActionRuntimeSpec | None = None,
     ) -> ActionRuntimeSpec:
+        timeout_seconds = (
+            base.timeout_seconds
+            if base is not None and "timeout_seconds" not in table
+            else _optional_float_or_none(table, "timeout_seconds", key=key)
+        )
+        parallel_default = (
+            base.parallel_policy.value
+            if base is not None
+            else ActionParallelPolicy.ALLOWED.value
+        )
+        base_hooks = base.hooks if base is not None else ()
+        base_requires = base.requires if base is not None else ()
         return ActionRuntimeSpec(
-            timeout_seconds=_optional_float_or_none(
-                table, "timeout_seconds", key=key
-            ),
-            parallel_policy=ActionParallelPolicy(
+            timeout_seconds=timeout_seconds,
+            parallel_policy=_enum_value(
+                ActionParallelPolicy,
                 _optional_str(
                     table,
                     "parallel_policy",
-                    default=ActionParallelPolicy.ALLOWED.value,
+                    default=parallel_default,
                     key=key,
-                )
+                ),
+                key=f"{key}.parallel_policy",
             ),
-            hooks=tuple(_optional_str_list(table, "hooks", key=key)),
-            requires=tuple(_optional_str_list(table, "requires", key=key)),
+            hooks=(*base_hooks, *_optional_str_list(table, "hooks", key=key)),
+            requires=(
+                *base_requires,
+                *_optional_str_list(table, "requires", key=key),
+            ),
         )
 
     def parse_backend(
@@ -179,7 +209,11 @@ class ActionTomlParser:
         key: str,
     ) -> ActionBackendSpec:
         return ActionBackendSpec(
-            kind=ActionBackendKind(_required_str(table, "kind", key=key)),
+            kind=_enum_value(
+                ActionBackendKind,
+                _required_str(table, "kind", key=key),
+                key=f"{key}.kind",
+            ),
             handler=_required_str(table, "handler", key=key),
             options=_optional_json_object(table, "options", key=key),
         )
@@ -248,6 +282,19 @@ def _optional_str(
             expected="str",
         )
     return value
+
+
+def _enum_value(enum_type: type[E], value: str, *, key: str) -> E:
+    try:
+        return enum_type(value)
+    except ValueError as exc:
+        expected = ", ".join(item.value for item in enum_type)
+        raise ConfigError(
+            "Action configuration value must be one of the supported enum values",
+            key=key,
+            value=value,
+            expected=expected,
+        ) from exc
 
 
 def _optional_str_list(

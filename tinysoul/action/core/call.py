@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from time import monotonic
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.tools import ToolCallRecord
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
 from .catalog import ActionCatalog
@@ -91,8 +92,14 @@ class ActionCallNormalizer:
     ) -> tuple[ActionCall, ...]:
         calls: list[ActionCall] = []
         for index, tool_call in enumerate(tool_calls):
+            if tool_call.kind is not ToolKind.ACTION:
+                raise ValueError(
+                    f"Expected ACTION tool call for action normalization: {tool_call.name}"
+                )
             if not catalog.has_action(tool_call.name):
                 raise ValueError(f"Unknown action tool call: {tool_call.name}")
+            action = catalog.get_action(tool_call.name)
+            _validate_params(tool_call.arguments, schema=action.tool.schema)
             calls.append(
                 ActionCall(
                     call_id=f"action_call_{index + 1}_{uuid4().hex[:8]}",
@@ -154,3 +161,63 @@ class ActionExecutionBuilder:
 def _require_non_empty(value: str, field: str) -> None:
     if not value:
         raise ValueError(f"{field} must be non-empty")
+
+
+def _validate_params(params: JsonObject, *, schema: JsonObject) -> None:
+    schema_type = schema.get("type")
+    if schema_type is not None and schema_type != "object":
+        raise ValueError("Action tool schema root type must be object")
+
+    required = schema.get("required", [])
+    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+        raise ValueError("Action tool schema required must be a list of strings")
+    for name in required:
+        if name not in params:
+            raise ValueError(f"Missing required action parameter: {name}")
+
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError("Action tool schema properties must be an object")
+
+    if schema.get("additionalProperties") is False:
+        for name in params:
+            if name not in properties:
+                raise ValueError(f"Unexpected action parameter: {name}")
+
+    for name, value in params.items():
+        property_schema = properties.get(name)
+        if isinstance(property_schema, dict):
+            _validate_json_type(name, value, schema=property_schema)
+
+
+def _validate_json_type(
+    name: str,
+    value: JsonValue,
+    *,
+    schema: Mapping[str, JsonValue],
+) -> None:
+    expected_type = schema.get("type")
+    if expected_type is None:
+        return
+    if not isinstance(expected_type, str):
+        raise ValueError(f"Action parameter schema type for {name} must be a string")
+    if not _matches_json_type(value, expected_type):
+        raise ValueError(f"Action parameter {name} must be {expected_type}")
+
+
+def _matches_json_type(value: JsonValue, expected_type: str) -> bool:
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "number":
+        return (isinstance(value, int | float) and not isinstance(value, bool))
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "null":
+        return value is None
+    raise ValueError(f"Unsupported action parameter schema type: {expected_type}")

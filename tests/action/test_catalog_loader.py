@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tinysoul.action.core.loader import ActionCatalogLoader
+import pytest
+
+from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.specs import ActionParallelPolicy
+from tinysoul.infra.config import ConfigError
 
 
 def test_load_builtin_catalog() -> None:
@@ -27,3 +30,54 @@ def test_catalog_view_by_domain() -> None:
 
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == ["workspace.scan"]
+
+
+def test_missing_catalog_root_raises_config_error() -> None:
+    with pytest.raises(ConfigError) as error:
+        ActionCatalogLoader().load(Path("does-not-exist"))
+
+    assert error.value.key == "does-not-exist"
+
+
+def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:
+    parser = ActionTomlParser()
+    default_runtime = parser.parse_runtime(
+        {"timeout_seconds": 30, "parallel_policy": "serial", "hooks": ["domain"]},
+        key="domain.runtime",
+    )
+
+    action = parser.parse_action(
+        {
+            "name": "x.action",
+            "domain": "x",
+            "tool": {
+                "description": "Do x.",
+                "schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+            "runtime": {"hooks": ["action"]},
+            "backend": {"kind": "native", "handler": "x.action"},
+        },
+        source="x/action.toml",
+        default_runtime=default_runtime,
+    )
+
+    assert action.runtime.timeout_seconds == 30.0
+    assert action.runtime.parallel_policy is ActionParallelPolicy.SERIAL
+    assert action.runtime.hooks == ("domain", "action")
+
+
+def test_invalid_runtime_enum_raises_config_error() -> None:
+    parser = ActionTomlParser()
+
+    with pytest.raises(ConfigError) as error:
+        parser.parse_runtime(
+            {"parallel_policy": "sometimes"},
+            key="domain.runtime",
+        )
+
+    assert error.value.key == "domain.runtime.parallel_policy"

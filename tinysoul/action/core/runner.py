@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Iterable
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
+from time import monotonic
 
 from .call import ActionBatch, ActionExecution
 from .catalog import ActionCatalog
@@ -37,6 +40,12 @@ class BatchConcurrencyPlanner:
         return tuple(groups)
 
 
+@dataclass(frozen=True)
+class _GroupRun:
+    results: tuple[ActionResult, ...]
+    leaked_timeout_invoke_id: str | None = None
+
+
 class ActionBatchRunner:
     """Run an action batch and return one result per action execution."""
 
@@ -61,8 +70,19 @@ class ActionBatchRunner:
         context: ActionExecutionContext,
     ) -> tuple[ActionResult, ...]:
         results: list[ActionResult] = []
-        for group in self._planner.plan(batch, catalog=self._catalog):
-            results.extend(self._run_group(group, context))
+        groups = self._planner.plan(batch, catalog=self._catalog)
+        for index, group in enumerate(groups):
+            group_run = self._run_group(group, context)
+            results.extend(group_run.results)
+            if group_run.leaked_timeout_invoke_id is not None:
+                for remaining_group in groups[index + 1 :]:
+                    results.extend(
+                        self._blocked_by_leaked_timeout(
+                            remaining_group,
+                            blocked_by=group_run.leaked_timeout_invoke_id,
+                        )
+                    )
+                break
         order = {
             execution.framework.invoke_id: index
             for index, execution in enumerate(batch.executions)
@@ -73,19 +93,89 @@ class ActionBatchRunner:
         self,
         group: tuple[ActionExecution, ...],
         context: ActionExecutionContext,
-    ) -> tuple[ActionResult, ...]:
-        if len(group) == 1:
-            return (self._run_one(group[0], context),)
+    ) -> _GroupRun:
         workers = min(self._max_workers, len(group))
         results: list[ActionResult] = []
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        leaked_timeout_invoke_id: str | None = None
+        pool = ThreadPoolExecutor(max_workers=workers)
+        wait_for_workers = True
+        try:
             futures = {
                 pool.submit(self._run_one, execution, context): execution
                 for execution in group
             }
-            for future in as_completed(futures):
-                results.append(future.result())
-        return tuple(results)
+            pending: set[Future[ActionResult]] = set(futures)
+            while pending:
+                timeout = self._remaining_timeout(futures[future] for future in pending)
+                done, pending = wait(pending, timeout=timeout)
+                if not done and pending:
+                    expired = {
+                        future
+                        for future in pending
+                        if futures[future].framework.is_expired()
+                    }
+                    if not expired:
+                        continue
+                    for future in expired:
+                        execution = futures[future]
+                        future.cancel()
+                        executor_leaked = not future.cancelled()
+                        results.append(
+                            ActionResult.timeout(
+                                invoke_id=execution.framework.invoke_id,
+                                action_name=execution.call.action_name,
+                                model_feedback="Action timed out during execution.",
+                                frame_data={
+                                    "executor_leaked": executor_leaked,
+                                },
+                            )
+                        )
+                        if executor_leaked:
+                            leaked_timeout_invoke_id = execution.framework.invoke_id
+                            wait_for_workers = False
+                    pending -= expired
+                    continue
+                for future in done:
+                    results.append(future.result())
+        finally:
+            pool.shutdown(wait=wait_for_workers, cancel_futures=True)
+        return _GroupRun(
+            results=tuple(results),
+            leaked_timeout_invoke_id=leaked_timeout_invoke_id,
+        )
+
+    def _blocked_by_leaked_timeout(
+        self,
+        group: tuple[ActionExecution, ...],
+        *,
+        blocked_by: str,
+    ) -> tuple[ActionResult, ...]:
+        return tuple(
+            ActionResult.failed(
+                invoke_id=execution.framework.invoke_id,
+                action_name=execution.call.action_name,
+                stage=ActionResultStage.EXECUTE,
+                model_feedback=(
+                    "Action was not started because a previous action timed out "
+                    "and may still be running."
+                ),
+                frame_data={
+                    "blocked_by_invoke_id": blocked_by,
+                    "reason": "previous_action_timeout_leak",
+                },
+            )
+            for execution in group
+        )
+
+    def _remaining_timeout(self, executions: Iterable[ActionExecution]) -> float | None:
+        deadlines = [
+            execution.framework.deadline
+            for execution in executions
+            if execution.framework.deadline is not None
+        ]
+        if not deadlines:
+            return None
+        return max(0.0, min(deadlines) - monotonic())
 
     def _run_one(
         self,

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolKind, ToolScope, ToolSelection, ToolSpec
 
 from .catalog import ActionCatalog
-from .specs import ActionDomainSpec, ActionSpec
+from .specs import ActionSpec
 
 
 class Phase1DomainScopeBuilder:
     """Build a Phase1 control tool scope for selecting action domains."""
 
     def build(self, catalog: ActionCatalog) -> ToolScope:
-        domains = [self._domain_json(domain) for domain in catalog.domains()]
+        domains = tuple(
+            domain
+            for domain in catalog.domains()
+            if catalog.actions_in_domain(domain.name)
+        )
         tool = ToolSpec(
             name="select_action_domains",
             description="Select action domains for the next action-parameter generation phase.",
@@ -24,7 +27,7 @@ class Phase1DomainScopeBuilder:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": [domain.name for domain in catalog.domains()],
+                            "enum": [domain.name for domain in domains],
                         },
                         "description": "Action domain names to expose in Phase2.",
                     },
@@ -35,7 +38,6 @@ class Phase1DomainScopeBuilder:
                 },
                 "required": ["domains"],
                 "additionalProperties": False,
-                "x-tinysoul-domains": domains,
             },
             kind=ToolKind.CONTROL,
         )
@@ -44,14 +46,19 @@ class Phase1DomainScopeBuilder:
             selection=ToolSelection(allowed_names=(tool.name,)),
         )
 
-    def _domain_json(self, domain: ActionDomainSpec) -> JsonObject:
-        value: JsonObject = {
-            "name": domain.name,
-            "description": domain.description,
-        }
-        if domain.selection_hint:
-            value["selection_hint"] = domain.selection_hint
-        return value
+
+class ActionDomainPromptRenderer:
+    """Render Phase1-visible domain descriptions for task prompt overlays."""
+
+    def render(self, catalog: ActionCatalog) -> str:
+        lines = ["Available action domains:"]
+        for domain in catalog.domains():
+            if not catalog.actions_in_domain(domain.name):
+                continue
+            lines.append(f"- {domain.name}: {domain.description}")
+            if domain.selection_hint:
+                lines.append(f"  Selection hint: {domain.selection_hint}")
+        return "\n".join(lines)
 
 
 class Phase2ActionScopeBuilder:
@@ -66,6 +73,8 @@ class Phase2ActionScopeBuilder:
         actions: list[ActionSpec] = []
         for domain in selected_domains:
             actions.extend(catalog.actions_in_domain(domain))
+        if not actions:
+            raise ValueError("Phase2 action scope must contain at least one action")
         tools = tuple(self._tool_spec(action) for action in actions)
         return ToolScope(
             tools=tools,

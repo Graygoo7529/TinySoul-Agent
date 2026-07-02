@@ -3,6 +3,7 @@
 from .call import ActionBatch, ActionCall, ActionExecution, ActionFramework
 from .catalog import ActionCatalog
 from .result import ActionResult, ActionResultStage, ActionResultStatus
+from .scope import ActionDomainPromptRenderer
 from .specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -22,6 +23,7 @@ __all__ = [
     "ActionCall",
     "ActionCatalog",
     "ActionDomainSpec",
+    "ActionDomainPromptRenderer",
     "ActionEnvironmentEffect",
     "ActionExecution",
     "ActionFramework",

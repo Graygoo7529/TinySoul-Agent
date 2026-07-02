@@ -63,6 +63,8 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
+`native` 后端运行在宿主 Python 线程中，只能提供协作式停止；如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体。
+
 ## 数据模型
 
 ### ActionDomainSpec
@@ -316,8 +318,9 @@ class ActionTomlParser: ...
 公开方法建议：
 
 - `load(root_path) -> ActionCatalog`
-- `load_domain(path) -> ActionDomainSpec`
-- `load_action(path) -> ActionSpec`
+- `parse_domain(table, source) -> ActionDomainSpec`
+- `parse_action(table, source, default_runtime) -> ActionSpec`
+- `parse_runtime(table, key, base) -> ActionRuntimeSpec`
 
 ### 4. `tinysoul/action/core/scope.py`
 
@@ -332,8 +335,9 @@ class Phase2ActionScopeBuilder: ...
 
 公开方法建议：
 
-- `build_phase1(catalog, context) -> ToolScope`
-- `build_phase2(catalog, selected_domains, context) -> ToolScope`
+- `Phase1DomainScopeBuilder.build(catalog) -> ToolScope`
+- `ActionDomainPromptRenderer.render(catalog) -> str`
+- `Phase2ActionScopeBuilder.build(catalog, selected_domains) -> ToolScope`
 
 ### 5. `tinysoul/action/core/call.py`
 
@@ -349,8 +353,8 @@ class ActionBatch: ...
 
 公开方法建议：
 
-- `normalize_tool_calls(...) -> tuple[ActionCall, ...]`
-- `to_execution(call, framework) -> ActionExecution`
+- `ActionCallNormalizer.normalize(tool_calls, catalog) -> tuple[ActionCall, ...]`
+- `ActionExecutionBuilder.build_batch(calls, catalog, scope, ...) -> ActionBatch`
 
 ### 6. `tinysoul/action/core/hooks.py`
 

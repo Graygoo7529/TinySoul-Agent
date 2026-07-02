@@ -98,18 +98,6 @@ class ActionRuntimeSpec:
         object.__setattr__(self, "hooks", _str_tuple(self.hooks, "hooks"))
         object.__setattr__(self, "requires", _str_tuple(self.requires, "requires"))
 
-    def override_with(self, other: "ActionRuntimeSpec") -> "ActionRuntimeSpec":
-        """Return runtime settings with action-level values overriding defaults."""
-        return ActionRuntimeSpec(
-            timeout_seconds=other.timeout_seconds
-            if other.timeout_seconds is not None
-            else self.timeout_seconds,
-            parallel_policy=other.parallel_policy,
-            hooks=(*self.hooks, *other.hooks),
-            requires=(*self.requires, *other.requires),
-        )
-
-
 @dataclass(frozen=True)
 class ActionBackendSpec:
     """Framework-only action execution backend configuration."""
