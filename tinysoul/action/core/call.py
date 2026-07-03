@@ -77,9 +77,25 @@ class ActionBatch:
 
     def __post_init__(self) -> None:
         _require_non_empty(self.batch_id, "ActionBatch.batch_id")
+        seen_call_ids: set[str] = set()
+        seen_invoke_ids: set[str] = set()
+        seen_sequences: set[int] = set()
         for execution in self.executions:
             if execution.framework.batch_id != self.batch_id:
                 raise ValueError("ActionExecution.framework.batch_id must match ActionBatch.batch_id")
+            if execution.call.call_id in seen_call_ids:
+                raise ValueError(f"Duplicate action call id in batch: {execution.call.call_id}")
+            if execution.framework.invoke_id in seen_invoke_ids:
+                raise ValueError(
+                    f"Duplicate action invoke id in batch: {execution.framework.invoke_id}"
+                )
+            if execution.call.sequence in seen_sequences:
+                raise ValueError(
+                    f"Duplicate action sequence in batch: {execution.call.sequence}"
+                )
+            seen_call_ids.add(execution.call.call_id)
+            seen_invoke_ids.add(execution.framework.invoke_id)
+            seen_sequences.add(execution.call.sequence)
 
 
 @dataclass(frozen=True)
@@ -114,8 +130,20 @@ class ActionCallNormalizer:
     ) -> ActionNormalization:
         calls: list[ActionCall] = []
         results: list[ActionResult] = []
+        seen_call_ids: set[str] = set()
         for index, tool_call in enumerate(tool_calls):
             sequence = index + 1
+            if tool_call.id in seen_call_ids:
+                results.append(
+                    _normalize_failure(
+                        tool_call,
+                        sequence=sequence,
+                        model_feedback=f"Duplicate action tool call id: {tool_call.id}",
+                        frame_data={"reason": "duplicate_call_id"},
+                    )
+                )
+                continue
+            seen_call_ids.add(tool_call.id)
             if tool_call.kind is not ToolKind.ACTION:
                 results.append(
                     _normalize_failure(

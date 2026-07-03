@@ -60,6 +60,8 @@ class ActionBatchRunner:
         planner: BatchConcurrencyPlanner | None = None,
         max_workers: int = 8,
     ) -> None:
+        if max_workers <= 0:
+            raise ValueError("ActionBatchRunner.max_workers must be positive")
         self._catalog = catalog
         self._executors = executors
         self._hooks = hooks or ActionHookPipeline()
@@ -255,6 +257,37 @@ class ActionBatchRunner:
                 model_feedback=f"Action execution failed: {exc}",
                 frame_data={"error_type": type(exc).__name__},
             )
+        if not isinstance(result, ActionResult):
+            return ActionResult.failed(
+                call_id=execution.call.call_id,
+                invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
+                action_name=execution.call.action_name,
+                stage=ActionResultStage.EXECUTE,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
+                model_feedback="Action executor returned an invalid result object.",
+                frame_data={
+                    "reason": "invalid_executor_result",
+                    "result_type": type(result).__name__,
+                },
+            )
+        result_mismatch = self._result_mismatch(execution, result)
+        if result_mismatch:
+            return ActionResult.failed(
+                call_id=execution.call.call_id,
+                invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
+                action_name=execution.call.action_name,
+                stage=ActionResultStage.EXECUTE,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
+                model_feedback="Action executor returned a result for a different invocation.",
+                frame_data={
+                    "reason": "executor_result_mismatch",
+                    "mismatch": result_mismatch,
+                },
+            )
         if execution.framework.is_expired() and result.status is ActionResultStatus.SUCCESS:
             return ActionResult.timeout(
                 call_id=execution.call.call_id,
@@ -285,3 +318,33 @@ class ActionBatchRunner:
             model_feedback=model_feedback,
             frame_data=frame_data,
         )
+
+    def _result_mismatch(
+        self,
+        execution: ActionExecution,
+        result: ActionResult,
+    ) -> JsonObject:
+        expected: JsonObject = {
+            "call_id": execution.call.call_id,
+            "invoke_id": execution.framework.invoke_id,
+            "batch_id": execution.framework.batch_id,
+            "action_name": execution.call.action_name,
+            "sequence": execution.call.sequence,
+            "domain": execution.framework.domain,
+        }
+        actual: JsonObject = {
+            "call_id": result.call_id,
+            "invoke_id": result.invoke_id,
+            "batch_id": result.batch_id,
+            "action_name": result.action_name,
+            "sequence": result.sequence,
+            "domain": result.domain,
+        }
+        mismatch: JsonObject = {}
+        for name, expected_value in expected.items():
+            if actual[name] != expected_value:
+                mismatch[name] = {
+                    "expected": expected_value,
+                    "actual": actual[name],
+                }
+        return mismatch

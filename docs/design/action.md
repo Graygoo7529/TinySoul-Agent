@@ -34,7 +34,7 @@ Phase1 暴露的工具是少量内部控制工具，例如：
 - 请求加载某些顶层上下文
 - 记录当前轮次的方向意图
 
-Phase1 不再输出二级 action meta，也不直接提供 action 参数 schema。
+Phase1 不输出二级 action 描述，也不直接提供 action 参数 schema。
 
 ### Phase2: 动作选择与参数生成
 
@@ -65,79 +65,20 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 `native` 后端运行在宿主 Python 线程中，只能提供协作式停止；如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体。
 
-## 数据模型
+## 定义结构
 
-### ActionDomainSpec
+域定义保持很薄，只服务于 Phase1 的方向选择。域默认运行配置不进入模型可见语义，只作为具体 action 的运行配置合并来源。
 
-域定义保持很薄，只用于 Phase1。
+具体 action 定义分为四个语义层次：
 
-建议字段：
+1. 模型侧工具协议，用于构造 Phase2 可见工具。
+2. 模型侧补充语义，用于帮助模型判断何时使用或避免某个 action。
+3. 框架内运行配置，用于控制超时、并发、hook 和依赖条件。
+4. 后端执行配置，用于描述真实执行落点。
 
-- `name`
-- `description`
-- `selection_hint`
+模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
 
-域默认运行配置不放进 domain spec 的可见语义里，交给 loader 作为合并来源处理。
-
-### ActionSpec
-
-Action spec 分成四层：
-
-1. `tool`
-2. `semantic`
-3. `runtime`
-4. `backend`
-
-`tool` 是 Phase2 直接映射成 `llm.ToolSpec` 的部分。
-
-`semantic` 是给模型看的补充说明，不参与执行。
-
-`runtime` 是框架内控制信息，不直接暴露给模型。
-
-`backend` 描述真实执行落点。
-
-### ActionToolSpec
-
-Phase2 直接可见字段：
-
-- `name`
-- `description`
-- `schema`
-
-补充语义字段：
-
-- `use_when`
-- `avoid_when`
-- `effects`
-- `examples`
-
-其中 `effects` 使用收敛后的环境影响枚举，不再包含 destructive。
-
-### ActionRuntimeSpec
-
-框架内运行配置建议包含：
-
-- `timeout_seconds`
-- `parallel_policy`
-- `hooks`
-- `requires`
-
-`parallel_policy` 用于表示该动作是否可与同批次其他动作并发执行，或是否需要串行执行。当前只保留 `allowed` 和 `serial`，不保留额外 `exclusive` 语义。
-
-`hooks` 是 hook 名称列表，动作可以复用全局 hook，也可以追加自己的专用 hook。
-
-### ActionBackendSpec
-
-后端只负责执行实现，不负责模型侧解释。
-
-建议 kind：
-
-- `native`
-- `subprocess`
-- `script`
-- `llm_step`
-
-`llm_step` 只表示动作内部还需要一次受控 LLM 调用，不意味着 action 退化成 prompt 拼接逻辑。
+后端只负责执行实现，不负责模型侧解释。`llm_step` 只表示动作内部还需要一次受控 LLM 调用，不意味着 action 退化成 prompt 拼接逻辑。
 
 ## 执行语义
 
@@ -148,21 +89,9 @@ Phase2 直接可见字段：
 1. 框架内信息
 2. 模型生成参数
 
-框架内信息包括：
+框架内信息描述调用关联、批次关联、运行位置、超时边界和所属域。模型生成参数只保留 action schema 对应的业务参数。
 
-- `invoke_id`
-- `batch_id`
-- `turn_id`
-- `cycle_id`
-- `phase`
-- `domain`
-- `deadline`
-- `timeout_seconds`
-- `call_id`
-
-模型生成参数只保留 action schema 对应的业务参数。
-
-`call_id` 使用 TinySoul 归一化后的模型侧 tool call id。它是后续渲染 `ToolResultMessage` 的相关性字段；执行期另有 `invoke_id`，用于框架内部观测。
+行动调用使用 TinySoul 归一化后的模型侧 tool call id 作为后续工具结果回放的相关性字段；执行期另有框架内部观测标识，用于 trace 和调度。
 
 ### Hook
 
@@ -309,202 +238,11 @@ tinysoul/action/
 
 动态边界必须在加载阶段完成校验，不把宽泛映射留到执行中。
 
-## 实现拆分
-
-### 1. `tinysoul/action/core/specs.py`
-
-职责：定义内部数据模型。
-
-建议类签名：
-
-```python
-class ActionDomainSpec: ...
-class ActionToolSpec: ...
-class ActionSemanticSpec: ...
-class ActionRuntimeSpec: ...
-class ActionBackendSpec: ...
-class ActionSpec: ...
-class ActionParallelPolicy(StrEnum): ...
-class ActionBackendKind(StrEnum): ...
-class ActionEnvironmentEffect(StrEnum): ...
-```
-
-### 2. `tinysoul/action/core/catalog.py`
-
-职责：只读 catalog 查询和视图裁剪。
-
-建议类签名：
-
-```python
-class ActionCatalog: ...
-```
-
-公开方法建议：
-
-- `domains()`
-- `actions_in_domain(domain_name)`
-- `get_domain(domain_name)`
-- `get_action(action_name)`
-- `with_domains(domain_names)`
-- `with_actions(action_names)`
-
-### 3. `tinysoul/action/core/loader.py`
-
-职责：读取 TOML、做动态边界校验、产出 catalog。
-
-建议类签名：
-
-```python
-class ActionCatalogLoader: ...
-class ActionTomlParser: ...
-```
-
-公开方法建议：
-
-- `load(root_path) -> ActionCatalog`
-- `parse_domain(table, source) -> ActionDomainSpec`
-- `parse_action(table, source, default_runtime) -> ActionSpec`
-- `parse_runtime(table, key, base) -> ActionRuntimeSpec`
-
-### 4. `tinysoul/action/core/scope.py`
-
-职责：为 Phase1 / Phase2 构建工具作用域。
-
-建议类签名：
-
-```python
-class Phase1DomainScopeBuilder: ...
-class Phase2ActionScopeBuilder: ...
-```
-
-公开方法建议：
-
-- `Phase1DomainScopeBuilder.build(catalog) -> ToolScope`
-- `ActionDomainPromptRenderer.render(catalog) -> str`
-- `Phase2ActionScopeBuilder.build(catalog, selected_domains) -> ToolScope`
-
-### 5. `tinysoul/action/core/call.py`
-
-职责：Phase2 输出和 Phase3 执行包装。
-
-建议类签名：
-
-```python
-class ActionCall: ...
-class ActionNormalization: ...
-class ActionExecution: ...
-class ActionBatch: ...
-```
-
-公开方法建议：
-
-- `ActionCallNormalizer.normalize(tool_calls, catalog) -> ActionNormalization`
-- `ActionExecutionBuilder.build_batch(calls, catalog, scope, ...) -> ActionBatch`
-
-### 6. `tinysoul/action/core/hooks.py`
-
-职责：统一 hook 注册、查找和执行。
-
-建议类签名：
-
-```python
-class ActionHook(Protocol): ...
-class HookOutcome: ...
-class ActionHookRegistry: ...
-class ActionHookPipeline: ...
-```
-
-公开方法建议：
-
-- `register_global(...)`
-- `register_domain(...)`
-- `register_action(...)`
-- `run(...)`
-
-### 7. `tinysoul/action/core/result.py`
-
-职责：结果结构化。
-
-建议类签名：
-
-```python
-class ActionResultStatus(StrEnum): ...
-class ActionResultStage(StrEnum): ...
-class ActionResult: ...
-```
-
-### 8. `tinysoul/action/core/executor.py`
-
-职责：单个动作的执行接口。
-
-建议类签名：
-
-```python
-class ActionExecutor(Protocol): ...
-class ActionExecutionContext: ...
-class ExecutorRegistry: ...
-```
-
-### 9. `tinysoul/action/core/runner.py`
-
-职责：批次并发执行与 reduce。
-
-建议类签名：
-
-```python
-class ActionBatchRunner: ...
-class BatchConcurrencyPlanner: ...
-```
-
-### 10. `tinysoul/action/core/feedback.py`
-
-职责：把 action result 渲染成模型可读反馈。
-
-建议类签名：
-
-```python
-class ActionFeedbackRenderer: ...
-```
-
-### 11. `tinysoul/action/backends/*.py`
-
-职责：真实执行后端。
-
-建议类签名：
-
-```python
-class NativeFunctionExecutor: ...
-class SubprocessActionExecutor: ...
-class TemporaryScriptExecutor: ...
-class LLMStepActionExecutor: ...
-```
-
-### 12. `tinysoul/action/failures.py`
-
-职责：action 模块服务于 runtime bridge 的稳定失败类型。
-
-建议枚举：
-
-```python
-class ActionFailureKind(StrEnum): ...
-```
-
-### 13. `tinysoul/runtime/bridge/action.py`
-
-职责：把 action 模块失败映射成 runtime 语义异常。
-
-建议类签名：
-
-```python
-class RuntimeActionBridge: ...
-```
-
 ## 设计边界总结
 
 1. Phase1 只选 domain。
 2. Phase2 只在 domain 内选 action。
 3. Phase3 统一执行批次。
-4. `edge_cases` 删除。
-5. `destructive` 删除。
-6. `ActionInvokeDraft` 不保留，Phase2 输出直接称为 `ActionCall`。
-7. 所有 LLM 调用都基于上下文模块构造的 base `MessageStack`，Action 只追加临时 prompt。
+4. Action 定义保持模型侧语义、框架运行配置和后端执行配置分离。
+5. 所有 action tool call 都收敛为局部 action result。
+6. 所有 LLM 调用都基于上下文模块构造的 base `MessageStack`，Action 只追加临时 prompt。

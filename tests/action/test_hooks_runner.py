@@ -3,13 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from time import sleep
 
+import pytest
+
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
 from tinysoul.action.core.hooks import ActionHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.action.core.result import ActionResultStage, ActionResultStatus
+from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
@@ -34,6 +36,18 @@ class RejectHook:
 class ExplodingHook:
     def check(self, execution, context) -> HookOutcome:
         raise RuntimeError("boom")
+
+
+class MismatchedExecutor:
+    def execute(self, execution, context) -> ActionResult:
+        return ActionResult.success(
+            call_id="other_call",
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+        )
 
 
 def _batch_for(action_name: str, arguments: JsonObject):
@@ -75,6 +89,48 @@ def test_runner_returns_action_result_from_executor() -> None:
     assert results[0].status is ActionResultStatus.SUCCESS
     assert results[0].call_id == "call_1"
     assert results[0].payload == {"ok": True}
+
+
+def test_runner_rejects_invalid_max_workers() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+
+    with pytest.raises(ValueError, match="max_workers"):
+        ActionBatchRunner(
+            catalog=catalog,
+            executors=ExecutorRegistry(),
+            max_workers=0,
+        )
+
+
+def test_executor_registry_validates_catalog_handlers() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+
+    assert executors.missing_handlers_for(catalog) == ("workspace.scan",)
+    with pytest.raises(ValueError, match="workspace.scan"):
+        executors.validate_catalog(catalog)
+
+
+def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
+    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    executors = ExecutorRegistry()
+    executors.register("core.answer", MismatchedExecutor())
+
+    results = ActionBatchRunner(catalog=catalog, executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )
+
+    assert results[0].status is ActionResultStatus.FAILED
+    assert results[0].stage is ActionResultStage.EXECUTE
+    assert results[0].frame_data["reason"] == "executor_result_mismatch"
+    mismatch = results[0].frame_data["mismatch"]
+    assert isinstance(mismatch, dict)
+    assert "call_id" in mismatch
 
 
 def test_runner_returns_failed_result_when_hook_rejects() -> None:

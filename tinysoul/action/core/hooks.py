@@ -9,6 +9,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from .call import ActionExecution
 from .catalog import ActionCatalog
+from .executor import ActionExecutionContext
 from .result import ActionResult, ActionResultStage
 
 
@@ -44,7 +45,7 @@ class HookOutcome:
 class ActionHook(Protocol):
     """Protocol for action input hooks."""
 
-    def check(self, execution: ActionExecution, context: object) -> HookOutcome:
+    def check(self, execution: ActionExecution, context: ActionExecutionContext) -> HookOutcome:
         """Check whether an action execution can proceed."""
         ...
 
@@ -117,7 +118,7 @@ class ActionHookPipeline:
         execution: ActionExecution,
         *,
         catalog: ActionCatalog,
-        context: object,
+        context: ActionExecutionContext,
     ) -> ActionResult | None:
         action = catalog.get_action(execution.call.action_name)
         names = self._registry.names_for(

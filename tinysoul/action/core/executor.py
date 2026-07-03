@@ -8,6 +8,7 @@ from typing import Protocol
 from tinysoul.runtime import SignalBus
 
 from .call import ActionExecution
+from .catalog import ActionCatalog
 from .result import ActionResult
 
 
@@ -49,3 +50,22 @@ class ExecutorRegistry:
             return self._executors[handler]
         except KeyError as exc:
             raise KeyError(f"Unknown action executor: {handler}") from exc
+
+    def has(self, handler: str) -> bool:
+        return handler in self._executors
+
+    def missing_handlers_for(self, catalog: ActionCatalog) -> tuple[str, ...]:
+        missing = {
+            action.backend.handler
+            for action in catalog.actions()
+            if not self.has(action.backend.handler)
+        }
+        return tuple(sorted(missing))
+
+    def validate_catalog(self, catalog: ActionCatalog) -> None:
+        missing = self.missing_handlers_for(catalog)
+        if missing:
+            raise ValueError(
+                "Action catalog references unregistered executors: "
+                + ", ".join(missing)
+            )

@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
+from tinysoul.action.core.schema import ActionSchemaDefinitionError
+from tinysoul.action.core.specs import ActionToolSpec
 from tinysoul.action.core.specs import ActionParallelPolicy
 from tinysoul.infra.config import ConfigError
 
@@ -111,3 +113,24 @@ def test_unsupported_action_schema_keyword_raises_config_error() -> None:
         )
 
     assert error.value.key == "x/action.toml.tool.schema.properties.path.pattern"
+
+
+def test_action_tool_spec_validates_schema_subset() -> None:
+    with pytest.raises(ActionSchemaDefinitionError) as error:
+        ActionToolSpec(
+            name="x.action",
+            description="Do x.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "pattern": "^workspace:",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        )
+
+    assert error.value.key == "ActionToolSpec(x.action).schema.properties.path.pattern"

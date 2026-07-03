@@ -31,7 +31,49 @@ class ActionSchemaValidationError(ValueError):
     """Raised when action parameters do not match an action schema."""
 
 
+class ActionSchemaDefinitionError(ValueError):
+    """Raised when an action schema does not match TinySoul's supported subset."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        key: str = "",
+        value: object = None,
+        expected: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.key = key
+        self.value = value
+        self.expected = expected
+
+    def __str__(self) -> str:
+        parts = [self.message]
+        if self.key:
+            parts.append(f"key={self.key}")
+        if self.expected:
+            parts.append(f"expected={self.expected}")
+        if self.value is not None:
+            parts.append(f"value={self.value!r}")
+        return " | ".join(parts)
+
+
 def check_action_schema(schema: JsonObject, *, key: str) -> None:
+    """Check a TOML-loaded action schema and report configuration errors."""
+
+    try:
+        validate_action_schema_definition(schema, key=key)
+    except ActionSchemaDefinitionError as exc:
+        raise ConfigError(
+            exc.message,
+            key=exc.key,
+            value=exc.value,
+            expected=exc.expected,
+        ) from exc
+
+
+def validate_action_schema_definition(schema: JsonObject, *, key: str) -> None:
     """Check that an action schema uses the supported TinySoul subset."""
 
     _check_schema_node(schema, key=key, root=True)
@@ -46,7 +88,7 @@ def validate_action_params(params: JsonObject, *, schema: JsonObject) -> None:
 def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> None:
     for name in schema:
         if name not in SUPPORTED_SCHEMA_KEYS:
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool schema keyword is not supported",
                 key=f"{key}.{name}",
                 value=name,
@@ -55,7 +97,7 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
 
     schema_type = schema.get("type")
     if root and schema_type != "object":
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema root type must be object",
             key=f"{key}.type",
             value=schema_type,
@@ -63,7 +105,7 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
         )
     if schema_type is not None:
         if not isinstance(schema_type, str) or schema_type not in SUPPORTED_TYPES:
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool schema type is not supported",
                 key=f"{key}.type",
                 value=schema_type,
@@ -72,7 +114,7 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
 
     description = schema.get("description")
     if description is not None and not isinstance(description, str):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema description must be a string",
             key=f"{key}.description",
             value=description,
@@ -81,7 +123,7 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
 
     enum_values = schema.get("enum")
     if enum_values is not None and not isinstance(enum_values, list):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema enum must be a list",
             key=f"{key}.enum",
             value=enum_values,
@@ -101,7 +143,7 @@ def _check_object_schema(schema: JsonObject, *, key: str) -> None:
     _reject_keys(schema, {"items"}, key=key)
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema properties must be an object",
             key=f"{key}.properties",
             value=properties,
@@ -109,7 +151,7 @@ def _check_object_schema(schema: JsonObject, *, key: str) -> None:
         )
     for property_name, property_schema in properties.items():
         if not isinstance(property_schema, dict):
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool property schema must be an object",
                 key=f"{key}.properties.{property_name}",
                 value=property_schema,
@@ -119,7 +161,7 @@ def _check_object_schema(schema: JsonObject, *, key: str) -> None:
 
     required = schema.get("required", [])
     if not isinstance(required, list):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema required must be a list of strings",
             key=f"{key}.required",
             value=required,
@@ -127,14 +169,14 @@ def _check_object_schema(schema: JsonObject, *, key: str) -> None:
         )
     for item in required:
         if not isinstance(item, str) or not item:
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool schema required must contain non-empty strings",
                 key=f"{key}.required",
                 value=required,
                 expected="list[str]",
             )
         if item not in properties:
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool schema required field must be declared in properties",
                 key=f"{key}.required",
                 value=item,
@@ -143,7 +185,7 @@ def _check_object_schema(schema: JsonObject, *, key: str) -> None:
 
     additional = schema.get("additionalProperties", True)
     if not isinstance(additional, bool):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema additionalProperties must be boolean",
             key=f"{key}.additionalProperties",
             value=additional,
@@ -157,7 +199,7 @@ def _check_array_schema(schema: JsonObject, *, key: str) -> None:
     if items is None:
         return
     if not isinstance(items, dict):
-        raise ConfigError(
+        raise ActionSchemaDefinitionError(
             "Action tool schema items must be an object",
             key=f"{key}.items",
             value=items,
@@ -169,7 +211,7 @@ def _check_array_schema(schema: JsonObject, *, key: str) -> None:
 def _reject_keys(schema: Mapping[str, JsonValue], names: set[str], *, key: str) -> None:
     for name in names:
         if name in schema:
-            raise ConfigError(
+            raise ActionSchemaDefinitionError(
                 "Action tool schema keyword is not valid for this type",
                 key=f"{key}.{name}",
                 value=name,

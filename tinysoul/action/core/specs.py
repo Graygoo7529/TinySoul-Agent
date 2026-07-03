@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .schema import validate_action_schema_definition
+
 
 class ActionEnvironmentEffect(StrEnum):
     """Model-visible action environment effect."""
@@ -58,7 +60,12 @@ class ActionToolSpec:
         _require_name(self.name, field="ActionToolSpec.name")
         if not self.description:
             raise ValueError("ActionToolSpec.description must be non-empty")
-        object.__setattr__(self, "schema", to_json_object(self.schema))
+        schema = to_json_object(self.schema)
+        validate_action_schema_definition(
+            schema,
+            key=f"ActionToolSpec({self.name}).schema",
+        )
+        object.__setattr__(self, "schema", schema)
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,7 @@ class ActionRuntimeSpec:
             raise TypeError("ActionRuntimeSpec.parallel_policy must be an ActionParallelPolicy")
         object.__setattr__(self, "hooks", _str_tuple(self.hooks, "hooks"))
         object.__setattr__(self, "requires", _str_tuple(self.requires, "requires"))
+
 
 @dataclass(frozen=True)
 class ActionBackendSpec:
