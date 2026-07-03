@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.scope import (
     ActionDomainPromptRenderer,
@@ -52,11 +53,24 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
 def test_phase2_scope_rejects_domain_without_actions() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
 
-    with pytest.raises(ValueError, match="at least one action"):
+    with pytest.raises(ActionContractError, match="at least one action"):
         Phase2ActionScopeBuilder().build(
             catalog,
             selected_domains=("script",),
         )
+
+
+def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+
+    preparation = Phase2ActionScopeBuilder().prepare(
+        catalog,
+        selected_domains=("script",),
+    )
+
+    assert preparation.tool_scope is None
+    assert preparation.phase_results[0].stage.value == "scope"
+    assert preparation.phase_results[0].frame_data["selected_domains"] == ["script"]
 
 
 def test_domain_prompt_renderer_lists_actionable_domains() -> None:

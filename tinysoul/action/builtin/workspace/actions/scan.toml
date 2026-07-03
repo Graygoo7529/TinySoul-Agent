@@ -13,7 +13,10 @@ examples = ["Scan before deciding which file to read"]
 
 [runtime]
 parallel_policy = "serial"
-hooks = []
+
+[runtime.hooks]
+normalize = []
+execute = []
 
 [backend]
 kind = "native"

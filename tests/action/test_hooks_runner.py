@@ -8,8 +8,9 @@ import pytest
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
+from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
-from tinysoul.action.core.hooks import ActionHookPipeline, HookOutcome
+from tinysoul.action.core.hooks import ActionExecutionHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
@@ -94,7 +95,7 @@ def test_runner_returns_action_result_from_executor() -> None:
 def test_runner_rejects_invalid_max_workers() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
 
-    with pytest.raises(ValueError, match="max_workers"):
+    with pytest.raises(ActionContractError, match="max_workers"):
         ActionBatchRunner(
             catalog=catalog,
             executors=ExecutorRegistry(),
@@ -111,7 +112,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
     )
 
     assert executors.missing_handlers_for(catalog) == ("workspace.scan",)
-    with pytest.raises(ValueError, match="workspace.scan"):
+    with pytest.raises(ActionContractError, match="workspace.scan"):
         executors.validate_catalog(catalog)
 
 
@@ -140,9 +141,9 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
         "core.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
-    hooks = ActionHookPipeline()
-    hooks.registry.register_hook("reject", RejectHook())
-    hooks.registry.register_global("reject")
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_execution_hook("reject", RejectHook())
+    hooks.registry.register_global_execution("reject")
 
     results = ActionBatchRunner(
         catalog=catalog,
@@ -161,8 +162,8 @@ def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
         "core.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
-    hooks = ActionHookPipeline()
-    hooks.registry.register_global("missing")
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_global_execution("missing")
 
     results = ActionBatchRunner(
         catalog=catalog,
@@ -182,9 +183,9 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
         "core.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
-    hooks = ActionHookPipeline()
-    hooks.registry.register_hook("explode", ExplodingHook())
-    hooks.registry.register_global("explode")
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_execution_hook("explode", ExplodingHook())
+    hooks.registry.register_global_execution("explode")
 
     results = ActionBatchRunner(
         catalog=catalog,

@@ -95,9 +95,13 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 ### Hook
 
-每个 action 可以复用通用 hook，也可以定义专用 hook。
+每个 action 可以复用通用 hook，也可以定义专用 hook。hook 按 action 生命周期分为 normalize hook 和 execution hook。
 
-hook 顺序建议为：
+normalize hook 发生在 Phase2，用于检查模型侧 action tool call 是否能成为 ActionCall。schema 参数检查属于内置 normalize hook，默认对所有 action 启用；action 也可以追加自己的 normalize hook，用于检查参数组合、链接格式或领域约束。
+
+execution hook 发生在 Phase3，用于检查 ActionExecution 是否可以真实执行，例如工作区状态、资源存在性或运行上下文限制。
+
+每个阶段内 hook 顺序为：
 
 1. 全局 hook
 2. domain hook
@@ -107,7 +111,7 @@ hook 只做输入检查、上下文约束和可执行性裁剪，不执行真实
 
 hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。
 
-未知 hook、hook 自身抛出的异常、hook 返回拒绝都应收敛为 `ActionResult(status=failed, stage=hook)`。
+normalize hook 的未知 hook、hook 自身异常和 hook 拒绝都收敛为 normalize 阶段的 ActionResult。execution hook 的未知 hook、hook 自身异常和 hook 拒绝都收敛为 hook 阶段的 ActionResult。
 
 ### 批次执行
 
@@ -126,7 +130,9 @@ Batch 只是执行编排容器，runner 的核心输出是 `ActionResult` 序列
 
 批次内允许部分成功，但不需要额外定义 batch result。
 
-Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局部 `ActionResult(status=failed, stage=normalize)`。因此一个 action tool call 在 Action 模块内总是对应一个局部结果：normalize failed、hook failed、schedule failed、execute failed、timeout 或 success。
+Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局部 ActionResult。因此一个 action tool call 在 Action 模块内总是对应一个局部结果：normalize failed、prepare failed、hook failed、schedule failed、execute failed、timeout 或 success。
+
+无法绑定到具体 action tool call 的阶段性框架问题不伪造成 ActionResult，而是产出 phase-level result，供 Context 记录为 cycle phase 执行反馈。
 
 ### 输出
 
@@ -150,13 +156,27 @@ Action result 需要同时表达三类信息：
 
 大块文件内容、长文本和非结构化资源不直接塞回结果，改用资源句柄或摘要。
 
-`ActionResult` 是 Action 局部事实记录，不等同于 LLM message。`ActionFeedbackRenderer` 负责把它渲染为：
+`ActionResult` 是具体 action call 的局部事实记录，不等同于 LLM message。Action phase result 是 action 模块某个 phase 的局部执行记录，用于表达无法绑定到具体 action call 的框架性问题。
+
+`ActionFeedbackRenderer` 负责把 action result 渲染为：
 
 1. 给模型看的 compact JSON payload。
 2. 给 trace/log 使用的完整 JSON payload。
 3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
 
 Context 模块决定这些渲染结果如何进入 TurnTraceContext 或 Interaction Context；Action 模块不直接维护 MessageStack。
+
+Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
+
+### 失败与异常边界
+
+Action 模块的正常执行流不应把可反馈失败暴露为普通异常。能够绑定到具体 action tool call 的问题应收敛为 action result，例如参数无法归一化、normalize hook 拒绝、batch prepare 阶段某个 call 无法装配、execution hook 拒绝、executor 失败、executor 返回错配结果和超时。
+
+无法绑定到具体 action tool call、但仍属于当前 Action phase 局部流程的问题，应收敛为 phase-level result，例如 Phase2 无法准备可用 action scope，或 Phase3 的批次准备出现无法归因到单个 call 的问题。Context 模块可以把这类结果记录为当前 cycle phase 的执行反馈，并在后续 message stack 中按需呈现给模型。
+
+防御性不变量异常和模块调用契约错误不属于可继续的 action flow。它们表示 Action 模块内部对象关系、catalog、执行输入或公共边界被破坏，应在模块公共边界通过 Runtime bridge 映射为 Runtime 语义异常，由 Trap 决定结束当前 Turn 或采取其他运行转移。Runtime payload 只携带模块名、稳定失败类型和必要摘要，不携带原始异常对象、大块上下文或完整消息栈。
+
+因此 Action 失败处理分为三层：action call 级局部结果、phase 级局部结果、Runtime 语义异常。前两者服务于 Context 记录和模型反馈，后者服务于运行控制流。
 
 ## Action Schema
 
@@ -238,6 +258,8 @@ tinysoul/action/
 
 动态边界必须在加载阶段完成校验，不把宽泛映射留到执行中。
 
+运行配置中的 hook 使用阶段化配置，分别声明 normalize 阶段和 execution 阶段的 hook 名称。domain 默认 hook 与 action 自身 hook 按阶段合并。
+
 ## 设计边界总结
 
 1. Phase1 只选 domain。
@@ -245,4 +267,6 @@ tinysoul/action/
 3. Phase3 统一执行批次。
 4. Action 定义保持模型侧语义、框架运行配置和后端执行配置分离。
 5. 所有 action tool call 都收敛为局部 action result。
-6. 所有 LLM 调用都基于上下文模块构造的 base `MessageStack`，Action 只追加临时 prompt。
+6. 无法绑定到具体 action call 的 action phase 问题收敛为 phase-level result。
+7. 防御性不变量异常通过 Runtime bridge 映射为运行时语义异常。
+8. 所有 LLM 调用都基于上下文模块构造的 base `MessageStack`，Action 只追加临时 prompt。

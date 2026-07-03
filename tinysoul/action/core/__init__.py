@@ -2,19 +2,28 @@
 
 from .call import (
     ActionBatch,
+    ActionBatchPreparation,
     ActionCall,
     ActionExecution,
     ActionFramework,
     ActionNormalization,
 )
 from .catalog import ActionCatalog
-from .result import ActionResult, ActionResultStage, ActionResultStatus
-from .scope import ActionDomainPromptRenderer
+from .result import (
+    ActionPhaseResult,
+    ActionPhaseResultStage,
+    ActionPhaseResultStatus,
+    ActionResult,
+    ActionResultStage,
+    ActionResultStatus,
+)
+from .scope import ActionDomainPromptRenderer, ActionScopePreparation
 from .specs import (
     ActionBackendKind,
     ActionBackendSpec,
     ActionDomainSpec,
     ActionEnvironmentEffect,
+    ActionHookSpec,
     ActionParallelPolicy,
     ActionRuntimeSpec,
     ActionSemanticSpec,
@@ -26,6 +35,7 @@ __all__ = [
     "ActionBackendKind",
     "ActionBackendSpec",
     "ActionBatch",
+    "ActionBatchPreparation",
     "ActionCall",
     "ActionCatalog",
     "ActionDomainSpec",
@@ -33,13 +43,18 @@ __all__ = [
     "ActionEnvironmentEffect",
     "ActionExecution",
     "ActionFramework",
+    "ActionHookSpec",
     "ActionNormalization",
     "ActionParallelPolicy",
+    "ActionPhaseResult",
+    "ActionPhaseResultStage",
+    "ActionPhaseResultStatus",
     "ActionResult",
     "ActionResultStage",
     "ActionResultStatus",
     "ActionRuntimeSpec",
     "ActionSemanticSpec",
+    "ActionScopePreparation",
     "ActionSpec",
     "ActionToolSpec",
 ]

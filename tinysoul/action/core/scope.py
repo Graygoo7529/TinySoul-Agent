@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from tinysoul.llm.tools import ToolKind, ToolScope, ToolSelection, ToolSpec
 
 from .catalog import ActionCatalog
+from .errors import ActionContractError
+from .result import ActionPhaseResult, ActionPhaseResultStage
 from .specs import ActionSpec
 
 
@@ -64,6 +68,40 @@ class ActionDomainPromptRenderer:
 class Phase2ActionScopeBuilder:
     """Build a Phase2 action tool scope from selected catalog domains."""
 
+    def prepare(
+        self,
+        catalog: ActionCatalog,
+        *,
+        selected_domains: tuple[str, ...],
+        phase: str = "phase2",
+        turn_id: str = "",
+        cycle_id: str = "",
+    ) -> "ActionScopePreparation":
+        try:
+            return ActionScopePreparation(
+                tool_scope=self.build(
+                    catalog,
+                    selected_domains=selected_domains,
+                ),
+            )
+        except Exception as exc:
+            return ActionScopePreparation(
+                tool_scope=None,
+                phase_results=(
+                    ActionPhaseResult.failed(
+                        phase=phase,
+                        stage=ActionPhaseResultStage.SCOPE,
+                        model_feedback="Action scope preparation failed.",
+                        frame_data={
+                            "error_type": type(exc).__name__,
+                            "selected_domains": list(selected_domains),
+                        },
+                        turn_id=turn_id,
+                        cycle_id=cycle_id,
+                    ),
+                ),
+            )
+
     def build(
         self,
         catalog: ActionCatalog,
@@ -74,7 +112,7 @@ class Phase2ActionScopeBuilder:
         for domain in selected_domains:
             actions.extend(catalog.actions_in_domain(domain))
         if not actions:
-            raise ValueError("Phase2 action scope must contain at least one action")
+            raise ActionContractError("Phase2 action scope must contain at least one action")
         tools = tuple(self._tool_spec(action) for action in actions)
         return ToolScope(
             tools=tools,
@@ -102,3 +140,11 @@ class Phase2ActionScopeBuilder:
         if action.semantic.examples:
             lines.append("Examples: " + "; ".join(action.semantic.examples))
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class ActionScopePreparation:
+    """Prepared action tool scope plus phase-level preparation results."""
+
+    tool_scope: ToolScope | None
+    phase_results: tuple[ActionPhaseResult, ...] = ()

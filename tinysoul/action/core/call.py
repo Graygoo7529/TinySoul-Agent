@@ -11,8 +11,13 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
 from .catalog import ActionCatalog
-from .result import ActionResult, ActionResultStage
-from .schema import ActionSchemaValidationError, validate_action_params
+from .errors import ActionContractError, ActionInvariantError
+from .hooks import (
+    ActionNormalizeContext,
+    ActionNormalizeHookPipeline,
+    ActionNormalizeInput,
+)
+from .result import ActionPhaseResult, ActionPhaseResultStage, ActionResult, ActionResultStage
 
 
 @dataclass(frozen=True)
@@ -29,7 +34,7 @@ class ActionCall:
         _require_non_empty(self.call_id, "ActionCall.call_id")
         _require_non_empty(self.action_name, "ActionCall.action_name")
         if self.sequence <= 0:
-            raise ValueError("ActionCall.sequence must be positive")
+            raise ActionInvariantError("ActionCall.sequence must be positive")
         object.__setattr__(self, "params", to_json_object(self.params))
 
 
@@ -52,9 +57,9 @@ class ActionFramework:
         _require_non_empty(self.batch_id, "ActionFramework.batch_id")
         _require_non_empty(self.domain, "ActionFramework.domain")
         if not isinstance(self.scope, RunScope):
-            raise TypeError("ActionFramework.scope must be a RunScope")
+            raise ActionInvariantError("ActionFramework.scope must be a RunScope")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
-            raise ValueError("ActionFramework.timeout_seconds must be positive")
+            raise ActionInvariantError("ActionFramework.timeout_seconds must be positive")
 
     def is_expired(self) -> bool:
         return self.deadline is not None and monotonic() >= self.deadline
@@ -82,15 +87,19 @@ class ActionBatch:
         seen_sequences: set[int] = set()
         for execution in self.executions:
             if execution.framework.batch_id != self.batch_id:
-                raise ValueError("ActionExecution.framework.batch_id must match ActionBatch.batch_id")
+                raise ActionInvariantError(
+                    "ActionExecution.framework.batch_id must match ActionBatch.batch_id"
+                )
             if execution.call.call_id in seen_call_ids:
-                raise ValueError(f"Duplicate action call id in batch: {execution.call.call_id}")
+                raise ActionInvariantError(
+                    f"Duplicate action call id in batch: {execution.call.call_id}"
+                )
             if execution.framework.invoke_id in seen_invoke_ids:
-                raise ValueError(
+                raise ActionInvariantError(
                     f"Duplicate action invoke id in batch: {execution.framework.invoke_id}"
                 )
             if execution.call.sequence in seen_sequences:
-                raise ValueError(
+                raise ActionInvariantError(
                     f"Duplicate action sequence in batch: {execution.call.sequence}"
                 )
             seen_call_ids.add(execution.call.call_id)
@@ -104,6 +113,7 @@ class ActionNormalization:
 
     calls: tuple[ActionCall, ...] = field(default_factory=tuple)
     results: tuple[ActionResult, ...] = field(default_factory=tuple)
+    phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
 
     def merged_results(
         self,
@@ -122,14 +132,19 @@ class ActionNormalization:
 class ActionCallNormalizer:
     """Normalize Phase2 tool calls into action calls."""
 
+    def __init__(self, hooks: ActionNormalizeHookPipeline | None = None) -> None:
+        self._hooks = hooks or ActionNormalizeHookPipeline()
+
     def normalize(
         self,
         tool_calls: tuple[ToolCallRecord, ...],
         *,
         catalog: ActionCatalog,
+        context: ActionNormalizeContext | None = None,
     ) -> ActionNormalization:
         calls: list[ActionCall] = []
         results: list[ActionResult] = []
+        phase_results: list[ActionPhaseResult] = []
         seen_call_ids: set[str] = set()
         for index, tool_call in enumerate(tool_calls):
             sequence = index + 1
@@ -167,17 +182,16 @@ class ActionCallNormalizer:
                 )
                 continue
             action = catalog.get_action(tool_call.name)
-            try:
-                validate_action_params(tool_call.arguments, schema=action.tool.schema)
-            except ActionSchemaValidationError as exc:
-                results.append(
-                    _normalize_failure(
-                        tool_call,
-                        sequence=sequence,
-                        model_feedback=str(exc),
-                        frame_data={"error_type": type(exc).__name__},
-                    )
-                )
+            hook_result = self._hooks.run(
+                ActionNormalizeInput(
+                    tool_call=tool_call,
+                    action=action,
+                    sequence=sequence,
+                ),
+                context=context,
+            )
+            if hook_result is not None:
+                results.append(hook_result)
                 continue
             calls.append(
                 ActionCall(
@@ -190,13 +204,23 @@ class ActionCallNormalizer:
         return ActionNormalization(
             calls=tuple(calls),
             results=tuple(results),
+            phase_results=tuple(phase_results),
         )
+
+
+@dataclass(frozen=True)
+class ActionBatchPreparation:
+    """Prepared action batch plus local preparation results."""
+
+    batch: ActionBatch
+    results: tuple[ActionResult, ...] = field(default_factory=tuple)
+    phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
 
 
 class ActionExecutionBuilder:
     """Build execution inputs from normalized action calls."""
 
-    def build_batch(
+    def prepare_batch(
         self,
         calls: tuple[ActionCall, ...],
         *,
@@ -206,10 +230,45 @@ class ActionExecutionBuilder:
         turn_id: str = "",
         cycle_id: str = "",
         phase: str = "phase3",
-    ) -> ActionBatch:
+    ) -> ActionBatchPreparation:
         resolved_batch_id = batch_id or f"action_batch_{uuid4().hex[:8]}"
         executions: list[ActionExecution] = []
+        results: list[ActionResult] = []
+        seen_call_ids: set[str] = set()
+        seen_sequences: set[int] = set()
         for call in calls:
+            if call.call_id in seen_call_ids:
+                results.append(
+                    _prepare_failure(
+                        call,
+                        batch_id=resolved_batch_id,
+                        stage_feedback=f"Duplicate action call id: {call.call_id}",
+                        frame_data={"reason": "duplicate_call_id"},
+                    )
+                )
+                continue
+            if call.sequence in seen_sequences:
+                results.append(
+                    _prepare_failure(
+                        call,
+                        batch_id=resolved_batch_id,
+                        stage_feedback=f"Duplicate action sequence: {call.sequence}",
+                        frame_data={"reason": "duplicate_sequence"},
+                    )
+                )
+                continue
+            seen_call_ids.add(call.call_id)
+            seen_sequences.add(call.sequence)
+            if not catalog.has_action(call.action_name):
+                results.append(
+                    _prepare_failure(
+                        call,
+                        batch_id=resolved_batch_id,
+                        stage_feedback=f"Unknown action during preparation: {call.action_name}",
+                        frame_data={"reason": "unknown_action"},
+                    )
+                )
+                continue
             action = catalog.get_action(call.action_name)
             timeout = action.runtime.timeout_seconds
             executions.append(
@@ -227,15 +286,62 @@ class ActionExecutionBuilder:
                     ),
                 )
             )
-        return ActionBatch(
-            batch_id=resolved_batch_id,
-            executions=tuple(executions),
+        try:
+            batch = ActionBatch(
+                batch_id=resolved_batch_id,
+                executions=tuple(executions),
+            )
+        except ActionInvariantError as exc:
+            return ActionBatchPreparation(
+                batch=ActionBatch(batch_id=resolved_batch_id),
+                results=tuple(results),
+                phase_results=(
+                    ActionPhaseResult.failed(
+                        phase=phase,
+                        stage=ActionPhaseResultStage.PREPARE,
+                        model_feedback="Action batch preparation failed.",
+                        frame_data={
+                            "error_type": type(exc).__name__,
+                            "reason": "batch_invariant_error",
+                        },
+                        turn_id=turn_id,
+                        cycle_id=cycle_id,
+                    ),
+                ),
+            )
+        return ActionBatchPreparation(
+            batch=batch,
+            results=tuple(results),
         )
+
+    def build_batch(
+        self,
+        calls: tuple[ActionCall, ...],
+        *,
+        catalog: ActionCatalog,
+        scope: RunScope,
+        batch_id: str | None = None,
+        turn_id: str = "",
+        cycle_id: str = "",
+        phase: str = "phase3",
+    ) -> ActionBatch:
+        preparation = self.prepare_batch(
+            calls,
+            catalog=catalog,
+            scope=scope,
+            batch_id=batch_id,
+            turn_id=turn_id,
+            cycle_id=cycle_id,
+            phase=phase,
+        )
+        if preparation.results or preparation.phase_results:
+            raise ActionContractError("Action batch preparation produced local results")
+        return preparation.batch
 
 
 def _require_non_empty(value: str, field: str) -> None:
     if not value:
-        raise ValueError(f"{field} must be non-empty")
+        raise ActionInvariantError(f"{field} must be non-empty")
 
 
 def _normalize_failure(
@@ -251,5 +357,23 @@ def _normalize_failure(
         stage=ActionResultStage.NORMALIZE,
         sequence=sequence,
         model_feedback=model_feedback,
+        frame_data=frame_data,
+    )
+
+
+def _prepare_failure(
+    call: ActionCall,
+    *,
+    batch_id: str,
+    stage_feedback: str,
+    frame_data: JsonObject,
+) -> ActionResult:
+    return ActionResult.failed(
+        call_id=call.call_id,
+        batch_id=batch_id,
+        action_name=call.action_name,
+        stage=ActionResultStage.PREPARE,
+        sequence=call.sequence,
+        model_feedback=stage_feedback,
         frame_data=frame_data,
     )

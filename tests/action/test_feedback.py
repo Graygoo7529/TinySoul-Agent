@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from tinysoul.action.core.feedback import ActionFeedbackRenderer
-from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.core.result import (
+    ActionPhaseResult,
+    ActionPhaseResultStage,
+    ActionResult,
+    ActionResultStage,
+)
 from tinysoul.llm.messages import JsonPart
 from tinysoul.llm.tools import ToolResultStatus
 
@@ -43,3 +48,19 @@ def test_feedback_renderer_creates_error_tool_result_message() -> None:
     assert message.status is ToolResultStatus.ERROR
     assert isinstance(message.parts[0], JsonPart)
     assert message.parts[0].value["stage"] == "normalize"
+
+
+def test_feedback_renderer_renders_phase_result_payloads() -> None:
+    result = ActionPhaseResult.failed(
+        phase="phase2",
+        stage=ActionPhaseResultStage.NORMALIZE,
+        model_feedback="No action call was produced.",
+        frame_data={"reason": "missing_action_call"},
+    )
+
+    model_payload = ActionFeedbackRenderer().render_phase_model_payload(result)
+    trace_payload = ActionFeedbackRenderer().render_phase_trace_payload(result)
+
+    assert model_payload["phase"] == "phase2"
+    assert model_payload["stage"] == "normalize"
+    assert trace_payload["frame_data"] == {"reason": "missing_action_call"}

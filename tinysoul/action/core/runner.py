@@ -11,8 +11,9 @@ from tinysoul.infra.json import JsonObject
 
 from .call import ActionBatch, ActionExecution
 from .catalog import ActionCatalog
+from .errors import ActionContractError
 from .executor import ActionExecutionContext, ExecutorRegistry
-from .hooks import ActionHookPipeline
+from .hooks import ActionExecutionHookPipeline
 from .result import ActionResult, ActionResultStage, ActionResultStatus
 from .specs import ActionParallelPolicy
 
@@ -56,15 +57,15 @@ class ActionBatchRunner:
         *,
         catalog: ActionCatalog,
         executors: ExecutorRegistry,
-        hooks: ActionHookPipeline | None = None,
+        hooks: ActionExecutionHookPipeline | None = None,
         planner: BatchConcurrencyPlanner | None = None,
         max_workers: int = 8,
     ) -> None:
         if max_workers <= 0:
-            raise ValueError("ActionBatchRunner.max_workers must be positive")
+            raise ActionContractError("ActionBatchRunner.max_workers must be positive")
         self._catalog = catalog
         self._executors = executors
-        self._hooks = hooks or ActionHookPipeline()
+        self._hooks = hooks or ActionExecutionHookPipeline()
         self._planner = planner or BatchConcurrencyPlanner()
         self._max_workers = max_workers
 

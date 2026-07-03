@@ -6,7 +6,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ToolResultMessage
 from tinysoul.llm.tools import ToolResultStatus
 
-from .result import ActionResult, ActionResultStatus
+from .result import ActionPhaseResult, ActionResult, ActionResultStatus
 
 
 class ActionFeedbackRenderer:
@@ -48,6 +48,39 @@ class ActionFeedbackRenderer:
             value["frame_data"] = result.frame_data
         return value
 
+    def render_phase_model_payload(self, result: ActionPhaseResult) -> JsonObject:
+        """Render the model-visible projection of one action phase result."""
+
+        value: JsonObject = {
+            "phase": result.phase,
+            "status": result.status.value,
+            "stage": result.stage.value,
+        }
+        if result.model_feedback:
+            value["feedback"] = result.model_feedback
+        if result.payload:
+            value["payload"] = result.payload
+        return value
+
+    def render_phase_trace_payload(self, result: ActionPhaseResult) -> JsonObject:
+        """Render the trace/log projection of one action phase result."""
+
+        value: JsonObject = {
+            "result_id": result.result_id,
+            "phase": result.phase,
+            "status": result.status.value,
+            "stage": result.stage.value,
+            "turn_id": result.turn_id,
+            "cycle_id": result.cycle_id,
+        }
+        if result.model_feedback:
+            value["feedback"] = result.model_feedback
+        if result.payload:
+            value["payload"] = result.payload
+        if result.frame_data:
+            value["frame_data"] = result.frame_data
+        return value
+
     def to_tool_result_message(self, result: ActionResult) -> ToolResultMessage:
         """Render one action result as a model-side tool result replay message."""
 
@@ -79,3 +112,9 @@ class ActionFeedbackRenderer:
         """Render action results as model-side tool result replay messages."""
 
         return tuple(self.to_tool_result_message(result) for result in results)
+
+    def render_phase_many(
+        self,
+        results: tuple[ActionPhaseResult, ...],
+    ) -> tuple[JsonObject, ...]:
+        return tuple(self.render_phase_model_payload(result) for result in results)

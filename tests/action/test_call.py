@@ -12,10 +12,17 @@ from tinysoul.action.core.call import (
     ActionExecutionBuilder,
     ActionFramework,
 )
+from tinysoul.action.core.errors import ActionInvariantError
+from tinysoul.action.core.hooks import ActionNormalizeHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
+
+
+class RejectNormalizeHook:
+    def check(self, item, context) -> HookOutcome:
+        return HookOutcome.failed("Rejected during normalize")
 
 
 def test_normalize_tool_calls_to_action_calls() -> None:
@@ -109,6 +116,29 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
     assert normalization.results[0].frame_data["reason"] == "duplicate_call_id"
 
 
+def test_normalizer_runs_configured_normalize_hook() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    hooks = ActionNormalizeHookPipeline()
+    hooks.registry.register_normalize_hook("reject", RejectNormalizeHook())
+    hooks.registry.register_global_normalize("reject")
+
+    normalization = ActionCallNormalizer(hooks=hooks).normalize(
+        (
+            ToolCallRecord(
+                id="call_1",
+                name="core.answer",
+                arguments={"text": "done"},
+                kind=ToolKind.ACTION,
+            ),
+        ),
+        catalog=catalog,
+    )
+
+    assert normalization.calls == ()
+    assert normalization.results[0].stage is ActionResultStage.NORMALIZE
+    assert normalization.results[0].model_feedback == "Rejected during normalize"
+
+
 def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
 
@@ -181,20 +211,56 @@ def test_build_execution_batch_from_calls() -> None:
         catalog=catalog,
     )
 
-    batch = ActionExecutionBuilder().build_batch(
+    preparation = ActionExecutionBuilder().prepare_batch(
         normalization.calls,
         catalog=catalog,
         scope=RunScope(),
         batch_id="batch_1",
     )
 
+    assert preparation.results == ()
+    assert preparation.phase_results == ()
+    batch = preparation.batch
     assert batch.batch_id == "batch_1"
     assert batch.executions[0].framework.domain == "workspace"
     assert batch.executions[0].framework.timeout_seconds == 30.0
 
 
+def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
+    preparation = ActionExecutionBuilder().prepare_batch(
+        (
+            ActionCall("call_1", "core.answer", {}, 1),
+            ActionCall("call_1", "workspace.scan", {}, 2),
+        ),
+        catalog=ActionCatalogLoader().load(Path("tinysoul/action/builtin")),
+        scope=RunScope(),
+        batch_id="batch_1",
+    )
+
+    assert [execution.call.call_id for execution in preparation.batch.executions] == [
+        "call_1"
+    ]
+    assert preparation.results[0].stage is ActionResultStage.PREPARE
+    assert preparation.results[0].frame_data["reason"] == "duplicate_call_id"
+
+
+def test_prepare_batch_returns_result_for_unknown_action() -> None:
+    preparation = ActionExecutionBuilder().prepare_batch(
+        (
+            ActionCall("call_1", "missing.action", {}, 1),
+        ),
+        catalog=ActionCatalogLoader().load(Path("tinysoul/action/builtin")),
+        scope=RunScope(),
+        batch_id="batch_1",
+    )
+
+    assert preparation.batch.executions == ()
+    assert preparation.results[0].stage is ActionResultStage.PREPARE
+    assert preparation.results[0].frame_data["reason"] == "unknown_action"
+
+
 def test_action_batch_rejects_duplicate_call_id() -> None:
-    with pytest.raises(ValueError, match="Duplicate action call id"):
+    with pytest.raises(ActionInvariantError, match="Duplicate action call id"):
         ActionBatch(
             batch_id="batch_1",
             executions=(
@@ -221,7 +287,7 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
 
 
 def test_action_batch_rejects_duplicate_sequence() -> None:
-    with pytest.raises(ValueError, match="Duplicate action sequence"):
+    with pytest.raises(ActionInvariantError, match="Duplicate action sequence"):
         ActionBatch(
             batch_id="batch_1",
             executions=(

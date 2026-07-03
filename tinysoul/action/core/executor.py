@@ -9,6 +9,7 @@ from tinysoul.runtime import SignalBus
 
 from .call import ActionExecution
 from .catalog import ActionCatalog
+from .errors import ActionContractError
 from .result import ActionResult
 
 
@@ -40,9 +41,9 @@ class ExecutorRegistry:
 
     def register(self, handler: str, executor: ActionExecutor) -> None:
         if not handler:
-            raise ValueError("handler must be non-empty")
+            raise ActionContractError("handler must be non-empty")
         if handler in self._executors:
-            raise ValueError(f"Action executor already registered: {handler}")
+            raise ActionContractError(f"Action executor already registered: {handler}")
         self._executors[handler] = executor
 
     def get(self, handler: str) -> ActionExecutor:
@@ -65,7 +66,7 @@ class ExecutorRegistry:
     def validate_catalog(self, catalog: ActionCatalog) -> None:
         missing = self.missing_handlers_for(catalog)
         if missing:
-            raise ValueError(
+            raise ActionContractError(
                 "Action catalog references unregistered executors: "
                 + ", ".join(missing)
             )

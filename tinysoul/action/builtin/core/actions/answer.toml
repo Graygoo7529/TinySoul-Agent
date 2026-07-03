@@ -13,7 +13,10 @@ examples = ["Answer the user's direct question after gathering enough context"]
 
 [runtime]
 parallel_policy = "serial"
-hooks = []
+
+[runtime.hooks]
+normalize = []
+execute = []
 
 [backend]
 kind = "native"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinysoul.action.core.errors import ActionContractError, ActionInvariantError
 from tinysoul.action.failures import ActionFailureKind
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, to_json_value
@@ -54,6 +55,17 @@ class RuntimeActionBridge:
         if payload is not None:
             runtime_payload = {**runtime_payload, **payload}
         return self.from_failure(kind, message=str(error), payload=runtime_payload)
+
+    def from_action_error(
+        self,
+        error: Exception,
+        *,
+        payload: JsonObject | None = None,
+    ) -> RuntimeException:
+        kind = ActionFailureKind.INTERNAL_FAILURE
+        if isinstance(error, (ActionContractError, ActionInvariantError)):
+            kind = ActionFailureKind.CONTRACT_VIOLATION
+        return self.from_exception(kind, error, payload=payload)
 
     def startup_failure(
         self,

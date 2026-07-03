@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .errors import ActionInvariantError
+
 
 class ActionResultStatus(StrEnum):
     """Final status for one action execution."""
@@ -21,10 +23,27 @@ class ActionResultStage(StrEnum):
     """The stage where an action result was produced."""
 
     NORMALIZE = "normalize"
+    PREPARE = "prepare"
     HOOK = "hook"
     SCHEDULE = "schedule"
     EXECUTE = "execute"
     TIMEOUT = "timeout"
+
+
+class ActionPhaseResultStatus(StrEnum):
+    """Status for an action-module phase-level local result."""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ActionPhaseResultStage(StrEnum):
+    """The action-module phase stage where a phase-level result was produced."""
+
+    SCOPE = "scope"
+    NORMALIZE = "normalize"
+    PREPARE = "prepare"
+    RUN = "run"
 
 
 @dataclass(frozen=True)
@@ -46,17 +65,17 @@ class ActionResult:
 
     def __post_init__(self) -> None:
         if not self.result_id:
-            raise ValueError("ActionResult.result_id must be non-empty")
+            raise ActionInvariantError("ActionResult.result_id must be non-empty")
         if not self.call_id:
-            raise ValueError("ActionResult.call_id must be non-empty")
+            raise ActionInvariantError("ActionResult.call_id must be non-empty")
         if not self.action_name:
-            raise ValueError("ActionResult.action_name must be non-empty")
+            raise ActionInvariantError("ActionResult.action_name must be non-empty")
         if not isinstance(self.status, ActionResultStatus):
-            raise TypeError("ActionResult.status must be an ActionResultStatus")
+            raise ActionInvariantError("ActionResult.status must be an ActionResultStatus")
         if not isinstance(self.stage, ActionResultStage):
-            raise TypeError("ActionResult.stage must be an ActionResultStage")
+            raise ActionInvariantError("ActionResult.stage must be an ActionResultStage")
         if self.sequence <= 0:
-            raise ValueError("ActionResult.sequence must be positive")
+            raise ActionInvariantError("ActionResult.sequence must be positive")
         object.__setattr__(self, "payload", to_json_object(self.payload))
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
@@ -151,3 +170,86 @@ class ActionResult:
 
 def _result_id() -> str:
     return f"action_result_{uuid4().hex[:8]}"
+
+
+@dataclass(frozen=True)
+class ActionPhaseResult:
+    """A structured local result for an action-module phase issue."""
+
+    result_id: str
+    phase: str
+    status: ActionPhaseResultStatus
+    stage: ActionPhaseResultStage
+    payload: JsonObject = field(default_factory=dict)
+    model_feedback: str = ""
+    frame_data: JsonObject = field(default_factory=dict)
+    turn_id: str = ""
+    cycle_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.result_id:
+            raise ActionInvariantError("ActionPhaseResult.result_id must be non-empty")
+        if not self.phase:
+            raise ActionInvariantError("ActionPhaseResult.phase must be non-empty")
+        if not isinstance(self.status, ActionPhaseResultStatus):
+            raise ActionInvariantError(
+                "ActionPhaseResult.status must be an ActionPhaseResultStatus"
+            )
+        if not isinstance(self.stage, ActionPhaseResultStage):
+            raise ActionInvariantError(
+                "ActionPhaseResult.stage must be an ActionPhaseResultStage"
+            )
+        object.__setattr__(self, "payload", to_json_object(self.payload))
+        object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
+
+    @classmethod
+    def success(
+        cls,
+        *,
+        phase: str,
+        stage: ActionPhaseResultStage,
+        payload: JsonObject | None = None,
+        model_feedback: str = "",
+        frame_data: JsonObject | None = None,
+        turn_id: str = "",
+        cycle_id: str = "",
+    ) -> "ActionPhaseResult":
+        return cls(
+            result_id=_phase_result_id(),
+            phase=phase,
+            status=ActionPhaseResultStatus.SUCCESS,
+            stage=stage,
+            payload=payload or {},
+            model_feedback=model_feedback,
+            frame_data=frame_data or {},
+            turn_id=turn_id,
+            cycle_id=cycle_id,
+        )
+
+    @classmethod
+    def failed(
+        cls,
+        *,
+        phase: str,
+        stage: ActionPhaseResultStage,
+        model_feedback: str,
+        payload: JsonObject | None = None,
+        frame_data: JsonObject | None = None,
+        turn_id: str = "",
+        cycle_id: str = "",
+    ) -> "ActionPhaseResult":
+        return cls(
+            result_id=_phase_result_id(),
+            phase=phase,
+            status=ActionPhaseResultStatus.FAILED,
+            stage=stage,
+            payload=payload or {},
+            model_feedback=model_feedback,
+            frame_data=frame_data or {},
+            turn_id=turn_id,
+            cycle_id=cycle_id,
+        )
+
+
+def _phase_result_id() -> str:
+    return f"action_phase_result_{uuid4().hex[:8]}"

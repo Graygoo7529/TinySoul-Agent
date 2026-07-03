@@ -6,8 +6,7 @@ import pytest
 
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import ActionSchemaDefinitionError
-from tinysoul.action.core.specs import ActionToolSpec
-from tinysoul.action.core.specs import ActionParallelPolicy
+from tinysoul.action.core.specs import ActionParallelPolicy, ActionToolSpec
 from tinysoul.infra.config import ConfigError
 
 
@@ -44,7 +43,14 @@ def test_missing_catalog_root_raises_config_error() -> None:
 def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:
     parser = ActionTomlParser()
     default_runtime = parser.parse_runtime(
-        {"timeout_seconds": 30, "parallel_policy": "serial", "hooks": ["domain"]},
+        {
+            "timeout_seconds": 30,
+            "parallel_policy": "serial",
+            "hooks": {
+                "normalize": ["domain_normalize"],
+                "execute": ["domain_execute"],
+            },
+        },
         key="domain.runtime",
     )
 
@@ -61,7 +67,12 @@ def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:
                     "additionalProperties": False,
                 },
             },
-            "runtime": {"hooks": ["action"]},
+            "runtime": {
+                "hooks": {
+                    "normalize": ["action_normalize"],
+                    "execute": ["action_execute"],
+                }
+            },
             "backend": {"kind": "native", "handler": "x.action"},
         },
         source="x/action.toml",
@@ -70,7 +81,14 @@ def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:
 
     assert action.runtime.timeout_seconds == 30.0
     assert action.runtime.parallel_policy is ActionParallelPolicy.SERIAL
-    assert action.runtime.hooks == ("domain", "action")
+    assert action.runtime.hooks.normalize_hooks == (
+        "domain_normalize",
+        "action_normalize",
+    )
+    assert action.runtime.hooks.execution_hooks == (
+        "domain_execute",
+        "action_execute",
+    )
 
 
 def test_invalid_runtime_enum_raises_config_error() -> None:

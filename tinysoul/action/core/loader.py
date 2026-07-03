@@ -18,6 +18,7 @@ from .specs import (
     ActionBackendSpec,
     ActionDomainSpec,
     ActionEnvironmentEffect,
+    ActionHookSpec,
     ActionParallelPolicy,
     ActionRuntimeSpec,
     ActionSemanticSpec,
@@ -184,8 +185,9 @@ class ActionTomlParser:
             if base is not None
             else ActionParallelPolicy.ALLOWED.value
         )
-        base_hooks = base.hooks if base is not None else ()
+        base_hooks = base.hooks if base is not None else ActionHookSpec()
         base_requires = base.requires if base is not None else ()
+        hook_table = _optional_table(table, "hooks", key=key)
         return ActionRuntimeSpec(
             timeout_seconds=timeout_seconds,
             parallel_policy=_enum_value(
@@ -198,7 +200,16 @@ class ActionTomlParser:
                 ),
                 key=f"{key}.parallel_policy",
             ),
-            hooks=(*base_hooks, *_optional_str_list(table, "hooks", key=key)),
+            hooks=ActionHookSpec(
+                normalize_hooks=(
+                    *base_hooks.normalize_hooks,
+                    *_optional_str_list(hook_table, "normalize", key=f"{key}.hooks"),
+                ),
+                execution_hooks=(
+                    *base_hooks.execution_hooks,
+                    *_optional_str_list(hook_table, "execute", key=f"{key}.hooks"),
+                ),
+            ),
             requires=(
                 *base_requires,
                 *_optional_str_list(table, "requires", key=key),

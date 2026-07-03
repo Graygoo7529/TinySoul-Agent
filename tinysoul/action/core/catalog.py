@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .errors import ActionInvariantError
 from .specs import ActionDomainSpec, ActionSpec
 
 
@@ -73,14 +74,14 @@ class ActionCatalog:
 
     def _register_domain(self, domain: ActionDomainSpec) -> None:
         if domain.name in self._domains:
-            raise ValueError(f"Duplicate action domain: {domain.name}")
+            raise ActionInvariantError(f"Duplicate action domain: {domain.name}")
         self._domains[domain.name] = domain
 
     def _register_action(self, action: ActionSpec) -> None:
         if action.name in self._actions:
-            raise ValueError(f"Duplicate action: {action.name}")
+            raise ActionInvariantError(f"Duplicate action: {action.name}")
         if action.domain not in self._domains:
-            raise ValueError(
+            raise ActionInvariantError(
                 f"Action '{action.name}' references unknown domain: {action.domain}"
             )
         self._actions[action.name] = action
