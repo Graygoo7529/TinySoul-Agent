@@ -26,7 +26,11 @@ class NativeFunctionExecutor:
     ) -> ActionResult:
         payload = to_json_object(self._function(execution, context))
         return ActionResult.success(
+            call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
             action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
             payload=payload,
         )

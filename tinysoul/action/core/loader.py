@@ -12,6 +12,7 @@ from tinysoul.infra.config.toml_file import ConfigFileToml
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .catalog import ActionCatalog
+from .schema import check_action_schema
 from .specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -141,10 +142,12 @@ class ActionTomlParser:
         key: str,
     ) -> ActionToolSpec:
         schema = _required_table(table, "schema", key=key)
+        schema_object = to_json_object(schema)
+        check_action_schema(schema_object, key=f"{key}.schema")
         return ActionToolSpec(
             name=action_name,
             description=_required_str(table, "description", key=key),
-            schema=to_json_object(schema),
+            schema=schema_object,
         )
 
     def parse_semantic(

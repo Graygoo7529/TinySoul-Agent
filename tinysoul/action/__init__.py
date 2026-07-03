@@ -1,6 +1,12 @@
 """TinySoul action module."""
 
-from .core.call import ActionBatch, ActionCall, ActionExecution, ActionFramework
+from .core.call import (
+    ActionBatch,
+    ActionCall,
+    ActionExecution,
+    ActionFramework,
+    ActionNormalization,
+)
 from .core.catalog import ActionCatalog
 from .core.result import ActionResult, ActionResultStage, ActionResultStatus
 from .core.scope import ActionDomainPromptRenderer
@@ -27,6 +33,7 @@ __all__ = [
     "ActionEnvironmentEffect",
     "ActionExecution",
     "ActionFramework",
+    "ActionNormalization",
     "ActionParallelPolicy",
     "ActionResult",
     "ActionResultStage",

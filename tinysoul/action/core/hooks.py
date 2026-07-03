@@ -126,12 +126,49 @@ class ActionHookPipeline:
             runtime_hooks=action.runtime.hooks,
         )
         for name in names:
-            outcome = self._registry.hook_for(name).check(execution, context)
-            if not outcome.ok:
+            try:
+                hook = self._registry.hook_for(name)
+            except Exception as exc:
                 return ActionResult.failed(
+                    call_id=execution.call.call_id,
                     invoke_id=execution.framework.invoke_id,
+                    batch_id=execution.framework.batch_id,
                     action_name=execution.call.action_name,
                     stage=ActionResultStage.HOOK,
+                    sequence=execution.call.sequence,
+                    domain=execution.framework.domain,
+                    model_feedback=f"Action hook is not available: {name}",
+                    frame_data={
+                        "hook": name,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            try:
+                outcome = hook.check(execution, context)
+            except Exception as exc:
+                return ActionResult.failed(
+                    call_id=execution.call.call_id,
+                    invoke_id=execution.framework.invoke_id,
+                    batch_id=execution.framework.batch_id,
+                    action_name=execution.call.action_name,
+                    stage=ActionResultStage.HOOK,
+                    sequence=execution.call.sequence,
+                    domain=execution.framework.domain,
+                    model_feedback=f"Action hook failed: {name}",
+                    frame_data={
+                        "hook": name,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            if not outcome.ok:
+                return ActionResult.failed(
+                    call_id=execution.call.call_id,
+                    invoke_id=execution.framework.invoke_id,
+                    batch_id=execution.framework.batch_id,
+                    action_name=execution.call.action_name,
+                    stage=ActionResultStage.HOOK,
+                    sequence=execution.call.sequence,
+                    domain=execution.framework.domain,
                     model_feedback=outcome.model_feedback
                     or f"Action hook failed: {name}",
                     frame_data={"hook": name, **outcome.frame_data},

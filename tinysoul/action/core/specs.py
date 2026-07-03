@@ -21,7 +21,6 @@ class ActionParallelPolicy(StrEnum):
 
     ALLOWED = "allowed"
     SERIAL = "serial"
-    EXCLUSIVE = "exclusive"
 
 
 class ActionBackendKind(StrEnum):

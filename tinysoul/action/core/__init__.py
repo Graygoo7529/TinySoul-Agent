@@ -1,6 +1,12 @@
 """Core action framework primitives."""
 
-from .call import ActionBatch, ActionCall, ActionExecution, ActionFramework
+from .call import (
+    ActionBatch,
+    ActionCall,
+    ActionExecution,
+    ActionFramework,
+    ActionNormalization,
+)
 from .catalog import ActionCatalog
 from .result import ActionResult, ActionResultStage, ActionResultStatus
 from .scope import ActionDomainPromptRenderer
@@ -27,6 +33,7 @@ __all__ = [
     "ActionEnvironmentEffect",
     "ActionExecution",
     "ActionFramework",
+    "ActionNormalization",
     "ActionParallelPolicy",
     "ActionResult",
     "ActionResultStage",

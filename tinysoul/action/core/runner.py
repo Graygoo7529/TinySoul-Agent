@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import monotonic
+
+from tinysoul.infra.json import JsonObject
 
 from .call import ActionBatch, ActionExecution
 from .catalog import ActionCatalog
 from .executor import ActionExecutionContext, ExecutorRegistry
 from .hooks import ActionHookPipeline
-from .result import ActionResult, ActionResultStage
+from .result import ActionResult, ActionResultStage, ActionResultStatus
 from .specs import ActionParallelPolicy
 
 
@@ -72,7 +74,7 @@ class ActionBatchRunner:
         results: list[ActionResult] = []
         groups = self._planner.plan(batch, catalog=self._catalog)
         for index, group in enumerate(groups):
-            group_run = self._run_group(group, context)
+            group_run = self._run_group(self._schedule_group(group), context)
             results.extend(group_run.results)
             if group_run.leaked_timeout_invoke_id is not None:
                 for remaining_group in groups[index + 1 :]:
@@ -83,11 +85,7 @@ class ActionBatchRunner:
                         )
                     )
                 break
-        order = {
-            execution.framework.invoke_id: index
-            for index, execution in enumerate(batch.executions)
-        }
-        return tuple(sorted(results, key=lambda result: order[result.invoke_id]))
+        return tuple(sorted(results, key=lambda result: result.sequence))
 
     def _run_group(
         self,
@@ -122,8 +120,12 @@ class ActionBatchRunner:
                         executor_leaked = not future.cancelled()
                         results.append(
                             ActionResult.timeout(
+                                call_id=execution.call.call_id,
                                 invoke_id=execution.framework.invoke_id,
+                                batch_id=execution.framework.batch_id,
                                 action_name=execution.call.action_name,
+                                sequence=execution.call.sequence,
+                                domain=execution.framework.domain,
                                 model_feedback="Action timed out during execution.",
                                 frame_data={
                                     "executor_leaked": executor_leaked,
@@ -136,7 +138,17 @@ class ActionBatchRunner:
                     pending -= expired
                     continue
                 for future in done:
-                    results.append(future.result())
+                    execution = futures[future]
+                    try:
+                        results.append(future.result())
+                    except Exception as exc:
+                        results.append(
+                            self._internal_failure(
+                                execution,
+                                model_feedback=f"Action runner failed: {exc}",
+                                frame_data={"error_type": type(exc).__name__},
+                            )
+                        )
         finally:
             pool.shutdown(wait=wait_for_workers, cancel_futures=True)
         return _GroupRun(
@@ -152,9 +164,13 @@ class ActionBatchRunner:
     ) -> tuple[ActionResult, ...]:
         return tuple(
             ActionResult.failed(
+                call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
                 action_name=execution.call.action_name,
-                stage=ActionResultStage.EXECUTE,
+                stage=ActionResultStage.SCHEDULE,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
                 model_feedback=(
                     "Action was not started because a previous action timed out "
                     "and may still be running."
@@ -165,6 +181,20 @@ class ActionBatchRunner:
                 },
             )
             for execution in group
+        )
+
+    def _schedule_group(
+        self,
+        group: tuple[ActionExecution, ...],
+    ) -> tuple[ActionExecution, ...]:
+        return tuple(self._schedule_execution(execution) for execution in group)
+
+    def _schedule_execution(self, execution: ActionExecution) -> ActionExecution:
+        timeout = execution.framework.timeout_seconds
+        deadline = monotonic() + timeout if timeout is not None else None
+        return replace(
+            execution,
+            framework=replace(execution.framework, deadline=deadline),
         )
 
     def _remaining_timeout(self, executions: Iterable[ActionExecution]) -> float | None:
@@ -184,8 +214,12 @@ class ActionBatchRunner:
     ) -> ActionResult:
         if execution.framework.is_expired():
             return ActionResult.timeout(
+                call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
                 action_name=execution.call.action_name,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
                 model_feedback="Action timed out before execution started.",
             )
         hook_result = self._hooks.run(
@@ -197,8 +231,12 @@ class ActionBatchRunner:
             return hook_result
         if execution.framework.is_expired():
             return ActionResult.timeout(
+                call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
                 action_name=execution.call.action_name,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
                 model_feedback="Action timed out after hook checks.",
             )
         try:
@@ -207,16 +245,43 @@ class ActionBatchRunner:
             result = executor.execute(execution, context)
         except Exception as exc:
             return ActionResult.failed(
+                call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
                 action_name=execution.call.action_name,
                 stage=ActionResultStage.EXECUTE,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
                 model_feedback=f"Action execution failed: {exc}",
                 frame_data={"error_type": type(exc).__name__},
             )
-        if execution.framework.is_expired() and result.status.value == "success":
+        if execution.framework.is_expired() and result.status is ActionResultStatus.SUCCESS:
             return ActionResult.timeout(
+                call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
                 action_name=execution.call.action_name,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
                 model_feedback="Action timed out before result collection.",
             )
         return result
+
+    def _internal_failure(
+        self,
+        execution: ActionExecution,
+        *,
+        model_feedback: str,
+        frame_data: JsonObject,
+    ) -> ActionResult:
+        return ActionResult.failed(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            stage=ActionResultStage.EXECUTE,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            model_feedback=model_feedback,
+            frame_data=frame_data,
+        )

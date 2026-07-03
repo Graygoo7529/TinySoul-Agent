@@ -81,3 +81,33 @@ def test_invalid_runtime_enum_raises_config_error() -> None:
         )
 
     assert error.value.key == "domain.runtime.parallel_policy"
+
+
+def test_unsupported_action_schema_keyword_raises_config_error() -> None:
+    parser = ActionTomlParser()
+
+    with pytest.raises(ConfigError) as error:
+        parser.parse_action(
+            {
+                "name": "x.action",
+                "domain": "x",
+                "tool": {
+                    "description": "Do x.",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "pattern": "^workspace:",
+                            }
+                        },
+                        "required": ["path"],
+                        "additionalProperties": False,
+                    },
+                },
+                "backend": {"kind": "native", "handler": "x.action"},
+            },
+            source="x/action.toml",
+        )
+
+    assert error.value.key == "x/action.toml.tool.schema.properties.path.pattern"

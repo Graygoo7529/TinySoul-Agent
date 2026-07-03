@@ -9,7 +9,7 @@ from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
 from tinysoul.action.core.hooks import ActionHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.action.core.result import ActionResultStatus
+from tinysoul.action.core.result import ActionResultStage, ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
@@ -31,9 +31,14 @@ class RejectHook:
         return HookOutcome.failed("Rejected by test hook")
 
 
+class ExplodingHook:
+    def check(self, execution, context) -> HookOutcome:
+        raise RuntimeError("boom")
+
+
 def _batch_for(action_name: str, arguments: JsonObject):
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
-    calls = ActionCallNormalizer().normalize(
+    normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
                 id="call_1",
@@ -45,7 +50,7 @@ def _batch_for(action_name: str, arguments: JsonObject):
         catalog=catalog,
     )
     batch = ActionExecutionBuilder().build_batch(
-        calls,
+        normalization.calls,
         catalog=catalog,
         scope=RunScope(),
         batch_id="batch_1",
@@ -68,6 +73,7 @@ def test_runner_returns_action_result_from_executor() -> None:
 
     assert len(results) == 1
     assert results[0].status is ActionResultStatus.SUCCESS
+    assert results[0].call_id == "call_1"
     assert results[0].payload == {"ok": True}
 
 
@@ -90,6 +96,49 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].model_feedback == "Rejected by test hook"
+
+
+def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
+    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+    hooks = ActionHookPipeline()
+    hooks.registry.register_global("missing")
+
+    results = ActionBatchRunner(
+        catalog=catalog,
+        executors=executors,
+        hooks=hooks,
+    ).run(batch, ActionExecutionContext())
+
+    assert results[0].status is ActionResultStatus.FAILED
+    assert results[0].stage is ActionResultStage.HOOK
+    assert results[0].frame_data["hook"] == "missing"
+
+
+def test_runner_returns_failed_result_when_hook_raises() -> None:
+    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+    hooks = ActionHookPipeline()
+    hooks.registry.register_hook("explode", ExplodingHook())
+    hooks.registry.register_global("explode")
+
+    results = ActionBatchRunner(
+        catalog=catalog,
+        executors=executors,
+        hooks=hooks,
+    ).run(batch, ActionExecutionContext())
+
+    assert results[0].status is ActionResultStatus.FAILED
+    assert results[0].stage is ActionResultStage.HOOK
+    assert results[0].frame_data["error_type"] == "RuntimeError"
 
 
 def test_runner_returns_timeout_for_blocked_execution() -> None:
@@ -126,7 +175,7 @@ def test_runner_returns_timeout_for_blocked_execution() -> None:
             ),
         ),
     )
-    calls = ActionCallNormalizer().normalize(
+    normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
                 id="call_1",
@@ -138,7 +187,7 @@ def test_runner_returns_timeout_for_blocked_execution() -> None:
         catalog=catalog,
     )
     batch = ActionExecutionBuilder().build_batch(
-        calls,
+        normalization.calls,
         catalog=catalog,
         scope=RunScope(),
         batch_id="batch_1",
@@ -213,7 +262,7 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
             ),
         ),
     )
-    calls = ActionCallNormalizer().normalize(
+    normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
                 id="call_1",
@@ -231,7 +280,7 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
         catalog=catalog,
     )
     batch = ActionExecutionBuilder().build_batch(
-        calls,
+        normalization.calls,
         catalog=catalog,
         scope=RunScope(),
         batch_id="batch_1",

@@ -122,7 +122,7 @@ Phase2 直接可见字段：
 - `hooks`
 - `requires`
 
-`parallel_policy` 用于表示该动作是否可与同批次其他动作并发执行，或是否需要串行/独占。
+`parallel_policy` 用于表示该动作是否可与同批次其他动作并发执行，或是否需要串行执行。当前只保留 `allowed` 和 `serial`，不保留额外 `exclusive` 语义。
 
 `hooks` 是 hook 名称列表，动作可以复用全局 hook，也可以追加自己的专用 hook。
 
@@ -158,9 +158,11 @@ Phase2 直接可见字段：
 - `domain`
 - `deadline`
 - `timeout_seconds`
-- `tool_call_id`
+- `call_id`
 
 模型生成参数只保留 action schema 对应的业务参数。
+
+`call_id` 使用 TinySoul 归一化后的模型侧 tool call id。它是后续渲染 `ToolResultMessage` 的相关性字段；执行期另有 `invoke_id`，用于框架内部观测。
 
 ### Hook
 
@@ -175,6 +177,8 @@ hook 顺序建议为：
 hook 只做输入检查、上下文约束和可执行性裁剪，不执行真实动作。
 
 hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。
+
+未知 hook、hook 自身抛出的异常、hook 返回拒绝都应收敛为 `ActionResult(status=failed, stage=hook)`。
 
 ### 批次执行
 
@@ -193,6 +197,8 @@ Batch 只是执行编排容器，runner 的核心输出是 `ActionResult` 序列
 
 批次内允许部分成功，但不需要额外定义 batch result。
 
+Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局部 `ActionResult(status=failed, stage=normalize)`。因此一个 action tool call 在 Action 模块内总是对应一个局部结果：normalize failed、hook failed、schedule failed、execute failed、timeout 或 success。
+
 ### 输出
 
 Action result 需要同时表达三类信息：
@@ -203,13 +209,51 @@ Action result 需要同时表达三类信息：
 
 结果中应保留：
 
+- `result_id`
+- `call_id`
 - 成功/失败/超时
 - 所处阶段
+- 原始 call 顺序 `sequence`
+- 可选的 `invoke_id` / `batch_id` / `domain`
 - 结构化 payload
 - model feedback
 - frame data
 
 大块文件内容、长文本和非结构化资源不直接塞回结果，改用资源句柄或摘要。
+
+`ActionResult` 是 Action 局部事实记录，不等同于 LLM message。`ActionFeedbackRenderer` 负责把它渲染为：
+
+1. 给模型看的 compact JSON payload。
+2. 给 trace/log 使用的完整 JSON payload。
+3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
+
+Context 模块决定这些渲染结果如何进入 TurnTraceContext 或 Interaction Context；Action 模块不直接维护 MessageStack。
+
+## Action Schema
+
+Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML 时必须检查 schema 自身，运行时再校验模型生成参数。
+
+当前支持的 keyword：
+
+- `type`
+- `description`
+- `properties`
+- `required`
+- `additionalProperties`
+- `items`
+- `enum`
+
+当前支持的 type：
+
+- `object`
+- `array`
+- `string`
+- `number`
+- `integer`
+- `boolean`
+- `null`
+
+不支持的 keyword 必须在加载期抛出配置错误，避免 action TOML 写了 schema 但运行时静默忽略。
 
 ## LLM 调用原则
 
@@ -347,13 +391,14 @@ class Phase2ActionScopeBuilder: ...
 
 ```python
 class ActionCall: ...
+class ActionNormalization: ...
 class ActionExecution: ...
 class ActionBatch: ...
 ```
 
 公开方法建议：
 
-- `ActionCallNormalizer.normalize(tool_calls, catalog) -> tuple[ActionCall, ...]`
+- `ActionCallNormalizer.normalize(tool_calls, catalog) -> ActionNormalization`
 - `ActionExecutionBuilder.build_batch(calls, catalog, scope, ...) -> ActionBatch`
 
 ### 6. `tinysoul/action/core/hooks.py`

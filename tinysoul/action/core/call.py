@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from time import monotonic
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
 from .catalog import ActionCatalog
+from .result import ActionResult, ActionResultStage
+from .schema import ActionSchemaValidationError, validate_action_params
 
 
 @dataclass(frozen=True)
@@ -21,13 +22,14 @@ class ActionCall:
     call_id: str
     action_name: str
     params: JsonObject
-    tool_call_id: str
+    sequence: int
     intent: str = ""
 
     def __post_init__(self) -> None:
         _require_non_empty(self.call_id, "ActionCall.call_id")
         _require_non_empty(self.action_name, "ActionCall.action_name")
-        _require_non_empty(self.tool_call_id, "ActionCall.tool_call_id")
+        if self.sequence <= 0:
+            raise ValueError("ActionCall.sequence must be positive")
         object.__setattr__(self, "params", to_json_object(self.params))
 
 
@@ -72,13 +74,33 @@ class ActionBatch:
 
     batch_id: str
     executions: tuple[ActionExecution, ...] = field(default_factory=tuple)
-    deadline: float | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.batch_id, "ActionBatch.batch_id")
         for execution in self.executions:
             if execution.framework.batch_id != self.batch_id:
                 raise ValueError("ActionExecution.framework.batch_id must match ActionBatch.batch_id")
+
+
+@dataclass(frozen=True)
+class ActionNormalization:
+    """Normalized Phase2 action calls plus local normalization failures."""
+
+    calls: tuple[ActionCall, ...] = field(default_factory=tuple)
+    results: tuple[ActionResult, ...] = field(default_factory=tuple)
+
+    def merged_results(
+        self,
+        execution_results: tuple[ActionResult, ...],
+    ) -> tuple[ActionResult, ...]:
+        """Return normalization and execution results in original call order."""
+
+        return tuple(
+            sorted(
+                (*self.results, *execution_results),
+                key=lambda result: result.sequence,
+            )
+        )
 
 
 class ActionCallNormalizer:
@@ -89,26 +111,58 @@ class ActionCallNormalizer:
         tool_calls: tuple[ToolCallRecord, ...],
         *,
         catalog: ActionCatalog,
-    ) -> tuple[ActionCall, ...]:
+    ) -> ActionNormalization:
         calls: list[ActionCall] = []
+        results: list[ActionResult] = []
         for index, tool_call in enumerate(tool_calls):
+            sequence = index + 1
             if tool_call.kind is not ToolKind.ACTION:
-                raise ValueError(
-                    f"Expected ACTION tool call for action normalization: {tool_call.name}"
+                results.append(
+                    _normalize_failure(
+                        tool_call,
+                        sequence=sequence,
+                        model_feedback=(
+                            "Expected an action tool call, but received a control or "
+                            "uncategorized tool call."
+                        ),
+                        frame_data={"tool_kind": tool_call.kind.value if tool_call.kind else None},
+                    )
                 )
+                continue
             if not catalog.has_action(tool_call.name):
-                raise ValueError(f"Unknown action tool call: {tool_call.name}")
+                results.append(
+                    _normalize_failure(
+                        tool_call,
+                        sequence=sequence,
+                        model_feedback=f"Unknown action tool call: {tool_call.name}",
+                    )
+                )
+                continue
             action = catalog.get_action(tool_call.name)
-            _validate_params(tool_call.arguments, schema=action.tool.schema)
+            try:
+                validate_action_params(tool_call.arguments, schema=action.tool.schema)
+            except ActionSchemaValidationError as exc:
+                results.append(
+                    _normalize_failure(
+                        tool_call,
+                        sequence=sequence,
+                        model_feedback=str(exc),
+                        frame_data={"error_type": type(exc).__name__},
+                    )
+                )
+                continue
             calls.append(
                 ActionCall(
-                    call_id=f"action_call_{index + 1}_{uuid4().hex[:8]}",
+                    call_id=tool_call.id,
                     action_name=tool_call.name,
                     params=tool_call.arguments,
-                    tool_call_id=tool_call.id,
+                    sequence=sequence,
                 )
             )
-        return tuple(calls)
+        return ActionNormalization(
+            calls=tuple(calls),
+            results=tuple(results),
+        )
 
 
 class ActionExecutionBuilder:
@@ -127,13 +181,9 @@ class ActionExecutionBuilder:
     ) -> ActionBatch:
         resolved_batch_id = batch_id or f"action_batch_{uuid4().hex[:8]}"
         executions: list[ActionExecution] = []
-        deadlines: list[float] = []
         for call in calls:
             action = catalog.get_action(call.action_name)
             timeout = action.runtime.timeout_seconds
-            deadline = monotonic() + timeout if timeout is not None else None
-            if deadline is not None:
-                deadlines.append(deadline)
             executions.append(
                 ActionExecution(
                     call=call,
@@ -142,7 +192,6 @@ class ActionExecutionBuilder:
                         batch_id=resolved_batch_id,
                         scope=scope,
                         domain=action.domain,
-                        deadline=deadline,
                         timeout_seconds=timeout,
                         turn_id=turn_id,
                         cycle_id=cycle_id,
@@ -150,11 +199,9 @@ class ActionExecutionBuilder:
                     ),
                 )
             )
-        batch_deadline = min(deadlines) if deadlines else None
         return ActionBatch(
             batch_id=resolved_batch_id,
             executions=tuple(executions),
-            deadline=batch_deadline,
         )
 
 
@@ -163,61 +210,18 @@ def _require_non_empty(value: str, field: str) -> None:
         raise ValueError(f"{field} must be non-empty")
 
 
-def _validate_params(params: JsonObject, *, schema: JsonObject) -> None:
-    schema_type = schema.get("type")
-    if schema_type is not None and schema_type != "object":
-        raise ValueError("Action tool schema root type must be object")
-
-    required = schema.get("required", [])
-    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
-        raise ValueError("Action tool schema required must be a list of strings")
-    for name in required:
-        if name not in params:
-            raise ValueError(f"Missing required action parameter: {name}")
-
-    properties = schema.get("properties", {})
-    if not isinstance(properties, dict):
-        raise ValueError("Action tool schema properties must be an object")
-
-    if schema.get("additionalProperties") is False:
-        for name in params:
-            if name not in properties:
-                raise ValueError(f"Unexpected action parameter: {name}")
-
-    for name, value in params.items():
-        property_schema = properties.get(name)
-        if isinstance(property_schema, dict):
-            _validate_json_type(name, value, schema=property_schema)
-
-
-def _validate_json_type(
-    name: str,
-    value: JsonValue,
+def _normalize_failure(
+    tool_call: ToolCallRecord,
     *,
-    schema: Mapping[str, JsonValue],
-) -> None:
-    expected_type = schema.get("type")
-    if expected_type is None:
-        return
-    if not isinstance(expected_type, str):
-        raise ValueError(f"Action parameter schema type for {name} must be a string")
-    if not _matches_json_type(value, expected_type):
-        raise ValueError(f"Action parameter {name} must be {expected_type}")
-
-
-def _matches_json_type(value: JsonValue, expected_type: str) -> bool:
-    if expected_type == "string":
-        return isinstance(value, str)
-    if expected_type == "number":
-        return (isinstance(value, int | float) and not isinstance(value, bool))
-    if expected_type == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected_type == "boolean":
-        return isinstance(value, bool)
-    if expected_type == "object":
-        return isinstance(value, dict)
-    if expected_type == "array":
-        return isinstance(value, list)
-    if expected_type == "null":
-        return value is None
-    raise ValueError(f"Unsupported action parameter schema type: {expected_type}")
+    sequence: int,
+    model_feedback: str,
+    frame_data: JsonObject | None = None,
+) -> ActionResult:
+    return ActionResult.failed(
+        call_id=tool_call.id,
+        action_name=tool_call.name,
+        stage=ActionResultStage.NORMALIZE,
+        sequence=sequence,
+        model_feedback=model_feedback,
+        frame_data=frame_data,
+    )
