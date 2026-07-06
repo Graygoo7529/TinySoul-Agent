@@ -35,8 +35,14 @@ from .signals import (
     parse_trace_append_signal,
     parse_working_patch_signal,
 )
-from .trace import CompressionReport, PendingInputs, TurnTraceContext
-from .working import WorkingContext, WorkingPatch
+from .trace import CompressionReport, PendingInputs, TraceKind, TurnTraceContext
+from .working import (
+    Milestone,
+    TodoItem,
+    WorkingContext,
+    WorkingPatch,
+    WorkspaceResource,
+)
 
 
 @dataclass(frozen=True)
@@ -85,17 +91,28 @@ class ContextEngine:
     def turn_active(self) -> bool:
         return bool(self._turn_id)
 
-    @property
-    def background(self) -> BackgroundContext:
-        return self._background
+    def background_links(self) -> tuple[str, ...]:
+        """Return currently loaded background links without exposing mutable state."""
 
-    @property
-    def working(self) -> WorkingContext:
-        return self._working
+        return self._background.links()
 
-    @property
-    def trace(self) -> TurnTraceContext:
-        return self._trace
+    def working_snapshot(self) -> JsonObject:
+        """Return a JSON-safe copy of the working context."""
+
+        self._require_turn()
+        return to_json_object(self._working.to_json())
+
+    def trace_kinds(self) -> tuple[TraceKind, ...]:
+        """Return trace entry kinds for observation and tests."""
+
+        self._require_turn()
+        return tuple(entry.kind for entry in self._trace.entries())
+
+    def trace_digest(self) -> JsonObject:
+        """Return a JSON-safe digest of the current turn trace."""
+
+        self._require_turn()
+        return _trace_digest(self._trace)
 
     def begin_turn(self, user_input: str) -> str:
         if self._turn_id:
@@ -143,13 +160,17 @@ class ContextEngine:
         return self._normalizer.normalize(tool_calls, scope=scope)
 
     def consume_signals(self, bus: SignalBus) -> tuple[ControlResult, ...]:
-        """Transactionally consume context signals: validate all, then commit."""
+        """Consume context signals with parse-first, projected validation.
+
+        Invalid signals become local results. Valid working/background patches are
+        checked against a projected batch state before any state is committed.
+        """
 
         self._require_turn()
         signals = bus.consume_namespace(SIGNAL_NAMESPACE)
         results: list[ControlResult] = []
-        working_patches: list[tuple[str, WorkingPatch]] = []
-        background_patches: list[tuple[str, BackgroundPatch]] = []
+        working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
+        background_candidates: list[tuple[int, Signal, str, BackgroundPatch]] = []
         trace_appends: list[TraceAppend] = []
         input_texts: list[str] = []
 
@@ -158,22 +179,10 @@ class ContextEngine:
             try:
                 if signal.name == SIGNAL_WORKING_PATCH:
                     call_id, patch = parse_working_patch_signal(signal)
-                    problem = self._working.check_patch(patch)
-                    if problem:
-                        results.append(
-                            _consume_failure(signal, call_id, sequence, problem)
-                        )
-                        continue
-                    working_patches.append((call_id, patch))
+                    working_candidates.append((sequence, signal, call_id, patch))
                 elif signal.name == SIGNAL_BACKGROUND_PATCH:
                     call_id, patch = parse_background_patch_signal(signal)
-                    problem = self._check_background_patch(patch)
-                    if problem:
-                        results.append(
-                            _consume_failure(signal, call_id, sequence, problem)
-                        )
-                        continue
-                    background_patches.append((call_id, patch))
+                    background_candidates.append((sequence, signal, call_id, patch))
                 elif signal.name == SIGNAL_TRACE_APPEND:
                     trace_appends.append(parse_trace_append_signal(signal))
                 elif signal.name == SIGNAL_INPUT_APPEND:
@@ -188,11 +197,27 @@ class ContextEngine:
                         )
                     )
             except ContextContractError as exc:
-                results.append(_consume_failure(signal, "", sequence, str(exc)))
+                results.append(
+                    _consume_failure(
+                        signal,
+                        _signal_call_id(signal),
+                        sequence,
+                        str(exc),
+                    )
+                )
 
-        for _, patch in working_patches:
+        working_patches = self._validated_working_patches(
+            working_candidates,
+            results=results,
+        )
+        background_patches = self._validated_background_patches(
+            background_candidates,
+            results=results,
+        )
+
+        for patch in working_patches:
             self._working.apply_patch(patch)
-        for _, patch in background_patches:
+        for patch in background_patches:
             self._apply_background_patch(patch)
         for append in trace_appends:
             self._apply_trace_append(append)
@@ -214,13 +239,7 @@ class ContextEngine:
 
     def end_turn(self) -> TurnSummary:
         self._require_turn()
-        entries = self._trace.entries()
-        trace_digest = to_json_object(
-            {
-                "entry_count": len(entries),
-                "kinds": sorted({entry.kind.value for entry in entries}),
-            }
-        )
+        trace_digest = _trace_digest(self._trace)
         summary = TurnSummary(
             turn_id=self._turn_id,
             inputs=tuple(
@@ -239,13 +258,72 @@ class ContextEngine:
         self._turn_id = ""
         return summary
 
-    def _check_background_patch(self, patch: BackgroundPatch) -> str:
+    def _validated_working_patches(
+        self,
+        candidates: list[tuple[int, Signal, str, WorkingPatch]],
+        *,
+        results: list[ControlResult],
+    ) -> tuple[WorkingPatch, ...]:
+        milestones = {item.key: item for item in self._working.milestones()}
+        todos = {item.key: item for item in self._working.todos()}
+        resources = {item.link: item for item in self._working.resources()}
+        valid: list[WorkingPatch] = []
+        for sequence, signal, call_id, patch in candidates:
+            next_milestones = dict(milestones)
+            next_todos = dict(todos)
+            next_resources = dict(resources)
+            problem = _apply_working_patch_to_projection(
+                patch,
+                milestones=next_milestones,
+                todos=next_todos,
+                resources=next_resources,
+            )
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+                continue
+            milestones = next_milestones
+            todos = next_todos
+            resources = next_resources
+            valid.append(patch)
+        return tuple(valid)
+
+    def _validated_background_patches(
+        self,
+        candidates: list[tuple[int, Signal, str, BackgroundPatch]],
+        *,
+        results: list[ControlResult],
+    ) -> tuple[BackgroundPatch, ...]:
+        loaded = set(self._background.links())
+        valid: list[BackgroundPatch] = []
+        for sequence, signal, call_id, patch in candidates:
+            next_loaded = set(loaded)
+            problem = self._apply_background_patch_to_projection(patch, next_loaded)
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+                continue
+            loaded = next_loaded
+            valid.append(patch)
+        return tuple(valid)
+
+    def _apply_background_patch_to_projection(
+        self,
+        patch: BackgroundPatch,
+        loaded: set[str],
+    ) -> str:
+        conflict = sorted(set(patch.load_links) & set(patch.evict_links))
+        if conflict:
+            return f"Background patch cannot load and evict the same link: {conflict[0]}"
+        if patch.is_empty():
+            return "Background patch contains no links"
         for link in patch.load_links:
             if link not in self._loadable_entries:
                 return f"Unknown loadable background link: {link}"
         for link in patch.evict_links:
-            if not self._background.has(link):
+            if link not in loaded:
                 return f"Background link is not loaded: {link}"
+            loaded.remove(link)
+        for link in patch.load_links:
+            loaded.add(link)
         return ""
 
     def _apply_background_patch(self, patch: BackgroundPatch) -> None:
@@ -318,14 +396,30 @@ class ContextEngineBuilder:
         return self
 
     def with_budget_max_chars(self, max_chars: int | None) -> "ContextEngineBuilder":
+        if max_chars is not None and max_chars <= 0:
+            raise ContextContractError("Context budget max chars must be positive")
         self._max_chars = max_chars
         return self
 
     def with_keep_recent(self, keep_recent: int) -> "ContextEngineBuilder":
+        if keep_recent < 0:
+            raise ContextContractError("Context keep_recent cannot be negative")
         self._keep_recent = keep_recent
         return self
 
     def add_default_background(self, link: str, content: str) -> "ContextEngineBuilder":
+        if not link or not content:
+            raise ContextContractError(
+                "Default background entries require non-empty link and content"
+            )
+        for entry in self._default_entries:
+            if entry.link == link:
+                raise ContextContractError(f"Duplicate default background link: {link}")
+        loadable_content = self._loadable_entries.get(link)
+        if loadable_content is not None and loadable_content != content:
+            raise ContextContractError(
+                f"Default background content conflicts with loadable link: {link}"
+            )
         self._default_entries.append(
             BackgroundEntry(link=link, content=content, source=BackgroundSource.DEFAULT)
         )
@@ -338,6 +432,11 @@ class ContextEngineBuilder:
             )
         if link in self._loadable_entries:
             raise ContextContractError(f"Duplicate loadable background link: {link}")
+        for entry in self._default_entries:
+            if entry.link == link and entry.content != content:
+                raise ContextContractError(
+                    f"Loadable background content conflicts with default link: {link}"
+                )
         self._loadable_entries[link] = content
         return self
 
@@ -357,3 +456,84 @@ class ContextEngineBuilder:
             background=background,
             loadable_entries=loadable,
         )
+
+
+def _trace_digest(trace: TurnTraceContext) -> JsonObject:
+    entries = trace.entries()
+    return to_json_object(
+        {
+            "entry_count": len(entries),
+            "kinds": sorted({entry.kind.value for entry in entries}),
+        }
+    )
+
+
+def _signal_call_id(signal: Signal) -> str:
+    call_id = signal.payload.get("call_id")
+    if isinstance(call_id, str):
+        return call_id
+    return ""
+
+
+def _apply_working_patch_to_projection(
+    patch: WorkingPatch,
+    *,
+    milestones: dict[str, Milestone],
+    todos: dict[str, TodoItem],
+    resources: dict[str, WorkspaceResource],
+) -> str:
+    if patch.is_empty():
+        return "Working patch contains no operations"
+    problem = _working_conflict_problem(
+        set_keys=tuple(item.key for item in patch.set_milestones),
+        remove_keys=patch.remove_milestones,
+        label="milestone",
+    )
+    if problem:
+        return problem
+    problem = _working_conflict_problem(
+        set_keys=tuple(item.key for item in patch.set_todos),
+        remove_keys=patch.remove_todos,
+        label="todo",
+    )
+    if problem:
+        return problem
+    problem = _working_conflict_problem(
+        set_keys=tuple(item.link for item in patch.set_resources),
+        remove_keys=patch.remove_resources,
+        label="workspace resource",
+    )
+    if problem:
+        return problem
+
+    for key in patch.remove_milestones:
+        if key not in milestones:
+            return f"Unknown milestone key: {key}"
+        del milestones[key]
+    for key in patch.remove_todos:
+        if key not in todos:
+            return f"Unknown todo key: {key}"
+        del todos[key]
+    for link in patch.remove_resources:
+        if link not in resources:
+            return f"Unknown workspace resource link: {link}"
+        del resources[link]
+    for milestone in patch.set_milestones:
+        milestones[milestone.key] = milestone
+    for todo in patch.set_todos:
+        todos[todo.key] = todo
+    for resource in patch.set_resources:
+        resources[resource.link] = resource
+    return ""
+
+
+def _working_conflict_problem(
+    *,
+    set_keys: tuple[str, ...],
+    remove_keys: tuple[str, ...],
+    label: str,
+) -> str:
+    conflict = sorted(set(set_keys) & set(remove_keys))
+    if conflict:
+        return f"Working patch cannot set and remove the same {label}: {conflict[0]}"
+    return ""

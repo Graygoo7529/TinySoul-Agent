@@ -12,25 +12,25 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 1. 三段语境（BackgroundContext、TurnTraceContext、WorkingContext）各自职责清晰，状态变更入口收敛。
 2. MessageStack 采用构造式组装：每次 LLM Task 单独构造，区段顺序服务提示缓存的稳定前缀。
-3. 语境变更不由模型输出直接驱动：Control Tool Calls 先归一化为信号，再由 Context 事务式消费。
+3. 语境变更不由模型输出直接驱动：Control Tool Calls 先归一化为信号，再由 Context 整批解析、投影验证并提交可行变更。
 4. 用户轮执行中的追加输入进入语境有明确的暂存与合并语义。
 5. 语境压缩作为 Runtime 恢复例程的服务方接入，流程遵循统一的陷入协议。
 
 ## 语境状态模型
 
-语境分为三段，另有一个本轮输入列表。四者都是 Turn 内的可变持有者：内部条目使用不可变对象，变更只通过受控入口进行。变更入口只有两类：信号消费和 Turn 生命周期（开始与结束）。
+语境分为三段，另有一个本轮输入列表。四者都是 Turn 内的可变持有者：内部条目使用不可变对象，变更只通过受控入口进行。变更入口只有两类：信号消费和 Turn 生命周期（开始与结束）。ContextEngine 不向 loop 暴露这些可变持有者，只提供背景链接、工作台快照、轨迹摘要等只读投影；状态持有者类型作为模块内部散件服务于实现与单元测试。
 
 ### BackgroundContext
 
-用户轮开始前的背景。持有顶层内容条目（BackgroundEntry）的有序集合与当日会话历程摘要。每个条目对应一个 Agent Home 顶层内容链接（如 `home:what@xxx`）及其渲染文本，并区分默认加载与 Phase1 加载两种来源。条目可以被 Phase1 的控制意图加载或逐出。
+用户轮开始前的背景。持有顶层内容条目（BackgroundEntry）的有序集合与当日会话历程摘要。每个条目对应一个 Agent Home 顶层内容链接（如 `home:what@xxx`）及其渲染文本，并区分默认加载与 Phase1 加载两种来源。条目可以被 Phase1 的控制意图加载或逐出。批量消费背景变更时，Context 会在投影状态上顺序验证同批 load/evict：未知链接、逐出未加载链接、同一信号同时加载和逐出同一链接都会收敛为局部结果；可行变更再统一提交。
 
 ### WorkingContext
 
-本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、里程碑（Milestone）与待办（TodoItem）。里程碑与待办使用稳定状态枚举。变更通过明确的补丁类型（WorkingPatch）表达，补丁由信号载荷解析而来，先校验后提交。
+本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、里程碑（Milestone）与待办（TodoItem）。里程碑与待办使用稳定状态枚举。变更通过明确的补丁类型（WorkingPatch）表达，补丁由信号载荷解析而来。批量消费工作台变更时，Context 会在投影状态上顺序验证同批 patch，因此后一条 patch 能看到前一条有效 patch 的结果；无效 patch 收敛为局部结果，不阻止同批其他可行 patch 提交。
 
 ### TurnTraceContext
 
-本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息、由追加输入形成的用户消息——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。
+本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息、由追加输入形成的用户消息——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
 
 ### PendingInputs
 
@@ -62,10 +62,10 @@ Context 消费的信号协议：
 
 - `context.working.patch`：WorkingContext 变更请求；
 - `context.background.patch`：顶层内容加载与逐出请求；
-- `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；
+- `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 Reasoning；
 - `context.input.append`：用户追加输入。
 
-信号消费是事务式的：先校验全部载荷，再提交状态；载荷不合规转为局部结果，不抛出异常。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
+信号消费采用批量可行提交语义：先解析同批 `context.*` 信号；解析失败或载荷不合规的信号转为局部结果；Working 与 Background 变更在投影状态上按信号顺序验证，验证通过的变更统一提交，验证失败的变更不提交且不抛异常。该语义不是 all-or-nothing，而是保证可行变更不会因为同批其他失败信号而丢失，同时避免提交前后状态不一致。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
 
 ## 语境压缩
 
@@ -73,7 +73,7 @@ Context 消费的信号协议：
 
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. Trap 按原因调用注册的压缩处理器；处理器调用 Context 提供的压缩服务（ContextCompressor）；
-3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与关键动作名，BackgroundContext 与 WorkingContext 不参与裁剪；
+3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与条目类型，BackgroundContext 与 WorkingContext 不参与裁剪；多次压缩会合并已有摘要占位，压缩报告会标明本次是否实际改变了 trace；
 4. 压缩完成后由处理器返回重试当前 Phase 的运行转移；压缩后仍超限则返回结束 Turn。
 
 压缩策略可以替换（例如升级为 LLM 归纳压缩），流程与接入方式不变。
@@ -94,7 +94,7 @@ Context 维护内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary�
 
 ## 组装入口
 
-ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压缩服务；ContextEngineBuilder 负责装配配置（身份 system 文本、默认背景来源、预算阈值等）。模块内部散件默认只服务于模块内部与测试。
+ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压缩服务；它只向上层暴露 compose、control scope、信号消费、输入合并、压缩、TurnSummary 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 负责装配配置（身份 system 文本、默认背景来源、预算阈值等），并在装配边界校验背景链接冲突、非正预算、负数压缩保留数等配置问题。模块内部散件默认只服务于模块内部与测试。
 
 ## 设计范围
 

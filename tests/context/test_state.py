@@ -19,7 +19,7 @@ from tinysoul.context import (
     WorkingPatch,
     WorkspaceResource,
 )
-from tinysoul.llm.messages import AssistantMessage, SystemMessage, ToolResultMessage
+from tinysoul.llm.messages import AssistantMessage, JsonPart, SystemMessage, ToolResultMessage
 from tinysoul.runtime import CyclePhase
 
 
@@ -103,6 +103,7 @@ def test_trace_compression_keeps_recent_and_adds_placeholder() -> None:
     for index in range(6):
         trace.append_user_input(f"input {index}")
     report = trace.compress_oldest(keep_recent=2)
+    assert report.changed is True
     assert report.dropped_count == 4
     entries = trace.entries()
     assert entries[0].kind is TraceKind.SUMMARY_PLACEHOLDER
@@ -110,7 +111,27 @@ def test_trace_compression_keeps_recent_and_adds_placeholder() -> None:
 
     # A second pass with nothing else to drop reports no progress.
     again = trace.compress_oldest(keep_recent=2)
+    assert again.changed is False
     assert again.dropped_count == 0
+
+
+def test_trace_compression_merges_existing_placeholder() -> None:
+    trace = TurnTraceContext()
+    for index in range(4):
+        trace.append_user_input(f"input {index}")
+    first = trace.compress_oldest(keep_recent=1)
+    assert first.dropped_count == 3
+    for index in range(2):
+        trace.append_user_input(f"new {index}")
+
+    second = trace.compress_oldest(keep_recent=1)
+    assert second.changed is True
+    assert second.dropped_count == 2
+    entries = trace.entries()
+    assert [entry.kind for entry in entries].count(TraceKind.SUMMARY_PLACEHOLDER) == 1
+    placeholder = entries[0].message.parts[0]
+    assert isinstance(placeholder, JsonPart)
+    assert placeholder.value["dropped_count"] == 5
 
 
 def test_pending_inputs_merge_lifecycle() -> None:

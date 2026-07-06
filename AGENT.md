@@ -87,8 +87,8 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - TinySoul 内部应使用自己的 tool call id；供应商 tool call id 只作为适配层相关性信息保留，不应成为 Context、Action 或 Loop 模块依赖的主键。
 - Action 模块向上层提供唯一装配与调用入口（组装门面），内部承担 Phase1 域作用域、Phase2 动作作用域与归一化、Phase3 批次执行。每个模型侧 action tool call 在 Action 模块内恰好收敛为一个局部 ActionResult；无法归因到单个 call 的阶段性问题收敛为 phase-level result。
 - Action 后端分工：native 运行在宿主线程，只能协作式响应取消；需要硬停止语义的动作使用 subprocess 或 script 后端。后端 options 属动态边界，在 catalog 加载期由按 handler 注册的校验器校验。
-- Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。语境变更只有两类入口：信号的事务式消费与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
-- Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 摘要占位）后重试当前 Phase。
+- Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。ContextEngine 不向上层暴露可变状态持有者；语境变更只有两类入口：信号的批量可行提交与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
+- Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。信号消费先解析同批信号，再对 Working/Background 变更做投影验证并提交可行变更；trace append 使用 text/json 多片段内容投影并可保留 assistant reasoning。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 合并摘要占位）后重试当前 Phase。
 
 ## 工作方式
 

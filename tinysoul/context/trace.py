@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from tinysoul.llm.messages import (
     AssistantMessage,
+    JsonPart,
     Message,
     ToolResultMessage,
     UserMessage,
@@ -51,6 +52,7 @@ class TraceEntry:
 class CompressionReport:
     """Result of one trace compression pass."""
 
+    changed: bool
     dropped_count: int
     dropped_kinds: tuple[str, ...]
     remaining_count: int
@@ -114,6 +116,11 @@ class TurnTraceContext:
 
         if keep_recent < 0:
             raise ContextContractError("keep_recent cannot be negative")
+        placeholders = [
+            entry
+            for entry in self._entries
+            if entry.kind is TraceKind.SUMMARY_PLACEHOLDER
+        ]
         droppable = [
             entry
             for entry in self._entries
@@ -121,30 +128,32 @@ class TurnTraceContext:
         ]
         drop_count = len(droppable) - keep_recent
         if drop_count <= 0:
+            if len(placeholders) > 1:
+                count, kinds = _merged_placeholder_stats(placeholders)
+                self._entries = [_summary_placeholder(count, kinds), *droppable]
+                return CompressionReport(
+                    changed=True,
+                    dropped_count=0,
+                    dropped_kinds=(),
+                    remaining_count=len(self._entries),
+                )
             return CompressionReport(
+                changed=False,
                 dropped_count=0,
                 dropped_kinds=(),
                 remaining_count=len(self._entries),
             )
         dropped = droppable[:drop_count]
-        dropped_ids = {entry.entry_id for entry in dropped}
-        kept = [entry for entry in self._entries if entry.entry_id not in dropped_ids]
-        placeholder = TraceEntry(
-            entry_id=_entry_id(),
-            kind=TraceKind.SUMMARY_PLACEHOLDER,
-            message=UserMessage.from_json(
-                {
-                    "note": "Earlier turn trace entries were compressed.",
-                    "dropped_count": len(dropped),
-                    "dropped_kinds": sorted({entry.kind.value for entry in dropped}),
-                },
-                label="trace_summary",
-            ),
-        )
+        kept = droppable[drop_count:]
+        existing_count, existing_kinds = _merged_placeholder_stats(placeholders)
+        dropped_kinds = tuple(sorted({entry.kind.value for entry in dropped}))
+        merged_kinds = tuple(sorted({*existing_kinds, *dropped_kinds}))
+        placeholder = _summary_placeholder(existing_count + len(dropped), merged_kinds)
         self._entries = [placeholder, *kept]
         return CompressionReport(
+            changed=True,
             dropped_count=len(dropped),
-            dropped_kinds=tuple(sorted({entry.kind.value for entry in dropped})),
+            dropped_kinds=dropped_kinds,
             remaining_count=len(self._entries),
         )
 
@@ -223,3 +232,38 @@ class PendingInputs:
 
 def _entry_id() -> str:
     return f"trace_{uuid4().hex[:8]}"
+
+
+def _summary_placeholder(dropped_count: int, dropped_kinds: tuple[str, ...]) -> TraceEntry:
+    return TraceEntry(
+        entry_id=_entry_id(),
+        kind=TraceKind.SUMMARY_PLACEHOLDER,
+        message=UserMessage.from_json(
+            {
+                "note": "Earlier turn trace entries were compressed.",
+                "dropped_count": dropped_count,
+                "dropped_kinds": list(dropped_kinds),
+            },
+            label="trace_summary",
+        ),
+    )
+
+
+def _merged_placeholder_stats(
+    placeholders: list[TraceEntry],
+) -> tuple[int, tuple[str, ...]]:
+    dropped_count = 0
+    dropped_kinds: set[str] = set()
+    for entry in placeholders:
+        for part in entry.message.parts:
+            if not isinstance(part, JsonPart):
+                continue
+            count = part.value.get("dropped_count")
+            if isinstance(count, int):
+                dropped_count += count
+            kinds = part.value.get("dropped_kinds")
+            if isinstance(kinds, list):
+                for kind in kinds:
+                    if isinstance(kind, str):
+                        dropped_kinds.add(kind)
+    return dropped_count, tuple(sorted(dropped_kinds))

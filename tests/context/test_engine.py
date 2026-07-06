@@ -7,6 +7,7 @@ import pytest
 from tinysoul.context import (
     CONTROL_LOAD_BACKGROUND,
     CONTROL_UPDATE_WORKING,
+    SIGNAL_BACKGROUND_PATCH,
     ContextContractError,
     ContextEngineBuilder,
     TaskPrompt,
@@ -16,7 +17,8 @@ from tinysoul.context import (
     build_trace_decision_signal,
     build_trace_phase_note_signal,
 )
-from tinysoul.llm.messages import AssistantMessage, ToolResultMessage
+from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
+from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import CyclePhase, RunLevel, RunScope, Signal, SignalBus
 
@@ -78,7 +80,7 @@ def test_control_scope_tracks_background_state() -> None:
         bus.emit(signal)
     results = engine.consume_signals(bus)
     assert results == ()
-    assert engine.background.has("home:what@x")
+    assert "home:what@x" in engine.background_links()
 
 
 def test_consume_signals_transactional_validation() -> None:
@@ -111,7 +113,126 @@ def test_consume_signals_transactional_validation() -> None:
     assert len(results) == 1
     assert results[0].call_id == "bad"
     assert "Unknown todo key" in results[0].model_feedback
-    assert engine.working.milestones()[0].key == "m"
+    assert engine.working_snapshot()["milestones"][0]["key"] == "m"
+
+
+def test_consume_signals_validates_working_batch_against_projection() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+
+    setup = engine.normalize_controls(
+        (
+            ToolCallRecord(
+                id="set",
+                name=CONTROL_UPDATE_WORKING,
+                arguments={"set_todos": [{"key": "t1", "content": "write"}]},
+                kind=ToolKind.CONTROL,
+            ),
+        ),
+        scope=SCOPE,
+    )
+    for signal in setup.signals:
+        bus.emit(signal)
+    assert engine.consume_signals(bus) == ()
+
+    batch = engine.normalize_controls(
+        (
+            ToolCallRecord(
+                id="remove_1",
+                name=CONTROL_UPDATE_WORKING,
+                arguments={"remove_todos": ["t1"]},
+                kind=ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                id="remove_2",
+                name=CONTROL_UPDATE_WORKING,
+                arguments={"remove_todos": ["t1"]},
+                kind=ToolKind.CONTROL,
+            ),
+        ),
+        scope=SCOPE,
+    )
+    for signal in batch.signals:
+        bus.emit(signal)
+
+    results = engine.consume_signals(bus)
+    assert len(results) == 1
+    assert results[0].call_id == "remove_2"
+    assert "Unknown todo key" in results[0].model_feedback
+    assert engine.working_snapshot()["todos"] == []
+
+
+def test_consume_signals_validates_background_batch_against_projection() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "load",
+                "load_links": ["home:what@x"],
+                "evict_links": [],
+            },
+        )
+    )
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "evict",
+                "load_links": [],
+                "evict_links": ["home:what@x"],
+            },
+        )
+    )
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "evict_again",
+                "load_links": [],
+                "evict_links": ["home:what@x"],
+            },
+        )
+    )
+
+    results = engine.consume_signals(bus)
+    assert len(results) == 1
+    assert results[0].call_id == "evict_again"
+    assert "not loaded" in results[0].model_feedback
+    assert "home:what@x" not in engine.background_links()
+
+
+def test_background_signal_rejects_load_evict_conflict() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "conflict",
+                "load_links": ["home:what@x"],
+                "evict_links": ["home:what@x"],
+            },
+        )
+    )
+
+    results = engine.consume_signals(bus)
+    assert len(results) == 1
+    assert results[0].call_id == "conflict"
+    assert "cannot load and evict" in results[0].model_feedback
+    assert "home:what@x" not in engine.background_links()
 
 
 def test_consume_trace_and_input_signals() -> None:
@@ -121,11 +242,14 @@ def test_consume_trace_and_input_signals() -> None:
 
     bus.emit(
         build_trace_decision_signal(
-            AssistantMessage.from_text(
-                "choose tools",
+            AssistantMessage.from_parts(
+                TextPart("choose tools"),
+                JsonPart({"hint": "scan first"}),
+                reasoning=Reasoning(content="private trace", summary="scan plan"),
                 tool_calls=(
                     ToolCallRecord(id="a1", name="workspace.scan", arguments={}),
                 ),
+                label="decision",
             ),
             scope=SCOPE,
             source="loop.phase2",
@@ -160,18 +284,23 @@ def test_consume_trace_and_input_signals() -> None:
 
     results = engine.consume_signals(bus)
     assert results == ()
-    kinds = [entry.kind for entry in engine.trace.entries()]
-    assert kinds == [
+    assert engine.trace_kinds() == (
         TraceKind.USER_INPUT,
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
         TraceKind.PHASE_NOTE,
-    ]
+    )
     assert len(bus) == 1
+    stack = engine.compose(TaskPrompt(guide="next"))
+    decision = next(message for message in stack.messages if message.label == "decision")
+    assert isinstance(decision, AssistantMessage)
+    assert isinstance(decision.parts[1], JsonPart)
+    assert decision.reasoning is not None
+    assert decision.reasoning.summary == "scan plan"
 
     merged = engine.merge_pending_inputs()
     assert merged == 1
-    assert engine.trace.entries()[-1].kind is TraceKind.USER_INPUT
+    assert engine.trace_kinds()[-1] is TraceKind.USER_INPUT
     assert engine.merge_pending_inputs() == 0
 
 
@@ -191,5 +320,37 @@ def test_compress_via_engine() -> None:
     engine.merge_pending_inputs()
 
     report = engine.compress()
+    assert report.changed is True
     assert report.dropped_count == 3
-    assert engine.trace.entries()[0].kind is TraceKind.SUMMARY_PLACEHOLDER
+    assert engine.trace_kinds()[0] is TraceKind.SUMMARY_PLACEHOLDER
+
+
+def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+
+    assert not hasattr(engine, "background")
+    assert not hasattr(engine, "working")
+    assert not hasattr(engine, "trace")
+    assert engine.working_snapshot()["todos"] == []
+
+
+def test_builder_validates_background_configuration() -> None:
+    with pytest.raises(ContextContractError):
+        ContextEngineBuilder(system_text="sys").with_keep_recent(-1)
+    with pytest.raises(ContextContractError):
+        ContextEngineBuilder(system_text="sys").with_budget_max_chars(0)
+    with pytest.raises(ContextContractError):
+        ContextEngineBuilder(system_text="sys").add_default_background("", "content")
+    with pytest.raises(ContextContractError):
+        (
+            ContextEngineBuilder(system_text="sys")
+            .add_default_background("home:agent@core", "a")
+            .add_default_background("home:agent@core", "a")
+        )
+    with pytest.raises(ContextContractError):
+        (
+            ContextEngineBuilder(system_text="sys")
+            .add_default_background("home:agent@core", "a")
+            .add_loadable_background("home:agent@core", "b")
+        )

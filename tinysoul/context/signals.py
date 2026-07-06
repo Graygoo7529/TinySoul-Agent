@@ -16,6 +16,7 @@ from tinysoul.llm.messages import (
     TextPart,
     ToolResultMessage,
 )
+from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
@@ -178,12 +179,11 @@ def build_trace_decision_signal(
     cycle_id: str = "",
     phase: CyclePhase | None = None,
 ) -> Signal:
-    text = "".join(part.text for part in message.parts if isinstance(part, TextPart))
     payload: JsonObject = {
         "kind": TRACE_APPEND_DECISION,
         "cycle_id": cycle_id,
         "phase": phase.value if phase is not None else "",
-        "text": text,
+        "content": _parts_to_json(message.parts),
         "tool_calls": [
             {
                 "id": record.id,
@@ -194,6 +194,9 @@ def build_trace_decision_signal(
             for record in message.tool_calls
         ],
     }
+    reasoning = _reasoning_to_json(message.reasoning)
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
 
@@ -204,21 +207,13 @@ def build_trace_action_result_signal(
     source: str,
     cycle_id: str = "",
 ) -> Signal:
-    value: JsonValue = None
-    text = ""
-    for part in message.parts:
-        if isinstance(part, JsonPart):
-            value = part.value
-        elif isinstance(part, TextPart):
-            text += part.text
     payload: JsonObject = {
         "kind": TRACE_APPEND_ACTION_RESULT,
         "cycle_id": cycle_id,
         "call_id": message.call_id,
         "tool_name": message.tool_name,
         "status": message.status.value,
-        "value": value,
-        "text": text,
+        "content": _parts_to_json(message.parts),
     }
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
@@ -245,7 +240,11 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
     cycle_id = _optional_str(signal.payload, "cycle_id")
     phase = _optional_phase(signal.payload)
     if kind == TRACE_APPEND_DECISION:
-        text = _optional_str(signal.payload, "text")
+        parts = _parts_from_json(signal.payload)
+        if not parts:
+            text = _optional_str(signal.payload, "text")
+            if text:
+                parts = (TextPart(text),)
         tool_calls = tuple(
             ToolCallRecord(
                 id=_required_str(item, "id"),
@@ -255,12 +254,14 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             )
             for item in _object_list(signal.payload, "tool_calls")
         )
-        if not text and not tool_calls:
+        reasoning = _optional_reasoning(signal.payload)
+        if not parts and not tool_calls and reasoning is None:
             raise ContextContractError("Trace decision signal has neither text nor tool calls")
-        message = (
-            AssistantMessage.from_text(text, tool_calls=tool_calls, label="decision")
-            if text
-            else AssistantMessage.from_tool_calls(*tool_calls, label="decision")
+        message = AssistantMessage.from_parts(
+            *parts,
+            reasoning=reasoning,
+            tool_calls=tool_calls,
+            label="decision",
         )
         return TraceAppend(
             kind=kind,
@@ -276,24 +277,34 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             raise ContextContractError(
                 f"Unknown tool result status: {status_value}"
             ) from exc
-        value = signal.payload.get("value")
-        text = _optional_str(signal.payload, "text")
-        if isinstance(value, dict):
-            message = ToolResultMessage.from_json(
+        parts = _parts_from_json(signal.payload)
+        if parts:
+            message = ToolResultMessage.from_parts(
                 call_id=_required_str(signal.payload, "call_id"),
                 tool_name=_required_str(signal.payload, "tool_name"),
-                value=value,
+                parts=parts,
                 status=status,
                 label="action_result",
             )
         else:
-            message = ToolResultMessage.from_text(
-                call_id=_required_str(signal.payload, "call_id"),
-                tool_name=_required_str(signal.payload, "tool_name"),
-                text=text or "(empty result)",
-                status=status,
-                label="action_result",
-            )
+            value = signal.payload.get("value")
+            text = _optional_str(signal.payload, "text")
+            if isinstance(value, dict):
+                message = ToolResultMessage.from_json(
+                    call_id=_required_str(signal.payload, "call_id"),
+                    tool_name=_required_str(signal.payload, "tool_name"),
+                    value=value,
+                    status=status,
+                    label="action_result",
+                )
+            else:
+                message = ToolResultMessage.from_text(
+                    call_id=_required_str(signal.payload, "call_id"),
+                    tool_name=_required_str(signal.payload, "tool_name"),
+                    text=text or "(empty result)",
+                    status=status,
+                    label="action_result",
+                )
         return TraceAppend(
             kind=kind,
             cycle_id=cycle_id,
@@ -336,6 +347,66 @@ def parse_input_append_signal(signal: Signal) -> str:
 # Payload parsing helpers
 
 
+def _parts_to_json(parts: tuple[object, ...]) -> list[JsonValue]:
+    result: list[JsonValue] = []
+    for part in parts:
+        if isinstance(part, TextPart):
+            result.append({"type": "text", "text": part.text})
+        elif isinstance(part, JsonPart):
+            result.append({"type": "json", "value": part.value})
+        else:
+            raise ContextContractError(
+                "Trace append only supports text and JSON message parts"
+            )
+    return result
+
+
+def _parts_from_json(value: JsonObject) -> tuple[TextPart | JsonPart, ...]:
+    result: list[TextPart | JsonPart] = []
+    for item in _object_list(value, "content"):
+        part_type = _required_str(item, "type")
+        if part_type == "text":
+            result.append(TextPart(_required_str(item, "text")))
+        elif part_type == "json":
+            result.append(JsonPart(_object_field(item, "value")))
+        else:
+            raise ContextContractError(f"Unknown trace content part type: {part_type}")
+    return tuple(result)
+
+
+def _reasoning_to_json(reasoning: Reasoning | None) -> JsonObject | None:
+    if reasoning is None:
+        return None
+    result: JsonObject = {}
+    if reasoning.content is not None:
+        result["content"] = reasoning.content
+    if reasoning.summary is not None:
+        result["summary"] = reasoning.summary
+    if reasoning.encrypted_items:
+        result["encrypted_items"] = list(reasoning.encrypted_items)
+    if not result:
+        return None
+    return result
+
+
+def _optional_reasoning(value: JsonObject) -> Reasoning | None:
+    raw = value.get("reasoning")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ContextContractError("Trace reasoning must be an object")
+    content = _optional_nullable_str(raw, "content")
+    summary = _optional_nullable_str(raw, "summary")
+    encrypted_items = _object_list(raw, "encrypted_items")
+    if content is None and summary is None and not encrypted_items:
+        return None
+    return Reasoning(
+        content=content,
+        summary=summary,
+        encrypted_items=encrypted_items,
+    )
+
+
 def _required_str(value: JsonObject, name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
@@ -345,6 +416,15 @@ def _required_str(value: JsonObject, name: str) -> str:
 
 def _optional_str(value: JsonObject, name: str) -> str:
     item = value.get(name, "")
+    if not isinstance(item, str):
+        raise ContextContractError(f"Signal payload field must be a string: {name}")
+    return item
+
+
+def _optional_nullable_str(value: JsonObject, name: str) -> str | None:
+    item = value.get(name)
+    if item is None:
+        return None
     if not isinstance(item, str):
         raise ContextContractError(f"Signal payload field must be a string: {name}")
     return item
