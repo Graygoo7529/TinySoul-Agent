@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tinysoul"
 version = "0.1.0"
 description = "A lightweight LLM Agent framework prototype"
-readme = "README.md"
+# readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.13"
 dependencies = [
