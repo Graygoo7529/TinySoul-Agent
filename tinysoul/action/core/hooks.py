@@ -48,11 +48,6 @@ class HookOutcome:
 
 
 @dataclass(frozen=True)
-class ActionNormalizeContext:
-    """Runtime services available to normalize hooks."""
-
-
-@dataclass(frozen=True)
 class ActionNormalizeInput:
     """Input for a Phase2 normalize hook."""
 
@@ -68,11 +63,7 @@ class ActionNormalizeInput:
 class ActionNormalizeHook(Protocol):
     """Protocol for Phase2 action-call normalize hooks."""
 
-    def check(
-        self,
-        item: ActionNormalizeInput,
-        context: ActionNormalizeContext,
-    ) -> HookOutcome:
+    def check(self, item: ActionNormalizeInput) -> HookOutcome:
         """Check whether a model-side action tool call can become an ActionCall."""
         ...
 
@@ -92,11 +83,7 @@ class ActionExecutionHook(Protocol):
 class SchemaNormalizeHook:
     """Built-in normalize hook that validates action parameters against schema."""
 
-    def check(
-        self,
-        item: ActionNormalizeInput,
-        context: ActionNormalizeContext,
-    ) -> HookOutcome:
+    def check(self, item: ActionNormalizeInput) -> HookOutcome:
         try:
             validate_action_params(item.tool_call.arguments, schema=item.action.tool.schema)
         except ActionSchemaValidationError as exc:
@@ -220,14 +207,10 @@ class ActionNormalizeHookPipeline:
     def run(
         self,
         item: ActionNormalizeInput,
-        *,
-        context: ActionNormalizeContext | None = None,
     ) -> ActionResult | None:
-        resolved_context = context or ActionNormalizeContext()
         schema_result = self._run_hook(
             self._schema_hook,
             item,
-            context=resolved_context,
             name="builtin.schema",
         )
         if schema_result is not None:
@@ -247,7 +230,6 @@ class ActionNormalizeHookPipeline:
             hook_result = self._run_hook(
                 hook,
                 item,
-                context=resolved_context,
                 name=name,
             )
             if hook_result is not None:
@@ -259,11 +241,10 @@ class ActionNormalizeHookPipeline:
         hook: ActionNormalizeHook,
         item: ActionNormalizeInput,
         *,
-        context: ActionNormalizeContext,
         name: str,
     ) -> ActionResult | None:
         try:
-            outcome = hook.check(item, context)
+            outcome = hook.check(item)
         except Exception as exc:
             return _normalize_hook_failure(
                 item,

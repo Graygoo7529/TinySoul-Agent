@@ -83,23 +83,33 @@ runner 中超时后 executor 返回 SUCCESS 会被改判为 timeout（防止越�
 
 对 `opt(action)：基于审核建议继续优化`（46f432b）的复查结论：上述 done 项实现干净，全量测试与 `ty` 检查通过，AGENT.md 与设计文档同步准确。复查中新发现以下小问题：
 
-### R1. `ActionNormalizeContext` 成为空壳 `pending`
+### R1. `ActionNormalizeContext` 成为空壳 `done`
 
 `services` 字段删除后（问题 5），`hooks.py` 中的 `ActionNormalizeContext` 是一个没有任何字段的 frozen dataclass，docstring 仍写 "Runtime services available to normalize hooks"，名实不符，构成新的无功能占位。应连同 normalize hook 签名中的 context 参数一起删除，或等有真实内容时再引入。
 
-### R2. `engine.py` 的层次位置 `pending`
+已解决（2026-07-06）：删除 `ActionNormalizeContext`，normalize hook 签名收敛为 `check(item)`；schema normalize hook 继续作为内置阶段化 hook 运行。
+
+### R2. `engine.py` 的层次位置 `done`
 
 组装门面位于 `core/` 内但 import 了 `backends/`，而 backends 又依赖 core 的子模块。运行无问题，但依赖方向上组装层应位于 core 与 backends 之上，移至 `tinysoul/action/engine.py` 更干净。
 
-### R3. subprocess `stdin` 选项双重语义 `pending`
+已解决（2026-07-06）：`ActionEngine` / `ActionEngineBuilder` 移至 `tinysoul/action/engine.py`；`core` 不再依赖或导出组装门面，顶层 `tinysoul.action` 继续作为公共 API 导出。
+
+### R3. subprocess `stdin` 选项双重语义 `done`
 
 `backends/subprocess.py` 的 `stdin` 选项既表达模式（`none` / `json_params`），任意其他字符串又被当作字面量 stdin 内容。应拆为 `stdin_mode` 与显式内容字段，或收敛为纯模式枚举。
 
-### R4. backend options 缺少加载期校验 `pending`
+已解决（2026-07-06）：subprocess options 收敛为 `stdin_mode = "json_params" | "none"`，不再支持隐式 literal stdin；旧 `stdin` 字段会在加载期作为未知 options 报配置错误。
+
+### R4. backend options 缺少加载期校验 `done`
 
 `_string_list_option` 将格式非法的 `argv` 静默视为缺失并反馈 `missing_argv`，有误导。backend options 属 TOML 动态边界，应由各 backend 在 catalog 加载期校验自身 options 结构，而非执行期宽容降级。
 
-### R5. 两处代码小瑕疵 `pending`
+已解决（2026-07-06）：`ActionCatalogLoader` 支持按 backend handler 注册 options validator；`ActionEngineBuilder` 默认注册 subprocess/script validator，并在 catalog 加载期校验 options。执行器仍保留防御性校验，把直接绕过加载器造成的 invalid options 转为局部 action result。
+
+### R5. 两处代码小瑕疵 `done`
 
 - `runner.py` `_run_group` 签名收尾 `) -> _GroupRun:` 缩进多 4 空格；
 - `_run_group` 中 `pending -= still_expired` 后紧跟 `pending -= expired`，前者是后者子集，冗余一行。
+
+已解决（2026-07-06）：修正 `_run_group` 签名缩进，并删除冗余 pending 集合操作。

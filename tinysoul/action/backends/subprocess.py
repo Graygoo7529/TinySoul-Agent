@@ -5,12 +5,42 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
 
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, dumps_json
 
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext
+from tinysoul.action.core.specs import ActionBackendSpec
 from tinysoul.action.core.result import ActionResult, ActionResultStage
+
+
+class SubprocessStdinMode(StrEnum):
+    """Supported subprocess stdin modes."""
+
+    JSON_PARAMS = "json_params"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class SubprocessOptions:
+    """Validated subprocess backend options."""
+
+    argv: tuple[str, ...]
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    stdin_mode: SubprocessStdinMode = SubprocessStdinMode.JSON_PARAMS
+    stdout_limit: int = 8000
+    stderr_limit: int = 4000
+
+
+class SubprocessBackendOptionsValidator:
+    """Validate subprocess backend options during catalog loading."""
+
+    def validate(self, backend: ActionBackendSpec, *, key: str) -> None:
+        parse_subprocess_options(backend.options, key=key)
 
 
 class SubprocessActionExecutor:
@@ -21,29 +51,50 @@ class SubprocessActionExecutor:
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        options = execution.action.backend.options
-        argv = _string_list_option(options, "argv")
-        if not argv:
+        try:
+            options = parse_subprocess_options(
+                execution.action.backend.options,
+                key=f"ActionBackendSpec({execution.action.name}).backend.options",
+            )
+        except ConfigError as exc:
             return _execution_failure(
                 execution,
-                "Subprocess action has no argv configured.",
-                frame_data={"reason": "missing_argv"},
+                "Subprocess action backend options are invalid.",
+                frame_data={
+                    "reason": "invalid_backend_options",
+                    "error_type": type(exc).__name__,
+                    "key": exc.key,
+                },
             )
-        cwd = _optional_string(options, "cwd")
-        env = _string_mapping_option(options, "env")
         stdin_text = _stdin_text(execution, options)
-        stdout_limit = _positive_int_option(options, "stdout_limit", default=8000)
-        stderr_limit = _positive_int_option(options, "stderr_limit", default=4000)
         return run_process_action(
             execution,
             context,
-            argv=argv,
-            cwd=cwd,
-            env=env,
+            argv=options.argv,
+            cwd=options.cwd,
+            env=options.env,
             stdin_text=stdin_text,
-            stdout_limit=stdout_limit,
-            stderr_limit=stderr_limit,
+            stdout_limit=options.stdout_limit,
+            stderr_limit=options.stderr_limit,
         )
+
+
+def parse_subprocess_options(options: JsonObject, *, key: str) -> SubprocessOptions:
+    """Return validated subprocess options or raise ConfigError."""
+
+    _reject_unknown_options(
+        options,
+        allowed={"argv", "cwd", "env", "stdin_mode", "stdout_limit", "stderr_limit"},
+        key=key,
+    )
+    return SubprocessOptions(
+        argv=_required_string_list(options, "argv", key=key),
+        cwd=_optional_string(options, "cwd", key=key),
+        env=_optional_string_mapping(options, "env", key=key),
+        stdin_mode=_stdin_mode(options, key=key),
+        stdout_limit=_positive_int_option(options, "stdout_limit", default=8000, key=key),
+        stderr_limit=_positive_int_option(options, "stderr_limit", default=4000, key=key),
+    )
 
 
 def run_process_action(
@@ -161,13 +212,10 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
         process.kill()
 
 
-def _stdin_text(execution: ActionExecution, options: JsonObject) -> str | None:
-    mode = _optional_string(options, "stdin") or "json_params"
-    if mode == "none":
+def _stdin_text(execution: ActionExecution, options: SubprocessOptions) -> str | None:
+    if options.stdin_mode is SubprocessStdinMode.NONE:
         return None
-    if mode == "json_params":
-        return dumps_json(execution.call.params)
-    return mode
+    return dumps_json(execution.call.params)
 
 
 def _process_payload(
@@ -194,44 +242,126 @@ def _truncate(value: str, limit: int) -> tuple[str, bool]:
     return value[:limit], True
 
 
-def _string_list_option(options: JsonObject, name: str) -> tuple[str, ...]:
+def _reject_unknown_options(
+    options: JsonObject,
+    *,
+    allowed: set[str],
+    key: str,
+) -> None:
+    unknown = sorted(name for name in options if name not in allowed)
+    if unknown:
+        raise ConfigError(
+            "Unsupported subprocess backend option",
+            key=f"{key}.{unknown[0]}",
+            value=options[unknown[0]],
+            expected=", ".join(sorted(allowed)),
+        )
+
+
+def _required_string_list(options: JsonObject, name: str, *, key: str) -> tuple[str, ...]:
     value = options.get(name)
     if not isinstance(value, list):
-        return ()
+        raise ConfigError(
+            "Subprocess backend option must be a non-empty list of strings",
+            key=f"{key}.{name}",
+            value=value,
+            expected="list[str]",
+        )
     result: list[str] = []
     for item in value:
         if not isinstance(item, str) or not item:
-            return ()
+            raise ConfigError(
+                "Subprocess backend option must be a non-empty list of strings",
+                key=f"{key}.{name}",
+                value=value,
+                expected="list[str]",
+            )
         result.append(item)
+    if not result:
+        raise ConfigError(
+            "Subprocess backend option must contain at least one argv item",
+            key=f"{key}.{name}",
+            value=value,
+            expected="non-empty list[str]",
+        )
     return tuple(result)
 
 
-def _string_mapping_option(options: JsonObject, name: str) -> dict[str, str] | None:
+def _optional_string_mapping(
+    options: JsonObject,
+    name: str,
+    *,
+    key: str,
+) -> dict[str, str] | None:
     value = options.get(name)
     if value is None:
         return None
     if not isinstance(value, dict):
-        return None
+        raise ConfigError(
+            "Subprocess backend option must be a string mapping",
+            key=f"{key}.{name}",
+            value=value,
+            expected="dict[str, str]",
+        )
     result: dict[str, str] = {}
-    for key, item in value.items():
-        if not isinstance(item, str):
-            return None
-        result[key] = item
+    for item_key, item in value.items():
+        if not isinstance(item_key, str) or not item_key or not isinstance(item, str):
+            raise ConfigError(
+                "Subprocess backend option must be a string mapping",
+                key=f"{key}.{name}",
+                value=value,
+                expected="dict[str, str]",
+            )
+        result[item_key] = item
     return result
 
 
-def _optional_string(options: JsonObject, name: str) -> str | None:
+def _optional_string(options: JsonObject, name: str, *, key: str) -> str | None:
     value = options.get(name)
+    if value is None:
+        return None
     if isinstance(value, str) and value:
         return value
-    return None
+    raise ConfigError(
+        "Subprocess backend option must be a non-empty string",
+        key=f"{key}.{name}",
+        value=value,
+        expected="str",
+    )
 
 
-def _positive_int_option(options: JsonObject, name: str, *, default: int) -> int:
+def _stdin_mode(options: JsonObject, *, key: str) -> SubprocessStdinMode:
+    value = options.get("stdin_mode", SubprocessStdinMode.JSON_PARAMS.value)
+    if not isinstance(value, str):
+        raise ConfigError(
+            "Subprocess backend stdin_mode must be a string",
+            key=f"{key}.stdin_mode",
+            value=value,
+            expected="json_params | none",
+        )
+    try:
+        return SubprocessStdinMode(value)
+    except ValueError as exc:
+        raise ConfigError(
+            "Subprocess backend stdin_mode must be supported",
+            key=f"{key}.stdin_mode",
+            value=value,
+            expected="json_params | none",
+        ) from exc
+
+
+def _positive_int_option(options: JsonObject, name: str, *, default: int, key: str) -> int:
     value = options.get(name)
+    if value is None:
+        return default
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
-    return default
+    raise ConfigError(
+        "Subprocess backend option must be a positive integer",
+        key=f"{key}.{name}",
+        value=value,
+        expected="positive int",
+    )
 
 
 def _execution_failure(

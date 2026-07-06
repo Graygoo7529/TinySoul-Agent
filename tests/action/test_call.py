@@ -21,7 +21,7 @@ from tinysoul.runtime import RunScope
 
 
 class RejectNormalizeHook:
-    def check(self, item, context) -> HookOutcome:
+    def check(self, item) -> HookOutcome:
         return HookOutcome.failed("Rejected during normalize")
 
 

@@ -9,7 +9,6 @@ from .core.call import (
     ActionNormalization,
 )
 from .core.catalog import ActionCatalog
-from .core.engine import ActionEngine, ActionEngineBuilder
 from .core.phase import ActionCyclePhase
 from .core.result import (
     ActionPhaseResult,
@@ -32,6 +31,7 @@ from .core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
+from .engine import ActionEngine, ActionEngineBuilder
 
 __all__ = [
     "ActionBackendKind",
@@ -41,10 +41,10 @@ __all__ = [
     "ActionCall",
     "ActionCatalog",
     "ActionCyclePhase",
-    "ActionEngine",
-    "ActionEngineBuilder",
     "ActionDomainSpec",
     "ActionDomainPromptRenderer",
+    "ActionEngine",
+    "ActionEngineBuilder",
     "ActionEnvironmentEffect",
     "ActionExecution",
     "ActionFramework",

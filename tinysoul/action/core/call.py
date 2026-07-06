@@ -13,7 +13,6 @@ from tinysoul.runtime import RunScope
 from .catalog import ActionCatalog
 from .errors import ActionContractError, ActionInvariantError
 from .hooks import (
-    ActionNormalizeContext,
     ActionNormalizeHookPipeline,
     ActionNormalizeInput,
 )
@@ -151,7 +150,6 @@ class ActionCallNormalizer:
         tool_calls: tuple[ToolCallRecord, ...],
         *,
         catalog: ActionCatalog,
-        context: ActionNormalizeContext | None = None,
     ) -> ActionNormalization:
         calls: list[ActionCall] = []
         results: list[ActionResult] = []
@@ -197,8 +195,7 @@ class ActionCallNormalizer:
                     tool_call=tool_call,
                     action=action,
                     sequence=sequence,
-                ),
-                context=context,
+                )
             )
             if hook_result is not None:
                 results.append(hook_result)

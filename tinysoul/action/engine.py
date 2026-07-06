@@ -9,11 +9,10 @@ from typing import Self
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import RunScope
 
-from tinysoul.action.backends.native import NativeActionFunction, NativeFunctionExecutor
-from tinysoul.action.backends.script import TemporaryScriptExecutor
-from tinysoul.action.backends.subprocess import SubprocessActionExecutor
-
-from .call import (
+from .backends.native import NativeActionFunction, NativeFunctionExecutor
+from .backends.script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
+from .backends.subprocess import SubprocessBackendOptionsValidator, SubprocessActionExecutor
+from .core.call import (
     ActionBatch,
     ActionBatchPreparation,
     ActionCall,
@@ -21,22 +20,21 @@ from .call import (
     ActionExecutionBuilder,
     ActionNormalization,
 )
-from .catalog import ActionCatalog
-from .executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
-from .feedback import ActionFeedbackRenderer
-from .hooks import (
+from .core.catalog import ActionCatalog
+from .core.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
+from .core.feedback import ActionFeedbackRenderer
+from .core.hooks import (
     ActionExecutionHook,
     ActionExecutionHookPipeline,
     ActionHookRegistry,
-    ActionNormalizeContext,
     ActionNormalizeHook,
     ActionNormalizeHookPipeline,
 )
-from .loader import ActionCatalogLoader
-from .phase import ActionCyclePhase
-from .result import ActionResult
-from .runner import ActionBatchRunner
-from .scope import (
+from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
+from .core.phase import ActionCyclePhase
+from .core.result import ActionResult
+from .core.runner import ActionBatchRunner
+from .core.scope import (
     ActionDomainPromptRenderer,
     ActionScopePreparation,
     Phase1DomainScopeBuilder,
@@ -81,13 +79,10 @@ class ActionEngine:
     def normalize(
         self,
         tool_calls: tuple[ToolCallRecord, ...],
-        *,
-        context: ActionNormalizeContext | None = None,
     ) -> ActionNormalization:
         return self.normalizer.normalize(
             tool_calls,
             catalog=self.catalog,
-            context=context,
         )
 
     def prepare_batch(
@@ -123,17 +118,41 @@ class ActionEngineBuilder:
 
     def __init__(self, catalog_root: Path) -> None:
         self._catalog_root = catalog_root
-        self._loader = ActionCatalogLoader()
         self._executors = ExecutorRegistry()
+        self._backend_options_validators: dict[str, ActionBackendOptionsValidator] = {}
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
         self._cooperative_cancel_grace_seconds = 0.05
         self._process_cancel_grace_seconds = 1.0
-        self.register_executor("subprocess.default", SubprocessActionExecutor())
-        self.register_executor("script.temporary", TemporaryScriptExecutor())
+        self.register_executor(
+            "subprocess.default",
+            SubprocessActionExecutor(),
+            options_validator=SubprocessBackendOptionsValidator(),
+        )
+        self.register_executor(
+            "script.temporary",
+            TemporaryScriptExecutor(),
+            options_validator=TemporaryScriptBackendOptionsValidator(),
+        )
 
-    def register_executor(self, handler: str, executor: ActionExecutor) -> Self:
+    def register_executor(
+        self,
+        handler: str,
+        executor: ActionExecutor,
+        *,
+        options_validator: ActionBackendOptionsValidator | None = None,
+    ) -> Self:
         self._executors.register(handler, executor)
+        if options_validator is not None:
+            self._backend_options_validators[handler] = options_validator
+        return self
+
+    def register_backend_options_validator(
+        self,
+        handler: str,
+        validator: ActionBackendOptionsValidator,
+    ) -> Self:
+        self._backend_options_validators[handler] = validator
         return self
 
     def register_native(self, handler: str, function: NativeActionFunction) -> Self:
@@ -184,7 +203,9 @@ class ActionEngineBuilder:
         return self
 
     def build(self) -> ActionEngine:
-        catalog = self._loader.load(self._catalog_root)
+        catalog = ActionCatalogLoader(
+            backend_options_validators=self._backend_options_validators,
+        ).load(self._catalog_root)
         self._executors.validate_catalog(catalog)
         normalize_pipeline = ActionNormalizeHookPipeline(self._hooks)
         execution_pipeline = ActionExecutionHookPipeline(self._hooks)

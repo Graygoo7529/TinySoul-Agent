@@ -100,7 +100,7 @@ class ActionBatchRunner:
         self,
         group: tuple[ActionExecution, ...],
         context: ActionExecutionContext,
-        ) -> _GroupRun:
+    ) -> _GroupRun:
         workers = min(self._max_workers, len(group))
         results: list[ActionResult] = []
         leaked_timeout_invoke_ids: list[str] = []
@@ -156,7 +156,6 @@ class ActionBatchRunner:
                         if executor_leaked:
                             leaked_timeout_invoke_ids.append(execution.framework.invoke_id)
                             wait_for_workers = False
-                    pending -= still_expired
                     pending -= expired
                     continue
                 for future in done:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.toml_file import ConfigFileToml
@@ -29,11 +29,25 @@ from .specs import (
 E = TypeVar("E", bound=StrEnum)
 
 
+class ActionBackendOptionsValidator(Protocol):
+    """Validate backend-specific options at catalog loading time."""
+
+    def validate(self, backend: ActionBackendSpec, *, key: str) -> None:
+        """Raise ConfigError if backend options are not valid for this backend."""
+        ...
+
+
 class ActionCatalogLoader:
     """Load domain packages from a catalog root directory."""
 
-    def __init__(self, parser: "ActionTomlParser | None" = None) -> None:
+    def __init__(
+        self,
+        parser: "ActionTomlParser | None" = None,
+        *,
+        backend_options_validators: Mapping[str, ActionBackendOptionsValidator] | None = None,
+    ) -> None:
         self._parser = parser or ActionTomlParser()
+        self._backend_options_validators = dict(backend_options_validators or {})
 
     def load(self, root_path: Path) -> ActionCatalog:
         if not root_path.exists():
@@ -74,14 +88,22 @@ class ActionCatalogLoader:
                 continue
             for action_path in sorted(action_dir.glob("*.toml"), key=lambda path: path.name):
                 action_data = ConfigFileToml(action_path).data
-                actions.append(
-                    self._parser.parse_action(
-                        _as_table(action_data, key=str(action_path)),
-                        source=str(action_path),
-                        default_runtime=default_runtime,
-                    )
+                action = self._parser.parse_action(
+                    _as_table(action_data, key=str(action_path)),
+                    source=str(action_path),
+                    default_runtime=default_runtime,
                 )
+                self._validate_backend_options(
+                    action.backend,
+                    key=f"{action_path}.backend.options",
+                )
+                actions.append(action)
         return ActionCatalog(domains=domains, actions=actions)
+
+    def _validate_backend_options(self, backend: ActionBackendSpec, *, key: str) -> None:
+        validator = self._backend_options_validators.get(backend.handler)
+        if validator is not None:
+            validator.validate(backend, key=key)
 
 
 class ActionTomlParser:

@@ -190,7 +190,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### subprocess
 
-`subprocess` 后端以显式 `argv` 启动进程，禁止 `shell=True`。默认把 action params 以 JSON 写入 stdin；stdout/stderr 会按配置截断后进入 payload。进程 exit code 为 0 时返回 success，非 0 返回 failed，deadline 超时时终止进程树并返回 timeout。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。
+`subprocess` 后端以显式 `argv` 启动进程，禁止 `shell=True`。`stdin_mode` 是纯模式配置，只支持 `json_params` 和 `none`；默认把 action params 以 JSON 写入 stdin，不支持把 backend option 中的任意字符串隐式当作 stdin 字面量。stdout/stderr 会按配置截断后进入 payload。进程 exit code 为 0 时返回 success，非 0 返回 failed，deadline 超时时终止进程树并返回 timeout。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。
 
 ### script
 
@@ -202,9 +202,9 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ## 组装入口
 
-`ActionEngine` 是 action 模块面向 Loop/Context 的装配门面，负责持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer。它不改变结果模型，不引入 batch result。
+`ActionEngine` 是 action 模块面向 Loop/Context 的装配门面，位于 `tinysoul/action/engine.py`。它负责持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer，不改变结果模型，不引入 batch result。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。通用 `subprocess.default` 和 `script.temporary` 后端可以由 builder 默认注册；native handler 需要调用方显式注册具体函数。
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。已注册 backend 可以同步提供 backend options validator；这些 validator 在 catalog 加载阶段校验各自的 TOML options，并把动态边界尽早转换为后端明确类型。通用 `subprocess.default` 和 `script.temporary` 后端由 builder 默认注册 executor 与 options validator；native handler 需要调用方显式注册具体函数。
 
 ## Action Schema
 
@@ -251,6 +251,7 @@ Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不�
 
 ```text
 tinysoul/action/
+  engine.py
   core/
   backends/
   builtin/

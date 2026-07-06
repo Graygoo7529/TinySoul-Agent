@@ -4,12 +4,14 @@ import sys
 from pathlib import Path
 from time import sleep
 
+import pytest
+
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.backends.script import TemporaryScriptExecutor
 from tinysoul.action.backends.subprocess import SubprocessActionExecutor
+from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
-from tinysoul.action.core.engine import ActionEngineBuilder
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
 from tinysoul.action.core.result import ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
@@ -24,6 +26,7 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import RunScope
 
 
@@ -219,6 +222,34 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     assert results[0].payload == {"text": "done"}
 
 
+def test_action_engine_validates_subprocess_options_at_load_time(tmp_path: Path) -> None:
+    _write_catalog_action(
+        tmp_path,
+        backend_kind="subprocess",
+        handler="subprocess.default",
+        options='argv = "not-a-list"',
+    )
+
+    with pytest.raises(ConfigError) as error:
+        ActionEngineBuilder(tmp_path).build()
+
+    assert error.value.key.endswith("backend.options.argv")
+
+
+def test_subprocess_stdin_uses_explicit_mode_option(tmp_path: Path) -> None:
+    _write_catalog_action(
+        tmp_path,
+        backend_kind="subprocess",
+        handler="subprocess.default",
+        options='argv = ["python", "-c", "print(1)"]\nstdin = "literal"',
+    )
+
+    with pytest.raises(ConfigError) as error:
+        ActionEngineBuilder(tmp_path).build()
+
+    assert error.value.key.endswith("backend.options.stdin")
+
+
 def _cooperative_native_function(execution, context):
     while True:
         context.control.check_cancelled()
@@ -259,4 +290,40 @@ def _batch(catalog: ActionCatalog, tool_calls: tuple[ToolCallRecord, ...]):
         catalog=catalog,
         scope=RunScope(),
         batch_id="batch_1",
+    )
+
+
+def _write_catalog_action(
+    root: Path,
+    *,
+    backend_kind: str,
+    handler: str,
+    options: str,
+) -> None:
+    domain_dir = root / "test"
+    action_dir = domain_dir / "actions"
+    action_dir.mkdir(parents=True)
+    (domain_dir / "domain.toml").write_text(
+        'name = "test"\n'
+        'description = "Test actions."\n'
+        "\n"
+        "[runtime]\n"
+        "timeout_seconds = 1\n",
+        encoding="utf-8",
+    )
+    (action_dir / "action.toml").write_text(
+        'name = "test.action"\n'
+        'domain = "test"\n'
+        "\n"
+        "[tool]\n"
+        'description = "Test action."\n'
+        'schema = { type = "object", properties = {}, required = [], additionalProperties = false }\n'
+        "\n"
+        "[backend]\n"
+        f'kind = "{backend_kind}"\n'
+        f'handler = "{handler}"\n'
+        "\n"
+        "[backend.options]\n"
+        f"{options}\n",
+        encoding="utf-8",
     )
