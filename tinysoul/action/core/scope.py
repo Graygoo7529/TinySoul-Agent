@@ -8,6 +8,7 @@ from tinysoul.llm.tools import ToolKind, ToolScope, ToolSelection, ToolSpec
 
 from .catalog import ActionCatalog
 from .errors import ActionContractError
+from .phase import ActionCyclePhase
 from .result import ActionPhaseResult, ActionPhaseResultStage
 from .specs import ActionSpec
 
@@ -73,7 +74,7 @@ class Phase2ActionScopeBuilder:
         catalog: ActionCatalog,
         *,
         selected_domains: tuple[str, ...],
-        phase: str = "phase2",
+        phase: ActionCyclePhase = ActionCyclePhase.PHASE2,
         turn_id: str = "",
         cycle_id: str = "",
     ) -> "ActionScopePreparation":
@@ -84,7 +85,7 @@ class Phase2ActionScopeBuilder:
                     selected_domains=selected_domains,
                 ),
             )
-        except Exception as exc:
+        except ActionContractError as exc:
             return ActionScopePreparation(
                 tool_scope=None,
                 phase_results=(

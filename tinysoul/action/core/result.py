@@ -9,6 +9,7 @@ from uuid import uuid4
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .errors import ActionInvariantError
+from .phase import ActionCyclePhase
 
 
 class ActionResultStatus(StrEnum):
@@ -177,7 +178,7 @@ class ActionPhaseResult:
     """A structured local result for an action-module phase issue."""
 
     result_id: str
-    phase: str
+    phase: ActionCyclePhase
     status: ActionPhaseResultStatus
     stage: ActionPhaseResultStage
     payload: JsonObject = field(default_factory=dict)
@@ -189,8 +190,8 @@ class ActionPhaseResult:
     def __post_init__(self) -> None:
         if not self.result_id:
             raise ActionInvariantError("ActionPhaseResult.result_id must be non-empty")
-        if not self.phase:
-            raise ActionInvariantError("ActionPhaseResult.phase must be non-empty")
+        if not isinstance(self.phase, ActionCyclePhase):
+            raise ActionInvariantError("ActionPhaseResult.phase must be an ActionCyclePhase")
         if not isinstance(self.status, ActionPhaseResultStatus):
             raise ActionInvariantError(
                 "ActionPhaseResult.status must be an ActionPhaseResultStatus"
@@ -206,7 +207,7 @@ class ActionPhaseResult:
     def success(
         cls,
         *,
-        phase: str,
+        phase: ActionCyclePhase,
         stage: ActionPhaseResultStage,
         payload: JsonObject | None = None,
         model_feedback: str = "",
@@ -230,7 +231,7 @@ class ActionPhaseResult:
     def failed(
         cls,
         *,
-        phase: str,
+        phase: ActionCyclePhase,
         stage: ActionPhaseResultStage,
         model_feedback: str,
         payload: JsonObject | None = None,

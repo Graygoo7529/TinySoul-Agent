@@ -52,7 +52,7 @@ class ActionFeedbackRenderer:
         """Render the model-visible projection of one action phase result."""
 
         value: JsonObject = {
-            "phase": result.phase,
+            "phase": result.phase.value,
             "status": result.status.value,
             "stage": result.stage.value,
         }
@@ -67,7 +67,7 @@ class ActionFeedbackRenderer:
 
         value: JsonObject = {
             "result_id": result.result_id,
-            "phase": result.phase,
+            "phase": result.phase.value,
             "status": result.status.value,
             "stage": result.stage.value,
             "turn_id": result.turn_id,
@@ -97,13 +97,8 @@ class ActionFeedbackRenderer:
             label="action_result",
         )
 
-    def render_result(self, result: ActionResult) -> JsonObject:
-        """Backward-compatible alias for model payload rendering."""
-
-        return self.render_model_payload(result)
-
     def render_many(self, results: tuple[ActionResult, ...]) -> tuple[JsonObject, ...]:
-        return tuple(self.render_result(result) for result in results)
+        return tuple(self.render_model_payload(result) for result in results)
 
     def to_tool_result_messages(
         self,

@@ -81,7 +81,7 @@ def test_runner_returns_action_result_from_executor() -> None:
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    results = ActionBatchRunner(catalog=catalog, executors=executors).run(
+    results = ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
     )
@@ -97,7 +97,6 @@ def test_runner_rejects_invalid_max_workers() -> None:
 
     with pytest.raises(ActionContractError, match="max_workers"):
         ActionBatchRunner(
-            catalog=catalog,
             executors=ExecutorRegistry(),
             max_workers=0,
         )
@@ -121,7 +120,7 @@ def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
     executors = ExecutorRegistry()
     executors.register("core.answer", MismatchedExecutor())
 
-    results = ActionBatchRunner(catalog=catalog, executors=executors).run(
+    results = ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
     )
@@ -146,7 +145,6 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
     hooks.registry.register_global_execution("reject")
 
     results = ActionBatchRunner(
-        catalog=catalog,
         executors=executors,
         hooks=hooks,
     ).run(batch, ActionExecutionContext())
@@ -166,7 +164,6 @@ def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
     hooks.registry.register_global_execution("missing")
 
     results = ActionBatchRunner(
-        catalog=catalog,
         executors=executors,
         hooks=hooks,
     ).run(batch, ActionExecutionContext())
@@ -188,7 +185,6 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
     hooks.registry.register_global_execution("explode")
 
     results = ActionBatchRunner(
-        catalog=catalog,
         executors=executors,
         hooks=hooks,
     ).run(batch, ActionExecutionContext())
@@ -255,7 +251,7 @@ def test_runner_returns_timeout_for_blocked_execution() -> None:
         NativeFunctionExecutor(lambda execution, context: sleep(0.2) or {}),
     )
 
-    results = ActionBatchRunner(catalog=catalog, executors=executors).run(
+    results = ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
     )
@@ -352,7 +348,7 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
         NativeFunctionExecutor(lambda execution, context: {"started": True}),
     )
 
-    results = ActionBatchRunner(catalog=catalog, executors=executors).run(
+    results = ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
     )
@@ -360,3 +356,6 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[1].status is ActionResultStatus.FAILED
     assert results[1].frame_data["reason"] == "previous_action_timeout_leak"
+    assert results[1].frame_data["blocked_by_invoke_ids"] == [
+        results[0].invoke_id
+    ]

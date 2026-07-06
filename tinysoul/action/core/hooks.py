@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Protocol
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallRecord
 
-from .catalog import ActionCatalog
 from .errors import ActionInvariantError
 from .result import ActionResult, ActionResultStage
 from .schema import ActionSchemaValidationError, validate_action_params
@@ -51,8 +50,6 @@ class HookOutcome:
 @dataclass(frozen=True)
 class ActionNormalizeContext:
     """Runtime services available to normalize hooks."""
-
-    services: object | None = None
 
 
 @dataclass(frozen=True)
@@ -300,11 +297,9 @@ class ActionExecutionHookPipeline:
         self,
         execution: ActionExecution,
         *,
-        catalog: ActionCatalog,
         context: ActionExecutionContext,
     ) -> ActionResult | None:
-        action = catalog.get_action(execution.call.action_name)
-        for name in self._registry.execution_names_for(action):
+        for name in self._registry.execution_names_for(execution.action):
             try:
                 hook = self._registry.execution_hook_for(name)
             except Exception as exc:

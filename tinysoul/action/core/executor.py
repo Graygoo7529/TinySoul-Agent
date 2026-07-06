@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Event
+from time import monotonic
 from typing import Protocol
 
 from tinysoul.runtime import SignalBus
@@ -13,11 +15,45 @@ from .errors import ActionContractError
 from .result import ActionResult
 
 
+@dataclass
+class ActionExecutionControl:
+    """Per-action execution control used by cooperative executors."""
+
+    deadline: float | None = None
+    cancel_event: Event = field(default_factory=Event)
+    cancel_reason: str = ""
+
+    def remaining_seconds(self) -> float | None:
+        if self.deadline is None:
+            return None
+        return max(0.0, self.deadline - monotonic())
+
+    def is_expired(self) -> bool:
+        return self.deadline is not None and monotonic() >= self.deadline
+
+    def request_cancel(self, reason: str) -> None:
+        if not self.cancel_reason:
+            self.cancel_reason = reason
+        self.cancel_event.set()
+
+    def is_cancelled(self) -> bool:
+        return self.cancel_event.is_set()
+
+    def check_cancelled(self) -> None:
+        if self.is_cancelled() or self.is_expired():
+            reason = self.cancel_reason or "deadline_expired"
+            raise ActionExecutionCancelled(reason)
+
+
+class ActionExecutionCancelled(Exception):
+    """Raised by cooperative executors when an action should stop."""
+
+
 @dataclass(frozen=True)
 class ActionExecutionContext:
     """Runtime services available to action executors."""
 
-    services: object | None = None
+    control: ActionExecutionControl = field(default_factory=ActionExecutionControl)
     signal_bus: SignalBus | None = None
 
 
@@ -50,7 +86,7 @@ class ExecutorRegistry:
         try:
             return self._executors[handler]
         except KeyError as exc:
-            raise KeyError(f"Unknown action executor: {handler}") from exc
+            raise ActionContractError(f"Unknown action executor: {handler}") from exc
 
     def has(self, handler: str) -> bool:
         return handler in self._executors

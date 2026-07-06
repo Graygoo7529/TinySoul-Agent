@@ -9,6 +9,8 @@ from .call import (
     ActionNormalization,
 )
 from .catalog import ActionCatalog
+from .engine import ActionEngine, ActionEngineBuilder
+from .phase import ActionCyclePhase
 from .result import (
     ActionPhaseResult,
     ActionPhaseResultStage,
@@ -38,6 +40,9 @@ __all__ = [
     "ActionBatchPreparation",
     "ActionCall",
     "ActionCatalog",
+    "ActionCyclePhase",
+    "ActionEngine",
+    "ActionEngineBuilder",
     "ActionDomainSpec",
     "ActionDomainPromptRenderer",
     "ActionEnvironmentEffect",

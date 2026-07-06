@@ -186,7 +186,6 @@ class ActionTomlParser:
             else ActionParallelPolicy.ALLOWED.value
         )
         base_hooks = base.hooks if base is not None else ActionHookSpec()
-        base_requires = base.requires if base is not None else ()
         hook_table = _optional_table(table, "hooks", key=key)
         return ActionRuntimeSpec(
             timeout_seconds=timeout_seconds,
@@ -209,10 +208,6 @@ class ActionTomlParser:
                     *base_hooks.execution_hooks,
                     *_optional_str_list(hook_table, "execute", key=f"{key}.hooks"),
                 ),
-            ),
-            requires=(
-                *base_requires,
-                *_optional_str_list(table, "requires", key=key),
             ),
         )
 

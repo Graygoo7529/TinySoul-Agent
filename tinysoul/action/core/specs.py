@@ -129,7 +129,6 @@ class ActionRuntimeSpec:
     timeout_seconds: float | None = None
     parallel_policy: ActionParallelPolicy = ActionParallelPolicy.ALLOWED
     hooks: ActionHookSpec = field(default_factory=ActionHookSpec)
-    requires: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
@@ -140,11 +139,6 @@ class ActionRuntimeSpec:
             )
         if not isinstance(self.hooks, ActionHookSpec):
             raise ActionInvariantError("ActionRuntimeSpec.hooks must be an ActionHookSpec")
-        object.__setattr__(
-            self,
-            "requires",
-            _str_tuple(self.requires, "ActionRuntimeSpec.requires"),
-        )
 
 
 @dataclass(frozen=True)

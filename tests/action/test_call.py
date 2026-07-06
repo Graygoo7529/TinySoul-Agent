@@ -260,11 +260,13 @@ def test_prepare_batch_returns_result_for_unknown_action() -> None:
 
 
 def test_action_batch_rejects_duplicate_call_id() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
     with pytest.raises(ActionInvariantError, match="Duplicate action call id"):
         ActionBatch(
             batch_id="batch_1",
             executions=(
                 ActionExecution(
+                    action=catalog.get_action("core.answer"),
                     call=ActionCall("call_1", "core.answer", {}, 1),
                     framework=ActionFramework(
                         invoke_id="invoke_1",
@@ -274,6 +276,7 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
                     ),
                 ),
                 ActionExecution(
+                    action=catalog.get_action("workspace.scan"),
                     call=ActionCall("call_1", "workspace.scan", {}, 2),
                     framework=ActionFramework(
                         invoke_id="invoke_2",
@@ -287,11 +290,13 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
 
 
 def test_action_batch_rejects_duplicate_sequence() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
     with pytest.raises(ActionInvariantError, match="Duplicate action sequence"):
         ActionBatch(
             batch_id="batch_1",
             executions=(
                 ActionExecution(
+                    action=catalog.get_action("core.answer"),
                     call=ActionCall("call_1", "core.answer", {}, 1),
                     framework=ActionFramework(
                         invoke_id="invoke_1",
@@ -301,6 +306,7 @@ def test_action_batch_rejects_duplicate_sequence() -> None:
                     ),
                 ),
                 ActionExecution(
+                    action=catalog.get_action("workspace.scan"),
                     call=ActionCall("call_2", "workspace.scan", {}, 1),
                     framework=ActionFramework(
                         invoke_id="invoke_2",

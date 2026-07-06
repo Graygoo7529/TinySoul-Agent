@@ -63,7 +63,7 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
-`native` 后端运行在宿主 Python 线程中，只能提供协作式停止；如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体。
+`native` 后端运行在宿主 Python 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native action 通过 `context.control.check_cancelled()` 等方式协作退出，结果收敛为 timeout 且后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
 
 ## 定义结构
 
@@ -73,7 +73,7 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 1. 模型侧工具协议，用于构造 Phase2 可见工具。
 2. 模型侧补充语义，用于帮助模型判断何时使用或避免某个 action。
-3. 框架内运行配置，用于控制超时、并发、hook 和依赖条件。
+3. 框架内运行配置，用于控制超时、并发和 hook。
 4. 后端执行配置，用于描述真实执行落点。
 
 模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
@@ -90,6 +90,8 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 2. 模型生成参数
 
 框架内信息描述调用关联、批次关联、运行位置、超时边界和所属域。模型生成参数只保留 action schema 对应的业务参数。
+
+`ActionExecution` 是 Phase3 的自包含执行输入：它同时携带已解析的 `ActionSpec`、规范化后的 `ActionCall` 和 `ActionFramework`。runner、hook 和 backend executor 不再在执行时重新查询 catalog；catalog 一致性在 builder/engine 准备阶段完成。
 
 行动调用使用 TinySoul 归一化后的模型侧 tool call id 作为后续工具结果回放的相关性字段；执行期另有框架内部观测标识，用于 trace 和调度。
 
@@ -131,6 +133,8 @@ Batch 只是执行编排容器，runner 的核心输出是 `ActionResult` 序列
 批次内允许部分成功，但不需要额外定义 batch result。
 
 Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局部 ActionResult。因此一个 action tool call 在 Action 模块内总是对应一个局部结果：normalize failed、prepare failed、hook failed、schedule failed、execute failed、timeout 或 success。
+
+超时结果有两类来源：runner 发现 deadline 已过并给出 timeout；后端执行器在自身边界内发现 timeout 并给出 timeout。超时后的成功结果必须改判为 timeout，避免越过 deadline 的副作用被当作正常完成；超时后的失败结果可以保留 failed，因为失败信息通常比 timeout 标签更有利于下一 cycle 修正。
 
 无法绑定到具体 action tool call 的阶段性框架问题不伪造成 ActionResult，而是产出 phase-level result，供 Context 记录为 cycle phase 执行反馈。
 
@@ -177,6 +181,30 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 防御性不变量异常和模块调用契约错误不属于可继续的 action flow。它们表示 Action 模块内部对象关系、catalog、执行输入或公共边界被破坏，应在模块公共边界通过 Runtime bridge 映射为 Runtime 语义异常，由 Trap 决定结束当前 Turn 或采取其他运行转移。Runtime payload 只携带模块名、稳定失败类型和必要摘要，不携带原始异常对象、大块上下文或完整消息栈。
 
 因此 Action 失败处理分为三层：action call 级局部结果、phase 级局部结果、Runtime 语义异常。前两者服务于 Context 记录和模型反馈，后者服务于运行控制流。
+
+## 后端执行
+
+### native
+
+`native` 后端通过 `NativeFunctionExecutor` 包装宿主 Python 函数。native 函数返回 JSON object payload；执行器负责包装为 success result。native 函数应在长循环、阻塞前后或分块处理边界调用 `context.control.check_cancelled()`，从而响应 runner 的超时取消请求。未协作退出的 native action 会被标记为泄漏风险，后续执行组会被 schedule failed 结果阻断。
+
+### subprocess
+
+`subprocess` 后端以显式 `argv` 启动进程，禁止 `shell=True`。默认把 action params 以 JSON 写入 stdin；stdout/stderr 会按配置截断后进入 payload。进程 exit code 为 0 时返回 success，非 0 返回 failed，deadline 超时时终止进程树并返回 timeout。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。
+
+### script
+
+`script` 后端用于临时 Python 脚本动作。它从 action params 中读取脚本内容，写入临时目录，然后复用 subprocess 运行语义。script 后端只提供执行机制；是否向模型暴露脚本编写动作由具体 action TOML 决定。
+
+### llm_step
+
+`llm_step` 表示 action 内部还需要一次受控 LLM task。它必须继续遵守“所有 LLM 调用基于 Context 构造的 MessageStack”的原则；具体实现等待 Context/Loop 模块落地后再接入。
+
+## 组装入口
+
+`ActionEngine` 是 action 模块面向 Loop/Context 的装配门面，负责持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer。它不改变结果模型，不引入 batch result。
+
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。通用 `subprocess.default` 和 `script.temporary` 后端可以由 builder 默认注册；native handler 需要调用方显式注册具体函数。
 
 ## Action Schema
 

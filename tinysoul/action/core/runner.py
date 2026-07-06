@@ -10,12 +10,11 @@ from time import monotonic
 from tinysoul.infra.json import JsonObject
 
 from .call import ActionBatch, ActionExecution
-from .catalog import ActionCatalog
 from .errors import ActionContractError
-from .executor import ActionExecutionContext, ExecutorRegistry
+from .executor import ActionExecutionContext, ActionExecutionControl, ExecutorRegistry
 from .hooks import ActionExecutionHookPipeline
 from .result import ActionResult, ActionResultStage, ActionResultStatus
-from .specs import ActionParallelPolicy
+from .specs import ActionBackendKind, ActionParallelPolicy
 
 
 class BatchConcurrencyPlanner:
@@ -24,14 +23,11 @@ class BatchConcurrencyPlanner:
     def plan(
         self,
         batch: ActionBatch,
-        *,
-        catalog: ActionCatalog,
     ) -> tuple[tuple[ActionExecution, ...], ...]:
         groups: list[tuple[ActionExecution, ...]] = []
         parallel_group: list[ActionExecution] = []
         for execution in batch.executions:
-            action = catalog.get_action(execution.call.action_name)
-            if action.runtime.parallel_policy is ActionParallelPolicy.ALLOWED:
+            if execution.action.runtime.parallel_policy is ActionParallelPolicy.ALLOWED:
                 parallel_group.append(execution)
                 continue
             if parallel_group:
@@ -46,7 +42,7 @@ class BatchConcurrencyPlanner:
 @dataclass(frozen=True)
 class _GroupRun:
     results: tuple[ActionResult, ...]
-    leaked_timeout_invoke_id: str | None = None
+    leaked_timeout_invoke_ids: tuple[str, ...] = ()
 
 
 class ActionBatchRunner:
@@ -55,19 +51,29 @@ class ActionBatchRunner:
     def __init__(
         self,
         *,
-        catalog: ActionCatalog,
         executors: ExecutorRegistry,
         hooks: ActionExecutionHookPipeline | None = None,
         planner: BatchConcurrencyPlanner | None = None,
         max_workers: int = 8,
+        cooperative_cancel_grace_seconds: float = 0.05,
+        process_cancel_grace_seconds: float = 1.0,
     ) -> None:
         if max_workers <= 0:
             raise ActionContractError("ActionBatchRunner.max_workers must be positive")
-        self._catalog = catalog
+        if cooperative_cancel_grace_seconds < 0:
+            raise ActionContractError(
+                "ActionBatchRunner.cooperative_cancel_grace_seconds cannot be negative"
+            )
+        if process_cancel_grace_seconds < 0:
+            raise ActionContractError(
+                "ActionBatchRunner.process_cancel_grace_seconds cannot be negative"
+            )
         self._executors = executors
         self._hooks = hooks or ActionExecutionHookPipeline()
         self._planner = planner or BatchConcurrencyPlanner()
         self._max_workers = max_workers
+        self._cooperative_cancel_grace_seconds = cooperative_cancel_grace_seconds
+        self._process_cancel_grace_seconds = process_cancel_grace_seconds
 
     def run(
         self,
@@ -75,16 +81,16 @@ class ActionBatchRunner:
         context: ActionExecutionContext,
     ) -> tuple[ActionResult, ...]:
         results: list[ActionResult] = []
-        groups = self._planner.plan(batch, catalog=self._catalog)
+        groups = self._planner.plan(batch)
         for index, group in enumerate(groups):
             group_run = self._run_group(self._schedule_group(group), context)
             results.extend(group_run.results)
-            if group_run.leaked_timeout_invoke_id is not None:
+            if group_run.leaked_timeout_invoke_ids:
                 for remaining_group in groups[index + 1 :]:
                     results.extend(
                         self._blocked_by_leaked_timeout(
                             remaining_group,
-                            blocked_by=group_run.leaked_timeout_invoke_id,
+                            blocked_by=group_run.leaked_timeout_invoke_ids,
                         )
                     )
                 break
@@ -94,17 +100,20 @@ class ActionBatchRunner:
         self,
         group: tuple[ActionExecution, ...],
         context: ActionExecutionContext,
-    ) -> _GroupRun:
+        ) -> _GroupRun:
         workers = min(self._max_workers, len(group))
         results: list[ActionResult] = []
-        leaked_timeout_invoke_id: str | None = None
+        leaked_timeout_invoke_ids: list[str] = []
         pool = ThreadPoolExecutor(max_workers=workers)
         wait_for_workers = True
         try:
-            futures = {
-                pool.submit(self._run_one, execution, context): execution
-                for execution in group
-            }
+            futures: dict[Future[ActionResult], ActionExecution] = {}
+            contexts: dict[Future[ActionResult], ActionExecutionContext] = {}
+            for execution in group:
+                execution_context = self._context_for_execution(execution, context)
+                future = pool.submit(self._run_one, execution, execution_context)
+                futures[future] = execution
+                contexts[future] = execution_context
             pending: set[Future[ActionResult]] = set(futures)
             while pending:
                 timeout = self._remaining_timeout(futures[future] for future in pending)
@@ -118,52 +127,53 @@ class ActionBatchRunner:
                     if not expired:
                         continue
                     for future in expired:
+                        contexts[future].control.request_cancel("timeout")
+                    cancelled_done, still_expired = wait(
+                        expired,
+                        timeout=self._cancel_grace_seconds(
+                            futures[future] for future in expired
+                        ),
+                    )
+                    for future in cancelled_done:
+                        execution = futures[future]
+                        results.append(self._future_result(future, execution))
+                    for future in expired:
+                        if future in cancelled_done:
+                            continue
                         execution = futures[future]
                         future.cancel()
                         executor_leaked = not future.cancelled()
                         results.append(
-                            ActionResult.timeout(
-                                call_id=execution.call.call_id,
-                                invoke_id=execution.framework.invoke_id,
-                                batch_id=execution.framework.batch_id,
-                                action_name=execution.call.action_name,
-                                sequence=execution.call.sequence,
-                                domain=execution.framework.domain,
+                            self._timeout_result(
+                                execution,
                                 model_feedback="Action timed out during execution.",
                                 frame_data={
+                                    "cancel_requested": True,
                                     "executor_leaked": executor_leaked,
                                 },
                             )
                         )
                         if executor_leaked:
-                            leaked_timeout_invoke_id = execution.framework.invoke_id
+                            leaked_timeout_invoke_ids.append(execution.framework.invoke_id)
                             wait_for_workers = False
+                    pending -= still_expired
                     pending -= expired
                     continue
                 for future in done:
                     execution = futures[future]
-                    try:
-                        results.append(future.result())
-                    except Exception as exc:
-                        results.append(
-                            self._internal_failure(
-                                execution,
-                                model_feedback=f"Action runner failed: {exc}",
-                                frame_data={"error_type": type(exc).__name__},
-                            )
-                        )
+                    results.append(self._future_result(future, execution))
         finally:
             pool.shutdown(wait=wait_for_workers, cancel_futures=True)
         return _GroupRun(
             results=tuple(results),
-            leaked_timeout_invoke_id=leaked_timeout_invoke_id,
+            leaked_timeout_invoke_ids=tuple(leaked_timeout_invoke_ids),
         )
 
     def _blocked_by_leaked_timeout(
         self,
         group: tuple[ActionExecution, ...],
         *,
-        blocked_by: str,
+        blocked_by: tuple[str, ...],
     ) -> tuple[ActionResult, ...]:
         return tuple(
             ActionResult.failed(
@@ -179,12 +189,34 @@ class ActionBatchRunner:
                     "and may still be running."
                 ),
                 frame_data={
-                    "blocked_by_invoke_id": blocked_by,
+                    "blocked_by_invoke_ids": list(blocked_by),
                     "reason": "previous_action_timeout_leak",
                 },
             )
             for execution in group
         )
+
+    def _context_for_execution(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionExecutionContext:
+        return replace(
+            context,
+            control=ActionExecutionControl(deadline=execution.framework.deadline),
+        )
+
+    def _cancel_grace_seconds(self, executions: Iterable[ActionExecution]) -> float:
+        for execution in executions:
+            if execution.action.backend.kind in {
+                ActionBackendKind.SUBPROCESS,
+                ActionBackendKind.SCRIPT,
+            }:
+                return max(
+                    self._cooperative_cancel_grace_seconds,
+                    self._process_cancel_grace_seconds,
+                )
+        return self._cooperative_cancel_grace_seconds
 
     def _schedule_group(
         self,
@@ -216,35 +248,23 @@ class ActionBatchRunner:
         context: ActionExecutionContext,
     ) -> ActionResult:
         if execution.framework.is_expired():
-            return ActionResult.timeout(
-                call_id=execution.call.call_id,
-                invoke_id=execution.framework.invoke_id,
-                batch_id=execution.framework.batch_id,
-                action_name=execution.call.action_name,
-                sequence=execution.call.sequence,
-                domain=execution.framework.domain,
+            return self._timeout_result(
+                execution,
                 model_feedback="Action timed out before execution started.",
             )
         hook_result = self._hooks.run(
             execution,
-            catalog=self._catalog,
             context=context,
         )
         if hook_result is not None:
             return hook_result
         if execution.framework.is_expired():
-            return ActionResult.timeout(
-                call_id=execution.call.call_id,
-                invoke_id=execution.framework.invoke_id,
-                batch_id=execution.framework.batch_id,
-                action_name=execution.call.action_name,
-                sequence=execution.call.sequence,
-                domain=execution.framework.domain,
+            return self._timeout_result(
+                execution,
                 model_feedback="Action timed out after hook checks.",
             )
         try:
-            action = self._catalog.get_action(execution.call.action_name)
-            executor = self._executors.get(action.backend.handler)
+            executor = self._executors.get(execution.action.backend.handler)
             result = executor.execute(execution, context)
         except Exception as exc:
             return ActionResult.failed(
@@ -290,16 +310,44 @@ class ActionBatchRunner:
                 },
             )
         if execution.framework.is_expired() and result.status is ActionResultStatus.SUCCESS:
-            return ActionResult.timeout(
-                call_id=execution.call.call_id,
-                invoke_id=execution.framework.invoke_id,
-                batch_id=execution.framework.batch_id,
-                action_name=execution.call.action_name,
-                sequence=execution.call.sequence,
-                domain=execution.framework.domain,
+            return self._timeout_result(
+                execution,
                 model_feedback="Action timed out before result collection.",
+                frame_data={"late_success": True},
             )
         return result
+
+    def _future_result(
+        self,
+        future: Future[ActionResult],
+        execution: ActionExecution,
+    ) -> ActionResult:
+        try:
+            return future.result()
+        except Exception as exc:
+            return self._internal_failure(
+                execution,
+                model_feedback=f"Action runner failed: {exc}",
+                frame_data={"error_type": type(exc).__name__},
+            )
+
+    def _timeout_result(
+        self,
+        execution: ActionExecution,
+        *,
+        model_feedback: str,
+        frame_data: JsonObject | None = None,
+    ) -> ActionResult:
+        return ActionResult.timeout(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            model_feedback=model_feedback,
+            frame_data=frame_data,
+        )
 
     def _internal_failure(
         self,

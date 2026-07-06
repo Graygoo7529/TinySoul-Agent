@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .errors import ActionInvariantError
+from .errors import ActionContractError, ActionInvariantError
 from .specs import ActionDomainSpec, ActionSpec
 
 
@@ -34,13 +34,13 @@ class ActionCatalog:
         try:
             return self._domains[domain_name]
         except KeyError as exc:
-            raise KeyError(f"Unknown action domain: {domain_name}") from exc
+            raise ActionContractError(f"Unknown action domain: {domain_name}") from exc
 
     def get_action(self, action_name: str) -> ActionSpec:
         try:
             return self._actions[action_name]
         except KeyError as exc:
-            raise KeyError(f"Unknown action: {action_name}") from exc
+            raise ActionContractError(f"Unknown action: {action_name}") from exc
 
     def has_domain(self, domain_name: str) -> bool:
         return domain_name in self._domains

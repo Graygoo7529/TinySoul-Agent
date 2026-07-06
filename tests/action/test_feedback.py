@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tinysoul.action.core.feedback import ActionFeedbackRenderer
+from tinysoul.action.core.phase import ActionCyclePhase
 from tinysoul.action.core.result import (
     ActionPhaseResult,
     ActionPhaseResultStage,
@@ -52,7 +53,7 @@ def test_feedback_renderer_creates_error_tool_result_message() -> None:
 
 def test_feedback_renderer_renders_phase_result_payloads() -> None:
     result = ActionPhaseResult.failed(
-        phase="phase2",
+        phase=ActionCyclePhase.PHASE2,
         stage=ActionPhaseResultStage.NORMALIZE,
         model_feedback="No action call was produced.",
         frame_data={"reason": "missing_action_call"},

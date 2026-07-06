@@ -17,7 +17,9 @@ from .hooks import (
     ActionNormalizeHookPipeline,
     ActionNormalizeInput,
 )
+from .phase import ActionCyclePhase
 from .result import ActionPhaseResult, ActionPhaseResultStage, ActionResult, ActionResultStage
+from .specs import ActionSpec
 
 
 @dataclass(frozen=True)
@@ -28,7 +30,6 @@ class ActionCall:
     action_name: str
     params: JsonObject
     sequence: int
-    intent: str = ""
 
     def __post_init__(self) -> None:
         _require_non_empty(self.call_id, "ActionCall.call_id")
@@ -50,7 +51,7 @@ class ActionFramework:
     timeout_seconds: float | None = None
     turn_id: str = ""
     cycle_id: str = ""
-    phase: str = "phase3"
+    phase: ActionCyclePhase = ActionCyclePhase.PHASE3
 
     def __post_init__(self) -> None:
         _require_non_empty(self.invoke_id, "ActionFramework.invoke_id")
@@ -58,6 +59,8 @@ class ActionFramework:
         _require_non_empty(self.domain, "ActionFramework.domain")
         if not isinstance(self.scope, RunScope):
             raise ActionInvariantError("ActionFramework.scope must be a RunScope")
+        if not isinstance(self.phase, ActionCyclePhase):
+            raise ActionInvariantError("ActionFramework.phase must be an ActionCyclePhase")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ActionInvariantError("ActionFramework.timeout_seconds must be positive")
 
@@ -69,8 +72,17 @@ class ActionFramework:
 class ActionExecution:
     """A Phase3 execution wrapper around an action call."""
 
+    action: ActionSpec
     call: ActionCall
     framework: ActionFramework
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.action, ActionSpec):
+            raise ActionInvariantError("ActionExecution.action must be an ActionSpec")
+        if self.action.name != self.call.action_name:
+            raise ActionInvariantError("ActionExecution.action.name must match ActionCall.action_name")
+        if self.action.domain != self.framework.domain:
+            raise ActionInvariantError("ActionExecution.action.domain must match ActionFramework.domain")
 
 
 @dataclass(frozen=True)
@@ -113,7 +125,6 @@ class ActionNormalization:
 
     calls: tuple[ActionCall, ...] = field(default_factory=tuple)
     results: tuple[ActionResult, ...] = field(default_factory=tuple)
-    phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
 
     def merged_results(
         self,
@@ -144,7 +155,6 @@ class ActionCallNormalizer:
     ) -> ActionNormalization:
         calls: list[ActionCall] = []
         results: list[ActionResult] = []
-        phase_results: list[ActionPhaseResult] = []
         seen_call_ids: set[str] = set()
         for index, tool_call in enumerate(tool_calls):
             sequence = index + 1
@@ -204,7 +214,6 @@ class ActionCallNormalizer:
         return ActionNormalization(
             calls=tuple(calls),
             results=tuple(results),
-            phase_results=tuple(phase_results),
         )
 
 
@@ -229,7 +238,7 @@ class ActionExecutionBuilder:
         batch_id: str | None = None,
         turn_id: str = "",
         cycle_id: str = "",
-        phase: str = "phase3",
+        phase: ActionCyclePhase = ActionCyclePhase.PHASE3,
     ) -> ActionBatchPreparation:
         resolved_batch_id = batch_id or f"action_batch_{uuid4().hex[:8]}"
         executions: list[ActionExecution] = []
@@ -273,6 +282,7 @@ class ActionExecutionBuilder:
             timeout = action.runtime.timeout_seconds
             executions.append(
                 ActionExecution(
+                    action=action,
                     call=call,
                     framework=ActionFramework(
                         invoke_id=f"action_invoke_{uuid4().hex[:8]}",
@@ -323,7 +333,7 @@ class ActionExecutionBuilder:
         batch_id: str | None = None,
         turn_id: str = "",
         cycle_id: str = "",
-        phase: str = "phase3",
+        phase: ActionCyclePhase = ActionCyclePhase.PHASE3,
     ) -> ActionBatch:
         preparation = self.prepare_batch(
             calls,
