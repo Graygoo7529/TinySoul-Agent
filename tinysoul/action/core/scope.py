@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from tinysoul.llm.tools import ToolKind, ToolScope, ToolSelection, ToolSpec
 
 from .catalog import ActionCatalog
+from tinysoul.runtime import CyclePhase
+
 from .errors import ActionContractError
-from .phase import ActionCyclePhase
 from .result import ActionPhaseResult, ActionPhaseResultStage
 from .specs import ActionSpec
 
@@ -74,7 +75,7 @@ class Phase2ActionScopeBuilder:
         catalog: ActionCatalog,
         *,
         selected_domains: tuple[str, ...],
-        phase: ActionCyclePhase = ActionCyclePhase.PHASE2,
+        phase: CyclePhase = CyclePhase.PHASE2,
         turn_id: str = "",
         cycle_id: str = "",
     ) -> "ActionScopePreparation":

@@ -8,8 +8,9 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from tinysoul.runtime import CyclePhase
+
 from .errors import ActionInvariantError
-from .phase import ActionCyclePhase
 
 
 class ActionResultStatus(StrEnum):
@@ -178,7 +179,7 @@ class ActionPhaseResult:
     """A structured local result for an action-module phase issue."""
 
     result_id: str
-    phase: ActionCyclePhase
+    phase: CyclePhase
     status: ActionPhaseResultStatus
     stage: ActionPhaseResultStage
     payload: JsonObject = field(default_factory=dict)
@@ -190,8 +191,8 @@ class ActionPhaseResult:
     def __post_init__(self) -> None:
         if not self.result_id:
             raise ActionInvariantError("ActionPhaseResult.result_id must be non-empty")
-        if not isinstance(self.phase, ActionCyclePhase):
-            raise ActionInvariantError("ActionPhaseResult.phase must be an ActionCyclePhase")
+        if not isinstance(self.phase, CyclePhase):
+            raise ActionInvariantError("ActionPhaseResult.phase must be a CyclePhase")
         if not isinstance(self.status, ActionPhaseResultStatus):
             raise ActionInvariantError(
                 "ActionPhaseResult.status must be an ActionPhaseResultStatus"
@@ -207,7 +208,7 @@ class ActionPhaseResult:
     def success(
         cls,
         *,
-        phase: ActionCyclePhase,
+        phase: CyclePhase,
         stage: ActionPhaseResultStage,
         payload: JsonObject | None = None,
         model_feedback: str = "",
@@ -231,7 +232,7 @@ class ActionPhaseResult:
     def failed(
         cls,
         *,
-        phase: ActionCyclePhase,
+        phase: CyclePhase,
         stage: ActionPhaseResultStage,
         model_feedback: str,
         payload: JsonObject | None = None,

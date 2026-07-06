@@ -18,7 +18,7 @@ Turn 是 Program 下的一次顶层任务。用户输入形成 User Turn，每�
 
 Cycle 是 User Turn 内的一次执行轮。User Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 
-Phase 是执行轮内的执行单元。Phase1 负责更新语境与决策行动，Phase2 负责生成行动参数，Phase3 负责采取行动。每个 Phase 都可以包含一次或多次模块级任务。
+Phase 是执行轮内的执行单元。Phase1 负责更新语境与决策行动域，Phase2 负责生成行动参数，Phase3 负责采取行动。每个 Phase 都可以包含一次或多次模块级任务。Phase 的稳定标识由 Runtime 以 CyclePhase 提供，供业务模块在结果与轨迹元数据中引用同一语义。
 
 Module 是具体模块执行边界，包括 LLM Task、Action 执行、Context 操作、Workspace 或 Agent Home 相关操作。模块优先在自身边界内完成局部恢复和错误映射；只有局部策略耗尽或需要全局协调时，才向 Runtime 上抛异常或发出信号。
 
@@ -98,7 +98,7 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 ## 信号分发与消费
 
-信号通过 SignalBus 发出和暂存。SignalBus 提供线程安全的发出、查看和批量消费能力，以支持 Phase3 的并行动作执行、用户追加输入和后台事件。
+信号通过 SignalBus 发出和暂存。SignalBus 提供线程安全的发出、查看、批量消费和按命名空间前缀选择性消费的能力，以支持 Phase3 的并行动作执行、用户追加输入和后台事件；命名空间消费使某个模块可以只取走属于自己的信号，而不影响其他消费者的队列。
 
 信号消费由信号处理器表负责。处理器按信号名称或命名空间订阅信号，并在明确边界批量消费。Phase1 产生的状态信号应在 Phase1 结束后事务式消费；Phase3 的 Action 结果信号应在并行执行完成后批量消费；用户追加输入信号应在 User Turn 可接收输入的位置合并进当前 Turn。
 

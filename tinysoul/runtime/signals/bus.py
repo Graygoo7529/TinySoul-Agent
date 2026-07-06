@@ -30,6 +30,22 @@ class SignalBus:
             self._signals.clear()
             return consumed
 
+    def consume_namespace(self, prefix: str) -> tuple[Signal, ...]:
+        """Consume only signals matching a namespace prefix, keeping the rest queued."""
+
+        if not prefix:
+            raise ValueError("SignalBus.consume_namespace requires a non-empty prefix")
+        with self._lock:
+            matched: list[Signal] = []
+            remaining: list[Signal] = []
+            for signal in self._signals:
+                if signal.name == prefix or signal.name.startswith(f"{prefix}."):
+                    matched.append(signal)
+                else:
+                    remaining.append(signal)
+            self._signals = remaining
+            return tuple(matched)
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._signals)

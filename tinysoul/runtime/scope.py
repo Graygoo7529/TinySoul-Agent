@@ -17,6 +17,14 @@ class RunLevel(StrEnum):
     MODULE = "module"
 
 
+class CyclePhase(StrEnum):
+    """Agent cycle phase identifiers shared across modules."""
+
+    PHASE1 = "phase1"
+    PHASE2 = "phase2"
+    PHASE3 = "phase3"
+
+
 @dataclass(frozen=True)
 class RunFrame:
     """A single frame in the runtime scope stack."""

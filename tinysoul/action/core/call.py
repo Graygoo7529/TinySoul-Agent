@@ -16,7 +16,7 @@ from .hooks import (
     ActionNormalizeHookPipeline,
     ActionNormalizeInput,
 )
-from .phase import ActionCyclePhase
+from tinysoul.runtime import CyclePhase
 from .result import ActionPhaseResult, ActionPhaseResultStage, ActionResult, ActionResultStage
 from .specs import ActionSpec
 
@@ -50,7 +50,7 @@ class ActionFramework:
     timeout_seconds: float | None = None
     turn_id: str = ""
     cycle_id: str = ""
-    phase: ActionCyclePhase = ActionCyclePhase.PHASE3
+    phase: CyclePhase = CyclePhase.PHASE3
 
     def __post_init__(self) -> None:
         _require_non_empty(self.invoke_id, "ActionFramework.invoke_id")
@@ -58,8 +58,8 @@ class ActionFramework:
         _require_non_empty(self.domain, "ActionFramework.domain")
         if not isinstance(self.scope, RunScope):
             raise ActionInvariantError("ActionFramework.scope must be a RunScope")
-        if not isinstance(self.phase, ActionCyclePhase):
-            raise ActionInvariantError("ActionFramework.phase must be an ActionCyclePhase")
+        if not isinstance(self.phase, CyclePhase):
+            raise ActionInvariantError("ActionFramework.phase must be a CyclePhase")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ActionInvariantError("ActionFramework.timeout_seconds must be positive")
 
@@ -235,7 +235,7 @@ class ActionExecutionBuilder:
         batch_id: str | None = None,
         turn_id: str = "",
         cycle_id: str = "",
-        phase: ActionCyclePhase = ActionCyclePhase.PHASE3,
+        phase: CyclePhase = CyclePhase.PHASE3,
     ) -> ActionBatchPreparation:
         resolved_batch_id = batch_id or f"action_batch_{uuid4().hex[:8]}"
         executions: list[ActionExecution] = []
@@ -330,7 +330,7 @@ class ActionExecutionBuilder:
         batch_id: str | None = None,
         turn_id: str = "",
         cycle_id: str = "",
-        phase: ActionCyclePhase = ActionCyclePhase.PHASE3,
+        phase: CyclePhase = CyclePhase.PHASE3,
     ) -> ActionBatch:
         preparation = self.prepare_batch(
             calls,

@@ -9,13 +9,14 @@ from .exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
-from .scope import RunFrame, RunLevel, RunScope
+from .scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
 from .signals import Signal, SignalBus, SignalHandler, SignalHandlerRegistry
 
 __all__ = [
     "CONTEXT_COMPRESSION_REQUIRED",
+    "CyclePhase",
     "HOME_RUNTIME_COPY_REQUIRED",
     "RUNTIME_CYCLE_END",
     "RUNTIME_PROGRAM_END",

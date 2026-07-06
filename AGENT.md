@@ -87,6 +87,8 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - TinySoul 内部应使用自己的 tool call id；供应商 tool call id 只作为适配层相关性信息保留，不应成为 Context、Action 或 Loop 模块依赖的主键。
 - Action 模块向上层提供唯一装配与调用入口（组装门面），内部承担 Phase1 域作用域、Phase2 动作作用域与归一化、Phase3 批次执行。每个模型侧 action tool call 在 Action 模块内恰好收敛为一个局部 ActionResult；无法归因到单个 call 的阶段性问题收敛为 phase-level result。
 - Action 后端分工：native 运行在宿主线程，只能协作式响应取消；需要硬停止语义的动作使用 subprocess 或 script 后端。后端 options 属动态边界，在 catalog 加载期由按 handler 注册的校验器校验。
+- Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。语境变更只有两类入口：信号的事务式消费与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
+- Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 摘要占位）后重试当前 Phase。
 
 ## 工作方式
 
@@ -177,7 +179,7 @@ python -m ty check
 ## 当前任务
 彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action 已完成；下一模块为 context 或 loop，二者共同决定 how_action 注入、hook 服务上下文等挂起接口的定型。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
+当前进度：infra、runtime、llm、action、context 已完成；下一模块为 loop（含 TinySoulApp 装配入口），装配层将定型 how_action 注入、hook 服务上下文与 llm_step 接入等挂起接口。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
 
 重构实现纪律：
 

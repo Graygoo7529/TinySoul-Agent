@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Self
 
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import CyclePhase, RunScope
 
 from .backends.native import NativeActionFunction, NativeFunctionExecutor
 from .backends.script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
@@ -31,7 +31,6 @@ from .core.hooks import (
     ActionNormalizeHookPipeline,
 )
 from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
-from .core.phase import ActionCyclePhase
 from .core.result import ActionResult
 from .core.runner import ActionBatchRunner
 from .core.scope import (
@@ -71,7 +70,7 @@ class ActionEngine:
         return self.phase2_scope_builder.prepare(
             self.catalog,
             selected_domains=selected_domains,
-            phase=ActionCyclePhase.PHASE2,
+            phase=CyclePhase.PHASE2,
             turn_id=turn_id,
             cycle_id=cycle_id,
         )
@@ -101,7 +100,7 @@ class ActionEngine:
             batch_id=batch_id,
             turn_id=turn_id,
             cycle_id=cycle_id,
-            phase=ActionCyclePhase.PHASE3,
+            phase=CyclePhase.PHASE3,
         )
 
     def run_batch(
