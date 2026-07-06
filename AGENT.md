@@ -112,7 +112,7 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 
 - 采用面向对象的代码风格，清楚设计每个类的意图、职责和生命周期。
 - 保持代码质量和清晰架构，不做临时补丁式最小实现。
-- 模块对上层（Loop/Context）暴露单一组装门面（Engine/Builder 风格）作为装配与调用入口；模块内部散件默认只服务于模块内部与测试。
+- 需要装配的业务模块对上层（Loop/Context）暴露单一组装门面（Engine/Builder 风格）作为装配与调用入口；模块内部散件默认只服务于模块内部与测试。
 - 类型标注应尽量具体，避免不必要的 `Any`。确实需要动态边界时，应把 `Any` 限制在接口边缘，并尽快转换为明确结构。
 - 错误处理、状态变更和副作用边界应显式表达，不依赖隐式约定或字符串拼接。
 - 稳定标识符（失败类型、执行阶段、状态、模式等）使用 `StrEnum`；核心数据对象使用 frozen dataclass，并在 `__post_init__` 中校验不变量。
@@ -167,12 +167,11 @@ conda activate TinySoul
 
 ```powershell
 python -m pytest tests -q
-ty check tinysoul
+python -m ty check
 ```
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
-  - 需要文件系统的测试使用 conftest 提供的 `local_tmp` fixture（`.test-tmp` 本地目录），不直接使用系统临时目录；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。
 
 ## 当前任务
