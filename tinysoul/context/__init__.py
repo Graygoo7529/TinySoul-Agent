@@ -1,6 +1,6 @@
 """TinySoul context module."""
 
-from .background import BackgroundContext, BackgroundEntry, BackgroundSource
+from .background import BackgroundContext, BackgroundEntry, BackgroundPatch, BackgroundSource
 from .composer import ContextBudget, MessageStackComposer, estimate_chars
 from .compress import ContextCompressor
 from .controls import (
@@ -29,7 +29,6 @@ from .signals import (
     SIGNAL_NAMESPACE,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    BackgroundPatch,
     build_input_append_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,

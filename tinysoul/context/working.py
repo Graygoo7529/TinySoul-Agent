@@ -107,18 +107,39 @@ class WorkingContext:
     def check_patch(self, patch: WorkingPatch) -> str:
         """Return a model-facing problem description, or empty when applicable."""
 
-        for key in patch.remove_milestones:
-            if key not in self._milestones:
-                return f"Unknown milestone key: {key}"
-        for key in patch.remove_todos:
-            if key not in self._todos:
-                return f"Unknown todo key: {key}"
-        for link in patch.remove_resources:
-            if link not in self._resources:
-                return f"Unknown workspace resource link: {link}"
-        if patch.is_empty():
-            return "Working patch contains no operations"
-        return ""
+        milestones = dict(self._milestones)
+        todos = dict(self._todos)
+        resources = dict(self._resources)
+        return _apply_patch_to_projection(
+            patch,
+            milestones=milestones,
+            todos=todos,
+            resources=resources,
+        )
+
+    def check_patch_sequence(self, patches: tuple[WorkingPatch, ...]) -> tuple[str, ...]:
+        """Validate patches against a projected working state."""
+
+        milestones = dict(self._milestones)
+        todos = dict(self._todos)
+        resources = dict(self._resources)
+        problems: list[str] = []
+        for patch in patches:
+            next_milestones = dict(milestones)
+            next_todos = dict(todos)
+            next_resources = dict(resources)
+            problem = _apply_patch_to_projection(
+                patch,
+                milestones=next_milestones,
+                todos=next_todos,
+                resources=next_resources,
+            )
+            problems.append(problem)
+            if not problem:
+                milestones = next_milestones
+                todos = next_todos
+                resources = next_resources
+        return tuple(problems)
 
     def apply_patch(self, patch: WorkingPatch) -> None:
         problem = self.check_patch(patch)
@@ -155,3 +176,82 @@ class WorkingContext:
 
     def render_messages(self) -> tuple[Message, ...]:
         return (SystemMessage.from_json(self.to_json(), label="working"),)
+
+
+def _apply_patch_to_projection(
+    patch: WorkingPatch,
+    *,
+    milestones: dict[str, Milestone],
+    todos: dict[str, TodoItem],
+    resources: dict[str, WorkspaceResource],
+) -> str:
+    if patch.is_empty():
+        return "Working patch contains no operations"
+    problem = _operation_problem(
+        set_keys=tuple(item.key for item in patch.set_milestones),
+        remove_keys=patch.remove_milestones,
+        label="milestone",
+    )
+    if problem:
+        return problem
+    problem = _operation_problem(
+        set_keys=tuple(item.key for item in patch.set_todos),
+        remove_keys=patch.remove_todos,
+        label="todo",
+    )
+    if problem:
+        return problem
+    problem = _operation_problem(
+        set_keys=tuple(item.link for item in patch.set_resources),
+        remove_keys=patch.remove_resources,
+        label="workspace resource",
+    )
+    if problem:
+        return problem
+
+    for key in patch.remove_milestones:
+        if key not in milestones:
+            return f"Unknown milestone key: {key}"
+        del milestones[key]
+    for key in patch.remove_todos:
+        if key not in todos:
+            return f"Unknown todo key: {key}"
+        del todos[key]
+    for link in patch.remove_resources:
+        if link not in resources:
+            return f"Unknown workspace resource link: {link}"
+        del resources[link]
+    for milestone in patch.set_milestones:
+        milestones[milestone.key] = milestone
+    for todo in patch.set_todos:
+        todos[todo.key] = todo
+    for resource in patch.set_resources:
+        resources[resource.link] = resource
+    return ""
+
+
+def _operation_problem(
+    *,
+    set_keys: tuple[str, ...],
+    remove_keys: tuple[str, ...],
+    label: str,
+) -> str:
+    duplicate = _first_duplicate(set_keys)
+    if duplicate:
+        return f"Working patch contains duplicate {label} set key: {duplicate}"
+    duplicate = _first_duplicate(remove_keys)
+    if duplicate:
+        return f"Working patch contains duplicate {label} remove key: {duplicate}"
+    conflict = sorted(set(set_keys) & set(remove_keys))
+    if conflict:
+        return f"Working patch cannot set and remove the same {label}: {conflict[0]}"
+    return ""
+
+
+def _first_duplicate(values: tuple[str, ...]) -> str:
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            return value
+        seen.add(value)
+    return ""

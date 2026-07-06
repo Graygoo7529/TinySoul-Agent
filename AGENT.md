@@ -78,17 +78,17 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - Infra 提供配置环境与 JSON 边界。配置显式加载、显式传递，模块不在导入时读取配置或创建全局单例；来自模型输出、配置文件或外部接口的动态 JSON 数据，在进入模块内部边界时转换为明确的 JSON 值结构。
 - Runtime 提供运行位置（RunScope）、Runtime 语义异常、Trap 处理器表、运行转移和 SignalBus。控制流变化（结束 Turn/Cycle/Program、全局恢复）统一构造 Runtime 语义异常进入 Trap，Trap 返回指向运行位置栈 frame 的运行转移，由各级运行器消费；模块事件与状态变更请求通过信号表达，由信号处理器在明确边界批量消费。
 - LLM 模块负责模型调用输入输出的统一表达、供应商适配、能力校验、模型选择、重试切换、输出解释，以及 TinySoul 模型侧工具语义与供应商工具协议之间的映射。LLM 模块不负责执行工具、不修改 Context，也不消费 Control Tool 或 Action Tool 的业务语义。
-- Assistant 消息表达模型历史输出，可以包含可见内容和可选推理内容。推理内容用于上层在构造后续上下文时保留模型推理轨迹，但是否保留、如何压缩和如何回放由上层语境或动作层决定。
+- Assistant 消息表达模型历史输出，可以包含可见内容和可选推理内容。推理内容用于上层在构造后续上下文时保留模型推理轨迹；是否保留、如何压缩由上层语境或动作层决定，具体传入供应商的回放形态由 LLM 适配层依据 provider options 和供应商能力决定。
 - LLM 消息内容需要支持灵活的多片段结构，以表达文本、图像和由上层构造的结构化上下文。结构化上下文属于消息内容的一部分，而不是供应商 tool calling 协议的一部分。
 - TinySoul 可以定义自己的 tool message 语义，用于表达模型侧工具定义、工具调用意图和工具结果回放。Provider 原生 `tool` message、`tool_calls`、`tool_call_id` 或 Responses `function_call` 不直接进入 TinySoul 核心语义，应由供应商适配层映射为 TinySoul 内部工具调用结构。
-- Phase1 使用 Control Tools 表达框架内部控制操作。Control Tool Calls 在 Phase1 汇聚后转化为操作信号，并由对应上层模块事务式消费。
+- Phase1 使用 Control Tools 表达框架内部控制操作。Control Tool Calls 在 Phase1 汇聚后转化为操作信号，并由对应上层模块按自身信号消费协议批量处理。
 - Phase2 使用 Action Tools 表达行动参数生成。Phase2 只接收 Phase1 选择的 action domain，并基于已选 domain 内 action 的工具调用结构、补充语义、HOW 和工具 schema 生成 ActionCall。
 - 工具、技能或外部动作执行结果应由上层整理为普通上下文输入，或在需要进行模型侧工具结果回放时转换为 TinySoul tool result message。消息内容可以标注其来源、动作名称、参数、结果和状态，但 provider 原生 tool message 只存在于供应商适配层。
 - TinySoul 内部应使用自己的 tool call id；供应商 tool call id 只作为适配层相关性信息保留，不应成为 Context、Action 或 Loop 模块依赖的主键。
 - Action 模块向上层提供唯一装配与调用入口（组装门面），内部承担 Phase1 域作用域、Phase2 动作作用域与归一化、Phase3 批次执行。每个模型侧 action tool call 在 Action 模块内恰好收敛为一个局部 ActionResult；无法归因到单个 call 的阶段性问题收敛为 phase-level result。
 - Action 后端分工：native 运行在宿主线程，只能协作式响应取消；需要硬停止语义的动作使用 subprocess 或 script 后端。后端 options 属动态边界，在 catalog 加载期由按 handler 注册的校验器校验。
 - Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。ContextEngine 不向上层暴露可变状态持有者；语境变更只有两类入口：信号的批量可行提交与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
-- Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。信号消费先解析同批信号，再对 Working/Background 变更做投影验证并提交可行变更；trace append 使用 text/json 多片段内容投影并可保留 assistant reasoning。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 合并摘要占位）后重试当前 Phase。
+- Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。信号消费先解析同批信号，再对 Working/Background 变更做投影验证并提交可行变更；trace append 使用 text/json 多片段内容投影并可保留 provider-neutral assistant reasoning，但不解释供应商回放语义。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 合并摘要占位）后重试当前 Phase。
 
 ## 工作方式
 

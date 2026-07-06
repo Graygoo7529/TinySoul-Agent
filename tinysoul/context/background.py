@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.llm.messages import Message, SystemMessage
@@ -32,6 +32,17 @@ class BackgroundEntry:
             raise ContextInvariantError("BackgroundEntry.content must be non-empty")
         if not isinstance(self.source, BackgroundSource):
             raise ContextInvariantError("BackgroundEntry.source must be a BackgroundSource")
+
+
+@dataclass(frozen=True)
+class BackgroundPatch:
+    """A background load/evict request parsed from a signal payload."""
+
+    load_links: tuple[str, ...] = field(default_factory=tuple)
+    evict_links: tuple[str, ...] = field(default_factory=tuple)
+
+    def is_empty(self) -> bool:
+        return not (self.load_links or self.evict_links)
 
 
 class BackgroundContext:
@@ -67,6 +78,37 @@ class BackgroundContext:
     def links(self) -> tuple[str, ...]:
         return tuple(self._entries)
 
+    def check_patch(self, patch: BackgroundPatch, *, loadable_links: tuple[str, ...]) -> str:
+        """Return a model-facing patch problem, or empty when applicable."""
+
+        return self._check_patch_against_loaded(
+            patch,
+            loaded=set(self.links()),
+            loadable_links=loadable_links,
+        )
+
+    def check_patch_sequence(
+        self,
+        patches: tuple[BackgroundPatch, ...],
+        *,
+        loadable_links: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Validate patches against a projected loaded-link state."""
+
+        loaded = set(self.links())
+        problems: list[str] = []
+        for patch in patches:
+            next_loaded = set(loaded)
+            problem = self._check_patch_against_loaded(
+                patch,
+                loaded=next_loaded,
+                loadable_links=loadable_links,
+            )
+            problems.append(problem)
+            if not problem:
+                loaded = next_loaded
+        return tuple(problems)
+
     def render_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []
         if self._journal:
@@ -78,3 +120,42 @@ class BackgroundContext:
                 SystemMessage.from_text(entry.content, label=f"background:{entry.link}")
             )
         return tuple(messages)
+
+    def _check_patch_against_loaded(
+        self,
+        patch: BackgroundPatch,
+        *,
+        loaded: set[str],
+        loadable_links: tuple[str, ...],
+    ) -> str:
+        duplicate = _first_duplicate(patch.load_links)
+        if duplicate:
+            return f"Background patch contains duplicate load link: {duplicate}"
+        duplicate = _first_duplicate(patch.evict_links)
+        if duplicate:
+            return f"Background patch contains duplicate evict link: {duplicate}"
+        conflict = sorted(set(patch.load_links) & set(patch.evict_links))
+        if conflict:
+            return f"Background patch cannot load and evict the same link: {conflict[0]}"
+        if patch.is_empty():
+            return "Background patch contains no links"
+        loadable = set(loadable_links)
+        for link in patch.load_links:
+            if link not in loadable:
+                return f"Unknown loadable background link: {link}"
+        for link in patch.evict_links:
+            if link not in loaded:
+                return f"Background link is not loaded: {link}"
+            loaded.remove(link)
+        for link in patch.load_links:
+            loaded.add(link)
+        return ""
+
+
+def _first_duplicate(values: tuple[str, ...]) -> str:
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            return value
+        seen.add(value)
+    return ""

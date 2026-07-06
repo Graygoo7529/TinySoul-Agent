@@ -30,7 +30,7 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### TurnTraceContext
 
-本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息、由追加输入形成的用户消息——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
+本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息、由追加输入形成的用户消息——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；Context 只保存该结构，不判断供应商能否回放。图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
 
 ### PendingInputs
 
@@ -50,7 +50,7 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 
 task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain guidance）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
 
-composer 在构造时执行语境预算检查。预算超限不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
+composer 在构造时执行语境预算检查。预算估算覆盖消息可见文本、JSON 片段，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见推理轨迹绕过上下文预算。预算超限不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
 
 ## 语境控制工具与信号
 
@@ -62,10 +62,12 @@ Context 消费的信号协议：
 
 - `context.working.patch`：WorkingContext 变更请求；
 - `context.background.patch`：顶层内容加载与逐出请求；
-- `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 Reasoning；
+- `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 provider-neutral Reasoning；
 - `context.input.append`：用户追加输入。
 
 信号消费采用批量可行提交语义：先解析同批 `context.*` 信号；解析失败或载荷不合规的信号转为局部结果；Working 与 Background 变更在投影状态上按信号顺序验证，验证通过的变更统一提交，验证失败的变更不提交且不抛异常。该语义不是 all-or-nothing，而是保证可行变更不会因为同批其他失败信号而丢失，同时避免提交前后状态不一致。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
+
+Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep` 和供应商能力决定：OpenAI Responses 只能把加密 reasoning item 作为可回放输入，summary 只是可观察摘要；OpenAI-compatible Chat 供应商若支持历史思考字段，则可在声明保留文本推理内容时回放 `reasoning.content`。Context 不在信号层把这些差异编码为分支。
 
 ## 语境压缩
 

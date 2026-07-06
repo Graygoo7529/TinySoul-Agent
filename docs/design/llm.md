@@ -104,6 +104,8 @@ JSON Schema 不属于当前核心回答格式。严格 schema 支持涉及供应
 
 模型可以在额外选项中声明推理轨迹保留方式。该声明表达 TinySoul 对历史推理内容的上层保留意图，例如不保留、保留文本推理内容，或保留供应商返回的加密推理项。具体供应商是否支持、如何映射和何时传回，由供应商适配层按各自协议处理。
 
+Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史思考字段供应商的文本推理内容；`summary` 是给框架或人观察的摘要，不等同于可回放内容；`encrypted_items` 是 Responses 等供应商返回的结构化加密推理状态。OpenAI-compatible Chat 适配器只有在声明 `reasoning_keep=content` 时才把 `content` 映射为历史推理字段；OpenAI Responses 适配器只有在声明 `reasoning_keep=encrypted` 时才把 `encrypted_items` 放回 Responses input，未声明时跳过历史 reasoning，声明 `content` 时按配置错误处理。这样 Context 可以保留 provider-neutral Reasoning，而不需要理解供应商私有回放协议。
+
 ## 提示缓存
 
 提示缓存应表达为一次请求的缓存意图、路由提示或稳定前缀身份，而不是由 LLM 模块维护完整缓存生命周期。
@@ -138,7 +140,7 @@ LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM �
 
 OpenAI 供应商使用 Responses API。Kimi 以及其他兼容 OpenAI Chat Completions 形态的供应商使用 Chat Completions API。供应商适配层负责把已经渲染的 TinySoul 消息内容、回答格式、工具使用策略、模型侧工具、通用调用参数和模型专属选项映射为对应接口参数，并把响应文本、推理内容、工具调用、用量和元数据归一化。
 
-OpenAI 的推理设置可以通过模型配置中的推理强度和推理摘要选项表达，由 OpenAI 适配层映射到底层 Responses 的推理结构。OpenAI 的历史推理回放使用 Responses 返回的加密推理项；模型声明保留加密推理项时，适配层请求供应商返回对应加密内容，并在后续调用中把这些结构化推理项作为 Responses 输入的一部分传回。OpenAI 的模型侧工具调用可以映射为 Responses 的 function call item，工具结果可以映射为 function call output item。Responses 的 call_id 属于供应商相关性标识，适配层应将其映射到 TinySoul 内部工具调用结构，并避免上层模块直接依赖该标识。OpenAI 的推理摘要只作为可观察摘要保留，不作为可回放推理内容。输出详细度、提示缓存保留时间和服务层级等选项也属于供应商专属配置，由对应适配层映射到底层请求结构。这样可以保持 TinySoul 通用调用设置只表达跨模型通用意图，同时允许不同供应商模型保留各自可解释的 option 字段。
+OpenAI 的推理设置可以通过模型配置中的推理强度和推理摘要选项表达，由 OpenAI 适配层映射到底层 Responses 的推理结构。OpenAI 的历史推理回放使用 Responses 返回的加密推理项；模型声明保留加密推理项时，适配层请求供应商返回对应加密内容，并在后续调用中把这些结构化推理项作为 Responses 输入的一部分传回。OpenAI Responses 的文本 reasoning content 不作为输入回放；历史消息中只有文本 reasoning 且未声明回放时会被跳过，显式声明 `reasoning_keep=content` 则作为不支持的供应商配置报错。OpenAI 的模型侧工具调用可以映射为 Responses 的 function call item，工具结果可以映射为 function call output item。Responses 的 call_id 属于供应商相关性标识，适配层应将其映射到 TinySoul 内部工具调用结构，并避免上层模块直接依赖该标识。OpenAI 的推理摘要只作为可观察摘要保留，不作为可回放推理内容。输出详细度、提示缓存保留时间和服务层级等选项也属于供应商专属配置，由对应适配层映射到底层请求结构。这样可以保持 TinySoul 通用调用设置只表达跨模型通用意图，同时允许不同供应商模型保留各自可解释的 option 字段。
 
 OpenAI SDK 形态的适配应分为通用接口形态和具体供应商差异两层。通用层负责请求、响应、错误、基础多模态映射和模型级通用请求覆盖；供应商层负责自身支持的扩展参数、推理内容位置、缓存选项和接口风格约束。这样可以复用 OpenAI 兼容接口的共同结构，同时避免把不同供应商的专属参数混在同一个通用映射中。
 

@@ -335,6 +335,51 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
     assert "include" not in client.calls[0]
 
 
+def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_exists() -> None:
+    encrypted_item: JsonObject = {
+        "type": "reasoning",
+        "encrypted_content": "encrypted-state",
+    }
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="ok",
+            output=[],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_text(
+                    "previous answer",
+                    reasoning=Reasoning(
+                        content="local reasoning",
+                        encrypted_items=(encrypted_item,),
+                    ),
+                )
+            ),
+            answer_format=AnswerFormat.TEXT,
+            provider_options={"reasoning_keep": "encrypted"},
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        encrypted_item,
+        {
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "previous answer"}],
+        },
+    ]
+    assert client.calls[0]["include"] == ["reasoning.encrypted_content"]
+
+
 def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
     adapter = OpenAIProviderAdapter(
         provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
@@ -1746,27 +1791,39 @@ def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
     ]
 
 
-def test_openai_responses_adapter_rejects_message_reasoning_input() -> None:
+def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="ok",
+            output=[],
+            usage={},
+        )
+    )
     adapter = OpenAIProviderAdapter(
         provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
         api_key="key",
-        responses=FakeCreateClient(response=object()),
+        responses=client,
     )
 
-    with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
-            ProviderRequest(
-                model=_model(provider_id="openai", provider_model="gpt-5.5"),
-                messages=MessageStack.of(
-                    AssistantMessage.from_text("previous answer",
-                        reasoning="local reasoning",
-                    )
-                ),
-                answer_format=AnswerFormat.TEXT,
-            )
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_text(
+                    "previous answer",
+                    reasoning="local reasoning",
+                )
+            ),
+            answer_format=AnswerFormat.TEXT,
         )
+    )
 
-    assert exc.value.kind is ProviderErrorKind.CONFIG
+    assert client.calls[0]["input"] == [
+        {
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "previous answer"}],
+        }
+    ]
 
 
 def test_provider_option_rejects_unknown_key() -> None:

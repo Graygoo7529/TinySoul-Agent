@@ -10,11 +10,8 @@ from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelection, ToolSpec
 from tinysoul.runtime import RunScope, Signal
 
-from .signals import (
-    BackgroundPatch,
-    build_background_patch_signal,
-    build_working_patch_signal,
-)
+from .background import BackgroundPatch
+from .signals import build_background_patch_signal, build_working_patch_signal
 from .working import Milestone, TodoItem, TodoStatus, WorkingPatch
 
 CONTROL_UPDATE_WORKING = "update_working"

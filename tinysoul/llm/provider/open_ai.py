@@ -41,16 +41,16 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return ()
         reasoning = message.reasoning
-        if reasoning.content is not None:
-            raise ProviderError(
-                "OpenAI does not support text reasoning content input",
-                kind=ProviderErrorKind.CONFIG,
-            )
         keep = provider_reasoning_keep(options, provider="OpenAI")
         if keep is ReasoningKeep.NONE:
             return ()
         if keep is ReasoningKeep.ENCRYPTED:
             return reasoning.encrypted_items
+        if reasoning.content is not None:
+            raise ProviderError(
+                "OpenAI does not support text reasoning content input",
+                kind=ProviderErrorKind.CONFIG,
+            )
         raise ProviderError(
             "OpenAI does not support text reasoning keep",
             kind=ProviderErrorKind.CONFIG,

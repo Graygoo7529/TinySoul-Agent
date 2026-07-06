@@ -2,12 +2,12 @@
 
 Producers (Phase1 normalization inside this module, and the loop module for
 trace/input signals) build signals with the helpers below; ContextEngine parses
-and consumes them transactionally. Payloads stay JSON-safe.
+and consumes the feasible state changes in batches. Payloads stay JSON-safe.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.llm.messages import (
@@ -21,6 +21,7 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
 from .errors import ContextContractError
+from .background import BackgroundPatch
 from .working import Milestone, TodoItem, TodoStatus, WorkingPatch, WorkspaceResource
 
 SIGNAL_NAMESPACE = "context"
@@ -107,17 +108,6 @@ def working_patch_from_json(value: JsonObject) -> WorkingPatch:
 
 # ---------------------------------------------------------------------------
 # Background patch
-
-
-@dataclass(frozen=True)
-class BackgroundPatch:
-    """A background load/evict request parsed from a signal payload."""
-
-    load_links: tuple[str, ...] = field(default_factory=tuple)
-    evict_links: tuple[str, ...] = field(default_factory=tuple)
-
-    def is_empty(self) -> bool:
-        return not (self.load_links or self.evict_links)
 
 
 def build_background_patch_signal(

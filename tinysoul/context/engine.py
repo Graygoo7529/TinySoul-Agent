@@ -10,7 +10,12 @@ from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import RunScope, Signal, SignalBus
 
-from .background import BackgroundContext, BackgroundEntry, BackgroundSource
+from .background import (
+    BackgroundContext,
+    BackgroundEntry,
+    BackgroundPatch,
+    BackgroundSource,
+)
 from .composer import ContextBudget, MessageStackComposer
 from .compress import ContextCompressor
 from .controls import (
@@ -28,7 +33,6 @@ from .signals import (
     SIGNAL_NAMESPACE,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
-    BackgroundPatch,
     TraceAppend,
     parse_background_patch_signal,
     parse_input_append_signal,
@@ -36,13 +40,7 @@ from .signals import (
     parse_working_patch_signal,
 )
 from .trace import CompressionReport, PendingInputs, TraceKind, TurnTraceContext
-from .working import (
-    Milestone,
-    TodoItem,
-    WorkingContext,
-    WorkingPatch,
-    WorkspaceResource,
-)
+from .working import WorkingContext, WorkingPatch
 
 
 @dataclass(frozen=True)
@@ -264,26 +262,13 @@ class ContextEngine:
         *,
         results: list[ControlResult],
     ) -> tuple[WorkingPatch, ...]:
-        milestones = {item.key: item for item in self._working.milestones()}
-        todos = {item.key: item for item in self._working.todos()}
-        resources = {item.link: item for item in self._working.resources()}
+        patches = tuple(patch for _, _, _, patch in candidates)
+        problems = self._working.check_patch_sequence(patches)
         valid: list[WorkingPatch] = []
-        for sequence, signal, call_id, patch in candidates:
-            next_milestones = dict(milestones)
-            next_todos = dict(todos)
-            next_resources = dict(resources)
-            problem = _apply_working_patch_to_projection(
-                patch,
-                milestones=next_milestones,
-                todos=next_todos,
-                resources=next_resources,
-            )
+        for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
                 continue
-            milestones = next_milestones
-            todos = next_todos
-            resources = next_resources
             valid.append(patch)
         return tuple(valid)
 
@@ -293,38 +278,18 @@ class ContextEngine:
         *,
         results: list[ControlResult],
     ) -> tuple[BackgroundPatch, ...]:
-        loaded = set(self._background.links())
+        patches = tuple(patch for _, _, _, patch in candidates)
+        problems = self._background.check_patch_sequence(
+            patches,
+            loadable_links=tuple(self._loadable_entries),
+        )
         valid: list[BackgroundPatch] = []
-        for sequence, signal, call_id, patch in candidates:
-            next_loaded = set(loaded)
-            problem = self._apply_background_patch_to_projection(patch, next_loaded)
+        for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
                 continue
-            loaded = next_loaded
             valid.append(patch)
         return tuple(valid)
-
-    def _apply_background_patch_to_projection(
-        self,
-        patch: BackgroundPatch,
-        loaded: set[str],
-    ) -> str:
-        conflict = sorted(set(patch.load_links) & set(patch.evict_links))
-        if conflict:
-            return f"Background patch cannot load and evict the same link: {conflict[0]}"
-        if patch.is_empty():
-            return "Background patch contains no links"
-        for link in patch.load_links:
-            if link not in self._loadable_entries:
-                return f"Unknown loadable background link: {link}"
-        for link in patch.evict_links:
-            if link not in loaded:
-                return f"Background link is not loaded: {link}"
-            loaded.remove(link)
-        for link in patch.load_links:
-            loaded.add(link)
-        return ""
 
     def _apply_background_patch(self, patch: BackgroundPatch) -> None:
         for link in patch.load_links:
@@ -472,68 +437,4 @@ def _signal_call_id(signal: Signal) -> str:
     call_id = signal.payload.get("call_id")
     if isinstance(call_id, str):
         return call_id
-    return ""
-
-
-def _apply_working_patch_to_projection(
-    patch: WorkingPatch,
-    *,
-    milestones: dict[str, Milestone],
-    todos: dict[str, TodoItem],
-    resources: dict[str, WorkspaceResource],
-) -> str:
-    if patch.is_empty():
-        return "Working patch contains no operations"
-    problem = _working_conflict_problem(
-        set_keys=tuple(item.key for item in patch.set_milestones),
-        remove_keys=patch.remove_milestones,
-        label="milestone",
-    )
-    if problem:
-        return problem
-    problem = _working_conflict_problem(
-        set_keys=tuple(item.key for item in patch.set_todos),
-        remove_keys=patch.remove_todos,
-        label="todo",
-    )
-    if problem:
-        return problem
-    problem = _working_conflict_problem(
-        set_keys=tuple(item.link for item in patch.set_resources),
-        remove_keys=patch.remove_resources,
-        label="workspace resource",
-    )
-    if problem:
-        return problem
-
-    for key in patch.remove_milestones:
-        if key not in milestones:
-            return f"Unknown milestone key: {key}"
-        del milestones[key]
-    for key in patch.remove_todos:
-        if key not in todos:
-            return f"Unknown todo key: {key}"
-        del todos[key]
-    for link in patch.remove_resources:
-        if link not in resources:
-            return f"Unknown workspace resource link: {link}"
-        del resources[link]
-    for milestone in patch.set_milestones:
-        milestones[milestone.key] = milestone
-    for todo in patch.set_todos:
-        todos[todo.key] = todo
-    for resource in patch.set_resources:
-        resources[resource.link] = resource
-    return ""
-
-
-def _working_conflict_problem(
-    *,
-    set_keys: tuple[str, ...],
-    remove_keys: tuple[str, ...],
-    label: str,
-) -> str:
-    conflict = sorted(set(set_keys) & set(remove_keys))
-    if conflict:
-        return f"Working patch cannot set and remove the same {label}: {conflict[0]}"
     return ""

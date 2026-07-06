@@ -83,7 +83,7 @@ def test_control_scope_tracks_background_state() -> None:
     assert "home:what@x" in engine.background_links()
 
 
-def test_consume_signals_transactional_validation() -> None:
+def test_consume_signals_commits_feasible_valid_changes() -> None:
     engine = _engine()
     engine.begin_turn("hi")
     bus = SignalBus()

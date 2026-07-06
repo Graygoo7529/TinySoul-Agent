@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.infra.json import dumps_json
 from tinysoul.llm.messages import (
+    AssistantMessage,
     JsonPart,
     Message,
     MessageStack,
@@ -80,4 +81,12 @@ def estimate_chars(messages: tuple[Message, ...]) -> int:
                 total += len(part.text)
             elif isinstance(part, JsonPart):
                 total += len(dumps_json(part.value))
+        if isinstance(message, AssistantMessage) and message.reasoning is not None:
+            reasoning = message.reasoning
+            if reasoning.content is not None:
+                total += len(reasoning.content)
+            if reasoning.summary is not None:
+                total += len(reasoning.summary)
+            for item in reasoning.encrypted_items:
+                total += len(dumps_json(item))
     return total

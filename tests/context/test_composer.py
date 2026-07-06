@@ -15,7 +15,8 @@ from tinysoul.context import (
     WorkingContext,
     estimate_chars,
 )
-from tinysoul.llm.messages import SystemMessage, TextPart, UserMessage
+from tinysoul.llm.messages import AssistantMessage, SystemMessage, TextPart, UserMessage
+from tinysoul.llm.reasoning import Reasoning
 
 
 def _sections() -> tuple[BackgroundContext, WorkingContext, TurnTraceContext]:
@@ -83,3 +84,20 @@ def test_estimate_counts_text_and_json_parts() -> None:
     )
     estimated = estimate_chars(messages)
     assert estimated >= 4 + len('{"k": "v"}') - 2
+
+
+def test_estimate_counts_assistant_reasoning() -> None:
+    messages = (
+        AssistantMessage.from_text(
+            "answer",
+            reasoning=Reasoning(
+                content="thinking content",
+                summary="thinking summary",
+                encrypted_items=({"type": "reasoning", "encrypted_content": "state"},),
+            ),
+        ),
+    )
+
+    estimated = estimate_chars(messages)
+
+    assert estimated > len("answer") + len("thinking content") + len("thinking summary")
