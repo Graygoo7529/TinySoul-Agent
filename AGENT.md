@@ -32,7 +32,7 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 
 （3）WHY 是另一个 Knowledge 库，在语境中通过 home:why@question_content 标识，用于标注问题的原因和解答。WHY 使用 question_content.md 记录问题的具体内容以及关联内容（通过链接）。question_content.md 是顶层内容，并可通过语义匹配 top-k why 交付语境模块；
 
-（4）HOW 是另一个 Knowledge 库，它是当前智能体设计中 Skill 的变种，在语境中通过 home:how@skill_name 标识。skill 下的 skill_name.md 是顶层内容，并可通过链接渐进式加载相关内容，如 home:how/skill_name/ref.md、home:how/skill_name/script.py。所有 skill_name 和 skill_desc 应形成一份清单（或通过 metadata 动态扫描），这份描述清单也是顶层内容，且 AGENT 规约应说明 HOW 的使用方式。除了 Skill 这种顶层 HOW，还有一种与具体工具/行动域绑定的 HOW（how to use action_name），可以自动在 Phase2、Phase3 对具体行动域提出引导，并添加到 task prompt 中；
+（4）HOW 是另一个 Knowledge 库，它是当前智能体设计中 Skill 的变种，在语境中通过 home:how@skill_name 标识。skill 下的 skill_name.md 是顶层内容，并可通过链接渐进式加载相关内容，如 home:how/skill_name/ref.md、home:how/skill_name/script.py。所有 skill_name 和 skill_desc 应形成一份清单（或通过 metadata 动态扫描），这份描述清单也是顶层内容，且 AGENT 规约应说明 HOW 的使用方式。除了 Skill 这种顶层 HOW，还有一种与行动域绑定的 HOW（how to use domain action），可以自动在 Phase2、Phase3 对已选行动域提出引导，并添加到 task prompt 中；自动绑定加载的 HOW 文档约束为 domain 层级，因为 Phase1 选择的是 domain 而非某个 action；
 
 （5）MEMORY 是长期记忆库，每天形成一个 yyyy-mm-dd.md 的日志，且日志可以通过 home:memory@yyyy-mm-dd 标识为顶层内容。它记录当天记忆内容，并在日志中使用链接指向关联内容；也可通过工具反向查询 Agent Home 中具有 home:memory@yyyy-mm-dd 标识的其他顶层内容；可通过语义匹配 top-k memory 交付语境模块，且 AGENT 规约应说明 MEMORY 的使用方式；
 
@@ -43,7 +43,7 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 
 
 一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
-（Phase1）更新语境与决策行动：基于完整语境/Context，调用 LLM Task。Phase1 可以向模型提供框架内部 Control Tools，例如状态更新工具、背景更新工具和 Phase2 行动域选择工具；模型返回的 Control Tool Calls 不直接修改状态，而是在 Phase1 结束后被汇聚、校验、归一化并转化为内部操作信号，由 WorkingContext、BackgroundContext、Loop 等上层模块分别消费；从而执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择一个或多个 action domain 进入 Phase2；Phase1 不生成完整行动参数，也不暴露全部二级 action 定义；
+（Phase1）更新语境与决策行动域：基于完整语境/Context，调用 LLM Task。Phase1 可以向模型提供框架内部 Control Tools，例如状态更新工具、背景更新工具和 Phase2 行动域选择工具；模型返回的 Control Tool Calls 不直接修改状态，而是在 Phase1 结束后被汇聚、校验、归一化并转化为内部操作信号，由 WorkingContext、BackgroundContext、Loop 等上层模块分别消费；从而执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择一个或多个 action domain 进入 Phase2；Phase1 不生成完整行动参数，也不暴露全部二级 action 定义；
 （Phase2）生成行动参数：为 Phase1 选择的 domain 生成具体 ActionCall，调用 LLM Task。Phase2 只向模型提供已选 domain 内的 Action Tools，以及对应 action 的工具调用结构、补充语义和 HOW 文档；模型返回的 Action Tool Calls 被归一化为 ActionCall；
 （Phase3）采取行动：一个 map-reduce 风格的执行器，将 Phase2 的 ActionCall 装配为 ActionBatch 并实际执行。每个 action 除了反馈给模型的工具调用结构和补充语义外，还有框架内配置，例如超时时长、并发策略和通用/专用 hook 等。action 执行器会（a）将 ActionCall 补充为包含已解析 ActionSpec、运行时 action id、批次 id、执行参数、框架配置的自包含执行输入；（b）对每个 action 执行通用/专用 hook 检查；（c）等待全部行动执行完成或超时，并优先通过协作取消或进程终止收束执行体；（d）为每个 action 返回结构化 ActionResult（包括检查失败、执行失败和超时等结果）；（e）渲染和处理 ActionResult，例如需要反馈给模型的结果、日志记录的结果等。Batch 只是执行编排容器，不额外定义 batch result。
 
@@ -58,7 +58,7 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
     - what（/entity，/concept）
     - why（/QA_*.md）
     - how（/skill_name/(SKILL.md+reference/+SKILL_MEMORY.md))
-    - how_action（/action_name/(ACTION.md+ACTION_MEMORY.md))
+    - how_action（/domain_name/(DOMAIN.md+DOMAIN_MEMORY.md))
     - this_day_memory.md（以前 memory 只读，在 home 中不需要拉过来，查询即可）
 
 Trap/异常和信号：TinySoul 使用统一的异常定义和内部信号处理，采用 OS-中断设计思路和实现风格。对于异常，可以分为（1）模块层面暂时抛出并局部处理，例如 Action 执行中的失败，被执行器捕获后结构化为 Action Result，以及 llm 模块的模型重试和切换；（2）上层逻辑层面的全局处理，并在触发后陷入处理流程，例如语境过长需要压缩、home 副本拷贝等框架层面的机制（类似页表换出），以及响应用户外部指令，例如中断当前用户轮、中断程序，或追加用户输入（陷入处理后转化为内部信号给内部模块消费）。TinySoul 整体异常处理分成如下层次：（a）局部修复策略（llm 模块的模型重试和切换）和错误映射（Action 异常转换为模型反馈），局部处理失败后再向上层报错；（b）由全局处理决定继续当前用户轮（返回异常陷入位置）/中断当前用户轮/退出程序；
@@ -75,17 +75,17 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 本节是已实现模块的运行方式规约，随模块实现动态补充，供后续模块设计时理解既有模块的协作方式；详细设计见 docs/design/ 对应文档。
 
 - TinySoul 拥有独立的上层动作层。动作选择、上下文选择、参数生成、动作执行结果管理不依赖模型供应商的原生 tool calling 接口；供应商原生 tool calling 只作为 LLM 适配层可选映射方式。
+- Infra 提供配置环境与 JSON 边界。配置显式加载、显式传递，模块不在导入时读取配置或创建全局单例；来自模型输出、配置文件或外部接口的动态 JSON 数据，在进入模块内部边界时转换为明确的 JSON 值结构。
+- Runtime 提供运行位置（RunScope）、Runtime 语义异常、Trap 处理器表、运行转移和 SignalBus。控制流变化（结束 Turn/Cycle/Program、全局恢复）统一构造 Runtime 语义异常进入 Trap，Trap 返回指向运行位置栈 frame 的运行转移，由各级运行器消费；模块事件与状态变更请求通过信号表达，由信号处理器在明确边界批量消费。
 - LLM 模块负责模型调用输入输出的统一表达、供应商适配、能力校验、模型选择、重试切换、输出解释，以及 TinySoul 模型侧工具语义与供应商工具协议之间的映射。LLM 模块不负责执行工具、不修改 Context，也不消费 Control Tool 或 Action Tool 的业务语义。
-- TinySoul 可以定义自己的 tool message 语义，用于表达模型侧工具定义、工具调用意图和工具结果回放。Provider 原生 `tool` message、`tool_calls`、`tool_call_id` 或 Responses `function_call` 不直接进入 TinySoul 核心语义，应由供应商适配层映射为 TinySoul 内部工具调用结构。
 - Assistant 消息表达模型历史输出，可以包含可见内容和可选推理内容。推理内容用于上层在构造后续上下文时保留模型推理轨迹，但是否保留、如何压缩和如何回放由上层语境或动作层决定。
+- LLM 消息内容需要支持灵活的多片段结构，以表达文本、图像和由上层构造的结构化上下文。结构化上下文属于消息内容的一部分，而不是供应商 tool calling 协议的一部分。
+- TinySoul 可以定义自己的 tool message 语义，用于表达模型侧工具定义、工具调用意图和工具结果回放。Provider 原生 `tool` message、`tool_calls`、`tool_call_id` 或 Responses `function_call` 不直接进入 TinySoul 核心语义，应由供应商适配层映射为 TinySoul 内部工具调用结构。
 - Phase1 使用 Control Tools 表达框架内部控制操作。Control Tool Calls 在 Phase1 汇聚后转化为操作信号，并由对应上层模块事务式消费。
 - Phase2 使用 Action Tools 表达行动参数生成。Phase2 只接收 Phase1 选择的 action domain，并基于已选 domain 内 action 的工具调用结构、补充语义、HOW 和工具 schema 生成 ActionCall。
 - 工具、技能或外部动作执行结果应由上层整理为普通上下文输入，或在需要进行模型侧工具结果回放时转换为 TinySoul tool result message。消息内容可以标注其来源、动作名称、参数、结果和状态，但 provider 原生 tool message 只存在于供应商适配层。
 - TinySoul 内部应使用自己的 tool call id；供应商 tool call id 只作为适配层相关性信息保留，不应成为 Context、Action 或 Loop 模块依赖的主键。
-- LLM 消息内容需要支持灵活的多片段结构，以表达文本、图像和由上层构造的结构化上下文。结构化上下文属于消息内容的一部分，而不是供应商 tool calling 协议的一部分。
-- Infra 提供配置环境与 JSON 边界。配置显式加载、显式传递，模块不在导入时读取配置或创建全局单例；来自模型输出、配置文件或外部接口的动态 JSON 数据，在进入模块内部边界时转换为明确的 JSON 值结构。
-- Runtime 提供运行位置（RunScope）、Runtime 语义异常、Trap 处理器表、运行转移和 SignalBus。控制流变化（结束 Turn/Cycle/Program、全局恢复）统一构造 Runtime 语义异常进入 Trap，Trap 返回指向运行位置栈 frame 的运行转移，由各级运行器消费；模块事件与状态变更请求通过信号表达，由信号处理器在明确边界批量消费。
-- Action 模块通过向上层提供唯一装配与调用入口，承担 Phase1 域作用域、Phase2 动作作用域与归一化、Phase3 批次执行。每个模型侧 action tool call 在 Action 模块内恰好收敛为一个局部 ActionResult；无法归因到单个 call 的阶段性问题收敛为 phase-level result。
+- Action 模块向上层提供唯一装配与调用入口（组装门面），内部承担 Phase1 域作用域、Phase2 动作作用域与归一化、Phase3 批次执行。每个模型侧 action tool call 在 Action 模块内恰好收敛为一个局部 ActionResult；无法归因到单个 call 的阶段性问题收敛为 phase-level result。
 - Action 后端分工：native 运行在宿主线程，只能协作式响应取消；需要硬停止语义的动作使用 subprocess 或 script 后端。后端 options 属动态边界，在 catalog 加载期由按 handler 注册的校验器校验。
 
 ## 工作方式
@@ -105,21 +105,23 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - 设计应保持整体一致性：模块职责、对象关系、控制流、错误处理和状态模型必须能相互解释，不应各自独立演化。
 - 基础的、公共的能力应放在通用目录或基础设施模块中，而不是放进某个业务模块。业务模块只保留自身语义，避免 JSON 边界、HTTP 客户端、序列化、通用校验等公共设施被局部模块私有化后重复出现。
 - 架构设计要有长期视角，但实现必须落在真实功能上。不要因为当前规模小而采用短视结构，也不要预留没有实际功能的类型、接口或抽象。
-- TinySoul 是个人项目，应优先服务真实能力和日常使用体验。不要为了工程完备性而引入沉重的降级链路、复杂治理或企业级可靠性机制。
-- 不需要过于成熟的安全、降级等工业应用设计，但这不意味着架构和设计可以短视。设计时必须从长远考虑，把模块边界、对象关系和能力模型想清楚；实现过程应始终服务清晰设计，不能用阶段划分作为短视设计或临时补丁的理由。
+- TinySoul 是个人项目，应优先服务真实能力和日常使用体验，不为工程完备性引入沉重的降级链路、复杂治理或企业级可靠性机制；但轻量不等于短视，模块边界、对象关系和能力模型必须从长远考虑想清楚，不能用阶段划分作为短视设计或临时补丁的理由。
 - 不夸大设计价值。文档和代码都应准确描述当前能力、边界和风险。
 
 ## 代码风格
 
 - 采用面向对象的代码风格，清楚设计每个类的意图、职责和生命周期。
 - 保持代码质量和清晰架构，不做临时补丁式最小实现。
+- 模块对上层（Loop/Context）暴露单一组装门面（Engine/Builder 风格）作为装配与调用入口；模块内部散件默认只服务于模块内部与测试。
 - 类型标注应尽量具体，避免不必要的 `Any`。确实需要动态边界时，应把 `Any` 限制在接口边缘，并尽快转换为明确结构。
 - 错误处理、状态变更和副作用边界应显式表达，不依赖隐式约定或字符串拼接。
+- 稳定标识符（失败类型、执行阶段、状态、模式等）使用 `StrEnum`；核心数据对象使用 frozen dataclass，并在 `__post_init__` 中校验不变量。
 - 模块失败处理应区分三层语义：（1）可反馈局部结果，表示一次模型输出、一次 action call 或一次 phase 执行已经完成但不满足局部协议，可由调用方写入 Context 并反馈给后续模型；（2）模块边界异常，表示模块调用契约、配置、供应商、执行环境或内部不变量失败，当前局部流程不能继续；（3）Runtime 语义异常，表示需要由 Trap 改变全局运行控制流。不要把这三层混用。
 - 可反馈局部结果应由模块自己的结果类型表达，例如 LLM 的 task failure result、Action 的 action result 或 phase result。局部结果应包含面向模型的简短反馈和框架内部摘要数据，但不应携带完整消息栈、原始异常对象、traceback、大块文件内容或不可 JSON 化对象。
 - 正常业务流中可以被模型或上层策略修正的问题，应优先转为局部结果，而不是抛出普通异常。例如模型回答不符合任务解释协议、action 参数不符合 schema、hook 拒绝、action 执行失败、action 超时、phase 无法准备可用 action scope 等，都应成为局部结果，由 Context 或上层模块决定如何记录和反馈。
 - 模块边界异常用于表达当前流程无法继续的契约性或环境性失败，例如配置无法解释、模型链耗尽、供应商不可恢复失败、调用参数违反模块契约、catalog 不变量破坏、内部对象不变量破坏等。这类异常不应作为普通上下文反馈继续执行，而应在模块公共边界转换为 Runtime 语义异常。
 - 模块内部可以使用普通 Python 异常或模块私有异常表达内部失败；跨出模块边界并交给 Runtime 处理的异常，应在模块边界转换为 Runtime 可理解的语义异常，避免供应商、解析器或具体实现错误类型污染全局运行控制。
+- 表达模块语义失败时，不直接抛出裸 `ValueError`、`TypeError` 等内置异常；应转为局部结果或使用模块私有异常；需要改变运行控制流时，再由模块边界的 bridge 转换为 Runtime 语义异常。
 - 模块稳定失败语义应由模块内部维护；需要交给 Runtime 的失败由专门 bridge 映射为少量通用 Runtime 原因。bridge 应显式构造 message 和 JSON payload；原始异常链用于调试，不作为 payload 协议。
 - 新模块接入 Runtime 时，应优先遵循 LLM、Action 和 Infra 的模式：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由 `tinysoul/runtime/bridge/` 下的专门桥接代码通过映射表转换为 Runtime 语义异常；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
 - 模块 failure payload 应保持稳定、精简和 JSON 安全。跨 Runtime 边界时 payload 至少应能表达模块名和模块失败类型，并可按需携带 `error_type`、配置 key、profile、资源句柄等摘要字段；不要放原始异常对象、traceback、大块文件内容、完整消息栈或业务模块内部对象。
@@ -130,11 +132,6 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - 测试应服务于当前真实架构契约，而不是机械延续历史测试假设。
 - 代码应通过 `ty` 语言服务器的类型检查。若类型检查暴露真实设计问题，应修正设计或类型边界，而不是用宽泛忽略掩盖问题。
 - 增加新的 py 文件时要谨慎，先考虑现有设计，再考虑是否有必要新增，避免出现职责重复的文件或类型，避免架构模糊不清晰。
-- 稳定标识符（失败类型、执行阶段、状态、模式等）使用 `StrEnum`；核心数据对象使用 frozen dataclass。
-- 表达模块语义失败时，不直接抛出裸 `ValueError`、`TypeError` 等内置异常；应使用模块私有异常，或转为局部结果，或桥接为 Runtime 异常通过 Trap 进行处理。
-- 模块对上层（Loop/Context）暴露单一组装门面（Engine/Builder 风格）作为装配与调用入口；模块内部散件默认只服务于模块内部与测试。
-
-
 
 ## 文档规则
 
@@ -144,7 +141,7 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
   - 存放整体或模块级设计思路。
   - 描述设计目标、模块职责、关键概念、边界和取舍。
   - 重要设计调整应即时同步到对应设计文档。
-  - 不写具体类名、方法名、代码业务细节、具体类型字段或方法清单。
+  - 可以使用稳定的核心类型名标识模块协议对象，但不罗列类型字段清单、方法清单或代码业务细节。
   - 必须与实际代码保持一致，不能描述尚未落地的能力为已实现能力。
   - 创建和编辑文档时，不使用带有“第一版”“短期”“折中”等倾向的表述；文档应直接描述当前设计边界和职责，而不是阶段性权宜说法。
 
@@ -181,13 +178,12 @@ ty check tinysoul
 ## 当前任务
 彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action 已完成；下一模块为 context 或 loop，二者共同决定 how_action 注入、hook 服务上下文等挂起接口的定型。每完成一个模块，应同步补充「项目规划」中该模块的运行方式规约，并更新本节进度。
+当前进度：infra、runtime、llm、action 已完成；下一模块为 context 或 loop，二者共同决定 how_action 注入、hook 服务上下文等挂起接口的定型。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
 
 重构实现纪律：
 
 - 实现必须遵守项目失败处理三层语义与 Runtime 异常体系。新增任何 raise 前，先归类该失败属于局部结果、模块边界异常还是 Runtime 语义异常（见「代码风格」）；不得按个人编码习惯随手抛出 ValueError、RuntimeError 等通用异常表达模块失败。
 - 新模块的失败语义、组装入口、动态边界处理应对照已完成模块的既有模式（failures.py、bridge、Engine/Builder、加载期校验器），不自行发明平行机制。
-
 
 ## 工作经验
 
