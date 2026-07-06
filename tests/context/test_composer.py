@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.context import (
-    BackgroundContext,
-    BackgroundEntry,
+from tinysoul.context.background import BackgroundContext, BackgroundEntry
+from tinysoul.context.composer import (
     ContextBudget,
-    ContextBudgetError,
     MessageStackComposer,
-    TaskPrompt,
-    TurnTraceContext,
-    WorkingContext,
     estimate_chars,
 )
+from tinysoul.context.errors import ContextBudgetError
+from tinysoul.context.prompts import TaskPrompt
+from tinysoul.context.trace import TurnTraceContext
+from tinysoul.context.working import WorkingContext
 from tinysoul.llm.messages import AssistantMessage, SystemMessage, TextPart, UserMessage
 from tinysoul.llm.reasoning import Reasoning
 

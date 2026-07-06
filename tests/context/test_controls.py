@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from tinysoul.context import (
+from tinysoul.context.controls import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
     CONTROL_UPDATE_WORKING,
-    SIGNAL_BACKGROUND_PATCH,
-    SIGNAL_WORKING_PATCH,
     ContextControlScopeBuilder,
     ControlCallNormalizer,
     ControlResultStage,
 )
+from tinysoul.context.signals import SIGNAL_BACKGROUND_PATCH, SIGNAL_WORKING_PATCH
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunLevel, RunScope
 
@@ -34,6 +33,18 @@ def test_control_scope_reflects_loadable_and_loaded_links() -> None:
 
     minimal = builder.build(loadable_links=(), loaded_links=())
     assert [tool.name for tool in minimal.tools] == [CONTROL_UPDATE_WORKING]
+
+
+def test_update_working_control_scope_does_not_expose_workspace_resources() -> None:
+    tool = ContextControlScopeBuilder().build(
+        loadable_links=(),
+        loaded_links=(),
+    ).tools[0]
+    properties = tool.parameters["properties"]
+
+    assert isinstance(properties, dict)
+    assert "set_resources" not in properties
+    assert "remove_resources" not in properties
 
 
 def test_normalize_update_working_produces_signal() -> None:

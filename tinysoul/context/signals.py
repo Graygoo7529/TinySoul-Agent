@@ -8,6 +8,7 @@ and consumes the feasible state changes in batches. Payloads stay JSON-safe.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, JsonValue
 from tinysoul.llm.messages import (
@@ -148,7 +149,7 @@ def parse_background_patch_signal(signal: Signal) -> tuple[str, BackgroundPatch]
 class TraceAppend:
     """A parsed trace append request."""
 
-    kind: str
+    kind: "TraceAppendKind"
     cycle_id: str = ""
     phase: CyclePhase | None = None
     decision: AssistantMessage | None = None
@@ -156,9 +157,17 @@ class TraceAppend:
     note: JsonObject | None = None
 
 
-TRACE_APPEND_DECISION = "decision"
-TRACE_APPEND_ACTION_RESULT = "action_result"
-TRACE_APPEND_PHASE_NOTE = "phase_note"
+class TraceAppendKind(StrEnum):
+    """Stable trace append signal kinds."""
+
+    DECISION = "decision"
+    ACTION_RESULT = "action_result"
+    PHASE_NOTE = "phase_note"
+
+
+TRACE_APPEND_DECISION = TraceAppendKind.DECISION.value
+TRACE_APPEND_ACTION_RESULT = TraceAppendKind.ACTION_RESULT.value
+TRACE_APPEND_PHASE_NOTE = TraceAppendKind.PHASE_NOTE.value
 
 
 def build_trace_decision_signal(
@@ -226,10 +235,14 @@ def build_trace_phase_note_signal(
 
 
 def parse_trace_append_signal(signal: Signal) -> TraceAppend:
-    kind = _required_str(signal.payload, "kind")
+    kind_value = _required_str(signal.payload, "kind")
+    try:
+        kind = TraceAppendKind(kind_value)
+    except ValueError as exc:
+        raise ContextContractError(f"Unknown trace append kind: {kind_value}") from exc
     cycle_id = _optional_str(signal.payload, "cycle_id")
     phase = _optional_phase(signal.payload)
-    if kind == TRACE_APPEND_DECISION:
+    if kind is TraceAppendKind.DECISION:
         parts = _parts_from_json(signal.payload)
         if not parts:
             text = _optional_str(signal.payload, "text")
@@ -259,7 +272,7 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             phase=phase,
             decision=message,
         )
-    if kind == TRACE_APPEND_ACTION_RESULT:
+    if kind is TraceAppendKind.ACTION_RESULT:
         status_value = _required_str(signal.payload, "status")
         try:
             status = ToolResultStatus(status_value)
@@ -301,12 +314,12 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             phase=CyclePhase.PHASE3,
             action_result=message,
         )
-    if kind == TRACE_APPEND_PHASE_NOTE:
+    if kind is TraceAppendKind.PHASE_NOTE:
         note = signal.payload.get("note")
         if not isinstance(note, dict) or not note:
             raise ContextContractError("Trace phase note signal requires a non-empty note object")
         return TraceAppend(kind=kind, cycle_id=cycle_id, phase=phase, note=note)
-    raise ContextContractError(f"Unknown trace append kind: {kind}")
+    raise ContextContractError(f"Unknown trace append kind: {kind.value}")
 
 
 # ---------------------------------------------------------------------------

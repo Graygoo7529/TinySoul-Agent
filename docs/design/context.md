@@ -22,11 +22,11 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### BackgroundContext
 
-用户轮开始前的背景。持有顶层内容条目（BackgroundEntry）的有序集合与当日会话历程摘要。每个条目对应一个 Agent Home 顶层内容链接（如 `home:what@xxx`）及其渲染文本，并区分默认加载与 Phase1 加载两种来源。条目可以被 Phase1 的控制意图加载或逐出。批量消费背景变更时，Context 会在投影状态上顺序验证同批 load/evict：未知链接、逐出未加载链接、同一信号同时加载和逐出同一链接都会收敛为局部结果；可行变更再统一提交。
+用户轮开始前的背景。持有顶层内容条目（BackgroundEntry）的有序集合与当日会话历程摘要。每个条目对应一个 Agent Home 顶层内容链接（如 `home:what@xxx`）及其渲染文本，并区分默认加载与 Phase1 加载两种来源。条目可以被 Phase1 的控制意图加载或逐出。批量消费背景变更时，Context 会在投影状态上顺序验证同批 load/evict：未知链接、逐出未加载链接、同一信号同时加载和逐出同一链接都会收敛为局部结果；加载已经存在的链接是幂等 no-op，不改变已有条目的内容和来源；可行变更再统一提交。
 
 ### WorkingContext
 
-本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、里程碑（Milestone）与待办（TodoItem）。里程碑与待办使用稳定状态枚举。变更通过明确的补丁类型（WorkingPatch）表达，补丁由信号载荷解析而来。批量消费工作台变更时，Context 会在投影状态上顺序验证同批 patch，因此后一条 patch 能看到前一条有效 patch 的结果；无效 patch 收敛为局部结果，不阻止同批其他可行 patch 提交。
+本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、里程碑（Milestone）与待办（TodoItem）。里程碑与待办使用稳定状态枚举。变更通过明确的补丁类型（WorkingPatch）表达，补丁由信号载荷解析而来。Phase1 的语境控制工具只暴露里程碑与待办更新；工作区资源描述由 workspace 或装配层同步工作区摘要时通过 `context.working.patch` 信号提交。Context 只接收、验证和渲染资源句柄，不读取 workspace 文件内容。批量消费工作台变更时，Context 会在投影状态上顺序验证同批 patch，因此后一条 patch 能看到前一条有效 patch 的结果；无效 patch 收敛为局部结果，不阻止同批其他可行 patch 提交。
 
 ### TurnTraceContext
 
@@ -96,7 +96,7 @@ Context 维护内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary�
 
 ## 组装入口
 
-ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压缩服务；它只向上层暴露 compose、control scope、信号消费、输入合并、压缩、TurnSummary 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 负责装配配置（身份 system 文本、默认背景来源、预算阈值等），并在装配边界校验背景链接冲突、非正预算、负数压缩保留数等配置问题。模块内部散件默认只服务于模块内部与测试。
+ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压缩服务；它只向上层暴露 compose、control scope、信号消费、输入合并、压缩、TurnSummary 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 负责装配配置（身份 system 文本、默认背景来源、预算阈值等），并在装配边界校验背景链接冲突、非正预算、负数压缩保留数等配置问题。包级公共导出只保留上层装配和协作需要的门面、结果类型、信号 helper、错误和常量；状态持有者、patch 类型和 codec 细节从子模块显式导入，默认服务于模块内部与测试。
 
 ## 设计范围
 

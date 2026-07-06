@@ -321,7 +321,7 @@ class ControlCallNormalizer:
         )
 
 
-class ControlArgumentError(ValueError):
+class ControlArgumentError(Exception):
     """Raised while parsing control tool call arguments."""
 
 

@@ -8,6 +8,7 @@ from tinysoul.context import (
     CONTROL_LOAD_BACKGROUND,
     CONTROL_UPDATE_WORKING,
     SIGNAL_BACKGROUND_PATCH,
+    SIGNAL_TRACE_APPEND,
     ContextContractError,
     ContextEngineBuilder,
     TaskPrompt,
@@ -17,6 +18,8 @@ from tinysoul.context import (
     build_trace_decision_signal,
     build_trace_phase_note_signal,
 )
+from tinysoul.context.signals import build_working_patch_signal
+from tinysoul.context.working import WorkingPatch, WorkspaceResource
 from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
@@ -233,6 +236,76 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
     assert results[0].call_id == "conflict"
     assert "cannot load and evict" in results[0].model_feedback
     assert "home:what@x" not in engine.background_links()
+
+
+def test_background_signal_treats_loaded_link_load_as_noop() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "reload_default",
+                "load_links": ["home:agent@core"],
+                "evict_links": [],
+            },
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert results == ()
+    assert engine.background_links() == ("home:agent@core",)
+
+
+def test_working_resource_patch_can_be_consumed_from_signal() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        build_working_patch_signal(
+            WorkingPatch(
+                set_resources=(
+                    WorkspaceResource(
+                        link="workspace:doc/a.md",
+                        summary="draft notes",
+                    ),
+                )
+            ),
+            call_id="workspace_sync",
+            scope=SCOPE,
+            source="workspace.sync",
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert results == ()
+    assert engine.working_snapshot()["workspace_resources"] == [
+        {"link": "workspace:doc/a.md", "summary": "draft notes"}
+    ]
+
+
+def test_trace_append_rejects_unknown_kind() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_TRACE_APPEND,
+            source="test",
+            scope=SCOPE,
+            payload={"kind": "unknown_trace_kind"},
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert len(results) == 1
+    assert "Unknown trace append kind" in results[0].model_feedback
 
 
 def test_consume_trace_and_input_signals() -> None:

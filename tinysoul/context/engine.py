@@ -293,6 +293,8 @@ class ContextEngine:
 
     def _apply_background_patch(self, patch: BackgroundPatch) -> None:
         for link in patch.load_links:
+            if self._background.has(link):
+                continue
             self._background.load(
                 BackgroundEntry(
                     link=link,

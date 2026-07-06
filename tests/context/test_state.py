@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.context import (
+from tinysoul.context.background import (
     BackgroundContext,
     BackgroundEntry,
     BackgroundPatch,
     BackgroundSource,
-    ContextContractError,
+)
+from tinysoul.context.errors import ContextContractError
+from tinysoul.context.trace import PendingInputs, TraceKind, TurnTraceContext
+from tinysoul.context.working import (
     Milestone,
-    PendingInputs,
     TodoItem,
     TodoStatus,
-    TraceKind,
-    TurnTraceContext,
     WorkingContext,
     WorkingPatch,
     WorkspaceResource,
