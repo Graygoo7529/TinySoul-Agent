@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from time import monotonic
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.runtime import RuntimeException
 
 from .call import ActionBatch, ActionExecution
 from .errors import ActionContractError
@@ -265,6 +266,8 @@ class ActionBatchRunner:
         try:
             executor = self._executors.get(execution.action.backend.handler)
             result = executor.execute(execution, context)
+        except RuntimeException:
+            raise
         except Exception as exc:
             return ActionResult.failed(
                 call_id=execution.call.call_id,
@@ -323,6 +326,8 @@ class ActionBatchRunner:
     ) -> ActionResult:
         try:
             return future.result()
+        except RuntimeException:
+            raise
         except Exception as exc:
             return self._internal_failure(
                 execution,

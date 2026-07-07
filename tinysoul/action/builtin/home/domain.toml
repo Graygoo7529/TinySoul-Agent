@@ -1,0 +1,7 @@
+name = "home"
+description = "Agent Home knowledge, memory, and skill resource actions."
+selection_hint = "Use when the task needs to inspect Agent Home progressive resources."
+
+[runtime]
+timeout_seconds = 30
+parallel_policy = "serial"

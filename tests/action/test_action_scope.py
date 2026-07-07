@@ -30,6 +30,7 @@ def test_phase1_scope_exposes_domain_control_tool() -> None:
     domains = cast(Mapping[str, JsonValue], properties["domains"])
     items = cast(Mapping[str, JsonValue], domains["items"])
     enum = cast(list[JsonValue], items["enum"])
+    assert "home" in enum
     assert "workspace" in enum
     assert "script" not in enum
     assert "shell" not in enum
@@ -79,5 +80,6 @@ def test_domain_prompt_renderer_lists_actionable_domains() -> None:
     text = ActionDomainPromptRenderer().render(catalog)
 
     assert "workspace:" in text
+    assert "home:" in text
     assert "script:" not in text
     assert "Selection hint:" in text

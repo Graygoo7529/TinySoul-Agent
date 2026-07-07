@@ -26,7 +26,7 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
 
 
 class RejectHook:
@@ -48,6 +48,15 @@ class MismatchedExecutor:
             action_name=execution.call.action_name,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
+        )
+
+
+class RuntimeExceptionExecutor:
+    def execute(self, execution, context) -> ActionResult:
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+            payload={"link": "home:how/test/ref.md"},
         )
 
 
@@ -92,6 +101,21 @@ def test_runner_returns_action_result_from_executor() -> None:
     assert results[0].payload == {"ok": True}
 
 
+def test_runner_allows_runtime_exception_to_reach_trap() -> None:
+    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    executors = ExecutorRegistry()
+    executors.register("core.answer", RuntimeExceptionExecutor())
+
+    with pytest.raises(RuntimeException) as raised:
+        ActionBatchRunner(executors=executors).run(
+            batch,
+            ActionExecutionContext(),
+        )
+
+    assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
+    assert raised.value.payload["link"] == "home:how/test/ref.md"
+
+
 def test_runner_rejects_invalid_max_workers() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
 
@@ -110,8 +134,11 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    assert executors.missing_handlers_for(catalog) == ("workspace.scan",)
-    with pytest.raises(ActionContractError, match="workspace.scan"):
+    assert executors.missing_handlers_for(catalog) == (
+        "home.resource.read",
+        "workspace.scan",
+    )
+    with pytest.raises(ActionContractError, match="home.resource.read"):
         executors.validate_catalog(catalog)
 
 

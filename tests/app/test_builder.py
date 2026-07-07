@@ -71,9 +71,19 @@ def test_app_builder_run_once_answers_with_real_action_and_context() -> None:
     assert outcome.summary.trace_digest["entry_count"] == 3
 
 
-def test_app_builder_cycle_limit_returns_exhausted_turn() -> None:
+def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
+    (tmp_path / "doc.md").write_text("hello", encoding="utf-8")
+    config = ConfigEnvironment.from_project_root(
+        root=Path.cwd(),
+        overrides={
+            "app.interactive": False,
+            "workspace.root": str(tmp_path),
+            "workspace.manifest_path": str(tmp_path / ".tinysoul" / "manifest.json"),
+        },
+    )
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(config)
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
         .with_llm_runner(
@@ -171,8 +181,7 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
 
     exc = raised.value
     assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "context"
-    assert exc.payload["path"] == str(tmp_path / "AGENT.md")
+    assert exc.payload["module"] == "home"
 
 
 def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:

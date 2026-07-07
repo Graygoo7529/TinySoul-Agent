@@ -8,6 +8,15 @@ from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends.llm_step import LLMStepActionExecutor
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
+from tinysoul.home import (
+    AgentHomeEngine,
+    AgentHomeEngineBuilder,
+    AgentHomeRuntimeCopyTrapHandler,
+    HomeDomainGuidanceProvider,
+    HomeResourceReadExecutor,
+    parse_agent_home_settings,
+)
+from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
@@ -17,11 +26,12 @@ from tinysoul.loop.config import LoopSettings, parse_loop_settings
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.program import ProgramRunner
-from tinysoul.loop.prompts import DomainGuidanceProvider, EmptyDomainGuidanceProvider
+from tinysoul.loop.prompts import DomainGuidanceProvider
 from tinysoul.loop.trap_handlers import ContextCompressionTrapHandler, EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
+    HOME_RUNTIME_COPY_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
@@ -34,16 +44,21 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import (
     RuntimeActionBridge,
+    RuntimeAgentHomeBridge,
     RuntimeAppBridge,
     RuntimeContextBridge,
     RuntimeInfraBridge,
     RuntimeLLMBridge,
+    RuntimeWorkspaceBridge,
 )
+from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, parse_workspace_settings
+from tinysoul.workspace.actions import workspace_scan
+from tinysoul.workspace.errors import WorkspaceError
 
 from .config import AppSettings, parse_app_settings
 from .errors import AppError
 from .inputs import InputCommandParser, InputDispatcher, InputSource
-from .native_actions import core_answer, workspace_scan
+from .native_actions import core_answer
 from .runtime import TinySoulApp
 from .sources import TerminalInputSource
 
@@ -60,7 +75,7 @@ class TinySoulAppBuilder:
         self._action: ActionEngine | None = None
         self._context: ContextEngine | None = None
         self._bus: SignalBus | None = None
-        self._guidance: DomainGuidanceProvider = EmptyDomainGuidanceProvider()
+        self._guidance: DomainGuidanceProvider | None = None
         self._input_parser: InputCommandParser | None = None
         self._input_sources: list[InputSource] = []
 
@@ -116,6 +131,8 @@ class TinySoulAppBuilder:
         llm_bridge = RuntimeLLMBridge()
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
+        workspace_bridge = RuntimeWorkspaceBridge()
+        home_bridge = RuntimeAgentHomeBridge()
         try:
             config = (
                 self._config_env
@@ -134,18 +151,23 @@ class TinySoulAppBuilder:
             )
             bus = self._bus if self._bus is not None else SignalBus()
             llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
+            home = self._build_home(config, home_bridge)
+            workspace = self._build_workspace(config, workspace_bridge)
             context = (
                 self._context
                 if self._context is not None
-                else self._build_context(context_bridge)
+                else self._build_context(home, context_bridge)
             )
             action = self._action if self._action is not None else self._build_action(
                 llm=llm,
                 context=context,
                 bus=bus,
+                workspace=workspace,
+                home=home,
                 action_bridge=action_bridge,
             )
-            trap = self._build_trap(context)
+            guidance = self._guidance or HomeDomainGuidanceProvider(home)
+            trap = self._build_trap(context, home)
             phase1 = Phase1Unit(
                 context=context,
                 action=action,
@@ -159,7 +181,7 @@ class TinySoulAppBuilder:
                 llm=llm,
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
-                guidance=self._guidance,
+                guidance=guidance,
             )
             phase3 = Phase3Unit(context=context, action=action, bus=bus)
             cycle_runner = CycleRunner(
@@ -235,27 +257,64 @@ class TinySoulAppBuilder:
         except ConfigError:
             raise
 
-    def _build_context(self, bridge: RuntimeContextBridge) -> ContextEngine:
-        agent_path = self._root / "AGENT.md"
-        if not agent_path.is_file():
-            raise bridge.startup_failure(
-                message="AGENT.md is missing",
-                payload={"path": str(agent_path)},
-            )
+    def _build_home(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeAgentHomeBridge,
+    ) -> AgentHomeEngine:
         try:
-            agent_text = agent_path.read_text(encoding="utf-8")
-        except OSError as exc:
+            settings = parse_agent_home_settings(
+                config.section_tree("home"),
+                project_root=self._root,
+            )
+            home = AgentHomeEngineBuilder(settings).build()
+            home.default_background_entries()
+            return home
+        except ConfigError:
+            raise
+        except AgentHomeError as exc:
             raise bridge.startup_failure(
-                message=f"Failed to read AGENT.md: {exc}",
-                payload={"path": str(agent_path), "error_type": type(exc).__name__},
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
             ) from exc
+
+    def _build_workspace(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeWorkspaceBridge,
+    ) -> WorkspaceEngine:
         try:
-            return (
-                ContextEngineBuilder(system_text="You are TinySoul.")
-                .add_default_background("home:agent@core", agent_text)
-                .build()
+            settings = parse_workspace_settings(
+                config.section_tree("workspace"),
+                project_root=self._root,
             )
+            return WorkspaceEngineBuilder(settings).build()
+        except ConfigError:
+            raise
+        except WorkspaceError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+
+    def _build_context(
+        self,
+        home: AgentHomeEngine,
+        bridge: RuntimeContextBridge,
+    ) -> ContextEngine:
+        try:
+            builder = ContextEngineBuilder(system_text="You are TinySoul.")
+            for entry in home.default_background_entries():
+                builder.add_default_background(entry.link, entry.content)
+            for entry in home.loadable_background_entries():
+                builder.add_loadable_background(entry.link, entry.content)
+            return builder.build()
         except ContextError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+        except AgentHomeError as exc:
             raise bridge.startup_failure(
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},
@@ -267,6 +326,8 @@ class TinySoulAppBuilder:
         llm: LLMRunner,
         context: ContextEngine,
         bus: SignalBus,
+        workspace: WorkspaceEngine,
+        home: AgentHomeEngine,
         action_bridge: RuntimeActionBridge,
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
@@ -274,7 +335,11 @@ class TinySoulAppBuilder:
             return (
                 ActionEngineBuilder(catalog_root)
                 .register_native("core.answer", core_answer)
-                .register_native("workspace.scan", workspace_scan(self._root, bus))
+                .register_native("workspace.scan", workspace_scan(workspace, bus))
+                .register_executor(
+                    "home.resource.read",
+                    HomeResourceReadExecutor(home),
+                )
                 .register_executor(
                     "llm_step.context_task",
                     LLMStepActionExecutor(llm_runner=llm, context=context),
@@ -289,11 +354,16 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
-    def _build_trap(self, context: ContextEngine) -> RuntimeTrap:
+    def _build_trap(
+        self,
+        context: ContextEngine,
+        home: AgentHomeEngine,
+    ) -> RuntimeTrap:
         registry = TrapHandlerRegistry()
         registry.register(RUNTIME_TURN_END, EndFrameTrapHandler(RunLevel.TURN))
         registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
         registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(CONTEXT_COMPRESSION_REQUIRED, ContextCompressionTrapHandler(context))
+        registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
         return RuntimeTrap(registry=registry)

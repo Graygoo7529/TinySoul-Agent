@@ -90,7 +90,9 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。ContextEngine 不向上层暴露可变状态持有者；语境变更只有两类入口：信号的批量可行提交与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
 - Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。信号消费先解析同批信号，再对 Working/Background 变更做投影验证并提交可行变更；trace append 使用 text/json 多片段内容投影并可保留 provider-neutral assistant reasoning，但不解释供应商回放语义。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 合并摘要占位）后重试当前 Phase。
 - Loop 模块是 TinySoul 的运行编排层，按 Program/Turn/Cycle/Phase 消费 Runtime 运行位置与运行转移；Phase 单元只组合 ContextEngine、ActionEngine 与 LLMTaskRunner，不复制三者内部语义。Turn 结束以 `core.answer` action 执行成功为唯一正常完成条件，cycle 上限只作为兜底保护。ProgramRunner 等待 app 层已分类的 ProgramInputEvent；Turn 内控制流变化仍由运行器构造 Runtime 语义异常进入 Trap。
-- App 模块是 TinySoul 的进程装配、生命周期和外部输入边界层。TinySoulAppBuilder 显式加载配置环境，构建 LLM、Action、Context、SignalBus、RuntimeTrap 与各级 loop runner，注册内置 native action、llm_step 执行器和 Trap 处理器。外部输入源只生产 InputEvent，由 InputCommandParser 纯解析为输入意图，再由 InputDispatcher 投递 ProgramInputEvent 或发出 `loop.control.request` / `context.input.append` 信号。`workspace.scan` 当前作为 app 装配层临时 native action 提供轻量工作区资源扫描，并通过 `context.working.patch` 同步资源摘要；Agent Home HOW/Workspace 完整读写机制未接入前，domain guidance 使用可替换 provider 注入，默认不加载额外内容。
+- App 模块是 TinySoul 的进程装配、生命周期和外部输入边界层。TinySoulAppBuilder 显式加载配置环境，构建 LLM、Workspace、Agent Home、Action、Context、SignalBus、RuntimeTrap 与各级 loop runner，注册内置 native action、llm_step 执行器和 Trap 处理器。外部输入源只生产 InputEvent，由 InputCommandParser 纯解析为输入意图，再由 InputDispatcher 投递 ProgramInputEvent 或发出 `loop.control.request` / `context.input.append` 信号。AppBuilder 只装配 Workspace 与 Agent Home 的门面，不直接扫描 workspace，不直接读取 `AGENT.md`、HOW、WHAT、WHY 或 MEMORY 文件。
+- Workspace 模块负责 `workspace:` 链接、当日工作区根目录、资源扫描、manifest 读写和 WorkingContext 资源摘要投影。`workspace.scan` 由 Workspace 模块提供 native handler，通过 `context.working.patch` 信号同步 `WorkspaceResource(link, summary)`；Context 和 Action 结果不保存 workspace 文件正文。当前已实现扫描与 manifest 切面，workspace read/write/patch/delete 和日终归档仍需继续在 Workspace 模块内扩展。
+- Agent Home 模块负责 `home:` 链接、顶层背景条目、渐进式资源、domain HOW guidance 和运行时副本准备。`home:agent@core` 由 Agent Home 提供给 BackgroundContext；`home:how_action@<domain>` 由 `HomeDomainGuidanceProvider` 注入 Phase2；`home.resource.read` 读取有界渐进式资源并返回局部 ActionResult；`HOME_RUNTIME_COPY_REQUIRED` 由 Agent Home Trap handler 准备 runtime home 副本并重试当前 frame。当前已实现只读背景/guidance/resource read 与显式 runtime copy，home 写入、检索、memory append、HOW 使用反馈和每日沉淀仍未实现。
 
 ## 工作方式
 
@@ -181,7 +183,7 @@ python -m ty check
 ## 当前任务
 彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action、context、loop、app（含 TinySoulApp 装配入口与输入边界）已完成；下一模块建议推进 Workspace 与 Agent Home 资源读写机制，以承接 workspace 链接、home 运行时副本、how_action 注入和每日沉淀。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
+当前进度：infra、runtime、llm、action、context、loop、app（含 TinySoulApp 装配入口与输入边界）已完成；Workspace 与 Agent Home 已完成基础接入，覆盖 workspace 链接扫描、manifest、WorkingContext 摘要同步、home 顶层背景、how_action 注入、渐进式资源只读 action 和 runtime home 显式副本准备。下一步建议继续推进 Workspace read/write/patch/delete、Agent Home 检索与写入、HOW 使用反馈、memory append 和每日沉淀。每完成一个模块或重要切面，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
 
 重构实现纪律：
 

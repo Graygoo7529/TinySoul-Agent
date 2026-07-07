@@ -8,17 +8,21 @@ if TYPE_CHECKING:
     from .action import RuntimeActionBridge
     from .app import RuntimeAppBridge
     from .context import RuntimeContextBridge
+    from .home import RuntimeAgentHomeBridge
     from .infra import RuntimeInfraBridge
     from .llm import RuntimeLLMBridge
     from .loop import RuntimeLoopBridge
+    from .workspace import RuntimeWorkspaceBridge
 
 __all__ = [
     "RuntimeActionBridge",
+    "RuntimeAgentHomeBridge",
     "RuntimeAppBridge",
     "RuntimeContextBridge",
     "RuntimeInfraBridge",
     "RuntimeLLMBridge",
     "RuntimeLoopBridge",
+    "RuntimeWorkspaceBridge",
 ]
 
 
@@ -35,6 +39,10 @@ def __getattr__(name: str) -> object:
         from .context import RuntimeContextBridge
 
         return RuntimeContextBridge
+    if name == "RuntimeAgentHomeBridge":
+        from .home import RuntimeAgentHomeBridge
+
+        return RuntimeAgentHomeBridge
     if name == "RuntimeInfraBridge":
         from .infra import RuntimeInfraBridge
 
@@ -47,4 +55,8 @@ def __getattr__(name: str) -> object:
         from .loop import RuntimeLoopBridge
 
         return RuntimeLoopBridge
+    if name == "RuntimeWorkspaceBridge":
+        from .workspace import RuntimeWorkspaceBridge
+
+        return RuntimeWorkspaceBridge
     raise AttributeError(name)

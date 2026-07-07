@@ -17,6 +17,7 @@ def test_load_builtin_catalog() -> None:
 
     assert catalog.has_domain("core")
     assert catalog.has_domain("workspace")
+    assert catalog.has_domain("home")
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"
@@ -31,6 +32,9 @@ def test_catalog_view_by_domain() -> None:
 
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == ["workspace.scan"]
+
+    home_view = catalog.with_domains(("home",))
+    assert [action.name for action in home_view.actions()] == ["home.resource.read"]
 
 
 def test_missing_catalog_root_raises_config_error() -> None:
