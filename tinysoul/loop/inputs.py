@@ -40,6 +40,9 @@ class InputRouter:
         normalized = stripped.lower()
         scope = self._scope_provider()
         if normalized in {command.lower() for command in self._settings.exit_commands}:
+            if not self._is_turn_active():
+                self._initial_inputs.put(stripped)
+                return
             self._bus.emit(
                 build_control_request_signal(
                     LoopControlKind.EXIT_PROGRAM,

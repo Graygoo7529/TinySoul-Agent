@@ -89,3 +89,21 @@ def test_input_router_routes_control_commands() -> None:
         LoopControlKind.STOP_TURN,
         LoopControlKind.EXIT_PROGRAM,
     ]
+
+
+def test_input_router_routes_idle_exit_to_initial_queue() -> None:
+    scope = RunScope().push(RunLevel.PROGRAM, "program")
+    bus = SignalBus()
+    queue: Queue[str] = Queue()
+    router = InputRouter(
+        settings=LoopSettings(interactive=False),
+        bus=bus,
+        initial_inputs=queue,
+        is_turn_active=lambda: False,
+        scope_provider=lambda: scope,
+    )
+
+    router.route("exit")
+
+    assert queue.get_nowait() == "exit"
+    assert len(bus) == 0

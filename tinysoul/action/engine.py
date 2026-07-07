@@ -62,6 +62,15 @@ class ActionEngine:
     def phase1_domain_prompt(self) -> str:
         return self.domain_prompt_renderer.render(self.catalog)
 
+    def validate_domain_selection(self, domain: str) -> str | None:
+        """Return model feedback when an action domain cannot be selected."""
+
+        if not self.catalog.has_domain(domain):
+            return f"Unknown action domain: {domain}"
+        if not self.catalog.actions_in_domain(domain):
+            return f"Action domain has no available actions: {domain}"
+        return None
+
     def phase2_scope(
         self,
         selected_domains: tuple[str, ...],

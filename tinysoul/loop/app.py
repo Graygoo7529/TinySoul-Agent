@@ -11,6 +11,7 @@ from tinysoul.action.backends.llm_step import LLMStepActionExecutor
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.context import ContextEngine, ContextEngineBuilder
+from tinysoul.context.errors import ContextError
 from tinysoul.context.signals import build_working_patch_signal
 from tinysoul.context.working import WorkingPatch, WorkspaceResource
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
@@ -228,12 +229,24 @@ class TinySoulAppBuilder:
                 message="AGENT.md is missing",
                 payload={"path": str(agent_path)},
             )
-        agent_text = agent_path.read_text(encoding="utf-8")
-        return (
-            ContextEngineBuilder(system_text="You are TinySoul.")
-            .add_default_background("home:agent@core", agent_text)
-            .build()
-        )
+        try:
+            agent_text = agent_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise bridge.startup_failure(
+                message=f"Failed to read AGENT.md: {exc}",
+                payload={"path": str(agent_path), "error_type": type(exc).__name__},
+            ) from exc
+        try:
+            return (
+                ContextEngineBuilder(system_text="You are TinySoul.")
+                .add_default_background("home:agent@core", agent_text)
+                .build()
+            )
+        except ContextError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
 
     def _build_action(
         self,

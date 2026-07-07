@@ -189,11 +189,9 @@ class Phase1Unit:
             if item in seen:
                 continue
             seen.add(item)
-            if not self._action.catalog.has_domain(item):
-                feedback.append(f"Unknown action domain: {item}")
-                continue
-            if not self._action.catalog.actions_in_domain(item):
-                feedback.append(f"Action domain has no available actions: {item}")
+            domain_feedback = self._action.validate_domain_selection(item)
+            if domain_feedback is not None:
+                feedback.append(domain_feedback)
                 continue
             result.append(item)
         if not result and not feedback:
