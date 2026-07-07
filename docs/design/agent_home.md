@@ -122,7 +122,9 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy` 和 Trap handler。`AgentHomeEngine.read_top` 与 `read_resource` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainGuidanceProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 直接调用同一个 runtime copy Trap handler 准备副本后重试读取。
+当前实现提供显式 `ensure_runtime_copy`、Trap handler 和 `AgentHomeRuntimeCopyRecovery`。`AgentHomeEngine.read_top` 与 `read_resource` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainGuidanceProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 调用 Home 模块提供的 `AgentHomeRuntimeCopyRecovery`，由它使用同一个 runtime copy Trap handler 准备副本后重试读取。
+
+`home:agent@core` 无论原始内容使用项目根 `AGENT.md`，还是使用 `home/agent/AGENT.md`，runtime 副本都稳定落在 `runtime/home/agent/AGENT.md`。这避免不同原始目录形态导致 runtime home 结构漂移。
 
 ## BackgroundContext 接入
 
@@ -156,7 +158,7 @@ Domain guidance 是 domain 级，而不是 action 级。Phase1 选择的是 doma
 
 当前已实现的 action：
 
-- `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。
+- `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本文本前缀，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。读取实现只读取上限后的一个额外字符来判断截断，不先把完整文件读入内存。
 
 后续可设计的 action：
 
@@ -209,7 +211,7 @@ Agent Home 失败分三层：
 2. 模块边界异常：home root 不可用、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
 3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，运行期不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`。
 
-Agent Home 应定义 `AgentHomeFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。`home.runtime_copy_required` 的 payload 应包含 `link`、`source_path`、`runtime_path` 和模块失败类型等摘要，不包含文件正文。
+Agent Home 应定义 `AgentHomeFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。`home.runtime_copy_required` 的 payload 应包含 `link`、`source_path`、`runtime_path`、`error_type` 和模块失败类型等摘要，不包含文件正文。Home 配置错误应由 home bridge 映射为 `runtime.startup_failed`，而不是落入 infra 或 app 的兜底失败。
 
 当 Home action 或 provider 需要通过 Runtime 触发 copy handler 时，action runner 必须允许 `RuntimeException` 穿透到 Loop/Trap，而不是把它吞成普通 `ActionResult`。
 
@@ -251,6 +253,8 @@ AppBuilder 的目标职责是：
 - `DomainGuidanceProvider` 能从 `home:how_action@domain` 获取 guidance；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
+- 启动期背景加载通过 `AgentHomeRuntimeCopyRecovery` 准备 runtime 副本后重试；
+- `home:agent@core` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
 - `home.resource.read` 不写入 BackgroundContext，并返回有界文本；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；

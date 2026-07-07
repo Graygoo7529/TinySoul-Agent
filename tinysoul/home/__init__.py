@@ -13,7 +13,11 @@ from .errors import (
 from .failures import AgentHomeFailureKind
 from .guidance import HomeDomainGuidanceProvider
 from .links import HomeLink, HomeResourceLink, HomeTopLink, parse_home_link
-from .runtime_copy import AgentHomeRuntimeCopyManager, AgentHomeRuntimeCopyTrapHandler
+from .runtime_copy import (
+    AgentHomeRuntimeCopyManager,
+    AgentHomeRuntimeCopyRecovery,
+    AgentHomeRuntimeCopyTrapHandler,
+)
 
 __all__ = [
     "AgentHomeContractError",
@@ -24,6 +28,7 @@ __all__ = [
     "AgentHomeIOError",
     "AgentHomeInvariantError",
     "AgentHomeRuntimeCopyManager",
+    "AgentHomeRuntimeCopyRecovery",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",

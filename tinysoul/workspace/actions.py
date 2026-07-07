@@ -33,12 +33,18 @@ def workspace_scan(engine: WorkspaceEngine, bus: SignalBus):
                     source="workspace.scan",
                 )
             )
+        skip_counts: JsonObject = {}
+        for kind, count in scan.skip_counts().items():
+            skip_counts[kind] = count
         return {
             "count": len(resources),
             "resources": [
                 {"link": resource.link, "summary": resource.summary}
                 for resource in resources
             ],
+            "skipped_count": scan.skipped_count,
+            "skip_counts": skip_counts,
+            "limit_reached": scan.limit_reached,
         }
 
     return execute

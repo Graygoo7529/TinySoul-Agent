@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
+
 from .config import AgentHomeSettings
 from .errors import AgentHomeContractError, AgentHomeIOError, AgentHomeRuntimeCopyRequired
 from .layout import AgentHomeLayout
@@ -77,17 +79,18 @@ class AgentHomeEngine:
         max_chars: int | None = None,
     ) -> HomeResourceRead:
         parsed = HomeResourceLink.parse(link) if isinstance(link, str) else link
-        limit = max_chars or self._max_read_chars
-        if limit <= 0:
+        limit = self._max_read_chars if max_chars is None else max_chars
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise AgentHomeContractError("Home resource read limit must be positive")
         source = self._layout.source_for_resource(parsed)
         if not source.is_file():
             raise AgentHomeContractError(f"Home resource file does not exist: {source}")
-        text = _read_text(self._runtime_read_path(str(parsed), source))
-        truncated = len(text) > limit
-        if truncated:
-            text = text[:limit]
-        return HomeResourceRead(link=str(parsed), text=text, truncated=truncated)
+        read = _read_text_prefix(self._runtime_read_path(str(parsed), source), limit)
+        return HomeResourceRead(
+            link=str(parsed),
+            text=read.text,
+            truncated=read.truncated,
+        )
 
     def guidance_for_domain(self, domain: str) -> str | None:
         if not domain:
@@ -138,5 +141,16 @@ class AgentHomeEngineBuilder:
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc
+
+
+def _read_text_prefix(path: Path, max_chars: int) -> TextPrefixRead:
+    try:
+        return read_text_prefix(path, max_chars=max_chars)
+    except UnicodeDecodeError as exc:
+        raise AgentHomeContractError(
+            f"Agent Home file is not readable as UTF-8 text: {path}"
+        ) from exc
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc

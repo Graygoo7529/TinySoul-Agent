@@ -42,14 +42,13 @@ class AgentHomeLayout:
 
     def runtime_for_source(self, source: Path) -> Path:
         source_resolved = source.resolve()
+        agent_path = (self._settings.original_root / "AGENT.md").resolve()
+        if source_resolved == agent_path:
+            return self._settings.runtime_root / "agent" / "AGENT.md"
         try:
             relative = source_resolved.relative_to(self._content_root.resolve())
         except ValueError:
-            agent_path = (self._settings.original_root / "AGENT.md").resolve()
-            if source_resolved == agent_path:
-                relative = Path("agent") / "AGENT.md"
-            else:
-                raise AgentHomeContractError("Home source path is outside content root")
+            raise AgentHomeContractError("Home source path is outside content root")
         return self._settings.runtime_root / relative
 
     def top_links(self) -> tuple[HomeTopLink, ...]:

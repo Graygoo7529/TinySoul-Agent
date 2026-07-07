@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest 读写、资源扫描、单资源摘要刷新、`workspace.scan` / `workspace.describe` action、Context WorkingPatch 同步和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的资源发现、语境投影和单资源摘要刷新切面。`WorkspaceEngine` 提供有界 UTF-8 文本读取能力，供后续复合 action 或临时 task prompt 使用；该能力当前不暴露为模型侧 `workspace.read` action，避免文件正文通过 ActionResult 持久进入 TurnTraceContext。写入、patch、删除和日终归档仍未实现，后续应继续在本模块内扩展，而不是回到 app 装配层或具体 action 中散落实现。
+当前实现覆盖 Workspace 的资源发现、语境投影、单资源摘要刷新、扫描诊断和内部临时 task prompt 输入切面。`WorkspaceEngine` 提供有界 UTF-8 文本前缀读取能力，并通过 `WorkspacePromptInput` 将一个或多个 workspace 资源渲染为临时任务输入，供后续复合 action 或 `llm_step` 类 action 装配使用；该能力当前不暴露为模型侧 `workspace.read` action，避免文件正文通过 ActionResult 持久进入 TurnTraceContext。写入、patch、删除和日终归档仍未实现，后续应继续在本模块内扩展，而不是回到 app 装配层或具体 action 中散落实现。
 
 ## 定位
 
@@ -34,7 +34,7 @@ Workspace 的核心职责：
 - 在需要时读取、写入或删除 workspace 文件；
 - 在日级生命周期中归档 workspace。
 
-当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、Engine 内部有界文本读取、`workspace.scan` handler 和 `workspace.describe` executor；写入、删除和归档仍是待扩展职责。
+当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、Engine 内部有界文本前缀读取、临时 task prompt 输入渲染、`workspace.scan` handler 和 `workspace.describe` executor；写入、删除和归档仍是待扩展职责。
 
 Workspace 不负责：
 
@@ -117,7 +117,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 2. 应用忽略规则和数量限制；
 3. 更新 manifest；
 4. 发出 `context.working.patch` 信号同步资源摘要；
-5. 返回 compact JSON payload，包含资源数量和链接摘要。
+5. 返回 compact JSON payload，包含资源数量、链接摘要、跳过数量、跳过原因计数和是否达到扫描上限。
 
 当前已实现的 `workspace.describe` 行为：
 
@@ -126,9 +126,10 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 3. 发出 `context.working.patch` 信号同步该资源摘要；
 4. 返回 compact JSON payload，包含链接、摘要、大小、mtime 和 digest，不包含文件正文。
 
+正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回 `WorkspacePromptInput`。调用方可以将其 `render()` 结果放入本次 LLM Task 的 `task_input`，但不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
+
 后续可增加的 action：
 
-- `workspace.read` 或等价复合读取能力：读取文本资源片段时必须限制大小，并保证正文只进入临时任务输入或 action 内部处理，不直接作为普通 ActionResult payload 持久写入 TurnTraceContext；
 - `workspace.write`：写入或覆盖资源；
 - `workspace.patch`：基于 diff 或结构化 patch 修改资源；
 - `workspace.delete`：删除资源；
@@ -162,7 +163,7 @@ Workspace 失败分三层：
 2. 模块边界异常：workspace root 不可用、manifest 无法解释、路径沙箱不变量破坏、模块调用契约错误；
 3. Runtime 语义异常：启动阶段配置失败映射为 `runtime.startup_failed`，运行期不可继续失败默认映射为 `runtime.turn_end`。
 
-Workspace 应定义自己的 `WorkspaceFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。Runtime payload 只携带模块名、失败类型、资源链接、路径摘要和错误类型，不携带文件内容或 traceback。
+Workspace 应定义自己的 `WorkspaceFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。Runtime payload 只携带模块名、失败类型、资源链接、路径摘要和错误类型，不携带文件内容或 traceback。Workspace 配置错误应由 workspace bridge 映射为 `runtime.startup_failed`，而不是落入 infra 或 app 的兜底失败。
 
 ## 组装入口
 
@@ -180,7 +181,7 @@ tinysoul/workspace/
   failures.py
 ```
 
-`WorkspaceEngine` 是上层唯一门面，提供扫描、链接解析、manifest 投影、单资源摘要刷新和内部有界文本读取。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、装配忽略规则和 manifest store。后续文件写入、patch、删除和正文进入临时任务输入的能力应继续挂在 `WorkspaceEngine` 或其 action executor 上，保持 AppBuilder 不理解 workspace 路径语义。
+`WorkspaceEngine` 是上层唯一门面，提供扫描、链接解析、manifest 投影、单资源摘要刷新、扫描诊断、内部有界文本前缀读取和临时 task prompt 输入渲染。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、装配忽略规则和 manifest store。后续文件写入、patch、删除应继续挂在 `WorkspaceEngine` 或其 action executor 上，保持 AppBuilder 不理解 workspace 路径语义。
 
 AppBuilder 的目标职责是：
 
@@ -196,9 +197,10 @@ AppBuilder 的目标职责是：
 - AppBuilder 不包含 workspace 扫描闭包；
 - `workspace:` 链接解析和越界防护有单元测试；
 - manifest 扫描和更新有单元测试；
-- Engine 内部有界文本读取不会通过模型侧 action 把正文写入 Context；
+- Engine 内部有界文本前缀读取和 `WorkspacePromptInput` 不会通过模型侧 action 把正文写入 Context；
+- Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
 - action 执行失败应收敛为 `ActionResult`；
 - workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
 - Context 测试继续证明 WorkingContext 只保存链接和摘要。
 
-仍需补充的验收点包括：删除资源检测、workspace write/patch/delete 的局部失败结果、正文临时任务输入路径、日终归档以及更完整的运行期 Runtime bridge 覆盖。
+仍需补充的验收点包括：删除资源检测、workspace write/patch/delete 的局部失败结果、复合 action 对 `WorkspacePromptInput` 的真实调用、日终归档以及更完整的运行期 Runtime bridge 覆盖。

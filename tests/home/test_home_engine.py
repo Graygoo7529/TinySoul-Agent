@@ -4,6 +4,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
+import pytest
+
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
@@ -18,9 +20,11 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.home import (
+    AgentHomeContractError,
     AgentHomeEngine,
     AgentHomeEngineBuilder,
     AgentHomeRuntimeCopyRequired,
+    AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
     HomeDomainGuidanceProvider,
@@ -92,6 +96,25 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
     ) == "skill text"
 
 
+def test_home_runtime_copy_recovery_prepares_copy_and_retries_startup(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "AGENT.md").write_text("core rules", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    entries = AgentHomeRuntimeCopyRecovery.startup(home).run(
+        home.default_background_entries
+    )
+
+    assert entries[0].content == "core rules"
+    assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
+
+
 def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
     tmp_path: Path,
 ) -> None:
@@ -151,6 +174,44 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     assert with_runtime_copy.payload["truncated"] is True
 
 
+def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
+    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref.mkdir(parents=True)
+    (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    result = HomeResourceReadExecutor(home).execute(
+        _execution(
+            "home.resource.read",
+            {"link": "home:how/refactor/references/checklist.md", "max_chars": 0},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.frame_data["reason"] == "invalid_max_chars"
+
+
+def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
+    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref.mkdir(parents=True)
+    (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    with pytest.raises(AgentHomeContractError, match="positive"):
+        home.read_resource("home:how/refactor/references/checklist.md", max_chars=True)
+
+
 def test_home_domain_guidance_uses_runtime_copy_trap(tmp_path: Path) -> None:
     how_action = tmp_path / "home" / "how_action" / "workspace"
     how_action.mkdir(parents=True)
@@ -169,6 +230,40 @@ def test_home_domain_guidance_uses_runtime_copy_trap(tmp_path: Path) -> None:
     )
 
     assert guidance == ("workspace guidance",)
+
+
+def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:
+    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref.mkdir(parents=True)
+    (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    executor = HomeResourceReadExecutor(home)
+
+    try:
+        executor.execute(
+            _execution(
+                "home.resource.read",
+                {"link": "home:how/refactor/references/checklist.md"},
+            ),
+            ActionExecutionContext(),
+        )
+    except RuntimeException as exc:
+        assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
+        assert exc.payload["link"] == "home:how/refactor/references/checklist.md"
+        assert exc.payload["error_type"] == "AgentHomeRuntimeCopyRequired"
+        source_path = exc.payload["source_path"]
+        runtime_path = exc.payload["runtime_path"]
+        assert isinstance(source_path, str)
+        assert isinstance(runtime_path, str)
+        assert str(tmp_path / "home" / "how" / "refactor") in source_path
+        assert str(tmp_path / "runtime" / "home" / "how" / "refactor") in runtime_path
+    else:
+        raise AssertionError("home.resource.read should require runtime copy")
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:
@@ -226,11 +321,7 @@ def _run_copy_trap_after_runtime_exception(
         _handle_copy_trap(
             home,
             message=str(exc),
-            payload={
-                "link": exc.link,
-                "source_path": str(exc.source_path),
-                "runtime_path": str(exc.runtime_path),
-            },
+            payload=exc.to_payload(),
             scope=scope,
         )
     except RuntimeException as exc:

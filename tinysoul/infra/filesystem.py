@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 import os
 import tempfile
+
+
+@dataclass(frozen=True)
+class TextPrefixRead:
+    """A bounded text read result."""
+
+    text: str
+    truncated: bool
 
 
 def resolve_under_root(root: Path, relative_path: str) -> Path:
@@ -55,6 +64,22 @@ def copy_file(source: Path, target: Path) -> None:
                 if not chunk:
                     break
                 target_handle.write(chunk)
+
+
+def read_text_prefix(
+    path: Path,
+    *,
+    max_chars: int,
+    encoding: str = "utf-8",
+) -> TextPrefixRead:
+    """Read at most max_chars characters and report whether content remains."""
+
+    with path.open("r", encoding=encoding) as handle:
+        text = handle.read(max_chars + 1)
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars]
+    return TextPrefixRead(text=text, truncated=truncated)
 
 
 def file_digest(path: Path, *, limit_bytes: int | None = None) -> str:

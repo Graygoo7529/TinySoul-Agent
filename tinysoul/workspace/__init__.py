@@ -4,7 +4,10 @@ from .config import WorkspaceSettings, parse_workspace_settings
 from .engine import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
+    WorkspacePromptInput,
     WorkspaceScanResult,
+    WorkspaceScanSkip,
+    WorkspaceScanSkipKind,
     WorkspaceTextRead,
 )
 from .errors import (
@@ -33,9 +36,12 @@ __all__ = [
     "WorkspaceLink",
     "WorkspaceManifest",
     "WorkspaceManifestStore",
+    "WorkspacePromptInput",
     "WorkspaceResourceKind",
     "WorkspaceResourceRecord",
     "WorkspaceScanResult",
+    "WorkspaceScanSkip",
+    "WorkspaceScanSkipKind",
     "WorkspaceSettings",
     "WorkspaceTextRead",
     "parse_workspace_settings",

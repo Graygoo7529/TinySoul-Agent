@@ -23,6 +23,8 @@ from tinysoul.workspace import (
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceLink,
+    WorkspacePromptInput,
+    WorkspaceScanSkipKind,
     WorkspaceSettings,
 )
 from tinysoul.workspace.actions import WorkspaceDescribeExecutor, workspace_scan
@@ -56,6 +58,9 @@ def test_workspace_scan_updates_manifest_and_emits_working_patch(tmp_path: Path)
     assert payload["resources"] == [
         {"link": "workspace:docs/a.md", "summary": ".md file, 5 bytes"}
     ]
+    assert payload["skipped_count"] == 0
+    assert payload["skip_counts"] == {}
+    assert payload["limit_reached"] is False
     assert manifest_path.is_file()
     signals = bus.consume_namespace("context")
     assert len(signals) == 1
@@ -80,6 +85,25 @@ def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None
     result = engine.scan()
 
     assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert result.skipped_count == 1
+    assert result.skipped[0].kind is WorkspaceScanSkipKind.INTERNAL
+
+
+def test_workspace_scan_reports_limit_reached(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("a", encoding="utf-8")
+    (tmp_path / "b.md").write_text("b", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_files=1,
+        )
+    ).build()
+
+    result = engine.scan()
+
+    assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+    assert result.limit_reached is True
 
 
 def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
@@ -97,6 +121,66 @@ def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
     assert result.text == "abc"
     assert result.truncated is True
     assert engine.load_manifest().resources[0].link == "workspace:a.md"
+
+
+def test_workspace_read_text_rejects_non_positive_limit(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="positive"):
+        engine.read_text("workspace:a.md", max_chars=0)
+
+
+def test_workspace_prepare_task_input_renders_bounded_resources(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    (tmp_path / "b.md").write_text("xyz", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    task_input = engine.prepare_task_input(
+        ("workspace:a.md", "workspace:b.md"),
+        max_chars_per_resource=3,
+    )
+
+    assert isinstance(task_input, WorkspacePromptInput)
+    assert task_input.truncated is True
+    rendered = task_input.render()
+    assert "## workspace:a.md" in rendered
+    assert "abc" in rendered
+    assert "truncated: true" in rendered
+    assert "## workspace:b.md" in rendered
+
+
+def test_workspace_prepare_task_input_rejects_empty_links(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="at least one"):
+        engine.prepare_task_input(())
+
+
+def test_workspace_describe_rejects_internal_manifest(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "workspace_manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, manifest_path=manifest_path)
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="internal"):
+        engine.describe("workspace:workspace_manifest.json")
 
 
 def test_workspace_describe_executor_updates_manifest_and_working_patch(

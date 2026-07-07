@@ -52,10 +52,7 @@ class HomeResourceReadExecutor(ActionExecutor):
         except AgentHomeRuntimeCopyRequired as exc:
             raise self._runtime_bridge.runtime_copy_required(
                 link=exc.link,
-                payload={
-                    "source_path": str(exc.source_path),
-                    "runtime_path": str(exc.runtime_path),
-                },
+                payload=exc.to_payload(),
             ) from exc
         except AgentHomeError as exc:
             return self._failed(

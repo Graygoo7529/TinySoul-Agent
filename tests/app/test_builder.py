@@ -189,6 +189,44 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
     assert exc.payload["module"] == "home"
 
 
+def test_app_builder_home_config_error_is_home_startup_failure(tmp_path: Path) -> None:
+    config = _test_config(tmp_path, {"home.max_read_chars": 0})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "home"
+    assert exc.payload["key"] == "home.max_read_chars"
+
+
+def test_app_builder_workspace_config_error_is_workspace_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(tmp_path, {"workspace.max_files": 0})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "workspace"
+    assert exc.payload["key"] == "workspace.max_files"
+
+
 def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
     return TaskResult.success(
         raw_response=RawResponse(

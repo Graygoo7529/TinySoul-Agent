@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tinysoul.infra.json import JsonObject
+
 
 class AgentHomeError(Exception):
     """Base class for Agent Home module errors."""
@@ -29,3 +31,11 @@ class AgentHomeRuntimeCopyRequired(AgentHomeError):
         self.link = link
         self.source_path = source_path
         self.runtime_path = runtime_path
+
+    def to_payload(self) -> JsonObject:
+        return {
+            "link": self.link,
+            "source_path": str(self.source_path),
+            "runtime_path": str(self.runtime_path),
+            "error_type": type(self).__name__,
+        }
