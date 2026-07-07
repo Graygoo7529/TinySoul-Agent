@@ -89,6 +89,8 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - Action 后端分工：native 运行在宿主线程，只能协作式响应取消；需要硬停止语义的动作使用 subprocess 或 script 后端。后端 options 属动态边界，在 catalog 加载期由按 handler 注册的校验器校验。
 - Context 模块向上层提供唯一装配与调用入口（组装门面），持有三段语境（Background/Working/TurnTrace）与本轮用户输入列表，负责构造式 MessageStack、语境控制工具与语境压缩服务。ContextEngine 不向上层暴露可变状态持有者；语境变更只有两类入口：信号的批量可行提交与 Turn 生命周期；Control Tool Calls 先归一化为信号，不直接修改状态。
 - Context 信号协议：context.working.patch、context.background.patch、context.trace.append、context.input.append，均为 JSON 安全载荷并按命名空间消费。信号消费先解析同批信号，再对 Working/Background 变更做投影验证并提交可行变更；trace append 使用 text/json 多片段内容投影并可保留 provider-neutral assistant reasoning，但不解释供应商回放语义。语境预算超限由 context bridge 映射为语境压缩 Runtime 原因，Trap 压缩处理器调用压缩服务（裁剪 TurnTrace 旧条目 + 合并摘要占位）后重试当前 Phase。
+- Loop 模块是 TinySoul 的运行编排与装配层，按 Program/Turn/Cycle/Phase 消费 Runtime 运行位置与运行转移；Phase 单元只组合 ContextEngine、ActionEngine 与 LLMTaskRunner，不复制三者内部语义。Turn 结束以 `core.answer` action 执行成功为唯一正常完成条件，cycle 上限只作为兜底保护。外部输入经 InputRouter/InputListener 分类为 `loop.control.request` 或 `context.input.append` 信号，控制流变化仍由运行器构造 Runtime 语义异常进入 Trap。
+- TinySoulAppBuilder 负责全局装配：显式加载配置环境，构建 LLM、Action、Context、SignalBus 与 RuntimeTrap，注册内置 native action、llm_step 执行器和 Trap 处理器。`workspace.scan` 当前提供轻量工作区资源扫描并通过 `context.working.patch` 同步资源摘要；Agent Home HOW/Workspace 完整读写机制未接入前，domain guidance 使用可替换 provider 注入，默认不加载额外内容。
 
 ## 工作方式
 
@@ -179,7 +181,7 @@ python -m ty check
 ## 当前任务
 彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action、context 已完成；下一模块为 loop（含 TinySoulApp 装配入口），装配层将定型 how_action 注入、hook 服务上下文与 llm_step 接入等挂起接口。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
+当前进度：infra、runtime、llm、action、context、loop（含 TinySoulApp 装配入口）已完成；下一模块建议推进 Workspace 与 Agent Home 资源读写机制，以承接 workspace 链接、home 运行时副本、how_action 注入和每日沉淀。每完成一个模块，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
 
 重构实现纪律：
 
