@@ -39,6 +39,19 @@ App 的职责是进程装配、生命周期和外部输入边界，不应长期�
 - Context 的默认背景加载应改为从 Agent Home 门面获得顶层背景条目，而不是由 Loop 直接读取 `AGENT.md`。
 - AppBuilder 应保持全局装配入口，但把模块专属构造逻辑下沉到对应模块 builder，避免 `builder.py` 和 `native_actions.py` 累积业务语义。
 
+## Workspace / Agent Home 构建注意事项
+
+- Workspace 应是 `workspace:` 链接的唯一语义归属模块。路径解析、路径归一化、沙箱边界、忽略规则、资源摘要、manifest 更新、读写策略和每日归档都应由 Workspace 门面负责；App 只传入根目录、配置和注册材料。
+- Workspace action 不应默认把文件正文写回 Context。WorkingContext 中只应保留资源句柄、摘要、大小、类型、修改时间等轻量信息；需要读取正文时，应在 Phase3 的 action 执行期按链接加载，并作为临时 task prompt 或 action 内部输入使用。
+- `workspace.scan` 的当前实现只验证 action -> signal -> context 的协作路径。后续迁移时应保留这个外部行为，但把扫描规则、返回摘要格式和 WorkingContext patch 构造迁出 `tinysoul/app/native_actions.py`。
+- Workspace 的启动配置错误、路径不可用、沙箱越界、manifest 损坏和运行时读写失败需要有模块自己的 failure kind，并通过 runtime bridge 转换为少量 Runtime 原因；不要让这些错误只落入 AppBuilder 的兜底 startup failure。
+- Agent Home 应负责原始 home 与当日 runtime home 副本的关系，包括顶层内容、渐进式内容、懒加载拷贝、运行时修改、每日 diff 和沉淀决策。App 不应直接读取或解释 HOW / WHAT / WHY / MEMORY 文件结构。
+- Context 默认 BackgroundContext 的来源应由 Agent Home 或 Context builder 的装配协议提供。当前 `AGENT.md -> home:agent@core` 的读取是尚未接入 Agent Home 前的装配占位，后续不应扩展为更多 app 侧文件读取逻辑。
+- `how_action` 应由 Agent Home 提供 `DomainGuidanceProvider` 实现，并注入 Loop 的 Phase2 / Phase3 prompt 构造；Loop 继续只依赖 provider 协议，不直接感知 home 目录结构。
+- Agent Home 链接语义需要明确区分 `home:*@` 顶层背景内容与 `home:*/` 渐进式资源。顶层内容可进入 BackgroundContext；渐进式资源只能通过 action 按链接加载，避免把整个 home 文件树提前塞入模型语境。
+- Workspace 与 Agent Home 可以共享 infra 层的路径、JSON 和文件读写基础能力，但不应互相绕过对方门面直接操作对方资源；跨模块协作通过 link、action、context signal 和 builder 注入完成。
+- 非终端输入源、ProgramInputEvent 与 InputDispatcher 属于 App 输入边界，不应成为 Workspace / Agent Home 的依赖。Workspace / Agent Home 接收的是装配配置、动作调用和链接请求，而不是外部输入事件。
+
 ## 建议验收点
 
 - Loop 中不再出现 workspace 目录扫描实现。

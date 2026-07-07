@@ -126,7 +126,7 @@ class TurnRunner:
                 source="loop.turn",
             )
         )
-        self._context.consume_signals(self._bus)
+        self._consume_context_signals()
 
     def _end_turn(self) -> TurnSummary | None:
         if not self._context.turn_active:
@@ -141,3 +141,9 @@ class TurnRunner:
         for signal in result.signals:
             self._bus.emit(signal)
         return result.transfer
+
+    def _consume_context_signals(self) -> None:
+        try:
+            self._context.consume_signals(self._bus)
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
