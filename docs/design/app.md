@@ -52,6 +52,8 @@ Turn 活跃期间的普通输入和控制命令不进入 Program 队列，而是
 
 外部框架只应出现在 source adapter 内部，不应进入 loop、context、action 或 llm 的核心语义。
 
+TinySoulApp 启动输入源后负责在程序退出或启动失败时停止已启动的输入源。停止过程采用 best-effort：一个输入源停止失败不阻止其他已启动输入源停止；当主流程本身没有异常时，停止失败会作为 app 不变量失败向调用方报告。
+
 ## 装配入口
 
 TinySoulAppBuilder 负责：

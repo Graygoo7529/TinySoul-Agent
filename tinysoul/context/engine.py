@@ -257,6 +257,16 @@ class ContextEngine:
         self._turn_id = ""
         return summary
 
+    def abort_turn(self) -> None:
+        """Discard the active turn state when summary finalization cannot complete."""
+
+        if not self._turn_id:
+            return
+        self._turn_id = ""
+        self._working = WorkingContext()
+        self._trace = TurnTraceContext()
+        self._inputs = PendingInputs()
+
     def _validated_working_patches(
         self,
         candidates: list[tuple[int, Signal, str, WorkingPatch]],

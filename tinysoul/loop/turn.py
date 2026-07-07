@@ -85,7 +85,9 @@ class TurnRunner:
                 self._record_cycle_limit(turn_scope)
         except RuntimeException as exc:
             transfer = self._capture(exc, turn_scope)
-        summary = self._end_turn()
+        summary, finish_transfer = self._finish_turn(turn_scope)
+        if finish_transfer is not None and transfer is None:
+            transfer = finish_transfer
         return TurnOutcome(
             summary=summary,
             answered=answered,
@@ -135,6 +137,16 @@ class TurnRunner:
             return self._context.end_turn()
         except ContextError as exc:
             raise self._context_bridge.from_context_error(exc) from exc
+
+    def _finish_turn(
+        self,
+        scope: RunScope,
+    ) -> tuple[TurnSummary | None, RuntimeTransfer | None]:
+        try:
+            return self._end_turn(), None
+        except RuntimeException as exc:
+            self._context.abort_turn()
+            return None, self._capture(exc, scope)
 
     def _capture(self, exc: RuntimeException, scope: RunScope) -> RuntimeTransfer:
         result = self._trap.capture(exc, scope)

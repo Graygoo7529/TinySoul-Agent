@@ -38,7 +38,7 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境，循环执行 Cycle 直到 Turn 结束条件满足，结束时收取 TurnSummary。Turn 结束条件为：`core.answer` 行动执行成功；执行轮数达到配置上限（兜底保护，收束前记录警告轨迹）；或 Trap 返回结束 Turn 的运行转移。
+TurnRunner 驱动一次 User Turn：开始时初始化语境，循环执行 Cycle 直到 Turn 结束条件满足，结束时收取 TurnSummary。若结束阶段无法生成 TurnSummary，TurnRunner 会将 Context 失败桥接进入 Trap，并要求 Context 放弃当前活跃 Turn，避免残留状态阻塞下一轮；已有上级转移不会被结束阶段的 Turn 级失败降级。Turn 结束条件为：`core.answer` 行动执行成功；执行轮数达到配置上限（兜底保护，收束前记录警告轨迹）；或 Trap 返回结束 Turn 的运行转移。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 

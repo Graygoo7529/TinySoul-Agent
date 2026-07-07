@@ -433,6 +433,20 @@ def test_compress_via_engine() -> None:
     assert engine.trace_kinds()[0] is TraceKind.SUMMARY_PLACEHOLDER
 
 
+def test_abort_turn_discards_active_state() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    assert engine.turn_active is True
+
+    engine.abort_turn()
+
+    assert engine.turn_active is False
+    with pytest.raises(ContextContractError):
+        engine.working_snapshot()
+    engine.begin_turn("new turn")
+    assert engine.turn_active is True
+
+
 def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:
     engine = _engine()
     engine.begin_turn("hi")

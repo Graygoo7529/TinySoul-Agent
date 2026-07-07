@@ -3,7 +3,15 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from tinysoul.app import AppSettings, InputEvent, InputSink, TinySoulAppBuilder
+import pytest
+
+from tinysoul.app import (
+    AppInvariantError,
+    AppSettings,
+    InputEvent,
+    InputSink,
+    TinySoulAppBuilder,
+)
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import TaskResult
 from tinysoul.loop import LoopSettings
@@ -37,6 +45,25 @@ class _SubmittingSource:
         self.stopped += 1
 
 
+@dataclass
+class _FailingStartSource:
+    started: int = 0
+
+    def start(self, sink: InputSink) -> None:
+        self.started += 1
+        raise RuntimeError("start failed")
+
+    def stop(self) -> None:
+        raise AssertionError("failed start source should not be stopped")
+
+
+@dataclass
+class _FailingStopSource(_SubmittingSource):
+    def stop(self) -> None:
+        self.stopped += 1
+        raise RuntimeError("stop failed")
+
+
 def test_tinysoul_app_starts_and_stops_input_sources() -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
@@ -56,6 +83,45 @@ def test_tinysoul_app_starts_and_stops_input_sources() -> None:
     assert outcome.transfer is not None
     assert outcome.transfer.action is RuntimeTransferAction.END
     assert outcome.transfer.target.level is RunLevel.PROGRAM
+
+
+def test_tinysoul_app_stops_started_sources_when_later_start_fails() -> None:
+    first = _SubmittingSource(())
+    failing = _FailingStartSource()
+    app = (
+        TinySoulAppBuilder()
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_input_source(first)
+        .with_input_source(failing)
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        app.run()
+
+    assert first.started == 1
+    assert first.stopped == 1
+    assert failing.started == 1
+
+
+def test_tinysoul_app_attempts_all_source_stops_and_reports_failure() -> None:
+    failing = _FailingStopSource((InputEvent("exit", source="unit"),))
+    second = _SubmittingSource(())
+    app = (
+        TinySoulAppBuilder()
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_input_source(failing)
+        .with_input_source(second)
+        .build()
+    )
+
+    with pytest.raises(AppInvariantError, match="Failed to stop input sources"):
+        app.run()
+
+    assert failing.stopped == 1
+    assert second.stopped == 1
 
 
 def test_tinysoul_app_submit_event_uses_dispatcher() -> None:

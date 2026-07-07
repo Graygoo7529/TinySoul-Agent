@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from tinysoul.loop import ProgramOutcome, ProgramRunner, TurnOutcome
 
+from .errors import AppInvariantError
 from .inputs import InputDispatcher, InputEvent, InputSource
 
 
@@ -21,12 +22,21 @@ class TinySoulApp:
         object.__setattr__(self, "input_sources", tuple(self.input_sources))
 
     def run(self) -> ProgramOutcome:
+        started: list[InputSource] = []
         for source in self.input_sources:
-            source.start(self.input_dispatcher)
+            try:
+                source.start(self.input_dispatcher)
+            except Exception:
+                self._stop_sources(started, suppress_errors=True)
+                raise
+            started.append(source)
         try:
-            return self.program_runner.run()
-        finally:
-            self.stop_input_sources()
+            outcome = self.program_runner.run()
+        except BaseException:
+            self._stop_sources(started, suppress_errors=True)
+            raise
+        self._stop_sources(started, suppress_errors=False)
+        return outcome
 
     def run_once(self, user_input: str) -> TurnOutcome:
         return self.program_runner.run_once(user_input)
@@ -38,5 +48,22 @@ class TinySoulApp:
         self.input_dispatcher.submit(event)
 
     def stop_input_sources(self) -> None:
-        for source in self.input_sources:
-            source.stop()
+        self._stop_sources(self.input_sources, suppress_errors=False)
+
+    def _stop_sources(
+        self,
+        sources: tuple[InputSource, ...] | list[InputSource],
+        *,
+        suppress_errors: bool,
+    ) -> None:
+        errors: list[Exception] = []
+        for source in reversed(tuple(sources)):
+            try:
+                source.stop()
+            except Exception as exc:
+                errors.append(exc)
+        if errors and not suppress_errors:
+            detail = "; ".join(
+                f"{type(error).__name__}: {error}" for error in errors
+            )
+            raise AppInvariantError(f"Failed to stop input sources: {detail}")
