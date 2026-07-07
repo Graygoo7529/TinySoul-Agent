@@ -344,7 +344,7 @@ class Phase2Unit:
             self._emit_note(
                 {
                     "kind": "action_phase_result",
-                    "result": self._action.renderer.render_phase_trace_payload(result),
+                    "result": self._action.render_phase_trace_payload(result),
                 },
                 scope=scope,
                 cycle_id=cycle_id,
@@ -436,7 +436,7 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        for message in self._action.renderer.to_tool_result_messages(results):
+        for message in self._action.to_tool_result_messages(results):
             self._bus.emit(
                 build_trace_action_result_signal(
                     message,
@@ -459,7 +459,7 @@ class Phase3Unit:
                 build_trace_phase_note_signal(
                     {
                         "kind": "action_phase_result",
-                        "result": self._action.renderer.render_phase_trace_payload(result),
+                        "result": self._action.render_phase_trace_payload(result),
                     },
                     scope=scope,
                     source="loop.phase3",

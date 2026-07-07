@@ -220,6 +220,8 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     assert batch_preparation.results == ()
     assert results[0].status is ActionResultStatus.SUCCESS
     assert results[0].payload == {"text": "done"}
+    assert engine.to_tool_result_messages(results)[0].tool_name == "core.answer"
+    assert engine.render_result_trace_payload(results[0])["action"] == "core.answer"
 
 
 def test_action_engine_validates_subprocess_options_at_load_time(tmp_path: Path) -> None:

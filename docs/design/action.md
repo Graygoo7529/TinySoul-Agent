@@ -198,11 +198,17 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### llm_step
 
-`llm_step` 表示 action 内部还需要一次受控 LLM task。它必须继续遵守“所有 LLM 调用基于 Context 构造的 MessageStack”的原则；具体实现等待 Context/Loop 模块落地后再接入。
+`llm_step` 表示 action 内部还需要一次受控 LLM task。它必须继续遵守“所有 LLM 调用基于 Context 构造的 MessageStack”的原则；executor 通过注入的 `ContextEngine` 构造消息栈，并通过注入的 LLM runner 发起 `LLM_ACTION` task。
+
+`llm_step` action 的业务参数至少需要提供非空 `guide`，可选提供 `task_input` 和 `output_desc`。嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。
+
+`llm_step` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 
 ## 组装入口
 
 `ActionEngine` 是 action 模块面向 Loop/Context 的装配门面，位于 `tinysoul/action/engine.py`。它负责持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer，不改变结果模型，不引入 batch result。
+
+上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 
 `ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。已注册 backend 可以同步提供 backend options validator；这些 validator 在 catalog 加载阶段校验各自的 TOML options，并把动态边界尽早转换为后端明确类型。通用 `subprocess.default` 和 `script.temporary` 后端由 builder 默认注册 executor 与 options validator；native handler 需要调用方显式注册具体函数。
 

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
+from tinysoul.infra.json import JsonObject
+from tinysoul.llm.messages import ToolResultMessage
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import CyclePhase, RunScope
 
@@ -31,7 +33,7 @@ from .core.hooks import (
     ActionNormalizeHookPipeline,
 )
 from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
-from .core.result import ActionResult
+from .core.result import ActionPhaseResult, ActionResult
 from .core.runner import ActionBatchRunner
 from .core.scope import (
     ActionDomainPromptRenderer,
@@ -110,6 +112,50 @@ class ActionEngine:
         context: ActionExecutionContext | None = None,
     ) -> tuple[ActionResult, ...]:
         return self.runner.run(batch, context or ActionExecutionContext())
+
+    def render_result_model_payload(self, result: ActionResult) -> JsonObject:
+        """Render one action result for model feedback."""
+
+        return self.renderer.render_model_payload(result)
+
+    def render_result_trace_payload(self, result: ActionResult) -> JsonObject:
+        """Render one action result for trace storage."""
+
+        return self.renderer.render_trace_payload(result)
+
+    def render_result_model_payloads(
+        self,
+        results: tuple[ActionResult, ...],
+    ) -> tuple[JsonObject, ...]:
+        """Render action results for compact model feedback."""
+
+        return self.renderer.render_many(results)
+
+    def to_tool_result_messages(
+        self,
+        results: tuple[ActionResult, ...],
+    ) -> tuple[ToolResultMessage, ...]:
+        """Render action results as model-side tool result replay messages."""
+
+        return self.renderer.to_tool_result_messages(results)
+
+    def render_phase_model_payload(self, result: ActionPhaseResult) -> JsonObject:
+        """Render one phase-level action result for model feedback."""
+
+        return self.renderer.render_phase_model_payload(result)
+
+    def render_phase_trace_payload(self, result: ActionPhaseResult) -> JsonObject:
+        """Render one phase-level action result for trace storage."""
+
+        return self.renderer.render_phase_trace_payload(result)
+
+    def render_phase_model_payloads(
+        self,
+        results: tuple[ActionPhaseResult, ...],
+    ) -> tuple[JsonObject, ...]:
+        """Render phase-level action results for compact model feedback."""
+
+        return self.renderer.render_phase_many(results)
 
 
 class ActionEngineBuilder:
