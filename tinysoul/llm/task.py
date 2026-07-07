@@ -8,6 +8,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RuntimeException
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
+from .errors import LLMContractError, LLMError
 from .failures import LLMFailureKind
 from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
@@ -33,12 +34,23 @@ from .responses import (
 from .tools import ToolUse
 
 
-class LLMTaskError(Exception):
+class LLMTaskError(LLMContractError):
     """Raised when an LLM task cannot complete."""
 
 
 class ModelCapabilityError(LLMTaskError):
     """Raised when a model cannot satisfy a request."""
+
+    def __init__(
+        self,
+        *,
+        model_id: str,
+        missing: tuple[ModelCapability, ...],
+    ) -> None:
+        names = ", ".join(capability.value for capability in missing)
+        super().__init__(f"Model '{model_id}' lacks required capabilities: {names}")
+        self.model_id = model_id
+        self.missing = missing
 
 
 @dataclass(frozen=True)
@@ -89,10 +101,7 @@ class CapabilityPolicy:
     ) -> None:
         missing = self.missing_capabilities(model, required)
         if missing:
-            names = ", ".join(capability.value for capability in missing)
-            raise ModelCapabilityError(
-                f"Model '{model.id}' lacks required capabilities: {names}"
-            )
+            raise ModelCapabilityError(model_id=model.id, missing=missing)
 
 
 class TaskCallValidator:
@@ -172,9 +181,15 @@ class LLMTaskRunner:
                     "provider_error_kind": exc.kind.value,
                 },
             ) from exc
-        except LLMTaskError as exc:
+        except LLMContractError as exc:
             raise self._runtime_bridge.from_exception(
                 LLMFailureKind.CONTRACT_VIOLATION,
+                exc,
+                payload={"profile": call.profile},
+            ) from exc
+        except LLMError as exc:
+            raise self._runtime_bridge.from_exception(
+                LLMFailureKind.INTERNAL_FAILURE,
                 exc,
                 payload={"profile": call.profile},
             ) from exc
@@ -269,6 +284,8 @@ class LLMTaskRunner:
     def _is_fatal_error(self, error: Exception) -> bool:
         if isinstance(error, RuntimeException):
             return True
+        if isinstance(error, ModelCapabilityError):
+            return False
         return isinstance(error, LLMTaskError)
 
     def _model_chain_exhausted_payload(
@@ -283,6 +300,11 @@ class LLMTaskRunner:
         payload["last_error_type"] = type(last_error).__name__
         if isinstance(last_error, ProviderError):
             payload["provider_error_kind"] = last_error.kind.value
+        if isinstance(last_error, ModelCapabilityError):
+            payload["model_id"] = last_error.model_id
+            payload["missing_capabilities"] = [
+                capability.value for capability in last_error.missing
+            ]
         return payload
 
     def _resolve_settings(

@@ -225,10 +225,8 @@ def test_provider_options_rejects_unknown_reasoning_keep() -> None:
         },
     }
 
-    config = LLMConfigParser().parse(tree)
-
-    with pytest.raises(ValueError):
-        config.models.get("kimi_k2_7").provider_options.reasoning_keep()
+    with pytest.raises(ConfigError):
+        LLMConfigParser().parse(tree)
 
 
 def test_llm_config_rejects_invalid_request_override() -> None:
@@ -259,6 +257,66 @@ def test_llm_config_rejects_invalid_request_override() -> None:
 
     with pytest.raises(ConfigError):
         LLMConfigParser().parse(tree)
+
+
+def test_llm_config_rejects_invalid_enum_values_at_parse_time() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "kimi_k2_7": {
+                "provider": "kimi",
+                "provider_model": "kimi-k2.7-code",
+                "capabilities": ["text_input"],
+            }
+        },
+        "tasks": {
+            "framework": {
+                "models": ["kimi_k2_7"],
+                "answer_format": "yaml",
+            }
+        },
+    }
+
+    with pytest.raises(ConfigError) as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key == "llm.tasks.framework.answer_format"
+
+
+def test_llm_config_rejects_invalid_retry_policy_at_parse_time() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "kimi_k2_7": {
+                "provider": "kimi",
+                "provider_model": "kimi-k2.7-code",
+                "capabilities": ["text_input"],
+            }
+        },
+        "tasks": {
+            "framework": {
+                "models": ["kimi_k2_7"],
+                "max_retries_per_model": 0,
+            }
+        },
+    }
+
+    with pytest.raises(ConfigError) as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key == "llm.tasks.framework"
 
 def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:
     tree = {

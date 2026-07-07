@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import time
 from typing import Callable, TypeVar
 
+from .errors import LLMContractError, LLMInvariantError
 from .requests import CallSettings, TaskProfile
 
 T = TypeVar("T")
@@ -23,18 +24,20 @@ class RetryPolicy:
 
     def __post_init__(self) -> None:
         if self.max_retries_per_model < 1:
-            raise ValueError("max_retries_per_model must be at least 1")
+            raise LLMContractError("max_retries_per_model must be at least 1")
         if self.retry_wait_seconds < 0:
-            raise ValueError("retry_wait_seconds cannot be negative")
+            raise LLMContractError("retry_wait_seconds cannot be negative")
         if self.switch_wait_seconds < 0:
-            raise ValueError("switch_wait_seconds cannot be negative")
+            raise LLMContractError("switch_wait_seconds cannot be negative")
         if self.max_cycles is not None and self.max_cycles < 1:
-            raise ValueError("max_cycles must be None or at least 1")
+            raise LLMContractError("max_cycles must be None or at least 1")
         if (
             self.prefer_successful_model_seconds is not None
             and self.prefer_successful_model_seconds < 0
         ):
-            raise ValueError("prefer_successful_model_seconds cannot be negative")
+            raise LLMContractError(
+                "prefer_successful_model_seconds cannot be negative"
+            )
 
 
 @dataclass(frozen=True)
@@ -47,9 +50,9 @@ class ModelChain:
 
     def __post_init__(self) -> None:
         if not self.profile:
-            raise ValueError("profile must be non-empty")
+            raise LLMContractError("profile must be non-empty")
         if not self.model_ids:
-            raise ValueError("model_ids must be non-empty")
+            raise LLMContractError("model_ids must be non-empty")
 
 
 @dataclass(frozen=True)
@@ -71,7 +74,7 @@ class TaskSpecTable:
 
     def register(self, spec: TaskSpec) -> None:
         if spec.profile in self._specs:
-            raise ValueError(f"Task already registered: {spec.profile}")
+            raise LLMInvariantError(f"Task already registered: {spec.profile}")
         self._specs[spec.profile] = spec
 
     def get(self, profile: TaskProfile | str) -> TaskSpec:
@@ -79,7 +82,7 @@ class TaskSpecTable:
         try:
             return self._specs[profile_name]
         except KeyError as exc:
-            raise KeyError(f"Unknown task profile: {profile_name}") from exc
+            raise LLMContractError(f"Unknown task profile: {profile_name}") from exc
 
 
 class ModelChainState:
@@ -134,7 +137,7 @@ class ModelChainPlanner:
 
     def model_order(self, chain: ModelChain, *, start_index: int) -> tuple[str, ...]:
         if start_index < 0 or start_index >= len(chain.model_ids):
-            raise ValueError("start_index must point to a model in the chain")
+            raise LLMContractError("start_index must point to a model in the chain")
         return chain.model_ids[start_index:]
 
 

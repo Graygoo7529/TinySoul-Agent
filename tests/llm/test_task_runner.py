@@ -384,6 +384,44 @@ def test_runner_rejects_missing_image_capability() -> None:
         runner.run(TaskCall(profile="framework", messages=stack))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
+    assert exc_info.value.payload["last_error_type"] == "ModelCapabilityError"
+    assert exc_info.value.payload["missing_capabilities"] == ["image_input"]
+
+
+def test_runner_skips_model_missing_call_capability() -> None:
+    provider = FakeProvider(provider_id="fake")
+    text_model = ModelSpec(
+        id="text",
+        provider_id="fake",
+        provider_model="text",
+        capabilities=frozenset({ModelCapability.TEXT_INPUT}),
+    )
+    vision_model = ModelSpec(
+        id="vision",
+        provider_id="fake",
+        provider_model="vision",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.IMAGE_INPUT,
+                ModelCapability.JSON_OBJECT_OUTPUT,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([text_model, vision_model]),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("text", "vision"))),
+    )
+    stack = MessageStack.of(
+        UserMessage.from_parts(ImagePart(data=b"abc", mime_type="image/png"))
+    )
+
+    result = runner.run(TaskCall(profile="framework", messages=stack))
+
+    assert _json_output(result) == {"model": "vision"}
+    assert provider.calls == ["vision"]
 
 
 def test_runner_rejects_missing_remote_image_url_capability() -> None:

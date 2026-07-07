@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
+from typing import TypeVar, cast
 
 from tinysoul.infra.config import ConfigError
 
+from .errors import LLMContractError
 from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
 from .models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
 from .requests import CallSettings
@@ -21,6 +22,9 @@ class ProviderApiStyle(StrEnum):
 
     OPENAI_CHAT = "openai_chat"
     OPENAI_RESPONSES = "openai_responses"
+
+
+E = TypeVar("E", bound=StrEnum)
 
 
 @dataclass(frozen=True)
@@ -87,8 +91,14 @@ class LLMConfigParser:
             providers.append(
                 ProviderSpec(
                     id=provider_id,
-                    api_style=ProviderApiStyle(
-                        _required_str(provider_table, "api_style", key=f"llm.providers.{provider_id}")
+                    api_style=_enum_value(
+                        ProviderApiStyle,
+                        _required_str(
+                            provider_table,
+                            "api_style",
+                            key=f"llm.providers.{provider_id}",
+                        ),
+                        key=f"llm.providers.{provider_id}.api_style",
                     ),
                     base_url=_required_str(provider_table, "base_url", key=f"llm.providers.{provider_id}"),
                     api_key_envs=tuple(
@@ -96,6 +106,7 @@ class LLMConfigParser:
                             provider_table,
                             "api_key_envs",
                             key=f"llm.providers.{provider_id}",
+                            non_empty=True,
                         )
                     ),
                 )
@@ -127,13 +138,10 @@ class LLMConfigParser:
                         "provider_model",
                         key=f"llm.models.{model_id}",
                     ),
-                    capabilities=frozenset(
-                        ModelCapability(capability)
-                        for capability in _required_str_list(
-                            model_table,
-                            "capabilities",
-                            key=f"llm.models.{model_id}",
-                        )
+                    capabilities=_required_capability_set(
+                        model_table,
+                        "capabilities",
+                        key=f"llm.models.{model_id}",
                     ),
                     provider_options=_optional_provider_options(
                         model_table,
@@ -154,7 +162,12 @@ class LLMConfigParser:
             profile = raw_profile
             task_table = _as_table(value, key=f"llm.tasks.{profile}")
             model_ids = tuple(
-                _required_str_list(task_table, "models", key=f"llm.tasks.{profile}")
+                _required_str_list(
+                    task_table,
+                    "models",
+                    key=f"llm.tasks.{profile}",
+                    non_empty=True,
+                )
             )
             for model_id in model_ids:
                 if not models.has(model_id):
@@ -174,61 +187,38 @@ class LLMConfigParser:
                 models=models,
                 required_capabilities=required_capabilities,
             )
+            retry_policy = self._parse_retry_policy(
+                task_table,
+                key=f"llm.tasks.{profile}",
+            )
             tasks.register(
                 TaskSpec(
                     profile=profile,
-                    chain=ModelChain(
+                    chain=self._parse_model_chain(
                         profile=profile,
                         model_ids=model_ids,
-                        retry_policy=RetryPolicy(
-                            max_retries_per_model=_optional_int(
-                                task_table,
-                                "max_retries_per_model",
-                                default=RetryPolicy().max_retries_per_model,
-                                key=f"llm.tasks.{profile}",
-                            ),
-                            retry_wait_seconds=_optional_float(
-                                task_table,
-                                "retry_wait_seconds",
-                                default=RetryPolicy().retry_wait_seconds,
-                                key=f"llm.tasks.{profile}",
-                            ),
-                            switch_wait_seconds=_optional_float(
-                                task_table,
-                                "switch_wait_seconds",
-                                default=RetryPolicy().switch_wait_seconds,
-                                key=f"llm.tasks.{profile}",
-                            ),
-                            max_cycles=_optional_int_or_none(
-                                task_table,
-                                "max_cycles",
-                                default=RetryPolicy().max_cycles,
-                                key=f"llm.tasks.{profile}",
-                            ),
-                            prefer_successful_model_seconds=_optional_float_or_none(
-                                task_table,
-                                "prefer_successful_model_seconds",
-                                default=RetryPolicy().prefer_successful_model_seconds,
-                                key=f"llm.tasks.{profile}",
-                            ),
-                        ),
+                        retry_policy=retry_policy,
                     ),
                     settings=CallSettings(
-                        answer_format=AnswerFormat(
+                        answer_format=_enum_value(
+                            AnswerFormat,
                             _optional_str(
                                 task_table,
                                 "answer_format",
                                 default=AnswerFormat.JSON_OBJECT.value,
                                 key=f"llm.tasks.{profile}",
-                            )
+                            ),
+                            key=f"llm.tasks.{profile}.answer_format",
                         ),
-                        tool_use=ToolUse(
+                        tool_use=_enum_value(
+                            ToolUse,
                             _optional_str(
                                 task_table,
                                 "tool_use",
                                 default=ToolUse.DISABLED.value,
                                 key=f"llm.tasks.{profile}",
-                            )
+                            ),
+                            key=f"llm.tasks.{profile}.tool_use",
                         ),
                         temperature=_optional_float_or_none(
                             task_table,
@@ -247,6 +237,64 @@ class LLMConfigParser:
                 )
             )
         return tasks
+
+    def _parse_retry_policy(
+        self,
+        table: Mapping[str, object],
+        *,
+        key: str,
+    ) -> RetryPolicy:
+        try:
+            return RetryPolicy(
+                max_retries_per_model=_optional_int(
+                    table,
+                    "max_retries_per_model",
+                    default=RetryPolicy().max_retries_per_model,
+                    key=key,
+                ),
+                retry_wait_seconds=_optional_float(
+                    table,
+                    "retry_wait_seconds",
+                    default=RetryPolicy().retry_wait_seconds,
+                    key=key,
+                ),
+                switch_wait_seconds=_optional_float(
+                    table,
+                    "switch_wait_seconds",
+                    default=RetryPolicy().switch_wait_seconds,
+                    key=key,
+                ),
+                max_cycles=_optional_int_or_none(
+                    table,
+                    "max_cycles",
+                    default=RetryPolicy().max_cycles,
+                    key=key,
+                ),
+                prefer_successful_model_seconds=_optional_float_or_none(
+                    table,
+                    "prefer_successful_model_seconds",
+                    default=RetryPolicy().prefer_successful_model_seconds,
+                    key=key,
+                ),
+            )
+        except (LLMContractError, ValueError) as exc:
+            raise ConfigError(str(exc), key=key) from exc
+
+    def _parse_model_chain(
+        self,
+        *,
+        profile: str,
+        model_ids: tuple[str, ...],
+        retry_policy: RetryPolicy,
+    ) -> ModelChain:
+        try:
+            return ModelChain(
+                profile=profile,
+                model_ids=model_ids,
+                retry_policy=retry_policy,
+            )
+        except (LLMContractError, ValueError) as exc:
+            raise ConfigError(str(exc), key=f"llm.tasks.{profile}.models") from exc
 
     def _validate_task_required_capabilities(
         self,
@@ -327,7 +375,13 @@ def _optional_str(
     return value
 
 
-def _required_str_list(table: Mapping[str, object], name: str, *, key: str) -> list[str]:
+def _required_str_list(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+    non_empty: bool = False,
+) -> list[str]:
     value = table.get(name)
     if not isinstance(value, list):
         raise ConfigError(
@@ -346,6 +400,13 @@ def _required_str_list(table: Mapping[str, object], name: str, *, key: str) -> l
                 expected="list[str]",
             )
         result.append(item)
+    if non_empty and not result:
+        raise ConfigError(
+            "Configuration value must contain at least one item",
+            key=f"{key}.{name}",
+            value=value,
+            expected="non-empty list[str]",
+        )
     return result
 
 
@@ -364,7 +425,17 @@ def _optional_provider_options(
             value=value,
             expected="table",
         )
-    options = ProviderOptions(cast(Mapping[str, object], value))
+    options_table = cast(Mapping[str, object], value)
+    options = ProviderOptions(options_table)
+    try:
+        options.reasoning_keep()
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            str(exc),
+            key=f"{key}.provider_options.reasoning_keep",
+            value=options_table.get("reasoning_keep"),
+            expected="none | content | encrypted",
+        ) from exc
     try:
         options.request_overrides()
     except (TypeError, ValueError) as exc:
@@ -386,7 +457,36 @@ def _optional_capability_set(
     if value is None:
         return frozenset()
     capabilities = _required_str_list(table, name, key=key)
-    return frozenset(ModelCapability(capability) for capability in capabilities)
+    return frozenset(
+        _enum_value(ModelCapability, capability, key=f"{key}.{name}")
+        for capability in capabilities
+    )
+
+
+def _required_capability_set(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    key: str,
+) -> frozenset[ModelCapability]:
+    capabilities = _required_str_list(table, name, key=key, non_empty=True)
+    return frozenset(
+        _enum_value(ModelCapability, capability, key=f"{key}.{name}")
+        for capability in capabilities
+    )
+
+
+def _enum_value(enum_type: type[E], value: str, *, key: str) -> E:
+    try:
+        return enum_type(value)
+    except ValueError as exc:
+        expected = ", ".join(item.value for item in enum_type)
+        raise ConfigError(
+            "Configuration value is not supported",
+            key=key,
+            value=value,
+            expected=expected,
+        ) from exc
 
 
 def _optional_int(
