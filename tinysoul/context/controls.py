@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, JsonValue
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelection, ToolSpec
 from tinysoul.runtime import RunScope, Signal
 
@@ -47,6 +47,9 @@ class ControlResult:
     sequence: int
     model_feedback: str = ""
     frame_data: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
     @classmethod
     def failed(

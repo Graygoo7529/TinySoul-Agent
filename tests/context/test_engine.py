@@ -62,6 +62,9 @@ def test_turn_lifecycle_and_compose() -> None:
 
 def test_control_scope_tracks_background_state() -> None:
     engine = _engine()
+    with pytest.raises(ContextContractError):
+        engine.control_scope()
+
     engine.begin_turn("hi")
     names = [tool.name for tool in engine.control_scope().tools]
     # home:what@x is loadable; home:agent@core is loaded (and evictable).
@@ -164,6 +167,38 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
     assert results[0].call_id == "remove_2"
     assert "Unknown todo key" in results[0].model_feedback
     assert engine.working_snapshot()["todos"] == []
+
+
+def test_consume_signal_results_preserve_signal_order() -> None:
+    engine = _engine()
+    engine.begin_turn("hi")
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=SCOPE,
+            payload={
+                "call_id": "background_first",
+                "load_links": ["missing"],
+                "evict_links": [],
+            },
+        )
+    )
+    bus.emit(
+        Signal(
+            name=SIGNAL_TRACE_APPEND,
+            source="test",
+            scope=SCOPE,
+            payload={"kind": "unknown_trace_kind"},
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert [result.sequence for result in results] == [1, 2]
+    assert results[0].call_id == "background_first"
+    assert "Unknown trace append kind" in results[1].model_feedback
 
 
 def test_consume_signals_validates_background_batch_against_projection() -> None:

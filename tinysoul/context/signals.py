@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from tinysoul.infra.json import JsonObject, JsonValue
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
 from tinysoul.llm.messages import (
     AssistantMessage,
     JsonPart,
@@ -187,7 +187,7 @@ def build_trace_decision_signal(
             {
                 "id": record.id,
                 "name": record.name,
-                "arguments": record.arguments,
+                "arguments": to_json_object(record.arguments),
                 "tool_kind": record.kind.value if record.kind is not None else "",
             }
             for record in message.tool_calls
@@ -229,7 +229,7 @@ def build_trace_phase_note_signal(
         "kind": TRACE_APPEND_PHASE_NOTE,
         "cycle_id": cycle_id,
         "phase": phase.value if phase is not None else "",
-        "note": note,
+        "note": to_json_object(note),
     }
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
@@ -356,7 +356,7 @@ def _parts_to_json(parts: tuple[object, ...]) -> list[JsonValue]:
         if isinstance(part, TextPart):
             result.append({"type": "text", "text": part.text})
         elif isinstance(part, JsonPart):
-            result.append({"type": "json", "value": part.value})
+            result.append({"type": "json", "value": to_json_object(part.value)})
         else:
             raise ContextContractError(
                 "Trace append only supports text and JSON message parts"
@@ -386,7 +386,9 @@ def _reasoning_to_json(reasoning: Reasoning | None) -> JsonObject | None:
     if reasoning.summary is not None:
         result["summary"] = reasoning.summary
     if reasoning.encrypted_items:
-        result["encrypted_items"] = list(reasoning.encrypted_items)
+        result["encrypted_items"] = [
+            to_json_object(item) for item in reasoning.encrypted_items
+        ]
     if not result:
         return None
     return result

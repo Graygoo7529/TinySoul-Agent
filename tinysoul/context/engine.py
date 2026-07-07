@@ -135,6 +135,7 @@ class ContextEngine:
         )
 
     def control_scope(self) -> ToolScope:
+        self._require_turn()
         loadable = tuple(
             link for link in self._loadable_entries if not self._background.has(link)
         )
@@ -221,7 +222,7 @@ class ContextEngine:
             self._apply_trace_append(append)
         for text in input_texts:
             self._inputs.add(text)
-        return tuple(results)
+        return tuple(sorted(results, key=lambda result: result.sequence))
 
     def merge_pending_inputs(self) -> int:
         self._require_turn()

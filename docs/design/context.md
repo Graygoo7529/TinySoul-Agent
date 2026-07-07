@@ -65,7 +65,7 @@ Context 消费的信号协议：
 - `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 provider-neutral Reasoning；
 - `context.input.append`：用户追加输入。
 
-信号消费采用批量可行提交语义：先解析同批 `context.*` 信号；解析失败或载荷不合规的信号转为局部结果；Working 与 Background 变更在投影状态上按信号顺序验证，验证通过的变更统一提交，验证失败的变更不提交且不抛异常。该语义不是 all-or-nothing，而是保证可行变更不会因为同批其他失败信号而丢失，同时避免提交前后状态不一致。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
+信号消费采用批量可行提交语义：先解析同批 `context.*` 信号；解析失败或载荷不合规的信号转为局部结果；Working 与 Background 变更在投影状态上按信号顺序验证，验证通过的变更统一提交，验证失败的变更不提交且不抛异常；返回的局部结果按原始信号顺序排序。该语义不是 all-or-nothing，而是保证可行变更不会因为同批其他失败信号而丢失，同时避免提交前后状态不一致。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
 
 Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep` 和供应商能力决定：OpenAI Responses 只能把加密 reasoning item 作为可回放输入，summary 只是可观察摘要；OpenAI-compatible Chat 供应商若支持历史思考字段，则可在声明保留文本推理内容时回放 `reasoning.content`。Context 不在信号层把这些差异编码为分支。
 
