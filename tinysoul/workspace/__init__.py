@@ -1,7 +1,12 @@
 """TinySoul workspace resource module."""
 
 from .config import WorkspaceSettings, parse_workspace_settings
-from .engine import WorkspaceEngine, WorkspaceEngineBuilder, WorkspaceScanResult
+from .engine import (
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+    WorkspaceScanResult,
+    WorkspaceTextRead,
+)
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
@@ -32,5 +37,6 @@ __all__ = [
     "WorkspaceResourceRecord",
     "WorkspaceScanResult",
     "WorkspaceSettings",
+    "WorkspaceTextRead",
     "parse_workspace_settings",
 ]

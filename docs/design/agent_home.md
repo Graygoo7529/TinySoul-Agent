@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文描述 Agent Home 模块的当前设计。代码已包含独立 Agent Home 模块，并完成 `home:` 链接解析、默认和可加载背景条目、`home:agent@core` 加载、`home:how_action@<domain>` guidance 注入、运行时副本显式准备、`home.resource.read` action 和 Runtime bridge/trap handler 接入。
+本文描述 Agent Home 模块的当前设计。代码已包含独立 Agent Home 模块，并完成 `home:` 链接解析、默认和可加载背景条目、`home:agent@core` 加载、`home:how_action@<domain>` guidance 注入、运行时副本准备、`home.resource.read` action 和 Runtime bridge/trap handler 接入。
 
-当前实现覆盖 Agent Home 的背景加载、domain HOW 注入和渐进式只读资源切面。资源写入、patch、检索、当日 memory 草稿、HOW 使用反馈和每日沉淀仍未实现，后续应继续在 Agent Home 模块内扩展。
+当前实现覆盖 Agent Home 的背景加载、domain HOW 注入、渐进式只读资源和 runtime home 缺页式副本准备切面。顶层内容和渐进式资源在读取时都以 runtime 副本为读取位置；当运行期边界发现副本缺失时，通过 `HOME_RUNTIME_COPY_REQUIRED` 进入 Trap，准备副本后重试当前 frame。资源写入、patch、检索、当日 memory 草稿、HOW 使用反馈和每日沉淀仍未实现，后续应继续在 Agent Home 模块内扩展。
 
 ## 定位
 
@@ -113,7 +113,7 @@ Agent Home 分为原始 home 和当日 runtime home：
 - runtime home 是当日懒加载副本，运行期可写；
 - 每日沉淀任务比较 runtime home 与原始 home 的差异，再决定合并、丢弃或生成记忆。
 
-当某个顶层内容或渐进式资源被加载到运行期，并且后续可能被修改时，Agent Home 应确保 runtime home 中存在对应副本。语义检索和当前只读 action 读取原始 home；可写操作必须落在 runtime home。
+当某个顶层内容或渐进式资源被加载到运行期时，Agent Home 应确保 runtime home 中存在对应副本，并从 runtime home 读取。语义检索这类候选发现可以只读取原始 home；一旦链接内容进入 BackgroundContext、domain guidance 或 action result，就按链接建立 runtime 副本。可写操作必须落在 runtime home。
 
 运行时副本准备有两种入口：
 
@@ -122,7 +122,7 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy` 和 Trap handler；普通只读背景、guidance 和 `home.resource.read` 不创建 runtime 副本，避免读取行为污染当日 runtime home。
+当前实现提供显式 `ensure_runtime_copy` 和 Trap handler。`AgentHomeEngine.read_top` 与 `read_resource` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainGuidanceProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 直接调用同一个 runtime copy Trap handler 准备副本后重试读取。
 
 ## BackgroundContext 接入
 
@@ -148,7 +148,7 @@ Provider 的职责：
 4. 返回适合 Phase2 task prompt 的短文本片段；
 5. 读取失败时返回空片段或结构化局部反馈，不能让 Loop 了解 home 文件结构。
 
-Domain guidance 是 domain 级，而不是 action 级。Phase1 选择的是 domain，因此自动注入的 HOW 也应绑定 domain。具体 action 的细节仍由 action TOML 的 tool description、semantic hints 和 schema 承担。当前 provider 读取原始 home 的 `home:how_action@<domain>` 顶层内容；后续可在可写使用反馈接入后，为 how_action 维护 runtime 副本和 `DOMAIN_MEMORY.md`。
+Domain guidance 是 domain 级，而不是 action 级。Phase1 选择的是 domain，因此自动注入的 HOW 也应绑定 domain。具体 action 的细节仍由 action TOML 的 tool description、semantic hints 和 schema 承担。当前 provider 通过 `home:how_action@<domain>` 顶层链接读取 runtime 副本；副本缺失时进入 runtime copy Trap。后续可在可写使用反馈接入后，为 how_action 维护 `DOMAIN_MEMORY.md`。
 
 ## Progressive Resource Actions
 
@@ -156,7 +156,7 @@ Domain guidance 是 domain 级，而不是 action 级。Phase1 选择的是 doma
 
 当前已实现的 action：
 
-- `home.resource.read`：读取 `home:*/` 渐进式资源，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败。
+- `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。
 
 后续可设计的 action：
 
@@ -251,7 +251,7 @@ AppBuilder 的目标职责是：
 - `DomainGuidanceProvider` 能从 `home:how_action@domain` 获取 guidance；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
-- `home.resource.read` 不写入 Context，并返回有界文本；
+- `home.resource.read` 不写入 BackgroundContext，并返回有界文本；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；
 - 每日沉淀只作为独立维护任务接入，不改变普通 User Turn 的三阶段主流程。

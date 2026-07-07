@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AgentHomeSettings
-from .errors import AgentHomeContractError, AgentHomeIOError
+from .errors import AgentHomeContractError, AgentHomeIOError, AgentHomeRuntimeCopyRequired
 from .layout import AgentHomeLayout
 from .links import HomeLink, HomeResourceLink, HomeTopLink, parse_home_link
 from .runtime_copy import AgentHomeRuntimeCopyManager
@@ -68,7 +68,7 @@ class AgentHomeEngine:
         source = self._layout.source_for_top(parsed)
         if not source.is_file():
             raise AgentHomeContractError(f"Home top-level file does not exist: {source}")
-        return _read_text(source)
+        return _read_text(self._runtime_read_path(str(parsed), source))
 
     def read_resource(
         self,
@@ -83,7 +83,7 @@ class AgentHomeEngine:
         source = self._layout.source_for_resource(parsed)
         if not source.is_file():
             raise AgentHomeContractError(f"Home resource file does not exist: {source}")
-        text = _read_text(source)
+        text = _read_text(self._runtime_read_path(str(parsed), source))
         truncated = len(text) > limit
         if truncated:
             text = text[:limit]
@@ -105,6 +105,16 @@ class AgentHomeEngine:
             source = self._layout.source_for_resource(link)
         runtime = self._layout.runtime_for_source(source)
         self._runtime_copy.ensure_source_copy(source, runtime)
+
+    def _runtime_read_path(self, link: str, source: Path) -> Path:
+        runtime = self._layout.runtime_for_source(source)
+        if not runtime.is_file():
+            raise AgentHomeRuntimeCopyRequired(
+                link,
+                source_path=source,
+                runtime_path=runtime,
+            )
+        return runtime
 
 
 class AgentHomeEngineBuilder:

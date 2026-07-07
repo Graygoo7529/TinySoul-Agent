@@ -34,9 +34,12 @@ class FakeLLM:
         return self.results.popleft()
 
 
-def test_app_builder_run_once_answers_with_real_action_and_context() -> None:
+def test_app_builder_run_once_answers_with_real_action_and_context(
+    tmp_path: Path,
+) -> None:
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
         .with_llm_runner(
@@ -72,13 +75,16 @@ def test_app_builder_run_once_answers_with_real_action_and_context() -> None:
 
 
 def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
-    (tmp_path / "doc.md").write_text("hello", encoding="utf-8")
-    config = ConfigEnvironment.from_project_root(
-        root=Path.cwd(),
-        overrides={
-            "app.interactive": False,
-            "workspace.root": str(tmp_path),
-            "workspace.manifest_path": str(tmp_path / ".tinysoul" / "manifest.json"),
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "doc.md").write_text("hello", encoding="utf-8")
+    config = _test_config(
+        tmp_path,
+        {
+            "workspace.root": str(workspace_root),
+            "workspace.manifest_path": str(
+                workspace_root / ".tinysoul" / "manifest.json"
+            ),
         },
     )
     app = (
@@ -118,9 +124,10 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
     assert outcome.summary is not None
 
 
-def test_program_runner_idle_exit_ends_program() -> None:
+def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .build()
@@ -135,11 +142,12 @@ def test_program_runner_idle_exit_ends_program() -> None:
     assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
-def test_turn_runner_stop_control_ends_turn_without_llm_call() -> None:
+def test_turn_runner_stop_control_ends_turn_without_llm_call(tmp_path: Path) -> None:
     bus = SignalBus()
     llm = FakeLLM(())
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_signal_bus(bus)
         .with_llm_runner(llm)
@@ -165,10 +173,7 @@ def test_turn_runner_stop_control_ends_turn_without_llm_call() -> None:
 
 
 def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:
-    config = ConfigEnvironment.from_project_root(
-        root=Path.cwd(),
-        overrides={"app.interactive": False},
-    )
+    config = _test_config(tmp_path)
 
     with pytest.raises(RuntimeException) as raised:
         (
@@ -195,3 +200,16 @@ def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
         answer=None,
         tool_calls=tool_calls,
     )
+
+
+def _test_config(
+    tmp_path: Path,
+    overrides: dict[str, object] | None = None,
+) -> ConfigEnvironment:
+    values: dict[str, object] = {
+        "app.interactive": False,
+        "home.runtime_root": str(tmp_path / "runtime_home"),
+    }
+    if overrides is not None:
+        values.update(overrides)
+    return ConfigEnvironment.from_project_root(root=Path.cwd(), overrides=values)

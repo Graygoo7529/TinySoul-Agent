@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
@@ -16,7 +18,9 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.home import (
+    AgentHomeEngine,
     AgentHomeEngineBuilder,
+    AgentHomeRuntimeCopyRequired,
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
     HomeDomainGuidanceProvider,
@@ -28,9 +32,13 @@ from tinysoul.runtime import (
     HOME_RUNTIME_COPY_REQUIRED,
     RunLevel,
     RunScope,
+    RuntimeException,
     RuntimeTransferAction,
     TrapSnap,
 )
+
+
+T = TypeVar("T")
 
 
 def test_home_provides_default_background_and_domain_guidance(tmp_path: Path) -> None:
@@ -45,15 +53,25 @@ def test_home_provides_default_background_and_domain_guidance(tmp_path: Path) ->
         )
     ).build()
 
-    defaults = home.default_background_entries()
-    loadable = home.loadable_background_entries()
-    guidance = HomeDomainGuidanceProvider(home).guidance_for(("workspace",))
+    defaults = _run_copy_trap_after_runtime_exception(
+        home.default_background_entries,
+        home=home,
+    )
+    loadable = _run_copy_trap_after_runtime_exception(
+        home.loadable_background_entries,
+        home=home,
+    )
+    guidance = _run_copy_trap_after_runtime_exception(
+        lambda: HomeDomainGuidanceProvider(home).guidance_for(("workspace",)),
+        home=home,
+    )
 
     assert defaults[0].link == "home:agent@core"
     assert defaults[0].content == "core rules"
     assert any(entry.link == "home:how_action@workspace" for entry in loadable)
     assert guidance == ("workspace guidance",)
-    assert not (tmp_path / "runtime" / "home").exists()
+    assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
+    assert (tmp_path / "runtime" / "home" / "how_action" / "workspace" / "DOMAIN.md").is_file()
 
 
 def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
@@ -122,11 +140,35 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
         {"link": "home:how/refactor/references/checklist.md", "max_chars": 3},
     )
 
-    result = HomeResourceReadExecutor(home).execute(execution, ActionExecutionContext())
+    executor = HomeResourceReadExecutor(home)
+    with_runtime_copy = _run_copy_trap_after_runtime_exception(
+        lambda: executor.execute(execution, ActionExecutionContext()),
+        home=home,
+    )
 
-    assert result.status is ActionResultStatus.SUCCESS
-    assert result.payload["text"] == "abc"
-    assert result.payload["truncated"] is True
+    assert with_runtime_copy.status is ActionResultStatus.SUCCESS
+    assert with_runtime_copy.payload["text"] == "abc"
+    assert with_runtime_copy.payload["truncated"] is True
+
+
+def test_home_domain_guidance_uses_runtime_copy_trap(tmp_path: Path) -> None:
+    how_action = tmp_path / "home" / "how_action" / "workspace"
+    how_action.mkdir(parents=True)
+    (how_action / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    provider = HomeDomainGuidanceProvider(home)
+
+    guidance = _run_copy_trap_after_runtime_exception(
+        lambda: provider.guidance_for(("workspace",)),
+        home=home,
+    )
+
+    assert guidance == ("workspace guidance",)
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:
@@ -165,3 +207,56 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
         batch_id="batch_1",
     )
     return preparation.batch.executions[0]
+
+
+def _run_copy_trap_after_runtime_exception(
+    callback: Callable[[], T],
+    *,
+    home: AgentHomeEngine,
+) -> T:
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, "turn")
+        .push(RunLevel.PHASE, "phase")
+    )
+    try:
+        return callback()
+    except AgentHomeRuntimeCopyRequired as exc:
+        _handle_copy_trap(
+            home,
+            message=str(exc),
+            payload={
+                "link": exc.link,
+                "source_path": str(exc.source_path),
+                "runtime_path": str(exc.runtime_path),
+            },
+            scope=scope,
+        )
+    except RuntimeException as exc:
+        assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
+        _handle_copy_trap(
+            home,
+            message=exc.message,
+            payload=exc.payload,
+            scope=scope,
+        )
+    return callback()
+
+
+def _handle_copy_trap(
+    home: AgentHomeEngine,
+    *,
+    message: str,
+    payload: JsonObject,
+    scope: RunScope,
+) -> None:
+    trap_result = AgentHomeRuntimeCopyTrapHandler(home).handle(
+        TrapSnap(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message=message,
+            payload=payload,
+            scope=scope,
+        )
+    )
+    assert trap_result.transfer.action is RuntimeTransferAction.RETRY

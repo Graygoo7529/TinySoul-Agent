@@ -9,35 +9,35 @@ status: done
 ## 当前实现位置
 
 - `tinysoul/app/builder.py` 的 `TinySoulAppBuilder` 负责装配 LLM、Workspace、Agent Home、Action、Context、SignalBus、RuntimeTrap、输入分发器、输入源和各级 loop runner。
-- `workspace.scan` 仍在 `TinySoulAppBuilder._build_action()` 中注册，但实现已迁入 `tinysoul/workspace/actions.py`，并通过 `WorkspaceEngine` 完成扫描、manifest 更新和 `context.working.patch` 同步。
+- `workspace.scan` 和 `workspace.describe` 仍在 `TinySoulAppBuilder._build_action()` 中注册，但实现已迁入 `tinysoul/workspace/actions.py`，并通过 `WorkspaceEngine` 完成扫描、单资源摘要刷新、manifest 更新和 `context.working.patch` 同步。
 - App 层旧的 `workspace.scan` 临时实现已从 `tinysoul/app/native_actions.py` 删除，app 层只保留 `core.answer`。
 - Phase2 的 domain guidance 通过 `HomeDomainGuidanceProvider` 注入，并从 Agent Home 的 `home:how_action@<domain>` 顶层内容读取。
 - Context 默认背景通过 Agent Home 门面加载 `home:agent@core`，AppBuilder 不再直接读取项目根目录 `AGENT.md`。
-- Agent Home 已接入 `home.resource.read` 渐进式资源读取 action、显式 runtime home 副本准备和 `HOME_RUNTIME_COPY_REQUIRED` trap handler。
+- Agent Home 已接入 `home.resource.read` 渐进式资源读取 action、runtime home 缺页式副本准备和 `HOME_RUNTIME_COPY_REQUIRED` trap handler；顶层背景、domain guidance 与渐进式资源在链接内容进入运行期时读取 runtime 副本，副本缺失时由 Trap 建立后重试。
 
 ## 设计意图
 
 App 的职责是进程装配、生命周期和外部输入边界，不应长期承担 workspace 文件扫描、Agent Home 内容读取、运行时副本管理、how_action 检索或每日沉淀策略。
 
-当前保留 `workspace.scan` 在 AppBuilder 中注册，是因为 AppBuilder 仍承担跨模块装配入口；具体扫描语义已经下沉到 Workspace 模块。这个通道继续验证 Phase3 可以通过 action -> signal 向 WorkingContext 写入 workspace 资源摘要，但 App 不再拥有 workspace 业务实现。
+当前保留 `workspace.scan` 和 `workspace.describe` 在 AppBuilder 中注册，是因为 AppBuilder 仍承担跨模块装配入口；具体扫描和摘要刷新语义已经下沉到 Workspace 模块。这个通道继续验证 Phase3 可以通过 action -> signal 向 WorkingContext 写入 workspace 资源摘要，但 App 不再拥有 workspace 业务实现。
 
 ## 已处理问题
 
-- `workspace.scan` 的扫描规则、跳过目录、数量上限、摘要格式已迁出 App 装配层，由 Workspace 模块维护。
-- Workspace 已维护 manifest，并将扫描结果投影为 WorkingContext 可消费的轻量资源摘要。
+- `workspace.scan` 的扫描规则、跳过目录、数量上限、摘要格式和 `workspace.describe` 的单资源刷新规则已迁出 App 装配层，由 Workspace 模块维护。
+- Workspace 已维护 manifest，并将扫描和单资源摘要刷新结果投影为 WorkingContext 可消费的轻量资源摘要。
 - `DomainGuidanceProvider` 已接入 Agent Home，Phase2 可以自动获得 `how_action/<domain>` 的 HOW 文档。
 - Context 默认背景来源已改为 Agent Home 门面，AppBuilder 不直接读取 `AGENT.md`。
-- Workspace / Agent Home 已拥有独立 failure kind 和 runtime bridge，启动期模块失败不再只能落入 AppBuilder 兜底。
+- Workspace / Agent Home 已拥有独立 failure kind 和 runtime bridge，启动期模块失败不再只能落入 AppBuilder 兜底；Agent Home 的 runtime 副本缺失通过专门 bridge 映射为 Runtime Trap。
 
 ## 仍需推进
 
-- `WorkspaceEngine` 当前只覆盖扫描和 manifest，仍需补充 read/write/patch/delete、单资源摘要刷新、删除检测和日终归档。
-- Agent Home 当前只覆盖背景、guidance、只读渐进式资源和显式 runtime copy，仍需补充检索、写入、patch、memory append、HOW 使用反馈和每日沉淀。
+- `WorkspaceEngine` 当前覆盖扫描、manifest、单资源摘要刷新和内部有界文本读取。模型可见的 workspace 正文读取仍需补充“临时 task prompt 或 action 内部处理”通道，避免正文通过 ActionResult 持久进入 TurnTraceContext；write/patch/delete、删除检测和日终归档仍需补充。
+- Agent Home 当前覆盖背景、guidance、只读渐进式资源和 runtime copy Trap，仍需补充检索、写入、patch、memory append、HOW 使用反馈和每日沉淀。
 - `TinySoulAppBuilder` 仍是全局装配入口，随着模块增多可以继续抽出更细的模块注册方法，但不应把业务语义重新放回 app。
 
 ## 后续扩展方向
 
-- Workspace 模块继续补齐 workspace read/write/patch/delete、删除检测、单资源摘要刷新和日终归档。
+- Workspace 模块继续补齐 workspace 正文进入临时 task prompt 的读取路径、write/patch/delete、删除检测和日终归档。
 - Workspace 模块继续通过稳定信号或返回结果更新 WorkingContext，保持“文件内容不直接进入 Context，Context 只持有 workspace 链接和摘要”的规则。
 - Agent Home 模块继续补齐原始 home 与当日 runtime home 的可写资源操作、检索、HOW/HOW_ACTION 使用反馈、memory append 和每日沉淀。
 - Loop 继续只依赖 `DomainGuidanceProvider` 协议，不直接读取 HOW 文件。
@@ -47,10 +47,10 @@ App 的职责是进程装配、生命周期和外部输入边界，不应长期�
 ## Workspace / Agent Home 构建注意事项
 
 - Workspace 应是 `workspace:` 链接的唯一语义归属模块。路径解析、路径归一化、沙箱边界、忽略规则、资源摘要、manifest 更新、读写策略和每日归档都应由 Workspace 门面负责；App 只传入根目录、配置和注册材料。
-- Workspace action 不应默认把文件正文写回 Context。WorkingContext 中只应保留资源句柄、摘要、大小、类型、修改时间等轻量信息；需要读取正文时，应在 Phase3 的 action 执行期按链接加载，并作为临时 task prompt 或 action 内部输入使用。
-- `workspace.scan` 当前实现保留 action -> signal -> context 的协作路径，扫描规则、返回摘要格式和 WorkingContext patch 构造已经迁出 `tinysoul/app/native_actions.py`。
+- Workspace action 不应默认把文件正文写回 Context。WorkingContext 中只应保留资源句柄、摘要、大小、类型、修改时间等轻量信息；需要读取正文时，应在 Phase3 的 action 执行期按链接加载，并作为临时 task prompt 或 action 内部输入使用。当前未暴露模型侧 `workspace.read` action，避免正文进入普通 ActionResult。
+- `workspace.scan` 与 `workspace.describe` 当前实现保留 action -> signal -> context 的协作路径，扫描规则、返回摘要格式和 WorkingContext patch 构造已经迁出 `tinysoul/app/native_actions.py`。
 - Workspace 的启动配置错误、路径不可用、沙箱越界、manifest 损坏和运行时读写失败需要有模块自己的 failure kind，并通过 runtime bridge 转换为少量 Runtime 原因；不要让这些错误只落入 AppBuilder 的兜底 startup failure。
-- Agent Home 应负责原始 home 与当日 runtime home 副本的关系，包括顶层内容、渐进式内容、懒加载拷贝、运行时修改、每日 diff 和沉淀决策。App 不应直接读取或解释 HOW / WHAT / WHY / MEMORY 文件结构。
+- Agent Home 应负责原始 home 与当日 runtime home 副本的关系，包括顶层内容、渐进式内容、按链接缺页拷贝、运行时修改、每日 diff 和沉淀决策。App 不应直接读取或解释 HOW / WHAT / WHY / MEMORY 文件结构。
 - Context 默认 BackgroundContext 的来源由 Agent Home 门面提供，后续不应扩展为更多 app 侧文件读取逻辑。
 - `how_action` 应由 Agent Home 提供 `DomainGuidanceProvider` 实现，并注入 Loop 的 Phase2 / Phase3 prompt 构造；Loop 继续只依赖 provider 协议，不直接感知 home 目录结构。
 - Agent Home 链接语义需要明确区分 `home:*@` 顶层背景内容与 `home:*/` 渐进式资源。顶层内容可进入 BackgroundContext；渐进式资源只能通过 action 按链接加载，避免把整个 home 文件树提前塞入模型语境。
@@ -61,6 +61,6 @@ App 的职责是进程装配、生命周期和外部输入边界，不应长期�
 
 - Loop 中不再出现 workspace 目录扫描实现。
 - Loop 中不直接读取 Agent Home 文件内容，只接收 Agent Home / Context builder 提供的背景条目或 provider。
-- `workspace.scan` 的行为测试迁移到 Workspace 模块；Loop 只保留装配协作测试。
+- `workspace.scan` 与 `workspace.describe` 的行为测试迁移到 Workspace 模块；Loop 只保留装配协作测试。
 - Workspace / Agent Home 的配置错误和运行时副本错误有明确 failure kind 与 runtime bridge 映射。
 - `docs/design/loop.md` 只描述装配边界，不把 Workspace / Agent Home 内部能力写成 Loop 能力。

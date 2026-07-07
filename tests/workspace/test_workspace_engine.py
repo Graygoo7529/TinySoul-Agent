@@ -25,7 +25,7 @@ from tinysoul.workspace import (
     WorkspaceLink,
     WorkspaceSettings,
 )
-from tinysoul.workspace.actions import workspace_scan
+from tinysoul.workspace.actions import WorkspaceDescribeExecutor, workspace_scan
 
 
 def test_workspace_link_rejects_unsafe_paths() -> None:
@@ -80,6 +80,48 @@ def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None
     result = engine.scan()
 
     assert [resource.link for resource in result.resources] == ["workspace:a.md"]
+
+
+def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text("workspace:a.md", max_chars=3)
+
+    assert result.link == "workspace:a.md"
+    assert result.text == "abc"
+    assert result.truncated is True
+    assert engine.load_manifest().resources[0].link == "workspace:a.md"
+
+
+def test_workspace_describe_executor_updates_manifest_and_working_patch(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution("workspace.describe", {"link": "workspace:a.md"})
+
+    result = WorkspaceDescribeExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["summary"] == ".md file, 5 bytes"
+    assert engine.load_manifest().resources[0].link == "workspace:a.md"
+    signals = bus.consume_namespace("context")
+    assert signals[0].name == SIGNAL_WORKING_PATCH
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

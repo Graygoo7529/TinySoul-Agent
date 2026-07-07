@@ -1,0 +1,23 @@
+name = "workspace.describe"
+domain = "workspace"
+
+[tool]
+description = "Refresh and return a short summary for one workspace resource link."
+schema = { type = "object", properties = { link = { type = "string", description = "A workspace resource link such as workspace:docs/task.md." } }, required = ["link"], additionalProperties = false }
+
+[semantic]
+use_when = ["A known workspace resource may have changed and only metadata is needed"]
+avoid_when = ["The file content itself must be inspected"]
+effects = ["read_only"]
+examples = ["Describe workspace:docs/task.md after an external change"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.describe"

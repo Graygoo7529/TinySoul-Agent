@@ -34,6 +34,17 @@ class WorkspaceScanResult:
         )
 
 
+@dataclass(frozen=True)
+class WorkspaceTextRead:
+    """Bounded text read result for a workspace resource."""
+
+    link: str
+    text: str
+    truncated: bool
+    size: int
+    digest: str
+
+
 class WorkspaceEngine:
     """Workspace resource management entry point."""
 
@@ -66,6 +77,48 @@ class WorkspaceEngine:
 
     def load_manifest(self) -> WorkspaceManifest:
         return self._manifest_store.load()
+
+    def describe(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+        path = self.path_for(link)
+        if not path.exists():
+            raise WorkspaceContractError(f"Workspace resource does not exist: {link}")
+        if not path.is_file():
+            raise WorkspaceContractError(f"Workspace resource is not a file: {link}")
+        record = self._record_for(path)
+        if record is None:
+            raise WorkspaceContractError(f"Workspace resource cannot be described: {link}")
+        self._upsert_manifest_record(record)
+        return record
+
+    def read_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_chars: int | None = None,
+    ) -> WorkspaceTextRead:
+        limit = max_chars or self._settings.max_read_chars
+        if limit <= 0:
+            raise WorkspaceContractError("Workspace read limit must be positive")
+        record = self.describe(link)
+        path = self.path_for(record.link)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Workspace resource is not readable as UTF-8 text: {record.link}"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to read workspace resource: {exc}") from exc
+        truncated = len(text) > limit
+        if truncated:
+            text = text[:limit]
+        return WorkspaceTextRead(
+            link=record.link,
+            text=text,
+            truncated=truncated,
+            size=record.size,
+            digest=record.digest,
+        )
 
     def scan(self) -> WorkspaceScanResult:
         self._settings.root.mkdir(parents=True, exist_ok=True)
@@ -137,6 +190,20 @@ class WorkspaceEngine:
         except ValueError:
             return False
         return True
+
+    def _upsert_manifest_record(self, record: WorkspaceResourceRecord) -> None:
+        manifest = self.load_manifest()
+        records: list[WorkspaceResourceRecord] = []
+        replaced = False
+        for item in manifest.resources:
+            if item.link == record.link:
+                records.append(record)
+                replaced = True
+                continue
+            records.append(item)
+        if not replaced:
+            records.append(record)
+        self._manifest_store.save(WorkspaceManifest(resources=tuple(records)))
 
 
 class WorkspaceEngineBuilder:

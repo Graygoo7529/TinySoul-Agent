@@ -6,16 +6,22 @@ from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
 from tinysoul.action.core.result import ActionResult, ActionResultStage
 from tinysoul.infra.json import JsonObject
+from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
-from .errors import AgentHomeError
+from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
 
 
 class HomeResourceReadExecutor(ActionExecutor):
     """Read a bounded Agent Home progressive resource."""
 
-    def __init__(self, home: AgentHomeEngine) -> None:
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
         self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
     def execute(
         self,
@@ -43,6 +49,14 @@ class HomeResourceReadExecutor(ActionExecutor):
                 link,
                 max_chars=max_chars if isinstance(max_chars, int) else None,
             )
+        except AgentHomeRuntimeCopyRequired as exc:
+            raise self._runtime_bridge.runtime_copy_required(
+                link=exc.link,
+                payload={
+                    "source_path": str(exc.source_path),
+                    "runtime_path": str(exc.runtime_path),
+                },
+            ) from exc
         except AgentHomeError as exc:
             return self._failed(
                 execution,

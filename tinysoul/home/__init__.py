@@ -8,6 +8,7 @@ from .errors import (
     AgentHomeError,
     AgentHomeIOError,
     AgentHomeInvariantError,
+    AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
 from .guidance import HomeDomainGuidanceProvider
@@ -25,6 +26,7 @@ __all__ = [
     "AgentHomeRuntimeCopyManager",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
+    "AgentHomeRuntimeCopyRequired",
     "HomeBackgroundEntry",
     "HomeDomainGuidanceProvider",
     "HomeLink",

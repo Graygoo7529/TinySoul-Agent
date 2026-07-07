@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from tinysoul.app import (
     InputSink,
     TinySoulAppBuilder,
 )
+from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import TaskResult
 from tinysoul.loop import LoopSettings
@@ -64,10 +66,11 @@ class _FailingStopSource(_SubmittingSource):
         raise RuntimeError("stop failed")
 
 
-def test_tinysoul_app_starts_and_stops_input_sources() -> None:
+def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
         .with_llm_runner(FakeLLM(()))
@@ -85,11 +88,14 @@ def test_tinysoul_app_starts_and_stops_input_sources() -> None:
     assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
-def test_tinysoul_app_stops_started_sources_when_later_start_fails() -> None:
+def test_tinysoul_app_stops_started_sources_when_later_start_fails(
+    tmp_path: Path,
+) -> None:
     first = _SubmittingSource(())
     failing = _FailingStartSource()
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(first)
@@ -105,11 +111,14 @@ def test_tinysoul_app_stops_started_sources_when_later_start_fails() -> None:
     assert failing.started == 1
 
 
-def test_tinysoul_app_attempts_all_source_stops_and_reports_failure() -> None:
+def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
+    tmp_path: Path,
+) -> None:
     failing = _FailingStopSource((InputEvent("exit", source="unit"),))
     second = _SubmittingSource(())
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(failing)
@@ -124,9 +133,10 @@ def test_tinysoul_app_attempts_all_source_stops_and_reports_failure() -> None:
     assert second.stopped == 1
 
 
-def test_tinysoul_app_submit_event_uses_dispatcher() -> None:
+def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
         TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .build()
@@ -138,3 +148,13 @@ def test_tinysoul_app_submit_event_uses_dispatcher() -> None:
     assert outcome.transfer is not None
     assert outcome.transfer.action is RuntimeTransferAction.END
     assert outcome.transfer.target.level is RunLevel.PROGRAM
+
+
+def _test_config(tmp_path: Path) -> ConfigEnvironment:
+    return ConfigEnvironment.from_project_root(
+        root=Path.cwd(),
+        overrides={
+            "app.interactive": False,
+            "home.runtime_root": str(tmp_path / "runtime_home"),
+        },
+    )

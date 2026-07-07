@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends.llm_step import LLMStepActionExecutor
@@ -16,7 +18,7 @@ from tinysoul.home import (
     HomeResourceReadExecutor,
     parse_agent_home_settings,
 )
-from tinysoul.home.errors import AgentHomeError
+from tinysoul.home.errors import AgentHomeError, AgentHomeRuntimeCopyRequired
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
@@ -37,10 +39,13 @@ from tinysoul.runtime import (
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RunLevel,
+    RunScope,
     RuntimeException,
     RuntimeTrap,
+    RuntimeTransferAction,
     SignalBus,
     TrapHandlerRegistry,
+    TrapSnap,
 )
 from tinysoul.runtime.bridge import (
     RuntimeActionBridge,
@@ -52,7 +57,10 @@ from tinysoul.runtime.bridge import (
     RuntimeWorkspaceBridge,
 )
 from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, parse_workspace_settings
-from tinysoul.workspace.actions import workspace_scan
+from tinysoul.workspace.actions import (
+    WorkspaceDescribeExecutor,
+    workspace_scan,
+)
 from tinysoul.workspace.errors import WorkspaceError
 
 from .config import AppSettings, parse_app_settings
@@ -61,6 +69,8 @@ from .inputs import InputCommandParser, InputDispatcher, InputSource
 from .native_actions import core_answer
 from .runtime import TinySoulApp
 from .sources import TerminalInputSource
+
+T = TypeVar("T")
 
 
 class TinySoulAppBuilder:
@@ -156,7 +166,7 @@ class TinySoulAppBuilder:
             context = (
                 self._context
                 if self._context is not None
-                else self._build_context(home, context_bridge)
+                else self._build_context(home, context_bridge, home_bridge)
             )
             action = self._action if self._action is not None else self._build_action(
                 llm=llm,
@@ -164,9 +174,13 @@ class TinySoulAppBuilder:
                 bus=bus,
                 workspace=workspace,
                 home=home,
+                home_bridge=home_bridge,
                 action_bridge=action_bridge,
             )
-            guidance = self._guidance or HomeDomainGuidanceProvider(home)
+            guidance = self._guidance or HomeDomainGuidanceProvider(
+                home,
+                runtime_bridge=home_bridge,
+            )
             trap = self._build_trap(context, home)
             phase1 = Phase1Unit(
                 context=context,
@@ -268,7 +282,6 @@ class TinySoulAppBuilder:
                 project_root=self._root,
             )
             home = AgentHomeEngineBuilder(settings).build()
-            home.default_background_entries()
             return home
         except ConfigError:
             raise
@@ -301,12 +314,19 @@ class TinySoulAppBuilder:
         self,
         home: AgentHomeEngine,
         bridge: RuntimeContextBridge,
+        home_bridge: RuntimeAgentHomeBridge,
     ) -> ContextEngine:
         try:
             builder = ContextEngineBuilder(system_text="You are TinySoul.")
-            for entry in home.default_background_entries():
+            for entry in self._with_home_runtime_copy_trap(
+                home.default_background_entries,
+                home=home,
+            ):
                 builder.add_default_background(entry.link, entry.content)
-            for entry in home.loadable_background_entries():
+            for entry in self._with_home_runtime_copy_trap(
+                home.loadable_background_entries,
+                home=home,
+            ):
                 builder.add_loadable_background(entry.link, entry.content)
             return builder.build()
         except ContextError as exc:
@@ -315,7 +335,7 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
         except AgentHomeError as exc:
-            raise bridge.startup_failure(
+            raise home_bridge.startup_failure(
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},
             ) from exc
@@ -328,6 +348,7 @@ class TinySoulAppBuilder:
         bus: SignalBus,
         workspace: WorkspaceEngine,
         home: AgentHomeEngine,
+        home_bridge: RuntimeAgentHomeBridge,
         action_bridge: RuntimeActionBridge,
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
@@ -337,8 +358,12 @@ class TinySoulAppBuilder:
                 .register_native("core.answer", core_answer)
                 .register_native("workspace.scan", workspace_scan(workspace, bus))
                 .register_executor(
+                    "workspace.describe",
+                    WorkspaceDescribeExecutor(workspace, bus),
+                )
+                .register_executor(
                     "home.resource.read",
-                    HomeResourceReadExecutor(home),
+                    HomeResourceReadExecutor(home, runtime_bridge=home_bridge),
                 )
                 .register_executor(
                     "llm_step.context_task",
@@ -367,3 +392,34 @@ class TinySoulAppBuilder:
         registry.register(CONTEXT_COMPRESSION_REQUIRED, ContextCompressionTrapHandler(context))
         registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
         return RuntimeTrap(registry=registry)
+
+    def _with_home_runtime_copy_trap(
+        self,
+        callback: Callable[[], T],
+        *,
+        home: AgentHomeEngine,
+    ) -> T:
+        handler = AgentHomeRuntimeCopyTrapHandler(home)
+        scope = RunScope().push(RunLevel.PROGRAM, "startup")
+        handled_links: set[str] = set()
+        while True:
+            try:
+                return callback()
+            except AgentHomeRuntimeCopyRequired as exc:
+                if exc.link in handled_links:
+                    raise
+                handled_links.add(exc.link)
+                result = handler.handle(
+                    TrapSnap(
+                        reason=HOME_RUNTIME_COPY_REQUIRED,
+                        message=str(exc),
+                        payload={
+                            "link": exc.link,
+                            "source_path": str(exc.source_path),
+                            "runtime_path": str(exc.runtime_path),
+                        },
+                        scope=scope,
+                    )
+                )
+                if result.transfer.action is not RuntimeTransferAction.RETRY:
+                    raise

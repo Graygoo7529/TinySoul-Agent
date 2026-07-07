@@ -194,6 +194,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         ActionEngineBuilder(Path("tinysoul/action/builtin"))
         .register_native("core.answer", lambda execution, context: {"text": execution.call.params["text"]})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
+        .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .build()
     )
