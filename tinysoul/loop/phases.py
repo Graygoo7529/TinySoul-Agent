@@ -141,7 +141,7 @@ class Phase1Unit:
                 normalization = self._context.normalize_controls(control_calls, scope=scope)
                 for signal in normalization.signals:
                     self._bus.emit(signal)
-                consume_results = self._context.consume_signals(self._bus)
+                consume_results = self._consume_context_signals()
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             last_control_results = (*normalization.results, *consume_results)
@@ -214,7 +214,13 @@ class Phase1Unit:
                 phase=CyclePhase.PHASE1,
             )
         )
-        self._context.consume_signals(self._bus)
+        self._consume_context_signals()
+
+    def _consume_context_signals(self) -> tuple[ControlResult, ...]:
+        try:
+            return self._context.consume_signals(self._bus)
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
 
 
 class Phase2Unit:
@@ -329,7 +335,7 @@ class Phase2Unit:
                 phase=CyclePhase.PHASE2,
             )
         )
-        self._context.consume_signals(self._bus)
+        self._consume_context_signals()
 
     def _emit_phase_results(
         self,
@@ -364,7 +370,13 @@ class Phase2Unit:
                 phase=CyclePhase.PHASE2,
             )
         )
-        self._context.consume_signals(self._bus)
+        self._consume_context_signals()
+
+    def _consume_context_signals(self) -> tuple[ControlResult, ...]:
+        try:
+            return self._context.consume_signals(self._bus)
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
 
 
 class Phase3Unit:

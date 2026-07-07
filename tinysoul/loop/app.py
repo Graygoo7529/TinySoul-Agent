@@ -127,12 +127,24 @@ class TinySoulAppBuilder:
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
         try:
-            config = self._config_env or ConfigEnvironment.from_project_root(self._root)
-            settings = self._settings or parse_loop_settings(config.section_tree("loop"))
-            bus = self._bus or SignalBus()
-            llm = self._llm or self._build_llm(config, llm_bridge)
-            context = self._context or self._build_context(context_bridge)
-            action = self._action or self._build_action(
+            config = (
+                self._config_env
+                if self._config_env is not None
+                else ConfigEnvironment.from_project_root(self._root)
+            )
+            settings = (
+                self._settings
+                if self._settings is not None
+                else parse_loop_settings(config.section_tree("loop"))
+            )
+            bus = self._bus if self._bus is not None else SignalBus()
+            llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
+            context = (
+                self._context
+                if self._context is not None
+                else self._build_context(context_bridge)
+            )
+            action = self._action if self._action is not None else self._build_action(
                 llm=llm,
                 context=context,
                 bus=bus,

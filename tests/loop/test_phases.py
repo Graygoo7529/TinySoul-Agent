@@ -7,7 +7,7 @@ from tinysoul.action import ActionEngineBuilder, ActionResultStatus
 from tinysoul.context import ContextEngineBuilder, TraceKind
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import RawResponse, TaskResult
+from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.runtime import CyclePhase, RunLevel, RunScope, SignalBus
@@ -135,6 +135,46 @@ def test_phase1_retries_invalid_domain_selection() -> None:
     assert outcome.attempts == 2
 
 
+def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _task_failure("missing tool call"),
+            _task_failure("still missing tool call"),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE2.value)
+    )
+
+    outcome = Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        retry_limit=2,
+    ).run(
+        selected_domains=("core",),
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.normalization.calls == ()
+    assert outcome.attempts == 2
+    assert context.trace_kinds() == (
+        TraceKind.USER_INPUT,
+        TraceKind.PHASE_NOTE,
+    )
+
+
 def _action_engine():
     return (
         ActionEngineBuilder(Path("tinysoul/action/builtin"))
@@ -157,6 +197,17 @@ def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
         ),
         answer=None,
         tool_calls=tool_calls,
+    )
+
+
+def _task_failure(feedback: str) -> TaskResult:
+    return TaskResult.failure_result(
+        raw_response=RawResponse(
+            answer_text="",
+            model_id="fake",
+            provider_id="fake",
+        ),
+        failure=TaskFailure(model_feedback=feedback),
     )
 
 
