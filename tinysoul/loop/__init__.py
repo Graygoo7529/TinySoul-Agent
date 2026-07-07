@@ -18,9 +18,7 @@ from .signals import (
 )
 
 if TYPE_CHECKING:
-    from .app import TinySoulApp, TinySoulAppBuilder
     from .cycle import CycleOutcome, CycleRunner
-    from .inputs import InputListener, InputRouter
     from .phases import (
         Phase1Outcome,
         Phase1Unit,
@@ -29,14 +27,12 @@ if TYPE_CHECKING:
         Phase3Outcome,
         Phase3Unit,
     )
-    from .program import ProgramOutcome, ProgramRunner
+    from .program import ProgramInputEvent, ProgramInputKind, ProgramOutcome, ProgramRunner
     from .turn import TurnOutcome, TurnRunner
 
 __all__ = [
     "CycleOutcome",
     "CycleRunner",
-    "InputListener",
-    "InputRouter",
     "LoopContractError",
     "LoopControlKind",
     "LoopControlRequest",
@@ -50,12 +46,12 @@ __all__ = [
     "Phase2Unit",
     "Phase3Outcome",
     "Phase3Unit",
+    "ProgramInputEvent",
+    "ProgramInputKind",
     "ProgramOutcome",
     "ProgramRunner",
     "SIGNAL_CONTROL_REQUEST",
     "SIGNAL_NAMESPACE",
-    "TinySoulApp",
-    "TinySoulAppBuilder",
     "TurnOutcome",
     "TurnRunner",
     "build_control_request_signal",
@@ -66,14 +62,6 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    if name in {"TinySoulApp", "TinySoulAppBuilder"}:
-        from .app import TinySoulApp, TinySoulAppBuilder
-
-        return {"TinySoulApp": TinySoulApp, "TinySoulAppBuilder": TinySoulAppBuilder}[name]
-    if name in {"InputListener", "InputRouter"}:
-        from .inputs import InputListener, InputRouter
-
-        return {"InputListener": InputListener, "InputRouter": InputRouter}[name]
     if name in {
         "Phase1Outcome",
         "Phase1Unit",
@@ -107,8 +95,13 @@ def __getattr__(name: str) -> object:
         from .turn import TurnOutcome, TurnRunner
 
         return {"TurnOutcome": TurnOutcome, "TurnRunner": TurnRunner}[name]
-    if name in {"ProgramOutcome", "ProgramRunner"}:
-        from .program import ProgramOutcome, ProgramRunner
+    if name in {"ProgramInputEvent", "ProgramInputKind", "ProgramOutcome", "ProgramRunner"}:
+        from .program import ProgramInputEvent, ProgramInputKind, ProgramOutcome, ProgramRunner
 
-        return {"ProgramOutcome": ProgramOutcome, "ProgramRunner": ProgramRunner}[name]
+        return {
+            "ProgramInputEvent": ProgramInputEvent,
+            "ProgramInputKind": ProgramInputKind,
+            "ProgramOutcome": ProgramOutcome,
+            "ProgramRunner": ProgramRunner,
+        }[name]
     raise AttributeError(name)

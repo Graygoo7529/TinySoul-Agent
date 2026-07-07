@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tinysoul.app import AppSettings, TinySoulAppBuilder
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskResult
@@ -12,7 +13,6 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.loop import (
     LoopControlKind,
     LoopSettings,
-    TinySoulAppBuilder,
     build_control_request_signal,
 )
 from tinysoul.runtime import (
@@ -37,7 +37,8 @@ class FakeLLM:
 def test_app_builder_run_once_answers_with_real_action_and_context() -> None:
     app = (
         TinySoulAppBuilder()
-        .with_settings(LoopSettings(interactive=False, max_cycles_per_turn=2))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
         .with_llm_runner(
             FakeLLM(
                 (
@@ -73,7 +74,8 @@ def test_app_builder_run_once_answers_with_real_action_and_context() -> None:
 def test_app_builder_cycle_limit_returns_exhausted_turn() -> None:
     app = (
         TinySoulAppBuilder()
-        .with_settings(LoopSettings(interactive=False, max_cycles_per_turn=1))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
         .with_llm_runner(
             FakeLLM(
                 (
@@ -109,7 +111,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn() -> None:
 def test_program_runner_idle_exit_ends_program() -> None:
     app = (
         TinySoulAppBuilder()
-        .with_settings(LoopSettings(interactive=False))
+        .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
         .build()
     )
@@ -128,7 +130,7 @@ def test_turn_runner_stop_control_ends_turn_without_llm_call() -> None:
     llm = FakeLLM(())
     app = (
         TinySoulAppBuilder()
-        .with_settings(LoopSettings(interactive=False))
+        .with_app_settings(AppSettings(interactive=False))
         .with_signal_bus(bus)
         .with_llm_runner(llm)
         .build()
@@ -155,14 +157,14 @@ def test_turn_runner_stop_control_ends_turn_without_llm_call() -> None:
 def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:
     config = ConfigEnvironment.from_project_root(
         root=Path.cwd(),
-        overrides={"loop.interactive": False},
+        overrides={"app.interactive": False},
     )
 
     with pytest.raises(RuntimeException) as raised:
         (
             TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
-            .with_settings(LoopSettings(interactive=False))
+            .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
             .build()
         )

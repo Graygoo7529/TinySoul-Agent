@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 from queue import Queue
 
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RunLevel,
@@ -16,9 +18,66 @@ from tinysoul.runtime import (
     SignalBus,
 )
 
-from .config import LoopSettings
-from .signals import LoopControlKind, build_control_request_signal, consume_control_requests
+from .errors import LoopContractError
 from .turn import TurnOutcome, TurnRunner
+
+
+class ProgramInputKind(StrEnum):
+    """Top-level program input event kinds."""
+
+    START_TURN = "start_turn"
+    EXIT_PROGRAM = "exit_program"
+
+
+@dataclass(frozen=True)
+class ProgramInputEvent:
+    """An input event already classified for ProgramRunner."""
+
+    kind: ProgramInputKind
+    text: str = ""
+    source: str = ""
+    metadata: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, ProgramInputKind):
+            raise LoopContractError("ProgramInputEvent.kind must be a ProgramInputKind")
+        if not isinstance(self.text, str):
+            raise LoopContractError("ProgramInputEvent.text must be a string")
+        if not isinstance(self.source, str):
+            raise LoopContractError("ProgramInputEvent.source must be a string")
+        if self.kind is ProgramInputKind.START_TURN and not self.text:
+            raise LoopContractError("START_TURN program input requires non-empty text")
+        object.__setattr__(self, "metadata", to_json_object(self.metadata))
+
+    @classmethod
+    def start_turn(
+        cls,
+        text: str,
+        *,
+        source: str = "",
+        metadata: JsonObject | None = None,
+    ) -> "ProgramInputEvent":
+        return cls(
+            kind=ProgramInputKind.START_TURN,
+            text=text,
+            source=source,
+            metadata=metadata or {},
+        )
+
+    @classmethod
+    def exit_program(
+        cls,
+        *,
+        text: str = "",
+        source: str = "",
+        metadata: JsonObject | None = None,
+    ) -> "ProgramInputEvent":
+        return cls(
+            kind=ProgramInputKind.EXIT_PROGRAM,
+            text=text,
+            source=source,
+            metadata=metadata or {},
+        )
 
 
 @dataclass(frozen=True)
@@ -38,25 +97,23 @@ class ProgramRunner:
         turn_runner: TurnRunner,
         bus: SignalBus,
         trap: RuntimeTrap,
-        settings: LoopSettings,
-        input_queue: Queue[str] | None = None,
+        input_queue: Queue[ProgramInputEvent] | None = None,
     ) -> None:
         self._turn_runner = turn_runner
         self._bus = bus
         self._trap = trap
-        self._settings = settings
-        self._input_queue: Queue[str] = input_queue or Queue()
+        self._input_queue: Queue[ProgramInputEvent] = input_queue or Queue()
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
 
-    def submit_input(self, text: str) -> None:
-        self._input_queue.put(text)
+    def submit_event(self, event: ProgramInputEvent) -> None:
+        self._input_queue.put(event)
 
     @property
     def scope(self) -> RunScope:
         return self._scope
 
     @property
-    def input_queue(self) -> Queue[str]:
+    def input_queue(self) -> Queue[ProgramInputEvent]:
         return self._input_queue
 
     def run_once(self, user_input: str) -> TurnOutcome:
@@ -65,39 +122,30 @@ class ProgramRunner:
     def run(self) -> ProgramOutcome:
         outcomes: list[TurnOutcome] = []
         while True:
-            transfer = self._consume_program_control()
-            if transfer is not None:
+            event = self._input_queue.get()
+            if event.kind is ProgramInputKind.EXIT_PROGRAM:
+                transfer = self._request_program_end(event)
                 return ProgramOutcome(turns=tuple(outcomes), transfer=transfer)
-            text = self._input_queue.get()
-            if self._is_exit_command(text):
-                transfer = self._request_program_end(text)
-                return ProgramOutcome(turns=tuple(outcomes), transfer=transfer)
-            outcomes.append(self.run_once(text))
+            outcomes.append(self.run_once(event.text))
             transfer = outcomes[-1].transfer
             if transfer is not None and transfer.target.level is RunLevel.PROGRAM:
                 if transfer.action is RuntimeTransferAction.END:
                     return ProgramOutcome(turns=tuple(outcomes), transfer=transfer)
         return ProgramOutcome(turns=tuple(outcomes))
 
-    def _consume_program_control(self) -> RuntimeTransfer | None:
-        requests = consume_control_requests(self._bus)
-        if any(request.kind is LoopControlKind.EXIT_PROGRAM for request in requests):
-            return self._request_program_end("control")
-        return None
-
-    def _request_program_end(self, text: str) -> RuntimeTransfer:
+    def _request_program_end(self, event: ProgramInputEvent) -> RuntimeTransfer:
         result = self._trap.capture(
             RuntimeException(
                 reason=RUNTIME_PROGRAM_END,
                 message="Program exit requested.",
-                payload={"input": text},
+                payload={
+                    "input": event.text,
+                    "source": event.source,
+                    "metadata": event.metadata,
+                },
             ),
             self._scope,
         )
         for signal in result.signals:
             self._bus.emit(signal)
         return result.transfer
-
-    def _is_exit_command(self, text: str) -> bool:
-        normalized = text.strip().lower()
-        return normalized in {command.lower() for command in self._settings.exit_commands}

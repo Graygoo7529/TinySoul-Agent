@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
 from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends.llm_step import LLMStepActionExecutor
-from tinysoul.action.core.call import ActionExecution
-from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
-from tinysoul.context.signals import build_working_patch_signal
-from tinysoul.context.working import WorkingPatch, WorkspaceResource
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.infra.json import JsonObject
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
+from tinysoul.loop.config import LoopSettings, parse_loop_settings
+from tinysoul.loop.cycle import CycleRunner
+from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.loop.program import ProgramRunner
+from tinysoul.loop.prompts import DomainGuidanceProvider, EmptyDomainGuidanceProvider
+from tinysoul.loop.trap_handlers import ContextCompressionTrapHandler, EndFrameTrapHandler
+from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_CYCLE_END,
@@ -34,43 +34,18 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import (
     RuntimeActionBridge,
+    RuntimeAppBridge,
     RuntimeContextBridge,
     RuntimeInfraBridge,
     RuntimeLLMBridge,
-    RuntimeLoopBridge,
 )
 
-from .config import LoopSettings, parse_loop_settings
-from .cycle import CycleRunner
-from .inputs import InputListener, InputRouter
-from .phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
-from .program import ProgramOutcome, ProgramRunner
-from .prompts import DomainGuidanceProvider, EmptyDomainGuidanceProvider
-from .trap_handlers import ContextCompressionTrapHandler, EndFrameTrapHandler
-from .turn import TurnOutcome, TurnRunner
-
-
-@dataclass(frozen=True)
-class TinySoulApp:
-    """Process-level TinySoul application."""
-
-    program_runner: ProgramRunner
-    input_listener: InputListener | None = None
-
-    def run(self) -> ProgramOutcome:
-        if self.input_listener is not None:
-            self.input_listener.start()
-        return self.program_runner.run()
-
-    def run_once(self, user_input: str) -> TurnOutcome:
-        return self.program_runner.run_once(user_input)
-
-    def submit_input(self, text: str) -> None:
-        self.program_runner.submit_input(text)
-
-    def stop_input_listener(self) -> None:
-        if self.input_listener is not None:
-            self.input_listener.stop()
+from .config import AppSettings, parse_app_settings
+from .errors import AppError
+from .inputs import InputCommandParser, InputDispatcher, InputSource
+from .native_actions import core_answer, workspace_scan
+from .runtime import TinySoulApp
+from .sources import TerminalInputSource
 
 
 class TinySoulAppBuilder:
@@ -78,16 +53,23 @@ class TinySoulAppBuilder:
 
     def __init__(self, root: Path | None = None) -> None:
         self._root = root or Path.cwd()
-        self._settings: LoopSettings | None = None
+        self._loop_settings: LoopSettings | None = None
+        self._app_settings: AppSettings | None = None
         self._config_env: ConfigEnvironment | None = None
         self._llm: LLMRunner | None = None
         self._action: ActionEngine | None = None
         self._context: ContextEngine | None = None
         self._bus: SignalBus | None = None
         self._guidance: DomainGuidanceProvider = EmptyDomainGuidanceProvider()
+        self._input_parser: InputCommandParser | None = None
+        self._input_sources: list[InputSource] = []
 
-    def with_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
-        self._settings = settings
+    def with_loop_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
+        self._loop_settings = settings
+        return self
+
+    def with_app_settings(self, settings: AppSettings) -> "TinySoulAppBuilder":
+        self._app_settings = settings
         return self
 
     def with_config_environment(
@@ -120,9 +102,17 @@ class TinySoulAppBuilder:
         self._guidance = guidance
         return self
 
+    def with_input_parser(self, parser: InputCommandParser) -> "TinySoulAppBuilder":
+        self._input_parser = parser
+        return self
+
+    def with_input_source(self, source: InputSource) -> "TinySoulAppBuilder":
+        self._input_sources.append(source)
+        return self
+
     def build(self) -> TinySoulApp:
+        app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
-        loop_bridge = RuntimeLoopBridge()
         llm_bridge = RuntimeLLMBridge()
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
@@ -132,10 +122,15 @@ class TinySoulAppBuilder:
                 if self._config_env is not None
                 else ConfigEnvironment.from_project_root(self._root)
             )
-            settings = (
-                self._settings
-                if self._settings is not None
+            loop_settings = (
+                self._loop_settings
+                if self._loop_settings is not None
                 else parse_loop_settings(config.section_tree("loop"))
+            )
+            app_settings = (
+                self._app_settings
+                if self._app_settings is not None
+                else parse_app_settings(config.section_tree("app"))
             )
             bus = self._bus if self._bus is not None else SignalBus()
             llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
@@ -156,14 +151,14 @@ class TinySoulAppBuilder:
                 action=action,
                 llm=llm,
                 bus=bus,
-                retry_limit=settings.phase_retry_limit,
+                retry_limit=loop_settings.phase_retry_limit,
             )
             phase2 = Phase2Unit(
                 context=context,
                 action=action,
                 llm=llm,
                 bus=bus,
-                retry_limit=settings.phase_retry_limit,
+                retry_limit=loop_settings.phase_retry_limit,
                 guidance=self._guidance,
             )
             phase3 = Phase3Unit(context=context, action=action, bus=bus)
@@ -180,25 +175,29 @@ class TinySoulAppBuilder:
                 bus=bus,
                 trap=trap,
                 cycle_runner=cycle_runner,
-                settings=settings,
+                settings=loop_settings,
             )
             program_runner = ProgramRunner(
                 turn_runner=turn_runner,
                 bus=bus,
                 trap=trap,
-                settings=settings,
             )
-            listener = None
-            if settings.interactive:
-                router = InputRouter(
-                    settings=settings,
-                    bus=bus,
-                    initial_inputs=program_runner.input_queue,
-                    is_turn_active=lambda: context.turn_active,
-                    scope_provider=lambda: program_runner.scope,
-                )
-                listener = InputListener(router=router)
-            return TinySoulApp(program_runner=program_runner, input_listener=listener)
+            parser = self._input_parser or InputCommandParser(app_settings.input_commands)
+            dispatcher = InputDispatcher(
+                parser=parser,
+                bus=bus,
+                program_inputs=program_runner.input_queue,
+                is_turn_active=lambda: context.turn_active,
+                scope_provider=lambda: program_runner.scope,
+            )
+            input_sources = tuple(self._input_sources)
+            if not input_sources and app_settings.interactive:
+                input_sources = (TerminalInputSource(),)
+            return TinySoulApp(
+                program_runner=program_runner,
+                input_dispatcher=dispatcher,
+                input_sources=input_sources,
+            )
         except ConfigError as exc:
             raise infra_bridge.from_config_error(exc) from exc
         except ProviderError as exc:
@@ -206,10 +205,12 @@ class TinySoulAppBuilder:
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},
             ) from exc
+        except AppError as exc:
+            raise app_bridge.from_app_error(exc) from exc
         except RuntimeException:
             raise
         except Exception as exc:
-            raise loop_bridge.startup_failure(
+            raise app_bridge.startup_failure(
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},
             ) from exc
@@ -272,8 +273,8 @@ class TinySoulAppBuilder:
         try:
             return (
                 ActionEngineBuilder(catalog_root)
-                .register_native("core.answer", _core_answer)
-                .register_native("workspace.scan", _workspace_scan(self._root, bus))
+                .register_native("core.answer", core_answer)
+                .register_native("workspace.scan", workspace_scan(self._root, bus))
                 .register_executor(
                     "llm_step.context_task",
                     LLMStepActionExecutor(llm_runner=llm, context=context),
@@ -296,74 +297,3 @@ class TinySoulAppBuilder:
         registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(CONTEXT_COMPRESSION_REQUIRED, ContextCompressionTrapHandler(context))
         return RuntimeTrap(registry=registry)
-
-
-def _core_answer(
-    execution: ActionExecution,
-    context: ActionExecutionContext,
-) -> JsonObject:
-    text = execution.call.params.get("text", "")
-    if not isinstance(text, str):
-        text = str(text)
-    return {"text": text}
-
-
-def _workspace_scan(root: Path, bus: SignalBus):
-    def execute(
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> JsonObject:
-        resources = _scan_workspace_resources(root)
-        signal_bus = context.signal_bus or bus
-        if resources:
-            signal_bus.emit(
-                build_working_patch_signal(
-                    WorkingPatch(set_resources=resources),
-                    call_id=execution.call.call_id,
-                    scope=execution.framework.scope,
-                    source="loop.workspace_scan",
-                )
-            )
-        return {
-            "count": len(resources),
-            "resources": [
-                {"link": resource.link, "summary": resource.summary}
-                for resource in resources
-            ],
-        }
-
-    return execute
-
-
-def _scan_workspace_resources(root: Path) -> tuple[WorkspaceResource, ...]:
-    skip_dirs = {
-        ".agents",
-        ".codex",
-        ".git",
-        ".pytest-local-tmp",
-        ".pytest_cache",
-        ".test-tmp",
-        "__pycache__",
-    }
-    resources: list[WorkspaceResource] = []
-    max_files = 100
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            name for name in dirnames if name not in skip_dirs and not name.startswith(".")
-        ]
-        for filename in sorted(filenames):
-            if len(resources) >= max_files:
-                return tuple(resources)
-            path = Path(dirpath) / filename
-            try:
-                relative = path.relative_to(root).as_posix()
-                size = path.stat().st_size
-            except OSError:
-                continue
-            resources.append(
-                WorkspaceResource(
-                    link=f"workspace:{relative}",
-                    summary=f"{path.suffix or 'file'} file, {size} bytes",
-                )
-            )
-    return tuple(resources)

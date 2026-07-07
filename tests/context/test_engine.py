@@ -386,9 +386,9 @@ def test_consume_trace_and_input_signals() -> None:
             phase=CyclePhase.PHASE2,
         )
     )
-    bus.emit(build_input_append_signal("also do this", scope=SCOPE, source="loop.inputs"))
+    bus.emit(build_input_append_signal("also do this", scope=SCOPE, source="app.inputs"))
     # Non-context signals stay queued for other consumers.
-    bus.emit(Signal(name="loop.control.request", source="loop.inputs", scope=SCOPE))
+    bus.emit(Signal(name="loop.control.request", source="app.inputs", scope=SCOPE))
 
     results = engine.consume_signals(bus)
     assert results == ()
@@ -422,7 +422,7 @@ def test_compress_via_engine() -> None:
     bus = SignalBus()
     for index in range(3):
         bus.emit(
-            build_input_append_signal(f"extra {index}", scope=SCOPE, source="loop.inputs")
+            build_input_append_signal(f"extra {index}", scope=SCOPE, source="app.inputs")
         )
     engine.consume_signals(bus)
     engine.merge_pending_inputs()
