@@ -10,6 +10,28 @@ from .errors import ContextInvariantError
 
 
 @dataclass(frozen=True)
+class PromptBlock:
+    """One user-role task prompt message block."""
+
+    label: str
+    message: UserMessage
+
+    def __post_init__(self) -> None:
+        if not self.label:
+            raise ContextInvariantError("PromptBlock.label must be non-empty")
+        if not isinstance(self.message, UserMessage):
+            raise ContextInvariantError("PromptBlock.message must be a UserMessage")
+        if not self.message.parts:
+            raise ContextInvariantError("PromptBlock.message must contain content")
+
+    @classmethod
+    def from_text(cls, label: str, text: str) -> "PromptBlock":
+        if not text:
+            raise ContextInvariantError("PromptBlock text must be non-empty")
+        return cls(label=label, message=UserMessage.from_text(text, label=label))
+
+
+@dataclass(frozen=True)
 class TaskPrompt:
     """A per-task prompt overlay appended after the shared context sections."""
 
@@ -17,6 +39,7 @@ class TaskPrompt:
     task_input: str = ""
     output_desc: str = ""
     domain_guidance: tuple[str, ...] = field(default_factory=tuple)
+    task_inputs: tuple[PromptBlock, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not self.guide:
@@ -26,14 +49,36 @@ class TaskPrompt:
                 raise ContextInvariantError(
                     "TaskPrompt.domain_guidance must contain non-empty strings"
                 )
+        for item in self.task_inputs:
+            if not isinstance(item, PromptBlock):
+                raise ContextInvariantError(
+                    "TaskPrompt.task_inputs must contain PromptBlock values"
+                )
 
     def render_messages(self) -> tuple[Message, ...]:
-        sections = [f"# Task Guide\n{self.guide}"]
+        messages: list[Message] = [
+            PromptBlock.from_text("task_prompt:guide", f"# Task Guide\n{self.guide}").message
+        ]
+        for item in self.domain_guidance:
+            messages.append(
+                PromptBlock.from_text(
+                    "task_prompt:domain_guidance",
+                    f"# Domain Guidance\n{item}",
+                ).message
+            )
         if self.task_input:
-            sections.append(f"# Task Input\n{self.task_input}")
+            messages.append(
+                PromptBlock.from_text(
+                    "task_prompt:input",
+                    f"# Task Input\n{self.task_input}",
+                ).message
+            )
+        messages.extend(item.message for item in self.task_inputs)
         if self.output_desc:
-            sections.append(f"# Expected Output\n{self.output_desc}")
-        if self.domain_guidance:
-            guidance = "\n\n".join(self.domain_guidance)
-            sections.append(f"# Domain Guidance\n{guidance}")
-        return (UserMessage.from_text("\n\n".join(sections), label="task_prompt"),)
+            messages.append(
+                PromptBlock.from_text(
+                    "task_prompt:output",
+                    f"# Expected Output\n{self.output_desc}",
+                ).message
+            )
+        return tuple(messages)

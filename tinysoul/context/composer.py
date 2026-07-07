@@ -17,7 +17,7 @@ from tinysoul.llm.messages import (
 from .background import BackgroundContext
 from .errors import ContextBudgetError, ContextInvariantError
 from .prompts import TaskPrompt
-from .trace import TurnTraceContext
+from .trace import PendingInputs, TurnTraceContext
 from .working import WorkingContext
 
 
@@ -48,6 +48,7 @@ class MessageStackComposer:
     def compose(
         self,
         *,
+        inputs: PendingInputs,
         background: BackgroundContext,
         working: WorkingContext,
         trace: TurnTraceContext,
@@ -55,6 +56,7 @@ class MessageStackComposer:
     ) -> MessageStack:
         messages: tuple[Message, ...] = (
             SystemMessage.from_text(self._system_text, label="identity"),
+            *inputs.render_messages(),
             *background.render_messages(),
             *working.render_messages(),
             *trace.render_messages(),

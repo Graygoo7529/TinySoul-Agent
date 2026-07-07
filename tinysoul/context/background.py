@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from tinysoul.llm.messages import Message, SystemMessage
+from tinysoul.llm.messages import Message, UserMessage
 
 from .errors import ContextContractError, ContextInvariantError
 
@@ -113,11 +113,11 @@ class BackgroundContext:
         messages: list[Message] = []
         if self._journal:
             messages.append(
-                SystemMessage.from_text(self._journal, label="background:journal")
+                UserMessage.from_text(self._journal, label="background:journal")
             )
         for entry in self._entries.values():
             messages.append(
-                SystemMessage.from_text(entry.content, label=f"background:{entry.link}")
+                UserMessage.from_text(entry.content, label=f"background:{entry.link}")
             )
         return tuple(messages)
 

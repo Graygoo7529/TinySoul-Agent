@@ -51,7 +51,8 @@ def test_turn_lifecycle_and_compose() -> None:
     stack = engine.compose(TaskPrompt(guide="Phase one."))
     labels = [message.label for message in stack.messages]
     assert labels[0] == "identity"
-    assert "user_input" in labels
+    assert labels[1] == "user_input"
+    assert labels[2] == "background:journal"
 
     summary = engine.end_turn()
     assert summary.turn_id == turn_id
@@ -393,7 +394,6 @@ def test_consume_trace_and_input_signals() -> None:
     results = engine.consume_signals(bus)
     assert results == ()
     assert engine.trace_kinds() == (
-        TraceKind.USER_INPUT,
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
         TraceKind.PHASE_NOTE,
@@ -408,7 +408,13 @@ def test_consume_trace_and_input_signals() -> None:
 
     merged = engine.merge_pending_inputs()
     assert merged == 1
-    assert engine.trace_kinds()[-1] is TraceKind.USER_INPUT
+    stack = engine.compose(TaskPrompt(guide="next"))
+    assert [message.label for message in stack.messages].count("user_input") == 2
+    assert engine.trace_kinds() == (
+        TraceKind.DECISION,
+        TraceKind.ACTION_RESULT,
+        TraceKind.PHASE_NOTE,
+    )
     assert engine.merge_pending_inputs() == 0
 
 
@@ -422,14 +428,18 @@ def test_compress_via_engine() -> None:
     bus = SignalBus()
     for index in range(3):
         bus.emit(
-            build_input_append_signal(f"extra {index}", scope=SCOPE, source="app.inputs")
+            build_trace_phase_note_signal(
+                {"note": f"extra {index}"},
+                scope=SCOPE,
+                source="test",
+                cycle_id="c1",
+            )
         )
     engine.consume_signals(bus)
-    engine.merge_pending_inputs()
 
     report = engine.compress()
     assert report.changed is True
-    assert report.dropped_count == 3
+    assert report.dropped_count == 2
     assert engine.trace_kinds()[0] is TraceKind.SUMMARY_PLACEHOLDER
 
 

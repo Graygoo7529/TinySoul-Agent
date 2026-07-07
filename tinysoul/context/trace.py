@@ -22,7 +22,6 @@ from .errors import ContextContractError, ContextInvariantError
 class TraceKind(StrEnum):
     """Kinds of turn trace entries."""
 
-    USER_INPUT = "user_input"
     DECISION = "decision"
     ACTION_RESULT = "action_result"
     PHASE_NOTE = "phase_note"
@@ -66,14 +65,6 @@ class TurnTraceContext:
 
     def entries(self) -> tuple[TraceEntry, ...]:
         return tuple(self._entries)
-
-    def append_user_input(self, text: str) -> TraceEntry:
-        if not text:
-            raise ContextContractError("User input text must be non-empty")
-        return self._append(
-            TraceKind.USER_INPUT,
-            UserMessage.from_text(text, label="user_input"),
-        )
 
     def append_decision(
         self,
@@ -228,6 +219,13 @@ class PendingInputs:
 
     def all(self) -> tuple[PendingInput, ...]:
         return tuple(self._inputs)
+
+    def render_messages(self) -> tuple[Message, ...]:
+        return tuple(
+            UserMessage.from_text(item.text, label="user_input")
+            for item in self._inputs
+            if item.merged
+        )
 
 
 def _entry_id() -> str:

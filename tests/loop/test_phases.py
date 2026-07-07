@@ -89,7 +89,6 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert phase3.answered is True
     assert phase3.results[0].status is ActionResultStatus.SUCCESS
     assert context.trace_kinds() == (
-        TraceKind.USER_INPUT,
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
     )
@@ -170,7 +169,6 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
     assert outcome.normalization.calls == ()
     assert outcome.attempts == 2
     assert context.trace_kinds() == (
-        TraceKind.USER_INPUT,
         TraceKind.PHASE_NOTE,
     )
 

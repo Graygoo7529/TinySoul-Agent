@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.messages import Message, SystemMessage
+from tinysoul.llm.messages import Message, UserMessage
 
 from .errors import ContextInvariantError
 
@@ -175,7 +175,7 @@ class WorkingContext:
         }
 
     def render_messages(self) -> tuple[Message, ...]:
-        return (SystemMessage.from_json(self.to_json(), label="working"),)
+        return (UserMessage.from_json(self.to_json(), label="working"),)
 
 
 def _apply_patch_to_projection(

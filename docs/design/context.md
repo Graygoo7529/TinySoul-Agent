@@ -30,25 +30,28 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### TurnTraceContext
 
-本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息、由追加输入形成的用户消息——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；Context 只保存该结构，不判断供应商能否回放。图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
+本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息和阶段性 note——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。用户输入不再作为普通 trace 条目保存，而是由本轮输入列表单独渲染。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；Context 只保存该结构，不判断供应商能否回放。图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
 
 ### PendingInputs
 
-本轮用户输入列表，包含初始输入与轮中追加输入。追加输入先进入列表暂存，由 loop 在安全边界触发合并：合并时转为轨迹中的用户消息，条目标记已合并。列表保留全量记录并进入 TurnSummary。
+本轮用户输入列表，包含初始输入与轮中追加输入。追加输入先进入列表暂存，由 loop 在安全边界触发合并：合并时只标记为已合并，不写入 TurnTrace。已合并输入作为独立的 UserInputs section 渲染为 user role messages，位置紧随 system identity。列表保留全量记录并进入 TurnSummary。当前不维护跨 Turn 的原始输入历史；后续若需要跨 Turn 回放，应先归纳为 BackgroundContext 或 memory，而不是把历史输入追加到当前 TurnTrace。
 
 ## MessageStack 构造
 
 MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 
 1. system 段：Agent 身份与规约；
-2. BackgroundContext 段：Turn 内基本稳定；
-3. WorkingContext 段：低频变化；
-4. TurnTraceContext 段：Turn 内只追加，按序回放用户输入、行动决策与行动反馈；
-5. task prompt overlay：每次 LLM Task 不同。
+2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
+3. BackgroundContext 段：Turn 内基本稳定；
+4. WorkingContext 段：低频变化；
+5. TurnTraceContext 段：Turn 内只追加，按序回放行动决策、行动反馈与阶段 note；
+6. task prompt overlay：每次 LLM Task 不同。
 
 这个顺序保证跨 LLM Task 的消息前缀尽量稳定，服务供应商提示缓存。
 
-task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain guidance）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
+BackgroundContext、WorkingContext、UserInputs 与 task prompt overlay 均渲染为 user role messages；只有 identity 使用 system role。这样 system role 专注于最高层身份与框架规约，其他由 TinySoul 构造的状态段都作为本次模型任务的显式输入提供给模型。Provider 若对后置 system message 支持不同，不需要影响 Context 的语义顺序。
+
+task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。TaskPrompt 渲染为多条可切分 user messages：guide、domain guidance、task input、额外 task input blocks 和 expected output 分别可以成为独立 message。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain guidance）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
 
 composer 在构造时执行语境预算检查。预算估算覆盖消息可见文本、JSON 片段，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见推理轨迹绕过上下文预算。预算超限不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
 
@@ -75,7 +78,7 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. Trap 按原因调用注册的压缩处理器；处理器调用 Context 提供的压缩服务（ContextCompressor）；
-3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与条目类型，BackgroundContext 与 WorkingContext 不参与裁剪；多次压缩会合并已有摘要占位，压缩报告会标明本次是否实际改变了 trace；
+3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与条目类型，UserInputs、BackgroundContext 与 WorkingContext 不参与裁剪；多次压缩会合并已有摘要占位，压缩报告会标明本次是否实际改变了 trace；
 4. 压缩完成后由处理器返回重试当前 Phase 的运行转移；压缩后仍超限则返回结束 Turn。
 
 压缩策略可以替换（例如升级为 LLM 归纳压缩），流程与接入方式不变。

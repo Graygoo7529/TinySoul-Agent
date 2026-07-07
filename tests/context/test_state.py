@@ -20,7 +20,7 @@ from tinysoul.context.working import (
     WorkingPatch,
     WorkspaceResource,
 )
-from tinysoul.llm.messages import AssistantMessage, JsonPart, SystemMessage, ToolResultMessage
+from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage, UserMessage
 from tinysoul.runtime import CyclePhase
 
 
@@ -29,7 +29,7 @@ def test_background_load_evict_and_render() -> None:
     background.load(BackgroundEntry(link="home:what@tinysoul", content="TinySoul is an agent."))
     assert background.has("home:what@tinysoul")
     messages = background.render_messages()
-    assert isinstance(messages[0], SystemMessage)
+    assert isinstance(messages[0], UserMessage)
     assert messages[0].label == "background:journal"
     assert messages[1].label == "background:home:what@tinysoul"
 
@@ -140,7 +140,6 @@ def test_working_patch_sequence_validates_projected_state() -> None:
 
 def test_trace_appends_and_render_order() -> None:
     trace = TurnTraceContext()
-    trace.append_user_input("hello")
     trace.append_decision(
         AssistantMessage.from_text("thinking"),
         cycle_id="c1",
@@ -157,18 +156,17 @@ def test_trace_appends_and_render_order() -> None:
     trace.append_phase_note({"feedback": "scope failed"}, cycle_id="c1")
     kinds = [entry.kind for entry in trace.entries()]
     assert kinds == [
-        TraceKind.USER_INPUT,
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
         TraceKind.PHASE_NOTE,
     ]
-    assert len(trace.render_messages()) == 4
+    assert len(trace.render_messages()) == 3
 
 
 def test_trace_compression_keeps_recent_and_adds_placeholder() -> None:
     trace = TurnTraceContext()
     for index in range(6):
-        trace.append_user_input(f"input {index}")
+        trace.append_phase_note(f"note {index}")
     report = trace.compress_oldest(keep_recent=2)
     assert report.changed is True
     assert report.dropped_count == 4
@@ -185,11 +183,11 @@ def test_trace_compression_keeps_recent_and_adds_placeholder() -> None:
 def test_trace_compression_merges_existing_placeholder() -> None:
     trace = TurnTraceContext()
     for index in range(4):
-        trace.append_user_input(f"input {index}")
+        trace.append_phase_note(f"note {index}")
     first = trace.compress_oldest(keep_recent=1)
     assert first.dropped_count == 3
     for index in range(2):
-        trace.append_user_input(f"new {index}")
+        trace.append_phase_note(f"new {index}")
 
     second = trace.compress_oldest(keep_recent=1)
     assert second.changed is True
@@ -211,6 +209,9 @@ def test_pending_inputs_merge_lifecycle() -> None:
     assert inputs.unmerged() == ()
     assert len(inputs.all()) == 2
     assert first.merged is True
+    rendered = inputs.render_messages()
+    assert [message.label for message in rendered] == ["user_input", "user_input"]
+    assert all(isinstance(message, UserMessage) for message in rendered)
 
     with pytest.raises(ContextContractError):
         inputs.mark_merged(("missing",))

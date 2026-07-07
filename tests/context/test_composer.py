@@ -11,26 +11,29 @@ from tinysoul.context.composer import (
     estimate_chars,
 )
 from tinysoul.context.errors import ContextBudgetError
-from tinysoul.context.prompts import TaskPrompt
-from tinysoul.context.trace import TurnTraceContext
+from tinysoul.context.prompts import PromptBlock, TaskPrompt
+from tinysoul.context.trace import PendingInputs, TurnTraceContext
 from tinysoul.context.working import WorkingContext
 from tinysoul.llm.messages import AssistantMessage, SystemMessage, TextPart, UserMessage
 from tinysoul.llm.reasoning import Reasoning
 
 
-def _sections() -> tuple[BackgroundContext, WorkingContext, TurnTraceContext]:
+def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnTraceContext]:
+    inputs = PendingInputs()
+    inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
     background.load(BackgroundEntry(link="home:what@x", content="entry text"))
     working = WorkingContext()
     trace = TurnTraceContext()
-    trace.append_user_input("hello there")
-    return background, working, trace
+    trace.append_phase_note("trace note")
+    return inputs, background, working, trace
 
 
 def test_compose_section_order_and_labels() -> None:
-    background, working, trace = _sections()
+    inputs, background, working, trace = _sections()
     composer = MessageStackComposer(system_text="identity text")
     stack = composer.compose(
+        inputs=inputs,
         background=background,
         working=working,
         trace=trace,
@@ -39,34 +42,49 @@ def test_compose_section_order_and_labels() -> None:
             task_input="input details",
             output_desc="tool calls",
             domain_guidance=("Use the workspace domain for file edits.",),
+            task_inputs=(
+                PromptBlock.from_text(
+                    "task_prompt:input:workspace:docs/a.md",
+                    "workspace slice",
+                ),
+            ),
         ),
     )
     labels = [message.label for message in stack.messages]
     assert labels == [
         "identity",
+        "user_input",
         "background:journal",
         "background:home:what@x",
         "working",
-        "user_input",
-        "task_prompt",
+        "phase_note",
+        "task_prompt:guide",
+        "task_prompt:domain_guidance",
+        "task_prompt:input",
+        "task_prompt:input:workspace:docs/a.md",
+        "task_prompt:output",
     ]
     assert isinstance(stack.messages[0], SystemMessage)
-    task_message = stack.messages[-1]
+    assert all(isinstance(message, UserMessage) for message in stack.messages[1:])
+    task_message = stack.messages[-5]
     assert isinstance(task_message, UserMessage)
     part = task_message.parts[0]
     assert isinstance(part, TextPart)
     assert "# Task Guide" in part.text
-    assert "# Domain Guidance" in part.text
+    guidance = stack.messages[-4].parts[0]
+    assert isinstance(guidance, TextPart)
+    assert "# Domain Guidance" in guidance.text
 
 
 def test_compose_budget_exceeded_raises() -> None:
-    background, working, trace = _sections()
+    inputs, background, working, trace = _sections()
     composer = MessageStackComposer(
         system_text="identity text",
         budget=ContextBudget(max_chars=10),
     )
     with pytest.raises(ContextBudgetError) as exc_info:
         composer.compose(
+            inputs=inputs,
             background=background,
             working=working,
             trace=trace,

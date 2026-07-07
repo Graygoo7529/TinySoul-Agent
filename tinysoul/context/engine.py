@@ -122,12 +122,12 @@ class ContextEngine:
         self._trace = TurnTraceContext()
         self._inputs = PendingInputs()
         self._inputs.add(user_input, merged=True)
-        self._trace.append_user_input(user_input)
         return self._turn_id
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
         return self._composer.compose(
+            inputs=self._inputs,
             background=self._background,
             working=self._working,
             trace=self._trace,
@@ -227,8 +227,6 @@ class ContextEngine:
     def merge_pending_inputs(self) -> int:
         self._require_turn()
         unmerged = self._inputs.unmerged()
-        for item in unmerged:
-            self._trace.append_user_input(item.text)
         self._inputs.mark_merged(tuple(item.input_id for item in unmerged))
         return len(unmerged)
 

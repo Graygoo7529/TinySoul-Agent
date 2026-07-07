@@ -17,7 +17,7 @@ from .errors import (
     ContextInvariantError,
 )
 from .failures import ContextFailureKind
-from .prompts import TaskPrompt
+from .prompts import PromptBlock, TaskPrompt
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
@@ -47,6 +47,7 @@ __all__ = [
     "ControlResult",
     "ControlResultStage",
     "ControlResultStatus",
+    "PromptBlock",
     "SIGNAL_BACKGROUND_PATCH",
     "SIGNAL_INPUT_APPEND",
     "SIGNAL_NAMESPACE",
