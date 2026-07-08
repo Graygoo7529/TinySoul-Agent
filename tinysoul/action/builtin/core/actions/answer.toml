@@ -2,23 +2,76 @@ name = "core.answer"
 domain = "core"
 
 [tool]
-description = "Provide a final user-facing answer."
+description = "Produce the final user-facing answer, optionally using workspace references."
 
 [tool.schema]
+type = "object"
+required = ["guide_blocks"]
+additionalProperties = false
+
+[tool.schema.properties.guide_blocks]
+type = "array"
+description = "Required answer guidance blocks."
+
+[tool.schema.properties.guide_blocks.items]
 type = "object"
 required = ["text"]
 additionalProperties = false
 
-[tool.schema.properties.text]
+[tool.schema.properties.guide_blocks.items.properties.label]
 type = "string"
-description = "Final answer text."
+description = "Optional stable label for this guide block."
+
+[tool.schema.properties.guide_blocks.items.properties.text]
+type = "string"
+description = "Guide text for the final answer task."
+
+[tool.schema.properties.input_blocks]
+type = "array"
+description = "Optional answer-specific input blocks."
+
+[tool.schema.properties.input_blocks.items]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.input_blocks.items.properties.label]
+type = "string"
+description = "Optional stable label for this input block."
+
+[tool.schema.properties.input_blocks.items.properties.text]
+type = "string"
+description = "Input text for the final answer task."
 
 [tool.schema.properties.references]
 type = "array"
-description = "Optional source or workspace links used by the answer."
+description = "Optional read-only workspace references to use as answer sources."
 
 [tool.schema.properties.references.items]
+type = "object"
+required = ["type", "link"]
+additionalProperties = false
+
+[tool.schema.properties.references.items.properties.type]
 type = "string"
+enum = ["workspace.text"]
+description = "Reference type."
+
+[tool.schema.properties.references.items.properties.link]
+type = "string"
+description = "Reference link, for example workspace:docs/task.md."
+
+[tool.schema.properties.references.items.properties.max_chars]
+type = "integer"
+description = "Optional positive character limit."
+
+[tool.schema.properties.references.items.properties.start_line]
+type = "integer"
+description = "Optional positive 1-based start line."
+
+[tool.schema.properties.references.items.properties.max_lines]
+type = "integer"
+description = "Optional positive line count."
 
 [semantic]
 use_when = ["The task is complete and the user should receive an answer"]
@@ -34,5 +87,5 @@ normalize = []
 execute = []
 
 [backend]
-kind = "native"
-handler = "core.answer"
+kind = "llm_step"
+handler = "llm_step.answer"

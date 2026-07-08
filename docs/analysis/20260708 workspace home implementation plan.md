@@ -55,14 +55,15 @@ status: done
 
 status: done
 
-已将 Workspace 文本引用接入 Context `PromptBlock` 与 `llm_step`。`llm_step.context_task` 的主要任务输入语义改为可切分的 `task_inputs` 与 `references`，旧 `task_input` 仅作为兼容入口转换为一个 PromptBlock。Workspace 模块提供 `WorkspacePromptReferenceResolver` 解析 `workspace.text` 引用，未指定行范围时使用前缀读取，指定 `start_line` 或 `max_lines` 时使用行范围切片。内置 `core.reason` 使用 `llm_step.context_task`，可作为通用只读推理动作消费 workspace references。
+已将 Workspace 文本引用接入 Context `PromptBlock` 与 `llm_step`。`llm_step.context_task` 与 `llm_step.answer` 使用 PromptBlock-only `TaskPrompt` 协议：`guide_blocks`、`input_blocks`、`output_blocks` 均可切分为多条消息；`targets` 与 `references` 由 `PromptReferenceResolver` 解析为临时 `PromptBlock`。Workspace 模块提供 `WorkspacePromptReferenceResolver` 解析 `workspace.text` 只读参考引用与 `workspace.target` 待编辑目标引用，未指定行范围时使用前缀读取，指定 `start_line` 或 `max_lines` 时使用行范围切片。内置 `core.reason` 使用 `llm_step.context_task`，可消费 workspace targets 与 references；内置 `core.answer` 使用 `llm_step.answer`，可消费 workspace references 并返回最终回答 payload。
 
 对应实现位置：
 
-- `tinysoul/action/backends/llm_step.py`：可切分 `task_inputs`、`references` 与 `PromptReferenceResolver`；
+- `tinysoul/action/backends/llm_step.py`：PromptBlock-only `TaskPrompt`、`targets`、`references` 与 `PromptReferenceResolver`；
 - `tinysoul/action/backends/llm_step_registration.py`：`llm_step` action registrar；
 - `tinysoul/workspace/prompts.py`：`WorkspacePromptReferenceResolver` 与 Workspace PromptBlock 转换；
-- `tinysoul/action/builtin/core/actions/reason.toml`：通用只读推理动作；
+- `tinysoul/action/builtin/core/actions/reason.toml`：通用推理动作；
+- `tinysoul/action/builtin/core/actions/answer.toml`：最终回答动作；
 - `tinysoul/app/builder.py`：向 `llm_step` 注入 workspace reference resolver；
 - `tests/action/test_llm_step.py`、`tests/workspace/test_workspace_engine.py`：任务输入切分、引用解析和 workspace block 测试。
 
@@ -105,8 +106,10 @@ status: pending
 - `workspace.write`、`workspace.patch`、`workspace.delete` 成功结果不携带文件正文；
 - workspace 变更 action 通过 `context.working.patch` 同步资源摘要或资源移除；
 - workspace 变更 action 的参数和文件失败收敛为局部 `ActionResult`；
-- `llm_step.context_task` 支持可切分 `task_inputs` 与 `references`；
-- `workspace.text` references 可解析为 Context `PromptBlock`；
-- `core.reason` 可通过 workspace references 执行通用只读推理；
+- `llm_step.context_task` 支持 PromptBlock-only `TaskPrompt`、`targets` 与 `references`；
+- `llm_step.answer` 支持 PromptBlock-only `TaskPrompt` 与 `references`；
+- `workspace.text` 和 `workspace.target` references 可解析为 Context `PromptBlock`；
+- `core.reason` 可通过 workspace targets/references 执行通用推理；
+- `core.answer` 可通过 workspace references 读取资料并返回最终回答 payload；
 - 现有 `workspace.scan` / `workspace.describe` 行为保持；
 - `python -m pytest tests -q` 与 `python -m ty check` 通过。

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from tinysoul.context import TaskPrompt
+from tinysoul.context import PromptBlock, TaskPrompt
 
 
 class DomainGuidanceProvider(Protocol):
@@ -35,11 +35,27 @@ def phase1_task_prompt(
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
     return TaskPrompt(
-        guide="\n".join(sections),
-        task_input=domain_prompt,
-        output_desc=(
-            "Call select_action_domains with at least one valid domain. "
-            "You may also call context control tools."
+        guide_blocks=(
+            PromptBlock.from_text(
+                "task_prompt:guide:phase1",
+                "# Task Guide\n" + "\n".join(sections),
+            ),
+        ),
+        input_blocks=(
+            PromptBlock.from_text(
+                "task_prompt:input:action_domains",
+                "# Task Input\n" + domain_prompt,
+            ),
+        ),
+        output_blocks=(
+            PromptBlock.from_text(
+                "task_prompt:output:phase1",
+                (
+                    "# Expected Output\n"
+                    "Call select_action_domains with at least one valid domain. "
+                    "You may also call context control tools."
+                ),
+            ),
         ),
     )
 
@@ -57,9 +73,31 @@ def phase2_task_prompt(
     ]
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
+    guide_blocks = [
+        PromptBlock.from_text(
+            "task_prompt:guide:phase2",
+            "# Task Guide\n" + "\n".join(sections),
+        )
+    ]
+    for index, guidance in enumerate(domain_guidance, start=1):
+        guide_blocks.append(
+            PromptBlock.from_text(
+                f"task_prompt:guide:domain:{index}",
+                "# Domain Guidance\n" + guidance,
+            )
+        )
     return TaskPrompt(
-        guide="\n".join(sections),
-        task_input="Selected domains: " + ", ".join(selected_domains),
-        output_desc="Return one or more action tool calls with valid arguments.",
-        domain_guidance=domain_guidance,
+        guide_blocks=tuple(guide_blocks),
+        input_blocks=(
+            PromptBlock.from_text(
+                "task_prompt:input:selected_domains",
+                "# Task Input\nSelected domains: " + ", ".join(selected_domains),
+            ),
+        ),
+        output_blocks=(
+            PromptBlock.from_text(
+                "task_prompt:output:phase2",
+                "# Expected Output\nReturn one or more action tool calls with valid arguments.",
+            ),
+        ),
     )

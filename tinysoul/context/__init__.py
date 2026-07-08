@@ -18,6 +18,7 @@ from .errors import (
 )
 from .failures import ContextFailureKind
 from .prompts import PromptBlock, TaskPrompt
+from .references import PromptReferenceError, PromptReferenceResolver
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
@@ -48,6 +49,8 @@ __all__ = [
     "ControlResultStage",
     "ControlResultStatus",
     "PromptBlock",
+    "PromptReferenceError",
+    "PromptReferenceResolver",
     "SIGNAL_BACKGROUND_PATCH",
     "SIGNAL_INPUT_APPEND",
     "SIGNAL_NAMESPACE",

@@ -11,6 +11,7 @@ from tinysoul.context import (
     SIGNAL_TRACE_APPEND,
     ContextContractError,
     ContextEngineBuilder,
+    PromptBlock,
     TaskPrompt,
     TraceKind,
     build_input_append_signal,
@@ -38,17 +39,25 @@ def _engine():
     )
 
 
+def _prompt(text: str = "next") -> TaskPrompt:
+    return TaskPrompt(
+        guide_blocks=(
+            PromptBlock.from_text("task_prompt:guide:test", "# Task Guide\n" + text),
+        )
+    )
+
+
 def test_turn_lifecycle_and_compose() -> None:
     engine = _engine()
     with pytest.raises(ContextContractError):
-        engine.compose(TaskPrompt(guide="g"))
+        engine.compose(_prompt("g"))
 
     turn_id = engine.begin_turn("please help")
     assert turn_id
     with pytest.raises(ContextContractError):
         engine.begin_turn("again")
 
-    stack = engine.compose(TaskPrompt(guide="Phase one."))
+    stack = engine.compose(_prompt("Phase one."))
     labels = [message.label for message in stack.messages]
     assert labels[0] == "identity"
     assert labels[1] == "user_input"
@@ -399,7 +408,7 @@ def test_consume_trace_and_input_signals() -> None:
         TraceKind.PHASE_NOTE,
     )
     assert len(bus) == 1
-    stack = engine.compose(TaskPrompt(guide="next"))
+    stack = engine.compose(_prompt("next"))
     decision = next(message for message in stack.messages if message.label == "decision")
     assert isinstance(decision, AssistantMessage)
     assert isinstance(decision.parts[1], JsonPart)
@@ -408,7 +417,7 @@ def test_consume_trace_and_input_signals() -> None:
 
     merged = engine.merge_pending_inputs()
     assert merged == 1
-    stack = engine.compose(TaskPrompt(guide="next"))
+    stack = engine.compose(_prompt("next"))
     assert [message.label for message in stack.messages].count("user_input") == 2
     assert engine.trace_kinds() == (
         TraceKind.DECISION,

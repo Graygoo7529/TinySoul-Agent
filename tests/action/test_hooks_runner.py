@@ -60,6 +60,9 @@ class RuntimeExceptionExecutor:
         )
 
 
+ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
+
+
 def _batch_for(action_name: str, arguments: JsonObject):
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
     normalization = ActionCallNormalizer().normalize(
@@ -83,10 +86,10 @@ def _batch_for(action_name: str, arguments: JsonObject):
 
 
 def test_runner_returns_action_result_from_executor() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
-        "core.answer",
+        "llm_step.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
 
@@ -102,9 +105,9 @@ def test_runner_returns_action_result_from_executor() -> None:
 
 
 def test_runner_allows_runtime_exception_to_reach_trap() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
-    executors.register("core.answer", RuntimeExceptionExecutor())
+    executors.register("llm_step.answer", RuntimeExceptionExecutor())
 
     with pytest.raises(RuntimeException) as raised:
         ActionBatchRunner(executors=executors).run(
@@ -129,10 +132,7 @@ def test_runner_rejects_invalid_max_workers() -> None:
 def test_executor_registry_validates_catalog_handlers() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
     executors = ExecutorRegistry()
-    executors.register(
-        "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
-    )
+    executors.register("llm_step.answer", NativeFunctionExecutor(lambda execution, context: {"ok": True}))
 
     assert executors.missing_handlers_for(catalog) == (
         "home.resource.read",
@@ -148,9 +148,9 @@ def test_executor_registry_validates_catalog_handlers() -> None:
 
 
 def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
-    executors.register("core.answer", MismatchedExecutor())
+    executors.register("llm_step.answer", MismatchedExecutor())
 
     results = ActionBatchRunner(executors=executors).run(
         batch,
@@ -166,10 +166,10 @@ def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
 
 
 def test_runner_returns_failed_result_when_hook_rejects() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
-        "core.answer",
+        "llm_step.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
@@ -186,10 +186,10 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
 
 
 def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
-        "core.answer",
+        "llm_step.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
@@ -206,10 +206,10 @@ def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
 
 
 def test_runner_returns_failed_result_when_hook_raises() -> None:
-    catalog, batch = _batch_for("core.answer", {"text": "hello"})
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
-        "core.answer",
+        "llm_step.answer",
         NativeFunctionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()

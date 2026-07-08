@@ -7,8 +7,9 @@ import pytest
 
 from tinysoul.app import AppSettings, TinySoulAppBuilder
 from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import RawResponse, TaskResult
+from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.loop import (
     LoopControlKind,
@@ -57,10 +58,11 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
                         ToolCallRecord(
                             id="answer_1",
                             name="core.answer",
-                            arguments={"text": "done"},
+                            arguments={"guide_blocks": [{"text": "answer"}]},
                             kind=ToolKind.ACTION,
                         )
                     ),
+                    _json_result({"text": "done"}),
                 )
             )
         )
@@ -238,6 +240,18 @@ def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
         ),
         answer=None,
         tool_calls=tool_calls,
+    )
+
+
+def _json_result(value: JsonObject) -> TaskResult:
+    return TaskResult.success(
+        raw_response=RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+        ),
+        answer=JsonAnswer(value),
+        tool_calls=(),
     )
 
 

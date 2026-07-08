@@ -6,29 +6,72 @@ description = "Run a focused internal reasoning step and return a JSON object."
 
 [tool.schema]
 type = "object"
-required = ["guide"]
+required = ["guide_blocks", "output_blocks"]
 additionalProperties = false
 
-[tool.schema.properties.guide]
-type = "string"
-description = "Focused instruction for the reasoning step."
-
-[tool.schema.properties.task_inputs]
+[tool.schema.properties.guide_blocks]
 type = "array"
-description = "Optional splittable task prompt inputs."
+description = "Required reasoning guidance blocks."
 
-[tool.schema.properties.task_inputs.items]
+[tool.schema.properties.guide_blocks.items]
 type = "object"
 required = ["text"]
 additionalProperties = false
 
-[tool.schema.properties.task_inputs.items.properties.label]
+[tool.schema.properties.guide_blocks.items.properties.label]
+type = "string"
+description = "Optional stable label for this guide block."
+
+[tool.schema.properties.guide_blocks.items.properties.text]
+type = "string"
+description = "Guide text for the reasoning task."
+
+[tool.schema.properties.input_blocks]
+type = "array"
+description = "Optional reasoning input blocks."
+
+[tool.schema.properties.input_blocks.items]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.input_blocks.items.properties.label]
 type = "string"
 description = "Optional stable label for this input block."
 
-[tool.schema.properties.task_inputs.items.properties.text]
+[tool.schema.properties.input_blocks.items.properties.text]
 type = "string"
 description = "Input text for this prompt block."
+
+[tool.schema.properties.targets]
+type = "array"
+description = "Optional workspace target files that may be edited by a later action."
+
+[tool.schema.properties.targets.items]
+type = "object"
+required = ["type", "link"]
+additionalProperties = false
+
+[tool.schema.properties.targets.items.properties.type]
+type = "string"
+enum = ["workspace.target"]
+description = "Target reference type."
+
+[tool.schema.properties.targets.items.properties.link]
+type = "string"
+description = "Target workspace link."
+
+[tool.schema.properties.targets.items.properties.max_chars]
+type = "integer"
+description = "Optional positive character limit."
+
+[tool.schema.properties.targets.items.properties.start_line]
+type = "integer"
+description = "Optional positive 1-based start line."
+
+[tool.schema.properties.targets.items.properties.max_lines]
+type = "integer"
+description = "Optional positive line count."
 
 [tool.schema.properties.references]
 type = "array"
@@ -60,9 +103,22 @@ description = "Optional positive 1-based start line."
 type = "integer"
 description = "Optional positive line count."
 
-[tool.schema.properties.output_desc]
+[tool.schema.properties.output_blocks]
+type = "array"
+description = "Required JSON output protocol blocks."
+
+[tool.schema.properties.output_blocks.items]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.output_blocks.items.properties.label]
 type = "string"
-description = "Optional expected JSON output description."
+description = "Optional stable label for this output block."
+
+[tool.schema.properties.output_blocks.items.properties.text]
+type = "string"
+description = "Expected output instructions for the reasoning task."
 
 [semantic]
 use_when = ["Need a bounded internal reasoning step before choosing the next action or final answer"]

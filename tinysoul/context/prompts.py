@@ -33,52 +33,33 @@ class PromptBlock:
 
 @dataclass(frozen=True)
 class TaskPrompt:
-    """A per-task prompt overlay appended after the shared context sections."""
+    """A per-task prompt overlay appended after shared context sections."""
 
-    guide: str
-    task_input: str = ""
-    output_desc: str = ""
-    domain_guidance: tuple[str, ...] = field(default_factory=tuple)
-    task_inputs: tuple[PromptBlock, ...] = field(default_factory=tuple)
+    guide_blocks: tuple[PromptBlock, ...]
+    input_blocks: tuple[PromptBlock, ...] = field(default_factory=tuple)
+    output_blocks: tuple[PromptBlock, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        if not self.guide:
-            raise ContextInvariantError("TaskPrompt.guide must be non-empty")
-        for item in self.domain_guidance:
-            if not item:
-                raise ContextInvariantError(
-                    "TaskPrompt.domain_guidance must contain non-empty strings"
-                )
-        for item in self.task_inputs:
-            if not isinstance(item, PromptBlock):
-                raise ContextInvariantError(
-                    "TaskPrompt.task_inputs must contain PromptBlock values"
-                )
+        _check_blocks(self.guide_blocks, "TaskPrompt.guide_blocks")
+        _check_blocks(self.input_blocks, "TaskPrompt.input_blocks")
+        _check_blocks(self.output_blocks, "TaskPrompt.output_blocks")
+        if not self.guide_blocks:
+            raise ContextInvariantError(
+                "TaskPrompt.guide_blocks must contain at least one block"
+            )
 
     def render_messages(self) -> tuple[Message, ...]:
-        messages: list[Message] = [
-            PromptBlock.from_text("task_prompt:guide", f"# Task Guide\n{self.guide}").message
-        ]
-        for item in self.domain_guidance:
-            messages.append(
-                PromptBlock.from_text(
-                    "task_prompt:domain_guidance",
-                    f"# Domain Guidance\n{item}",
-                ).message
+        return tuple(
+            block.message
+            for block in (
+                *self.guide_blocks,
+                *self.input_blocks,
+                *self.output_blocks,
             )
-        if self.task_input:
-            messages.append(
-                PromptBlock.from_text(
-                    "task_prompt:input",
-                    f"# Task Input\n{self.task_input}",
-                ).message
-            )
-        messages.extend(item.message for item in self.task_inputs)
-        if self.output_desc:
-            messages.append(
-                PromptBlock.from_text(
-                    "task_prompt:output",
-                    f"# Expected Output\n{self.output_desc}",
-                ).message
-            )
-        return tuple(messages)
+        )
+
+
+def _check_blocks(blocks: tuple[PromptBlock, ...], field: str) -> None:
+    for block in blocks:
+        if not isinstance(block, PromptBlock):
+            raise ContextInvariantError(f"{field} must contain PromptBlock values")

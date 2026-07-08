@@ -190,7 +190,7 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
     )
 
     assert len(blocks) == 1
-    assert blocks[0].label == "task_prompt:input:workspace:a.md:prefix:3"
+    assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:prefix:3"
     text = _message_text(blocks[0].message)
     assert "# Workspace Reference" in text
     assert "link: workspace:a.md" in text
@@ -221,7 +221,7 @@ def test_workspace_prompt_reference_resolver_returns_line_range_block(
     )
 
     assert len(blocks) == 1
-    assert blocks[0].label == "task_prompt:input:workspace:a.md:lines:2-2"
+    assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:lines:2-2"
     text = _message_text(blocks[0].message)
     assert "range: lines:2-2" in text
     assert "two\n" in text
@@ -447,7 +447,7 @@ def test_workspace_write_executor_returns_metadata_and_working_patch(
     bus = SignalBus()
     execution = _execution(
         "workspace.write",
-        {"link": "workspace:a.md", "text": "hello"},
+        {"target_link": "workspace:a.md", "text": "hello"},
     )
 
     result = WorkspaceWriteExecutor(engine, bus).execute(
@@ -479,7 +479,7 @@ def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> Non
     bus = SignalBus()
     execution = _execution(
         "workspace.patch",
-        {"link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
+        {"target_link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
     )
 
     result = WorkspacePatchExecutor(engine, bus).execute(
@@ -501,7 +501,7 @@ def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> Non
         )
     ).build()
     bus = SignalBus()
-    execution = _execution("workspace.delete", {"link": "workspace:a.md"})
+    execution = _execution("workspace.delete", {"target_link": "workspace:a.md"})
 
     result = WorkspaceDeleteExecutor(engine, bus).execute(
         execution,

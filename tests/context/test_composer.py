@@ -38,14 +38,30 @@ def test_compose_section_order_and_labels() -> None:
         working=working,
         trace=trace,
         task_prompt=TaskPrompt(
-            guide="Do phase one.",
-            task_input="input details",
-            output_desc="tool calls",
-            domain_guidance=("Use the workspace domain for file edits.",),
-            task_inputs=(
+            guide_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:guide:phase",
+                    "# Task Guide\nDo phase one.",
+                ),
+                PromptBlock.from_text(
+                    "task_prompt:guide:domain:1",
+                    "# Domain Guidance\nUse the workspace domain for file edits.",
+                ),
+            ),
+            input_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:input:details",
+                    "# Task Input\ninput details",
+                ),
                 PromptBlock.from_text(
                     "task_prompt:input:workspace:docs/a.md",
                     "workspace slice",
+                ),
+            ),
+            output_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:output:phase",
+                    "# Expected Output\ntool calls",
                 ),
             ),
         ),
@@ -58,11 +74,11 @@ def test_compose_section_order_and_labels() -> None:
         "background:home:what@x",
         "working",
         "phase_note",
-        "task_prompt:guide",
-        "task_prompt:domain_guidance",
-        "task_prompt:input",
+        "task_prompt:guide:phase",
+        "task_prompt:guide:domain:1",
+        "task_prompt:input:details",
         "task_prompt:input:workspace:docs/a.md",
-        "task_prompt:output",
+        "task_prompt:output:phase",
     ]
     assert isinstance(stack.messages[0], SystemMessage)
     assert all(isinstance(message, UserMessage) for message in stack.messages[1:])
@@ -88,7 +104,7 @@ def test_compose_budget_exceeded_raises() -> None:
             background=background,
             working=working,
             trace=trace,
-            task_prompt=TaskPrompt(guide="Do phase one."),
+            task_prompt=_prompt("Do phase one."),
         )
     assert exc_info.value.max_chars == 10
     assert exc_info.value.estimated_chars > 10
@@ -118,3 +134,11 @@ def test_estimate_counts_assistant_reasoning() -> None:
     estimated = estimate_chars(messages)
 
     assert estimated > len("answer") + len("thinking content") + len("thinking summary")
+
+
+def _prompt(text: str) -> TaskPrompt:
+    return TaskPrompt(
+        guide_blocks=(
+            PromptBlock.from_text("task_prompt:guide:test", "# Task Guide\n" + text),
+        )
+    )

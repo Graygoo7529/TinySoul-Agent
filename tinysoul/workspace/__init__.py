@@ -27,6 +27,7 @@ from .manifest import (
     WorkspaceResourceRecord,
 )
 from .prompts import (
+    WORKSPACE_TARGET_REFERENCE,
     WORKSPACE_TEXT_REFERENCE,
     WorkspacePromptReferenceResolver,
     prompt_blocks_from_workspace_input,
@@ -53,6 +54,7 @@ __all__ = [
     "WorkspaceSettings",
     "WorkspaceTextRead",
     "WorkspaceTextSlice",
+    "WORKSPACE_TARGET_REFERENCE",
     "WORKSPACE_TEXT_REFERENCE",
     "parse_workspace_settings",
     "prompt_blocks_from_workspace_input",

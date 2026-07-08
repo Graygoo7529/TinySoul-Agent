@@ -64,7 +64,6 @@ from tinysoul.workspace.errors import WorkspaceError
 from .config import AppSettings, parse_app_settings
 from .errors import AppError
 from .inputs import InputCommandParser, InputDispatcher, InputSource
-from .native_actions import core_answer
 from .runtime import TinySoulApp
 from .sources import TerminalInputSource
 
@@ -344,10 +343,7 @@ class TinySoulAppBuilder:
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
         try:
-            builder = ActionEngineBuilder(catalog_root).register_native(
-                "core.answer",
-                core_answer,
-            )
+            builder = ActionEngineBuilder(catalog_root)
             register_workspace_actions(
                 builder,
                 workspace=workspace,

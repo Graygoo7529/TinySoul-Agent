@@ -6,12 +6,12 @@ description = "Apply one exact UTF-8 text replacement to a workspace resource. T
 
 [tool.schema]
 type = "object"
-required = ["link", "old_text", "new_text"]
+required = ["target_link", "old_text", "new_text"]
 additionalProperties = false
 
-[tool.schema.properties.link]
+[tool.schema.properties.target_link]
 type = "string"
-description = "A workspace resource link such as workspace:docs/task.md."
+description = "Target workspace resource link such as workspace:docs/task.md."
 
 [tool.schema.properties.old_text]
 type = "string"

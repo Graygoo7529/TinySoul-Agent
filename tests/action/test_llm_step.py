@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tinysoul.action.backends.llm_step import LLMStepActionExecutor
+from tinysoul.action.backends.llm_step import LLMAnswerActionExecutor, LLMStepActionExecutor
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
@@ -23,18 +23,19 @@ from tinysoul.runtime import RunLevel, RunScope
 
 
 class FakeLLMRunner:
-    def __init__(self) -> None:
+    def __init__(self, answer: JsonObject | None = None) -> None:
         self.calls: list[TaskCall] = []
+        self.answer = answer or {"ok": True}
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return TaskResult.success(
             raw_response=RawResponse(
-                answer_text='{"ok":true}',
+                answer_text="{}",
                 model_id="fake",
                 provider_id="fake",
             ),
-            answer=JsonAnswer({"ok": True}),
+            answer=JsonAnswer(self.answer),
             tool_calls=(),
         )
 
@@ -52,7 +53,7 @@ class TestReferenceResolver:
         )
 
 
-def test_llm_step_uses_splittable_task_inputs_and_references() -> None:
+def test_llm_step_uses_splittable_prompt_blocks_and_references() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -64,10 +65,10 @@ def test_llm_step_uses_splittable_task_inputs_and_references() -> None:
     execution = _execution(
         "core.reason",
         {
-            "guide": "analyze",
-            "task_inputs": [{"label": "literal", "text": "literal input"}],
+            "guide_blocks": [{"label": "main", "text": "analyze"}],
+            "input_blocks": [{"label": "literal", "text": "literal input"}],
             "references": [{"type": "test.ref"}],
-            "output_desc": '{"ok": true}',
+            "output_blocks": [{"label": "json", "text": '{"ok": true}'}],
         },
     )
 
@@ -85,11 +86,15 @@ def test_llm_step_uses_splittable_task_inputs_and_references() -> None:
 def test_llm_step_reports_unsupported_reference_type() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
-    llm = FakeLLMRunner()
+    llm = FakeLLMRunner({"text": "done"})
     executor = LLMStepActionExecutor(llm_runner=llm, context=context)
     execution = _execution(
         "core.reason",
-        {"guide": "analyze", "references": [{"type": "missing.ref"}]},
+        {
+            "guide_blocks": [{"text": "analyze"}],
+            "references": [{"type": "missing.ref"}],
+            "output_blocks": [{"text": '{"ok": true}'}],
+        },
     )
 
     result = executor.execute(execution, ActionExecutionContext())
@@ -97,6 +102,32 @@ def test_llm_step_reports_unsupported_reference_type() -> None:
     assert result.status is ActionResultStatus.FAILED
     assert result.frame_data["reason"] == "unsupported_reference_type"
     assert llm.calls == []
+
+
+def test_answer_executor_uses_references_and_returns_answer_payload() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    llm = FakeLLMRunner({"text": "done"})
+    executor = LLMAnswerActionExecutor(
+        llm_runner=llm,
+        context=context,
+        reference_resolvers=(TestReferenceResolver(),),
+    )
+    execution = _execution(
+        "core.answer",
+        {
+            "guide_blocks": [{"text": "answer"}],
+            "references": [{"type": "test.ref", "link": "workspace:a.md"}],
+        },
+        handler="llm_step.answer",
+    )
+
+    result = executor.execute(execution, ActionExecutionContext())
+
+    assert result.status is ActionResultStatus.SUCCESS
+    assert result.payload == {"text": "done", "references": ["workspace:a.md"]}
+    labels = tuple(message.label for message in llm.calls[0].messages.messages)
+    assert "task_prompt:input:test-ref" in labels
 
 
 def _text_for_label(call: TaskCall, label: str) -> str:
@@ -108,7 +139,12 @@ def _text_for_label(call: TaskCall, label: str) -> str:
     raise AssertionError(f"Missing message label: {label}")
 
 
-def _execution(action_name: str, params: JsonObject) -> ActionExecution:
+def _execution(
+    action_name: str,
+    params: JsonObject,
+    *,
+    handler: str = "llm_step.context_task",
+) -> ActionExecution:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="core", description="Core."),),
         actions=(
@@ -129,7 +165,7 @@ def _execution(action_name: str, params: JsonObject) -> ActionExecution:
                 runtime=ActionRuntimeSpec(),
                 backend=ActionBackendSpec(
                     kind=ActionBackendKind.LLM_STEP,
-                    handler="llm_step.context_task",
+                    handler=handler,
                 ),
             ),
         ),

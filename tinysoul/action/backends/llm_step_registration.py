@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from tinysoul.action.engine import ActionEngineBuilder
-from tinysoul.context import ContextEngine
+from tinysoul.context import ContextEngine, PromptReferenceResolver
 
-from .llm_step import LLMRunner, LLMStepActionExecutor, PromptReferenceResolver
+from .llm_step import LLMAnswerActionExecutor, LLMRunner, LLMStepActionExecutor
 
 
 def register_llm_step_actions(
@@ -22,6 +22,13 @@ def register_llm_step_actions(
     return builder.register_executor(
         "llm_step.context_task",
         LLMStepActionExecutor(
+            llm_runner=llm_runner,
+            context=context,
+            reference_resolvers=reference_resolvers,
+        ),
+    ).register_executor(
+        "llm_step.answer",
+        LLMAnswerActionExecutor(
             llm_runner=llm_runner,
             context=context,
             reference_resolvers=reference_resolvers,

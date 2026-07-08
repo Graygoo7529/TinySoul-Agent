@@ -42,7 +42,7 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
                 ToolCallRecord(
                     id="answer_1",
                     name="core.answer",
-                    arguments={"text": "done"},
+                    arguments={"guide_blocks": [{"text": "answer"}]},
                     kind=ToolKind.ACTION,
                 )
             ),
@@ -176,10 +176,7 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
 def _action_engine():
     return (
         ActionEngineBuilder(Path("tinysoul/action/builtin"))
-        .register_native(
-            "core.answer",
-            lambda execution, context: {"text": execution.call.params["text"]},
-        )
+        .register_native("llm_step.answer", lambda execution, context: {"text": "done"})
         .register_native("llm_step.context_task", lambda execution, context: {"ok": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})

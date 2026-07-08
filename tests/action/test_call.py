@@ -16,6 +16,7 @@ from tinysoul.action.core.errors import ActionInvariantError
 from tinysoul.action.core.hooks import ActionNormalizeHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
 
@@ -25,13 +26,16 @@ class RejectNormalizeHook:
         return HookOutcome.failed("Rejected during normalize")
 
 
+ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
+
+
 def test_normalize_tool_calls_to_action_calls() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
     tool_calls = (
         ToolCallRecord(
             id="call_1",
             name="core.answer",
-            arguments={"text": "done"},
+            arguments=ANSWER_ARGS,
             kind=ToolKind.ACTION,
         ),
     )
@@ -43,7 +47,7 @@ def test_normalize_tool_calls_to_action_calls() -> None:
     assert calls[0].action_name == "core.answer"
     assert calls[0].call_id == "call_1"
     assert calls[0].sequence == 1
-    assert calls[0].params == {"text": "done"}
+    assert calls[0].params == ANSWER_ARGS
     assert normalization.results == ()
 
 
@@ -55,7 +59,7 @@ def test_normalizer_returns_result_for_non_action_tool_call() -> None:
             ToolCallRecord(
                 id="call_1",
                 name="core.answer",
-                arguments={"text": "done"},
+                arguments=ANSWER_ARGS,
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -97,7 +101,7 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
             ToolCallRecord(
                 id="call_1",
                 name="core.answer",
-                arguments={"text": "done"},
+                arguments=ANSWER_ARGS,
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
@@ -127,7 +131,7 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
             ToolCallRecord(
                 id="call_1",
                 name="core.answer",
-                arguments={"text": "done"},
+                arguments=ANSWER_ARGS,
                 kind=ToolKind.ACTION,
             ),
         ),

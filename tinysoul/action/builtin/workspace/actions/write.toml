@@ -6,12 +6,12 @@ description = "Write UTF-8 text to a workspace resource. The action result retur
 
 [tool.schema]
 type = "object"
-required = ["link", "text"]
+required = ["target_link", "text"]
 additionalProperties = false
 
-[tool.schema.properties.link]
+[tool.schema.properties.target_link]
 type = "string"
-description = "A workspace resource link such as workspace:docs/task.md."
+description = "Target workspace resource link such as workspace:docs/task.md."
 
 [tool.schema.properties.text]
 type = "string"

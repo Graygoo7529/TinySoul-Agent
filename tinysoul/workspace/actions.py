@@ -151,8 +151,8 @@ class WorkspaceWriteExecutor(ActionExecutor):
         if link is None:
             return _failed(
                 execution,
-                "workspace.write requires a non-empty 'link' parameter.",
-                {"reason": "missing_link"},
+                "workspace.write requires a non-empty 'target_link' parameter.",
+                {"reason": "missing_target_link"},
             )
         text = execution.call.params.get("text")
         if not isinstance(text, str):
@@ -206,8 +206,8 @@ class WorkspacePatchExecutor(ActionExecutor):
         if link is None:
             return _failed(
                 execution,
-                "workspace.patch requires a non-empty 'link' parameter.",
-                {"reason": "missing_link"},
+                "workspace.patch requires a non-empty 'target_link' parameter.",
+                {"reason": "missing_target_link"},
             )
         old_text = execution.call.params.get("old_text")
         if not isinstance(old_text, str) or not old_text:
@@ -269,8 +269,8 @@ class WorkspaceDeleteExecutor(ActionExecutor):
         if link is None:
             return _failed(
                 execution,
-                "workspace.delete requires a non-empty 'link' parameter.",
-                {"reason": "missing_link"},
+                "workspace.delete requires a non-empty 'target_link' parameter.",
+                {"reason": "missing_target_link"},
             )
         try:
             record = self._workspace.delete_resource(link)
@@ -295,7 +295,7 @@ class WorkspaceDeleteExecutor(ActionExecutor):
 
 
 def _required_link(execution: ActionExecution) -> str | None:
-    link = execution.call.params.get("link")
+    link = execution.call.params.get("target_link")
     if not isinstance(link, str) or not link:
         return None
     return link
