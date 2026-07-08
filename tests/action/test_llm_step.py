@@ -41,19 +41,26 @@ class FakeLLMRunner:
 
 
 class TestReferenceResolver:
-    def supports(self, kind: str) -> bool:
-        return kind == "test.ref"
+    def supports(self, link: str) -> bool:
+        return link in {"test:ref", "workspace:a.md"}
 
-    def resolve(self, reference: JsonObject) -> tuple[PromptBlock, ...]:
+    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
         return (
             PromptBlock.from_text(
                 "task_prompt:input:test-ref",
-                "# Reference\nresolved reference",
+                f"# Reference\nresolved reference: {link}",
             ),
         )
 
 
-def test_llm_step_uses_splittable_prompt_blocks_and_references() -> None:
+class TestActionHowProvider:
+    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
+        assert domain == "core"
+        assert action_name == "core.reason"
+        return ("Use the project rewrite style.",)
+
+
+def test_llm_step_uses_splittable_prompt_blocks_and_reference_links() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -67,7 +74,7 @@ def test_llm_step_uses_splittable_prompt_blocks_and_references() -> None:
         {
             "guide_blocks": [{"label": "main", "text": "analyze"}],
             "input_blocks": [{"label": "literal", "text": "literal input"}],
-            "references": [{"type": "test.ref"}],
+            "reference_links": ["test:ref"],
             "output_blocks": [{"label": "json", "text": '{"ok": true}'}],
         },
     )
@@ -83,7 +90,7 @@ def test_llm_step_uses_splittable_prompt_blocks_and_references() -> None:
     assert "literal input" in text
 
 
-def test_llm_step_reports_unsupported_reference_type() -> None:
+def test_llm_step_reports_unsupported_reference_link() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -92,7 +99,7 @@ def test_llm_step_reports_unsupported_reference_type() -> None:
         "core.reason",
         {
             "guide_blocks": [{"text": "analyze"}],
-            "references": [{"type": "missing.ref"}],
+            "reference_links": ["missing:ref"],
             "output_blocks": [{"text": '{"ok": true}'}],
         },
     )
@@ -100,11 +107,38 @@ def test_llm_step_reports_unsupported_reference_type() -> None:
     result = executor.execute(execution, ActionExecutionContext())
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "unsupported_reference_type"
+    assert result.frame_data["reason"] == "unsupported_reference_link"
     assert llm.calls == []
 
 
-def test_answer_executor_uses_references_and_returns_answer_payload() -> None:
+def test_llm_step_injects_action_how_as_guide_block() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    llm = FakeLLMRunner()
+    executor = LLMStepActionExecutor(
+        llm_runner=llm,
+        context=context,
+        action_how=TestActionHowProvider(),
+    )
+    execution = _execution(
+        "core.reason",
+        {
+            "guide_blocks": [{"text": "analyze"}],
+            "output_blocks": [{"text": '{"ok": true}'}],
+        },
+    )
+
+    result = executor.execute(execution, ActionExecutionContext())
+
+    assert result.status is ActionResultStatus.SUCCESS
+    labels = tuple(message.label for message in llm.calls[0].messages.messages)
+    assert "task_prompt:guide:action_how:1" in labels
+    text = _text_for_label(llm.calls[0], "task_prompt:guide:action_how:1")
+    assert "# Action HOW" in text
+    assert "Use the project rewrite style." in text
+
+
+def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -117,7 +151,7 @@ def test_answer_executor_uses_references_and_returns_answer_payload() -> None:
         "core.answer",
         {
             "guide_blocks": [{"text": "answer"}],
-            "references": [{"type": "test.ref", "link": "workspace:a.md"}],
+            "reference_links": ["workspace:a.md"],
         },
         handler="llm_step.answer",
     )

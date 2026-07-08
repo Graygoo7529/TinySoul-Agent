@@ -11,7 +11,7 @@ from .errors import (
     AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
-from .guidance import HomeDomainGuidanceProvider
+from .guidance import HomeActionHowProvider, HomeDomainHowProvider
 from .links import HomeLink, HomeResourceLink, HomeTopLink, parse_home_link
 from .runtime_copy import (
     AgentHomeRuntimeCopyManager,
@@ -32,8 +32,9 @@ __all__ = [
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",
+    "HomeActionHowProvider",
     "HomeBackgroundEntry",
-    "HomeDomainGuidanceProvider",
+    "HomeDomainHowProvider",
     "HomeLink",
     "HomeResourceLink",
     "HomeResourceReadExecutor",

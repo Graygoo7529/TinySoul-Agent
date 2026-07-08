@@ -60,7 +60,7 @@ class AgentHomeLayout:
         links.extend(self._simple_space_links("what"))
         links.extend(self._simple_space_links("why"))
         links.extend(self._package_links("how", "SKILL.md"))
-        links.extend(self._package_links("how_action", "DOMAIN.md"))
+        links.extend(self._package_links("how_domain", "DOMAIN.md"))
         links.extend(self._simple_space_links("memory"))
         return _dedupe_links(tuple(links))
 
@@ -74,8 +74,8 @@ class AgentHomeLayout:
             return (self._under_content_root("agent", f"{link.name}.md"),)
         if link.space == "how":
             return (self._under_content_root("how", link.name, "SKILL.md"),)
-        if link.space == "how_action":
-            return (self._under_content_root("how_action", link.name, "DOMAIN.md"),)
+        if link.space == "how_domain":
+            return (self._under_content_root("how_domain", link.name, "DOMAIN.md"),)
         if link.space == "what":
             return (
                 self._under_content_root("what", f"{link.name}.md"),

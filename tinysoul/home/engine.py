@@ -95,9 +95,22 @@ class AgentHomeEngine:
     def guidance_for_domain(self, domain: str) -> str | None:
         if not domain:
             return None
-        link = HomeTopLink("how_action", domain)
+        link = HomeTopLink("how_domain", domain)
         try:
             return self.read_top(link)
+        except AgentHomeContractError:
+            return None
+
+    def guidance_for_action(self, domain: str, action_name: str) -> str | None:
+        if not domain or not action_name:
+            return None
+        action_key = action_name
+        prefix = f"{domain}."
+        if action_name.startswith(prefix):
+            action_key = action_name[len(prefix) :]
+        link = HomeResourceLink("how_domain", f"{domain}/actions/{action_key}.md")
+        try:
+            return self.read_resource(link).text
         except AgentHomeContractError:
             return None
 

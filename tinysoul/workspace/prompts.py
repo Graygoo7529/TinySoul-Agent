@@ -3,58 +3,49 @@
 from __future__ import annotations
 
 from tinysoul.context import PromptBlock, PromptReferenceError, PromptReferenceResolver
-from tinysoul.infra.json import JsonObject
 
 from .engine import WorkspaceEngine, WorkspacePromptInput, WorkspaceTextSlice
 from .errors import WorkspaceError
-
-
-WORKSPACE_TEXT_REFERENCE = "workspace.text"
-WORKSPACE_TARGET_REFERENCE = "workspace.target"
+from .links import WORKSPACE_LINK_PREFIX
 
 
 class WorkspacePromptReferenceResolver(PromptReferenceResolver):
-    """Resolve workspace text references into task prompt blocks."""
+    """Resolve workspace links into task prompt blocks."""
 
     def __init__(self, workspace: WorkspaceEngine) -> None:
         self._workspace = workspace
 
-    def supports(self, kind: str) -> bool:
-        return kind in {WORKSPACE_TEXT_REFERENCE, WORKSPACE_TARGET_REFERENCE}
+    def supports(self, link: str) -> bool:
+        return isinstance(link, str) and link.startswith(WORKSPACE_LINK_PREFIX)
 
-    def resolve(self, reference: JsonObject) -> tuple[PromptBlock, ...]:
-        kind = reference.get("type")
-        if not isinstance(kind, str) or not self.supports(kind):
-            raise PromptReferenceError(
-                "Workspace reference requires a supported type.",
-                reason="unsupported_workspace_reference",
-            )
-        link = reference.get("link")
+    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+        """Resolve a workspace link as read-only prompt input."""
+
+        return self._resolve(link, role="reference")
+
+    def resolve_target(self, link: str) -> tuple[PromptBlock, ...]:
+        """Resolve a workspace link as the target of a workspace action."""
+
+        return self._resolve(link, role="target")
+
+    def _resolve(self, link: str, *, role: str) -> tuple[PromptBlock, ...]:
         if not isinstance(link, str) or not link:
             raise PromptReferenceError(
-                f"{kind} reference requires a non-empty link.",
+                "Workspace prompt reference requires a non-empty link.",
                 reason="missing_workspace_link",
             )
-        max_chars = _optional_positive_int(reference, "max_chars")
-        start_line = _optional_positive_int(reference, "start_line")
-        max_lines = _optional_positive_int(reference, "max_lines")
-        try:
-            if start_line is not None or max_lines is not None:
-                text_slice = self._workspace.read_text_slice(
-                    link,
-                    start_line=start_line or 1,
-                    max_lines=max_lines,
-                    max_chars=max_chars,
-                )
-                return (_block_from_slice(text_slice, kind=kind),)
-            prompt_input = self._workspace.prepare_task_input(
-                (link,),
-                max_chars_per_resource=max_chars,
+        if not self.supports(link):
+            raise PromptReferenceError(
+                "Workspace prompt reference requires a workspace link.",
+                reason="unsupported_workspace_link",
+                payload={"link": link},
             )
-            return prompt_blocks_from_workspace_input(prompt_input, kind=kind)
+        try:
+            prompt_input = self._workspace.prepare_task_input((link,))
+            return prompt_blocks_from_workspace_input(prompt_input, role=role)
         except WorkspaceError as exc:
             raise PromptReferenceError(
-                f"Workspace reference failed: {exc}",
+                f"Workspace prompt reference failed: {exc}",
                 reason="workspace_reference_failed",
                 payload={"error_type": type(exc).__name__, "link": link},
             ) from exc
@@ -63,31 +54,27 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
 def prompt_blocks_from_workspace_input(
     prompt_input: WorkspacePromptInput,
     *,
-    kind: str = WORKSPACE_TEXT_REFERENCE,
+    role: str = "reference",
 ) -> tuple[PromptBlock, ...]:
     """Convert prepared workspace prompt input into prompt blocks."""
 
     return tuple(
-        _block_from_slice(text_slice, kind=kind)
+        _block_from_slice(text_slice, role=role)
         for text_slice in prompt_input.slices
     )
 
 
-def _block_from_slice(text_slice: WorkspaceTextSlice, *, kind: str) -> PromptBlock:
-    role = "target" if kind == WORKSPACE_TARGET_REFERENCE else "reference"
+def _block_from_slice(text_slice: WorkspaceTextSlice, *, role: str) -> PromptBlock:
+    label_role = "target" if role == "target" else "reference"
     return PromptBlock.from_text(
-        f"task_prompt:input:workspace:{role}:{text_slice.link}:{text_slice.range_label}",
-        _render_slice(text_slice, kind=kind),
+        f"task_prompt:input:workspace:{label_role}:{text_slice.link}:{text_slice.range_label}",
+        _render_slice(text_slice, role=label_role),
     )
 
 
-def _render_slice(text_slice: WorkspaceTextSlice, *, kind: str) -> str:
+def _render_slice(text_slice: WorkspaceTextSlice, *, role: str) -> str:
     truncated = "true" if text_slice.truncated else "false"
-    heading = (
-        "# Workspace Target"
-        if kind == WORKSPACE_TARGET_REFERENCE
-        else "# Workspace Reference"
-    )
+    heading = "# Workspace Target" if role == "target" else "# Workspace Reference"
     lines = [
         heading,
         f"link: {text_slice.link}",
@@ -99,15 +86,3 @@ def _render_slice(text_slice: WorkspaceTextSlice, *, kind: str) -> str:
         text_slice.text,
     ]
     return "\n".join(lines)
-
-
-def _optional_positive_int(reference: JsonObject, key: str) -> int | None:
-    value = reference.get(key)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise PromptReferenceError(
-            f"workspace.text reference {key} must be a positive integer.",
-            reason=f"invalid_{key}",
-        )
-    return value

@@ -25,12 +25,12 @@ class PromptReferenceError(Exception):
 
 
 class PromptReferenceResolver(Protocol):
-    """Resolve structured task prompt references into prompt blocks."""
+    """Resolve read-only resource links into task prompt blocks."""
 
-    def supports(self, kind: str) -> bool:
-        """Return whether this resolver handles a reference kind."""
+    def supports(self, link: str) -> bool:
+        """Return whether this resolver handles a resource link."""
         ...
 
-    def resolve(self, reference: JsonObject) -> tuple[PromptBlock, ...]:
-        """Resolve one structured reference into prompt blocks."""
+    def resolve_reference(self, link: str) -> tuple[PromptBlock, ...]:
+        """Resolve one read-only resource link into prompt blocks."""
         ...

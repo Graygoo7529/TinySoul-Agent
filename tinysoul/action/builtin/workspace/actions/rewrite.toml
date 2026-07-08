@@ -1,0 +1,47 @@
+name = "workspace.rewrite"
+domain = "workspace"
+
+[tool]
+description = "Rewrite one UTF-8 workspace text resource through an internal LLM task. The action result returns metadata only."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "instruction"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target workspace resource link such as workspace:docs/task.md."
+
+[tool.schema.properties.instruction]
+type = "string"
+description = "Rewrite instruction for the target resource."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Optional read-only workspace reference links."
+
+[tool.schema.properties.reference_links.items]
+type = "string"
+description = "Read-only workspace resource link such as workspace:docs/context.md."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional current digest from workspace.describe to guard against stale rewrites."
+
+[semantic]
+use_when = ["Need an LLM-assisted rewrite of a workspace text resource"]
+avoid_when = ["A precise deterministic replacement is enough", "The target content should not be overwritten"]
+effects = ["modifying"]
+examples = ["Rewrite workspace:docs/plan.md using workspace:docs/notes.md as reference"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "llm_step"
+handler = "workspace.rewrite"

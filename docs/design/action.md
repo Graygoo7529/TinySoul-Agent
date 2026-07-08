@@ -200,9 +200,9 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `llm_step` 表示 action 内部还需要一次受控 LLM task。它必须继续遵守“所有 LLM 调用基于 Context 构造的 MessageStack”的原则；executor 通过注入的 `ContextEngine` 构造消息栈，并通过注入的 LLM runner 发起 `LLM_ACTION` task。
 
-`llm_step` action 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。`references` 与 `targets` 是结构化 prompt 引用，由注入的 `PromptReferenceResolver` 解析为 `PromptBlock`；例如 Workspace 模块提供 `workspace.text` 只读参考引用与 `workspace.target` 待编辑目标引用，把 workspace 文本前缀或行范围切片转为临时 task prompt。`llm_step` 不保留旧的字符串输入兼容入口，新增动作必须直接使用 block 协议。
+`llm_step` action 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。需要操作 workspace 的 LLM action 不使用通用 `llm_step` 参数承载目标正文，而应由 Workspace 模块提供 executor，接收 `target_link` 和 `reference_links`，在 action 内部加载目标与参考正文并调用 LLM。`llm_step` 不保留旧的字符串输入兼容入口，新增动作必须直接使用 block/link 协议。
 
-嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_step.context_task` handler，作为通用推理动作；它可以携带 workspace targets 和 references，但不会把 workspace 正文写入普通 ActionResult。内置 `core.answer` 使用 `llm_step.answer` handler，作为 Turn 正常完成动作；它要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 workspace references 一并返回为来源链接。
+嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_step.context_task` handler，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 使用 `llm_step.answer` handler，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.rewrite` 是 workspace 业务 action，不是通用推理 action；它使用 `target_link` 与 `reference_links` 完成目标文件重写。
 
 `llm_step` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 

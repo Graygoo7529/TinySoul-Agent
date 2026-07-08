@@ -13,7 +13,8 @@ from tinysoul.home import (
     AgentHomeEngineBuilder,
     AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
-    HomeDomainGuidanceProvider,
+    HomeActionHowProvider,
+    HomeDomainHowProvider,
     parse_agent_home_settings,
     register_home_actions,
 )
@@ -27,7 +28,7 @@ from tinysoul.loop.config import LoopSettings, parse_loop_settings
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.program import ProgramRunner
-from tinysoul.loop.prompts import DomainGuidanceProvider
+from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import ContextCompressionTrapHandler, EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import (
@@ -80,7 +81,7 @@ class TinySoulAppBuilder:
         self._action: ActionEngine | None = None
         self._context: ContextEngine | None = None
         self._bus: SignalBus | None = None
-        self._guidance: DomainGuidanceProvider | None = None
+        self._domain_how: DomainHowProvider | None = None
         self._input_parser: InputCommandParser | None = None
         self._input_sources: list[InputSource] = []
 
@@ -115,11 +116,11 @@ class TinySoulAppBuilder:
         self._bus = bus
         return self
 
-    def with_domain_guidance(
+    def with_domain_how(
         self,
-        guidance: DomainGuidanceProvider,
+        domain_how: DomainHowProvider,
     ) -> "TinySoulAppBuilder":
-        self._guidance = guidance
+        self._domain_how = domain_how
         return self
 
     def with_input_parser(self, parser: InputCommandParser) -> "TinySoulAppBuilder":
@@ -163,6 +164,14 @@ class TinySoulAppBuilder:
                 if self._context is not None
                 else self._build_context(home, context_bridge, home_bridge)
             )
+            domain_how = self._domain_how or HomeDomainHowProvider(
+                home,
+                runtime_bridge=home_bridge,
+            )
+            action_how = HomeActionHowProvider(
+                home,
+                runtime_bridge=home_bridge,
+            )
             action = self._action if self._action is not None else self._build_action(
                 llm=llm,
                 context=context,
@@ -171,10 +180,7 @@ class TinySoulAppBuilder:
                 home=home,
                 home_bridge=home_bridge,
                 action_bridge=action_bridge,
-            )
-            guidance = self._guidance or HomeDomainGuidanceProvider(
-                home,
-                runtime_bridge=home_bridge,
+                action_how=action_how,
             )
             trap = self._build_trap(context, home)
             phase1 = Phase1Unit(
@@ -190,7 +196,7 @@ class TinySoulAppBuilder:
                 llm=llm,
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
-                guidance=guidance,
+                domain_how=domain_how,
             )
             phase3 = Phase3Unit(context=context, action=action, bus=bus)
             cycle_runner = CycleRunner(
@@ -340,6 +346,7 @@ class TinySoulAppBuilder:
         home: AgentHomeEngine,
         home_bridge: RuntimeAgentHomeBridge,
         action_bridge: RuntimeActionBridge,
+        action_how: HomeActionHowProvider,
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
         try:
@@ -348,6 +355,9 @@ class TinySoulAppBuilder:
                 builder,
                 workspace=workspace,
                 bus=bus,
+                llm_runner=llm,
+                context=context,
+                action_how=action_how,
             )
             register_home_actions(
                 builder,
@@ -359,6 +369,7 @@ class TinySoulAppBuilder:
                 llm_runner=llm,
                 context=context,
                 reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
+                action_how=action_how,
             )
             return builder.build()
         except ConfigError:

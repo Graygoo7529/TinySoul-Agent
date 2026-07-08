@@ -25,11 +25,26 @@ from tinysoul.runtime import RuntimeException
 
 
 class LLMRunner(Protocol):
-    """LLM runner surface required by the LLM-step executor."""
+    """LLM runner surface required by LLM action executors."""
 
     def run(self, call: TaskCall) -> TaskResult:
         """Run one LLM task."""
         ...
+
+
+class ActionHowProvider(Protocol):
+    """Provide action-level HOW text for nested LLM tasks."""
+
+    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
+        """Return guidance snippets for one action."""
+        ...
+
+
+class EmptyActionHowProvider:
+    """Action HOW provider used before Agent Home action HOW is connected."""
+
+    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
+        return ()
 
 
 @dataclass(frozen=True)
@@ -62,9 +77,11 @@ class LLMStepActionExecutor:
         llm_runner: LLMRunner,
         context: ContextEngine,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
+        action_how: ActionHowProvider | None = None,
     ) -> None:
         self._llm_runner = llm_runner
         self._context = context
+        self._action_how = action_how or EmptyActionHowProvider()
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -77,11 +94,17 @@ class LLMStepActionExecutor:
         parse = self._prompt_builder.context_task_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(execution, parse.model_feedback, parse.frame_data)
-        payload = _run_json_task(
+        payload = run_json_task(
             llm_runner=self._llm_runner,
             context_engine=self._context,
             execution=execution,
-            prompt=parse.prompt,
+            prompt=with_action_how(
+                parse.prompt,
+                self._action_how.guidance_for(
+                    domain=execution.framework.domain,
+                    action_name=execution.call.action_name,
+                ),
+            ),
             subject="Nested LLM task",
         )
         if isinstance(payload, ActionResult):
@@ -90,7 +113,7 @@ class LLMStepActionExecutor:
 
 
 class LLMAnswerActionExecutor:
-    """Executor for the final answer action with workspace reference support."""
+    """Executor for the final answer action with read-only reference support."""
 
     def __init__(
         self,
@@ -98,9 +121,11 @@ class LLMAnswerActionExecutor:
         llm_runner: LLMRunner,
         context: ContextEngine,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
+        action_how: ActionHowProvider | None = None,
     ) -> None:
         self._llm_runner = llm_runner
         self._context = context
+        self._action_how = action_how or EmptyActionHowProvider()
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -113,11 +138,17 @@ class LLMAnswerActionExecutor:
         parse = self._prompt_builder.answer_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(execution, parse.model_feedback, parse.frame_data)
-        payload = _run_json_task(
+        payload = run_json_task(
             llm_runner=self._llm_runner,
             context_engine=self._context,
             execution=execution,
-            prompt=parse.prompt,
+            prompt=with_action_how(
+                parse.prompt,
+                self._action_how.guidance_for(
+                    domain=execution.framework.domain,
+                    action_name=execution.call.action_name,
+                ),
+            ),
             subject="Answer LLM task",
         )
         if isinstance(payload, ActionResult):
@@ -148,6 +179,7 @@ class _PromptArgumentBuilder:
 
     def context_task_prompt(self, params: JsonObject) -> _PromptParse:
         try:
+            reference_links = params.get("reference_links", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -164,14 +196,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading="Task Input",
                         ),
-                        *self._parse_resolved_blocks(
-                            params.get("targets", []),
-                            key="targets",
-                        ),
-                        *self._parse_resolved_blocks(
-                            params.get("references", []),
-                            key="references",
-                        ),
+                        *self._parse_reference_links(reference_links),
                     ),
                     output_blocks=self._parse_blocks(
                         params.get("output_blocks"),
@@ -180,7 +205,8 @@ class _PromptArgumentBuilder:
                         heading="Expected Output",
                         required=True,
                     ),
-                )
+                ),
+                source_links=self._source_links(reference_links),
             )
         except _PromptParameterError as exc:
             return _PromptParse(
@@ -195,7 +221,7 @@ class _PromptArgumentBuilder:
 
     def answer_prompt(self, params: JsonObject) -> _PromptParse:
         try:
-            references = params.get("references", [])
+            reference_links = params.get("reference_links", [])
             return _PromptParse(
                 prompt=TaskPrompt(
                     guide_blocks=self._parse_blocks(
@@ -212,10 +238,7 @@ class _PromptArgumentBuilder:
                             section="input",
                             heading="Answer Input",
                         ),
-                        *self._parse_resolved_blocks(
-                            references,
-                            key="references",
-                        ),
+                        *self._parse_reference_links(reference_links),
                     ),
                     output_blocks=(
                         PromptBlock.from_text(
@@ -229,7 +252,7 @@ class _PromptArgumentBuilder:
                         ),
                     ),
                 ),
-                source_links=self._source_links(references),
+                source_links=self._source_links(reference_links),
             )
         except _PromptParameterError as exc:
             return _PromptParse(
@@ -320,37 +343,35 @@ class _PromptArgumentBuilder:
             f"# {heading}\n{text}",
         )
 
-    def _parse_resolved_blocks(self, value: object, *, key: str) -> tuple[PromptBlock, ...]:
+    def _parse_reference_links(self, value: object) -> tuple[PromptBlock, ...]:
         if value is None:
             return ()
         if not isinstance(value, list):
             raise PromptReferenceError(
-                f"llm_step '{key}' must be a list when provided.",
-                reason=f"invalid_{key}",
+                "llm_step 'reference_links' must be a list when provided.",
+                reason="invalid_reference_links",
             )
         blocks: list[PromptBlock] = []
         for index, item in enumerate(value, start=1):
-            reference = self._reference_item(item, index=index, key=key)
-            kind = reference.get("type")
-            if not isinstance(kind, str) or not kind:
+            if not isinstance(item, str) or not item:
                 raise PromptReferenceError(
-                    f"llm_step '{key}' items require a non-empty type.",
-                    reason="missing_reference_type",
+                    "llm_step 'reference_links' items must be non-empty strings.",
+                    reason="invalid_reference_link",
                     payload={"index": index},
                 )
-            resolver = self._resolver_for(kind)
+            resolver = self._resolver_for(item)
             if resolver is None:
                 raise PromptReferenceError(
-                    f"Unsupported task prompt reference type: {kind}",
-                    reason="unsupported_reference_type",
-                    payload={"index": index, "type": kind},
+                    f"Unsupported task prompt reference link: {item}",
+                    reason="unsupported_reference_link",
+                    payload={"index": index, "link": item},
                 )
-            resolved = resolver.resolve(reference)
+            resolved = resolver.resolve_reference(item)
             if not resolved:
                 raise PromptReferenceError(
-                    f"Task prompt reference produced no content: {kind}",
+                    f"Task prompt reference produced no content: {item}",
                     reason="empty_reference",
-                    payload={"index": index, "type": kind},
+                    payload={"index": index, "link": item},
                 )
             blocks.extend(resolved)
         return tuple(blocks)
@@ -359,31 +380,41 @@ class _PromptArgumentBuilder:
         if value is None or not isinstance(value, list):
             return ()
         links: list[str] = []
-        for index, item in enumerate(value, start=1):
-            reference = self._reference_item(item, index=index, key="references")
-            link = reference.get("link")
-            if isinstance(link, str) and link and link not in links:
-                links.append(link)
+        for item in value:
+            if isinstance(item, str) and item and item not in links:
+                links.append(item)
         return tuple(links)
 
-    def _reference_item(self, value: object, *, index: int, key: str) -> JsonObject:
-        try:
-            return to_json_object(value)
-        except JsonTypeError as exc:
-            raise PromptReferenceError(
-                f"llm_step '{key}' items must be objects.",
-                reason="invalid_reference",
-                payload={"index": index},
-            ) from exc
-
-    def _resolver_for(self, kind: str) -> PromptReferenceResolver | None:
+    def _resolver_for(self, link: str) -> PromptReferenceResolver | None:
         for resolver in self._reference_resolvers:
-            if resolver.supports(kind):
+            if resolver.supports(link):
                 return resolver
         return None
 
 
-def _run_json_task(
+def with_action_how(prompt: TaskPrompt, guidance: tuple[str, ...]) -> TaskPrompt:
+    """Return a prompt with action-level HOW guidance appended to guide blocks."""
+
+    if not guidance:
+        return prompt
+    guide_blocks = [*prompt.guide_blocks]
+    for index, item in enumerate(guidance, start=1):
+        if not item:
+            continue
+        guide_blocks.append(
+            PromptBlock.from_text(
+                f"task_prompt:guide:action_how:{index}",
+                "# Action HOW\n" + item,
+            )
+        )
+    return TaskPrompt(
+        guide_blocks=tuple(guide_blocks),
+        input_blocks=prompt.input_blocks,
+        output_blocks=prompt.output_blocks,
+    )
+
+
+def run_json_task(
     *,
     llm_runner: LLMRunner,
     context_engine: ContextEngine,

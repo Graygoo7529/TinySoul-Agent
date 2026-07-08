@@ -27,7 +27,8 @@ from tinysoul.home import (
     AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
-    HomeDomainGuidanceProvider,
+    HomeActionHowProvider,
+    HomeDomainHowProvider,
     HomeResourceReadExecutor,
     HomeTopLink,
 )
@@ -45,11 +46,11 @@ from tinysoul.runtime import (
 T = TypeVar("T")
 
 
-def test_home_provides_default_background_and_domain_guidance(tmp_path: Path) -> None:
+def test_home_provides_default_background_and_domain_how(tmp_path: Path) -> None:
     (tmp_path / "AGENT.md").write_text("core rules", encoding="utf-8")
-    how_action = tmp_path / "home" / "how_action" / "workspace"
-    how_action.mkdir(parents=True)
-    (how_action / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    how_domain = tmp_path / "home" / "how_domain" / "workspace"
+    how_domain.mkdir(parents=True)
+    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path,
@@ -66,16 +67,16 @@ def test_home_provides_default_background_and_domain_guidance(tmp_path: Path) ->
         home=home,
     )
     guidance = _run_copy_trap_after_runtime_exception(
-        lambda: HomeDomainGuidanceProvider(home).guidance_for(("workspace",)),
+        lambda: HomeDomainHowProvider(home).guidance_for(("workspace",)),
         home=home,
     )
 
     assert defaults[0].link == "home:agent@core"
     assert defaults[0].content == "core rules"
-    assert any(entry.link == "home:how_action@workspace" for entry in loadable)
+    assert any(entry.link == "home:how_domain@workspace" for entry in loadable)
     assert guidance == ("workspace guidance",)
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
-    assert (tmp_path / "runtime" / "home" / "how_action" / "workspace" / "DOMAIN.md").is_file()
+    assert (tmp_path / "runtime" / "home" / "how_domain" / "workspace" / "DOMAIN.md").is_file()
 
 
 def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
@@ -212,17 +213,17 @@ def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
         home.read_resource("home:how/refactor/references/checklist.md", max_chars=True)
 
 
-def test_home_domain_guidance_uses_runtime_copy_trap(tmp_path: Path) -> None:
-    how_action = tmp_path / "home" / "how_action" / "workspace"
-    how_action.mkdir(parents=True)
-    (how_action / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
+    how_domain = tmp_path / "home" / "how_domain" / "workspace"
+    how_domain.mkdir(parents=True)
+    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path,
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    provider = HomeDomainGuidanceProvider(home)
+    provider = HomeDomainHowProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
         lambda: provider.guidance_for(("workspace",)),
@@ -230,6 +231,38 @@ def test_home_domain_guidance_uses_runtime_copy_trap(tmp_path: Path) -> None:
     )
 
     assert guidance == ("workspace guidance",)
+
+
+def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
+    actions = tmp_path / "home" / "how_domain" / "workspace" / "actions"
+    actions.mkdir(parents=True)
+    (actions / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    provider = HomeActionHowProvider(home)
+
+    guidance = _run_copy_trap_after_runtime_exception(
+        lambda: provider.guidance_for(
+            domain="workspace",
+            action_name="workspace.rewrite",
+        ),
+        home=home,
+    )
+
+    assert guidance == ("rewrite guidance",)
+    assert (
+        tmp_path
+        / "runtime"
+        / "home"
+        / "how_domain"
+        / "workspace"
+        / "actions"
+        / "rewrite.md"
+    ).is_file()
 
 
 def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:

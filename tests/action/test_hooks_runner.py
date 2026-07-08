@@ -140,6 +140,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
+        "workspace.rewrite",
         "workspace.scan",
         "workspace.write",
     )

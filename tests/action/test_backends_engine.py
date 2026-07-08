@@ -198,6 +198,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
+        .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .build()

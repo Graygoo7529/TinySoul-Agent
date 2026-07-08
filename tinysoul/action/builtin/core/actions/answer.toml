@@ -2,7 +2,7 @@ name = "core.answer"
 domain = "core"
 
 [tool]
-description = "Produce the final user-facing answer, optionally using workspace references."
+description = "Produce the final user-facing answer, optionally using read-only references."
 
 [tool.schema]
 type = "object"
@@ -43,35 +43,13 @@ description = "Optional stable label for this input block."
 type = "string"
 description = "Input text for the final answer task."
 
-[tool.schema.properties.references]
+[tool.schema.properties.reference_links]
 type = "array"
-description = "Optional read-only workspace references to use as answer sources."
+description = "Optional read-only resource links to use as answer sources."
 
-[tool.schema.properties.references.items]
-type = "object"
-required = ["type", "link"]
-additionalProperties = false
-
-[tool.schema.properties.references.items.properties.type]
+[tool.schema.properties.reference_links.items]
 type = "string"
-enum = ["workspace.text"]
-description = "Reference type."
-
-[tool.schema.properties.references.items.properties.link]
-type = "string"
-description = "Reference link, for example workspace:docs/task.md."
-
-[tool.schema.properties.references.items.properties.max_chars]
-type = "integer"
-description = "Optional positive character limit."
-
-[tool.schema.properties.references.items.properties.start_line]
-type = "integer"
-description = "Optional positive 1-based start line."
-
-[tool.schema.properties.references.items.properties.max_lines]
-type = "integer"
-description = "Optional positive line count."
+description = "Read-only resource link, for example workspace:docs/task.md."
 
 [semantic]
 use_when = ["The task is complete and the user should receive an answer"]

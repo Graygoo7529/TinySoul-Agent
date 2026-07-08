@@ -44,8 +44,8 @@ def test_compose_section_order_and_labels() -> None:
                     "# Task Guide\nDo phase one.",
                 ),
                 PromptBlock.from_text(
-                    "task_prompt:guide:domain:1",
-                    "# Domain Guidance\nUse the workspace domain for file edits.",
+                    "task_prompt:guide:domain_how:1",
+                    "# Domain HOW\nUse the workspace domain for file edits.",
                 ),
             ),
             input_blocks=(
@@ -75,7 +75,7 @@ def test_compose_section_order_and_labels() -> None:
         "working",
         "phase_note",
         "task_prompt:guide:phase",
-        "task_prompt:guide:domain:1",
+        "task_prompt:guide:domain_how:1",
         "task_prompt:input:details",
         "task_prompt:input:workspace:docs/a.md",
         "task_prompt:output:phase",
@@ -89,7 +89,7 @@ def test_compose_section_order_and_labels() -> None:
     assert "# Task Guide" in part.text
     guidance = stack.messages[-4].parts[0]
     assert isinstance(guidance, TextPart)
-    assert "# Domain Guidance" in guidance.text
+    assert "# Domain HOW" in guidance.text
 
 
 def test_compose_budget_exceeded_raises() -> None:

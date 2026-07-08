@@ -16,9 +16,11 @@ from tinysoul.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from tinysoul.context import SIGNAL_WORKING_PATCH
+from tinysoul.context import ContextEngineBuilder, SIGNAL_WORKING_PATCH
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import TextPart, UserMessage
+from tinysoul.llm.requests import TaskCall
+from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.workspace import (
     WorkspaceContractError,
@@ -34,9 +36,28 @@ from tinysoul.workspace.actions import (
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
     WorkspacePatchExecutor,
+    WorkspaceRewriteExecutor,
     WorkspaceWriteExecutor,
     workspace_scan,
 )
+
+
+class FakeLLMRunner:
+    def __init__(self, answer: JsonObject | None = None) -> None:
+        self.calls: list[TaskCall] = []
+        self.answer = answer or {"text": "new text"}
+
+    def run(self, call: TaskCall) -> TaskResult:
+        self.calls.append(call)
+        return TaskResult.success(
+            raw_response=RawResponse(
+                answer_text="{}",
+                model_id="fake",
+                provider_id="fake",
+            ),
+            answer=JsonAnswer(self.answer),
+            tool_calls=(),
+        )
 
 
 def test_workspace_link_rejects_unsafe_paths() -> None:
@@ -181,13 +202,12 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
         WorkspaceSettings(
             root=tmp_path,
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=3,
         )
     ).build()
     resolver = WorkspacePromptReferenceResolver(engine)
 
-    blocks = resolver.resolve(
-        {"type": "workspace.text", "link": "workspace:a.md", "max_chars": 3}
-    )
+    blocks = resolver.resolve_reference("workspace:a.md")
 
     assert len(blocks) == 1
     assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:prefix:3"
@@ -197,36 +217,28 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
     assert "abc" in text
     assert "truncated: true" in text
 
-
-def test_workspace_prompt_reference_resolver_returns_line_range_block(
+def test_workspace_prompt_reference_resolver_returns_target_block(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "a.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
             root=tmp_path,
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=3,
         )
     ).build()
     resolver = WorkspacePromptReferenceResolver(engine)
 
-    blocks = resolver.resolve(
-        {
-            "type": "workspace.text",
-            "link": "workspace:a.md",
-            "start_line": 2,
-            "max_lines": 1,
-            "max_chars": 100,
-        }
-    )
+    blocks = resolver.resolve_target("workspace:a.md")
 
     assert len(blocks) == 1
-    assert blocks[0].label == "task_prompt:input:workspace:reference:workspace:a.md:lines:2-2"
+    assert blocks[0].label == "task_prompt:input:workspace:target:workspace:a.md:prefix:3"
     text = _message_text(blocks[0].message)
-    assert "range: lines:2-2" in text
-    assert "two\n" in text
-    assert "one" not in text
-
+    assert "# Workspace Target" in text
+    assert "link: workspace:a.md" in text
+    assert "abc" in text
+    assert "truncated: true" in text
 
 def test_workspace_read_text_slice_returns_line_range(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
@@ -517,8 +529,75 @@ def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> Non
     assert patch["remove_resources"] == ["workspace:a.md"]
 
 
+
+def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "target.md").write_text("old text", encoding="utf-8")
+    (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "new text"})
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite tersely.",
+            "reference_links": ["workspace:ref.md"],
+        },
+    )
+
+    result = WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_runner=llm,
+        context=context_engine,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "success"
+    assert result.payload["rewritten"] is True
+    assert result.payload["link"] == "workspace:target.md"
+    assert "text" not in result.payload
+    assert (tmp_path / "target.md").read_text(encoding="utf-8") == "new text"
+    target_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:target:workspace:target.md:prefix:100",
+    )
+    reference_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:reference:workspace:ref.md:prefix:100",
+    )
+    assert "# Workspace Target" in target_prompt
+    assert "old text" in target_prompt
+    assert "# Workspace Reference" in reference_prompt
+    assert "reference text" in reference_prompt
+    signals = bus.consume_namespace("context")
+    patch = signals[0].payload["patch"]
+    assert isinstance(patch, dict)
+    assert patch["set_resources"][0]["link"] == "workspace:target.md"
+
+
 def _message_text(message: UserMessage) -> str:
     return "\n".join(part.text for part in message.parts if isinstance(part, TextPart))
+
+
+
+def _task_call_text_for_label(call: TaskCall, label: str) -> str:
+    for message in call.messages.messages:
+        if message.label != label:
+            continue
+        return "\n".join(
+            part.text for part in message.parts if isinstance(part, TextPart)
+        )
+    raise AssertionError(f"Missing message label: {label}")
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

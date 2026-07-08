@@ -184,6 +184,7 @@ def _action_engine():
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
+        .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .build()
     )
 

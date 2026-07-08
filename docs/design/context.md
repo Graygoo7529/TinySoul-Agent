@@ -51,7 +51,7 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 
 BackgroundContext、WorkingContext、UserInputs 与 task prompt overlay 均渲染为 user role messages；只有 identity 使用 system role。这样 system role 专注于最高层身份与框架规约，其他由 TinySoul 构造的状态段都作为本次模型任务的显式输入提供给模型。Provider 若对后置 system message 支持不同，不需要影响 Context 的语义顺序。
 
-task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。TaskPrompt 渲染为多条可切分 user messages：guide、domain guidance、task input、额外 task input blocks 和 expected output 分别可以成为独立 message。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain guidance）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
+task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。TaskPrompt 渲染为多条可切分 user messages：guide、domain HOW、task input、额外 task input blocks 和 expected output 分别可以成为独立 message。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain HOW）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
 
 composer 在构造时执行语境预算检查。预算估算覆盖消息可见文本、JSON 片段，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见推理轨迹绕过上下文预算。预算超限不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
 

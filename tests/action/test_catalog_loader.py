@@ -38,6 +38,7 @@ def test_catalog_view_by_domain() -> None:
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
+        "workspace.rewrite",
         "workspace.scan",
         "workspace.write",
     ]

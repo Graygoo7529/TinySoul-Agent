@@ -1,4 +1,4 @@
-"""Agent Home domain guidance provider."""
+"""Agent Home HOW providers."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from .engine import AgentHomeEngine
 from .errors import AgentHomeRuntimeCopyRequired
 
 
-class HomeDomainGuidanceProvider:
-    """Provide action-domain HOW text from Agent Home."""
+class HomeDomainHowProvider:
+    """Provide domain HOW text from Agent Home."""
 
     def __init__(
         self,
@@ -32,3 +32,27 @@ class HomeDomainGuidanceProvider:
             if guidance:
                 snippets.append(guidance)
         return tuple(snippets)
+
+
+class HomeActionHowProvider:
+    """Provide action HOW text for nested LLM tasks."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
+        try:
+            guidance = self._home.guidance_for_action(domain, action_name)
+        except AgentHomeRuntimeCopyRequired as exc:
+            raise self._runtime_bridge.runtime_copy_required(
+                link=exc.link,
+                payload=exc.to_payload(),
+            ) from exc
+        if not guidance:
+            return ()
+        return (guidance,)

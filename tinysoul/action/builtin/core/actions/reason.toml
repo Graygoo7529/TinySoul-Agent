@@ -43,65 +43,13 @@ description = "Optional stable label for this input block."
 type = "string"
 description = "Input text for this prompt block."
 
-[tool.schema.properties.targets]
+[tool.schema.properties.reference_links]
 type = "array"
-description = "Optional workspace target files that may be edited by a later action."
+description = "Optional read-only resource links resolved into task prompt blocks."
 
-[tool.schema.properties.targets.items]
-type = "object"
-required = ["type", "link"]
-additionalProperties = false
-
-[tool.schema.properties.targets.items.properties.type]
+[tool.schema.properties.reference_links.items]
 type = "string"
-enum = ["workspace.target"]
-description = "Target reference type."
-
-[tool.schema.properties.targets.items.properties.link]
-type = "string"
-description = "Target workspace link."
-
-[tool.schema.properties.targets.items.properties.max_chars]
-type = "integer"
-description = "Optional positive character limit."
-
-[tool.schema.properties.targets.items.properties.start_line]
-type = "integer"
-description = "Optional positive 1-based start line."
-
-[tool.schema.properties.targets.items.properties.max_lines]
-type = "integer"
-description = "Optional positive line count."
-
-[tool.schema.properties.references]
-type = "array"
-description = "Optional structured references resolved into task prompt blocks."
-
-[tool.schema.properties.references.items]
-type = "object"
-required = ["type", "link"]
-additionalProperties = false
-
-[tool.schema.properties.references.items.properties.type]
-type = "string"
-enum = ["workspace.text"]
-description = "Reference type."
-
-[tool.schema.properties.references.items.properties.link]
-type = "string"
-description = "Reference link, for example workspace:docs/task.md."
-
-[tool.schema.properties.references.items.properties.max_chars]
-type = "integer"
-description = "Optional positive character limit."
-
-[tool.schema.properties.references.items.properties.start_line]
-type = "integer"
-description = "Optional positive 1-based start line."
-
-[tool.schema.properties.references.items.properties.max_lines]
-type = "integer"
-description = "Optional positive line count."
+description = "Read-only resource link, for example workspace:docs/task.md."
 
 [tool.schema.properties.output_blocks]
 type = "array"
@@ -124,7 +72,7 @@ description = "Expected output instructions for the reasoning task."
 use_when = ["Need a bounded internal reasoning step before choosing the next action or final answer"]
 avoid_when = ["A direct final answer is already ready", "A concrete workspace or home action is required instead"]
 effects = ["read_only"]
-examples = ["Analyze a workspace file excerpt and return a JSON decision object"]
+examples = ["Analyze read-only references and return a JSON decision object"]
 
 [runtime]
 parallel_policy = "serial"

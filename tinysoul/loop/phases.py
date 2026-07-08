@@ -31,7 +31,7 @@ from tinysoul.runtime import CyclePhase, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
 from .errors import LoopContractError
-from .prompts import DomainGuidanceProvider, EmptyDomainGuidanceProvider, phase1_task_prompt, phase2_task_prompt
+from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
 
 PHASE1_DOMAIN_TOOL = "select_action_domains"
 ANSWER_ACTION = "core.answer"
@@ -234,7 +234,7 @@ class Phase2Unit:
         llm: LLMRunner,
         bus: SignalBus,
         retry_limit: int,
-        guidance: DomainGuidanceProvider | None = None,
+        domain_how: DomainHowProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
     ) -> None:
@@ -243,7 +243,7 @@ class Phase2Unit:
         self._llm = llm
         self._bus = bus
         self._retry_limit = retry_limit
-        self._guidance = guidance or EmptyDomainGuidanceProvider()
+        self._domain_how = domain_how or EmptyDomainHowProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
 
@@ -276,7 +276,7 @@ class Phase2Unit:
                 messages = self._context.compose(
                     phase2_task_prompt(
                         selected_domains=selected_domains,
-                        domain_guidance=self._guidance.guidance_for(selected_domains),
+                        domain_how=self._domain_how.guidance_for(selected_domains),
                         feedback=tuple(feedback),
                     )
                 )

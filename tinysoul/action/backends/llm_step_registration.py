@@ -7,7 +7,12 @@ from collections.abc import Sequence
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.context import ContextEngine, PromptReferenceResolver
 
-from .llm_step import LLMAnswerActionExecutor, LLMRunner, LLMStepActionExecutor
+from .llm_step import (
+    ActionHowProvider,
+    LLMAnswerActionExecutor,
+    LLMRunner,
+    LLMStepActionExecutor,
+)
 
 
 def register_llm_step_actions(
@@ -16,6 +21,7 @@ def register_llm_step_actions(
     llm_runner: LLMRunner,
     context: ContextEngine,
     reference_resolvers: Sequence[PromptReferenceResolver] = (),
+    action_how: ActionHowProvider | None = None,
 ) -> ActionEngineBuilder:
     """Register built-in LLM-step action executors on an action builder."""
 
@@ -25,6 +31,7 @@ def register_llm_step_actions(
             llm_runner=llm_runner,
             context=context,
             reference_resolvers=reference_resolvers,
+            action_how=action_how,
         ),
     ).register_executor(
         "llm_step.answer",
@@ -32,5 +39,6 @@ def register_llm_step_actions(
             llm_runner=llm_runner,
             context=context,
             reference_resolvers=reference_resolvers,
+            action_how=action_how,
         ),
     )
