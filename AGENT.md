@@ -42,7 +42,7 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 （1）home:xxx@ 表示“顶层知识或框架自动挂载 HOW”；顶层知识可加载为 BackgroundContext；
 （2）home:xxx/ 表示“可被行动读取或使用的资源”加载到 TurnTraceContext；
 （3）workspace: 永远是工作区资源句柄；
-（4）home:how_domain: 和 home:how_action: 只进入对应 Phase/task prompt；
+（4）home:how_domain: 和 home:how_action: 临时、局部自动加载，只进入对应 Phase/task prompt；
 
 
 一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
