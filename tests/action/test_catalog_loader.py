@@ -6,7 +6,7 @@ import pytest
 
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import ActionSchemaDefinitionError
-from tinysoul.action.core.specs import ActionParallelPolicy, ActionToolSpec
+from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
 from tinysoul.infra.config import ConfigError
 
 
@@ -26,6 +26,8 @@ def test_load_builtin_catalog() -> None:
     assert answer.backend.handler == "llm_action.answer"
     reason = catalog.get_action("core.reason")
     assert reason.backend.handler == "llm_action.reason"
+    write = catalog.get_action("workspace.write")
+    assert write.backend.kind is ActionBackendKind.LLM_ACTION
 
 
 def test_catalog_view_by_domain() -> None:

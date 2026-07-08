@@ -75,7 +75,11 @@ def register_workspace_actions(
         )
         .register_executor(
             "workspace.write",
-            WorkspaceWriteExecutor(workspace, bus),
+            WorkspaceWriteExecutor(
+                workspace=workspace,
+                bus=bus,
+                llm_action=llm_action,
+            ),
         )
         .register_executor(
             "workspace.patch",
@@ -137,30 +141,38 @@ class WorkspaceDescribeExecutor(ActionExecutor):
 
 
 class WorkspaceWriteExecutor(ActionExecutor):
-    """Write one workspace text resource and refresh its summary."""
+    """Generate and write one workspace text resource through an internal LLM task."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(
+        self,
+        *,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        llm_action: LLMActionTaskRunner,
+    ) -> None:
         self._workspace = workspace
         self._bus = bus
+        self._llm_action = llm_action
+        self._prompt_resolver = WorkspacePromptReferenceResolver(workspace)
 
     def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        link = _required_link(execution)
-        if link is None:
+        target_link = _required_link(execution)
+        if target_link is None:
             return _failed(
                 execution,
                 "workspace.write requires a non-empty 'target_link' parameter.",
                 {"reason": "missing_target_link"},
             )
-        text = execution.call.params.get("text")
-        if not isinstance(text, str):
+        instruction = execution.call.params.get("instruction")
+        if not isinstance(instruction, str) or not instruction:
             return _failed(
                 execution,
-                "workspace.write requires a 'text' string parameter.",
-                {"reason": "invalid_text"},
+                "workspace.write requires a non-empty 'instruction' string parameter.",
+                {"reason": "invalid_instruction"},
             )
         overwrite = execution.call.params.get("overwrite", False)
         if not isinstance(overwrite, bool):
@@ -169,12 +181,79 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 "workspace.write overwrite must be a boolean when provided.",
                 {"reason": "invalid_overwrite"},
             )
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "workspace.write expected_digest must be a string when provided.",
+                {"reason": "invalid_expected_digest"},
+            )
+        reference_links = _string_list_param(
+            execution.call.params.get("reference_links", []),
+        )
+        if reference_links is None:
+            return _failed(
+                execution,
+                "workspace.write reference_links must be a list of strings.",
+                {"reason": "invalid_reference_links"},
+            )
         try:
-            record = self._workspace.write_text(
-                link,
-                text,
+            target_exists = self._workspace.write_target_exists(target_link)
+            if target_exists and not overwrite:
+                return _failed(
+                    execution,
+                    f"Workspace write target already exists: {target_link}",
+                    {"reason": "target_exists", "link": target_link},
+                )
+            if expected_digest:
+                if not target_exists:
+                    return _failed(
+                        execution,
+                        f"Workspace write target does not exist for digest check: {target_link}",
+                        {"reason": "missing_digest_target", "link": target_link},
+                    )
+                current = self._workspace.describe(target_link)
+                if current.digest != expected_digest:
+                    return _failed(
+                        execution,
+                        f"Workspace write target digest mismatch: {target_link}",
+                        {"reason": "digest_mismatch", "link": target_link},
+                    )
+            prompt = self._write_prompt(
+                target_link=target_link,
+                instruction=instruction,
+                reference_links=reference_links,
+                include_target=target_exists,
                 overwrite=overwrite,
             )
+        except PromptReferenceError as exc:
+            return _failed(
+                execution,
+                str(exc),
+                {**exc.payload, "reason": exc.reason},
+            )
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace write failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        payload = self._llm_action.run_json(
+            execution=execution,
+            prompt=prompt,
+            subject="Workspace write LLM task",
+        )
+        if isinstance(payload, ActionResult):
+            return payload
+        text = payload.get("text")
+        if not isinstance(text, str):
+            return _failed(
+                execution,
+                "Workspace write LLM task must return a JSON object with string field 'text'.",
+                {"reason": "invalid_write_text"},
+            )
+        try:
+            record = self._workspace.write_text(target_link, text, overwrite=overwrite)
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -188,8 +267,66 @@ class WorkspaceWriteExecutor(ActionExecutor):
             bus=self._bus,
             source="workspace.write",
         )
-        return _success(execution, _record_payload(record))
+        result_payload = _record_payload(record)
+        result_payload["written"] = True
+        return _success(execution, result_payload)
 
+    def _write_prompt(
+        self,
+        *,
+        target_link: str,
+        instruction: str,
+        reference_links: tuple[str, ...],
+        include_target: bool,
+        overwrite: bool,
+    ) -> TaskPrompt:
+        target_blocks: tuple[PromptBlock, ...] = ()
+        if include_target:
+            target_blocks = self._prompt_resolver.resolve_target(target_link)
+        reference_blocks: list[PromptBlock] = []
+        for link in reference_links:
+            if not self._prompt_resolver.supports(link):
+                raise PromptReferenceError(
+                    f"Unsupported workspace reference link: {link}",
+                    reason="unsupported_reference_link",
+                    payload={"link": link},
+                )
+            reference_blocks.extend(self._prompt_resolver.resolve_reference(link))
+        overwrite_text = "true" if overwrite else "false"
+        return TaskPrompt(
+            guide_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:guide:workspace_write",
+                    (
+                        "# Task Guide\n"
+                        "Generate the complete UTF-8 text for the workspace target. "
+                        "Return only the full text that should be written."
+                    ),
+                ),
+            ),
+            input_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:input:workspace_write_instruction",
+                    "# Write Instruction\n" + instruction,
+                ),
+                PromptBlock.from_text(
+                    "task_prompt:input:workspace_write_target",
+                    (
+                        "# Workspace Write Target\n"
+                        f"link: {target_link}\n"
+                        f"overwrite: {overwrite_text}"
+                    ),
+                ),
+                *target_blocks,
+                *tuple(reference_blocks),
+            ),
+            output_blocks=(
+                PromptBlock.from_text(
+                    "task_prompt:output:workspace_write",
+                    "# Expected Output\nReturn a JSON object with a string field 'text'.",
+                ),
+            ),
+        )
 
 class WorkspacePatchExecutor(ActionExecutor):
     """Apply an exact text replacement to one workspace resource."""

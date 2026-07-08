@@ -450,29 +450,52 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
     assert signals[0].name == SIGNAL_WORKING_PATCH
 
 
-def test_workspace_write_executor_returns_metadata_and_working_patch(
+def test_workspace_write_executor_generates_text_inside_action(
     tmp_path: Path,
 ) -> None:
+    (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
             root=tmp_path,
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
         )
     ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
     bus = SignalBus()
+    llm = FakeLLMRunner({"text": "generated text"})
     execution = _execution(
         "workspace.write",
-        {"target_link": "workspace:a.md", "text": "hello"},
+        {
+            "target_link": "workspace:a.md",
+            "instruction": "Create a short note.",
+            "reference_links": ["workspace:ref.md"],
+        },
     )
 
-    result = WorkspaceWriteExecutor(engine, bus).execute(
-        execution,
-        ActionExecutionContext(signal_bus=bus),
-    )
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    result = WorkspaceWriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=llm_action,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
 
     assert result.status.value == "success"
+    assert result.payload["written"] is True
     assert result.payload["link"] == "workspace:a.md"
     assert "text" not in result.payload
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "generated text"
+    target_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace_write_target",
+    )
+    reference_prompt = _task_call_text_for_label(
+        llm.calls[0],
+        "task_prompt:input:workspace:reference:workspace:ref.md:prefix:100",
+    )
+    assert "link: workspace:a.md" in target_prompt
+    assert "reference text" in reference_prompt
     signals = bus.consume_namespace("context")
     patch = signals[0].payload["patch"]
     assert isinstance(patch, dict)
@@ -481,7 +504,6 @@ def test_workspace_write_executor_returns_metadata_and_working_patch(
     first_resource = set_resources[0]
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:a.md"
-
 
 def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")

@@ -73,7 +73,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
 
     assert defaults[0].link == "home:agent@core"
     assert defaults[0].content == "core rules"
-    assert all(entry.link != "home:how_domain@workspace" for entry in loadable)
+    assert all(entry.link != "home:how_domain:workspace" for entry in loadable)
     assert guidance == ("workspace guidance",)
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
     assert (tmp_path / "runtime" / "home" / "how_domain" / "workspace" / "DOMAIN.md").is_file()
@@ -189,6 +189,8 @@ def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None
     ).build()
 
     for link in (
+        "home:how_domain:workspace",
+        "home:how_action:workspace/rewrite",
         "home:how_domain/workspace/DOMAIN.md",
         "home:how_action/workspace/rewrite.md",
     ):

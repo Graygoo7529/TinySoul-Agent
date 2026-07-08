@@ -67,7 +67,7 @@ Phase1 的 LLM Task 使用 `framework` profile，并在单次 TaskCall 中显式
 
 Phase2 从 action 门面取已选 domain 的行动工具作用域；作用域准备失败收敛为 phase 级结果记入轨迹并结束本执行轮。MessageStack 由 context 构造，overlay 可携带 domain 级 HOW 引导内容。模型返回的 Action Tool Calls 交 action 归一化；行动决策（助手消息与工具调用记录）与归一化失败的局部结果通过轨迹信号记入语境。
 
-Domain 级 HOW 的来源由 `DomainHowProvider` 注入。Agent Home 未接入时默认 provider 返回空内容；接入后同一注入点指向 `how_domain/<domain>/DOMAIN.md`，不需要改变 Phase2 执行单元。Phase3 自身不构造 LLM prompt；带内部 LLM task 的 action 通过 action 层共享 `LLMActionTaskRunner` 自动追加 domain HOW 与 action HOW。
+Domain 级 HOW 的来源由 `DomainHowProvider` 注入。Agent Home 未接入时默认 provider 返回空内容；接入后同一注入点指向 `home:how_domain:<domain>`，由 Agent Home 映射到 `how_domain/<domain>/DOMAIN.md`，不需要改变 Phase2 执行单元。Phase3 自身不构造 LLM prompt；带内部 LLM task 的 action 通过 action 层共享 `LLMActionTaskRunner` 自动追加 domain HOW 与 action HOW。
 
 ### Phase3：采取行动
 

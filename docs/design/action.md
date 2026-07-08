@@ -204,7 +204,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_action.reason` handler，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 使用 `llm_action.answer` handler，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.rewrite` 是 workspace 业务 action，不是通用推理 action；它使用 `target_link` 与 `reference_links` 完成目标文件重写。
+嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_action.reason` handler，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 使用 `llm_action.answer` handler，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，不是通用推理 action；它们使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文，并生成完整写入文本。
 
 `llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 

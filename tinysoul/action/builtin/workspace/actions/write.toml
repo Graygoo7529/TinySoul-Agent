@@ -2,30 +2,42 @@ name = "workspace.write"
 domain = "workspace"
 
 [tool]
-description = "Write UTF-8 text to a workspace resource. The action result returns metadata only."
+description = "Generate UTF-8 text through an internal LLM task and write it to a workspace resource. The action result returns metadata only."
 
 [tool.schema]
 type = "object"
-required = ["target_link", "text"]
+required = ["target_link", "instruction"]
 additionalProperties = false
 
 [tool.schema.properties.target_link]
 type = "string"
 description = "Target workspace resource link such as workspace:docs/task.md."
 
-[tool.schema.properties.text]
+[tool.schema.properties.instruction]
 type = "string"
-description = "UTF-8 text content to write."
+description = "Instruction for generating the complete target resource text."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Optional read-only workspace reference links."
+
+[tool.schema.properties.reference_links.items]
+type = "string"
+description = "Read-only workspace resource link such as workspace:docs/context.md."
 
 [tool.schema.properties.overwrite]
 type = "boolean"
-description = "Set true to replace an existing file."
+description = "Set true to replace an existing file. Existing target content is then loaded inside the action."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional current digest from workspace.describe to guard against stale overwrites."
 
 [semantic]
-use_when = ["Need to create or replace a workspace text resource"]
-avoid_when = ["Only metadata is needed", "The target content is not ready"]
+use_when = ["Need to create or intentionally replace a complete workspace text resource with LLM-generated content"]
+avoid_when = ["A precise deterministic replacement is enough", "The target content is already fully available as a small literal"]
 effects = ["modifying"]
-examples = ["Write a generated plan to workspace:docs/plan.md"]
+examples = ["Generate a plan at workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 
 [runtime]
 parallel_policy = "serial"
@@ -35,5 +47,5 @@ normalize = []
 execute = []
 
 [backend]
-kind = "native"
+kind = "llm_action"
 handler = "workspace.write"

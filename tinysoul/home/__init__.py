@@ -12,7 +12,13 @@ from .errors import (
 )
 from .failures import AgentHomeFailureKind
 from .guidance import HomeActionHowProvider, HomeDomainHowProvider
-from .links import HomeLink, HomeResourceLink, HomeTopLink, parse_home_link
+from .links import (
+    HomeLink,
+    HomePromptMountLink,
+    HomeResourceLink,
+    HomeTopLink,
+    parse_home_link,
+)
 from .runtime_copy import (
     AgentHomeRuntimeCopyManager,
     AgentHomeRuntimeCopyRecovery,
@@ -36,6 +42,7 @@ __all__ = [
     "HomeBackgroundEntry",
     "HomeDomainHowProvider",
     "HomeLink",
+    "HomePromptMountLink",
     "HomeResourceLink",
     "HomeResourceReadExecutor",
     "HomeTopLink",

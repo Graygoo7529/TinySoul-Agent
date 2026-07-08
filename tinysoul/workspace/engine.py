@@ -275,6 +275,19 @@ class WorkspaceEngine:
             digest=record.digest,
         )
 
+    def write_target_exists(self, link: WorkspaceLink | str) -> bool:
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        path = self.path_for(parsed)
+        self._check_mutable_path(path, link=str(parsed))
+        if path.exists() and not path.is_file():
+            raise WorkspaceContractError(f"Workspace resource is not a file: {parsed}")
+        parent = path.parent
+        if parent.exists() and not parent.is_dir():
+            raise WorkspaceContractError(
+                f"Workspace resource parent is not a directory: {parsed}"
+            )
+        return path.exists()
+
     def write_text(
         self,
         link: WorkspaceLink | str,

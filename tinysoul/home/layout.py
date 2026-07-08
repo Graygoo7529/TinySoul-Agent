@@ -8,7 +8,7 @@ from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_roo
 
 from .config import AgentHomeSettings
 from .errors import AgentHomeContractError
-from .links import HomeResourceLink, HomeTopLink
+from .links import HomePromptMountLink, HomeResourceLink, HomeTopLink
 
 
 class AgentHomeLayout:
@@ -39,6 +39,11 @@ class AgentHomeLayout:
 
     def source_for_resource(self, link: HomeResourceLink) -> Path:
         return self._under_content_root(link.space, link.relative_path)
+
+    def source_for_prompt_mount(self, link: HomePromptMountLink) -> Path:
+        if link.space == "how_domain":
+            return self._under_content_root("how_domain", link.name, "DOMAIN.md")
+        return self._under_content_root("how_action", f"{link.name}.md")
 
     def runtime_for_source(self, source: Path) -> Path:
         source_resolved = source.resolve()
@@ -73,10 +78,6 @@ class AgentHomeLayout:
             return (self._under_content_root("agent", f"{link.name}.md"),)
         if link.space == "how":
             return (self._under_content_root("how", link.name, "SKILL.md"),)
-        if link.space == "how_domain":
-            return (self._under_content_root("how_domain", link.name, "DOMAIN.md"),)
-        if link.space == "how_action":
-            return (self._under_content_root("how_action", f"{link.name}.md"),)
         if link.space == "what":
             return (
                 self._under_content_root("what", f"{link.name}.md"),

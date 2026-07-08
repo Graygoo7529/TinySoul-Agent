@@ -4,13 +4,13 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest 读写、资源扫描、单资源摘要刷新、`workspace.scan` / `workspace.describe` action、Context WorkingPatch 同步和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的资源发现、语境投影、单资源摘要刷新、扫描诊断、内部临时 task prompt 输入和文件变更能力。`WorkspaceEngine` 提供有界 UTF-8 文本前缀读取和行范围切片读取能力，并通过 `WorkspacePromptInput` 组织一个或多个 `WorkspaceTextSlice`。`WorkspacePromptReferenceResolver` 将 `workspace:` 链接按 reference 或 target 角色解析为 Context `PromptBlock`，只在 action 内部临时使用；该能力不暴露为模型侧 `workspace.read` action，避免文件正文通过 ActionResult 持久进入 TurnTraceContext。`workspace.write`、`workspace.patch`、`workspace.delete` 与 `workspace.rewrite` 已由 Workspace 模块提供 executor，变更目标使用 `target_link` 参数表达，成功结果只返回资源摘要，不返回文件正文。日终归档仍未实现，后续应继续在本模块内扩展，而不是回到 app 装配层或具体 action 中散落实现。
+当前实现覆盖 Workspace 的资源发现、语境投影、单资源摘要刷新、扫描诊断、内部临时 task prompt 输入和文件变更能力。`WorkspaceEngine` 提供有界 UTF-8 文本前缀读取和行范围切片读取能力，并通过 `WorkspacePromptInput` 组织一个或多个 `WorkspaceTextSlice`。`WorkspacePromptReferenceResolver` 将 `workspace:` 链接按 reference 或 target 角色解析为 Context `PromptBlock`，只在 action 内部临时使用；该能力不暴露为模型侧 `workspace.read` action，避免文件正文通过 ActionResult 持久进入 TurnTraceContext。`workspace.write`、`workspace.patch`、`workspace.delete` 与 `workspace.rewrite` 已由 Workspace 模块提供 executor，变更目标使用 `target_link` 参数表达，成功结果只返回资源摘要，不返回文件正文；其中 `workspace.write` 与 `workspace.rewrite` 在 action 内部复用 action 层 `LLMActionTaskRunner` 生成完整文本。日终归档仍未实现，后续应继续在本模块内扩展，而不是回到 app 装配层或具体 action 中散落实现。
 
 ## 定位
 
 Workspace 模块负责 TinySoul 当日工作区的资源管理，是 `workspace:` 链接的唯一语义归属方。
 
-Workspace 不维护语境状态，不执行模型调用，不解释外部输入命令，也不读取 Agent Home。它向 action 模块提供 native action 或 executor 注册材料，通过 context 信号同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
+Workspace 不维护语境状态，不解释外部输入命令，也不读取 Agent Home。`WorkspaceEngine` 不直接执行模型调用；需要 LLM 的 workspace action executor 在 ActionExecutor 语义内构造 `TaskPrompt`，并通过 action 层共享 `LLMActionTaskRunner` 调用模型。Workspace 通过 context 信号同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
 
 ## 设计目标
 
@@ -34,7 +34,7 @@ Workspace 的核心职责：
 - 在需要时读取、写入或删除 workspace 文件；
 - 在日级生命周期中归档 workspace。
 
-当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、Engine 内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、Workspace PromptBlock 链接解析、workspace action registrar、`workspace.scan` handler、`workspace.describe` executor、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite`；归档仍是待扩展职责。
+当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、Engine 内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、Workspace PromptBlock 链接解析、workspace action registrar、`workspace.scan` handler、`workspace.describe` executor、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite`；其中 `workspace.write`/`workspace.rewrite` 是 workspace 业务 LLM action，归档仍是待扩展职责。
 
 Workspace 不负责：
 
@@ -130,12 +130,12 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 
 当前已实现的变更类 action：
 
-- `workspace.write`：写入或覆盖资源；
+- `workspace.write`：接收 `target_link`、`instruction` 和可选 `reference_links`/`overwrite`/`expected_digest`，在 action 内部生成完整文本并写入或覆盖资源；
 - `workspace.patch`：基于 `old_text` 到 `new_text` 的精确单点替换修改资源，可用 `expected_digest` 防止陈旧编辑；
 - `workspace.delete`：删除资源；
 - `workspace.rewrite`：接收 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
 
-这些 action 使用 `target_link` 参数表达实际变更对象，避免与只读 `link` 或 `reference_links` 混淆。成功时只返回链接、摘要、大小、mtime、digest 等元数据，不返回正文；`workspace.write` 和 `workspace.patch` 会发出 `context.working.patch` 的 `set_resources`，`workspace.delete` 会发出 `remove_resources`。执行失败优先收敛为 `ActionResult`，例如链接不存在、参数非法、文本替换不唯一、digest 不匹配、编码不支持、写入失败。只有 workspace 门面不变量破坏、配置不可解释或需要全局恢复时，才进入 Runtime。
+这些 action 使用 `target_link` 参数表达实际变更对象，避免与只读 `link` 或 `reference_links` 混淆。小幅确定性修改由 `workspace.patch` 直接消费 Phase2 生成的 `old_text`/`new_text`；需要完整文本生成的 `workspace.write` 与 `workspace.rewrite` 在 Phase3 action 内部加载目标和参考正文并调用 LLM。成功时只返回链接、摘要、大小、mtime、digest 等元数据，不返回正文；`workspace.write`、`workspace.patch` 和 `workspace.rewrite` 会发出 `context.working.patch` 的 `set_resources`，`workspace.delete` 会发出 `remove_resources`。执行失败优先收敛为 `ActionResult`，例如链接不存在、参数非法、文本替换不唯一、digest 不匹配、编码不支持、写入失败。只有 workspace 门面不变量破坏、配置不可解释或需要全局恢复时，才进入 Runtime。
 
 ## Context 接入
 
@@ -201,7 +201,7 @@ AppBuilder 的目标职责是：
 - manifest 扫描和更新有单元测试；
 - Engine 内部有界文本前缀读取、行范围文本切片、`WorkspacePromptInput`、workspace link 到 reference/target PromptBlock 的局部解析不会通过模型侧 action 把正文写入 Context 或普通 ActionResult；
 - Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
-- write/patch/delete/rewrite action 使用 `target_link` 表达变更目标，执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；
+- write/patch/delete/rewrite action 使用 `target_link` 表达变更目标；write/rewrite 在 action 内部调用 LLM 生成完整文本，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；
 - workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
 - Context 测试继续证明 WorkingContext 只保存链接和摘要。
 

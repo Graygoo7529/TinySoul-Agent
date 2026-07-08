@@ -10,7 +10,7 @@ from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
 from .config import AgentHomeSettings
 from .errors import AgentHomeContractError, AgentHomeIOError, AgentHomeRuntimeCopyRequired
 from .layout import AgentHomeLayout
-from .links import HomeLink, HomeResourceLink, HomeTopLink, parse_home_link
+from .links import HomeLink, HomePromptMountLink, HomeResourceLink, HomeTopLink, parse_home_link
 from .runtime_copy import AgentHomeRuntimeCopyManager
 
 
@@ -72,20 +72,28 @@ class AgentHomeEngine:
             raise AgentHomeContractError(f"Home top-level file does not exist: {source}")
         return _read_text(self._runtime_read_path(str(parsed), source))
 
+    def read_prompt_mount(self, link: HomePromptMountLink | str) -> str:
+        parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link
+        source = self._layout.source_for_prompt_mount(parsed)
+        if not source.is_file():
+            raise AgentHomeContractError(f"Home prompt mount file does not exist: {source}")
+        return _read_text(self._runtime_read_path(str(parsed), source))
+
     def read_resource(
         self,
         link: HomeResourceLink | str,
         *,
         max_chars: int | None = None,
     ) -> HomeResourceRead:
-        parsed = HomeResourceLink.parse(link) if isinstance(link, str) else link
+        parsed_link = parse_home_link(link) if isinstance(link, str) else link
+        if not isinstance(parsed_link, HomeResourceLink):
+            raise AgentHomeContractError(
+                "Home resource read requires a progressive resource link"
+            )
+        parsed = parsed_link
         limit = self._max_read_chars if max_chars is None else max_chars
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise AgentHomeContractError("Home resource read limit must be positive")
-        if parsed.space in {"how_domain", "how_action"}:
-            raise AgentHomeContractError(
-                "Home automatic HOW links cannot be read as progressive resources"
-            )
         source = self._layout.source_for_resource(parsed)
         if not source.is_file():
             raise AgentHomeContractError(f"Home resource file does not exist: {source}")
@@ -99,9 +107,9 @@ class AgentHomeEngine:
     def guidance_for_domain(self, domain: str) -> str | None:
         if not domain:
             return None
-        link = HomeTopLink("how_domain", domain)
+        link = HomePromptMountLink("how_domain", domain)
         try:
-            return self.read_top(link)
+            return self.read_prompt_mount(link)
         except AgentHomeContractError:
             return None
 
@@ -112,17 +120,19 @@ class AgentHomeEngine:
         prefix = f"{domain}."
         if action_name.startswith(prefix):
             action_key = action_name[len(prefix) :]
-        link = HomeTopLink("how_action", f"{domain}/{action_key}")
+        link = HomePromptMountLink("how_action", f"{domain}/{action_key}")
         try:
-            return self.read_top(link)
+            return self.read_prompt_mount(link)
         except AgentHomeContractError:
             return None
 
     def ensure_runtime_copy(self, link: HomeLink) -> None:
         if isinstance(link, HomeTopLink):
             source = self._layout.source_for_top(link)
-        else:
+        elif isinstance(link, HomeResourceLink):
             source = self._layout.source_for_resource(link)
+        else:
+            source = self._layout.source_for_prompt_mount(link)
         runtime = self._layout.runtime_for_source(source)
         self._runtime_copy.ensure_source_copy(source, runtime)
 

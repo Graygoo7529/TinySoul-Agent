@@ -12,13 +12,17 @@ HOME_LINK_PREFIX = "home:"
 
 @dataclass(frozen=True)
 class HomeTopLink:
-    """A top-level Agent Home link or automatic HOW entry link."""
+    """A top-level Agent Home background entry link."""
 
     space: str
     name: str
 
     def __post_init__(self) -> None:
         _validate_space(self.space)
+        if self.space in {"how_domain", "how_action"}:
+            raise AgentHomeInvariantError(
+                "Automatic HOW links must use home:how_domain: or home:how_action:"
+            )
         _validate_relative_name(self.name, label="top name")
 
     @classmethod
@@ -45,6 +49,10 @@ class HomeResourceLink:
 
     def __post_init__(self) -> None:
         _validate_space(self.space)
+        if self.space in {"how_domain", "how_action"}:
+            raise AgentHomeInvariantError(
+                "Automatic HOW links cannot be progressive resources"
+            )
         _validate_relative_name(self.relative_path, label="resource path")
 
     @classmethod
@@ -64,11 +72,59 @@ class HomeResourceLink:
         return f"{HOME_LINK_PREFIX}{self.space}/{self.relative_path}"
 
 
-HomeLink = HomeTopLink | HomeResourceLink
+@dataclass(frozen=True)
+class HomePromptMountLink:
+    """An automatic Agent Home prompt mount link."""
+
+    space: str
+    name: str
+
+    def __post_init__(self) -> None:
+        if self.space not in {"how_domain", "how_action"}:
+            raise AgentHomeInvariantError(
+                "Home prompt mount space must be how_domain or how_action"
+            )
+        _validate_relative_name(self.name, label="prompt mount name")
+        parts = PurePosixPath(self.name).parts
+        if self.space == "how_domain" and len(parts) != 1:
+            raise AgentHomeInvariantError(
+                "Home domain HOW mount link must use one domain segment"
+            )
+        if self.space == "how_action" and len(parts) != 2:
+            raise AgentHomeInvariantError(
+                "Home action HOW mount link must use <domain>/<action>"
+            )
+
+    @classmethod
+    def parse(cls, value: str) -> "HomePromptMountLink":
+        body = _body(value)
+        if body.startswith("how_domain:"):
+            name = body[len("how_domain:") :]
+            space = "how_domain"
+        elif body.startswith("how_action:"):
+            name = body[len("how_action:") :]
+            space = "how_action"
+        else:
+            raise AgentHomeContractError(
+                "Home prompt mount link must start with home:how_domain: "
+                "or home:how_action:"
+            )
+        try:
+            return cls(space=space, name=name)
+        except AgentHomeInvariantError as exc:
+            raise AgentHomeContractError(str(exc)) from exc
+
+    def __str__(self) -> str:
+        return f"{HOME_LINK_PREFIX}{self.space}:{self.name}"
+
+
+HomeLink = HomeTopLink | HomeResourceLink | HomePromptMountLink
 
 
 def parse_home_link(value: str) -> HomeLink:
     body = _body(value)
+    if body.startswith("how_domain:") or body.startswith("how_action:"):
+        return HomePromptMountLink.parse(value)
     if "@" in body:
         return HomeTopLink.parse(value)
     return HomeResourceLink.parse(value)

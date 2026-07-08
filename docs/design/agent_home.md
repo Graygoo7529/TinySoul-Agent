@@ -2,7 +2,7 @@
 
 ## 状态
 
-本文描述 Agent Home 模块的当前设计。代码已包含独立 Agent Home 模块，并完成 `home:` 链接解析、默认和可加载背景条目、`home:agent@core` 加载、`home:how_domain@<domain>` domain HOW 注入、`home:how_action@<domain>/<action>` action HOW 注入、运行时副本准备、`home.resource.read` action 和 Runtime bridge/trap handler 接入。
+本文描述 Agent Home 模块的当前设计。代码已包含独立 Agent Home 模块，并完成 `home:` 链接解析、默认和可加载背景条目、`home:agent@core` 加载、`home:how_domain:<domain>` domain HOW 注入、`home:how_action:<domain>/<action>` action HOW 注入、运行时副本准备、`home.resource.read` action 和 Runtime bridge/trap handler 接入。
 
 当前实现覆盖 Agent Home 的背景加载、domain/action HOW 注入、渐进式只读资源和 runtime home 缺页式副本准备切面。顶层内容和渐进式资源在读取时都以 runtime 副本为读取位置；当运行期边界发现副本缺失时，通过 `HOME_RUNTIME_COPY_REQUIRED` 进入 Trap，准备副本后重试当前 frame。资源写入、patch、检索、当日 memory 草稿、HOW 使用反馈和每日沉淀仍未实现，后续应继续在 Agent Home 模块内扩展。
 
@@ -24,38 +24,42 @@ Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，不执行模型�
 
 ## 链接语义
 
-Agent Home 只定义 `home:` 链接。链接分为两类：
+Agent Home 定义三类 `home:` 链接：
 
 ```text
 home:<space>@<name>
 home:<space>/<relative-posix-path>
+home:how_domain:<domain>
+home:how_action:<domain>/<action>
 ```
 
-`home:<space>@<name>` 表示顶层入口。普通顶层内容可以加载为 BackgroundContext 条目；`how_domain` 与 `how_action` 只由框架自动挂载到对应 Phase/task prompt。例如：
+`home:<space>@<name>` 表示顶层知识入口。顶层内容可以加载为 BackgroundContext 条目。例如：
 
 - `home:agent@core`
 - `home:agent@user/preferences`
 - `home:what@tinysoul`
 - `home:why@context_budget`
 - `home:how@python_refactor`
-- `home:how_domain@workspace`
-- `home:how_action@workspace/rewrite`
 - `home:memory@2026-07-07`
 
-`home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或编辑。`how_domain` 与 `how_action` 使用 `@` 形式由框架自动读取，不作为普通渐进式资源。例如：
+`home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceContext。例如：
 
 - `home:how/python_refactor/references/checklist.md`
 - `home:how/python_refactor/scripts/inspect.py`
 
-链接规则：
+`home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>` 表示框架局部自动 prompt mount，只进入对应 Phase/task prompt，不进入 BackgroundContext，也不作为 `home.resource.read` 的渐进式资源。例如：
 
-- `space` 是稳定命名空间，例如 `agent`、`what`、`why`、`how`、`how_domain`、`how_action`、`memory`；
+- `home:how_domain:workspace`
+- `home:how_action:workspace/rewrite`
+链接规则:
+
+- `space` 是稳定命名空间，例如 `agent`、`what`、`why`、`how`、`memory`；`how_domain` 与 `how_action` 只用于自动 prompt mount 链接；
 - `@` 后的顶层名称可以包含安全的 `/` 分段，但不能包含扩展出的越界路径；
 - `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；
 - 所有路径使用 POSIX `/` 分隔；
 - 不允许空路径、绝对路径、盘符、反斜杠、`.` 或 `..` 段。
 
-Agent Home 应提供 `HomeTopLink` 与 `HomeResourceLink` 或等价值对象，避免模块内部使用裸字符串判断链接类别。
+Agent Home 应提供 `HomeTopLink`、`HomeResourceLink` 与 `HomePromptMountLink` 或等价值对象，避免模块内部使用裸字符串判断链接类别。
 
 ## 内容空间
 
@@ -103,8 +107,8 @@ runtime/
 - `home:what@name` 映射到 WHAT 索引解析出的实体或概念文档；
 - `home:why@name` 映射到 WHY 问题文档；
 - `home:how@skill_name` 映射到 `how/skill_name/SKILL.md`；
-- `home:how_domain@domain_name` 映射到 `how_domain/domain_name/DOMAIN.md`；
-- `home:how_action@domain_name/action_name` 映射到 `how_action/domain_name/action_name.md`；
+- `home:how_domain:domain_name` 作为 prompt mount 映射到 `how_domain/domain_name/DOMAIN.md`；
+- `home:how_action:domain_name/action_name` 作为 prompt mount 映射到 `how_action/domain_name/action_name.md`；
 - `home:memory@yyyy-mm-dd` 映射到 `memory/yyyy-mm-dd.md` 或当日 memory 摘要。
 
 HOW 采用包目录形式。通用 HOW 使用 `how/<skill>/SKILL.md` 作为顶层入口，references、scripts 等是渐进式资源。与 action domain 绑定的 domain HOW 使用 `how_domain/<domain>/DOMAIN.md`，由 Phase2 prompt 自动注入，并可在 Phase3 action-internal LLM task 中继续作为 domain 约束；domain 内 action HOW 使用 `how_action/<domain>/<action>.md`，由 Phase3 中带内部 LLM task 的 action 自动注入。`how_domain` 与 `how_action` 是框架局部自动加载机制，不属于模型通过 `home.resource.read` 按需渐进式加载的普通资源。
@@ -126,7 +130,7 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy`、Trap handler 和 `AgentHomeRuntimeCopyRecovery`。`AgentHomeEngine.read_top` 与 `read_resource` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainHowProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 调用 Home 模块提供的 `AgentHomeRuntimeCopyRecovery`，由它使用同一个 runtime copy Trap handler 准备副本后重试读取。
+当前实现提供显式 `ensure_runtime_copy`、Trap handler 和 `AgentHomeRuntimeCopyRecovery`。`AgentHomeEngine.read_top`、`read_resource` 与 `read_prompt_mount` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainHowProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 调用 Home 模块提供的 `AgentHomeRuntimeCopyRecovery`，由它使用同一个 runtime copy Trap handler 准备副本后重试读取。
 
 `home:agent@core` 无论原始内容使用项目根 `AGENT.md`，还是使用 `home/agent/AGENT.md`，runtime 副本都稳定落在 `runtime/home/agent/AGENT.md`。这避免不同原始目录形态导致 runtime home 结构漂移。
 
@@ -144,9 +148,9 @@ Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语�
 
 ## Domain/Action HOW 接入
 
-Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home 提供 `HomeDomainHowProvider`，接收 Phase1 已选择的 action domain，映射为 `home:how_domain@<domain>`，读取对应 `DOMAIN.md` 并返回适合 Phase2 task prompt 的短文本片段。
+Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home 提供 `HomeDomainHowProvider`，接收 Phase1 已选择的 action domain，映射为 `home:how_domain:<domain>`，读取对应 `DOMAIN.md` 并返回适合 Phase2 task prompt 的短文本片段。
 
-Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain@<domain>` 与 `home:how_action@<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
+Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
 Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部自动加载机制：Phase2 自动加载 domain HOW；Phase3 中带内部 LLM task 的 action 同时自动加载 domain HOW 与 action HOW。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 HOW，Loop 与 Action 也不感知 Agent Home 的目录结构。
 
@@ -248,7 +252,7 @@ AppBuilder 的目标职责是：
 
 - AppBuilder 不直接读取项目根 `AGENT.md`；
 - Context 默认背景来自 Agent Home 门面；
-- `DomainHowProvider` 能从 `home:how_domain@domain` 获取 domain HOW；`ActionHowProvider` 能从 `home:how_action@<domain>/<action>` 获取 action HOW；
+- `DomainHowProvider` 能从 `home:how_domain:domain` 获取 domain HOW；`ActionHowProvider` 能从 `home:how_domain:domain` 与 `home:how_action:<domain>/<action>` 获取 domain/action HOW；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
 - 启动期背景加载通过 `AgentHomeRuntimeCopyRecovery` 准备 runtime 副本后重试；
