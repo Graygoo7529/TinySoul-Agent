@@ -54,7 +54,10 @@ from tinysoul.runtime.bridge import (
 )
 from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, parse_workspace_settings
 from tinysoul.workspace.actions import (
+    WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
+    WorkspacePatchExecutor,
+    WorkspaceWriteExecutor,
     workspace_scan,
 )
 from tinysoul.workspace.errors import WorkspaceError
@@ -349,6 +352,18 @@ class TinySoulAppBuilder:
                 .register_executor(
                     "workspace.describe",
                     WorkspaceDescribeExecutor(workspace, bus),
+                )
+                .register_executor(
+                    "workspace.write",
+                    WorkspaceWriteExecutor(workspace, bus),
+                )
+                .register_executor(
+                    "workspace.patch",
+                    WorkspacePatchExecutor(workspace, bus),
+                )
+                .register_executor(
+                    "workspace.delete",
+                    WorkspaceDeleteExecutor(workspace, bus),
                 )
                 .register_executor(
                     "home.resource.read",

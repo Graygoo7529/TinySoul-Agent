@@ -11,7 +11,9 @@ import os
 from tinysoul.context.working import WorkspaceResource
 from tinysoul.infra.filesystem import (
     FilesystemBoundaryError,
+    atomic_write_text,
     file_digest,
+    read_text_line_slice,
     read_text_prefix,
     resolve_under_root,
 )
@@ -92,23 +94,47 @@ class WorkspaceTextRead:
 
 
 @dataclass(frozen=True)
-class WorkspacePromptInput:
-    """Rendered workspace text snippets for a temporary task prompt."""
+class WorkspaceTextSlice:
+    """A bounded text slice for temporary workspace prompt input."""
 
-    resources: tuple[WorkspaceTextRead, ...]
+    link: str
+    range_label: str
+    text: str
+    truncated: bool
+    size: int
+    digest: str
 
     def __post_init__(self) -> None:
-        if not self.resources:
+        if not self.link:
+            raise WorkspaceContractError("WorkspaceTextSlice.link must be non-empty")
+        if not self.range_label:
             raise WorkspaceContractError(
-                "WorkspacePromptInput requires at least one resource"
+                "WorkspaceTextSlice.range_label must be non-empty"
+            )
+        if self.size < 0:
+            raise WorkspaceContractError("WorkspaceTextSlice.size must be non-negative")
+
+
+@dataclass(frozen=True)
+class WorkspacePromptInput:
+    """Workspace text slices for a temporary task prompt."""
+
+    slices: tuple[WorkspaceTextSlice, ...]
+
+    def __post_init__(self) -> None:
+        if not self.slices:
+            raise WorkspaceContractError(
+                "WorkspacePromptInput requires at least one text slice"
             )
 
     @property
     def truncated(self) -> bool:
-        return any(resource.truncated for resource in self.resources)
+        return any(text_slice.truncated for text_slice in self.slices)
 
     def render(self) -> str:
-        return "\n\n".join(_render_prompt_resource(resource) for resource in self.resources)
+        return "\n\n".join(
+            _render_prompt_slice(text_slice) for text_slice in self.slices
+        )
 
 
 @dataclass(frozen=True)
@@ -198,6 +224,150 @@ class WorkspaceEngine:
             digest=record.digest,
         )
 
+    def read_text_slice(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        start_line: int = 1,
+        max_lines: int | None = None,
+        max_chars: int | None = None,
+    ) -> WorkspaceTextSlice:
+        limit = self._settings.max_read_chars if max_chars is None else max_chars
+        if (
+            isinstance(start_line, bool)
+            or not isinstance(start_line, int)
+            or start_line <= 0
+        ):
+            raise WorkspaceContractError("Workspace read start_line must be positive")
+        if max_lines is not None and (
+            isinstance(max_lines, bool)
+            or not isinstance(max_lines, int)
+            or max_lines <= 0
+        ):
+            raise WorkspaceContractError("Workspace read max_lines must be positive")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise WorkspaceContractError("Workspace read limit must be positive")
+        record = self.describe(link)
+        path = self.path_for(record.link)
+        try:
+            read = read_text_line_slice(
+                path,
+                start_line=start_line,
+                max_lines=max_lines,
+                max_chars=limit,
+            )
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Workspace resource is not readable as UTF-8 text: {record.link}"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to read workspace resource: {exc}") from exc
+        if read.end_line >= read.start_line:
+            range_label = f"lines:{read.start_line}-{read.end_line}"
+        else:
+            range_label = f"lines:{start_line}-empty"
+        return WorkspaceTextSlice(
+            link=record.link,
+            range_label=range_label,
+            text=read.text,
+            truncated=read.truncated,
+            size=record.size,
+            digest=record.digest,
+        )
+
+    def write_text(
+        self,
+        link: WorkspaceLink | str,
+        text: str,
+        *,
+        overwrite: bool = False,
+    ) -> WorkspaceResourceRecord:
+        if not isinstance(text, str):
+            raise WorkspaceContractError("Workspace write text must be a string")
+        if not isinstance(overwrite, bool):
+            raise WorkspaceContractError("Workspace write overwrite must be a boolean")
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        path = self.path_for(parsed)
+        self._check_mutable_path(path, link=str(parsed))
+        if path.exists():
+            if not path.is_file():
+                raise WorkspaceContractError(
+                    f"Workspace resource is not a file: {parsed}"
+                )
+            if not overwrite:
+                raise WorkspaceContractError(
+                    f"Workspace resource already exists: {parsed}"
+                )
+        parent = path.parent
+        if parent.exists() and not parent.is_dir():
+            raise WorkspaceContractError(
+                f"Workspace resource parent is not a directory: {parsed}"
+            )
+        try:
+            atomic_write_text(path, text)
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to write workspace resource: {exc}") from exc
+        return self.describe(str(parsed))
+
+    def patch_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        old_text: str,
+        new_text: str,
+        expected_digest: str = "",
+    ) -> WorkspaceResourceRecord:
+        if not isinstance(old_text, str) or not old_text:
+            raise WorkspaceContractError(
+                "Workspace patch old_text must be a non-empty string"
+            )
+        if not isinstance(new_text, str):
+            raise WorkspaceContractError("Workspace patch new_text must be a string")
+        if not isinstance(expected_digest, str):
+            raise WorkspaceContractError(
+                "Workspace patch expected_digest must be a string"
+            )
+        record = self.describe(link)
+        path = self.path_for(record.link)
+        self._check_mutable_path(path, link=record.link)
+        if expected_digest and record.digest != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {record.link}"
+            )
+        try:
+            current = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Workspace resource is not readable as UTF-8 text: {record.link}"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to read workspace resource: {exc}") from exc
+        matches = current.count(old_text)
+        if matches == 0:
+            raise WorkspaceContractError(
+                f"Workspace patch old_text was not found: {record.link}"
+            )
+        if matches > 1:
+            raise WorkspaceContractError(
+                f"Workspace patch old_text is not unique: {record.link}"
+            )
+        try:
+            atomic_write_text(path, current.replace(old_text, new_text, 1))
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to write workspace resource: {exc}") from exc
+        return self.describe(record.link)
+
+    def delete_resource(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+        record = self.describe(link)
+        path = self.path_for(record.link)
+        self._check_mutable_path(path, link=record.link)
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to delete workspace resource: {exc}") from exc
+        self._remove_manifest_record(record.link)
+        return record
+
     def prepare_task_input(
         self,
         links: Sequence[WorkspaceLink | str],
@@ -216,10 +386,19 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 "Workspace task input read limit must be positive"
             )
-        resources = tuple(
-            self.read_text(link, max_chars=max_chars_per_resource) for link in links
+        limit = (
+            self._settings.max_read_chars
+            if max_chars_per_resource is None
+            else max_chars_per_resource
         )
-        return WorkspacePromptInput(resources=resources)
+        slices = tuple(
+            _slice_from_read(
+                self.read_text(link, max_chars=limit),
+                range_label=f"prefix:{limit}",
+            )
+            for link in links
+        )
+        return WorkspacePromptInput(slices=slices)
 
     def scan(self) -> WorkspaceScanResult:
         self._settings.root.mkdir(parents=True, exist_ok=True)
@@ -331,6 +510,20 @@ class WorkspaceEngine:
         except ValueError:
             return path.name
 
+    def _check_mutable_path(self, path: Path, *, link: str) -> None:
+        if self._is_internal_path(path):
+            raise WorkspaceContractError(f"Workspace resource is internal: {link}")
+        if self._has_ignored_parent(path):
+            raise WorkspaceContractError(f"Workspace resource is ignored: {link}")
+
+    def _has_ignored_parent(self, path: Path) -> bool:
+        try:
+            relative = path.resolve().relative_to(self._settings.root.resolve())
+        except ValueError:
+            return False
+        ignored = set(self._settings.ignore_dirs)
+        return any(part in ignored or part.startswith(".") for part in relative.parts[:-1])
+
     def _upsert_manifest_record(self, record: WorkspaceResourceRecord) -> None:
         manifest = self.load_manifest()
         records: list[WorkspaceResourceRecord] = []
@@ -344,6 +537,11 @@ class WorkspaceEngine:
         if not replaced:
             records.append(record)
         self._manifest_store.save(WorkspaceManifest(resources=tuple(records)))
+
+    def _remove_manifest_record(self, link: str) -> None:
+        manifest = self.load_manifest()
+        records = tuple(item for item in manifest.resources if item.link != link)
+        self._manifest_store.save(WorkspaceManifest(resources=records))
 
 
 class WorkspaceEngineBuilder:
@@ -361,14 +559,26 @@ class WorkspaceEngineBuilder:
         )
 
 
-def _render_prompt_resource(resource: WorkspaceTextRead) -> str:
-    truncated = "true" if resource.truncated else "false"
+def _slice_from_read(read: WorkspaceTextRead, *, range_label: str) -> WorkspaceTextSlice:
+    return WorkspaceTextSlice(
+        link=read.link,
+        range_label=range_label,
+        text=read.text,
+        truncated=read.truncated,
+        size=read.size,
+        digest=read.digest,
+    )
+
+
+def _render_prompt_slice(text_slice: WorkspaceTextSlice) -> str:
+    truncated = "true" if text_slice.truncated else "false"
     lines = [
-        f"## {resource.link}",
-        f"size: {resource.size} bytes",
-        f"digest: {resource.digest}",
+        f"## {text_slice.link}",
+        f"range: {text_slice.range_label}",
+        f"size: {text_slice.size} bytes",
+        f"digest: {text_slice.digest}",
         f"truncated: {truncated}",
         "",
-        resource.text,
+        text_slice.text,
     ]
     return "\n".join(lines)

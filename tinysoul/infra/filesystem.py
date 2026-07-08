@@ -17,6 +17,16 @@ class TextPrefixRead:
     truncated: bool
 
 
+@dataclass(frozen=True)
+class TextLineSliceRead:
+    """A bounded line-based text read result."""
+
+    text: str
+    start_line: int
+    end_line: int
+    truncated: bool
+
+
 def resolve_under_root(root: Path, relative_path: str) -> Path:
     """Resolve a relative path and ensure it stays under root."""
 
@@ -80,6 +90,51 @@ def read_text_prefix(
     if truncated:
         text = text[:max_chars]
     return TextPrefixRead(text=text, truncated=truncated)
+
+
+def read_text_line_slice(
+    path: Path,
+    *,
+    start_line: int,
+    max_chars: int,
+    max_lines: int | None = None,
+    encoding: str = "utf-8",
+) -> TextLineSliceRead:
+    """Read a bounded text slice by 1-based line number."""
+
+    text_parts: list[str] = []
+    used_chars = 0
+    selected_lines = 0
+    end_line = start_line - 1
+    truncated = False
+
+    with path.open("r", encoding=encoding) as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if line_number < start_line:
+                continue
+            if max_lines is not None and selected_lines >= max_lines:
+                truncated = True
+                break
+            remaining_chars = max_chars - used_chars
+            if remaining_chars <= 0:
+                truncated = True
+                break
+            if len(line) > remaining_chars:
+                text_parts.append(line[:remaining_chars])
+                end_line = line_number
+                truncated = True
+                break
+            text_parts.append(line)
+            used_chars += len(line)
+            selected_lines += 1
+            end_line = line_number
+
+    return TextLineSliceRead(
+        text="".join(text_parts),
+        start_line=start_line,
+        end_line=end_line,
+        truncated=truncated,
+    )
 
 
 def file_digest(path: Path, *, limit_bytes: int | None = None) -> str:

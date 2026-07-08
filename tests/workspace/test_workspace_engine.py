@@ -26,8 +26,15 @@ from tinysoul.workspace import (
     WorkspacePromptInput,
     WorkspaceScanSkipKind,
     WorkspaceSettings,
+    WorkspaceTextSlice,
 )
-from tinysoul.workspace.actions import WorkspaceDescribeExecutor, workspace_scan
+from tinysoul.workspace.actions import (
+    WorkspaceDeleteExecutor,
+    WorkspaceDescribeExecutor,
+    WorkspacePatchExecutor,
+    WorkspaceWriteExecutor,
+    workspace_scan,
+)
 
 
 def test_workspace_link_rejects_unsafe_paths() -> None:
@@ -152,12 +159,175 @@ def test_workspace_prepare_task_input_renders_bounded_resources(tmp_path: Path) 
     )
 
     assert isinstance(task_input, WorkspacePromptInput)
+    assert len(task_input.slices) == 2
+    assert isinstance(task_input.slices[0], WorkspaceTextSlice)
+    assert task_input.slices[0].range_label == "prefix:3"
     assert task_input.truncated is True
     rendered = task_input.render()
     assert "## workspace:a.md" in rendered
+    assert "range: prefix:3" in rendered
     assert "abc" in rendered
     assert "truncated: true" in rendered
     assert "## workspace:b.md" in rendered
+
+
+def test_workspace_read_text_slice_returns_line_range(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text_slice(
+        "workspace:a.md",
+        start_line=2,
+        max_lines=2,
+        max_chars=100,
+    )
+
+    assert result.link == "workspace:a.md"
+    assert result.range_label == "lines:2-3"
+    assert result.text == "two\nthree\n"
+    assert result.truncated is True
+
+
+def test_workspace_read_text_slice_applies_char_limit(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    result = engine.read_text_slice(
+        "workspace:a.md",
+        start_line=1,
+        max_chars=3,
+    )
+
+    assert result.range_label == "lines:1-1"
+    assert result.text == "abc"
+    assert result.truncated is True
+
+
+def test_workspace_read_text_slice_rejects_invalid_bounds(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="start_line"):
+        engine.read_text_slice("workspace:a.md", start_line=0)
+    with pytest.raises(WorkspaceContractError, match="max_lines"):
+        engine.read_text_slice("workspace:a.md", max_lines=0)
+    with pytest.raises(WorkspaceContractError, match="limit"):
+        engine.read_text_slice("workspace:a.md", max_chars=0)
+
+
+def test_workspace_write_text_creates_resource_and_manifest(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    record = engine.write_text("workspace:docs/a.md", "hello")
+
+    assert (tmp_path / "docs" / "a.md").read_text(encoding="utf-8") == "hello"
+    assert record.link == "workspace:docs/a.md"
+    assert record.size == 5
+    assert engine.load_manifest().resources[0].link == "workspace:docs/a.md"
+
+
+def test_workspace_write_text_rejects_existing_without_overwrite(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="already exists"):
+        engine.write_text("workspace:a.md", "new")
+
+
+def test_workspace_write_text_rejects_ignored_parent(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="ignored"):
+        engine.write_text("workspace:.git/config", "unsafe")
+
+
+def test_workspace_patch_text_replaces_exact_match(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello world", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.describe("workspace:a.md")
+
+    record = engine.patch_text(
+        "workspace:a.md",
+        old_text="world",
+        new_text="TinySoul",
+        expected_digest=before.digest,
+    )
+
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "hello TinySoul"
+    assert record.link == "workspace:a.md"
+    assert record.digest != before.digest
+
+
+def test_workspace_patch_text_rejects_ambiguous_or_stale_patch(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("same same", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="not unique"):
+        engine.patch_text("workspace:a.md", old_text="same", new_text="other")
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.patch_text(
+            "workspace:a.md",
+            old_text="same same",
+            new_text="other",
+            expected_digest="stale",
+        )
+
+
+def test_workspace_delete_resource_removes_file_and_manifest(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.describe("workspace:a.md")
+
+    record = engine.delete_resource("workspace:a.md")
+
+    assert record.link == "workspace:a.md"
+    assert not (tmp_path / "a.md").exists()
+    assert engine.load_manifest().resources == ()
 
 
 def test_workspace_prepare_task_input_rejects_empty_links(tmp_path: Path) -> None:
@@ -206,6 +376,88 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
     assert engine.load_manifest().resources[0].link == "workspace:a.md"
     signals = bus.consume_namespace("context")
     assert signals[0].name == SIGNAL_WORKING_PATCH
+
+
+def test_workspace_write_executor_returns_metadata_and_working_patch(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution(
+        "workspace.write",
+        {"link": "workspace:a.md", "text": "hello"},
+    )
+
+    result = WorkspaceWriteExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["link"] == "workspace:a.md"
+    assert "text" not in result.payload
+    signals = bus.consume_namespace("context")
+    patch = signals[0].payload["patch"]
+    assert isinstance(patch, dict)
+    set_resources = patch["set_resources"]
+    assert isinstance(set_resources, list)
+    first_resource = set_resources[0]
+    assert isinstance(first_resource, dict)
+    assert first_resource["link"] == "workspace:a.md"
+
+
+def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution(
+        "workspace.patch",
+        {"link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
+    )
+
+    result = WorkspacePatchExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "failed"
+    assert "not found" in result.model_feedback
+    assert bus.consume_namespace("context") == ()
+
+
+def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    bus = SignalBus()
+    execution = _execution("workspace.delete", {"link": "workspace:a.md"})
+
+    result = WorkspaceDeleteExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["deleted"] is True
+    assert not (tmp_path / "a.md").exists()
+    signals = bus.consume_namespace("context")
+    patch = signals[0].payload["patch"]
+    assert isinstance(patch, dict)
+    assert patch["remove_resources"] == ["workspace:a.md"]
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

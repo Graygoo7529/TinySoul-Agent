@@ -1,0 +1,39 @@
+name = "workspace.write"
+domain = "workspace"
+
+[tool]
+description = "Write UTF-8 text to a workspace resource. The action result returns metadata only."
+
+[tool.schema]
+type = "object"
+required = ["link", "text"]
+additionalProperties = false
+
+[tool.schema.properties.link]
+type = "string"
+description = "A workspace resource link such as workspace:docs/task.md."
+
+[tool.schema.properties.text]
+type = "string"
+description = "UTF-8 text content to write."
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Set true to replace an existing file."
+
+[semantic]
+use_when = ["Need to create or replace a workspace text resource"]
+avoid_when = ["Only metadata is needed", "The target content is not ready"]
+effects = ["modifying"]
+examples = ["Write a generated plan to workspace:docs/plan.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.write"

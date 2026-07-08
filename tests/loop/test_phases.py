@@ -181,8 +181,11 @@ def _action_engine():
             lambda execution, context: {"text": execution.call.params["text"]},
         )
         .register_native("home.resource.read", lambda execution, context: {"read": True})
+        .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
+        .register_native("workspace.patch", lambda execution, context: {"patched": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
+        .register_native("workspace.write", lambda execution, context: {"written": True})
         .build()
     )
 

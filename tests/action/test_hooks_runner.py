@@ -136,8 +136,11 @@ def test_executor_registry_validates_catalog_handlers() -> None:
 
     assert executors.missing_handlers_for(catalog) == (
         "home.resource.read",
+        "workspace.delete",
         "workspace.describe",
+        "workspace.patch",
         "workspace.scan",
+        "workspace.write",
     )
     with pytest.raises(ActionContractError, match="home.resource.read"):
         executors.validate_catalog(catalog)

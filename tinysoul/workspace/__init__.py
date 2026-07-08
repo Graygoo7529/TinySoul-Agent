@@ -9,6 +9,7 @@ from .engine import (
     WorkspaceScanSkip,
     WorkspaceScanSkipKind,
     WorkspaceTextRead,
+    WorkspaceTextSlice,
 )
 from .errors import (
     WorkspaceContractError,
@@ -44,5 +45,6 @@ __all__ = [
     "WorkspaceScanSkipKind",
     "WorkspaceSettings",
     "WorkspaceTextRead",
+    "WorkspaceTextSlice",
     "parse_workspace_settings",
 ]

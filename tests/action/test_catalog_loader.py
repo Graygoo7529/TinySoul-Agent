@@ -32,8 +32,11 @@ def test_catalog_view_by_domain() -> None:
 
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == [
+        "workspace.delete",
         "workspace.describe",
+        "workspace.patch",
         "workspace.scan",
+        "workspace.write",
     ]
 
     home_view = catalog.with_domains(("home",))

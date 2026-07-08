@@ -1,0 +1,31 @@
+name = "workspace.delete"
+domain = "workspace"
+
+[tool]
+description = "Delete one workspace resource. The action result returns metadata for the deleted resource only."
+
+[tool.schema]
+type = "object"
+required = ["link"]
+additionalProperties = false
+
+[tool.schema.properties.link]
+type = "string"
+description = "A workspace resource link such as workspace:docs/task.md."
+
+[semantic]
+use_when = ["Need to remove a workspace resource that is no longer useful"]
+avoid_when = ["The file may still be needed as task evidence or output"]
+effects = ["modifying"]
+examples = ["Delete workspace:tmp/draft.md after producing the final document"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.delete"

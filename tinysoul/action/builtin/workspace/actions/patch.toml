@@ -1,0 +1,43 @@
+name = "workspace.patch"
+domain = "workspace"
+
+[tool]
+description = "Apply one exact UTF-8 text replacement to a workspace resource. The action result returns metadata only."
+
+[tool.schema]
+type = "object"
+required = ["link", "old_text", "new_text"]
+additionalProperties = false
+
+[tool.schema.properties.link]
+type = "string"
+description = "A workspace resource link such as workspace:docs/task.md."
+
+[tool.schema.properties.old_text]
+type = "string"
+description = "The exact non-empty text to replace. It must occur exactly once."
+
+[tool.schema.properties.new_text]
+type = "string"
+description = "Replacement text. It may be empty to delete the matched text."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional current digest from workspace.describe to guard against stale edits."
+
+[semantic]
+use_when = ["Need a small precise workspace text edit"]
+avoid_when = ["The replacement target is ambiguous", "The full file should be regenerated instead"]
+effects = ["modifying"]
+examples = ["Replace one outdated paragraph in workspace:docs/plan.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.patch"
