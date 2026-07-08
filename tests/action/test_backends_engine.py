@@ -192,8 +192,8 @@ def test_temporary_script_executor_runs_python_code() -> None:
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
         ActionEngineBuilder(Path("tinysoul/action/builtin"))
-        .register_native("llm_step.answer", lambda execution, context: {"text": "done"})
-        .register_native("llm_step.context_task", lambda execution, context: {"ok": True})
+        .register_native("llm_action.answer", lambda execution, context: {"text": "done"})
+        .register_native("llm_action.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})

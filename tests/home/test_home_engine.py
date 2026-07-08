@@ -46,7 +46,7 @@ from tinysoul.runtime import (
 T = TypeVar("T")
 
 
-def test_home_provides_default_background_and_domain_how(tmp_path: Path) -> None:
+def test_home_provides_default_background_without_exposing_domain_how(tmp_path: Path) -> None:
     (tmp_path / "AGENT.md").write_text("core rules", encoding="utf-8")
     how_domain = tmp_path / "home" / "how_domain" / "workspace"
     how_domain.mkdir(parents=True)
@@ -73,7 +73,7 @@ def test_home_provides_default_background_and_domain_how(tmp_path: Path) -> None
 
     assert defaults[0].link == "home:agent@core"
     assert defaults[0].content == "core rules"
-    assert any(entry.link == "home:how_domain@workspace" for entry in loadable)
+    assert all(entry.link != "home:how_domain@workspace" for entry in loadable)
     assert guidance == ("workspace guidance",)
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
     assert (tmp_path / "runtime" / "home" / "how_domain" / "workspace" / "DOMAIN.md").is_file()
@@ -174,6 +174,32 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     assert with_runtime_copy.payload["text"] == "abc"
     assert with_runtime_copy.payload["truncated"] is True
 
+def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None:
+    how_domain = tmp_path / "home" / "how_domain" / "workspace"
+    how_action = tmp_path / "home" / "how_action" / "workspace"
+    how_domain.mkdir(parents=True)
+    how_action.mkdir(parents=True)
+    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    for link in (
+        "home:how_domain/workspace/DOMAIN.md",
+        "home:how_action/workspace/rewrite.md",
+    ):
+        result = HomeResourceReadExecutor(home).execute(
+            _execution("home.resource.read", {"link": link}),
+            ActionExecutionContext(),
+        )
+
+        assert result.status is ActionResultStatus.FAILED
+        assert result.frame_data["error_type"] == "AgentHomeContractError"
+
 
 def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "how" / "refactor" / "references"
@@ -234,7 +260,7 @@ def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
 
 
 def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
-    actions = tmp_path / "home" / "how_domain" / "workspace" / "actions"
+    actions = tmp_path / "home" / "how_action" / "workspace"
     actions.mkdir(parents=True)
     (actions / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -253,17 +279,42 @@ def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
         home=home,
     )
 
-    assert guidance == ("rewrite guidance",)
+    assert guidance.domain == ()
+    assert guidance.action == ("rewrite guidance",)
     assert (
         tmp_path
         / "runtime"
         / "home"
-        / "how_domain"
+        / "how_action"
         / "workspace"
-        / "actions"
         / "rewrite.md"
     ).is_file()
 
+def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
+    how_domain = tmp_path / "home" / "how_domain" / "workspace"
+    how_action = tmp_path / "home" / "how_action" / "workspace"
+    how_domain.mkdir(parents=True)
+    how_action.mkdir(parents=True)
+    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    provider = HomeActionHowProvider(home)
+
+    guidance = _run_copy_trap_after_runtime_exception(
+        lambda: provider.guidance_for(
+            domain="workspace",
+            action_name="workspace.rewrite",
+        ),
+        home=home,
+    )
+
+    assert guidance.domain == ("workspace guidance",)
+    assert guidance.action == ("rewrite guidance",)
 
 def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "how" / "refactor" / "references"
@@ -348,24 +399,24 @@ def _run_copy_trap_after_runtime_exception(
         .push(RunLevel.TURN, "turn")
         .push(RunLevel.PHASE, "phase")
     )
-    try:
-        return callback()
-    except AgentHomeRuntimeCopyRequired as exc:
-        _handle_copy_trap(
-            home,
-            message=str(exc),
-            payload=exc.to_payload(),
-            scope=scope,
-        )
-    except RuntimeException as exc:
-        assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
-        _handle_copy_trap(
-            home,
-            message=exc.message,
-            payload=exc.payload,
-            scope=scope,
-        )
-    return callback()
+    while True:
+        try:
+            return callback()
+        except AgentHomeRuntimeCopyRequired as exc:
+            _handle_copy_trap(
+                home,
+                message=str(exc),
+                payload=exc.to_payload(),
+                scope=scope,
+            )
+        except RuntimeException as exc:
+            assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
+            _handle_copy_trap(
+                home,
+                message=exc.message,
+                payload=exc.payload,
+                scope=scope,
+            )
 
 
 def _handle_copy_trap(

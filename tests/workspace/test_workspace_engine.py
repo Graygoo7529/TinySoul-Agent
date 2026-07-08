@@ -7,6 +7,7 @@ import pytest
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
+from tinysoul.action.llm_action import LLMActionTaskRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -217,6 +218,7 @@ def test_workspace_prompt_reference_resolver_returns_prefix_block(
     assert "abc" in text
     assert "truncated: true" in text
 
+
 def test_workspace_prompt_reference_resolver_returns_target_block(
     tmp_path: Path,
 ) -> None:
@@ -239,6 +241,7 @@ def test_workspace_prompt_reference_resolver_returns_target_block(
     assert "link: workspace:a.md" in text
     assert "abc" in text
     assert "truncated: true" in text
+
 
 def test_workspace_read_text_slice_returns_line_range(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
@@ -555,11 +558,11 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
         },
     )
 
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
     result = WorkspaceRewriteExecutor(
         workspace=engine,
         bus=bus,
-        llm_runner=llm,
-        context=context_engine,
+        llm_action=llm_action,
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
 
     assert result.status.value == "success"
@@ -582,7 +585,11 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     signals = bus.consume_namespace("context")
     patch = signals[0].payload["patch"]
     assert isinstance(patch, dict)
-    assert patch["set_resources"][0]["link"] == "workspace:target.md"
+    set_resources = patch["set_resources"]
+    assert isinstance(set_resources, list)
+    first_resource = set_resources[0]
+    assert isinstance(first_resource, dict)
+    assert first_resource["link"] == "workspace:target.md"
 
 
 def _message_text(message: UserMessage) -> str:

@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from tinysoul.action.backends.llm_step import (
-    ActionHowProvider,
-    EmptyActionHowProvider,
-    LLMRunner,
-    run_json_task,
-    with_action_how,
-)
+from tinysoul.action.llm_action import LLMActionTaskRunner
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
 from tinysoul.action.core.result import ActionResult, ActionResultStage
-from tinysoul.context import ContextEngine, PromptBlock, PromptReferenceError, TaskPrompt
+from tinysoul.context import PromptBlock, PromptReferenceError, TaskPrompt
 from tinysoul.context.signals import build_working_patch_signal
 from tinysoul.context.working import WorkingPatch, WorkspaceResource
 from tinysoul.infra.json import JsonObject
@@ -69,9 +63,7 @@ def register_workspace_actions(
     *,
     workspace: WorkspaceEngine,
     bus: SignalBus,
-    llm_runner: LLMRunner | None = None,
-    context: ContextEngine | None = None,
-    action_how: ActionHowProvider | None = None,
+    llm_action: LLMActionTaskRunner,
 ) -> ActionEngineBuilder:
     """Register workspace action executors on an action builder."""
 
@@ -94,18 +86,14 @@ def register_workspace_actions(
             WorkspaceDeleteExecutor(workspace, bus),
         )
     )
-    if llm_runner is not None and context is not None:
-        result = result.register_executor(
-            WORKSPACE_REWRITE_ACTION,
-            WorkspaceRewriteExecutor(
-                workspace=workspace,
-                bus=bus,
-                llm_runner=llm_runner,
-                context=context,
-                action_how=action_how,
-            ),
-        )
-    return result
+    return result.register_executor(
+        WORKSPACE_REWRITE_ACTION,
+        WorkspaceRewriteExecutor(
+            workspace=workspace,
+            bus=bus,
+            llm_action=llm_action,
+        ),
+    )
 
 
 class WorkspaceDescribeExecutor(ActionExecutor):
@@ -315,15 +303,11 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         *,
         workspace: WorkspaceEngine,
         bus: SignalBus,
-        llm_runner: LLMRunner,
-        context: ContextEngine,
-        action_how: ActionHowProvider | None = None,
+        llm_action: LLMActionTaskRunner,
     ) -> None:
         self._workspace = workspace
         self._bus = bus
-        self._llm_runner = llm_runner
-        self._context = context
-        self._action_how = action_how or EmptyActionHowProvider()
+        self._llm_action = llm_action
         self._prompt_resolver = WorkspacePromptReferenceResolver(workspace)
 
     def execute(
@@ -373,17 +357,9 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 str(exc),
                 {**exc.payload, "reason": exc.reason},
             )
-        payload = run_json_task(
-            llm_runner=self._llm_runner,
-            context_engine=self._context,
+        payload = self._llm_action.run_json(
             execution=execution,
-            prompt=with_action_how(
-                prompt,
-                self._action_how.guidance_for(
-                    domain=execution.framework.domain,
-                    action_name=execution.call.action_name,
-                ),
-            ),
+            prompt=prompt,
             subject="Workspace rewrite LLM task",
         )
         if isinstance(payload, ActionResult):

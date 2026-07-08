@@ -32,7 +32,7 @@ class ActionBackendKind(StrEnum):
     NATIVE = "native"
     SUBPROCESS = "subprocess"
     SCRIPT = "script"
-    LLM_STEP = "llm_step"
+    LLM_ACTION = "llm_action"
 
 
 @dataclass(frozen=True)

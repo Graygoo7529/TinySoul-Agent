@@ -65,5 +65,5 @@ normalize = []
 execute = []
 
 [backend]
-kind = "llm_step"
-handler = "llm_step.answer"
+kind = "llm_action"
+handler = "llm_action.answer"

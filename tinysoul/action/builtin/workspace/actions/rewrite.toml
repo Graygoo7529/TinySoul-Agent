@@ -43,5 +43,5 @@ normalize = []
 execute = []
 
 [backend]
-kind = "llm_step"
+kind = "llm_action"
 handler = "workspace.rewrite"

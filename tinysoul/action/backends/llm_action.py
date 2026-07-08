@@ -1,50 +1,22 @@
-"""LLM-step action executor."""
+"""Built-in LLM action executors."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.engine import ActionEngineBuilder
+from tinysoul.action.llm_action import LLMActionTaskRunner
 from tinysoul.context import (
-    ContextEngine,
     PromptBlock,
     PromptReferenceError,
     PromptReferenceResolver,
     TaskPrompt,
 )
-from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject, JsonTypeError, JsonValue, to_json_object
-from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
-from tinysoul.llm.responses import AnswerFormat, JsonAnswer, TaskResult, TaskResultStatus
-from tinysoul.llm.tools import ToolUse
-from tinysoul.runtime import RuntimeException
-
-
-class LLMRunner(Protocol):
-    """LLM runner surface required by LLM action executors."""
-
-    def run(self, call: TaskCall) -> TaskResult:
-        """Run one LLM task."""
-        ...
-
-
-class ActionHowProvider(Protocol):
-    """Provide action-level HOW text for nested LLM tasks."""
-
-    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
-        """Return guidance snippets for one action."""
-        ...
-
-
-class EmptyActionHowProvider:
-    """Action HOW provider used before Agent Home action HOW is connected."""
-
-    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
-        return ()
 
 
 @dataclass(frozen=True)
@@ -68,20 +40,16 @@ class _PromptParameterError(Exception):
         self.payload = payload or {}
 
 
-class LLMStepActionExecutor:
-    """Executor for actions that need one nested LLM task."""
+class CoreReasonActionExecutor:
+    """Executor for the generic core.reason LLM action."""
 
     def __init__(
         self,
         *,
-        llm_runner: LLMRunner,
-        context: ContextEngine,
+        llm_action: LLMActionTaskRunner,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
-        action_how: ActionHowProvider | None = None,
     ) -> None:
-        self._llm_runner = llm_runner
-        self._context = context
-        self._action_how = action_how or EmptyActionHowProvider()
+        self._llm_action = llm_action
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -94,38 +62,26 @@ class LLMStepActionExecutor:
         parse = self._prompt_builder.context_task_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(execution, parse.model_feedback, parse.frame_data)
-        payload = run_json_task(
-            llm_runner=self._llm_runner,
-            context_engine=self._context,
+        payload = self._llm_action.run_json(
             execution=execution,
-            prompt=with_action_how(
-                parse.prompt,
-                self._action_how.guidance_for(
-                    domain=execution.framework.domain,
-                    action_name=execution.call.action_name,
-                ),
-            ),
-            subject="Nested LLM task",
+            prompt=parse.prompt,
+            subject="Core reason LLM task",
         )
         if isinstance(payload, ActionResult):
             return payload
         return _success(execution, payload)
 
 
-class LLMAnswerActionExecutor:
+class CoreAnswerActionExecutor:
     """Executor for the final answer action with read-only reference support."""
 
     def __init__(
         self,
         *,
-        llm_runner: LLMRunner,
-        context: ContextEngine,
+        llm_action: LLMActionTaskRunner,
         reference_resolvers: Sequence[PromptReferenceResolver] = (),
-        action_how: ActionHowProvider | None = None,
     ) -> None:
-        self._llm_runner = llm_runner
-        self._context = context
-        self._action_how = action_how or EmptyActionHowProvider()
+        self._llm_action = llm_action
         self._prompt_builder = _PromptArgumentBuilder(
             reference_resolvers=reference_resolvers,
         )
@@ -138,17 +94,9 @@ class LLMAnswerActionExecutor:
         parse = self._prompt_builder.answer_prompt(execution.call.params)
         if parse.prompt is None:
             return _failed(execution, parse.model_feedback, parse.frame_data)
-        payload = run_json_task(
-            llm_runner=self._llm_runner,
-            context_engine=self._context,
+        payload = self._llm_action.run_json(
             execution=execution,
-            prompt=with_action_how(
-                parse.prompt,
-                self._action_how.guidance_for(
-                    domain=execution.framework.domain,
-                    action_name=execution.call.action_name,
-                ),
-            ),
+            prompt=parse.prompt,
             subject="Answer LLM task",
         )
         if isinstance(payload, ActionResult):
@@ -277,13 +225,13 @@ class _PromptArgumentBuilder:
         if value is None:
             if required:
                 raise _PromptParameterError(
-                    f"llm_step requires non-empty '{key}'.",
+                    f"llm_action requires non-empty '{key}'.",
                     reason=f"missing_{key}",
                 )
             return ()
         if not isinstance(value, list):
             raise _PromptParameterError(
-                f"llm_step '{key}' must be a list.",
+                f"llm_action '{key}' must be a list.",
                 reason=f"invalid_{key}",
             )
         blocks: list[PromptBlock] = []
@@ -299,7 +247,7 @@ class _PromptArgumentBuilder:
             )
         if required and not blocks:
             raise _PromptParameterError(
-                f"llm_step requires non-empty '{key}'.",
+                f"llm_action requires non-empty '{key}'.",
                 reason=f"missing_{key}",
             )
         return tuple(blocks)
@@ -317,14 +265,14 @@ class _PromptArgumentBuilder:
             item = to_json_object(value)
         except JsonTypeError as exc:
             raise _PromptParameterError(
-                f"llm_step '{key}' items must be objects.",
+                f"llm_action '{key}' items must be objects.",
                 reason=f"invalid_{key}_item",
                 payload={"index": index},
             ) from exc
         text = item.get("text")
         if not isinstance(text, str) or not text:
             raise _PromptParameterError(
-                f"llm_step '{key}' items require non-empty text.",
+                f"llm_action '{key}' items require non-empty text.",
                 reason=f"invalid_{key}_text",
                 payload={"index": index},
             )
@@ -333,7 +281,7 @@ class _PromptArgumentBuilder:
             not isinstance(label_value, str) or not label_value
         ):
             raise _PromptParameterError(
-                f"llm_step '{key}' label must be non-empty when provided.",
+                f"llm_action '{key}' label must be non-empty when provided.",
                 reason=f"invalid_{key}_label",
                 payload={"index": index},
             )
@@ -348,14 +296,14 @@ class _PromptArgumentBuilder:
             return ()
         if not isinstance(value, list):
             raise PromptReferenceError(
-                "llm_step 'reference_links' must be a list when provided.",
+                "llm_action 'reference_links' must be a list when provided.",
                 reason="invalid_reference_links",
             )
         blocks: list[PromptBlock] = []
         for index, item in enumerate(value, start=1):
             if not isinstance(item, str) or not item:
                 raise PromptReferenceError(
-                    "llm_step 'reference_links' items must be non-empty strings.",
+                    "llm_action 'reference_links' items must be non-empty strings.",
                     reason="invalid_reference_link",
                     payload={"index": index},
                 )
@@ -390,73 +338,6 @@ class _PromptArgumentBuilder:
             if resolver.supports(link):
                 return resolver
         return None
-
-
-def with_action_how(prompt: TaskPrompt, guidance: tuple[str, ...]) -> TaskPrompt:
-    """Return a prompt with action-level HOW guidance appended to guide blocks."""
-
-    if not guidance:
-        return prompt
-    guide_blocks = [*prompt.guide_blocks]
-    for index, item in enumerate(guidance, start=1):
-        if not item:
-            continue
-        guide_blocks.append(
-            PromptBlock.from_text(
-                f"task_prompt:guide:action_how:{index}",
-                "# Action HOW\n" + item,
-            )
-        )
-    return TaskPrompt(
-        guide_blocks=tuple(guide_blocks),
-        input_blocks=prompt.input_blocks,
-        output_blocks=prompt.output_blocks,
-    )
-
-
-def run_json_task(
-    *,
-    llm_runner: LLMRunner,
-    context_engine: ContextEngine,
-    execution: ActionExecution,
-    prompt: TaskPrompt,
-    subject: str,
-) -> JsonObject | ActionResult:
-    try:
-        result = llm_runner.run(
-            TaskCall(
-                profile=TaskProfile.LLM_ACTION,
-                messages=context_engine.compose(prompt),
-                settings=CallSettings(
-                    answer_format=AnswerFormat.JSON_OBJECT,
-                    tool_use=ToolUse.DISABLED,
-                ),
-            )
-        )
-    except RuntimeException as exc:
-        return _failed(
-            execution,
-            f"{subject} failed: {exc.message}",
-            {"reason": exc.reason, "payload": exc.payload},
-        )
-    except ContextError as exc:
-        return _failed(
-            execution,
-            f"{subject} could not compose context: {exc}",
-            {"error_type": type(exc).__name__},
-        )
-    if result.status is TaskResultStatus.FAILURE:
-        feedback = f"{subject} output did not satisfy its protocol."
-        if result.failure is not None and result.failure.model_feedback:
-            feedback = result.failure.model_feedback
-        return _failed(execution, feedback, {"reason": "task_failure"})
-    if not isinstance(result.answer, JsonAnswer):
-        return _failed(
-            execution,
-            f"{subject} did not return a JSON object.",
-            {"reason": "missing_json_answer"},
-        )
-    return result.answer.value
 
 
 @dataclass(frozen=True)
@@ -506,6 +387,29 @@ def _normalized_answer_payload(
     if references:
         result["references"] = references
     return result
+
+
+def register_llm_action_executors(
+    builder: ActionEngineBuilder,
+    *,
+    llm_action: LLMActionTaskRunner,
+    reference_resolvers: Sequence[PromptReferenceResolver] = (),
+) -> ActionEngineBuilder:
+    """Register built-in LLM action executors on an action builder."""
+
+    return builder.register_executor(
+        "llm_action.reason",
+        CoreReasonActionExecutor(
+            llm_action=llm_action,
+            reference_resolvers=reference_resolvers,
+        ),
+    ).register_executor(
+        "llm_action.answer",
+        CoreAnswerActionExecutor(
+            llm_action=llm_action,
+            reference_resolvers=reference_resolvers,
+        ),
+    )
 
 
 def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:

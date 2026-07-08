@@ -82,6 +82,10 @@ class AgentHomeEngine:
         limit = self._max_read_chars if max_chars is None else max_chars
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise AgentHomeContractError("Home resource read limit must be positive")
+        if parsed.space in {"how_domain", "how_action"}:
+            raise AgentHomeContractError(
+                "Home automatic HOW links cannot be read as progressive resources"
+            )
         source = self._layout.source_for_resource(parsed)
         if not source.is_file():
             raise AgentHomeContractError(f"Home resource file does not exist: {source}")
@@ -108,9 +112,9 @@ class AgentHomeEngine:
         prefix = f"{domain}."
         if action_name.startswith(prefix):
             action_key = action_name[len(prefix) :]
-        link = HomeResourceLink("how_domain", f"{domain}/actions/{action_key}.md")
+        link = HomeTopLink("how_action", f"{domain}/{action_key}")
         try:
-            return self.read_resource(link).text
+            return self.read_top(link)
         except AgentHomeContractError:
             return None
 

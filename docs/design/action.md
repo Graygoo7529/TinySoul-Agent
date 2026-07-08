@@ -78,7 +78,7 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
 
-后端只负责执行实现，不负责模型侧解释。`llm_step` 只表示动作内部还需要一次受控 LLM 调用，不意味着 action 退化成 prompt 拼接逻辑。
+后端只负责执行实现，不负责模型侧解释。`llm_action` 只表示动作内部还需要一次受控 LLM 调用，不意味着 action 退化成 prompt 拼接逻辑；公共调用能力由 action 层共享服务提供，业务 executor 仍负责自身 action 语义。
 
 ## 执行语义
 
@@ -196,15 +196,17 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `script` 后端用于临时 Python 脚本动作。它从 action params 中读取脚本内容，写入临时目录，然后复用 subprocess 运行语义。script 后端只提供执行机制；是否向模型暴露脚本编写动作由具体 action TOML 决定。
 
-### llm_step
+### llm_action
 
-`llm_step` 表示 action 内部还需要一次受控 LLM task。它必须继续遵守“所有 LLM 调用基于 Context 构造的 MessageStack”的原则；executor 通过注入的 `ContextEngine` 构造消息栈，并通过注入的 LLM runner 发起 `LLM_ACTION` task。
+`llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/action/llm_action.py`，负责集中处理 Phase3 自动 HOW、Context message stack 构造、`LLM_ACTION` task 调用、JSON object 输出和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
 
-`llm_step` action 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。需要操作 workspace 的 LLM action 不使用通用 `llm_step` 参数承载目标正文，而应由 Workspace 模块提供 executor，接收 `target_link` 和 `reference_links`，在 action 内部加载目标与参考正文并调用 LLM。`llm_step` 不保留旧的字符串输入兼容入口，新增动作必须直接使用 block/link 协议。
+`llm_action` 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。需要操作 workspace 的 LLM action 不使用通用参数承载目标正文，而应由 Workspace 模块提供 executor，接收 `target_link` 和 `reference_links`，在 action 内部加载目标与参考正文并调用共享 LLM action 服务。新增动作必须直接使用 block/link 协议。
 
-嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_step.context_task` handler，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 使用 `llm_step.answer` handler，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.rewrite` 是 workspace 业务 action，不是通用推理 action；它使用 `target_link` 与 `reference_links` 完成目标文件重写。
+Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-`llm_step` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
+嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 使用 `llm_action.reason` handler，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 使用 `llm_action.answer` handler，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.rewrite` 是 workspace 业务 action，不是通用推理 action；它使用 `target_link` 与 `reference_links` 完成目标文件重写。
+
+`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 
 ## 组装入口
 

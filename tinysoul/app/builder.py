@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
-from tinysoul.action.backends.llm_step_registration import register_llm_step_actions
+from tinysoul.action.backends.llm_action import register_llm_action_executors
+from tinysoul.action.llm_action import LLMActionTaskRunner
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
@@ -172,15 +173,18 @@ class TinySoulAppBuilder:
                 home,
                 runtime_bridge=home_bridge,
             )
-            action = self._action if self._action is not None else self._build_action(
-                llm=llm,
+            llm_action = LLMActionTaskRunner(
+                llm_runner=llm,
                 context=context,
+                action_how=action_how,
+            )
+            action = self._action if self._action is not None else self._build_action(
                 bus=bus,
                 workspace=workspace,
                 home=home,
                 home_bridge=home_bridge,
                 action_bridge=action_bridge,
-                action_how=action_how,
+                llm_action=llm_action,
             )
             trap = self._build_trap(context, home)
             phase1 = Phase1Unit(
@@ -339,14 +343,12 @@ class TinySoulAppBuilder:
     def _build_action(
         self,
         *,
-        llm: LLMRunner,
-        context: ContextEngine,
         bus: SignalBus,
         workspace: WorkspaceEngine,
         home: AgentHomeEngine,
         home_bridge: RuntimeAgentHomeBridge,
         action_bridge: RuntimeActionBridge,
-        action_how: HomeActionHowProvider,
+        llm_action: LLMActionTaskRunner,
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
         try:
@@ -355,21 +357,17 @@ class TinySoulAppBuilder:
                 builder,
                 workspace=workspace,
                 bus=bus,
-                llm_runner=llm,
-                context=context,
-                action_how=action_how,
+                llm_action=llm_action,
             )
             register_home_actions(
                 builder,
                 home=home,
                 runtime_bridge=home_bridge,
             )
-            register_llm_step_actions(
+            register_llm_action_executors(
                 builder,
-                llm_runner=llm,
-                context=context,
                 reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
-                action_how=action_how,
+                llm_action=llm_action,
             )
             return builder.build()
         except ConfigError:

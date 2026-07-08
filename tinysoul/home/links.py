@@ -12,7 +12,7 @@ HOME_LINK_PREFIX = "home:"
 
 @dataclass(frozen=True)
 class HomeTopLink:
-    """A top-level Agent Home link loadable into BackgroundContext."""
+    """A top-level Agent Home link or automatic HOW entry link."""
 
     space: str
     name: str

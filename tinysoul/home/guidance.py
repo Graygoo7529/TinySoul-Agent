@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.action.llm_action import ActionHow
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
@@ -45,14 +46,16 @@ class HomeActionHowProvider:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def guidance_for(self, *, domain: str, action_name: str) -> tuple[str, ...]:
+    def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
         try:
-            guidance = self._home.guidance_for_action(domain, action_name)
+            domain_guidance = self._home.guidance_for_domain(domain)
+            action_guidance = self._home.guidance_for_action(domain, action_name)
         except AgentHomeRuntimeCopyRequired as exc:
             raise self._runtime_bridge.runtime_copy_required(
                 link=exc.link,
                 payload=exc.to_payload(),
             ) from exc
-        if not guidance:
-            return ()
-        return (guidance,)
+        return ActionHow(
+            domain=(domain_guidance,) if domain_guidance else (),
+            action=(action_guidance,) if action_guidance else (),
+        )
