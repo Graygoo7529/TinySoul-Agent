@@ -27,5 +27,6 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.ty.environment]
-python = "C:/Anaconda3/envs/TinySoul/python.exe"
+# python = "C:/Anaconda3/envs/TinySoul/python.exe"
+python = "C:/Users/Aogo/miniconda3/envs/TinySoul/python.exe"
 root = ["."]
