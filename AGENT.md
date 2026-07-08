@@ -39,9 +39,10 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 （5）MEMORY 是长期记忆库，每天形成一个 yyyy-mm-dd.md 的日志，且日志可以通过 home:memory@yyyy-mm-dd 标识为顶层内容。它记录当天记忆内容，并在日志中使用链接指向关联内容；也可通过工具反向查询 Agent Home 中具有 home:memory@yyyy-mm-dd 标识的其他顶层内容；可通过语义匹配 top-k memory 交付语境模块，且 AGENT 规约应说明 MEMORY 的使用方式；
 
 基于以上设计，只需要存在三种链接/Link：（1）链接指向顶层内容，主要通过自动加载或 Phase1 直接加载到 BackgroundContext；（2）链接指向 Agent Home 中的非顶层内容，Agent 可在 Phase1 选择加载行动，在 Phase2 中指定加载链接，并通过行动结果加载到 TurnTraceContext；（3）workspace 链接，指向工作区资源，Agent 可在 Phase2 生成相关行动参数时使用它们，标识这些行动的操作目标或参考资料，但工作区资源本身不会被加载到 Context 中。归纳如下：
-（1）home:xxx@ 表示“顶层知识或框架自动挂载 HOW”；普通顶层知识可加载为 BackgroundContext，`how_domain`/`how_action` 只进入对应 Phase/task prompt
-（2）home:xxx/ 表示“可被行动读取或使用的资源”
-（3）workspace: 永远是工作区资源句柄
+（1）home:xxx@ 表示“顶层知识或框架自动挂载 HOW”；顶层知识可加载为 BackgroundContext；
+（2）home:xxx/ 表示“可被行动读取或使用的资源”加载到 TurnTraceContext；
+（3）workspace: 永远是工作区资源句柄；
+（4）home:how_domain: 和 home:how_action: 只进入对应 Phase/task prompt；
 
 
 一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
