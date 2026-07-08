@@ -1,0 +1,82 @@
+name = "core.reason"
+domain = "core"
+
+[tool]
+description = "Run a focused internal reasoning step and return a JSON object."
+
+[tool.schema]
+type = "object"
+required = ["guide"]
+additionalProperties = false
+
+[tool.schema.properties.guide]
+type = "string"
+description = "Focused instruction for the reasoning step."
+
+[tool.schema.properties.task_inputs]
+type = "array"
+description = "Optional splittable task prompt inputs."
+
+[tool.schema.properties.task_inputs.items]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.task_inputs.items.properties.label]
+type = "string"
+description = "Optional stable label for this input block."
+
+[tool.schema.properties.task_inputs.items.properties.text]
+type = "string"
+description = "Input text for this prompt block."
+
+[tool.schema.properties.references]
+type = "array"
+description = "Optional structured references resolved into task prompt blocks."
+
+[tool.schema.properties.references.items]
+type = "object"
+required = ["type", "link"]
+additionalProperties = false
+
+[tool.schema.properties.references.items.properties.type]
+type = "string"
+enum = ["workspace.text"]
+description = "Reference type."
+
+[tool.schema.properties.references.items.properties.link]
+type = "string"
+description = "Reference link, for example workspace:docs/task.md."
+
+[tool.schema.properties.references.items.properties.max_chars]
+type = "integer"
+description = "Optional positive character limit."
+
+[tool.schema.properties.references.items.properties.start_line]
+type = "integer"
+description = "Optional positive 1-based start line."
+
+[tool.schema.properties.references.items.properties.max_lines]
+type = "integer"
+description = "Optional positive line count."
+
+[tool.schema.properties.output_desc]
+type = "string"
+description = "Optional expected JSON output description."
+
+[semantic]
+use_when = ["Need a bounded internal reasoning step before choosing the next action or final answer"]
+avoid_when = ["A direct final answer is already ready", "A concrete workspace or home action is required instead"]
+effects = ["read_only"]
+examples = ["Analyze a workspace file excerpt and return a JSON decision object"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "llm_step"
+handler = "llm_step.context_task"

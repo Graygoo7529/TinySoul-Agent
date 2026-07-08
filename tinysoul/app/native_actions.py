@@ -16,4 +16,10 @@ def core_answer(
     text = execution.call.params.get("text", "")
     if not isinstance(text, str):
         text = str(text)
-    return {"text": text}
+    payload: JsonObject = {"text": text}
+    references = execution.call.params.get("references", [])
+    if isinstance(references, list):
+        cleaned = tuple(item for item in references if isinstance(item, str) and item)
+        if cleaned:
+            payload["references"] = list(cleaned)
+    return payload

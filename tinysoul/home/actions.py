@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
 from tinysoul.action.core.result import ActionResult, ActionResultStage
@@ -10,6 +11,20 @@ from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
 from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
+
+
+def register_home_actions(
+    builder: ActionEngineBuilder,
+    *,
+    home: AgentHomeEngine,
+    runtime_bridge: RuntimeAgentHomeBridge,
+) -> ActionEngineBuilder:
+    """Register Agent Home action executors on an action builder."""
+
+    return builder.register_executor(
+        "home.resource.read",
+        HomeResourceReadExecutor(home, runtime_bridge=runtime_bridge),
+    )
 
 
 class HomeResourceReadExecutor(ActionExecutor):

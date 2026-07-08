@@ -23,6 +23,8 @@ def test_load_builtin_catalog() -> None:
     assert answer.tool.schema["type"] == "object"
     assert answer.runtime.timeout_seconds == 10.0
     assert answer.runtime.parallel_policy is ActionParallelPolicy.SERIAL
+    reason = catalog.get_action("core.reason")
+    assert reason.backend.handler == "llm_step.context_task"
 
 
 def test_catalog_view_by_domain() -> None:

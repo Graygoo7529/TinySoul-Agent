@@ -3,7 +3,22 @@ domain = "core"
 
 [tool]
 description = "Provide a final user-facing answer."
-schema = { type = "object", properties = { text = { type = "string", description = "Final answer text." } }, required = ["text"], additionalProperties = false }
+
+[tool.schema]
+type = "object"
+required = ["text"]
+additionalProperties = false
+
+[tool.schema.properties.text]
+type = "string"
+description = "Final answer text."
+
+[tool.schema.properties.references]
+type = "array"
+description = "Optional source or workspace links used by the answer."
+
+[tool.schema.properties.references.items]
+type = "string"
 
 [semantic]
 use_when = ["The task is complete and the user should receive an answer"]

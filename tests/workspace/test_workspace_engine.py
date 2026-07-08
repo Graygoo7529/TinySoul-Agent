@@ -18,12 +18,14 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.context import SIGNAL_WORKING_PATCH
 from tinysoul.infra.json import JsonObject
+from tinysoul.llm.messages import TextPart, UserMessage
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.workspace import (
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceLink,
     WorkspacePromptInput,
+    WorkspacePromptReferenceResolver,
     WorkspaceScanSkipKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
@@ -169,6 +171,61 @@ def test_workspace_prepare_task_input_renders_bounded_resources(tmp_path: Path) 
     assert "abc" in rendered
     assert "truncated: true" in rendered
     assert "## workspace:b.md" in rendered
+
+
+def test_workspace_prompt_reference_resolver_returns_prefix_block(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve(
+        {"type": "workspace.text", "link": "workspace:a.md", "max_chars": 3}
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].label == "task_prompt:input:workspace:a.md:prefix:3"
+    text = _message_text(blocks[0].message)
+    assert "# Workspace Reference" in text
+    assert "link: workspace:a.md" in text
+    assert "abc" in text
+    assert "truncated: true" in text
+
+
+def test_workspace_prompt_reference_resolver_returns_line_range_block(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve(
+        {
+            "type": "workspace.text",
+            "link": "workspace:a.md",
+            "start_line": 2,
+            "max_lines": 1,
+            "max_chars": 100,
+        }
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].label == "task_prompt:input:workspace:a.md:lines:2-2"
+    text = _message_text(blocks[0].message)
+    assert "range: lines:2-2" in text
+    assert "two\n" in text
+    assert "one" not in text
 
 
 def test_workspace_read_text_slice_returns_line_range(tmp_path: Path) -> None:
@@ -458,6 +515,10 @@ def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> Non
     patch = signals[0].payload["patch"]
     assert isinstance(patch, dict)
     assert patch["remove_resources"] == ["workspace:a.md"]
+
+
+def _message_text(message: UserMessage) -> str:
+    return "\n".join(part.text for part in message.parts if isinstance(part, TextPart))
 
 
 def _execution(action_name: str, params: JsonObject) -> ActionExecution:

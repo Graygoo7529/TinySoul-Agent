@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
 from tinysoul.action.core.result import ActionResult, ActionResultStage
@@ -49,6 +50,35 @@ def workspace_scan(engine: WorkspaceEngine, bus: SignalBus):
         }
 
     return execute
+
+
+def register_workspace_actions(
+    builder: ActionEngineBuilder,
+    *,
+    workspace: WorkspaceEngine,
+    bus: SignalBus,
+) -> ActionEngineBuilder:
+    """Register workspace action executors on an action builder."""
+
+    return (
+        builder.register_native("workspace.scan", workspace_scan(workspace, bus))
+        .register_executor(
+            "workspace.describe",
+            WorkspaceDescribeExecutor(workspace, bus),
+        )
+        .register_executor(
+            "workspace.write",
+            WorkspaceWriteExecutor(workspace, bus),
+        )
+        .register_executor(
+            "workspace.patch",
+            WorkspacePatchExecutor(workspace, bus),
+        )
+        .register_executor(
+            "workspace.delete",
+            WorkspaceDeleteExecutor(workspace, bus),
+        )
+    )
 
 
 class WorkspaceDescribeExecutor(ActionExecutor):

@@ -180,6 +180,7 @@ def _action_engine():
             "core.answer",
             lambda execution, context: {"text": execution.call.params["text"]},
         )
+        .register_native("llm_step.context_task", lambda execution, context: {"ok": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})

@@ -61,17 +61,17 @@ TinySoulAppBuilder 负责：
 - 加载 ConfigEnvironment；
 - 解析 LoopSettings 与 AppSettings；
 - 构建 LLMTaskRunner、ContextEngine、ActionEngine、SignalBus 和 RuntimeTrap；
-- 注册 app 装配层 native action 与各模块提供的 executor；
+- 注册 app 装配层 native action，并调用各模块 registrar 装配模块 executor；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner；
 - 构建 InputCommandParser、InputDispatcher 和输入源；
 - 返回 TinySoulApp。
 
-`core.answer` 仍由 app 装配层提供。Workspace、Agent Home 和 `llm_step` 的具体语义由对应模块提供 executor 或 handler，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_action guidance。
+`core.answer` 仍由 app 装配层提供。Workspace、Agent Home 和 `llm_step` 的具体语义由对应模块提供 registrar、executor 或 handler，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_action guidance。Workspace 的 prompt reference resolver 也在装配期注入到 `llm_step`，让 `core.reason` 等通用动作可以使用 workspace references。
 
 ## 与其他模块的关系
 
 - 对 loop：app 创建各级 runner，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
-- 对 action：app 注册 native action 与各模块 executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
+- 对 action：app 注册 native action 并调用模块 registrar；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
 - 对 context：app 通过 Agent Home / Context builder 提供默认与可加载背景条目，不直接读取 Agent Home 文件。
 - 对 workspace / Agent Home：app 只装配模块门面和 executor，不解释 `workspace:` 或 `home:` 链接。

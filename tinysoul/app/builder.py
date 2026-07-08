@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
-from tinysoul.action.backends.llm_step import LLMStepActionExecutor
+from tinysoul.action.backends.llm_step_registration import register_llm_step_actions
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
@@ -14,8 +14,8 @@ from tinysoul.home import (
     AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
     HomeDomainGuidanceProvider,
-    HomeResourceReadExecutor,
     parse_agent_home_settings,
+    register_home_actions,
 )
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
@@ -52,13 +52,12 @@ from tinysoul.runtime.bridge import (
     RuntimeLLMBridge,
     RuntimeWorkspaceBridge,
 )
-from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, parse_workspace_settings
-from tinysoul.workspace.actions import (
-    WorkspaceDeleteExecutor,
-    WorkspaceDescribeExecutor,
-    WorkspacePatchExecutor,
-    WorkspaceWriteExecutor,
-    workspace_scan,
+from tinysoul.workspace import (
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+    WorkspacePromptReferenceResolver,
+    parse_workspace_settings,
+    register_workspace_actions,
 )
 from tinysoul.workspace.errors import WorkspaceError
 
@@ -345,36 +344,27 @@ class TinySoulAppBuilder:
     ) -> ActionEngine:
         catalog_root = self._root / "tinysoul" / "action" / "builtin"
         try:
-            return (
-                ActionEngineBuilder(catalog_root)
-                .register_native("core.answer", core_answer)
-                .register_native("workspace.scan", workspace_scan(workspace, bus))
-                .register_executor(
-                    "workspace.describe",
-                    WorkspaceDescribeExecutor(workspace, bus),
-                )
-                .register_executor(
-                    "workspace.write",
-                    WorkspaceWriteExecutor(workspace, bus),
-                )
-                .register_executor(
-                    "workspace.patch",
-                    WorkspacePatchExecutor(workspace, bus),
-                )
-                .register_executor(
-                    "workspace.delete",
-                    WorkspaceDeleteExecutor(workspace, bus),
-                )
-                .register_executor(
-                    "home.resource.read",
-                    HomeResourceReadExecutor(home, runtime_bridge=home_bridge),
-                )
-                .register_executor(
-                    "llm_step.context_task",
-                    LLMStepActionExecutor(llm_runner=llm, context=context),
-                )
-                .build()
+            builder = ActionEngineBuilder(catalog_root).register_native(
+                "core.answer",
+                core_answer,
             )
+            register_workspace_actions(
+                builder,
+                workspace=workspace,
+                bus=bus,
+            )
+            register_home_actions(
+                builder,
+                home=home,
+                runtime_bridge=home_bridge,
+            )
+            register_llm_step_actions(
+                builder,
+                llm_runner=llm,
+                context=context,
+                reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
+            )
+            return builder.build()
         except ConfigError:
             raise
         except Exception as exc:

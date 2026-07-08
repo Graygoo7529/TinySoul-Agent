@@ -1,6 +1,6 @@
 """TinySoul Agent Home resource module."""
 
-from .actions import HomeResourceReadExecutor
+from .actions import HomeResourceReadExecutor, register_home_actions
 from .config import AgentHomeSettings, parse_agent_home_settings
 from .engine import AgentHomeEngine, AgentHomeEngineBuilder, HomeBackgroundEntry
 from .errors import (
@@ -40,4 +40,5 @@ __all__ = [
     "HomeTopLink",
     "parse_agent_home_settings",
     "parse_home_link",
+    "register_home_actions",
 ]

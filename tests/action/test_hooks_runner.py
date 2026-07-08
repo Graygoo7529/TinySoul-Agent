@@ -136,6 +136,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
 
     assert executors.missing_handlers_for(catalog) == (
         "home.resource.read",
+        "llm_step.context_task",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
