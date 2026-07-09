@@ -9,8 +9,8 @@ from tinysoul.runtime import RunScope, Signal, SignalBus
 
 from .errors import LoopContractError
 
-SIGNAL_NAMESPACE = "loop"
 SIGNAL_CONTROL_REQUEST = "loop.control.request"
+SIGNAL_NAMESPACE = "loop"
 
 
 class LoopControlKind(StrEnum):
@@ -62,10 +62,8 @@ def parse_control_request_signal(signal: Signal) -> LoopControlRequest:
 def consume_control_requests(bus: SignalBus) -> tuple[LoopControlRequest, ...]:
     """Consume loop control signals from the bus."""
 
-    signals = bus.consume_namespace(SIGNAL_NAMESPACE)
+    signals = bus.consume_name(SIGNAL_CONTROL_REQUEST)
     requests: list[LoopControlRequest] = []
     for signal in signals:
-        if signal.name != SIGNAL_CONTROL_REQUEST:
-            continue
         requests.append(parse_control_request_signal(signal))
     return tuple(requests)

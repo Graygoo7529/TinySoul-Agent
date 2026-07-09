@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.dotenv import DotenvSource, parse_dotenv
 
 
@@ -35,7 +36,7 @@ def test_parse_dotenv_escaped_double_quotes() -> None:
 
 
 def test_parse_dotenv_rejects_unclosed_quote() -> None:
-    with pytest.raises(ValueError, match="Unclosed quoted"):
+    with pytest.raises(ConfigError, match="Unclosed quoted"):
         parse_dotenv('BROKEN="value\n')
 
 

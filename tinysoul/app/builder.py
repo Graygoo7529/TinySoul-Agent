@@ -52,6 +52,7 @@ from tinysoul.runtime.bridge import (
     RuntimeContextBridge,
     RuntimeInfraBridge,
     RuntimeLLMBridge,
+    RuntimeLoopBridge,
     RuntimeWorkspaceBridge,
 )
 from tinysoul.workspace import (
@@ -136,6 +137,7 @@ class TinySoulAppBuilder:
         app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
         llm_bridge = RuntimeLLMBridge()
+        loop_bridge = RuntimeLoopBridge()
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
         workspace_bridge = RuntimeWorkspaceBridge()
@@ -149,12 +151,12 @@ class TinySoulAppBuilder:
             loop_settings = (
                 self._loop_settings
                 if self._loop_settings is not None
-                else parse_loop_settings(config.section_tree("loop"))
+                else self._build_loop_settings(config, loop_bridge)
             )
             app_settings = (
                 self._app_settings
                 if self._app_settings is not None
-                else parse_app_settings(config.section_tree("app"))
+                else self._build_app_settings(config, app_bridge)
             )
             bus = self._bus if self._bus is not None else SignalBus()
             llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
@@ -273,8 +275,28 @@ class TinySoulAppBuilder:
                 tasks=llm_config.tasks,
                 runtime_bridge=bridge,
             )
-        except ConfigError:
-            raise
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+
+    def _build_loop_settings(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeLoopBridge,
+    ) -> LoopSettings:
+        try:
+            return parse_loop_settings(config.section_tree("loop"))
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+
+    def _build_app_settings(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeAppBridge,
+    ) -> AppSettings:
+        try:
+            return parse_app_settings(config.section_tree("app"))
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
 
     def _build_home(
         self,

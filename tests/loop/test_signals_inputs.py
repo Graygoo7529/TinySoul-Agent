@@ -7,7 +7,7 @@ from tinysoul.loop import (
     consume_control_requests,
     parse_control_request_signal,
 )
-from tinysoul.runtime import RunLevel, RunScope, SignalBus
+from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 
 
 def test_control_signal_roundtrip() -> None:
@@ -36,8 +36,13 @@ def test_consume_control_requests_leaves_non_loop_signals() -> None:
             source="test",
         )
     )
+    bus.emit(Signal("loop.observation", "test", scope, {"ok": True}))
+    bus.emit(Signal("context.trace.append", "test", scope, {"ok": True}))
 
     requests = consume_control_requests(bus)
 
     assert requests[0].kind is LoopControlKind.STOP_TURN
-    assert len(bus) == 0
+    assert tuple(signal.name for signal in bus.peek()) == (
+        "loop.observation",
+        "context.trace.append",
+    )

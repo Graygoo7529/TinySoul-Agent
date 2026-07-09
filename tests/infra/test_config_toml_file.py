@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.config.toml_file import ConfigFileToml
 
 
@@ -50,3 +53,29 @@ def test_toml_config_data_returns_copy(local_tmp: Path) -> None:
 
     assert config.to_source().values["infra.runtime.max_turns"] == 20
 
+
+def test_toml_config_rejects_empty_key_as_config_error(local_tmp: Path) -> None:
+    config = ConfigFileToml(local_tmp / "tinysoul.toml")
+
+    with pytest.raises(ConfigError, match="Configuration key must be non-empty"):
+        config.set_value("", 1)
+
+
+def test_toml_config_rejects_nested_key_below_scalar_as_config_error(
+    local_tmp: Path,
+) -> None:
+    config = ConfigFileToml(local_tmp / "tinysoul.toml")
+    config.set_value("infra.runtime", 1)
+
+    with pytest.raises(ConfigError, match="Cannot set nested key below scalar"):
+        config.set_value("infra.runtime.max_turns", 20)
+
+
+def test_toml_config_rejects_unsupported_value_as_config_error(
+    local_tmp: Path,
+) -> None:
+    config = ConfigFileToml(local_tmp / "tinysoul.toml")
+    config.set_value("infra.runtime.bad", object())
+
+    with pytest.raises(ConfigError, match="Unsupported TOML value type"):
+        config.save()

@@ -43,6 +43,26 @@ def test_environment_uses_dataclass_defaults_when_no_source(local_tmp: Path) -> 
     assert settings.parallel_workers == 5
 
 
+def test_environment_rejects_empty_section_as_config_error(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[],
+    )
+
+    with pytest.raises(ConfigError, match="Configuration section must be non-empty"):
+        environment.section_tree("")
+
+
+def test_environment_rejects_non_dataclass_settings_type(local_tmp: Path) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[],
+    )
+
+    with pytest.raises(ConfigError, match="Settings type must be a dataclass type"):
+        environment.load_section("infra.runtime", dict)
+
+
 def test_environment_applies_sources_in_order(local_tmp: Path) -> None:
     environment = ConfigEnvironment(
         project=ProjectConfig(local_tmp),

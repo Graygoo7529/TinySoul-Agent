@@ -230,6 +230,60 @@ def test_app_builder_workspace_config_error_is_workspace_startup_failure(
     assert exc.payload["key"] == "workspace.max_files"
 
 
+def test_app_builder_loop_config_error_is_loop_startup_failure(tmp_path: Path) -> None:
+    config = _test_config(tmp_path, {"loop.max_cycles_per_turn": 0})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "loop"
+    assert exc.payload["key"] == "loop.max_cycles_per_turn"
+
+
+def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> None:
+    config = _test_config(tmp_path, {"app.interactive": "bad"})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_loop_settings(LoopSettings())
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "app"
+    assert exc.payload["key"] == "app.interactive"
+
+
+def test_app_builder_llm_config_error_is_llm_startup_failure(tmp_path: Path) -> None:
+    config = _test_config(tmp_path, {"llm.tasks.framework.models": ["missing_model"]})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_loop_settings(LoopSettings())
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "llm"
+    assert exc.payload["key"] == "llm.tasks.framework.models"
+
+
 def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
     return TaskResult.success(
         raw_response=RawResponse(

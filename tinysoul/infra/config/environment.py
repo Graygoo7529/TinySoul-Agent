@@ -77,7 +77,11 @@ class ConfigEnvironment:
 
     def section_tree(self, section: str) -> dict[str, object]:
         if not section:
-            raise ValueError("section must be non-empty")
+            raise ConfigError(
+                "Configuration section must be non-empty",
+                key="section",
+                expected="non-empty section name",
+            )
         tree: dict[str, object] = {}
         prefix = f"{section}."
         for source in self._sources:
@@ -99,7 +103,12 @@ class ConfigEnvironment:
 
     def load_section(self, section: str, settings_type: type[T]) -> T:
         if not is_dataclass(settings_type):
-            raise TypeError("settings_type must be a dataclass type")
+            raise ConfigError(
+                "Settings type must be a dataclass type",
+                key=section,
+                value=settings_type,
+                expected="dataclass type",
+            )
 
         defaults = self._default_field_names(settings_type)
         type_hints = get_type_hints(settings_type)

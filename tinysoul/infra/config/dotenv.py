@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .errors import ConfigError
 from .source import ConfigSource
 
 
@@ -45,7 +46,12 @@ def _parse_value(raw: str, *, line_no: int) -> str:
             if char == quote:
                 return "".join(chars)
             chars.append(char)
-        raise ValueError(f"Unclosed quoted dotenv value at line {line_no}")
+        raise ConfigError(
+            "Unclosed quoted dotenv value",
+            key=f"dotenv.line.{line_no}",
+            value=raw,
+            expected="closed quote",
+        )
     return _strip_inline_comment(raw).strip()
 
 

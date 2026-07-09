@@ -65,6 +65,8 @@ TinySoulAppBuilder 负责：
 - 构建 InputCommandParser、InputDispatcher 和输入源；
 - 返回 TinySoulApp。
 
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。解析 LLM、Loop、App、Workspace 或 Agent Home 配置时，AppBuilder 会在本模块桥接点把 `ConfigError` 映射为对应模块的 startup failure；它不把所有装配期配置错误统一归为 app 失败。这样启动失败 payload 可以稳定表达真实责任模块和配置 key。
+
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 也在装配期注入到 action 层共享 LLM action backend 服务，让 `core.reason`、`core.answer` 等通用动作可以使用 `reference_links`，让带内部 LLM task 的 action 自动获得 domain/action HOW。
 
 ## 与其他模块的关系

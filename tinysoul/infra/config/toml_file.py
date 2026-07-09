@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 import tomllib
 
+from .errors import ConfigError
 from .source import ConfigSource
 
 
@@ -30,7 +31,12 @@ class ConfigFileToml:
 
     def set_value(self, dotted_key: str, value: object) -> None:
         if not dotted_key:
-            raise ValueError("dotted_key must be non-empty")
+            raise ConfigError(
+                "Configuration key must be non-empty",
+                key="config",
+                source=str(self.path),
+                expected="non-empty dotted key",
+            )
         parts = dotted_key.split(".")
         current: dict[str, object] = self._data
         for part in parts[:-1]:
@@ -41,7 +47,13 @@ class ConfigFileToml:
                 current = nested
                 continue
             if not isinstance(existing, dict):
-                raise ValueError(f"Cannot set nested key below scalar: {part}")
+                raise ConfigError(
+                    "Cannot set nested key below scalar",
+                    key=dotted_key,
+                    value=part,
+                    source=str(self.path),
+                    expected="table",
+                )
             current = cast(dict[str, object], existing)
         current[parts[-1]] = value
 
@@ -87,7 +99,12 @@ def merge_trees(
             )
             continue
         if isinstance(existing, Mapping) or isinstance(value, Mapping):
-            raise ValueError(f"Cannot merge table and scalar at key: {key}")
+            raise ConfigError(
+                "Cannot merge table and scalar",
+                key=str(key),
+                value=key,
+                expected="matching value kinds",
+            )
         result[key] = value
     return result
 
@@ -132,7 +149,12 @@ def _string_key_mapping(data: Mapping[str, object]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in data.items():
         if not isinstance(key, str):
-            raise TypeError(f"Configuration keys must be strings: {key!r}")
+            raise ConfigError(
+                "Configuration keys must be strings",
+                key="config",
+                value=repr(key),
+                expected="str",
+            )
         result[key] = value
     return result
 
@@ -148,7 +170,12 @@ def _format_toml_value(value: object) -> str:
         return _quote(str(value))
     if isinstance(value, str):
         return _quote(value)
-    raise TypeError(f"Unsupported TOML value type: {type(value).__name__}")
+    raise ConfigError(
+        "Unsupported TOML value type",
+        key="config",
+        value=type(value).__name__,
+        expected="bool | int | float | str | list | Path",
+    )
 
 
 def _quote(value: str) -> str:

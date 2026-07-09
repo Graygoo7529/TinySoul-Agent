@@ -53,6 +53,8 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 控制请求信号本身不改变控制流；运行器在 Phase 或 Cycle 边界检查到控制请求后，构造对应 Runtime 语义异常进入 Trap，由 Trap 返回结束 Turn 或结束 Program 的运行转移。普通追加输入由 ContextEngine 在明确边界合并，使下一次 MessageStack 构造可见。
 
+Loop 只消费精确的 `loop.control.request` 信号，不按 `loop.` namespace 批量消费。未来若增加 `loop.observation`、`loop.metrics` 或其他 loop 命名空间信号，应由各自消费者处理；控制请求消费者不得因为命名空间相同而移除未知信号。
+
 ## Phase 执行单元
 
 三个 Phase 执行单元的输入统一为 context 门面、action 门面、LLM 任务运行器、信号总线与当前运行位置；输出为各自的明确产物类型（Phase1Outcome、Phase2Outcome、Phase3Outcome）。

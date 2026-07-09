@@ -31,6 +31,20 @@ def test_signal_bus_keeps_order_and_clears() -> None:
     assert bus.consume() == ()
 
 
+def test_signal_bus_consumes_exact_name_only() -> None:
+    bus = SignalBus()
+    scope = RunScope.of(RunFrame(RunLevel.TURN, "user"))
+    first = Signal("loop.control.request", "test", scope)
+    second = Signal("loop.observation", "test", scope)
+    third = Signal("context.trace.append", "test", scope)
+    bus.emit(first)
+    bus.emit(second)
+    bus.emit(third)
+
+    assert bus.consume_name("loop.control.request") == (first,)
+    assert bus.peek() == (second, third)
+
+
 def test_signal_bus_rejects_non_signal() -> None:
     bus = SignalBus()
 
