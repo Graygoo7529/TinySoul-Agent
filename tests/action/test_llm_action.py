@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from tinysoul.action.backends.llm_action import CoreAnswerActionExecutor, CoreReasonActionExecutor
+from tinysoul.action.backends.llm_action import ActionHow, LLMActionTaskRunner
+from tinysoul.action.builtin.core import CoreAnswerActionExecutor, CoreReasonActionExecutor
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
@@ -14,7 +15,6 @@ from tinysoul.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from tinysoul.action.llm_action import ActionHow, LLMActionTaskRunner
 from tinysoul.context import ContextEngineBuilder, PromptBlock
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import TextPart
@@ -163,7 +163,7 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
             "guide_blocks": [{"text": "answer"}],
             "reference_links": ["workspace:a.md"],
         },
-        handler="llm_action.answer",
+        handler="core.answer",
     )
 
     result = executor.execute(execution, ActionExecutionContext())
@@ -187,7 +187,7 @@ def _execution(
     action_name: str,
     params: JsonObject,
     *,
-    handler: str = "llm_action.reason",
+    handler: str = "core.reason",
 ) -> ActionExecution:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="core", description="Core."),),

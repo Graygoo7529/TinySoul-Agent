@@ -66,19 +66,19 @@ status: done
 
 status: done
 
-已将 Workspace 文本引用接入 Context `PromptBlock` 与 `llm_action`。`LLMActionTaskRunner` 位于 action 层，集中处理 Phase3 自动 HOW、Context message stack 构造、`LLM_ACTION` task 调用、JSON object 输出和局部失败归一化。`core.reason` 与 `core.answer` 使用 PromptBlock-only `TaskPrompt` 协议：`guide_blocks`、`input_blocks`、`output_blocks` 均可切分为多条消息；它们只接受 `reference_links`，由 `PromptReferenceResolver.resolve_reference(link)` 解析为只读临时 `PromptBlock`。
+已将 Workspace 文本引用接入 Context `PromptBlock` 与 `llm_action`。`LLMActionTaskRunner` 位于 `tinysoul/action/backends/llm_action.py`，集中处理 Phase3 自动 HOW、Context message stack 构造、`LLM_ACTION` task 调用、JSON object 输出和局部失败归一化。`core.reason` 与 `core.answer` 使用 PromptBlock-only `TaskPrompt` 协议：`guide_blocks`、`input_blocks`、`output_blocks` 均可切分为多条消息；它们只接受 `reference_links`，由 `PromptReferenceResolver.resolve_reference(link)` 解析为只读临时 `PromptBlock`。
 
 Workspace 模块提供 `WorkspacePromptReferenceResolver`，支持把 `workspace:` 链接解析为 read-only reference block，也支持 workspace action 内部把 `target_link` 解析为 target block。Phase2/Phase3 边界不传递正文或行范围参数；需要更细粒度读取时由具体 workspace action 在内部决定。`core.reason` / `core.answer` 可通过 workspace `reference_links` 读取只读参考资料；workspace 编辑目标必须通过 Workspace action 的 `target_link` 表达。
 
 对应实现位置：
 
-- `tinysoul/action/llm_action.py`：`LLMActionTaskRunner`、`ActionHow`、`ActionHowProvider`；
-- `tinysoul/action/backends/llm_action.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
+- `tinysoul/action/backends/llm_action.py`：`LLMActionTaskRunner`、`ActionHow`、`ActionHowProvider`；
+- `tinysoul/action/builtin/core/executors.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
 - `tinysoul/workspace/prompts.py`：`WorkspacePromptReferenceResolver` 与 Workspace PromptBlock 转换；
 - `tinysoul/workspace/actions.py`：Workspace LLM action 内部 target/reference prompt 构造；
 - `tinysoul/action/builtin/core/actions/reason.toml`：通用推理动作；
 - `tinysoul/action/builtin/core/actions/answer.toml`：最终回答动作；
-- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向通用 `llm_action` 注入 workspace reference resolver；
+- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向 builtin core action executor 注入 workspace reference resolver；
 - `tests/action/test_llm_action.py`、`tests/workspace/test_workspace_engine.py`、`tests/home/test_home_engine.py`：任务输入切分、引用解析、workspace block、HOW 注入和 runtime copy trap 测试。
 
 ### 2.6 Action timeout frame 与 Workspace 写入 guard
@@ -131,8 +131,8 @@ status: pending
 - `workspace.write`、`workspace.patch`、`workspace.delete`、`workspace.rewrite` 成功结果不携带文件正文；
 - workspace 变更 action 通过 `context.working.patch` 同步资源摘要或资源移除；
 - workspace 变更 action 的参数和文件失败收敛为局部 `ActionResult`；
-- `llm_action.reason` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；
-- `llm_action.answer` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；
+- `core.reason` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；
+- `core.answer` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；
 - `core.reason` 和 `core.answer` 可通过 workspace `reference_links` 读取只读参考资料；
 - Workspace LLM action 通过 `target_link` 和 `reference_links` 在 action 内部解析 workspace target/reference blocks；
 - `how_domain` 可注入 Phase2 与 Phase3 action-internal LLM task；

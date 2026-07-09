@@ -83,4 +83,4 @@ execute = []
 
 [backend]
 kind = "llm_action"
-handler = "llm_action.reason"
+handler = "core.reason"

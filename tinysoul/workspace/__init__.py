@@ -1,6 +1,6 @@
 """TinySoul workspace resource module."""
 
-from .actions import WorkspaceRewriteExecutor, register_workspace_actions
+from .actions import WorkspaceRewriteExecutor, WorkspaceScanExecutor, register_workspace_actions
 from .config import WorkspaceSettings, parse_workspace_settings
 from .engine import (
     WorkspaceEngine,
@@ -44,6 +44,7 @@ __all__ = [
     "WorkspaceResourceKind",
     "WorkspaceResourceRecord",
     "WorkspaceRewriteExecutor",
+    "WorkspaceScanExecutor",
     "WorkspaceScanResult",
     "WorkspaceScanSkip",
     "WorkspaceScanSkipKind",

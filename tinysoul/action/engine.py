@@ -36,6 +36,8 @@ from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
 from .core.result import ActionPhaseResult, ActionResult
 from .core.runner import ActionBatchRunner
 from .core.scope import (
+    DOMAIN_SELECTION_TOOL,
+    ActionDomainSelection,
     ActionDomainPromptRenderer,
     ActionScopePreparation,
     Phase1DomainScopeBuilder,
@@ -59,17 +61,22 @@ class ActionEngine:
     def phase1_scope(self) -> ToolScope:
         return self.phase1_scope_builder.build(self.catalog)
 
+    def phase1_domain_tool_name(self) -> str:
+        return DOMAIN_SELECTION_TOOL
+
     def phase1_domain_prompt(self) -> str:
         return self.domain_prompt_renderer.render(self.catalog)
 
-    def validate_domain_selection(self, domain: str) -> str | None:
-        """Return model feedback when an action domain cannot be selected."""
+    def normalize_domain_selection(
+        self,
+        tool_calls: tuple[ToolCallRecord, ...],
+    ) -> ActionDomainSelection:
+        """Normalize Phase1 action-domain control calls."""
 
-        if not self.catalog.has_domain(domain):
-            return f"Unknown action domain: {domain}"
-        if not self.catalog.actions_in_domain(domain):
-            return f"Action domain has no available actions: {domain}"
-        return None
+        return self.phase1_scope_builder.normalize_selection(
+            self.catalog,
+            tool_calls,
+        )
 
     def phase2_scope(
         self,

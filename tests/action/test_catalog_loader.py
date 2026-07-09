@@ -23,9 +23,9 @@ def test_load_builtin_catalog() -> None:
     assert answer.tool.schema["type"] == "object"
     assert answer.runtime.timeout_seconds == 10.0
     assert answer.runtime.parallel_policy is ActionParallelPolicy.SERIAL
-    assert answer.backend.handler == "llm_action.answer"
+    assert answer.backend.handler == "core.answer"
     reason = catalog.get_action("core.reason")
-    assert reason.backend.handler == "llm_action.reason"
+    assert reason.backend.handler == "core.reason"
     write = catalog.get_action("workspace.write")
     assert write.backend.kind is ActionBackendKind.LLM_ACTION
 

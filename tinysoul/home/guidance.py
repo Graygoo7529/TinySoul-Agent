@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.action.llm_action import ActionHow
+from tinysoul.action.backends.llm_action import ActionHow
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine

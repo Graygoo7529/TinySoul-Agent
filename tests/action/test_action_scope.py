@@ -14,7 +14,7 @@ from tinysoul.action.core.scope import (
     Phase2ActionScopeBuilder,
 )
 from tinysoul.infra.json import JsonValue
-from tinysoul.llm.tools import ToolKind
+from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
 
 def test_phase1_scope_exposes_domain_control_tool() -> None:
@@ -35,6 +35,25 @@ def test_phase1_scope_exposes_domain_control_tool() -> None:
     assert "script" not in enum
     assert "shell" not in enum
     assert "x-tinysoul-domains" not in tools[0].parameters
+
+
+def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+
+    selection = Phase1DomainScopeBuilder().normalize_selection(
+        catalog,
+        (
+            ToolCallRecord(
+                id="call_1",
+                name="select_action_domains",
+                arguments={"domains": ["workspace", "missing", "workspace"]},
+                kind=ToolKind.CONTROL,
+            ),
+        ),
+    )
+
+    assert selection.selected_domains == ("workspace",)
+    assert selection.feedback == ("Unknown action domain: missing",)
 
 
 def test_phase2_scope_exposes_selected_domain_actions_only() -> None:

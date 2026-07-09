@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.llm.tools import ToolKind, ToolScope, ToolSelection, ToolSpec
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelection, ToolSpec
 
 from .catalog import ActionCatalog
 from tinysoul.runtime import CyclePhase
@@ -12,6 +12,16 @@ from tinysoul.runtime import CyclePhase
 from .errors import ActionContractError
 from .result import ActionPhaseResult, ActionPhaseResultStage
 from .specs import ActionSpec
+
+DOMAIN_SELECTION_TOOL = "select_action_domains"
+
+
+@dataclass(frozen=True)
+class ActionDomainSelection:
+    """Normalized Phase1 action domain selection."""
+
+    selected_domains: tuple[str, ...]
+    feedback: tuple[str, ...] = ()
 
 
 class Phase1DomainScopeBuilder:
@@ -24,7 +34,7 @@ class Phase1DomainScopeBuilder:
             if catalog.actions_in_domain(domain.name)
         )
         tool = ToolSpec(
-            name="select_action_domains",
+            name=DOMAIN_SELECTION_TOOL,
             description="Select action domains for the next action-parameter generation phase.",
             parameters={
                 "type": "object",
@@ -50,6 +60,56 @@ class Phase1DomainScopeBuilder:
         return ToolScope(
             tools=(tool,),
             selection=ToolSelection(allowed_names=(tool.name,)),
+        )
+
+    def normalize_selection(
+        self,
+        catalog: ActionCatalog,
+        tool_calls: tuple[ToolCallRecord, ...],
+    ) -> ActionDomainSelection:
+        selections = tuple(
+            call for call in tool_calls if call.name == DOMAIN_SELECTION_TOOL
+        )
+        if not selections:
+            return ActionDomainSelection(
+                selected_domains=(),
+                feedback=("Phase1 must call select_action_domains.",),
+            )
+        if len(selections) > 1:
+            return ActionDomainSelection(
+                selected_domains=(),
+                feedback=("Phase1 must call select_action_domains only once.",),
+            )
+        value = selections[0].arguments.get("domains")
+        if not isinstance(value, list) or not value:
+            return ActionDomainSelection(
+                selected_domains=(),
+                feedback=(
+                    "select_action_domains.domains must be a non-empty string list.",
+                ),
+            )
+        selected_domains: list[str] = []
+        feedback: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str) or not item:
+                feedback.append(
+                    "select_action_domains.domains must contain non-empty strings."
+                )
+                continue
+            if item in seen:
+                continue
+            seen.add(item)
+            domain_feedback = _domain_selection_feedback(catalog, item)
+            if domain_feedback is not None:
+                feedback.append(domain_feedback)
+                continue
+            selected_domains.append(item)
+        if not selected_domains and not feedback:
+            feedback.append("select_action_domains.domains contained no usable domains.")
+        return ActionDomainSelection(
+            selected_domains=tuple(selected_domains),
+            feedback=tuple(feedback),
         )
 
 
@@ -150,3 +210,11 @@ class ActionScopePreparation:
 
     tool_scope: ToolScope | None
     phase_results: tuple[ActionPhaseResult, ...] = ()
+
+
+def _domain_selection_feedback(catalog: ActionCatalog, domain: str) -> str | None:
+    if not catalog.has_domain(domain):
+        return f"Unknown action domain: {domain}"
+    if not catalog.actions_in_domain(domain):
+        return f"Action domain has no available actions: {domain}"
+    return None

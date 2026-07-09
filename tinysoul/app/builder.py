@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
-from tinysoul.action.backends.llm_action import register_llm_action_executors
-from tinysoul.action.llm_action import LLMActionTaskRunner
+from tinysoul.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.action.builtin.core import register_core_action_executors
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
@@ -364,7 +364,7 @@ class TinySoulAppBuilder:
                 home=home,
                 runtime_bridge=home_bridge,
             )
-            register_llm_action_executors(
+            register_core_action_executors(
                 builder,
                 reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
                 llm_action=llm_action,

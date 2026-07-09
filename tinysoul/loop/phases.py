@@ -26,14 +26,13 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import AssistantMessage, TextPart
 from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
 from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
-from tinysoul.llm.tools import ToolCallRecord, ToolScope, ToolSelection, ToolSpec, ToolUse
+from tinysoul.llm.tools import ToolScope, ToolSelection, ToolSpec, ToolUse
 from tinysoul.runtime import CyclePhase, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
 from .errors import LoopContractError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
 
-PHASE1_DOMAIN_TOOL = "select_action_domains"
 ANSWER_ACTION = "core.answer"
 
 
@@ -105,7 +104,7 @@ class Phase1Unit:
                 tool_scope = _merge_tool_scopes(
                     self._context.control_scope(),
                     self._action.phase1_scope(),
-                    forced_name=PHASE1_DOMAIN_TOOL,
+                    forced_name=self._action.phase1_domain_tool_name(),
                 )
                 messages = self._context.compose(
                     phase1_task_prompt(
@@ -130,12 +129,14 @@ class Phase1Unit:
                 feedback.append(_task_result_feedback(result))
                 continue
 
-            selected, selection_feedback = self._selected_domains(result.tool_calls)
-            if selection_feedback:
-                feedback.extend(selection_feedback)
+            selection = self._action.normalize_domain_selection(result.tool_calls)
+            if selection.feedback:
+                feedback.extend(selection.feedback)
                 continue
             control_calls = tuple(
-                call for call in result.tool_calls if call.name != PHASE1_DOMAIN_TOOL
+                call
+                for call in result.tool_calls
+                if call.name != self._action.phase1_domain_tool_name()
             )
             try:
                 normalization = self._context.normalize_controls(control_calls, scope=scope)
@@ -158,7 +159,7 @@ class Phase1Unit:
                     cycle_id=cycle_id,
                 )
             return Phase1Outcome(
-                selected_domains=selected,
+                selected_domains=selection.selected_domains,
                 control_results=last_control_results,
                 attempts=attempt,
             )
@@ -166,37 +167,6 @@ class Phase1Unit:
             LoopContractError("Phase1 did not produce a valid domain selection"),
             payload={"feedback": list(feedback)},
         )
-
-    def _selected_domains(
-        self,
-        tool_calls: tuple[ToolCallRecord, ...],
-    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        selections = tuple(call for call in tool_calls if call.name == PHASE1_DOMAIN_TOOL)
-        if not selections:
-            return (), ("Phase1 must call select_action_domains.",)
-        if len(selections) > 1:
-            return (), ("Phase1 must call select_action_domains only once.",)
-        value = selections[0].arguments.get("domains")
-        if not isinstance(value, list) or not value:
-            return (), ("select_action_domains.domains must be a non-empty string list.",)
-        result: list[str] = []
-        feedback: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            if not isinstance(item, str) or not item:
-                feedback.append("select_action_domains.domains must contain non-empty strings.")
-                continue
-            if item in seen:
-                continue
-            seen.add(item)
-            domain_feedback = self._action.validate_domain_selection(item)
-            if domain_feedback is not None:
-                feedback.append(domain_feedback)
-                continue
-            result.append(item)
-        if not result and not feedback:
-            feedback.append("select_action_domains.domains contained no usable domains.")
-        return tuple(result), tuple(feedback)
 
     def _emit_phase_note(
         self,

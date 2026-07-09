@@ -17,7 +17,12 @@ from .core.result import (
     ActionResultStage,
     ActionResultStatus,
 )
-from .core.scope import ActionDomainPromptRenderer, ActionScopePreparation
+from .core.scope import (
+    DOMAIN_SELECTION_TOOL,
+    ActionDomainPromptRenderer,
+    ActionDomainSelection,
+    ActionScopePreparation,
+)
 from .core.specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -41,6 +46,7 @@ __all__ = [
     "ActionCatalog",
     "ActionDomainSpec",
     "ActionDomainPromptRenderer",
+    "ActionDomainSelection",
     "ActionEngine",
     "ActionEngineBuilder",
     "ActionEnvironmentEffect",
@@ -60,4 +66,5 @@ __all__ = [
     "ActionScopePreparation",
     "ActionSpec",
     "ActionToolSpec",
+    "DOMAIN_SELECTION_TOOL",
 ]

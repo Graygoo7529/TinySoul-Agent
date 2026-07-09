@@ -66,4 +66,4 @@ execute = []
 
 [backend]
 kind = "llm_action"
-handler = "llm_action.answer"
+handler = "core.answer"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.action.llm_action import LLMActionTaskRunner
+from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
@@ -33,16 +33,21 @@ class _WorkspaceLLMPrompt:
     target_digest: str = ""
 
 
-def workspace_scan(engine: WorkspaceEngine, bus: SignalBus):
-    """Create the workspace.scan native action."""
+class WorkspaceScanExecutor(ActionExecutor):
+    """Scan workspace resources and sync their summaries into WorkingContext."""
+
+    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+        self._workspace = workspace
+        self._bus = bus
 
     def execute(
+        self,
         execution: ActionExecution,
         context: ActionExecutionContext,
-    ) -> JsonObject:
-        scan = engine.scan()
+    ) -> ActionResult:
+        scan = self._workspace.scan()
         resources = scan.to_working_resources()
-        signal_bus = context.signal_bus or bus
+        signal_bus = context.signal_bus or self._bus
         if resources:
             signal_bus.emit(
                 build_working_patch_signal(
@@ -55,18 +60,19 @@ def workspace_scan(engine: WorkspaceEngine, bus: SignalBus):
         skip_counts: JsonObject = {}
         for kind, count in scan.skip_counts().items():
             skip_counts[kind] = count
-        return {
-            "count": len(resources),
-            "resources": [
-                {"link": resource.link, "summary": resource.summary}
-                for resource in resources
-            ],
-            "skipped_count": scan.skipped_count,
-            "skip_counts": skip_counts,
-            "limit_reached": scan.limit_reached,
-        }
-
-    return execute
+        return _success(
+            execution,
+            {
+                "count": len(resources),
+                "resources": [
+                    {"link": resource.link, "summary": resource.summary}
+                    for resource in resources
+                ],
+                "skipped_count": scan.skipped_count,
+                "skip_counts": skip_counts,
+                "limit_reached": scan.limit_reached,
+            },
+        )
 
 
 def register_workspace_actions(
@@ -79,7 +85,7 @@ def register_workspace_actions(
     """Register workspace action executors on an action builder."""
 
     result = (
-        builder.register_native("workspace.scan", workspace_scan(workspace, bus))
+        builder.register_executor("workspace.scan", WorkspaceScanExecutor(workspace, bus))
         .register_executor(
             "workspace.describe",
             WorkspaceDescribeExecutor(workspace, bus),

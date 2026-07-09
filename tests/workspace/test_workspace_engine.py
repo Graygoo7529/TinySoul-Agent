@@ -8,7 +8,7 @@ import pytest
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
-from tinysoul.action.llm_action import LLMActionTaskRunner
+from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -39,8 +39,8 @@ from tinysoul.workspace.actions import (
     WorkspaceDescribeExecutor,
     WorkspacePatchExecutor,
     WorkspaceRewriteExecutor,
+    WorkspaceScanExecutor,
     WorkspaceWriteExecutor,
-    workspace_scan,
 )
 
 
@@ -91,8 +91,13 @@ def test_workspace_scan_updates_manifest_and_emits_working_patch(tmp_path: Path)
     bus = SignalBus()
     execution = _execution("workspace.scan", {})
 
-    payload = workspace_scan(engine, bus)(execution, ActionExecutionContext(signal_bus=bus))
+    result = WorkspaceScanExecutor(engine, bus).execute(
+        execution,
+        ActionExecutionContext(signal_bus=bus),
+    )
 
+    assert result.payload is not None
+    payload = result.payload
     assert payload["count"] == 1
     assert payload["resources"] == [
         {"link": "workspace:docs/a.md", "summary": ".md file, 5 bytes"}
