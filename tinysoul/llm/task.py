@@ -193,9 +193,11 @@ class LLMTaskRunner:
                 exc,
                 payload={"profile": call.profile},
             ) from exc
-        except (KeyError, ValueError, TypeError) as exc:
+        except RuntimeException:
+            raise
+        except Exception as exc:
             raise self._runtime_bridge.from_exception(
-                LLMFailureKind.CONTRACT_VIOLATION,
+                LLMFailureKind.INTERNAL_FAILURE,
                 exc,
                 payload={"profile": call.profile},
             ) from exc
@@ -286,7 +288,7 @@ class LLMTaskRunner:
             return True
         if isinstance(error, ModelCapabilityError):
             return False
-        return isinstance(error, LLMTaskError)
+        return isinstance(error, LLMContractError)
 
     def _model_chain_exhausted_payload(
         self,

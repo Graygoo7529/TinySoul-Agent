@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .errors import LLMContractError
 from .reasoning import Reasoning
 from .tools import ToolCallRecord, ToolResultStatus
 
@@ -33,9 +34,9 @@ class ImagePart:
 
     def __post_init__(self) -> None:
         if not self.data:
-            raise ValueError("ImagePart requires non-empty image data")
+            raise LLMContractError("ImagePart requires non-empty image data")
         if not self.mime_type:
-            raise ValueError("ImagePart requires a non-empty MIME type")
+            raise LLMContractError("ImagePart requires a non-empty MIME type")
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ class ImageUrlPart:
 
     def __post_init__(self) -> None:
         if not self.url:
-            raise ValueError("ImageUrlPart requires a non-empty URL")
+            raise LLMContractError("ImageUrlPart requires a non-empty URL")
 
 
 MessagePart = TextPart | JsonPart | ImagePart | ImageUrlPart
@@ -208,12 +209,12 @@ class ToolResultMessage:
 
     def __post_init__(self) -> None:
         if not self.call_id:
-            raise ValueError("ToolResultMessage.call_id must be non-empty")
+            raise LLMContractError("ToolResultMessage.call_id must be non-empty")
         if not self.tool_name:
-            raise ValueError("ToolResultMessage.tool_name must be non-empty")
+            raise LLMContractError("ToolResultMessage.tool_name must be non-empty")
         for part in self.parts:
             if not isinstance(part, (TextPart, JsonPart)):
-                raise ValueError(
+                raise LLMContractError(
                     "ToolResultMessage only supports text and JSON parts; "
                     "non-text resources should be passed by rebuilding MessageStack"
                 )

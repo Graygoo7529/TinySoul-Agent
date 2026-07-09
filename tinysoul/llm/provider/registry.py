@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.llm.errors import LLMContractError, LLMInvariantError
+
 from .base import ProviderAdapter
 
 
@@ -15,11 +17,13 @@ class ProviderRegistry:
 
     def register(self, adapter: ProviderAdapter) -> None:
         if adapter.provider_id in self._adapters:
-            raise ValueError(f"Provider already registered: {adapter.provider_id}")
+            raise LLMInvariantError(
+                f"Provider already registered: {adapter.provider_id}"
+            )
         self._adapters[adapter.provider_id] = adapter
 
     def get(self, provider_id: str) -> ProviderAdapter:
         try:
             return self._adapters[provider_id]
         except KeyError as exc:
-            raise KeyError(f"Unknown provider: {provider_id}") from exc
+            raise LLMContractError(f"Unknown provider: {provider_id}") from exc

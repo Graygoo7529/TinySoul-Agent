@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from .errors import LLMContractError, LLMInvariantError
 from .reasoning import ReasoningKeep
 
 
@@ -40,25 +41,30 @@ class ProviderOptions:
         if value is None:
             return ReasoningKeep.NONE
         if isinstance(value, str):
-            return ReasoningKeep(value)
-        raise TypeError("reasoning_keep must be a string")
+            try:
+                return ReasoningKeep(value)
+            except ValueError as exc:
+                raise LLMContractError(
+                    "reasoning_keep must be 'none', 'content', or 'encrypted'"
+                ) from exc
+        raise LLMContractError("reasoning_keep must be a string")
 
     def request_overrides(self) -> ProviderRequestOverrides:
         value = self.values.get("request_overrides")
         if value is None:
             return ProviderRequestOverrides()
         if not isinstance(value, Mapping):
-            raise TypeError("request_overrides must be a table")
+            raise LLMContractError("request_overrides must be a table")
         items: dict[str, object] = {}
         for key, item in value.items():
             if not isinstance(key, str):
-                raise TypeError("request_overrides keys must be strings")
+                raise LLMContractError("request_overrides keys must be strings")
             items[key] = item
         known_keys = {"temperature", "max_output_tokens"}
         unknown_keys = sorted(key for key in items if key not in known_keys)
         if unknown_keys:
             names = ", ".join(unknown_keys)
-            raise ValueError(f"Unsupported request_overrides keys: {names}")
+            raise LLMContractError(f"Unsupported request_overrides keys: {names}")
         return ProviderRequestOverrides(
             temperature=_optional_float(items, "temperature"),
             max_output_tokens=_optional_int(items, "max_output_tokens"),
@@ -77,7 +83,7 @@ def _optional_float(table: Mapping[str, object], key: str) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TypeError(f"{key} must be a number")
+        raise LLMContractError(f"{key} must be a number")
     return float(value)
 
 
@@ -86,7 +92,7 @@ def _optional_int(table: Mapping[str, object], key: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{key} must be an integer")
+        raise LLMContractError(f"{key} must be an integer")
     return value
 
 
@@ -116,14 +122,14 @@ class ModelRegistry:
 
     def register(self, model: ModelSpec) -> None:
         if model.id in self._models:
-            raise ValueError(f"Model already registered: {model.id}")
+            raise LLMInvariantError(f"Model already registered: {model.id}")
         self._models[model.id] = model
 
     def get(self, model_id: str) -> ModelSpec:
         try:
             return self._models[model_id]
         except KeyError as exc:
-            raise KeyError(f"Unknown model: {model_id}") from exc
+            raise LLMContractError(f"Unknown model: {model_id}") from exc
 
     def has(self, model_id: str) -> bool:
         return model_id in self._models

@@ -2,6 +2,7 @@
 
 import pytest
 
+from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.tools import (
     DefaultToolCallIdMapper,
     ToolCallRecord,
@@ -13,7 +14,7 @@ from tinysoul.llm.tools import (
 
 
 def test_tool_spec_requires_name_and_description() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolSpec(
             name="",
             description="desc",
@@ -21,7 +22,7 @@ def test_tool_spec_requires_name_and_description() -> None:
             kind=ToolKind.CONTROL,
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolSpec(
             name="update_context",
             description="",
@@ -34,13 +35,13 @@ def test_tool_selection_validates_names() -> None:
     assert ToolSelection(("read_file",)).allowed_names == ("read_file",)
     assert ToolSelection(("read_file",), forced_name="read_file").forced_name == "read_file"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolSelection(("",))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolSelection(("read_file", "read_file"))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolSelection(("read_file",), forced_name="write_file")
 
 
@@ -57,7 +58,7 @@ def test_tool_scope_validates_selection_against_tools() -> None:
         selection=ToolSelection(forced_name="read_file"),
     ).selection.forced_name == "read_file"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolScope(
             tools=(tool,),
             selection=ToolSelection(("write_file",)),

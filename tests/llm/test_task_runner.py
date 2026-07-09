@@ -837,6 +837,55 @@ def test_contract_failure_maps_to_runtime_turn_end() -> None:
     assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
+def test_runner_reports_unknown_model_as_contract_violation() -> None:
+    runner = LLMTaskRunner(
+        models=ModelRegistry([]),
+        providers=ProviderRegistry([FakeProvider(provider_id="fake")]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("missing",))),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
+
+
+def test_runner_reports_unknown_provider_as_contract_violation() -> None:
+    model = ModelSpec(
+        id="model_a",
+        provider_id="missing",
+        provider_model="model-a",
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.JSON_OBJECT_OUTPUT,
+            }
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("model_a",))),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
+
+
 def _models(*ids: str) -> ModelRegistry:
     capabilities = frozenset(
         {

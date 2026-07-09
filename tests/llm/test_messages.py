@@ -2,6 +2,7 @@
 
 import pytest
 
+from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -75,7 +76,7 @@ def test_tool_result_message_uses_message_parts() -> None:
 
 
 def test_tool_result_message_rejects_image_part() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolResultMessage.from_parts(
             call_id="call_1",
             tool_name="read_file",
@@ -84,7 +85,7 @@ def test_tool_result_message_rejects_image_part() -> None:
 
 
 def test_tool_result_message_rejects_image_url_part() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ToolResultMessage.from_parts(
             call_id="call_1",
             tool_name="read_file",
@@ -93,13 +94,13 @@ def test_tool_result_message_rejects_image_url_part() -> None:
 
 
 def test_image_part_requires_data_and_mime_type() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ImagePart(data=b"", mime_type="image/png")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ImagePart(data=b"abc", mime_type="")
 
 
 def test_image_url_part_requires_url() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(LLMContractError):
         ImageUrlPart(url="")

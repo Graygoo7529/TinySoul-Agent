@@ -237,7 +237,7 @@ class TaskConfigParser:
                     key=key,
                 ),
             )
-        except (LLMContractError, ValueError) as exc:
+        except LLMContractError as exc:
             raise ConfigError(str(exc), key=key) from exc
 
     def _parse_model_chain(
@@ -253,7 +253,7 @@ class TaskConfigParser:
                 model_ids=model_ids,
                 retry_policy=retry_policy,
             )
-        except (LLMContractError, ValueError) as exc:
+        except LLMContractError as exc:
             raise ConfigError(str(exc), key=f"llm.tasks.{profile}.models") from exc
 
     def _validate_task_required_capabilities(
@@ -280,4 +280,3 @@ class TaskConfigParser:
                     key=f"llm.tasks.{profile}.required_capabilities",
                     value=f"{model_id}: {names}",
                 )
-

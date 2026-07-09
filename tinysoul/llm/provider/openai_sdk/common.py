@@ -7,6 +7,7 @@ from typing import cast
 
 from openai import APIConnectionError, APIError, APIStatusError
 
+from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.models import (
     ModelCapability,
     ProviderOptions,
@@ -61,14 +62,14 @@ def request_overrides(
 ) -> ProviderRequestOverrides:
     try:
         return ProviderOptions(options or {}).request_overrides()
-    except (TypeError, ValueError) as exc:
+    except LLMContractError as exc:
         raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
 
 
 def provider_options(options: Mapping[str, object] | None) -> dict[str, object]:
     try:
         return ProviderOptions(options or {}).provider_values()
-    except (TypeError, ValueError) as exc:
+    except LLMContractError as exc:
         raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
 
 

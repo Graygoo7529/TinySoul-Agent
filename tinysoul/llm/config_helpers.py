@@ -8,6 +8,7 @@ from typing import TypeVar, cast
 
 from tinysoul.infra.config import ConfigError
 
+from .errors import LLMContractError
 from .models import ModelCapability, ProviderOptions
 
 E = TypeVar("E", bound=StrEnum)
@@ -120,7 +121,7 @@ def optional_provider_options(
     options = ProviderOptions(options_table)
     try:
         options.reasoning_keep()
-    except (TypeError, ValueError) as exc:
+    except LLMContractError as exc:
         raise ConfigError(
             str(exc),
             key=f"{key}.provider_options.reasoning_keep",
@@ -129,7 +130,7 @@ def optional_provider_options(
         ) from exc
     try:
         options.request_overrides()
-    except (TypeError, ValueError) as exc:
+    except LLMContractError as exc:
         raise ConfigError(
             str(exc),
             key=f"{key}.provider_options.request_overrides",
@@ -254,4 +255,3 @@ def optional_float_or_none(
             expected="float | null",
         )
     return float(value)
-

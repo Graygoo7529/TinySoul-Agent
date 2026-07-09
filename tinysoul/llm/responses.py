@@ -9,6 +9,7 @@ import re
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .errors import LLMContractError
 from .reasoning import Reasoning
 from .tools import ToolCallRecord, ToolScope, ToolUse
 
@@ -82,14 +83,14 @@ class TaskResult:
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, TaskResultStatus):
-            raise TypeError("TaskResult.status must be a TaskResultStatus")
+            raise LLMContractError("TaskResult.status must be a TaskResultStatus")
         if self.status is TaskResultStatus.SUCCESS and self.failure is not None:
-            raise ValueError("Successful task results cannot carry failure data")
+            raise LLMContractError("Successful task results cannot carry failure data")
         if self.status is TaskResultStatus.FAILURE and self.failure is None:
-            raise ValueError("Failed task results must carry failure data")
+            raise LLMContractError("Failed task results must carry failure data")
         object.__setattr__(self, "tool_calls", tuple(self.tool_calls))
         if self.failure is not None and not isinstance(self.failure, TaskFailure):
-            raise TypeError("TaskResult.failure must be a TaskFailure or None")
+            raise LLMContractError("TaskResult.failure must be a TaskFailure or None")
 
     @classmethod
     def success(

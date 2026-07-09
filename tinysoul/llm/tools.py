@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
+from .errors import LLMContractError
+
 
 class ToolKind(StrEnum):
     """TinySoul model-side tool category."""
@@ -43,7 +45,7 @@ class ToolSpec:
     def __post_init__(self) -> None:
         _require_name(self.name, field="ToolSpec.name")
         if not self.description:
-            raise ValueError("ToolSpec.description must be non-empty")
+            raise LLMContractError("ToolSpec.description must be non-empty")
         object.__setattr__(self, "parameters", to_json_object(self.parameters))
 
 
@@ -59,12 +61,14 @@ class ToolSelection:
         for name in self.allowed_names:
             _require_name(name, field="ToolSelection.allowed_names")
             if name in seen:
-                raise ValueError(f"Duplicate tool selection name: {name}")
+                raise LLMContractError(f"Duplicate tool selection name: {name}")
             seen.add(name)
         if self.forced_name is not None:
             _require_name(self.forced_name, field="ToolSelection.forced_name")
             if self.allowed_names and self.forced_name not in seen:
-                raise ValueError("ToolSelection.forced_name must be in allowed_names")
+                raise LLMContractError(
+                    "ToolSelection.forced_name must be in allowed_names"
+                )
 
 
 @dataclass(frozen=True)
@@ -80,12 +84,12 @@ class ToolScope:
             name for name in self.selection.allowed_names if name not in names
         ]
         if missing_allowed:
-            raise ValueError(f"Unknown tool selection name: {missing_allowed[0]}")
+            raise LLMContractError(f"Unknown tool selection name: {missing_allowed[0]}")
         if (
             self.selection.forced_name is not None
             and self.selection.forced_name not in names
         ):
-            raise ValueError(
+            raise LLMContractError(
                 f"Unknown forced tool name: {self.selection.forced_name}"
             )
 
@@ -167,7 +171,7 @@ class DefaultToolCallIdMapper(ToolCallIdMapper):
 
 def _require_name(value: str, *, field: str) -> None:
     if not value:
-        raise ValueError(f"{field} must be non-empty")
+        raise LLMContractError(f"{field} must be non-empty")
 
 
 def _valid_tool_call_id(value: str) -> bool:
