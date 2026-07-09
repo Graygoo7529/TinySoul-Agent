@@ -11,7 +11,7 @@ from tinysoul.infra.config import ConfigError
 
 
 def test_load_builtin_catalog() -> None:
-    root = Path("tinysoul/action/builtin")
+    root = Path("tinysoul/action/catalog")
 
     catalog = ActionCatalogLoader().load(root)
 
@@ -31,7 +31,7 @@ def test_load_builtin_catalog() -> None:
 
 
 def test_catalog_view_by_domain() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     view = catalog.with_domains(("workspace",))
 

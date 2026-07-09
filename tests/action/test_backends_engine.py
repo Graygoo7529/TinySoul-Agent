@@ -233,7 +233,7 @@ def test_temporary_script_executor_runs_python_code() -> None:
 
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
-        ActionEngineBuilder(Path("tinysoul/action/builtin"))
+        ActionEngineBuilder(Path("tinysoul/action/catalog"))
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})

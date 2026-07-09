@@ -57,7 +57,7 @@ status: done
 
 - `tinysoul/workspace/engine.py`：`write_text`、`patch_text`、`delete_resource`、manifest upsert/remove；
 - `tinysoul/workspace/actions.py`：`WorkspaceWriteExecutor`、`WorkspacePatchExecutor`、`WorkspaceDeleteExecutor`、`WorkspaceRewriteExecutor`；
-- `tinysoul/action/builtin/workspace/actions/`：`write.toml`、`rewrite.toml`、`patch.toml`、`delete.toml`；
+- `tinysoul/action/catalog/workspace/actions/`：`write.toml`、`rewrite.toml`、`patch.toml`、`delete.toml`；
 - `tinysoul/app/builder.py`：通过 Workspace registrar 注册 workspace executors；
 - `tests/workspace/test_workspace_engine.py`：Engine 副作用、action metadata payload、WorkingPatch signal、workspace LLM action prompt 和局部失败测试；
 - `tests/action/test_catalog_loader.py`：内置 catalog 动作视图更新。
@@ -73,12 +73,12 @@ Workspace 模块提供 `WorkspacePromptReferenceResolver`，支持把 `workspace
 对应实现位置：
 
 - `tinysoul/action/backends/llm_action.py`：`LLMActionTaskRunner`、`ActionHow`、`ActionHowProvider`；
-- `tinysoul/action/builtin/core/executors.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
+- `tinysoul/action/builtins/core/executors.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
 - `tinysoul/workspace/prompts.py`：`WorkspacePromptReferenceResolver` 与 Workspace PromptBlock 转换；
 - `tinysoul/workspace/actions.py`：Workspace LLM action 内部 target/reference prompt 构造；
-- `tinysoul/action/builtin/core/actions/reason.toml`：通用推理动作；
-- `tinysoul/action/builtin/core/actions/answer.toml`：最终回答动作；
-- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向 builtin core action executor 注入 workspace reference resolver；
+- `tinysoul/action/catalog/core/actions/reason.toml`：通用推理动作；
+- `tinysoul/action/catalog/core/actions/answer.toml`：最终回答动作；
+- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向 Action builtins core executor 注入 workspace reference resolver；
 - `tests/action/test_llm_action.py`、`tests/workspace/test_workspace_engine.py`、`tests/home/test_home_engine.py`：任务输入切分、引用解析、workspace block、HOW 注入和 runtime copy trap 测试。
 
 ### 2.6 Action timeout frame 与 Workspace 写入 guard

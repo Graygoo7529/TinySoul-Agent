@@ -204,7 +204,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtin/core/executors.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 builtin core executor 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，不是通用推理 action；它们使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文，并生成完整写入文本。
+嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtins/core/executors.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core executor 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，不是通用推理 action；它们使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文，并生成完整写入文本。
 
 `llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 
@@ -255,27 +255,48 @@ Action 只负责追加临时 task prompt overlay，不重新发明消息栈。
 
 Phase1 和 Phase2 只是在这个基础上选择不同的工具作用域和不同的 prompt overlay。
 
-## TOML 组织
+## 目录组织
 
-建议目录：
+Action 目录按四类职责组织：TOML catalog、通用 backend、Action 自有内置 executor、业务能力代码。
 
 ```text
 tinysoul/action/
   engine.py
   core/
   backends/
-  builtin/
+  builtins/
     core/
+      executors.py
+  catalog/
+    core/
+      domain.toml
+      actions/*.toml
     workspace/
+      domain.toml
+      actions/*.toml
+    home/
+      domain.toml
+      actions/*.toml
     script/
+      domain.toml
     shell/
+      domain.toml
+
+tinysoul/workspace/
+  actions.py
+
+tinysoul/home/
+  actions.py
+
+tinysoul/capabilities/
+  <capability>/
+    actions.py
+    service.py
 ```
 
-### `builtin/core`
+`tinysoul/action/catalog` 是当前默认 action catalog root，第一层目录就是 domain 目录，因此不再额外套 `catalog/builtin`。未来如果需要组合多个 catalog，应通过配置或 loader 组合多个 catalog root，而不是在当前默认 catalog 内预留未使用的层级。
 
-放 action 顶层框架性内容，主要是 Phase1 可见的控制工具和共享行为说明。
-
-### `builtin/<domain>`
+### TOML catalog
 
 每个 domain 一个目录，目录下放：
 
@@ -285,6 +306,14 @@ tinysoul/action/
 `domain.toml` 放域描述和域级默认运行配置。
 
 `actions/*.toml` 放具体 action 定义。
+
+TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点，不放 Python 业务实现。`backend.kind` 是通用执行方式，例如 `native`、`subprocess`、`script`、`llm_action`；`backend.handler` 是具体 executor 注册键，例如 `core.answer`、`workspace.scan`。
+
+### Python executor 与业务归属
+
+`tinysoul/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，executor 保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
+
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力放在 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。
 
 ### 继承规则
 

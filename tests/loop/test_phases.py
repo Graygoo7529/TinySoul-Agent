@@ -175,7 +175,7 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
 
 def _action_engine():
     return (
-        ActionEngineBuilder(Path("tinysoul/action/builtin"))
+        ActionEngineBuilder(Path("tinysoul/action/catalog"))
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})

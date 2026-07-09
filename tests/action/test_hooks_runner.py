@@ -64,7 +64,7 @@ ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
 
 
 def _batch_for(action_name: str, arguments: JsonObject):
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
@@ -120,7 +120,7 @@ def test_runner_allows_runtime_exception_to_reach_trap() -> None:
 
 
 def test_runner_rejects_invalid_max_workers() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     with pytest.raises(ActionContractError, match="max_workers"):
         ActionBatchRunner(
@@ -130,7 +130,7 @@ def test_runner_rejects_invalid_max_workers() -> None:
 
 
 def test_executor_registry_validates_catalog_handlers() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     executors = ExecutorRegistry()
     executors.register("core.answer", NativeFunctionExecutor(lambda execution, context: {"ok": True}))
 

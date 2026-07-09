@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
-from tinysoul.action.builtin.core import register_core_action_executors
+from tinysoul.action.builtins.core import register_core_action_executors
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
@@ -350,7 +350,7 @@ class TinySoulAppBuilder:
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
     ) -> ActionEngine:
-        catalog_root = self._root / "tinysoul" / "action" / "builtin"
+        catalog_root = self._root / "tinysoul" / "action" / "catalog"
         try:
             builder = ActionEngineBuilder(catalog_root)
             register_workspace_actions(

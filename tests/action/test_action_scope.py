@@ -18,7 +18,7 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
 
 def test_phase1_scope_exposes_domain_control_tool() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     scope = Phase1DomainScopeBuilder().build(catalog)
 
@@ -38,7 +38,7 @@ def test_phase1_scope_exposes_domain_control_tool() -> None:
 
 
 def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     selection = Phase1DomainScopeBuilder().normalize_selection(
         catalog,
@@ -57,7 +57,7 @@ def test_phase1_domain_selection_normalizer_belongs_to_action() -> None:
 
 
 def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     scope = Phase2ActionScopeBuilder().build(
         catalog,
@@ -71,7 +71,7 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
 
 
 def test_phase2_scope_rejects_domain_without_actions() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     with pytest.raises(ActionContractError, match="at least one action"):
         Phase2ActionScopeBuilder().build(
@@ -81,7 +81,7 @@ def test_phase2_scope_rejects_domain_without_actions() -> None:
 
 
 def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     preparation = Phase2ActionScopeBuilder().prepare(
         catalog,
@@ -94,7 +94,7 @@ def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() 
 
 
 def test_domain_prompt_renderer_lists_actionable_domains() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     text = ActionDomainPromptRenderer().render(catalog)
 

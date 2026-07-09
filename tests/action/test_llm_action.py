@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tinysoul.action.backends.llm_action import ActionHow, LLMActionTaskRunner
-from tinysoul.action.builtin.core import CoreAnswerActionExecutor, CoreReasonActionExecutor
+from tinysoul.action.builtins.core import CoreAnswerActionExecutor, CoreReasonActionExecutor
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext

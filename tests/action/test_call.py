@@ -30,7 +30,7 @@ ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
 
 
 def test_normalize_tool_calls_to_action_calls() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     tool_calls = (
         ToolCallRecord(
             id="call_1",
@@ -52,7 +52,7 @@ def test_normalize_tool_calls_to_action_calls() -> None:
 
 
 def test_normalizer_returns_result_for_non_action_tool_call() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -73,7 +73,7 @@ def test_normalizer_returns_result_for_non_action_tool_call() -> None:
 
 
 def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -94,7 +94,7 @@ def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
 
 
 def test_normalizer_returns_result_for_duplicate_call_id() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -121,7 +121,7 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
 
 
 def test_normalizer_runs_configured_normalize_hook() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     hooks = ActionNormalizeHookPipeline()
     hooks.registry.register_normalize_hook("reject", RejectNormalizeHook())
     hooks.registry.register_global_normalize("reject")
@@ -144,7 +144,7 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
 
 
 def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -165,7 +165,7 @@ def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
 
 
 def test_normalization_merges_results_by_original_sequence() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
     normalization = ActionCallNormalizer().normalize(
         (
@@ -202,7 +202,7 @@ def test_normalization_merges_results_by_original_sequence() -> None:
 
 
 def test_build_execution_batch_from_calls() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     normalization = ActionCallNormalizer().normalize(
         (
             ToolCallRecord(
@@ -236,7 +236,7 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
             ActionCall("call_1", "core.answer", {}, 1),
             ActionCall("call_1", "workspace.scan", {}, 2),
         ),
-        catalog=ActionCatalogLoader().load(Path("tinysoul/action/builtin")),
+        catalog=ActionCatalogLoader().load(Path("tinysoul/action/catalog")),
         scope=RunScope(),
         batch_id="batch_1",
     )
@@ -253,7 +253,7 @@ def test_prepare_batch_returns_result_for_unknown_action() -> None:
         (
             ActionCall("call_1", "missing.action", {}, 1),
         ),
-        catalog=ActionCatalogLoader().load(Path("tinysoul/action/builtin")),
+        catalog=ActionCatalogLoader().load(Path("tinysoul/action/catalog")),
         scope=RunScope(),
         batch_id="batch_1",
     )
@@ -264,7 +264,7 @@ def test_prepare_batch_returns_result_for_unknown_action() -> None:
 
 
 def test_action_batch_rejects_duplicate_call_id() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     with pytest.raises(ActionInvariantError, match="Duplicate action call id"):
         ActionBatch(
             batch_id="batch_1",
@@ -294,7 +294,7 @@ def test_action_batch_rejects_duplicate_call_id() -> None:
 
 
 def test_action_batch_rejects_duplicate_sequence() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/builtin"))
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     with pytest.raises(ActionInvariantError, match="Duplicate action sequence"):
         ActionBatch(
             batch_id="batch_1",
