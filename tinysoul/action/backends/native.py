@@ -37,7 +37,10 @@ class NativeFunctionExecutor:
                 model_feedback="Action stopped after cancellation was requested.",
                 frame_data={
                     "reason": str(exc) or "cancelled",
+                    "cancel_requested": True,
+                    "executor_started": True,
                     "executor_leaked": False,
+                    "late_success": False,
                 },
             )
         return ActionResult.success(

@@ -149,7 +149,9 @@ class ActionBatchRunner:
                                 execution,
                                 model_feedback="Action timed out during execution.",
                                 frame_data={
+                                    "reason": "execution_timeout",
                                     "cancel_requested": True,
+                                    "executor_started": True,
                                     "executor_leaked": executor_leaked,
                                 },
                             )
@@ -251,6 +253,7 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out before execution started.",
+                frame_data={"reason": "deadline_before_start"},
             )
         hook_result = self._hooks.run(
             execution,
@@ -262,6 +265,7 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out after hook checks.",
+                frame_data={"reason": "deadline_after_hooks"},
             )
         try:
             executor = self._executors.get(execution.action.backend.handler)
@@ -315,7 +319,11 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out before result collection.",
-                frame_data={"late_success": True},
+                frame_data={
+                    "reason": "late_success_timeout",
+                    "executor_started": True,
+                    "late_success": True,
+                },
             )
         return result
 
@@ -342,6 +350,15 @@ class ActionBatchRunner:
         model_feedback: str,
         frame_data: JsonObject | None = None,
     ) -> ActionResult:
+        stable_frame: JsonObject = {
+            "reason": "timeout",
+            "cancel_requested": False,
+            "executor_started": False,
+            "executor_leaked": False,
+            "late_success": False,
+        }
+        if frame_data is not None:
+            stable_frame.update(frame_data)
         return ActionResult.timeout(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
@@ -350,7 +367,7 @@ class ActionBatchRunner:
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
             model_feedback=model_feedback,
-            frame_data=frame_data,
+            frame_data=stable_frame,
         )
 
     def _internal_failure(

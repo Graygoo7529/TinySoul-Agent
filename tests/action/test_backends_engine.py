@@ -79,8 +79,50 @@ def test_native_cooperative_timeout_does_not_block_later_group() -> None:
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[0].frame_data["executor_leaked"] is False
+    assert results[0].frame_data["late_success"] is False
+    assert isinstance(results[0].frame_data["cancel_requested"], bool)
+    assert isinstance(results[0].frame_data["executor_started"], bool)
     assert results[1].status is ActionResultStatus.SUCCESS
     assert results[1].payload == {"started": True}
+
+
+def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _action(
+                "test.expired",
+                runtime=ActionRuntimeSpec(timeout_seconds=0.001),
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.NATIVE,
+                    handler="test.expired",
+                ),
+            ),
+        ),
+    )
+    batch = _batch(
+        catalog,
+        (ToolCallRecord("call_1", "test.expired", {}, ToolKind.ACTION),),
+    )
+    executors = ExecutorRegistry()
+    executors.register(
+        "test.expired",
+        NativeFunctionExecutor(lambda execution, context: {"started": True}),
+    )
+    runner = ActionBatchRunner(executors=executors)
+    scheduled = runner._schedule_group(batch.executions)
+    sleep(0.01)
+
+    results = runner._run_group(scheduled, ActionExecutionContext()).results
+
+    assert results[0].status is ActionResultStatus.TIMEOUT
+    assert results[0].frame_data == {
+        "reason": "deadline_before_start",
+        "cancel_requested": False,
+        "executor_started": False,
+        "executor_leaked": False,
+        "late_success": False,
+    }
 
 
 def test_subprocess_executor_returns_success_payload() -> None:

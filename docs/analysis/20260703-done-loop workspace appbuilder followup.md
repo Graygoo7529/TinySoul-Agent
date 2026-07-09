@@ -10,7 +10,7 @@ status: done
 
 - `tinysoul/app/builder.py` 的 `TinySoulAppBuilder` 负责装配 LLM、Workspace、Agent Home、Action、Context、SignalBus、RuntimeTrap、输入分发器、输入源和各级 loop runner。
 - `workspace.scan`、`workspace.describe`、`workspace.write`、`workspace.patch` 和 `workspace.delete` 由 Workspace 模块 registrar 注册；实现位于 `tinysoul/workspace/actions.py`，并通过 `WorkspaceEngine` 完成扫描、扫描诊断、单资源摘要刷新、manifest 更新、文件变更和 `context.working.patch` 同步。
-- App 层旧的 `workspace.scan` 临时实现和 app-owned `core.answer` 已清除；`core.answer` 由 `llm_step.answer` handler 提供，app native-action 临时层已删除。
+- App 层旧的 `workspace.scan` 临时实现和 app-owned `core.answer` 已清除；`core.answer` 由 `llm_action.answer` handler 提供，app native-action 临时层已删除。
 - Phase2 的 domain guidance 通过 `HomeDomainGuidanceProvider` 注入，并从 Agent Home 的 `home:how_action@<domain>` 顶层内容读取。
 - Context 默认背景通过 Agent Home 门面加载 `home:agent@core`，AppBuilder 不再直接读取项目根目录 `AGENT.md`。
 - Agent Home 已接入 `home.resource.read` 渐进式资源读取 action、runtime home 缺页式副本准备和 `HOME_RUNTIME_COPY_REQUIRED` trap handler；顶层背景、domain guidance 与渐进式资源在链接内容进入运行期时读取 runtime 副本，副本缺失时由 Trap 建立后重试。
@@ -19,7 +19,7 @@ status: done
 
 App 的职责是进程装配、生命周期和外部输入边界，不应长期承担 workspace 文件扫描、Agent Home 内容读取、运行时副本管理、how_action 检索或每日沉淀策略。
 
-AppBuilder 只承担跨模块装配入口，通过模块 registrar 注册 Workspace、Agent Home 与 `llm_step` 执行器；具体扫描、摘要刷新、workspace 写入和回答动作语义已经下沉到对应模块。这个通道继续验证 Phase3 可以通过 action -> signal 向 WorkingContext 写入 workspace 资源摘要，但 App 不再拥有 workspace 业务实现。
+AppBuilder 只承担跨模块装配入口，通过模块 registrar 注册 Workspace、Agent Home 与 `llm_action` 执行器；具体扫描、摘要刷新、workspace 写入和回答动作语义已经下沉到对应模块。这个通道继续验证 Phase3 可以通过 action -> signal 向 WorkingContext 写入 workspace 资源摘要，但 App 不再拥有 workspace 业务实现。
 
 ## 已处理问题
 

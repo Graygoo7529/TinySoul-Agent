@@ -177,8 +177,10 @@ conda activate TinySoul
 
 ```powershell
 python -m pytest tests -q
-python -m ty check
+$env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.ps1
 ```
+
+多设备环境不要在 `pyproject.toml` 固定本机 Python 路径；类型检查统一通过 `scripts/typecheck.ps1` 选择当前设备的解释器，或显式传入 `ty --python <当前环境 python>`。
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；

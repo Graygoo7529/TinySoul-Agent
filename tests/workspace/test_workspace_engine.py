@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -44,12 +45,19 @@ from tinysoul.workspace.actions import (
 
 
 class FakeLLMRunner:
-    def __init__(self, answer: JsonObject | None = None) -> None:
+    def __init__(
+        self,
+        answer: JsonObject | None = None,
+        on_run: Callable[[], None] | None = None,
+    ) -> None:
         self.calls: list[TaskCall] = []
         self.answer = answer or {"text": "new text"}
+        self.on_run = on_run
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
+        if self.on_run is not None:
+            self.on_run()
         return TaskResult.success(
             raw_response=RawResponse(
                 answer_text="{}",
@@ -329,6 +337,28 @@ def test_workspace_write_text_rejects_existing_without_overwrite(tmp_path: Path)
 
     with pytest.raises(WorkspaceContractError, match="already exists"):
         engine.write_text("workspace:a.md", "new")
+
+
+def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.describe("workspace:a.md")
+    (tmp_path / "a.md").write_text("changed", encoding="utf-8")
+
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.write_text(
+            "workspace:a.md",
+            "new",
+            overwrite=True,
+            expected_digest=before.digest,
+        )
+
+    assert (tmp_path / "a.md").read_text(encoding="utf-8") == "changed"
 
 
 def test_workspace_write_text_rejects_ignored_parent(tmp_path: Path) -> None:
@@ -612,6 +642,49 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     first_resource = set_resources[0]
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:target.md"
+
+
+def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    target.write_text("old text", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=100,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+    def change_target() -> None:
+        target.write_text("changed elsewhere", encoding="utf-8")
+
+    llm = FakeLLMRunner(
+        {"text": "new text"},
+        on_run=change_target,
+    )
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite tersely.",
+        },
+    )
+
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    result = WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=llm_action,
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert "digest mismatch" in result.model_feedback
+    assert target.read_text(encoding="utf-8") == "changed elsewhere"
+    assert bus.consume_namespace("context") == ()
 
 
 def _message_text(message: UserMessage) -> str:

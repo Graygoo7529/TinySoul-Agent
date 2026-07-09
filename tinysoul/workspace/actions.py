@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from tinysoul.action.llm_action import LLMActionTaskRunner
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
@@ -16,10 +18,19 @@ from tinysoul.runtime import SignalBus
 from .engine import WorkspaceEngine
 from .errors import WorkspaceError
 from .manifest import WorkspaceResourceRecord
-from .prompts import WorkspacePromptReferenceResolver
+from .prompts import (
+    WorkspacePromptReferenceResolver,
+    prompt_blocks_from_workspace_input,
+)
 
 
 WORKSPACE_REWRITE_ACTION = "workspace.rewrite"
+
+
+@dataclass(frozen=True)
+class _WorkspaceLLMPrompt:
+    prompt: TaskPrompt
+    target_digest: str = ""
 
 
 def workspace_scan(engine: WorkspaceEngine, bus: SignalBus):
@@ -205,6 +216,13 @@ class WorkspaceWriteExecutor(ActionExecutor):
                     f"Workspace write target already exists: {target_link}",
                     {"reason": "target_exists", "link": target_link},
                 )
+            prompt_build = self._write_prompt(
+                target_link=target_link,
+                instruction=instruction,
+                reference_links=reference_links,
+                include_target=target_exists,
+                overwrite=overwrite,
+            )
             if expected_digest:
                 if not target_exists:
                     return _failed(
@@ -212,20 +230,12 @@ class WorkspaceWriteExecutor(ActionExecutor):
                         f"Workspace write target does not exist for digest check: {target_link}",
                         {"reason": "missing_digest_target", "link": target_link},
                     )
-                current = self._workspace.describe(target_link)
-                if current.digest != expected_digest:
+                if prompt_build.target_digest != expected_digest:
                     return _failed(
                         execution,
                         f"Workspace write target digest mismatch: {target_link}",
                         {"reason": "digest_mismatch", "link": target_link},
                     )
-            prompt = self._write_prompt(
-                target_link=target_link,
-                instruction=instruction,
-                reference_links=reference_links,
-                include_target=target_exists,
-                overwrite=overwrite,
-            )
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -240,7 +250,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
             )
         payload = self._llm_action.run_json(
             execution=execution,
-            prompt=prompt,
+            prompt=prompt_build.prompt,
             subject="Workspace write LLM task",
         )
         if isinstance(payload, ActionResult):
@@ -253,7 +263,12 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 {"reason": "invalid_write_text"},
             )
         try:
-            record = self._workspace.write_text(target_link, text, overwrite=overwrite)
+            record = self._workspace.write_text(
+                target_link,
+                text,
+                overwrite=overwrite,
+                expected_digest=expected_digest or prompt_build.target_digest,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -279,10 +294,16 @@ class WorkspaceWriteExecutor(ActionExecutor):
         reference_links: tuple[str, ...],
         include_target: bool,
         overwrite: bool,
-    ) -> TaskPrompt:
+    ) -> _WorkspaceLLMPrompt:
         target_blocks: tuple[PromptBlock, ...] = ()
+        target_digest = ""
         if include_target:
-            target_blocks = self._prompt_resolver.resolve_target(target_link)
+            target_input = self._workspace.prepare_task_input((target_link,))
+            target_digest = target_input.slices[0].digest
+            target_blocks = prompt_blocks_from_workspace_input(
+                target_input,
+                role="target",
+            )
         reference_blocks: list[PromptBlock] = []
         for link in reference_links:
             if not self._prompt_resolver.supports(link):
@@ -290,42 +311,45 @@ class WorkspaceWriteExecutor(ActionExecutor):
                     f"Unsupported workspace reference link: {link}",
                     reason="unsupported_reference_link",
                     payload={"link": link},
-                )
+            )
             reference_blocks.extend(self._prompt_resolver.resolve_reference(link))
         overwrite_text = "true" if overwrite else "false"
-        return TaskPrompt(
-            guide_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:guide:workspace_write",
-                    (
-                        "# Task Guide\n"
-                        "Generate the complete UTF-8 text for the workspace target. "
-                        "Return only the full text that should be written."
+        return _WorkspaceLLMPrompt(
+            prompt=TaskPrompt(
+                guide_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:guide:workspace_write",
+                        (
+                            "# Task Guide\n"
+                            "Generate the complete UTF-8 text for the workspace target. "
+                            "Return only the full text that should be written."
+                        ),
+                    ),
+                ),
+                input_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_write_instruction",
+                        "# Write Instruction\n" + instruction,
+                    ),
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_write_target",
+                        (
+                            "# Workspace Write Target\n"
+                            f"link: {target_link}\n"
+                            f"overwrite: {overwrite_text}"
+                        ),
+                    ),
+                    *target_blocks,
+                    *tuple(reference_blocks),
+                ),
+                output_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:output:workspace_write",
+                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
                     ),
                 ),
             ),
-            input_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:input:workspace_write_instruction",
-                    "# Write Instruction\n" + instruction,
-                ),
-                PromptBlock.from_text(
-                    "task_prompt:input:workspace_write_target",
-                    (
-                        "# Workspace Write Target\n"
-                        f"link: {target_link}\n"
-                        f"overwrite: {overwrite_text}"
-                    ),
-                ),
-                *target_blocks,
-                *tuple(reference_blocks),
-            ),
-            output_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:output:workspace_write",
-                    "# Expected Output\nReturn a JSON object with a string field 'text'.",
-                ),
-            ),
+            target_digest=target_digest,
         )
 
 class WorkspacePatchExecutor(ActionExecutor):
@@ -483,20 +507,32 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt = self._rewrite_prompt(
+            prompt_build = self._rewrite_prompt(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
             )
+            if expected_digest and prompt_build.target_digest != expected_digest:
+                return _failed(
+                    execution,
+                    f"Workspace rewrite target digest mismatch: {target_link}",
+                    {"reason": "digest_mismatch", "link": target_link},
+                )
         except PromptReferenceError as exc:
             return _failed(
                 execution,
                 str(exc),
                 {**exc.payload, "reason": exc.reason},
             )
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace rewrite failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
         payload = self._llm_action.run_json(
             execution=execution,
-            prompt=prompt,
+            prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
         )
         if isinstance(payload, ActionResult):
@@ -509,15 +545,12 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 {"reason": "invalid_rewrite_text"},
             )
         try:
-            if expected_digest:
-                current = self._workspace.describe(target_link)
-                if current.digest != expected_digest:
-                    return _failed(
-                        execution,
-                        f"Workspace rewrite target digest mismatch: {target_link}",
-                        {"reason": "digest_mismatch", "link": target_link},
-                    )
-            record = self._workspace.write_text(target_link, text, overwrite=True)
+            record = self._workspace.write_text(
+                target_link,
+                text,
+                overwrite=True,
+                expected_digest=expected_digest or prompt_build.target_digest,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -541,8 +574,12 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
-    ) -> TaskPrompt:
-        target_blocks = self._prompt_resolver.resolve_target(target_link)
+    ) -> _WorkspaceLLMPrompt:
+        target_input = self._workspace.prepare_task_input((target_link,))
+        target_blocks = prompt_blocks_from_workspace_input(
+            target_input,
+            role="target",
+        )
         reference_blocks: list[PromptBlock] = []
         for link in reference_links:
             if not self._prompt_resolver.supports(link):
@@ -550,33 +587,36 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                     f"Unsupported workspace reference link: {link}",
                     reason="unsupported_reference_link",
                     payload={"link": link},
-                )
+            )
             reference_blocks.extend(self._prompt_resolver.resolve_reference(link))
-        return TaskPrompt(
-            guide_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:guide:workspace_rewrite",
-                    (
-                        "# Task Guide\n"
-                        "Rewrite the workspace target according to the instruction. "
-                        "Return the complete replacement text for the target resource."
+        return _WorkspaceLLMPrompt(
+            prompt=TaskPrompt(
+                guide_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:guide:workspace_rewrite",
+                        (
+                            "# Task Guide\n"
+                            "Rewrite the workspace target according to the instruction. "
+                            "Return the complete replacement text for the target resource."
+                        ),
+                    ),
+                ),
+                input_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_rewrite_instruction",
+                        "# Rewrite Instruction\n" + instruction,
+                    ),
+                    *target_blocks,
+                    *tuple(reference_blocks),
+                ),
+                output_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:output:workspace_rewrite",
+                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
                     ),
                 ),
             ),
-            input_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:input:workspace_rewrite_instruction",
-                    "# Rewrite Instruction\n" + instruction,
-                ),
-                *target_blocks,
-                *tuple(reference_blocks),
-            ),
-            output_blocks=(
-                PromptBlock.from_text(
-                    "task_prompt:output:workspace_rewrite",
-                    "# Expected Output\nReturn a JSON object with a string field 'text'.",
-                ),
-            ),
+            target_digest=target_input.slices[0].digest,
         )
 
 

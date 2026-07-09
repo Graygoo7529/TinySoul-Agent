@@ -294,11 +294,16 @@ class WorkspaceEngine:
         text: str,
         *,
         overwrite: bool = False,
+        expected_digest: str = "",
     ) -> WorkspaceResourceRecord:
         if not isinstance(text, str):
             raise WorkspaceContractError("Workspace write text must be a string")
         if not isinstance(overwrite, bool):
             raise WorkspaceContractError("Workspace write overwrite must be a boolean")
+        if not isinstance(expected_digest, str):
+            raise WorkspaceContractError(
+                "Workspace write expected_digest must be a string"
+            )
         parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
         path = self.path_for(parsed)
         self._check_mutable_path(path, link=str(parsed))
@@ -311,6 +316,16 @@ class WorkspaceEngine:
                 raise WorkspaceContractError(
                     f"Workspace resource already exists: {parsed}"
                 )
+            if expected_digest:
+                current = self.describe(str(parsed))
+                if current.digest != expected_digest:
+                    raise WorkspaceContractError(
+                        f"Workspace resource digest mismatch: {parsed}"
+                    )
+        elif expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource does not exist for digest check: {parsed}"
+            )
         parent = path.parent
         if parent.exists() and not parent.is_dir():
             raise WorkspaceContractError(
