@@ -525,6 +525,40 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
+def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="provider_call_1",
+                    arguments='{"path":"workspace:doc.md"}',
+                )
+            ],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.NONE,
+                tool_scope=ToolScope(tools=(_tool(),)),
+                tool_use=ToolUse.REQUIRED,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.PARSE
+
+
 def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="", output=[], usage={})
@@ -719,6 +753,34 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
     ]
     assert response.tool_calls[0].id == "provider_call_2"
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
+
+
+def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
+    message = SimpleNamespace(
+        content="",
+        tool_calls=[SimpleNamespace(type="custom", id="call_1")],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = OpenAICompatibleChatAdapter(
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="generic", provider_model="generic-model"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.NONE,
+                tool_scope=ToolScope(tools=(_tool(),)),
+                tool_use=ToolUse.REQUIRED,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.PARSE
 
 
 def test_kimi_adapter_maps_tool_result_name() -> None:

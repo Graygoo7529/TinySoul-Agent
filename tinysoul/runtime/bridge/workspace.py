@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject, to_json_value
+from tinysoul.infra.json import JsonObject
 from tinysoul.workspace.errors import (
     WorkspaceContractError,
     WorkspaceInvariantError,
@@ -14,6 +14,7 @@ from tinysoul.workspace.errors import (
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
 from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from ._payload import config_error_payload, exception_payload, runtime_exception
 
 WORKSPACE_RUNTIME_REASON_MAP: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
@@ -34,14 +35,12 @@ class RuntimeWorkspaceBridge:
         message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {}
-        if payload is not None:
-            runtime_payload = payload
-        runtime_payload = {**runtime_payload, "module": "workspace", "kind": kind.value}
-        return RuntimeException(
-            reason=WORKSPACE_RUNTIME_REASON_MAP[kind],
+        return runtime_exception(
+            module="workspace",
+            kind=kind,
+            reason_map=WORKSPACE_RUNTIME_REASON_MAP,
             message=message,
-            payload=runtime_payload,
+            payload=payload,
         )
 
     def from_exception(
@@ -51,10 +50,11 @@ class RuntimeWorkspaceBridge:
         *,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {"error_type": type(error).__name__}
-        if payload is not None:
-            runtime_payload = {**runtime_payload, **payload}
-        return self.from_failure(kind, message=str(error), payload=runtime_payload)
+        return self.from_failure(
+            kind,
+            message=str(error),
+            payload=exception_payload(error, payload),
+        )
 
     def from_workspace_error(
         self,
@@ -82,15 +82,8 @@ class RuntimeWorkspaceBridge:
         )
 
     def from_config_error(self, error: ConfigError) -> RuntimeException:
-        payload: JsonObject = {
-            "key": error.key,
-            "source": error.source,
-            "expected": error.expected,
-        }
-        if error.value is not None:
-            payload = {**payload, "value": to_json_value(error.value)}
         return self.from_failure(
             WorkspaceFailureKind.CONFIGURATION_FAILED,
             message=error.message,
-            payload=payload,
+            payload=config_error_payload(error),
         )

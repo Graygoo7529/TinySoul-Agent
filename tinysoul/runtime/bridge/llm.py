@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra.json import JsonObject, to_json_value
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.failures import LLMFailureKind
 
 from ..exception import (
@@ -13,6 +13,7 @@ from ..exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
+from ._payload import config_error_payload, exception_payload, runtime_exception
 
 LLM_RUNTIME_REASON_MAP: dict[LLMFailureKind, str] = {
     LLMFailureKind.MODEL_CHAIN_EXHAUSTED: RUNTIME_TURN_END,
@@ -34,18 +35,12 @@ class RuntimeLLMBridge:
         message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {}
-        if payload is not None:
-            runtime_payload = payload
-        runtime_payload = {
-            **runtime_payload,
-            "module": "llm",
-            "kind": kind.value,
-        }
-        return RuntimeException(
-            reason=LLM_RUNTIME_REASON_MAP[kind],
+        return runtime_exception(
+            module="llm",
+            kind=kind,
+            reason_map=LLM_RUNTIME_REASON_MAP,
             message=message,
-            payload=runtime_payload,
+            payload=payload,
         )
 
     def from_exception(
@@ -55,10 +50,11 @@ class RuntimeLLMBridge:
         *,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {"error_type": type(error).__name__}
-        if payload is not None:
-            runtime_payload = {**runtime_payload, **payload}
-        return self.from_failure(kind, message=str(error), payload=runtime_payload)
+        return self.from_failure(
+            kind,
+            message=str(error),
+            payload=exception_payload(error, payload),
+        )
 
     def startup_failure(
         self,
@@ -73,15 +69,8 @@ class RuntimeLLMBridge:
         )
 
     def from_config_error(self, error: ConfigError) -> RuntimeException:
-        payload: JsonObject = {
-            "key": error.key,
-            "source": error.source,
-            "expected": error.expected,
-        }
-        if error.value is not None:
-            payload = {**payload, "value": to_json_value(error.value)}
         return self.from_failure(
             LLMFailureKind.CONFIGURATION_FAILED,
             message=error.message,
-            payload=payload,
+            payload=config_error_payload(error),
         )

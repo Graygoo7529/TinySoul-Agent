@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 import json
 import re
+from collections.abc import Mapping
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from .errors import LLMContractError
 from .reasoning import Reasoning
@@ -34,6 +35,40 @@ class RawResponse:
     usage: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
     provider_payload: JsonObject | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.answer_text, str):
+            raise LLMContractError("RawResponse.answer_text must be a string")
+        if not isinstance(self.model_id, str) or not self.model_id:
+            raise LLMContractError("RawResponse.model_id must be non-empty")
+        if not isinstance(self.provider_id, str) or not self.provider_id:
+            raise LLMContractError("RawResponse.provider_id must be non-empty")
+        object.__setattr__(
+            self,
+            "tool_calls",
+            _tool_calls(self.tool_calls, field="RawResponse.tool_calls"),
+        )
+        if self.reasoning is not None and not isinstance(self.reasoning, Reasoning):
+            raise LLMContractError("RawResponse.reasoning must be Reasoning or None")
+        object.__setattr__(
+            self,
+            "usage",
+            _string_key_mapping(self.usage, field="RawResponse.usage"),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            _string_key_mapping(self.metadata, field="RawResponse.metadata"),
+        )
+        if self.provider_payload is not None:
+            object.__setattr__(
+                self,
+                "provider_payload",
+                _json_object(
+                    self.provider_payload,
+                    field="RawResponse.provider_payload",
+                ),
+            )
 
 
 @dataclass(frozen=True)
@@ -68,7 +103,11 @@ class TaskFailure:
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
+        object.__setattr__(
+            self,
+            "frame_data",
+            _json_object(self.frame_data, field="TaskFailure.frame_data"),
+        )
 
 
 @dataclass(frozen=True)
@@ -88,7 +127,20 @@ class TaskResult:
             raise LLMContractError("Successful task results cannot carry failure data")
         if self.status is TaskResultStatus.FAILURE and self.failure is None:
             raise LLMContractError("Failed task results must carry failure data")
-        object.__setattr__(self, "tool_calls", tuple(self.tool_calls))
+        if not isinstance(self.raw_response, RawResponse):
+            raise LLMContractError("TaskResult.raw_response must be a RawResponse")
+        if self.answer is not None and not isinstance(
+            self.answer,
+            (TextAnswer, JsonAnswer),
+        ):
+            raise LLMContractError(
+                "TaskResult.answer must be an interpreted answer or None"
+            )
+        object.__setattr__(
+            self,
+            "tool_calls",
+            _tool_calls(self.tool_calls, field="TaskResult.tool_calls"),
+        )
         if self.failure is not None and not isinstance(self.failure, TaskFailure):
             raise LLMContractError("TaskResult.failure must be a TaskFailure or None")
 
@@ -234,3 +286,38 @@ def _extract_json_text(text: str) -> str:
             if depth == 0:
                 return stripped[start : index + 1]
     return stripped[start:]
+
+
+def _json_object(value: object, *, field: str) -> JsonObject:
+    try:
+        return to_json_object(value)
+    except JsonTypeError as exc:
+        raise LLMContractError(f"{field} must be a JSON object") from exc
+
+
+def _tool_calls(
+    value: tuple[ToolCallRecord, ...],
+    *,
+    field: str,
+) -> tuple[ToolCallRecord, ...]:
+    try:
+        tool_calls = tuple(value)
+    except TypeError as exc:
+        raise LLMContractError(
+            f"{field} must be an iterable of ToolCallRecord values"
+        ) from exc
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, ToolCallRecord):
+            raise LLMContractError(f"{field} must contain ToolCallRecord values")
+    return tool_calls
+
+
+def _string_key_mapping(value: object, *, field: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise LLMContractError(f"{field} must be a mapping")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise LLMContractError(f"{field} keys must be strings")
+        result[key] = item
+    return result

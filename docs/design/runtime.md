@@ -52,6 +52,8 @@ TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原�
 
 Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻译层。bridge 应通过显式映射表把模块失败类型映射为 Runtime 原因，并显式构造错误消息和 JSON payload。payload 至少应表达模块名和模块失败类型，并可包含 `error_type`、配置 key、任务 profile、资源句柄等稳定摘要字段。traceback 和原始异常对象不属于 payload 协议；实现上可以通过异常链保留调试信息。
 
+不同 bridge 可以复用私有 helper 完成机械性的 payload 拼装、异常类型摘要和 `ConfigError` 投影，但模块名、模块 failure enum、Runtime reason 映射表和专用恢复入口仍保留在各自 bridge 文件中。公共 helper 不承担模块失败分类，也不决定控制流语义。
+
 模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace、需要观测输出或需要通知其他模块消费数据时，应发出信号。只有结束 Turn、结束 Cycle、结束 Program、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
 
 ## 运行转移

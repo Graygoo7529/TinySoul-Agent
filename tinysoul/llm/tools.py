@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
 from .errors import LLMContractError
 
@@ -46,7 +46,15 @@ class ToolSpec:
         _require_name(self.name, field="ToolSpec.name")
         if not self.description:
             raise LLMContractError("ToolSpec.description must be non-empty")
-        object.__setattr__(self, "parameters", to_json_object(self.parameters))
+        object.__setattr__(
+            self,
+            "parameters",
+            _json_object(self.parameters, field="ToolSpec.parameters"),
+        )
+        if not isinstance(self.kind, ToolKind):
+            raise LLMContractError("ToolSpec.kind must be a ToolKind")
+        if self.strict is not None and not isinstance(self.strict, bool):
+            raise LLMContractError("ToolSpec.strict must be bool or None")
 
 
 @dataclass(frozen=True)
@@ -57,6 +65,13 @@ class ToolSelection:
     forced_name: str | None = None
 
     def __post_init__(self) -> None:
+        try:
+            allowed_names = tuple(self.allowed_names)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ToolSelection.allowed_names must be an iterable of strings"
+            ) from exc
+        object.__setattr__(self, "allowed_names", allowed_names)
         seen: set[str] = set()
         for name in self.allowed_names:
             _require_name(name, field="ToolSelection.allowed_names")
@@ -79,6 +94,18 @@ class ToolScope:
     selection: ToolSelection = field(default_factory=ToolSelection)
 
     def __post_init__(self) -> None:
+        try:
+            tools = tuple(self.tools)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ToolScope.tools must be an iterable of ToolSpec values"
+            ) from exc
+        for tool in tools:
+            if not isinstance(tool, ToolSpec):
+                raise LLMContractError("ToolScope.tools must contain ToolSpec values")
+        object.__setattr__(self, "tools", tools)
+        if not isinstance(self.selection, ToolSelection):
+            raise LLMContractError("ToolScope.selection must be a ToolSelection")
         names = {tool.name for tool in self.tools}
         missing_allowed = [
             name for name in self.selection.allowed_names if name not in names
@@ -121,7 +148,13 @@ class ToolCallRecord:
     def __post_init__(self) -> None:
         _require_name(self.id, field="ToolCallRecord.id")
         _require_name(self.name, field="ToolCallRecord.name")
-        object.__setattr__(self, "arguments", to_json_object(self.arguments))
+        object.__setattr__(
+            self,
+            "arguments",
+            _json_object(self.arguments, field="ToolCallRecord.arguments"),
+        )
+        if self.kind is not None and not isinstance(self.kind, ToolKind):
+            raise LLMContractError("ToolCallRecord.kind must be ToolKind or None")
 
 
 class ToolCallIdMapper:
@@ -170,8 +203,15 @@ class DefaultToolCallIdMapper(ToolCallIdMapper):
 
 
 def _require_name(value: str, *, field: str) -> None:
-    if not value:
+    if not isinstance(value, str) or not value:
         raise LLMContractError(f"{field} must be non-empty")
+
+
+def _json_object(value: object, *, field: str) -> JsonObject:
+    try:
+        return to_json_object(value)
+    except JsonTypeError as exc:
+        raise LLMContractError(f"{field} must be a JSON object") from exc
 
 
 def _valid_tool_call_id(value: str) -> bool:

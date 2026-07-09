@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from tinysoul.infra.config import ConfigError
 
+from .errors import LLMContractError
 from .model_chain import TaskSpecTable
 from .models import ModelRegistry
 
@@ -27,6 +28,28 @@ class ProviderSpec:
     api_style: ProviderApiStyle
     base_url: str
     api_key_envs: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not self.id:
+            raise LLMContractError("ProviderSpec.id must be non-empty")
+        if not isinstance(self.api_style, ProviderApiStyle):
+            raise LLMContractError("ProviderSpec.api_style must be a ProviderApiStyle")
+        if not isinstance(self.base_url, str) or not self.base_url:
+            raise LLMContractError("ProviderSpec.base_url must be non-empty")
+        try:
+            api_key_envs = tuple(self.api_key_envs)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ProviderSpec.api_key_envs must be an iterable of strings"
+            ) from exc
+        if not api_key_envs:
+            raise LLMContractError("ProviderSpec.api_key_envs must be non-empty")
+        for name in api_key_envs:
+            if not isinstance(name, str) or not name:
+                raise LLMContractError(
+                    "ProviderSpec.api_key_envs must contain non-empty strings"
+                )
+        object.__setattr__(self, "api_key_envs", api_key_envs)
 
     def resolve_api_key(self, values: Mapping[str, str]) -> str:
         for name in self.api_key_envs:
@@ -49,6 +72,24 @@ class LLMConfig:
     models: ModelRegistry
     tasks: TaskSpecTable
 
+    def __post_init__(self) -> None:
+        try:
+            providers = tuple(self.providers)
+        except TypeError as exc:
+            raise LLMContractError(
+                "LLMConfig.providers must be an iterable of ProviderSpec values"
+            ) from exc
+        for provider in providers:
+            if not isinstance(provider, ProviderSpec):
+                raise LLMContractError(
+                    "LLMConfig.providers must contain ProviderSpec values"
+                )
+        object.__setattr__(self, "providers", providers)
+        if not isinstance(self.models, ModelRegistry):
+            raise LLMContractError("LLMConfig.models must be a ModelRegistry")
+        if not isinstance(self.tasks, TaskSpecTable):
+            raise LLMContractError("LLMConfig.tasks must be a TaskSpecTable")
+
     def provider(self, provider_id: str) -> ProviderSpec:
         for provider in self.providers:
             if provider.id == provider_id:
@@ -58,4 +99,3 @@ class LLMConfig:
             key="llm.providers",
             value=provider_id,
         )
-

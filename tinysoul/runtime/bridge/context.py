@@ -18,6 +18,7 @@ from ..exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
+from ._payload import exception_payload, runtime_exception
 
 CONTEXT_RUNTIME_REASON_MAP: dict[ContextFailureKind, str] = {
     ContextFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
@@ -38,18 +39,12 @@ class RuntimeContextBridge:
         message: str,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {}
-        if payload is not None:
-            runtime_payload = payload
-        runtime_payload = {
-            **runtime_payload,
-            "module": "context",
-            "kind": kind.value,
-        }
-        return RuntimeException(
-            reason=CONTEXT_RUNTIME_REASON_MAP[kind],
+        return runtime_exception(
+            module="context",
+            kind=kind,
+            reason_map=CONTEXT_RUNTIME_REASON_MAP,
             message=message,
-            payload=runtime_payload,
+            payload=payload,
         )
 
     def from_exception(
@@ -59,10 +54,11 @@ class RuntimeContextBridge:
         *,
         payload: JsonObject | None = None,
     ) -> RuntimeException:
-        runtime_payload: JsonObject = {"error_type": type(error).__name__}
-        if payload is not None:
-            runtime_payload = {**runtime_payload, **payload}
-        return self.from_failure(kind, message=str(error), payload=runtime_payload)
+        return self.from_failure(
+            kind,
+            message=str(error),
+            payload=exception_payload(error, payload),
+        )
 
     def from_context_error(
         self,

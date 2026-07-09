@@ -46,8 +46,16 @@ def responses_tool_calls(
         name = get_attr(item, "name")
         call_id = get_attr(item, "call_id")
         arguments = get_attr(item, "arguments")
-        if not isinstance(name, str) or not isinstance(call_id, str):
-            continue
+        if not isinstance(name, str) or not name:
+            raise ProviderError(
+                "Responses function call is missing a valid name",
+                kind=ProviderErrorKind.PARSE,
+            )
+        if not isinstance(call_id, str) or not call_id:
+            raise ProviderError(
+                "Responses function call is missing a valid call_id",
+                kind=ProviderErrorKind.PARSE,
+            )
         parsed_arguments = parse_tool_arguments(arguments)
         records.append(
             ToolCallRecord(
@@ -139,13 +147,29 @@ def chat_tool_calls(
     for index, item in enumerate(tool_calls):
         item_type = get_attr(item, "type")
         if item_type not in {None, "function"}:
-            continue
+            raise ProviderError(
+                f"Unsupported chat tool call type: {item_type}",
+                kind=ProviderErrorKind.PARSE,
+            )
         call_id = get_attr(item, "id")
         function = get_attr(item, "function")
+        if function is None:
+            raise ProviderError(
+                "Chat tool call is missing function payload",
+                kind=ProviderErrorKind.PARSE,
+            )
         name = get_attr(function, "name")
         arguments = get_attr(function, "arguments")
-        if not isinstance(call_id, str) or not isinstance(name, str):
-            continue
+        if not isinstance(call_id, str) or not call_id:
+            raise ProviderError(
+                "Chat tool call is missing a valid id",
+                kind=ProviderErrorKind.PARSE,
+            )
+        if not isinstance(name, str) or not name:
+            raise ProviderError(
+                "Chat tool call function is missing a valid name",
+                kind=ProviderErrorKind.PARSE,
+            )
         records.append(
             ToolCallRecord(
                 id=id_mapper.to_tinysoul_id(

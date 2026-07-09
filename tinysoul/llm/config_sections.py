@@ -36,33 +36,39 @@ class ProviderConfigParser:
         providers: list[ProviderSpec] = []
         for provider_id, value in table.items():
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
-            providers.append(
-                ProviderSpec(
-                    id=provider_id,
-                    api_style=enum_value(
-                        ProviderApiStyle,
-                        required_str(
+            try:
+                providers.append(
+                    ProviderSpec(
+                        id=provider_id,
+                        api_style=enum_value(
+                            ProviderApiStyle,
+                            required_str(
+                                provider_table,
+                                "api_style",
+                                key=f"llm.providers.{provider_id}",
+                            ),
+                            key=f"llm.providers.{provider_id}.api_style",
+                        ),
+                        base_url=required_str(
                             provider_table,
-                            "api_style",
+                            "base_url",
                             key=f"llm.providers.{provider_id}",
                         ),
-                        key=f"llm.providers.{provider_id}.api_style",
-                    ),
-                    base_url=required_str(
-                        provider_table,
-                        "base_url",
-                        key=f"llm.providers.{provider_id}",
-                    ),
-                    api_key_envs=tuple(
-                        required_str_list(
-                            provider_table,
-                            "api_key_envs",
-                            key=f"llm.providers.{provider_id}",
-                            non_empty=True,
-                        )
-                    ),
+                        api_key_envs=tuple(
+                            required_str_list(
+                                provider_table,
+                                "api_key_envs",
+                                key=f"llm.providers.{provider_id}",
+                                non_empty=True,
+                            )
+                        ),
+                    )
                 )
-            )
+            except LLMContractError as exc:
+                raise ConfigError(
+                    str(exc),
+                    key=f"llm.providers.{provider_id}",
+                ) from exc
         return providers
 
 
@@ -78,33 +84,40 @@ class ModelConfigParser:
         registry = ModelRegistry()
         for model_id, value in table.items():
             model_table = as_table(value, key=f"llm.models.{model_id}")
-            provider_id = required_str(model_table, "provider", key=f"llm.models.{model_id}")
+            provider_id = required_str(
+                model_table,
+                "provider",
+                key=f"llm.models.{model_id}",
+            )
             if provider_id not in provider_ids:
                 raise ConfigError(
                     "Model references unknown provider",
                     key=f"llm.models.{model_id}.provider",
                     value=provider_id,
                 )
-            registry.register(
-                ModelSpec(
-                    id=model_id,
-                    provider_id=provider_id,
-                    provider_model=required_str(
-                        model_table,
-                        "provider_model",
-                        key=f"llm.models.{model_id}",
-                    ),
-                    capabilities=required_capability_set(
-                        model_table,
-                        "capabilities",
-                        key=f"llm.models.{model_id}",
-                    ),
-                    provider_options=optional_provider_options(
-                        model_table,
-                        key=f"llm.models.{model_id}",
-                    ),
+            try:
+                registry.register(
+                    ModelSpec(
+                        id=model_id,
+                        provider_id=provider_id,
+                        provider_model=required_str(
+                            model_table,
+                            "provider_model",
+                            key=f"llm.models.{model_id}",
+                        ),
+                        capabilities=required_capability_set(
+                            model_table,
+                            "capabilities",
+                            key=f"llm.models.{model_id}",
+                        ),
+                        provider_options=optional_provider_options(
+                            model_table,
+                            key=f"llm.models.{model_id}",
+                        ),
+                    )
                 )
-            )
+            except LLMContractError as exc:
+                raise ConfigError(str(exc), key=f"llm.models.{model_id}") from exc
         return registry
 
 

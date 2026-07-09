@@ -1,18 +1,23 @@
 ﻿from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
     ImageUrlPart,
     JsonPart,
+    Message,
+    MessagePart,
     MessageStack,
+    SystemMessage,
     TextPart,
     ToolResultMessage,
     UserMessage,
-    SystemMessage,
 )
 from tinysoul.llm.tools import ToolCallRecord
 
@@ -34,6 +39,19 @@ def test_message_constructs_from_json_and_parts() -> None:
     assert isinstance(message.parts[0], JsonPart)
     assert message.parts[0].value == {"source": "tool_result", "ok": True}
     assert message.parts[1] == TextPart("done")
+
+
+def test_message_objects_reject_invalid_parts() -> None:
+    with pytest.raises(LLMContractError):
+        UserMessage(parts=cast(tuple[MessagePart, ...], (object(),)))
+
+    with pytest.raises(LLMContractError):
+        MessageStack(messages=cast(tuple[Message, ...], (object(),)))
+
+
+def test_json_part_reports_llm_contract_error_for_non_json_object() -> None:
+    with pytest.raises(LLMContractError):
+        JsonPart(cast(JsonObject, {"bad": object()}))
 
 
 def test_message_add_parts_preserves_metadata() -> None:

@@ -36,6 +36,14 @@ class ProviderOptions:
 
     values: Mapping[str, object] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        items: dict[str, object] = {}
+        for key, value in self.values.items():
+            if not isinstance(key, str):
+                raise LLMContractError("provider option keys must be strings")
+            items[key] = value
+        object.__setattr__(self, "values", items)
+
     def reasoning_keep(self) -> ReasoningKeep:
         value = self.values.get("reasoning_keep")
         if value is None:
@@ -107,6 +115,32 @@ class ModelSpec:
         default_factory=lambda: frozenset({ModelCapability.TEXT_INPUT})
     )
     provider_options: ProviderOptions = field(default_factory=ProviderOptions)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not self.id:
+            raise LLMContractError("ModelSpec.id must be non-empty")
+        if not isinstance(self.provider_id, str) or not self.provider_id:
+            raise LLMContractError("ModelSpec.provider_id must be non-empty")
+        if not isinstance(self.provider_model, str) or not self.provider_model:
+            raise LLMContractError("ModelSpec.provider_model must be non-empty")
+        try:
+            capabilities = frozenset(self.capabilities)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ModelSpec.capabilities must be an iterable of ModelCapability values"
+            ) from exc
+        if not capabilities:
+            raise LLMContractError("ModelSpec.capabilities must be non-empty")
+        for capability in capabilities:
+            if not isinstance(capability, ModelCapability):
+                raise LLMContractError(
+                    "ModelSpec.capabilities must contain ModelCapability values"
+                )
+        object.__setattr__(self, "capabilities", capabilities)
+        if not isinstance(self.provider_options, ProviderOptions):
+            raise LLMContractError(
+                "ModelSpec.provider_options must be a ProviderOptions value"
+            )
 
     def supports(self, capability: ModelCapability) -> bool:
         return capability in self.capabilities
