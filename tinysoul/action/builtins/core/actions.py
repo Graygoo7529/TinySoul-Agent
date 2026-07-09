@@ -1,4 +1,4 @@
-"""Built-in core action executors."""
+"""Built-in core action executors and registrar."""
 
 from __future__ import annotations
 
@@ -389,13 +389,13 @@ def _normalized_answer_payload(
     return result
 
 
-def register_core_action_executors(
+def register_core_actions(
     builder: ActionEngineBuilder,
     *,
     llm_action: LLMActionTaskRunner,
     reference_resolvers: Sequence[PromptReferenceResolver] = (),
 ) -> ActionEngineBuilder:
-    """Register built-in core action executors on an action builder."""
+    """Register built-in core actions on an action builder."""
 
     return builder.register_executor(
         "core.reason",

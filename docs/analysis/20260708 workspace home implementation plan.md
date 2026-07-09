@@ -73,12 +73,12 @@ Workspace 模块提供 `WorkspacePromptReferenceResolver`，支持把 `workspace
 对应实现位置：
 
 - `tinysoul/action/backends/llm_action.py`：`LLMActionTaskRunner`、`ActionHow`、`ActionHowProvider`；
-- `tinysoul/action/builtins/core/executors.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
+- `tinysoul/action/builtins/core/actions.py`：`core.reason`、`core.answer`、PromptBlock-only `TaskPrompt`、`reference_links` 与 registrar；
 - `tinysoul/workspace/prompts.py`：`WorkspacePromptReferenceResolver` 与 Workspace PromptBlock 转换；
 - `tinysoul/workspace/actions.py`：Workspace LLM action 内部 target/reference prompt 构造；
 - `tinysoul/action/catalog/core/actions/reason.toml`：通用推理动作；
 - `tinysoul/action/catalog/core/actions/answer.toml`：最终回答动作；
-- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向 Action builtins core executor 注入 workspace reference resolver；
+- `tinysoul/app/builder.py`：装配 `LLMActionTaskRunner`，注入 `HomeActionHowProvider`，并向 Action builtins core actions 注入 workspace reference resolver；
 - `tests/action/test_llm_action.py`、`tests/workspace/test_workspace_engine.py`、`tests/home/test_home_engine.py`：任务输入切分、引用解析、workspace block、HOW 注入和 runtime copy trap 测试。
 
 ### 2.6 Action timeout frame 与 Workspace 写入 guard

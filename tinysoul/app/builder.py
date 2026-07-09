@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
-from tinysoul.action.builtins.core import register_core_action_executors
+from tinysoul.action.builtins.core import register_core_actions
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
@@ -364,7 +364,7 @@ class TinySoulAppBuilder:
                 home=home,
                 runtime_bridge=home_bridge,
             )
-            register_core_action_executors(
+            register_core_actions(
                 builder,
                 reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
                 llm_action=llm_action,

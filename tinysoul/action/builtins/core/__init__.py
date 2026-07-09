@@ -1,14 +1,13 @@
-"""Built-in core action executors."""
+"""Built-in core actions."""
 
-from .executors import (
+from .actions import (
     CoreAnswerActionExecutor,
     CoreReasonActionExecutor,
-    register_core_action_executors,
+    register_core_actions,
 )
 
 __all__ = [
     "CoreAnswerActionExecutor",
     "CoreReasonActionExecutor",
-    "register_core_action_executors",
+    "register_core_actions",
 ]
-
