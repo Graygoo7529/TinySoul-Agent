@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import traceback
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
+from ..errors import RuntimeContractError
 from ..exception import RuntimeException
 from ..scope import RunScope
 
@@ -23,10 +24,14 @@ class TrapSnap:
 
     def __post_init__(self) -> None:
         if not self.reason:
-            raise ValueError("TrapSnap.reason must be non-empty")
-        object.__setattr__(self, "payload", to_json_object(self.payload))
+            raise RuntimeContractError("TrapSnap.reason must be non-empty")
+        try:
+            payload = to_json_object(self.payload)
+        except JsonTypeError as exc:
+            raise RuntimeContractError("TrapSnap.payload must be a JSON object") from exc
+        object.__setattr__(self, "payload", payload)
         if not isinstance(self.scope, RunScope):
-            raise TypeError("TrapSnap.scope must be a RunScope")
+            raise RuntimeContractError("TrapSnap.scope must be a RunScope")
 
     @classmethod
     def from_exception(

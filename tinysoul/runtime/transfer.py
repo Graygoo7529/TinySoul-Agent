@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .errors import RuntimeContractError
 from .scope import RunFrame
 
 
@@ -24,7 +25,7 @@ class RuntimeTransfer:
 
     def __post_init__(self) -> None:
         if not isinstance(self.target, RunFrame):
-            raise TypeError("RuntimeTransfer.target must be a RunFrame")
+            raise RuntimeContractError("RuntimeTransfer.target must be a RunFrame")
 
     @classmethod
     def retry(cls, target: RunFrame) -> "RuntimeTransfer":

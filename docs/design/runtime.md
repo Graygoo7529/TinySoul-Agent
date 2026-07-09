@@ -36,6 +36,8 @@ Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Progr
 
 Runtime 的异常入口应保持单一。模块外交给 Runtime 的异常使用统一异常类型承载原因标识、错误消息和结构化载荷。Runtime 不通过庞大的异常继承树区分恢复、中断和退出，也不直接接收各模块的细粒度失败原因；模块失败原因由模块内部维护，并通过 bridge 映射到 Runtime 的通用原因。这样可以保持异常入口稳定，并避免 LLM、Infra、Action 或 Context 的内部错误分类污染 Runtime 控制协议。
 
+Runtime 自身仍然有模块内部的契约和不变量错误。`RuntimeException` 只表示需要进入 Trap 的控制流语义，不用于表达 `RunScope`、`Signal`、`TrapResult` 或 handler registry 的构造错误。Runtime 公共对象、Signal/Trap 注册表和 JSON payload 边界使用 Runtime 自有错误层表达：调用方违反 Runtime API 约定时抛出 `RuntimeContractError`，已装配 Runtime 状态无法满足自身运行不变量时抛出 `RuntimeInvariantError`。这些错误表示代码或装配边界失败，不作为普通业务恢复原因进入 Trap，也不新增 Runtime reason。
+
 TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原因标识、错误消息、结构化载荷和运行位置。结构化载荷是模块 bridge 显式构造的 JSON 对象；原始异常链可以供日志和调试使用，但不应成为 payload 协议。TrapSnap 不再被抛出；它只在 Trap 处理器、日志、TurnTrace 和可观测流程中流动。
 
 常见原因包括：程序启动失败、结束 Turn、结束 Cycle、结束 Program、需要语境压缩、需要 Agent Home 运行时副本准备。具体 Runtime 原因名称属于模块间协议，应稳定、可记录、可测试；具体模块失败类型应放在 payload 的模块命名空间字段中。
@@ -69,6 +71,8 @@ Runtime 将异常处理统一为 Trap 处理器调度。
 Runtime 使用 Trap 处理器表处理不同陷入原因。处理器表类似 OS 中断向量表：原因标识和运行位置共同决定处理器，处理器返回运行转移。
 
 Trap 处理器负责解释 Runtime 原因标识。它可以直接返回结束 Turn、结束 Program 等转移，也可以执行全局恢复例程后返回重试某个 frame 的转移。新增模块失败类型通常不应新增 Runtime 原因，而应在模块 bridge 的映射表中映射到既有通用原因；只有需要独立恢复例程或独立全局控制语义时，才新增 Runtime 原因并注册处理器。处理器可以读取 TrapSnap，但不应反向依赖具体业务模块内部状态。
+
+未知 Trap reason 在 registry 查询层面是 Runtime 契约错误；如果它发生在 `RuntimeTrap.capture()` 过程中，则表示当前应用装配没有为已进入 Trap 的 Runtime reason 提供处理器，属于 Runtime 装配不变量破坏，应表达为 `RuntimeInvariantError`。这类问题不应被误写成新的可恢复 Runtime reason。
 
 通用处理策略包括：启动失败结束 Program；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Program 原因退出程序；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移。未知异常被记录为非预期故障，并按当前运行层级选择结束 Turn 或结束 Program。
 

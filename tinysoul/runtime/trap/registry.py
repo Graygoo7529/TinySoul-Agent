@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..errors import RuntimeContractError
 from .handler import TrapHandler
 
 
@@ -15,13 +16,15 @@ class TrapHandlerRegistry:
     def register(self, reason: str, handler: TrapHandler) -> None:
         reason = self._normalize_key(reason)
         if reason in self._exact:
-            raise ValueError(f"Trap handler already registered: {reason}")
+            raise RuntimeContractError(f"Trap handler already registered: {reason}")
         self._exact[reason] = handler
 
     def register_prefix(self, prefix: str, handler: TrapHandler) -> None:
         prefix = self._normalize_key(prefix)
         if prefix in self._prefix:
-            raise ValueError(f"Trap prefix handler already registered: {prefix}")
+            raise RuntimeContractError(
+                f"Trap prefix handler already registered: {prefix}"
+            )
         self._prefix[prefix] = handler
 
     def handler_for(self, reason: str) -> TrapHandler:
@@ -34,7 +37,7 @@ class TrapHandlerRegistry:
         if matched_prefix is not None:
             return matched_prefix
 
-        raise LookupError(f"Unknown trap reason: {reason}")
+        raise RuntimeContractError(f"Unknown trap reason: {reason}")
 
     def _match_prefix(self, reason: str) -> TrapHandler | None:
         matches = [
@@ -51,5 +54,5 @@ class TrapHandlerRegistry:
     def _normalize_key(value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("Trap registry key must be non-empty")
+            raise RuntimeContractError("Trap registry key must be non-empty")
         return normalized

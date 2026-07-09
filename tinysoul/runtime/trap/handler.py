@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ..errors import RuntimeContractError
 from ..transfer import RuntimeTransfer
 from ..signals.base import Signal
 from .snap import TrapSnap
@@ -21,7 +22,9 @@ class TrapResult:
         object.__setattr__(self, "signals", tuple(self.signals))
         for signal in self.signals:
             if not isinstance(signal, Signal):
-                raise TypeError("TrapResult.signals must contain Signal values")
+                raise RuntimeContractError(
+                    "TrapResult.signals must contain Signal values"
+                )
 
 
 class TrapHandler(Protocol):

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
 
+from ..errors import RuntimeContractError
 from ..scope import RunScope
 
 
@@ -20,10 +21,13 @@ class Signal:
 
     def __post_init__(self) -> None:
         if not self.name:
-            raise ValueError("Signal.name must be non-empty")
+            raise RuntimeContractError("Signal.name must be non-empty")
         if not self.source:
-            raise ValueError("Signal.source must be non-empty")
+            raise RuntimeContractError("Signal.source must be non-empty")
         if not isinstance(self.scope, RunScope):
-            raise TypeError("Signal.scope must be a RunScope")
-        object.__setattr__(self, "payload", to_json_object(self.payload))
-
+            raise RuntimeContractError("Signal.scope must be a RunScope")
+        try:
+            payload = to_json_object(self.payload)
+        except JsonTypeError as exc:
+            raise RuntimeContractError("Signal.payload must be a JSON object") from exc
+        object.__setattr__(self, "payload", payload)

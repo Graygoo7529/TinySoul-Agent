@@ -4,7 +4,8 @@ from typing import cast
 
 import pytest
 
-from tinysoul.infra.json import JsonObject, JsonTypeError
+from tinysoul.infra.json import JsonObject
+from tinysoul.runtime.errors import RuntimeContractError
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
 from tinysoul.runtime.signals import Signal, SignalBus, SignalHandlerRegistry
 
@@ -48,7 +49,7 @@ def test_signal_bus_consumes_exact_name_only() -> None:
 def test_signal_bus_rejects_non_signal() -> None:
     bus = SignalBus()
 
-    with pytest.raises(TypeError):
+    with pytest.raises(RuntimeContractError):
         bus.emit(cast(Signal, "bad"))
 
 
@@ -63,7 +64,7 @@ def test_signal_normalizes_payload() -> None:
 def test_signal_rejects_non_object_payload() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
 
-    with pytest.raises(JsonTypeError):
+    with pytest.raises(RuntimeContractError):
         Signal("runtime.trace", "trap", scope, cast(JsonObject, ["x"]))
 
 
@@ -91,5 +92,5 @@ def test_signal_registry_rejects_duplicates() -> None:
     collector = _Collector()
     registry.register("runtime.turn.end_requested", collector)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeContractError):
         registry.register("runtime.turn.end_requested", collector)

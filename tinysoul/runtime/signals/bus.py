@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+from ..errors import RuntimeContractError
 from .base import Signal
 
 
@@ -16,7 +17,7 @@ class SignalBus:
 
     def emit(self, signal: Signal) -> None:
         if not isinstance(signal, Signal):
-            raise TypeError("SignalBus.emit expects a Signal")
+            raise RuntimeContractError("SignalBus.emit expects a Signal")
         with self._lock:
             self._signals.append(signal)
 
@@ -34,7 +35,9 @@ class SignalBus:
         """Consume only signals matching a namespace prefix, keeping the rest queued."""
 
         if not prefix:
-            raise ValueError("SignalBus.consume_namespace requires a non-empty prefix")
+            raise RuntimeContractError(
+                "SignalBus.consume_namespace requires a non-empty prefix"
+            )
         with self._lock:
             matched: list[Signal] = []
             remaining: list[Signal] = []
@@ -50,7 +53,9 @@ class SignalBus:
         """Consume only signals matching one exact signal name."""
 
         if not name:
-            raise ValueError("SignalBus.consume_name requires a non-empty name")
+            raise RuntimeContractError(
+                "SignalBus.consume_name requires a non-empty name"
+            )
         with self._lock:
             matched: list[Signal] = []
             remaining: list[Signal] = []

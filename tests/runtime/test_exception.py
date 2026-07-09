@@ -4,7 +4,8 @@ from typing import cast
 
 import pytest
 
-from tinysoul.infra.json import JsonObject, JsonTypeError
+from tinysoul.infra.json import JsonObject
+from tinysoul.runtime.errors import RuntimeContractError
 from tinysoul.runtime.exception import (
     CONTEXT_COMPRESSION_REQUIRED,
     RuntimeException,
@@ -23,7 +24,7 @@ def test_runtime_exception_normalizes_payload() -> None:
 
 
 def test_runtime_exception_rejects_non_object_payload() -> None:
-    with pytest.raises(JsonTypeError):
+    with pytest.raises(RuntimeContractError):
         RuntimeException(
             reason="runtime.bad",
             message="bad",
@@ -32,5 +33,5 @@ def test_runtime_exception_rejects_non_object_payload() -> None:
 
 
 def test_runtime_exception_rejects_empty_reason() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeContractError):
         RuntimeException(reason="", message="bad")

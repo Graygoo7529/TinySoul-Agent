@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Iterator, Self
 
+from .errors import RuntimeContractError
+
 
 class RunLevel(StrEnum):
     """Runtime frame level."""
@@ -34,7 +36,7 @@ class RunFrame:
 
     def __post_init__(self) -> None:
         if not self.name:
-            raise ValueError("RunFrame.name must be non-empty")
+            raise RuntimeContractError("RunFrame.name must be non-empty")
 
     def __str__(self) -> str:
         return f"{self.level.value}:{self.name}"
@@ -50,7 +52,9 @@ class RunScope:
         frames = tuple(self.frames)
         for frame in frames:
             if not isinstance(frame, RunFrame):
-                raise TypeError("RunScope.frames must contain RunFrame values")
+                raise RuntimeContractError(
+                    "RunScope.frames must contain RunFrame values"
+                )
         object.__setattr__(self, "frames", frames)
 
     @classmethod

@@ -9,6 +9,7 @@ from .exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
+from .errors import RuntimeContractError, RuntimeInvariantError, RuntimeModuleError
 from .scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
@@ -23,6 +24,9 @@ __all__ = [
     "RUNTIME_STARTUP_FAILED",
     "RUNTIME_TURN_END",
     "RuntimeException",
+    "RuntimeContractError",
+    "RuntimeInvariantError",
+    "RuntimeModuleError",
     "RunFrame",
     "RunLevel",
     "RunScope",

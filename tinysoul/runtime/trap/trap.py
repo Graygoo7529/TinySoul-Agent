@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..errors import RuntimeContractError, RuntimeInvariantError
 from ..exception import RuntimeException
 from ..scope import RunScope
 from .snap import TrapSnap
@@ -17,5 +18,10 @@ class RuntimeTrap:
 
     def capture(self, exception: RuntimeException, scope: RunScope) -> TrapResult:
         snap = TrapSnap.from_exception(exception, scope)
-        handler = self._registry.handler_for(snap.reason)
+        try:
+            handler = self._registry.handler_for(snap.reason)
+        except RuntimeContractError as exc:
+            raise RuntimeInvariantError(
+                f"No trap handler registered for runtime reason: {snap.reason}"
+            ) from exc
         return handler.handle(snap)

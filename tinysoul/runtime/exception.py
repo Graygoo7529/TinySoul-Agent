@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
+
+from .errors import RuntimeContractError
 
 RUNTIME_STARTUP_FAILED = "runtime.startup_failed"
 RUNTIME_TURN_END = "runtime.turn_end"
@@ -24,8 +26,14 @@ class RuntimeException(Exception):
 
     def __post_init__(self) -> None:
         if not self.reason:
-            raise ValueError("reason must be non-empty")
-        object.__setattr__(self, "payload", to_json_object(self.payload))
+            raise RuntimeContractError("RuntimeException.reason must be non-empty")
+        try:
+            payload = to_json_object(self.payload)
+        except JsonTypeError as exc:
+            raise RuntimeContractError(
+                "RuntimeException.payload must be a JSON object"
+            ) from exc
+        object.__setattr__(self, "payload", payload)
 
     def __str__(self) -> str:
         if self.message:

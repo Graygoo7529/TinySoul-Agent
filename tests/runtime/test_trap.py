@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
+
+from tinysoul.runtime.errors import RuntimeInvariantError
 from tinysoul.runtime.exception import (
     CONTEXT_COMPRESSION_REQUIRED,
     HOME_RUNTIME_COPY_REQUIRED,
@@ -109,19 +112,17 @@ def test_trap_handler_can_emit_signals() -> None:
     assert result.signals == (signal,)
 
 
-def test_trap_unknown_reason_raises_lookup_error() -> None:
+def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
     trap = RuntimeTrap(registry=TrapHandlerRegistry())
 
-    try:
+    with pytest.raises(RuntimeInvariantError) as raised:
         trap.capture(
             RuntimeException(reason=HOME_RUNTIME_COPY_REQUIRED, message="copy", payload={}),
             scope,
         )
-    except LookupError as exc:
-        assert "Unknown trap reason" in str(exc)
-    else:
-        raise AssertionError("Expected LookupError")
+
+    assert "No trap handler registered" in str(raised.value)
 
 
 def test_common_reasons_are_constants() -> None:

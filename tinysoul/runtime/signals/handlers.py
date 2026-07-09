@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Protocol
 
+from ..errors import RuntimeContractError
 from .base import Signal
 
 
@@ -26,13 +27,15 @@ class SignalHandlerRegistry:
     def register(self, name: str, handler: SignalHandler) -> None:
         name = self._normalize_key(name)
         if name in self._exact:
-            raise ValueError(f"Signal handler already registered: {name}")
+            raise RuntimeContractError(f"Signal handler already registered: {name}")
         self._exact[name] = handler
 
     def register_prefix(self, prefix: str, handler: SignalHandler) -> None:
         prefix = self._normalize_key(prefix)
         if prefix in self._prefix:
-            raise ValueError(f"Signal prefix handler already registered: {prefix}")
+            raise RuntimeContractError(
+                f"Signal prefix handler already registered: {prefix}"
+            )
         self._prefix[prefix] = handler
 
     def dispatch(self, signals: Iterable[Signal]) -> None:
@@ -49,7 +52,7 @@ class SignalHandlerRegistry:
         if matched_prefix is not None:
             return matched_prefix
 
-        raise LookupError(f"Unknown signal name: {name}")
+        raise RuntimeContractError(f"Unknown signal name: {name}")
 
     def _match_prefix(self, name: str) -> SignalHandler | None:
         matches = [
@@ -66,5 +69,5 @@ class SignalHandlerRegistry:
     def _normalize_key(value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("Signal registry key must be non-empty")
+            raise RuntimeContractError("Signal registry key must be non-empty")
         return normalized

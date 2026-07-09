@@ -4,6 +4,7 @@ from typing import cast
 
 import pytest
 
+from tinysoul.runtime.errors import RuntimeContractError
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
 
 
@@ -27,8 +28,8 @@ def test_scope_nearest() -> None:
 
 
 def test_frame_and_scope_validate() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeContractError):
         RunFrame(RunLevel.PROGRAM, "")
 
-    with pytest.raises(TypeError):
+    with pytest.raises(RuntimeContractError):
         RunScope(frames=cast(tuple[RunFrame, ...], ("bad",)))
