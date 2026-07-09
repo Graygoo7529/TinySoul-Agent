@@ -22,9 +22,14 @@ from tinysoul.llm.messages import (
     UserMessage,
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec
-from tinysoul.llm.provider import ProviderAdapter, ProviderRequest
+from tinysoul.llm.provider import (
+    ProviderAdapter,
+    ProviderError,
+    ProviderErrorKind,
+    ProviderRequest,
+)
 from tinysoul.llm.provider.factory import build_provider_registry
-from tinysoul.llm.responses import AnswerFormat
+from tinysoul.llm.responses import AnswerFormat, RawResponse
 from tinysoul.llm.tools import (
     ToolCallRecord,
     ToolKind,
@@ -72,7 +77,8 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     max_output_tokens = _test_max_output_tokens(model)
     _print_run_header(model, provider)
 
-    first_response = adapter.invoke(
+    first_response = _invoke_real_provider(
+        adapter,
         ProviderRequest(
             model=model,
             messages=messages,
@@ -81,7 +87,10 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             temperature=0.2,
             max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
-        )
+        ),
+        provider_id=provider.id,
+        model_id=model.id,
+        label="primary round 1",
     )
     _assert_provider_returned(
         first_response.answer_text,
@@ -116,7 +125,8 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         )
     )
 
-    second_response = adapter.invoke(
+    second_response = _invoke_real_provider(
+        adapter,
         ProviderRequest(
             model=model,
             messages=messages,
@@ -125,7 +135,10 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             temperature=0.2,
             max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
-        )
+        ),
+        provider_id=provider.id,
+        model_id=model.id,
+        label="primary round 2",
     )
     _assert_provider_returned(
         second_response.answer_text,
@@ -161,7 +174,8 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
     )
     _print_run_header(model, provider)
 
-    first_response = adapter.invoke(
+    first_response = _invoke_real_provider(
+        adapter,
         ProviderRequest(
             model=model,
             messages=messages,
@@ -172,7 +186,10 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
             temperature=0.2,
             max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
-        )
+        ),
+        provider_id=provider.id,
+        model_id=model.id,
+        label="tool round 1",
     )
     _assert_tool_call_returned(
         first_response.tool_calls,
@@ -221,7 +238,8 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         )
     )
 
-    second_response = adapter.invoke(
+    second_response = _invoke_real_provider(
+        adapter,
         ProviderRequest(
             model=model,
             messages=messages,
@@ -235,7 +253,10 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
             temperature=0.2,
             max_output_tokens=max_output_tokens,
             provider_options=dict(model.provider_options.values),
-        )
+        ),
+        provider_id=provider.id,
+        model_id=model.id,
+        label="tool round 2",
     )
     _assert_tool_call_returned(
         second_response.tool_calls,
@@ -261,6 +282,24 @@ def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, Provide
     except ConfigError as exc:
         pytest.skip(f"{provider.id} API key is not configured: {exc}")
     return model, provider, registry.get(provider.id)
+
+
+def _invoke_real_provider(
+    adapter: ProviderAdapter,
+    request: ProviderRequest,
+    *,
+    provider_id: str,
+    model_id: str,
+    label: str,
+) -> RawResponse:
+    try:
+        return adapter.invoke(request)
+    except ProviderError as exc:
+        if exc.kind is ProviderErrorKind.TRANSIENT:
+            pytest.skip(
+                f"{provider_id}/{model_id} {label} transient provider failure: {exc}"
+            )
+        raise
 
 
 def _first_user_message(model: ModelSpec) -> Message:
