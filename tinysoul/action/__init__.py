@@ -36,6 +36,7 @@ from .core.specs import (
     ActionToolSpec,
 )
 from .engine import ActionEngine, ActionEngineBuilder
+from .config import ActionSettings, parse_action_settings
 
 __all__ = [
     "ActionBackendKind",
@@ -65,6 +66,8 @@ __all__ = [
     "ActionSemanticSpec",
     "ActionScopePreparation",
     "ActionSpec",
+    "ActionSettings",
     "ActionToolSpec",
     "DOMAIN_SELECTION_TOOL",
+    "parse_action_settings",
 ]

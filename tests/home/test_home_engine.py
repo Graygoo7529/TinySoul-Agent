@@ -28,16 +28,25 @@ from tinysoul.home import (
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
     HomeActionHowProvider,
+    HomeBackgroundContentLoader,
     HomeDomainHowProvider,
     HomeResourceReadExecutor,
     HomeTopLink,
 )
+from tinysoul.context import ContextEngineBuilder
+from tinysoul.context.background import BackgroundPatch
+from tinysoul.context.signals import build_background_patch_signal
+from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     HOME_RUNTIME_COPY_REQUIRED,
     RunLevel,
     RunScope,
     RuntimeException,
+    RuntimeModuleRunner,
+    RuntimeTrap,
+    SignalBus,
+    TrapHandlerRegistry,
     RuntimeTransferAction,
     TrapSnap,
 )
@@ -46,14 +55,75 @@ from tinysoul.runtime import (
 T = TypeVar("T")
 
 
+def test_home_background_is_copied_only_when_context_loads_it(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "home" / "what" / "project.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("project knowledge", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    link = "home:what@project"
+    context = (
+        ContextEngineBuilder(system_text="sys")
+        .add_lazy_background(
+            link,
+            HomeBackgroundContentLoader(home=home, link=link),
+        )
+        .build()
+    )
+    turn_id = context.begin_turn("load project background")
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.PHASE, "phase1")
+    )
+    bus = SignalBus()
+    registry = TrapHandlerRegistry()
+    registry.register(
+        HOME_RUNTIME_COPY_REQUIRED,
+        AgentHomeRuntimeCopyTrapHandler(home),
+    )
+    consumer = ContextSignalConsumer(
+        context=context,
+        bus=bus,
+        module_runner=RuntimeModuleRunner(
+            trap=RuntimeTrap(registry=registry),
+            bus=bus,
+        ),
+    )
+    runtime_path = tmp_path / "runtime" / "home" / "what" / "project.md"
+    assert not runtime_path.exists()
+    bus.emit(
+        build_background_patch_signal(
+            BackgroundPatch(load_links=(link,)),
+            call_id="load_project",
+            scope=scope,
+            source="test",
+        )
+    )
+
+    assert consumer.consume(scope=scope) == ()
+
+    assert runtime_path.read_text(encoding="utf-8") == "project knowledge"
+    assert context.background_links() == (link,)
+
+
 def test_home_provides_default_background_without_exposing_domain_how(tmp_path: Path) -> None:
-    (tmp_path / "AGENT.md").write_text("core rules", encoding="utf-8")
+    agent = tmp_path / "home" / "agent"
+    agent.mkdir(parents=True)
+    (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
     how_domain = tmp_path / "home" / "how_domain" / "workspace"
     how_domain.mkdir(parents=True)
     (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -62,10 +132,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
         home.default_background_entries,
         home=home,
     )
-    loadable = _run_copy_trap_after_runtime_exception(
-        home.loadable_background_entries,
-        home=home,
-    )
+    loadable = home.loadable_background_links()
     guidance = _run_copy_trap_after_runtime_exception(
         lambda: HomeDomainHowProvider(home).guidance_for(("workspace",)),
         home=home,
@@ -73,7 +140,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
 
     assert defaults[0].link == "home:agent@core"
     assert defaults[0].content == "core rules"
-    assert all(entry.link != "home:how_domain:workspace" for entry in loadable)
+    assert "home:how_domain:workspace" not in loadable
     assert guidance == ("workspace guidance",)
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
     assert (tmp_path / "runtime" / "home" / "how_domain" / "workspace" / "DOMAIN.md").is_file()
@@ -85,7 +152,7 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
     (skill / "SKILL.md").write_text("skill text", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -100,10 +167,12 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
 def test_home_runtime_copy_recovery_prepares_copy_and_retries_startup(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "AGENT.md").write_text("core rules", encoding="utf-8")
+    agent = tmp_path / "home" / "agent"
+    agent.mkdir(parents=True)
+    (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -124,7 +193,7 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
     (skill / "SKILL.md").write_text("skill text", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -155,7 +224,7 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -183,7 +252,7 @@ def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None
     (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -209,7 +278,7 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -232,7 +301,7 @@ def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -247,7 +316,7 @@ def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
     (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -267,7 +336,7 @@ def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
     (actions / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -301,7 +370,7 @@ def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
     (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
@@ -324,7 +393,7 @@ def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> No
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
-            original_root=tmp_path,
+            original_root=tmp_path / "home",
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()

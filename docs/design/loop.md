@@ -38,7 +38,7 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境，循环执行 Cycle 直到 Turn 结束条件满足，结束时收取 TurnSummary。若结束阶段无法生成 TurnSummary，TurnRunner 会将 Context 失败桥接进入 Trap，并要求 Context 放弃当前活跃 Turn，避免残留状态阻塞下一轮；已有上级转移不会被结束阶段的 Turn 级失败降级。Turn 结束条件为：`core.answer` 行动执行成功；执行轮数达到配置上限（兜底保护，收束前记录警告轨迹）；或 Trap 返回结束 Turn 的运行转移。
+TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace 的 TurnSummary 与最终 TurnOutput，为未来 Session 持久化等后处理提供稳定边界；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。执行轮数上限只作为无输出时的兜底保护。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 
@@ -51,7 +51,7 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 - Program 级 `ProgramInputEvent`：进入 ProgramRunner 的输入队列，用于启动 Turn 或结束 Program；
 - Turn 执行中的内部信号：`loop.control.request` 表示结束 Turn 或结束 Program 的控制请求，`context.input.append` 表示追加用户输入。
 
-控制请求信号本身不改变控制流；运行器在 Phase 或 Cycle 边界检查到控制请求后，构造对应 Runtime 语义异常进入 Trap，由 Trap 返回结束 Turn 或结束 Program 的运行转移。普通追加输入由 ContextEngine 在明确边界合并，使下一次 MessageStack 构造可见。
+控制请求信号本身不改变控制流；运行器在 Phase 或 Cycle 边界只接受 Turn frame 与当前 Turn 完全相同的请求，再构造对应 Runtime 语义异常进入 Trap。无 Turn scope 或旧 Turn 请求会被拒绝，不能中断后续 Turn。普通追加输入同样携带 active Turn scope，由 ContextEngine 校验后在明确边界合并。
 
 Loop 只消费精确的 `loop.control.request` 信号，不按 `loop.` namespace 批量消费。未来若增加 `loop.observation`、`loop.metrics` 或其他 loop 命名空间信号，应由各自消费者处理；控制请求消费者不得因为命名空间相同而移除未知信号。
 
@@ -73,13 +73,13 @@ Domain 级 HOW 的来源由 `DomainHowProvider` 注入。Agent Home 未接入时
 
 ### Phase3：采取行动
 
-Phase3 将归一化行动调用经 action 门面装配为批次并执行，归一化失败结果与执行结果按原始顺序合并，经反馈渲染整理为工具结果消息与轨迹载荷，通过轨迹信号记入语境。`core.answer` 存在成功结果时，产物标记本 Turn 已回答，作为 Turn 结束条件的数据源。
+Phase3 将归一化行动调用经 action 门面装配为批次并执行，归一化失败结果与执行结果按原始顺序合并，经反馈渲染整理为工具结果消息与轨迹载荷，通过轨迹信号记入语境。唯一成功的 `core.answer` 在结果已进入 TurnTrace 后构造 `runtime.turn_output`；多个成功 answer 收敛为 phase-level result，不产生 Turn 输出。
 
 Phase3 构造 `ActionExecutionContext` 时注入 SignalBus，使 native action 或后端 executor 可以通过既有信号协议向 context 提交状态变更。当前 app 装配层注册的 `workspace.scan` 使用这一通道提交 workspace 资源摘要。
 
 ## Trap 处理器注册
 
-Trap 处理器在装配阶段注册：结束 Turn、结束 Cycle、结束 Program、启动失败使用通用处理器；语境压缩原因注册压缩处理器，处理器调用 context 的压缩服务并返回重试当前 Phase 的转移；Agent Home 运行时副本原因随对应机制接入。处理器不直接修改业务状态，状态变更经信号交对应模块消费。
+Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；语境压缩优先重试当前 Module，没有 Module 时重试 Phase；Agent Home runtime copy handler 准备副本后重试当前 Module；未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
 
 ## 与 app 装配层
 

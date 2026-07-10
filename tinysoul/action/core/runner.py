@@ -8,11 +8,16 @@ from dataclasses import dataclass, replace
 from time import monotonic
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime import RuntimeException
+from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt, RunScope
 
 from .call import ActionBatch, ActionExecution
 from .errors import ActionContractError
-from .executor import ActionExecutionContext, ActionExecutionControl, ExecutorRegistry
+from .executor import (
+    ActionExecutionContext,
+    ActionExecutionControl,
+    ActionExecutor,
+    ExecutorRegistry,
+)
 from .hooks import ActionExecutionHookPipeline
 from .result import ActionResult, ActionResultStage, ActionResultStatus
 from .specs import ActionBackendKind, ActionParallelPolicy
@@ -269,8 +274,8 @@ class ActionBatchRunner:
             )
         try:
             executor = self._executors.get(execution.action.backend.handler)
-            result = executor.execute(execution, context)
-        except RuntimeException:
+            result = self._execute(executor, execution, context)
+        except (RuntimeException, RuntimeTransferInterrupt):
             raise
         except Exception as exc:
             return ActionResult.failed(
@@ -327,6 +332,29 @@ class ActionBatchRunner:
             )
         return result
 
+    def _execute(
+        self,
+        executor: ActionExecutor,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        module_runner = context.module_runner
+        if module_runner is None:
+            return executor.execute(execution, context)
+
+        def invoke(module_scope: RunScope) -> ActionResult:
+            module_execution = replace(
+                execution,
+                framework=replace(execution.framework, scope=module_scope),
+            )
+            return executor.execute(module_execution, context)
+
+        return module_runner.run(
+            scope=execution.framework.scope,
+            name=execution.framework.invoke_id,
+            callback=invoke,
+        )
+
     def _future_result(
         self,
         future: Future[ActionResult],
@@ -334,7 +362,7 @@ class ActionBatchRunner:
     ) -> ActionResult:
         try:
             return future.result()
-        except RuntimeException:
+        except (RuntimeException, RuntimeTransferInterrupt):
             raise
         except Exception as exc:
             return self._internal_failure(

@@ -56,14 +56,10 @@ class AgentHomeEngine:
         core = HomeTopLink("agent", "core")
         return (HomeBackgroundEntry(link=str(core), content=self.read_top(core)),)
 
-    def loadable_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
-        entries: list[HomeBackgroundEntry] = []
-        for link in self._layout.top_links():
-            try:
-                entries.append(HomeBackgroundEntry(link=str(link), content=self.read_top(link)))
-            except AgentHomeContractError:
-                continue
-        return tuple(entries)
+    def loadable_background_links(self) -> tuple[str, ...]:
+        """Return the top-level catalog without materializing runtime copies."""
+
+        return tuple(str(link) for link in self._layout.top_links())
 
     def read_top(self, link: HomeTopLink | str) -> str:
         parsed = HomeTopLink.parse(link) if isinstance(link, str) else link

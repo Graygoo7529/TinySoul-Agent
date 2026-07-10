@@ -63,6 +63,27 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
             raise
 
 
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write bytes through a temporary file in the same directory."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        finally:
+            raise
+
+
 def copy_file(source: Path, target: Path) -> None:
     """Copy one file without preserving metadata."""
 

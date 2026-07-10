@@ -105,7 +105,7 @@ runtime/
 
 Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日终归档由 workspace 门面提供归档能力，但调度归档的 Program 同级任务不属于 Workspace 自身。
 
-当前实现默认把项目根目录作为 workspace root，也支持通过配置传入 `workspace.root` 和 `workspace.manifest_path`。AppBuilder 只负责解释配置并构建 `WorkspaceEngine`，不直接扫描目录。
+当前实现默认使用 `runtime/workspace` 作为 workspace root，并通过 `configs/workspace.toml` 配置 root、manifest、读取上限与忽略规则。Workspace 模块解析配置；AppBuilder 只传递 section tree 并构建门面，不直接扫描目录。
 
 ## Action 接入
 
@@ -116,14 +116,14 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 1. 扫描 workspace 根目录；
 2. 应用忽略规则和数量限制；
 3. 更新 manifest；
-4. 发出 `context.working.patch` 信号同步资源摘要；
+4. 发出带 Manifest revision 的 `context.workspace.sync` 全量快照（空快照也发出）；
 5. 返回 compact JSON payload，包含资源数量、链接摘要、跳过数量、跳过原因计数和是否达到扫描上限。
 
 当前已实现的 `workspace.describe` 行为：
 
 1. 解析并校验一个 `workspace:` 链接；
-2. 刷新该资源的 manifest 记录；
-3. 发出 `context.working.patch` 信号同步该资源摘要；
+2. 执行完整磁盘 reconciliation 并原子保存递增 revision 的 manifest；
+3. 发出与 Manifest 完全一致的 `context.workspace.sync` 全量快照；
 4. 返回 compact JSON payload，包含链接、摘要、大小、mtime 和 digest，不包含文件正文。
 
 正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
@@ -135,11 +135,11 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 - `workspace.delete`：删除资源；
 - `workspace.rewrite`：接收 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
 
-这些 action 使用 `target_link` 参数表达实际变更对象，避免与只读 `link` 或 `reference_links` 混淆。小幅确定性修改由 `workspace.patch` 直接消费 Phase2 生成的 `old_text`/`new_text`；需要完整文本生成的 `workspace.write` 与 `workspace.rewrite` 在 Phase3 action 内部加载目标和参考正文并调用 LLM。成功时只返回链接、摘要、大小、mtime、digest 等元数据，不返回正文；`workspace.write`、`workspace.patch` 和 `workspace.rewrite` 会发出 `context.working.patch` 的 `set_resources`，`workspace.delete` 会发出 `remove_resources`。执行失败优先收敛为 `ActionResult`，例如链接不存在、参数非法、文本替换不唯一、digest 不匹配、编码不支持、写入失败。只有 workspace 门面不变量破坏、配置不可解释或需要全局恢复时，才进入 Runtime。
+这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
 
 ## Context 接入
 
-Workspace 不直接持有或修改 ContextEngine。同步资源摘要时，Workspace action 通过 `SignalBus` 发出 `context.working.patch` 信号，由 ContextEngine 在边界批量消费。
+WorkspaceEngine 不依赖 Context 类型。只有 `workspace/actions.py` 集成边界把 Manifest records 转成 Context 的 WorkspaceSnapshot，并通过 SignalBus 发出 `context.workspace.sync`。Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
 
 Context 中不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，应在 action 内部进行摘要、切片或转化为临时 task prompt，再把摘要和资源链接写回 trace。
 

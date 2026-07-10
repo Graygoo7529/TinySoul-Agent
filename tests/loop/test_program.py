@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import cast
 
-from tinysoul.loop import ProgramInputEvent, ProgramRunner, TurnOutcome, TurnRunner
+from tinysoul.loop import (
+    ProgramInputEvent,
+    ProgramRunner,
+    TurnOutcome,
+    TurnOutput,
+    TurnRunner,
+)
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RunLevel,
@@ -24,7 +30,10 @@ class _FakeTurnRunner:
 
     def run(self, user_input: str, *, scope: RunScope) -> TurnOutcome:
         self.inputs.append(user_input)
-        return TurnOutcome(summary=None, answered=True)
+        return TurnOutcome(
+            summary=None,
+            output=TurnOutput(text="done", result_id="answer_1"),
+        )
 
 
 @dataclass

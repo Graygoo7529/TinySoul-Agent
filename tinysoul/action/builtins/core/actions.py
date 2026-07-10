@@ -348,9 +348,9 @@ class _PayloadFailure:
 
 def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
     text = payload.get("text")
-    if not isinstance(text, str):
+    if not isinstance(text, str) or not text:
         return _PayloadFailure(
-            "Answer LLM task must return a JSON object with string field 'text'.",
+            "Answer LLM task must return a JSON object with non-empty string field 'text'.",
             {"reason": "invalid_answer_text"},
         )
     references = payload.get("references")

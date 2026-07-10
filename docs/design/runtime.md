@@ -64,7 +64,7 @@ Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中
 
 重试目标 frame 必须具备可重放语义。模块级重试只有在模块边界保存了可重放调用时才成立，例如资源操作、Action Invoke 或明确的 LLM Task 调用。否则处理器应选择重试 Phase、Cycle，或结束 Turn。Runtime 不提供从异常抛出点下一行继续执行的语义；若某个问题可以在模块内部继续调度，它不应进入 Trap，而应由模块内部流程或信号系统处理。
 
-运行器负责消费运行转移。Program 运行器处理 Program 和 Turn 级转移；Turn 运行器处理 Turn、Cycle 和 Phase 级转移；模块运行边界处理 Module 级转移，并在无法消费时向上层传播。Runtime 本身不直接驱动业务模块重跑，也不直接提交语境状态。
+运行器负责消费运行转移。Program、Turn、Cycle 和 Phase 运行器只消费指向自身 frame 的转移；`RuntimeModuleRunner` 为 action invoke、Context signal batch 等可重放调用建立 Module frame，捕获一次 RuntimeException、发出 Trap 信号并在 RETRY 指向自身时重放同一调用。指向上层 frame 的转移通过 `RuntimeTransferInterrupt` 展开传播，不会在每层重复进入 Trap。Runtime 本身不直接提交业务状态。
 
 ## 异常处理
 
@@ -74,9 +74,9 @@ Runtime 使用 Trap 处理器表处理不同陷入原因。处理器表类似 OS
 
 Trap 处理器负责解释 Runtime 原因标识。它可以直接返回结束 Turn、结束 Program 等转移，也可以执行全局恢复例程后返回重试某个 frame 的转移。新增模块失败类型通常不应新增 Runtime 原因，而应在模块 bridge 的映射表中映射到既有通用原因；只有需要独立恢复例程或独立全局控制语义时，才新增 Runtime 原因并注册处理器。处理器可以读取 TrapSnap，但不应反向依赖具体业务模块内部状态。
 
-未知 Trap reason 在 registry 查询层面是 Runtime 契约错误；如果它发生在 `RuntimeTrap.capture()` 过程中，则表示当前应用装配没有为已进入 Trap 的 Runtime reason 提供处理器，属于 Runtime 装配不变量破坏，应表达为 `RuntimeInvariantError`。这类问题不应被误写成新的可恢复 Runtime reason。
+Trap registry 支持精确 reason、命名空间前缀和一个显式 fallback。应用装配为未识别的 RuntimeException 注册 fallback：运行期结束最近 Turn，启动期结束 Program。这样无法由业务处理器恢复的 RuntimeException 不会泄漏为普通 Python 异常。registry 重复注册、非法 key、错误 Signal/TrapResult 等 Runtime 自身契约和装配错误仍使用 `RuntimeContractError`/`RuntimeInvariantError`，不进入 fallback。
 
-通用处理策略包括：启动失败结束 Program；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Program 原因退出程序；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移。未知异常被记录为非预期故障，并按当前运行层级选择结束 Turn 或结束 Program。
+通用处理策略包括：启动失败结束 Program；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Program 原因退出程序；`runtime.turn_output` 校验并发布最终输出后结束 Turn；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移；未处理 RuntimeException 由 fallback 结束 Turn 或 Program。
 
 Trap 处理器可以发出信号，例如请求记录 TurnTrace、请求终端显示故障或通知某个恢复任务已完成。Trap 处理器不应直接修改业务状态；实际状态修改仍由对应信号消费者完成。
 

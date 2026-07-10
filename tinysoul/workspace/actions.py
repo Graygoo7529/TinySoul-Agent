@@ -9,9 +9,14 @@ from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutor
 from tinysoul.action.core.result import ActionResult, ActionResultStage
-from tinysoul.context import PromptBlock, PromptReferenceError, TaskPrompt
-from tinysoul.context.signals import build_working_patch_signal
-from tinysoul.context.working import WorkingPatch, WorkspaceResource
+from tinysoul.context import (
+    PromptBlock,
+    PromptReferenceError,
+    TaskPrompt,
+    WorkspaceResource,
+    WorkspaceSnapshot,
+    build_workspace_sync_signal,
+)
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import SignalBus
 
@@ -46,27 +51,23 @@ class WorkspaceScanExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         scan = self._workspace.scan()
-        resources = scan.to_working_resources()
-        signal_bus = context.signal_bus or self._bus
-        if resources:
-            signal_bus.emit(
-                build_working_patch_signal(
-                    WorkingPatch(set_resources=resources),
-                    call_id=execution.call.call_id,
-                    scope=execution.framework.scope,
-                    source="workspace.scan",
-                )
-            )
+        _emit_workspace_snapshot(
+            self._workspace,
+            execution=execution,
+            context=context,
+            bus=self._bus,
+            source="workspace.scan",
+        )
         skip_counts: JsonObject = {}
         for kind, count in scan.skip_counts().items():
             skip_counts[kind] = count
         return _success(
             execution,
             {
-                "count": len(resources),
+                "count": len(scan.manifest.resources),
                 "resources": [
-                    {"link": resource.link, "summary": resource.summary}
-                    for resource in resources
+                    {"link": record.link, "summary": record.summary}
+                    for record in scan.manifest.resources
                 ],
                 "skipped_count": scan.skipped_count,
                 "skip_counts": skip_counts,
@@ -144,15 +145,12 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 f"Workspace describe failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        resource = WorkspaceResource(link=record.link, summary=record.summary)
-        signal_bus = context.signal_bus or self._bus
-        signal_bus.emit(
-            build_working_patch_signal(
-                WorkingPatch(set_resources=(resource,)),
-                call_id=execution.call.call_id,
-                scope=execution.framework.scope,
-                source="workspace.describe",
-            )
+        _emit_workspace_snapshot(
+            self._workspace,
+            execution=execution,
+            context=context,
+            bus=self._bus,
+            source="workspace.describe",
         )
         return _success(execution, _record_payload(record))
 
@@ -281,8 +279,8 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 f"Workspace write failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_resource_set(
-            record,
+        _emit_workspace_snapshot(
+            self._workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -411,8 +409,8 @@ class WorkspacePatchExecutor(ActionExecutor):
                 f"Workspace patch failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_resource_set(
-            record,
+        _emit_workspace_snapshot(
+            self._workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -448,14 +446,12 @@ class WorkspaceDeleteExecutor(ActionExecutor):
                 f"Workspace delete failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        signal_bus = context.signal_bus or self._bus
-        signal_bus.emit(
-            build_working_patch_signal(
-                WorkingPatch(remove_resources=(record.link,)),
-                call_id=execution.call.call_id,
-                scope=execution.framework.scope,
-                source="workspace.delete",
-            )
+        _emit_workspace_snapshot(
+            self._workspace,
+            execution=execution,
+            context=context,
+            bus=self._bus,
+            source="workspace.delete",
         )
         payload = _record_payload(record)
         payload["deleted"] = True
@@ -563,8 +559,8 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 f"Workspace rewrite failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        _emit_resource_set(
-            record,
+        _emit_workspace_snapshot(
+            self._workspace,
             execution=execution,
             context=context,
             bus=self._bus,
@@ -647,8 +643,8 @@ def _string_list_param(value: object) -> tuple[str, ...] | None:
     return tuple(result)
 
 
-def _emit_resource_set(
-    record: WorkspaceResourceRecord,
+def _emit_workspace_snapshot(
+    workspace: WorkspaceEngine,
     *,
     execution: ActionExecution,
     context: ActionExecutionContext,
@@ -656,10 +652,17 @@ def _emit_resource_set(
     source: str,
 ) -> None:
     signal_bus = context.signal_bus or bus
-    resource = WorkspaceResource(link=record.link, summary=record.summary)
+    manifest = workspace.snapshot()
+    snapshot = WorkspaceSnapshot(
+        revision=manifest.revision,
+        resources=tuple(
+            WorkspaceResource(link=record.link, summary=record.summary)
+            for record in manifest.resources
+        ),
+    )
     signal_bus.emit(
-        build_working_patch_signal(
-            WorkingPatch(set_resources=(resource,)),
+        build_workspace_sync_signal(
+            snapshot,
             call_id=execution.call.call_id,
             scope=execution.framework.scope,
             source=source,

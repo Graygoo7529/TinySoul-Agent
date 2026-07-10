@@ -1,0 +1,15 @@
+[workspace]
+root = "runtime/workspace"
+manifest_path = "runtime/workspace/.tinysoul/workspace_manifest.json"
+max_files = 100
+max_read_chars = 4000
+ignore_dirs = [
+  ".agents",
+  ".codex",
+  ".git",
+  ".pytest-local-tmp",
+  ".pytest_cache",
+  ".test-tmp",
+  ".tinysoul",
+  "__pycache__",
+]

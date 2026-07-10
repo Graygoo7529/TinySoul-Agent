@@ -12,6 +12,7 @@ from tinysoul.action import (
     ActionResult,
     ActionResultStatus,
 )
+from tinysoul.action.core.result import ActionPhaseResultStage
 from tinysoul.action.core.errors import ActionError
 from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.context import (
@@ -27,9 +28,17 @@ from tinysoul.llm.messages import AssistantMessage, TextPart
 from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
 from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolScope, ToolSelection, ToolSpec, ToolUse
-from tinysoul.runtime import CyclePhase, RunScope, SignalBus
+from tinysoul.runtime import (
+    CyclePhase,
+    RUNTIME_TURN_OUTPUT,
+    RunScope,
+    RuntimeException,
+    RuntimeModuleRunner,
+    SignalBus,
+)
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
+from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
 
@@ -64,11 +73,10 @@ class Phase2Outcome:
 
 @dataclass(frozen=True)
 class Phase3Outcome:
-    """Phase3 action results and turn completion marker."""
+    """Phase3 action results when the phase does not complete the Turn."""
 
     results: tuple[ActionResult, ...] = field(default_factory=tuple)
     phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
-    answered: bool = False
 
 
 class Phase1Unit:
@@ -85,6 +93,7 @@ class Phase1Unit:
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
+        signal_consumer: ContextSignalConsumer | None = None,
     ) -> None:
         self._context = context
         self._action = action
@@ -94,6 +103,7 @@ class Phase1Unit:
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
+        self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
 
     def run(self, *, scope: RunScope, cycle_id: str) -> Phase1Outcome:
         feedback: list[str] = []
@@ -142,7 +152,7 @@ class Phase1Unit:
                 normalization = self._context.normalize_controls(control_calls, scope=scope)
                 for signal in normalization.signals:
                     self._bus.emit(signal)
-                consume_results = self._consume_context_signals()
+                consume_results = self._consume_context_signals(scope=scope)
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             last_control_results = (*normalization.results, *consume_results)
@@ -184,13 +194,14 @@ class Phase1Unit:
                 phase=CyclePhase.PHASE1,
             )
         )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
-    def _consume_context_signals(self) -> tuple[ControlResult, ...]:
-        try:
-            return self._context.consume_signals(self._bus)
-        except ContextError as exc:
-            raise self._context_bridge.from_context_error(exc) from exc
+    def _consume_context_signals(
+        self,
+        *,
+        scope: RunScope,
+    ) -> tuple[ControlResult, ...]:
+        return self._signal_consumer.consume(scope=scope)
 
 
 class Phase2Unit:
@@ -207,6 +218,7 @@ class Phase2Unit:
         domain_how: DomainHowProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
+        signal_consumer: ContextSignalConsumer | None = None,
     ) -> None:
         self._context = context
         self._action = action
@@ -216,6 +228,7 @@ class Phase2Unit:
         self._domain_how = domain_how or EmptyDomainHowProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
+        self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
 
     def run(
         self,
@@ -305,7 +318,7 @@ class Phase2Unit:
                 phase=CyclePhase.PHASE2,
             )
         )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
     def _emit_phase_results(
         self,
@@ -340,13 +353,14 @@ class Phase2Unit:
                 phase=CyclePhase.PHASE2,
             )
         )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
-    def _consume_context_signals(self) -> tuple[ControlResult, ...]:
-        try:
-            return self._context.consume_signals(self._bus)
-        except ContextError as exc:
-            raise self._context_bridge.from_context_error(exc) from exc
+    def _consume_context_signals(
+        self,
+        *,
+        scope: RunScope,
+    ) -> tuple[ControlResult, ...]:
+        return self._signal_consumer.consume(scope=scope)
 
 
 class Phase3Unit:
@@ -358,14 +372,20 @@ class Phase3Unit:
         context: ContextEngine,
         action: ActionEngine,
         bus: SignalBus,
+        module_runner: RuntimeModuleRunner | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
+        loop_bridge: RuntimeLoopBridge | None = None,
+        signal_consumer: ContextSignalConsumer | None = None,
     ) -> None:
         self._context = context
         self._action = action
         self._bus = bus
+        self._module_runner = module_runner
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
+        self._loop_bridge = loop_bridge or RuntimeLoopBridge()
+        self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
 
     def run(
         self,
@@ -384,7 +404,10 @@ class Phase3Unit:
             )
             execution_results = self._action.run_batch(
                 preparation.batch,
-                context=ActionExecutionContext(signal_bus=self._bus),
+                context=ActionExecutionContext(
+                    signal_bus=self._bus,
+                    module_runner=self._module_runner,
+                ),
             )
         except ActionError as exc:
             raise self._action_bridge.from_action_error(exc) from exc
@@ -393,20 +416,66 @@ class Phase3Unit:
             (*preparation.results, *execution_results)
         )
         self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
+        phase_results = preparation.phase_results
+        answer_results = tuple(
+            result
+            for result in results
+            if result.action_name == ANSWER_ACTION
+            and result.status is ActionResultStatus.SUCCESS
+        )
+        if len(answer_results) > 1:
+            phase_results = (
+                *phase_results,
+                ActionPhaseResult.failed(
+                    phase=CyclePhase.PHASE3,
+                    stage=ActionPhaseResultStage.RUN,
+                    model_feedback=(
+                        "Phase3 produced multiple successful core.answer results; "
+                        "produce exactly one final answer."
+                    ),
+                    frame_data={"reason": "multiple_turn_outputs"},
+                    turn_id=turn_id,
+                    cycle_id=cycle_id,
+                ),
+            )
         self._emit_phase_results(
-            preparation.phase_results,
+            phase_results,
             scope=scope,
             cycle_id=cycle_id,
         )
-        answered = any(
-            result.action_name == ANSWER_ACTION
-            and result.status is ActionResultStatus.SUCCESS
-            for result in results
-        )
+        if len(answer_results) == 1:
+            self._raise_turn_output(answer_results[0])
         return Phase3Outcome(
             results=results,
-            phase_results=preparation.phase_results,
-            answered=answered,
+            phase_results=phase_results,
+        )
+
+    def _raise_turn_output(self, result: ActionResult) -> None:
+        text = result.payload.get("text")
+        references_value = result.payload.get("references", [])
+        if not isinstance(text, str) or not text:
+            raise self._loop_bridge.from_loop_error(
+                LoopContractError(
+                    "A successful core.answer result must contain non-empty text"
+                )
+            )
+        if not isinstance(references_value, list) or any(
+            not isinstance(item, str) or not item for item in references_value
+        ):
+            raise self._loop_bridge.from_loop_error(
+                LoopContractError(
+                    "A successful core.answer result must contain string references"
+                )
+            )
+        raise RuntimeException(
+            reason=RUNTIME_TURN_OUTPUT,
+            message="The Turn produced its final output.",
+            payload={
+                "action": ANSWER_ACTION,
+                "result_id": result.result_id,
+                "text": text,
+                "references": references_value,
+            },
         )
 
     def _emit_action_results(
@@ -425,7 +494,7 @@ class Phase3Unit:
                     cycle_id=cycle_id,
                 )
             )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
     def _emit_phase_results(
         self,
@@ -447,13 +516,10 @@ class Phase3Unit:
                     phase=CyclePhase.PHASE3,
                 )
             )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
-    def _consume_context_signals(self) -> None:
-        try:
-            self._context.consume_signals(self._bus)
-        except ContextError as exc:
-            raise self._context_bridge.from_context_error(exc) from exc
+    def _consume_context_signals(self, *, scope: RunScope) -> None:
+        self._signal_consumer.consume(scope=scope)
 
 
 def _merge_tool_scopes(

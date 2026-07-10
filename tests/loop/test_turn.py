@@ -3,9 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from tinysoul.context import ContextEngine
+from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextContractError
 from tinysoul.loop import LoopSettings
+from tinysoul.loop import (
+    TurnCompletion,
+    TurnCompletionPipeline,
+    TurnOutput,
+    build_turn_output_signal,
+)
 from tinysoul.loop.cycle import CycleOutcome, CycleRunner
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
@@ -53,7 +59,12 @@ class _AnsweredCycleRunner:
         cycle_index: int,
         scope: RunScope,
     ) -> CycleOutcome:
-        return CycleOutcome(cycle_id=f"cycle_{cycle_index}", answered=True)
+        frame = scope.nearest(RunLevel.TURN)
+        assert frame is not None
+        return CycleOutcome(
+            cycle_id=f"cycle_{cycle_index}",
+            transfer=RuntimeTransfer.end(frame),
+        )
 
 
 class _ProgramEndCycleRunner:
@@ -66,6 +77,40 @@ class _ProgramEndCycleRunner:
     ) -> CycleOutcome:
         frame = scope.nearest(RunLevel.PROGRAM)
         assert frame is not None
+        return CycleOutcome(
+            cycle_id=f"cycle_{cycle_index}",
+            transfer=RuntimeTransfer.end(frame),
+        )
+
+
+@dataclass
+class _CompletionRecorder:
+    completions: list[TurnCompletion]
+
+    def handle(self, completion: TurnCompletion) -> None:
+        self.completions.append(completion)
+
+
+@dataclass
+class _OutputCycleRunner:
+    bus: SignalBus
+
+    def run(
+        self,
+        *,
+        turn_id: str,
+        cycle_index: int,
+        scope: RunScope,
+    ) -> CycleOutcome:
+        frame = scope.nearest(RunLevel.TURN)
+        assert frame is not None
+        self.bus.emit(
+            build_turn_output_signal(
+                TurnOutput(text="done", result_id="answer_1"),
+                scope=scope,
+                source="test",
+            )
+        )
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
             transfer=RuntimeTransfer.end(frame),
@@ -107,6 +152,31 @@ def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> No
     assert context.turn_active is False
     assert outcome.transfer is not None
     assert outcome.transfer.target.level is RunLevel.PROGRAM
+
+
+def test_turn_completion_pipeline_receives_summary_and_output() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    bus = SignalBus()
+    recorder = _CompletionRecorder([])
+    runner = TurnRunner(
+        context=context,
+        bus=bus,
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
+        settings=LoopSettings(max_cycles_per_turn=1),
+        completion_pipeline=TurnCompletionPipeline((recorder,)),
+    )
+
+    outcome = runner.run("hello", scope=_program_scope())
+
+    assert outcome.answered is True
+    assert outcome.transfer is None
+    assert len(recorder.completions) == 1
+    completion = recorder.completions[0]
+    assert completion.summary.inputs[0]["text"] == "hello"
+    assert completion.summary.trace == ()
+    assert completion.output is not None
+    assert completion.output.text == "done"
 
 
 def _trap() -> RuntimeTrap:

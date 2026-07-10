@@ -294,7 +294,7 @@ tinysoul/capabilities/
     service.py
 ```
 
-`tinysoul/action/catalog` 是当前默认 action catalog root，第一层目录就是 domain 目录，因此不再额外套 `catalog/builtin`。未来如果需要组合多个 catalog，应通过配置或 loader 组合多个 catalog root，而不是在当前默认 catalog 内预留未使用的层级。
+`tinysoul/action/catalog` 是 `configs/action.toml` 中的默认 action catalog root，由 Action 模块的 `parse_action_settings` 解析。第一层目录就是 domain 目录，因此不再额外套 `catalog/builtin`。未来如果需要组合多个 catalog，应扩展 ActionSettings/loader，而不是让 AppBuilder硬编码目录或在当前 catalog 内预留未使用层级。
 
 ### TOML catalog
 

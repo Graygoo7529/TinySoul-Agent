@@ -1,0 +1,5 @@
+[context]
+system_text = "You are TinySoul."
+journal = ""
+budget_max_chars = 120000
+keep_recent = 12

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 
 from tinysoul.context import ContextEngine, TurnSummary, build_trace_phase_note_signal
 from tinysoul.context.errors import ContextError
@@ -18,8 +19,11 @@ from tinysoul.runtime import (
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
 from .config import LoopSettings
+from .completion import TurnCompletion, TurnCompletionPipeline
+from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
+from .signals import TurnOutput, consume_turn_outputs
 
 
 @dataclass(frozen=True)
@@ -27,9 +31,13 @@ class TurnOutcome:
     """Outcome of one user turn."""
 
     summary: TurnSummary | None
-    answered: bool = False
+    output: TurnOutput | None = None
     exhausted: bool = False
     transfer: RuntimeTransfer | None = None
+
+    @property
+    def answered(self) -> bool:
+        return self.output is not None
 
 
 class TurnRunner:
@@ -45,6 +53,8 @@ class TurnRunner:
         settings: LoopSettings,
         context_bridge: RuntimeContextBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
+        signal_consumer: ContextSignalConsumer | None = None,
+        completion_pipeline: TurnCompletionPipeline | None = None,
     ) -> None:
         self._context = context
         self._bus = bus
@@ -53,11 +63,22 @@ class TurnRunner:
         self._settings = settings
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
+        self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
+        self._completion_pipeline = completion_pipeline or TurnCompletionPipeline()
+        self._active_scope: RunScope | None = None
+        self._active_scope_lock = Lock()
+
+    @property
+    def active_scope(self) -> RunScope | None:
+        """Return one atomic snapshot of the currently accepting Turn scope."""
+
+        with self._active_scope_lock:
+            return self._active_scope
 
     def run(self, user_input: str, *, scope: RunScope) -> TurnOutcome:
         turn_id = ""
         turn_scope = scope.push(RunLevel.TURN, "turn_start")
-        answered = False
+        output: TurnOutput | None = None
         exhausted = False
         transfer: RuntimeTransfer | None = None
         try:
@@ -66,6 +87,7 @@ class TurnRunner:
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
+            self._set_active_scope(turn_scope)
             for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
                 cycle = self._cycle_runner.run(
                     turn_id=turn_id,
@@ -77,23 +99,56 @@ class TurnRunner:
                     if transfer is not None:
                         break
                     continue
-                if cycle.answered:
-                    answered = True
-                    break
             else:
                 exhausted = True
                 self._record_cycle_limit(turn_scope)
         except RuntimeException as exc:
             transfer = self._capture(exc, turn_scope)
-        summary, finish_transfer = self._finish_turn(turn_scope)
+        try:
+            output = self._consume_turn_output(turn_id)
+        except RuntimeException as exc:
+            if transfer is None:
+                transfer = self._capture(exc, turn_scope)
+        if output is not None and self._is_turn_end(transfer, turn_scope):
+            transfer = None
+        try:
+            summary, finish_transfer = self._finish_turn(turn_scope)
+        finally:
+            self._set_active_scope(None)
         if finish_transfer is not None and transfer is None:
             transfer = finish_transfer
+        if summary is not None:
+            try:
+                self._completion_pipeline.run(
+                    TurnCompletion(
+                        summary=summary,
+                        output=output,
+                        exhausted=exhausted,
+                    )
+                )
+            except RuntimeException as exc:
+                if transfer is None:
+                    transfer = self._capture(exc, turn_scope)
         return TurnOutcome(
             summary=summary,
-            answered=answered,
+            output=output,
             exhausted=exhausted,
             transfer=transfer,
         )
+
+    def _consume_turn_output(self, turn_id: str) -> TurnOutput | None:
+        if not turn_id:
+            return None
+        matching: list[TurnOutput] = []
+        for signal, output in consume_turn_outputs(self._bus):
+            frame = signal.scope.nearest(RunLevel.TURN)
+            if frame is not None and frame.name == turn_id:
+                matching.append(output)
+        if len(matching) > 1:
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError("A Turn produced multiple output signals")
+            )
+        return matching[0] if matching else None
 
     def _consume_cycle_transfer(
         self,
@@ -128,7 +183,7 @@ class TurnRunner:
                 source="loop.turn",
             )
         )
-        self._consume_context_signals()
+        self._consume_context_signals(scope=scope)
 
     def _end_turn(self) -> TurnSummary | None:
         if not self._context.turn_active:
@@ -154,8 +209,22 @@ class TurnRunner:
             self._bus.emit(signal)
         return result.transfer
 
-    def _consume_context_signals(self) -> None:
-        try:
-            self._context.consume_signals(self._bus)
-        except ContextError as exc:
-            raise self._context_bridge.from_context_error(exc) from exc
+    def _consume_context_signals(self, *, scope: RunScope) -> None:
+        self._signal_consumer.consume(scope=scope)
+
+    def _set_active_scope(self, scope: RunScope | None) -> None:
+        with self._active_scope_lock:
+            self._active_scope = scope
+
+    @staticmethod
+    def _is_turn_end(
+        transfer: RuntimeTransfer | None,
+        turn_scope: RunScope,
+    ) -> bool:
+        turn = turn_scope.nearest(RunLevel.TURN)
+        return (
+            transfer is not None
+            and turn is not None
+            and transfer.action is RuntimeTransferAction.END
+            and transfer.target == turn
+        )

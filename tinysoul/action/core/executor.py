@@ -7,7 +7,7 @@ from threading import Event
 from time import monotonic
 from typing import Protocol
 
-from tinysoul.runtime import SignalBus
+from tinysoul.runtime import RuntimeModuleRunner, SignalBus
 
 from .call import ActionExecution
 from .catalog import ActionCatalog
@@ -55,6 +55,7 @@ class ActionExecutionContext:
 
     control: ActionExecutionControl = field(default_factory=ActionExecutionControl)
     signal_bus: SignalBus | None = None
+    module_runner: RuntimeModuleRunner | None = None
 
 
 class ActionExecutor(Protocol):

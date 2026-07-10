@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -18,7 +19,7 @@ from tinysoul.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from tinysoul.context import ContextEngineBuilder, SIGNAL_WORKING_PATCH
+from tinysoul.context import ContextEngineBuilder, SIGNAL_WORKSPACE_SYNC
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
@@ -28,12 +29,16 @@ from tinysoul.workspace import (
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceLink,
+    WorkspaceManifest,
+    WorkspaceManifestStore,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
     WorkspaceScanSkipKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
 )
+from tinysoul.workspace.engine import WorkspaceEngine
+from tinysoul.workspace.errors import WorkspaceIOError
 from tinysoul.workspace.actions import (
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
@@ -69,6 +74,18 @@ class FakeLLMRunner:
         )
 
 
+class _FailingManifestStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.manifest = WorkspaceManifest()
+
+    def load(self) -> WorkspaceManifest:
+        return self.manifest
+
+    def save(self, manifest: WorkspaceManifest) -> None:
+        raise WorkspaceIOError("manifest unavailable")
+
+
 def test_workspace_link_rejects_unsafe_paths() -> None:
     assert str(WorkspaceLink.parse("workspace:docs/a.md")) == "workspace:docs/a.md"
     with pytest.raises(WorkspaceContractError):
@@ -79,7 +96,9 @@ def test_workspace_link_rejects_unsafe_paths() -> None:
         WorkspaceLink.parse("workspace:C:/secret.md")
 
 
-def test_workspace_scan_updates_manifest_and_emits_working_patch(tmp_path: Path) -> None:
+def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "a.md").write_text("hello", encoding="utf-8")
     (tmp_path / ".git").mkdir()
@@ -106,14 +125,11 @@ def test_workspace_scan_updates_manifest_and_emits_working_patch(tmp_path: Path)
     assert payload["skip_counts"] == {}
     assert payload["limit_reached"] is False
     assert manifest_path.is_file()
-    signals = bus.consume_namespace("context")
-    assert len(signals) == 1
-    assert signals[0].name == SIGNAL_WORKING_PATCH
-    patch = signals[0].payload["patch"]
-    assert isinstance(patch, dict)
-    set_resources = patch["set_resources"]
-    assert isinstance(set_resources, list)
-    first_resource = set_resources[0]
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["revision"] == engine.load_manifest().revision
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    first_resource = resources[0]
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:docs/a.md"
 
@@ -164,7 +180,7 @@ def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
     assert result.link == "workspace:a.md"
     assert result.text == "abc"
     assert result.truncated is True
-    assert engine.load_manifest().resources[0].link == "workspace:a.md"
+    assert engine.load_manifest().resources == ()
 
 
 def test_workspace_read_text_rejects_non_positive_limit(tmp_path: Path) -> None:
@@ -344,6 +360,32 @@ def test_workspace_write_text_rejects_existing_without_overwrite(tmp_path: Path)
         engine.write_text("workspace:a.md", "new")
 
 
+def test_workspace_write_rolls_back_when_manifest_reconciliation_fails(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_bytes(b"old\r\ncontent")
+    settings = WorkspaceSettings(
+        root=tmp_path,
+        manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+    )
+    store = _FailingManifestStore(settings.manifest_path)
+    engine = WorkspaceEngine(
+        settings=settings,
+        manifest_store=cast(WorkspaceManifestStore, store),
+    )
+
+    with pytest.raises(WorkspaceIOError, match="manifest unavailable"):
+        engine.write_text(
+            "workspace:a.md",
+            "new content",
+            overwrite=True,
+        )
+
+    assert target.read_bytes() == b"old\r\ncontent"
+    assert engine.load_manifest() == WorkspaceManifest()
+
+
 def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("old", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
@@ -481,8 +523,8 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
     assert result.status.value == "success"
     assert result.payload["summary"] == ".md file, 5 bytes"
     assert engine.load_manifest().resources[0].link == "workspace:a.md"
-    signals = bus.consume_namespace("context")
-    assert signals[0].name == SIGNAL_WORKING_PATCH
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["revision"] == engine.load_manifest().revision
 
 
 def test_workspace_write_executor_generates_text_inside_action(
@@ -531,12 +573,18 @@ def test_workspace_write_executor_generates_text_inside_action(
     )
     assert "link: workspace:a.md" in target_prompt
     assert "reference text" in reference_prompt
-    signals = bus.consume_namespace("context")
-    patch = signals[0].payload["patch"]
-    assert isinstance(patch, dict)
-    set_resources = patch["set_resources"]
-    assert isinstance(set_resources, list)
-    first_resource = set_resources[0]
+    snapshot = _workspace_snapshot_payload(bus)
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    assert {item["link"] for item in resources if isinstance(item, dict)} == {
+        "workspace:a.md",
+        "workspace:ref.md",
+    }
+    first_resource = next(
+        item
+        for item in resources
+        if isinstance(item, dict) and item.get("link") == "workspace:a.md"
+    )
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:a.md"
 
@@ -564,7 +612,7 @@ def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> Non
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> None:
+def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -583,10 +631,8 @@ def test_workspace_delete_executor_emits_resource_removal(tmp_path: Path) -> Non
     assert result.status.value == "success"
     assert result.payload["deleted"] is True
     assert not (tmp_path / "a.md").exists()
-    signals = bus.consume_namespace("context")
-    patch = signals[0].payload["patch"]
-    assert isinstance(patch, dict)
-    assert patch["remove_resources"] == ["workspace:a.md"]
+    snapshot = _workspace_snapshot_payload(bus)
+    assert snapshot["resources"] == []
 
 
 
@@ -639,12 +685,18 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     assert "old text" in target_prompt
     assert "# Workspace Reference" in reference_prompt
     assert "reference text" in reference_prompt
-    signals = bus.consume_namespace("context")
-    patch = signals[0].payload["patch"]
-    assert isinstance(patch, dict)
-    set_resources = patch["set_resources"]
-    assert isinstance(set_resources, list)
-    first_resource = set_resources[0]
+    snapshot = _workspace_snapshot_payload(bus)
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    assert {item["link"] for item in resources if isinstance(item, dict)} == {
+        "workspace:ref.md",
+        "workspace:target.md",
+    }
+    first_resource = next(
+        item
+        for item in resources
+        if isinstance(item, dict) and item.get("link") == "workspace:target.md"
+    )
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:target.md"
 
@@ -694,6 +746,13 @@ def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
 
 def _message_text(message: UserMessage) -> str:
     return "\n".join(part.text for part in message.parts if isinstance(part, TextPart))
+
+
+def _workspace_snapshot_payload(bus: SignalBus) -> JsonObject:
+    signals = bus.consume_namespace("context")
+    assert len(signals) == 1
+    assert signals[0].name == SIGNAL_WORKSPACE_SYNC
+    return signals[0].payload
 
 
 

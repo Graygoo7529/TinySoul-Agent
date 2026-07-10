@@ -58,14 +58,15 @@ TinySoulApp 启动输入源后负责在程序退出或启动失败时停止已�
 TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
-- 解析 LoopSettings 与 AppSettings；
+- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/loop/workspace/llm 各自解析所属 settings；
 - 构建 LLMTaskRunner、ContextEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块 registrar 装配模块 executor；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner；
+- 将 `with_turn_completion_handler` 注册项按顺序组装为 TurnCompletionPipeline；
 - 构建 InputCommandParser、InputDispatcher 和输入源；
 - 返回 TinySoulApp。
 
-AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。解析 LLM、Loop、App、Workspace 或 Agent Home 配置时，AppBuilder 会在本模块桥接点把 `ConfigError` 映射为对应模块的 startup failure；它不把所有装配期配置错误统一归为 app 失败。这样启动失败 payload 可以稳定表达真实责任模块和配置 key。
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Action、Context、LLM、Loop、App、Workspace、Agent Home 在各自 parser 中解释 section tree。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 也在装配期注入到 action 层共享 LLM action backend 服务，让 `core.reason`、`core.answer` 等通用动作可以使用 `reference_links`，让带内部 LLM task 的 action 自动获得 domain/action HOW。
 
@@ -74,5 +75,5 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 - 对 loop：app 创建各级 runner，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
-- 对 context：app 通过 Agent Home / Context builder 提供默认与可加载背景条目，不直接读取 Agent Home 文件。
+- 对 context：app 只物化 Agent Home 默认 core，并为其它背景注入 lazy loader；不直接读取 Agent Home 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
 - 对 workspace / Agent Home：app 只装配模块门面和 executor，不解释 `workspace:` 或 `home:` 链接。

@@ -19,6 +19,7 @@ from tinysoul.context.working import (
     WorkingContext,
     WorkingPatch,
     WorkspaceResource,
+    WorkspaceSnapshot,
 )
 from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage, UserMessage
 from tinysoul.runtime import CyclePhase
@@ -95,12 +96,21 @@ def test_working_patch_check_and_apply() -> None:
     patch = WorkingPatch(
         set_milestones=(Milestone(key="goal", content="ship context module"),),
         set_todos=(TodoItem(key="t1", content="write tests"),),
-        set_resources=(WorkspaceResource(link="workspace:doc/a.md", summary="notes"),),
     )
     assert working.check_patch(patch) == ""
     working.apply_patch(patch)
     assert working.milestones()[0].content == "ship context module"
     assert working.todos()[0].status is TodoStatus.PENDING
+    working.apply_workspace_snapshot(
+        WorkspaceSnapshot(
+            revision=1,
+            resources=(
+                WorkspaceResource(link="workspace:doc/a.md", summary="notes"),
+            ),
+        )
+    )
+    assert working.workspace_revision == 1
+    assert working.resources()[0].link == "workspace:doc/a.md"
 
     removal = WorkingPatch(remove_todos=("t1",))
     working.apply_patch(removal)

@@ -1,0 +1,4 @@
+[home]
+root = "home"
+runtime_root = "runtime/home"
+max_read_chars = 4000

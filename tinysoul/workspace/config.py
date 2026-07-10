@@ -62,7 +62,12 @@ def parse_workspace_settings(
     *,
     project_root: Path,
 ) -> WorkspaceSettings:
-    root = _optional_path(tree, "root", default=project_root, project_root=project_root)
+    root = _optional_path(
+        tree,
+        "root",
+        default=project_root / "runtime" / "workspace",
+        project_root=project_root,
+    )
     manifest_default = root / ".tinysoul" / "workspace_manifest.json"
     return WorkspaceSettings(
         root=root,

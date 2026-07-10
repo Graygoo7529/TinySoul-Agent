@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.loop import (
     LoopControlKind,
     LoopSettings,
+    TurnCompletion,
     build_control_request_signal,
 )
 from tinysoul.runtime import (
@@ -35,14 +37,24 @@ class FakeLLM:
         return self.results.popleft()
 
 
+@dataclass
+class _CompletionRecorder:
+    completions: list[TurnCompletion] = field(default_factory=list)
+
+    def handle(self, completion: TurnCompletion) -> None:
+        self.completions.append(completion)
+
+
 def test_app_builder_run_once_answers_with_real_action_and_context(
     tmp_path: Path,
 ) -> None:
+    recorder = _CompletionRecorder()
     app = (
         TinySoulAppBuilder()
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_turn_completion_handler(recorder)
         .with_llm_runner(
             FakeLLM(
                 (
@@ -75,6 +87,10 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
     assert outcome.summary is not None
     assert outcome.summary.trace_digest["entry_count"] == 2
     assert outcome.summary.inputs[0]["text"] == "please answer"
+    assert len(outcome.summary.trace) == 2
+    assert len(recorder.completions) == 1
+    assert recorder.completions[0].output is not None
+    assert recorder.completions[0].output.text == "done"
 
 
 def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
@@ -145,9 +161,29 @@ def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
-def test_turn_runner_stop_control_ends_turn_without_llm_call(tmp_path: Path) -> None:
+def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> None:
     bus = SignalBus()
-    llm = FakeLLM(())
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_1",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="answer_1",
+                    name="core.answer",
+                    arguments={"guide_blocks": [{"text": "answer"}]},
+                    kind=ToolKind.ACTION,
+                )
+            ),
+            _json_result({"text": "done"}),
+        )
+    )
     app = (
         TinySoulAppBuilder()
         .with_config_environment(_test_config(tmp_path))
@@ -167,12 +203,10 @@ def test_turn_runner_stop_control_ends_turn_without_llm_call(tmp_path: Path) -> 
 
     outcome = app.run_once("please stop")
 
-    assert outcome.answered is False
-    assert outcome.transfer is not None
-    assert outcome.transfer.action is RuntimeTransferAction.END
-    assert outcome.transfer.target.level is RunLevel.TURN
+    assert outcome.answered is True
+    assert outcome.transfer is None
     assert outcome.summary is not None
-    assert llm.calls == []
+    assert len(llm.calls) == 3
 
 
 def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:

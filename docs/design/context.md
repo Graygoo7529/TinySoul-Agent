@@ -26,7 +26,7 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### WorkingContext
 
-本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、里程碑（Milestone）与待办（TodoItem）。里程碑与待办使用稳定状态枚举。变更通过明确的补丁类型（WorkingPatch）表达，补丁由信号载荷解析而来。Phase1 的语境控制工具只暴露里程碑与待办更新；工作区资源描述由 workspace 或装配层同步工作区摘要时通过 `context.working.patch` 信号提交。Context 只接收、验证和渲染资源句柄，不读取 workspace 文件内容。批量消费工作台变更时，Context 会在投影状态上顺序验证同批 patch，因此后一条 patch 能看到前一条有效 patch 的结果；无效 patch 收敛为局部结果，不阻止同批其他可行 patch 提交。
+本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 只验证和渲染资源句柄，不读取 workspace 文件内容。
 
 ### TurnTraceContext
 
@@ -64,11 +64,12 @@ Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工
 Context 消费的信号协议：
 
 - `context.working.patch`：WorkingContext 变更请求；
+- `context.workspace.sync`：Workspace 独占的版本化 Manifest 全量投影；
 - `context.background.patch`：顶层内容加载与逐出请求；
 - `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 provider-neutral Reasoning；
 - `context.input.append`：用户追加输入。
 
-信号消费采用批量可行提交语义：先解析同批 `context.*` 信号；解析失败或载荷不合规的信号转为局部结果；Working 与 Background 变更在投影状态上按信号顺序验证，验证通过的变更统一提交，验证失败的变更不提交且不抛异常；返回的局部结果按原始信号顺序排序。该语义不是 all-or-nothing，而是保证可行变更不会因为同批其他失败信号而丢失，同时避免提交前后状态不一致。信号生产方包括 Phase1 归一化（前两类）、Phase2/Phase3 的结果整理（第三类）和 loop 的输入监听（第四类）。
+Context 先从 SignalBus 取出一个绑定当前 Turn id 的 `ContextSignalBatch`。消费时逐条校验 signal 的 Turn frame，解析全部载荷，在投影状态上验证 Working/Workspace/Background 序列，并在任何状态修改前调用 lazy background loader 准备全部所需内容；准备阶段若触发 Home copy 或其它 Runtime 恢复，`ContextSignalConsumer` 在 Module frame 下重试同一批次，因此信号不会丢失且状态不会半提交。可行变更随后统一提交，局部失败按原始信号顺序返回。
 
 Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep` 和供应商能力决定：OpenAI Responses 只能把加密 reasoning item 作为可回放输入，summary 只是可观察摘要；OpenAI-compatible Chat 供应商若支持历史思考字段，则可在声明保留文本推理内容时回放 `reasoning.content`。Context 不在信号层把这些差异编码为分支。
 
@@ -79,7 +80,7 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. Trap 按原因调用注册的压缩处理器；处理器调用 Context 提供的压缩服务（ContextCompressor）；
 3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与条目类型，UserInputs、BackgroundContext 与 WorkingContext 不参与裁剪；多次压缩会合并已有摘要占位，压缩报告会标明本次是否实际改变了 trace；
-4. 压缩完成后由处理器返回重试当前 Phase 的运行转移；压缩后仍超限则返回结束 Turn。
+4. 压缩完成后优先返回重试当前 Module 的运行转移；没有 Module frame 时重试 Phase；压缩后仍不可改变则结束 Turn。
 
 压缩策略可以替换（例如升级为 LLM 归纳压缩），流程与接入方式不变。
 
@@ -93,7 +94,7 @@ Context 失败处理分三层：
 
 ## 持久化边界
 
-Context 维护内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary，包含输入全量记录、工作台终态与轨迹摘要，作为当日会话历程与持久化的数据源。
+Context 维护内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary，包含输入全量记录、工作台终态、Background 链接、轨迹摘要及 provider-neutral 完整 JSON trace。Context 不执行持久化；Loop 的 TurnCompletionPipeline 把 summary 与最终 output 提供给未来 Session 等处理器。
 
 持久化读写不属于 Context 职责：workspace 与 Agent Home 的链接读写、运行时副本机制由对应资源模块承担；Context 在这些机制接入后通过既有的条目与摘要模型消费其内容。
 

@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tinysoul.action import ActionEngine, ActionEngineBuilder
+from tinysoul.action import (
+    ActionEngine,
+    ActionEngineBuilder,
+    parse_action_settings,
+)
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
-from tinysoul.context import ContextEngine, ContextEngineBuilder
+from tinysoul.context import (
+    ContextEngine,
+    ContextEngineBuilder,
+    parse_context_settings,
+)
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
     AgentHomeEngine,
@@ -15,6 +23,7 @@ from tinysoul.home import (
     AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
     HomeActionHowProvider,
+    HomeBackgroundContentLoader,
     HomeDomainHowProvider,
     parse_agent_home_settings,
     register_home_actions,
@@ -26,11 +35,18 @@ from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
 from tinysoul.loop.config import LoopSettings, parse_loop_settings
+from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
+from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.program import ProgramRunner
 from tinysoul.loop.prompts import DomainHowProvider
-from tinysoul.loop.trap_handlers import ContextCompressionTrapHandler, EndFrameTrapHandler
+from tinysoul.loop.trap_handlers import (
+    ContextCompressionTrapHandler,
+    EndFrameTrapHandler,
+    EndTurnOrProgramTrapHandler,
+    TurnOutputTrapHandler,
+)
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
@@ -39,8 +55,10 @@ from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
+    RUNTIME_TURN_OUTPUT,
     RunLevel,
     RuntimeException,
+    RuntimeModuleRunner,
     RuntimeTrap,
     SignalBus,
     TrapHandlerRegistry,
@@ -86,6 +104,7 @@ class TinySoulAppBuilder:
         self._domain_how: DomainHowProvider | None = None
         self._input_parser: InputCommandParser | None = None
         self._input_sources: list[InputSource] = []
+        self._turn_completion_handlers: list[TurnCompletionHandler] = []
 
     def with_loop_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
         self._loop_settings = settings
@@ -133,6 +152,13 @@ class TinySoulAppBuilder:
         self._input_sources.append(source)
         return self
 
+    def with_turn_completion_handler(
+        self,
+        handler: TurnCompletionHandler,
+    ) -> "TinySoulAppBuilder":
+        self._turn_completion_handlers.append(handler)
+        return self
+
     def build(self) -> TinySoulApp:
         app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
@@ -165,7 +191,12 @@ class TinySoulAppBuilder:
             context = (
                 self._context
                 if self._context is not None
-                else self._build_context(home, context_bridge, home_bridge)
+                else self._build_context(
+                    config,
+                    home,
+                    context_bridge,
+                    home_bridge,
+                )
             )
             domain_how = self._domain_how or HomeDomainHowProvider(
                 home,
@@ -181,6 +212,7 @@ class TinySoulAppBuilder:
                 action_how=action_how,
             )
             action = self._action if self._action is not None else self._build_action(
+                config=config,
                 bus=bus,
                 workspace=workspace,
                 home=home,
@@ -189,12 +221,19 @@ class TinySoulAppBuilder:
                 llm_action=llm_action,
             )
             trap = self._build_trap(context, home)
+            module_runner = RuntimeModuleRunner(trap=trap, bus=bus)
+            signal_consumer = ContextSignalConsumer(
+                context=context,
+                bus=bus,
+                module_runner=module_runner,
+            )
             phase1 = Phase1Unit(
                 context=context,
                 action=action,
                 llm=llm,
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
+                signal_consumer=signal_consumer,
             )
             phase2 = Phase2Unit(
                 context=context,
@@ -203,8 +242,15 @@ class TinySoulAppBuilder:
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
                 domain_how=domain_how,
+                signal_consumer=signal_consumer,
             )
-            phase3 = Phase3Unit(context=context, action=action, bus=bus)
+            phase3 = Phase3Unit(
+                context=context,
+                action=action,
+                bus=bus,
+                module_runner=module_runner,
+                signal_consumer=signal_consumer,
+            )
             cycle_runner = CycleRunner(
                 context=context,
                 bus=bus,
@@ -212,6 +258,7 @@ class TinySoulAppBuilder:
                 phase1=phase1,
                 phase2=phase2,
                 phase3=phase3,
+                signal_consumer=signal_consumer,
             )
             turn_runner = TurnRunner(
                 context=context,
@@ -219,6 +266,10 @@ class TinySoulAppBuilder:
                 trap=trap,
                 cycle_runner=cycle_runner,
                 settings=loop_settings,
+                signal_consumer=signal_consumer,
+                completion_pipeline=TurnCompletionPipeline(
+                    tuple(self._turn_completion_handlers)
+                ),
             )
             program_runner = ProgramRunner(
                 turn_runner=turn_runner,
@@ -230,8 +281,7 @@ class TinySoulAppBuilder:
                 parser=parser,
                 bus=bus,
                 program_inputs=program_runner.input_queue,
-                is_turn_active=lambda: context.turn_active,
-                scope_provider=lambda: program_runner.scope,
+                active_turn_scope=lambda: turn_runner.active_scope,
             )
             input_sources = tuple(self._input_sources)
             if not input_sources and app_settings.interactive:
@@ -339,18 +389,34 @@ class TinySoulAppBuilder:
 
     def _build_context(
         self,
+        config: ConfigEnvironment,
         home: AgentHomeEngine,
         bridge: RuntimeContextBridge,
         home_bridge: RuntimeAgentHomeBridge,
     ) -> ContextEngine:
         try:
+            settings = parse_context_settings(config.section_tree("context"))
             recovery = AgentHomeRuntimeCopyRecovery.startup(home)
-            builder = ContextEngineBuilder(system_text="You are TinySoul.")
+            builder = (
+                ContextEngineBuilder(system_text=settings.system_text)
+                .with_journal(settings.journal)
+                .with_budget_max_chars(settings.budget_max_chars)
+                .with_keep_recent(settings.keep_recent)
+            )
             for entry in recovery.run(home.default_background_entries):
                 builder.add_default_background(entry.link, entry.content)
-            for entry in recovery.run(home.loadable_background_entries):
-                builder.add_loadable_background(entry.link, entry.content)
+            for link in home.loadable_background_links():
+                builder.add_lazy_background(
+                    link,
+                    HomeBackgroundContentLoader(
+                        home=home,
+                        link=link,
+                        runtime_bridge=home_bridge,
+                    ),
+                )
             return builder.build()
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
         except ContextError as exc:
             raise bridge.startup_failure(
                 message=str(exc),
@@ -365,6 +431,7 @@ class TinySoulAppBuilder:
     def _build_action(
         self,
         *,
+        config: ConfigEnvironment,
         bus: SignalBus,
         workspace: WorkspaceEngine,
         home: AgentHomeEngine,
@@ -372,9 +439,12 @@ class TinySoulAppBuilder:
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
     ) -> ActionEngine:
-        catalog_root = self._root / "tinysoul" / "action" / "catalog"
         try:
-            builder = ActionEngineBuilder(catalog_root)
+            settings = parse_action_settings(
+                config.section_tree("action"),
+                project_root=self._root,
+            )
+            builder = ActionEngineBuilder(settings.catalog_root)
             register_workspace_actions(
                 builder,
                 workspace=workspace,
@@ -392,8 +462,8 @@ class TinySoulAppBuilder:
                 llm_action=llm_action,
             )
             return builder.build()
-        except ConfigError:
-            raise
+        except ConfigError as exc:
+            raise action_bridge.from_config_error(exc) from exc
         except Exception as exc:
             raise action_bridge.startup_failure(
                 message=str(exc),
@@ -407,9 +477,11 @@ class TinySoulAppBuilder:
     ) -> RuntimeTrap:
         registry = TrapHandlerRegistry()
         registry.register(RUNTIME_TURN_END, EndFrameTrapHandler(RunLevel.TURN))
+        registry.register(RUNTIME_TURN_OUTPUT, TurnOutputTrapHandler())
         registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
         registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(CONTEXT_COMPRESSION_REQUIRED, ContextCompressionTrapHandler(context))
         registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
+        registry.register_fallback(EndTurnOrProgramTrapHandler())
         return RuntimeTrap(registry=registry)

@@ -9,12 +9,23 @@ from .errors import LoopContractError, LoopError, LoopInvariantError
 from .failures import LoopFailureKind
 from .signals import (
     SIGNAL_CONTROL_REQUEST,
+    SIGNAL_TURN_OUTPUT,
     SIGNAL_NAMESPACE,
     LoopControlKind,
     LoopControlRequest,
+    TurnOutput,
     build_control_request_signal,
+    build_turn_output_signal,
     consume_control_requests,
+    consume_control_signal_requests,
+    consume_turn_outputs,
     parse_control_request_signal,
+    parse_turn_output_signal,
+)
+from .completion import (
+    TurnCompletion,
+    TurnCompletionHandler,
+    TurnCompletionPipeline,
 )
 
 if TYPE_CHECKING:
@@ -51,12 +62,21 @@ __all__ = [
     "ProgramOutcome",
     "ProgramRunner",
     "SIGNAL_CONTROL_REQUEST",
+    "SIGNAL_TURN_OUTPUT",
     "SIGNAL_NAMESPACE",
     "TurnOutcome",
+    "TurnOutput",
+    "TurnCompletion",
+    "TurnCompletionHandler",
+    "TurnCompletionPipeline",
     "TurnRunner",
     "build_control_request_signal",
+    "build_turn_output_signal",
     "consume_control_requests",
+    "consume_control_signal_requests",
+    "consume_turn_outputs",
     "parse_control_request_signal",
+    "parse_turn_output_signal",
     "parse_loop_settings",
 ]
 

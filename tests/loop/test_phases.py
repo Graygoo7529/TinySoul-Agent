@@ -3,14 +3,23 @@ from __future__ import annotations
 from collections import deque
 from pathlib import Path
 
-from tinysoul.action import ActionEngineBuilder, ActionResultStatus
+import pytest
+
+from tinysoul.action import ActionEngineBuilder
 from tinysoul.context import ContextEngineBuilder, TraceKind
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import Phase1Unit, Phase2Unit, Phase3Unit
-from tinysoul.runtime import CyclePhase, RunLevel, RunScope, SignalBus
+from tinysoul.runtime import (
+    RUNTIME_TURN_OUTPUT,
+    CyclePhase,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    SignalBus,
+)
 
 
 class FakeLLM:
@@ -77,17 +86,19 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         cycle_id="cycle_1",
         turn_id=turn_id,
     )
-    phase3 = Phase3Unit(context=context, action=action, bus=bus).run(
-        normalization=phase2.normalization,
-        scope=phase3_scope,
-        cycle_id="cycle_1",
-        turn_id=turn_id,
-    )
+    with pytest.raises(RuntimeException) as raised:
+        Phase3Unit(context=context, action=action, bus=bus).run(
+            normalization=phase2.normalization,
+            scope=phase3_scope,
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
 
     assert phase1.selected_domains == ("core",)
     assert phase2.normalization.calls[0].action_name == "core.answer"
-    assert phase3.answered is True
-    assert phase3.results[0].status is ActionResultStatus.SUCCESS
+    assert raised.value.reason == RUNTIME_TURN_OUTPUT
+    assert raised.value.payload["text"] == "done"
+    assert str(raised.value.payload["result_id"]).startswith("action_result_")
     assert context.trace_kinds() == (
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,

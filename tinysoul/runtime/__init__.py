@@ -7,8 +7,10 @@ from .exception import (
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
+    RUNTIME_TURN_OUTPUT,
     RuntimeException,
 )
+from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
 from .errors import RuntimeContractError, RuntimeInvariantError, RuntimeModuleError
 from .scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .transfer import RuntimeTransfer, RuntimeTransferAction
@@ -23,7 +25,10 @@ __all__ = [
     "RUNTIME_PROGRAM_END",
     "RUNTIME_STARTUP_FAILED",
     "RUNTIME_TURN_END",
+    "RUNTIME_TURN_OUTPUT",
     "RuntimeException",
+    "RuntimeModuleRunner",
+    "RuntimeTransferInterrupt",
     "RuntimeContractError",
     "RuntimeInvariantError",
     "RuntimeModuleError",

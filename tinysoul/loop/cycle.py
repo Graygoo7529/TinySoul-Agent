@@ -14,6 +14,7 @@ from tinysoul.runtime import (
     RunLevel,
     RunScope,
     RuntimeException,
+    RuntimeTransferInterrupt,
     RuntimeTrap,
     RuntimeTransfer,
     RuntimeTransferAction,
@@ -21,9 +22,10 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
+from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopInvariantError
 from .phases import Phase1Outcome, Phase1Unit, Phase2Outcome, Phase2Unit, Phase3Outcome, Phase3Unit
-from .signals import LoopControlKind, consume_control_requests
+from .signals import LoopControlKind, consume_control_signal_requests
 
 T = TypeVar("T")
 
@@ -33,7 +35,6 @@ class CycleOutcome:
     """Outcome of one execution cycle."""
 
     cycle_id: str
-    answered: bool = False
     transfer: RuntimeTransfer | None = None
 
 
@@ -56,8 +57,9 @@ class CycleRunner:
         phase1: Phase1Unit,
         phase2: Phase2Unit,
         phase3: Phase3Unit,
-        context_bridge: RuntimeContextBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
+        signal_consumer: ContextSignalConsumer | None = None,
+        context_bridge: RuntimeContextBridge | None = None,
     ) -> None:
         self._context = context
         self._bus = bus
@@ -65,8 +67,9 @@ class CycleRunner:
         self._phase1 = phase1
         self._phase2 = phase2
         self._phase3 = phase3
-        self._context_bridge = context_bridge or RuntimeContextBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
+        self._context_bridge = context_bridge or RuntimeContextBridge()
+        self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
 
     def run(
         self,
@@ -151,7 +154,7 @@ class CycleRunner:
         boundary = self._boundary(phase3_scope)
         if boundary is not None:
             return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
-        return CycleOutcome(cycle_id=cycle_id, answered=phase3_outcome.answered)
+        return CycleOutcome(cycle_id=cycle_id)
 
     def _run_phase(
         self,
@@ -166,6 +169,17 @@ class CycleRunner:
         while True:
             try:
                 return _PhaseRun(value=phase())
+            except RuntimeTransferInterrupt as interrupt:
+                transfer = interrupt.transfer
+                if transfer.target != current:
+                    return _PhaseRun(transfer=transfer)
+                if transfer.action is RuntimeTransferAction.RETRY:
+                    continue
+                if transfer.action is RuntimeTransferAction.END:
+                    return _PhaseRun(ended=True)
+                raise self._loop_bridge.from_loop_error(
+                    LoopInvariantError(f"Unsupported phase transfer: {transfer}")
+                )
             except RuntimeException as exc:
                 transfer = self._capture(exc, scope)
                 if transfer.target != current:
@@ -180,7 +194,13 @@ class CycleRunner:
 
     def _boundary(self, scope: RunScope) -> RuntimeTransfer | None:
         try:
-            requests = consume_control_requests(self._bus)
+            current_turn = scope.nearest(RunLevel.TURN)
+            requests = tuple(
+                request
+                for signal, request in consume_control_signal_requests(self._bus)
+                if current_turn is not None
+                and signal.scope.nearest(RunLevel.TURN) == current_turn
+            )
         except LoopContractError as exc:
             return self._capture(self._loop_bridge.from_loop_error(exc), scope)
         if requests:
@@ -203,10 +223,17 @@ class CycleRunner:
                     scope,
                 )
         try:
-            self._context.consume_signals(self._bus)
+            self._signal_consumer.consume(scope=scope)
             self._context.merge_pending_inputs()
+        except RuntimeTransferInterrupt as interrupt:
+            return interrupt.transfer
+        except RuntimeException as exc:
+            return self._capture(exc, scope)
         except ContextError as exc:
-            return self._capture(self._context_bridge.from_context_error(exc), scope)
+            return self._capture(
+                self._context_bridge.from_context_error(exc),
+                scope,
+            )
         return None
 
     def _capture(self, exc: RuntimeException, scope: RunScope) -> RuntimeTransfer:

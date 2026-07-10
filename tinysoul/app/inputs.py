@@ -139,22 +139,19 @@ class InputDispatcher:
         parser: InputCommandParser,
         bus: SignalBus,
         program_inputs: Queue[ProgramInputEvent],
-        is_turn_active: Callable[[], bool],
-        scope_provider: Callable[[], RunScope] | None = None,
+        active_turn_scope: Callable[[], RunScope | None],
     ) -> None:
         self._parser = parser
         self._bus = bus
         self._program_inputs = program_inputs
-        self._is_turn_active = is_turn_active
-        self._scope_provider = scope_provider or (
-            lambda: RunScope().push(RunLevel.PROGRAM, "program")
-        )
+        self._active_turn_scope = active_turn_scope
 
     def submit(self, event: InputEvent) -> None:
         self.dispatch(event)
 
     def dispatch(self, event: InputEvent) -> None:
-        turn_active = self._is_turn_active()
+        turn_scope = self._active_turn_scope()
+        turn_active = turn_scope is not None
         intent = self._parser.parse(event, turn_active=turn_active)
         if intent.kind is InputIntentKind.IGNORE:
             return
@@ -169,7 +166,7 @@ class InputDispatcher:
             return
         if intent.kind is InputIntentKind.EXIT_PROGRAM:
             if turn_active:
-                self._emit_control(LoopControlKind.EXIT_PROGRAM, intent)
+                self._emit_control(LoopControlKind.EXIT_PROGRAM, intent, turn_scope)
                 return
             self._program_inputs.put(
                 ProgramInputEvent.exit_program(
@@ -180,25 +177,36 @@ class InputDispatcher:
             )
             return
         if intent.kind is InputIntentKind.STOP_TURN:
-            self._emit_control(LoopControlKind.STOP_TURN, intent)
+            self._emit_control(LoopControlKind.STOP_TURN, intent, turn_scope)
             return
         if intent.kind is InputIntentKind.APPEND_INPUT:
             self._bus.emit(
                 build_input_append_signal(
                     intent.text,
-                    scope=self._scope_provider(),
+                    scope=_require_turn_scope(turn_scope),
                     source="app.inputs",
                 )
             )
             return
         raise AppContractError(f"Unsupported input intent: {intent.kind.value}")
 
-    def _emit_control(self, kind: LoopControlKind, intent: InputIntent) -> None:
+    def _emit_control(
+        self,
+        kind: LoopControlKind,
+        intent: InputIntent,
+        scope: RunScope | None,
+    ) -> None:
         self._bus.emit(
             build_control_request_signal(
                 kind,
-                scope=self._scope_provider(),
+                scope=_require_turn_scope(scope),
                 source="app.inputs",
                 text=intent.text,
             )
         )
+
+
+def _require_turn_scope(scope: RunScope | None) -> RunScope:
+    if scope is None or scope.nearest(RunLevel.TURN) is None:
+        raise AppContractError("Turn-scoped input has no active Turn scope")
+    return scope

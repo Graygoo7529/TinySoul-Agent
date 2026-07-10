@@ -9,7 +9,15 @@ from .controls import (
     ControlResultStage,
     ControlResultStatus,
 )
-from .engine import ContextEngine, ContextEngineBuilder, TurnSummary
+from .engine import (
+    BackgroundContentLoader,
+    ContextEngine,
+    ContextEngineBuilder,
+    ContextSignalBatch,
+    StaticBackgroundContentLoader,
+    TurnSummary,
+)
+from .config import ContextSettings, parse_context_settings
 from .errors import (
     ContextBudgetError,
     ContextContractError,
@@ -25,15 +33,19 @@ from .signals import (
     SIGNAL_NAMESPACE,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
+    SIGNAL_WORKSPACE_SYNC,
     build_input_append_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
+    build_workspace_sync_signal,
 )
+from .working import WorkspaceResource, WorkspaceSnapshot
 from .trace import CompressionReport, TraceKind
 
 __all__ = [
     "CompressionReport",
+    "BackgroundContentLoader",
     "CONTROL_EVICT_BACKGROUND",
     "CONTROL_LOAD_BACKGROUND",
     "CONTROL_UPDATE_WORKING",
@@ -44,6 +56,8 @@ __all__ = [
     "ContextError",
     "ContextFailureKind",
     "ContextInvariantError",
+    "ContextSignalBatch",
+    "ContextSettings",
     "ControlNormalization",
     "ControlResult",
     "ControlResultStage",
@@ -56,11 +70,17 @@ __all__ = [
     "SIGNAL_NAMESPACE",
     "SIGNAL_TRACE_APPEND",
     "SIGNAL_WORKING_PATCH",
+    "SIGNAL_WORKSPACE_SYNC",
+    "StaticBackgroundContentLoader",
     "TaskPrompt",
     "TraceKind",
     "TurnSummary",
+    "WorkspaceResource",
+    "WorkspaceSnapshot",
     "build_input_append_signal",
     "build_trace_action_result_signal",
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",
+    "build_workspace_sync_signal",
+    "parse_context_settings",
 ]

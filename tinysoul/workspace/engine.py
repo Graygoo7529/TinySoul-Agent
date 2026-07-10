@@ -8,9 +8,9 @@ from enum import StrEnum
 from pathlib import Path
 import os
 
-from tinysoul.context.working import WorkspaceResource
 from tinysoul.infra.filesystem import (
     FilesystemBoundaryError,
+    atomic_write_bytes,
     atomic_write_text,
     file_digest,
     read_text_line_slice,
@@ -19,7 +19,12 @@ from tinysoul.infra.filesystem import (
 )
 
 from .config import WorkspaceSettings
-from .errors import WorkspaceContractError, WorkspaceInvariantError, WorkspaceIOError
+from .errors import (
+    WorkspaceContractError,
+    WorkspaceError,
+    WorkspaceInvariantError,
+    WorkspaceIOError,
+)
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
@@ -63,12 +68,6 @@ class WorkspaceScanResult:
     resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
     skipped: tuple[WorkspaceScanSkip, ...] = field(default_factory=tuple)
     limit_reached: bool = False
-
-    def to_working_resources(self) -> tuple[WorkspaceResource, ...]:
-        return tuple(
-            WorkspaceResource(link=resource.link, summary=resource.summary)
-            for resource in self.resources
-        )
 
     @property
     def skipped_count(self) -> int:
@@ -183,7 +182,17 @@ class WorkspaceEngine:
     def load_manifest(self) -> WorkspaceManifest:
         return self._manifest_store.load()
 
+    def snapshot(self) -> WorkspaceManifest:
+        """Return the persisted state used for Context synchronization."""
+
+        return self.load_manifest()
+
     def describe(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+        record = self._inspect_record(link)
+        self.scan()
+        return record
+
+    def _inspect_record(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
         path = self.path_for(link)
         if self._is_internal_path(path):
             raise WorkspaceContractError(f"Workspace resource is internal: {link}")
@@ -194,7 +203,6 @@ class WorkspaceEngine:
         record = self._record_for(path)
         if record is None:
             raise WorkspaceContractError(f"Workspace resource cannot be described: {link}")
-        self._upsert_manifest_record(record)
         return record
 
     def read_text(
@@ -206,7 +214,7 @@ class WorkspaceEngine:
         limit = self._settings.max_read_chars if max_chars is None else max_chars
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise WorkspaceContractError("Workspace read limit must be positive")
-        record = self.describe(link)
+        record = self._inspect_record(link)
         path = self.path_for(record.link)
         try:
             read = read_text_prefix(path, max_chars=limit)
@@ -247,7 +255,7 @@ class WorkspaceEngine:
             raise WorkspaceContractError("Workspace read max_lines must be positive")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise WorkspaceContractError("Workspace read limit must be positive")
-        record = self.describe(link)
+        record = self._inspect_record(link)
         path = self.path_for(record.link)
         try:
             read = read_text_line_slice(
@@ -317,7 +325,7 @@ class WorkspaceEngine:
                     f"Workspace resource already exists: {parsed}"
                 )
             if expected_digest:
-                current = self.describe(str(parsed))
+                current = self._inspect_record(str(parsed))
                 if current.digest != expected_digest:
                     raise WorkspaceContractError(
                         f"Workspace resource digest mismatch: {parsed}"
@@ -331,11 +339,17 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 f"Workspace resource parent is not a directory: {parsed}"
             )
+        existed = path.exists()
+        previous = self._read_rollback_bytes(path) if existed else None
         try:
             atomic_write_text(path, text)
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to write workspace resource: {exc}") from exc
-        return self.describe(str(parsed))
+        return self._reconcile_mutation(
+            path,
+            link=str(parsed),
+            previous=previous,
+        )
 
     def patch_text(
         self,
@@ -355,13 +369,14 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 "Workspace patch expected_digest must be a string"
             )
-        record = self.describe(link)
+        record = self._inspect_record(link)
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
         if expected_digest and record.digest != expected_digest:
             raise WorkspaceContractError(
                 f"Workspace resource digest mismatch: {record.link}"
             )
+        previous = self._read_rollback_bytes(path)
         try:
             current = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
@@ -383,17 +398,26 @@ class WorkspaceEngine:
             atomic_write_text(path, current.replace(old_text, new_text, 1))
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to write workspace resource: {exc}") from exc
-        return self.describe(record.link)
+        return self._reconcile_mutation(
+            path,
+            link=record.link,
+            previous=previous,
+        )
 
     def delete_resource(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
-        record = self.describe(link)
+        record = self._inspect_record(link)
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
+        previous = self._read_rollback_bytes(path)
         try:
             path.unlink()
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to delete workspace resource: {exc}") from exc
-        self._remove_manifest_record(record.link)
+        try:
+            self.scan()
+        except WorkspaceError as exc:
+            self._rollback_mutation(path, previous=previous, cause=exc)
+            raise
         return record
 
     def prepare_task_input(
@@ -431,7 +455,11 @@ class WorkspaceEngine:
     def scan(self) -> WorkspaceScanResult:
         self._settings.root.mkdir(parents=True, exist_ok=True)
         scan = self._scan_resources()
-        manifest = WorkspaceManifest(resources=scan.resources)
+        current = self.load_manifest()
+        manifest = WorkspaceManifest(
+            revision=current.revision + 1,
+            resources=tuple(sorted(scan.resources, key=lambda item: item.link)),
+        )
         self._manifest_store.save(manifest)
         return WorkspaceScanResult(
             manifest=manifest,
@@ -502,7 +530,7 @@ class WorkspaceEngine:
             return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.INVARIANT)
         digest = ""
         try:
-            digest = file_digest(resolved, limit_bytes=1024 * 1024)
+            digest = file_digest(resolved)
         except OSError:
             digest = ""
         suffix = path.suffix or "file"
@@ -552,24 +580,47 @@ class WorkspaceEngine:
         ignored = set(self._settings.ignore_dirs)
         return any(part in ignored or part.startswith(".") for part in relative.parts[:-1])
 
-    def _upsert_manifest_record(self, record: WorkspaceResourceRecord) -> None:
-        manifest = self.load_manifest()
-        records: list[WorkspaceResourceRecord] = []
-        replaced = False
-        for item in manifest.resources:
-            if item.link == record.link:
-                records.append(record)
-                replaced = True
-                continue
-            records.append(item)
-        if not replaced:
-            records.append(record)
-        self._manifest_store.save(WorkspaceManifest(resources=tuple(records)))
+    def _reconcile_mutation(
+        self,
+        path: Path,
+        *,
+        link: str,
+        previous: bytes | None,
+    ) -> WorkspaceResourceRecord:
+        try:
+            record = self._inspect_record(link)
+            self.scan()
+            return record
+        except WorkspaceError as exc:
+            self._rollback_mutation(path, previous=previous, cause=exc)
+            raise
 
-    def _remove_manifest_record(self, link: str) -> None:
-        manifest = self.load_manifest()
-        records = tuple(item for item in manifest.resources if item.link != link)
-        self._manifest_store.save(WorkspaceManifest(resources=records))
+    @staticmethod
+    def _read_rollback_bytes(path: Path) -> bytes:
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            raise WorkspaceIOError(
+                f"Failed to stage workspace rollback data: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _rollback_mutation(
+        path: Path,
+        *,
+        previous: bytes | None,
+        cause: WorkspaceError,
+    ) -> None:
+        try:
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(path, previous)
+        except OSError as rollback_error:
+            raise WorkspaceIOError(
+                "Workspace reconciliation failed and file rollback also failed: "
+                f"{rollback_error}"
+            ) from cause
 
 
 class WorkspaceEngineBuilder:

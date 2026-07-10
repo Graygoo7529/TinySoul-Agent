@@ -10,6 +10,7 @@ from tinysoul.context.errors import (
     ContextInvariantError,
 )
 from tinysoul.context.failures import ContextFailureKind
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 
 from ..exception import (
@@ -18,7 +19,7 @@ from ..exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
-from ._payload import exception_payload, runtime_exception
+from ._payload import config_error_payload, exception_payload, runtime_exception
 
 CONTEXT_RUNTIME_REASON_MAP: dict[ContextFailureKind, str] = {
     ContextFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
@@ -93,4 +94,11 @@ class RuntimeContextBridge:
             ContextFailureKind.CONFIGURATION_FAILED,
             message=message,
             payload=payload,
+        )
+
+    def from_config_error(self, error: ConfigError) -> RuntimeException:
+        return self.from_failure(
+            ContextFailureKind.CONFIGURATION_FAILED,
+            message=error.message,
+            payload=config_error_payload(error),
         )

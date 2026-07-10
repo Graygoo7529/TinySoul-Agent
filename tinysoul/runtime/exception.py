@@ -12,6 +12,7 @@ RUNTIME_STARTUP_FAILED = "runtime.startup_failed"
 RUNTIME_TURN_END = "runtime.turn_end"
 RUNTIME_CYCLE_END = "runtime.cycle_end"
 RUNTIME_PROGRAM_END = "runtime.program_end"
+RUNTIME_TURN_OUTPUT = "runtime.turn_output"
 CONTEXT_COMPRESSION_REQUIRED = "context.compression_required"
 HOME_RUNTIME_COPY_REQUIRED = "home.runtime_copy_required"
 

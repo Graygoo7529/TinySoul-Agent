@@ -14,6 +14,7 @@ from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
 from tinysoul.llm.responses import AnswerFormat, JsonAnswer, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolUse
 from tinysoul.runtime import RuntimeException
+from tinysoul.runtime.bridge import RuntimeContextBridge
 
 
 class LLMActionModelRunner(Protocol):
@@ -56,10 +57,12 @@ class LLMActionTaskRunner:
         llm_runner: LLMActionModelRunner,
         context: ContextEngine,
         action_how: ActionHowProvider | None = None,
+        context_bridge: RuntimeContextBridge | None = None,
     ) -> None:
         self._llm_runner = llm_runner
         self._context = context
         self._action_how = action_how or EmptyActionHowProvider()
+        self._context_bridge = context_bridge or RuntimeContextBridge()
 
     def prompt_with_how(
         self,
@@ -98,18 +101,10 @@ class LLMActionTaskRunner:
                     ),
                 )
             )
-        except RuntimeException as exc:
-            return _failed(
-                execution,
-                f"{subject} failed: {exc.message}",
-                {"reason": exc.reason, "payload": exc.payload},
-            )
+        except RuntimeException:
+            raise
         except ContextError as exc:
-            return _failed(
-                execution,
-                f"{subject} could not compose context: {exc}",
-                {"error_type": type(exc).__name__},
-            )
+            raise self._context_bridge.from_context_error(exc) from exc
         if result.status is TaskResultStatus.FAILURE:
             feedback = f"{subject} output did not satisfy its protocol."
             if result.failure is not None and result.failure.model_feedback:

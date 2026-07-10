@@ -37,7 +37,7 @@ def parse_agent_home_settings(
     original_root = _optional_path(
         tree,
         "root",
-        default=project_root,
+        default=project_root / "home",
         project_root=project_root,
     )
     return AgentHomeSettings(

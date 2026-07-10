@@ -81,10 +81,29 @@ class WorkspaceResourceRecord:
 class WorkspaceManifest:
     """Current workspace resource index."""
 
+    revision: int = 0
     resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
 
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 0
+        ):
+            raise WorkspaceContractError(
+                "Workspace manifest revision must be a non-negative integer"
+            )
+        links = tuple(resource.link for resource in self.resources)
+        if len(set(links)) != len(links):
+            raise WorkspaceContractError(
+                "Workspace manifest resources must contain unique links"
+            )
+
     def to_json(self) -> JsonObject:
-        return {"resources": [resource.to_json() for resource in self.resources]}
+        return {
+            "revision": self.revision,
+            "resources": [resource.to_json() for resource in self.resources],
+        }
 
     @classmethod
     def from_json(cls, value: JsonObject) -> "WorkspaceManifest":
@@ -98,7 +117,10 @@ class WorkspaceManifest:
                     "Workspace manifest resources must contain objects"
                 )
             resources.append(WorkspaceResourceRecord.from_json(to_json_object(item)))
-        return cls(resources=tuple(resources))
+        return cls(
+            revision=_optional_non_negative_int(value, "revision"),
+            resources=tuple(resources),
+        )
 
 
 class WorkspaceManifestStore:
@@ -156,6 +178,15 @@ def _required_int(value: JsonObject, name: str) -> int:
     item = value.get(name)
     if isinstance(item, bool) or not isinstance(item, int):
         raise WorkspaceContractError(f"Manifest field must be an integer: {name}")
+    return item
+
+
+def _optional_non_negative_int(value: JsonObject, name: str) -> int:
+    item = value.get(name, 0)
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise WorkspaceContractError(
+            f"Manifest field must be a non-negative integer: {name}"
+        )
     return item
 
 

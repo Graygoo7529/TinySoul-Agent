@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.llm.messages import MessageStack
+from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.llm.messages import (
+    AssistantMessage,
+    JsonPart,
+    Message,
+    MessageStack,
+    TextPart,
+    ToolResultMessage,
+    UserMessage,
+)
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
-from tinysoul.runtime import RunScope, Signal, SignalBus
+from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 
 from .background import (
     BackgroundContext,
@@ -33,14 +42,16 @@ from .signals import (
     SIGNAL_NAMESPACE,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
+    SIGNAL_WORKSPACE_SYNC,
     TraceAppend,
     parse_background_patch_signal,
     parse_input_append_signal,
     parse_trace_append_signal,
     parse_working_patch_signal,
+    parse_workspace_sync_signal,
 )
 from .trace import CompressionReport, PendingInputs, TraceKind, TurnTraceContext
-from .working import WorkingContext, WorkingPatch
+from .working import WorkingContext, WorkingPatch, WorkspaceSnapshot
 
 
 @dataclass(frozen=True)
@@ -52,6 +63,7 @@ class TurnSummary:
     working: JsonObject = field(default_factory=dict)
     background_links: tuple[str, ...] = field(default_factory=tuple)
     trace_digest: JsonObject = field(default_factory=dict)
+    trace: tuple[JsonObject, ...] = field(default_factory=tuple)
 
     def to_json(self) -> JsonObject:
         return {
@@ -60,7 +72,34 @@ class TurnSummary:
             "working": self.working,
             "background_links": list(self.background_links),
             "trace_digest": self.trace_digest,
+            "trace": list(self.trace),
         }
+
+
+class BackgroundContentLoader(Protocol):
+    """Load one BackgroundContext entry at the moment it becomes visible."""
+
+    def load(self) -> str:
+        """Return non-empty entry content."""
+        ...
+
+
+@dataclass(frozen=True)
+class StaticBackgroundContentLoader:
+    """In-memory loader used for static or already-materialized content."""
+
+    content: str
+
+    def load(self) -> str:
+        return self.content
+
+
+@dataclass(frozen=True)
+class ContextSignalBatch:
+    """A replayable group of context signals owned by one active Turn."""
+
+    turn_id: str
+    signals: tuple[Signal, ...] = field(default_factory=tuple)
 
 
 class ContextEngine:
@@ -72,7 +111,7 @@ class ContextEngine:
         composer: MessageStackComposer,
         compressor: ContextCompressor,
         background: BackgroundContext,
-        loadable_entries: dict[str, str],
+        loadable_entries: dict[str, BackgroundContentLoader],
     ) -> None:
         self._composer = composer
         self._compressor = compressor
@@ -158,27 +197,66 @@ class ContextEngine:
         self._require_turn()
         return self._normalizer.normalize(tool_calls, scope=scope)
 
+    def take_signal_batch(self, bus: SignalBus) -> ContextSignalBatch:
+        """Remove the current context namespace from the bus as a replayable batch."""
+
+        self._require_turn()
+        return ContextSignalBatch(
+            turn_id=self._turn_id,
+            signals=bus.consume_namespace(SIGNAL_NAMESPACE),
+        )
+
     def consume_signals(self, bus: SignalBus) -> tuple[ControlResult, ...]:
-        """Consume context signals with parse-first, projected validation.
+        """Take and synchronously commit one context signal batch."""
+
+        return self.consume_signal_batch(self.take_signal_batch(bus))
+
+    def consume_signal_batch(
+        self,
+        batch: ContextSignalBatch,
+    ) -> tuple[ControlResult, ...]:
+        """Prepare and atomically commit a replayable context signal batch.
 
         Invalid signals become local results. Valid working/background patches are
-        checked against a projected batch state before any state is committed.
+        checked against a projected batch state. Lazy background content is fully
+        loaded before the first state mutation, so a Runtime Trap can retry this
+        exact batch without observing a partial commit.
         """
 
         self._require_turn()
-        signals = bus.consume_namespace(SIGNAL_NAMESPACE)
+        if batch.turn_id != self._turn_id:
+            raise ContextContractError(
+                "Context signal batch belongs to a different active Turn"
+            )
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
+        workspace_candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]] = []
         background_candidates: list[tuple[int, Signal, str, BackgroundPatch]] = []
         trace_appends: list[TraceAppend] = []
         input_texts: list[str] = []
 
-        for index, signal in enumerate(signals):
+        for index, signal in enumerate(batch.signals):
             sequence = index + 1
+            scope_problem = self._signal_scope_problem(signal)
+            if scope_problem:
+                results.append(
+                    _consume_failure(
+                        signal,
+                        _signal_call_id(signal),
+                        sequence,
+                        scope_problem,
+                    )
+                )
+                continue
             try:
                 if signal.name == SIGNAL_WORKING_PATCH:
                     call_id, patch = parse_working_patch_signal(signal)
                     working_candidates.append((sequence, signal, call_id, patch))
+                elif signal.name == SIGNAL_WORKSPACE_SYNC:
+                    call_id, snapshot = parse_workspace_sync_signal(signal)
+                    workspace_candidates.append(
+                        (sequence, signal, call_id, snapshot)
+                    )
                 elif signal.name == SIGNAL_BACKGROUND_PATCH:
                     call_id, patch = parse_background_patch_signal(signal)
                     background_candidates.append((sequence, signal, call_id, patch))
@@ -209,15 +287,22 @@ class ContextEngine:
             working_candidates,
             results=results,
         )
+        workspace_snapshots = self._validated_workspace_snapshots(
+            workspace_candidates,
+            results=results,
+        )
         background_patches = self._validated_background_patches(
             background_candidates,
             results=results,
         )
+        prepared_background = self._prepare_background(background_patches)
 
         for patch in working_patches:
             self._working.apply_patch(patch)
+        for snapshot in workspace_snapshots:
+            self._working.apply_workspace_snapshot(snapshot)
         for patch in background_patches:
-            self._apply_background_patch(patch)
+            self._apply_background_patch(patch, prepared=prepared_background)
         for append in trace_appends:
             self._apply_trace_append(append)
         for text in input_texts:
@@ -251,6 +336,7 @@ class ContextEngine:
             working=self._working.to_json(),
             background_links=self._background.links(),
             trace_digest=trace_digest,
+            trace=_trace_records(self._trace),
         )
         self._turn_id = ""
         return summary
@@ -300,14 +386,61 @@ class ContextEngine:
             valid.append(patch)
         return tuple(valid)
 
-    def _apply_background_patch(self, patch: BackgroundPatch) -> None:
+    def _validated_workspace_snapshots(
+        self,
+        candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]],
+        *,
+        results: list[ControlResult],
+    ) -> tuple[WorkspaceSnapshot, ...]:
+        snapshots = tuple(snapshot for _, _, _, snapshot in candidates)
+        problems = self._working.check_workspace_sequence(snapshots)
+        valid: list[WorkspaceSnapshot] = []
+        for (sequence, signal, call_id, snapshot), problem in zip(
+            candidates,
+            problems,
+        ):
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+                continue
+            valid.append(snapshot)
+        return tuple(valid)
+
+    def _prepare_background(
+        self,
+        patches: tuple[BackgroundPatch, ...],
+    ) -> dict[str, str]:
+        prepared: dict[str, str] = {}
+        loaded = set(self._background.links())
+        for patch in patches:
+            for link in patch.load_links:
+                if link in loaded:
+                    continue
+                content = prepared.get(link)
+                if content is None:
+                    content = self._loadable_entries[link].load()
+                    if not content:
+                        raise ContextContractError(
+                            f"Background loader returned empty content: {link}"
+                        )
+                    prepared[link] = content
+                loaded.add(link)
+            for link in patch.evict_links:
+                loaded.discard(link)
+        return prepared
+
+    def _apply_background_patch(
+        self,
+        patch: BackgroundPatch,
+        *,
+        prepared: dict[str, str],
+    ) -> None:
         for link in patch.load_links:
             if self._background.has(link):
                 continue
             self._background.load(
                 BackgroundEntry(
                     link=link,
-                    content=self._loadable_entries[link],
+                    content=prepared[link],
                     source=BackgroundSource.PHASE1,
                 )
             )
@@ -337,6 +470,17 @@ class ContextEngine:
         if not self._turn_id:
             raise ContextContractError("No active turn")
 
+    def _signal_scope_problem(self, signal: Signal) -> str:
+        turn = signal.scope.nearest(RunLevel.TURN)
+        if turn is None:
+            return "Context signal has no Turn scope"
+        if turn.name != self._turn_id:
+            return (
+                "Context signal belongs to another Turn: "
+                f"expected {self._turn_id}, received {turn.name}"
+            )
+        return ""
+
 
 def _consume_failure(
     signal: Signal,
@@ -365,7 +509,7 @@ class ContextEngineBuilder:
         self._max_chars: int | None = None
         self._keep_recent = 12
         self._default_entries: list[BackgroundEntry] = []
-        self._loadable_entries: dict[str, str] = {}
+        self._loadable_entries: dict[str, BackgroundContentLoader] = {}
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
         self._journal = journal
@@ -391,11 +535,6 @@ class ContextEngineBuilder:
         for entry in self._default_entries:
             if entry.link == link:
                 raise ContextContractError(f"Duplicate default background link: {link}")
-        loadable_content = self._loadable_entries.get(link)
-        if loadable_content is not None and loadable_content != content:
-            raise ContextContractError(
-                f"Default background content conflicts with loadable link: {link}"
-            )
         self._default_entries.append(
             BackgroundEntry(link=link, content=content, source=BackgroundSource.DEFAULT)
         )
@@ -406,14 +545,23 @@ class ContextEngineBuilder:
             raise ContextContractError(
                 "Loadable background entries require non-empty link and content"
             )
+        return self.add_lazy_background(
+            link,
+            StaticBackgroundContentLoader(content),
+        )
+
+    def add_lazy_background(
+        self,
+        link: str,
+        loader: BackgroundContentLoader,
+    ) -> "ContextEngineBuilder":
+        if not link:
+            raise ContextContractError("Lazy background link must be non-empty")
         if link in self._loadable_entries:
             raise ContextContractError(f"Duplicate loadable background link: {link}")
-        for entry in self._default_entries:
-            if entry.link == link and entry.content != content:
-                raise ContextContractError(
-                    f"Loadable background content conflicts with default link: {link}"
-                )
-        self._loadable_entries[link] = content
+        if not hasattr(loader, "load"):
+            raise ContextContractError("Lazy background loader must provide load()")
+        self._loadable_entries[link] = loader
         return self
 
     def build(self) -> ContextEngine:
@@ -422,7 +570,10 @@ class ContextEngineBuilder:
         for entry in self._default_entries:
             background.load(entry)
             # Default entries are evictable and reloadable like Phase1-loaded ones.
-            loadable.setdefault(entry.link, entry.content)
+            loadable.setdefault(
+                entry.link,
+                StaticBackgroundContentLoader(entry.content),
+            )
         return ContextEngine(
             composer=MessageStackComposer(
                 system_text=self._system_text,
@@ -442,6 +593,67 @@ def _trace_digest(trace: TurnTraceContext) -> JsonObject:
             "kinds": sorted({entry.kind.value for entry in entries}),
         }
     )
+
+
+def _trace_records(trace: TurnTraceContext) -> tuple[JsonObject, ...]:
+    return tuple(
+        {
+            "entry_id": entry.entry_id,
+            "kind": entry.kind.value,
+            "cycle_id": entry.cycle_id,
+            "phase": entry.phase.value if entry.phase is not None else "",
+            "message": _message_record(entry.message),
+        }
+        for entry in trace.entries()
+    )
+
+
+def _message_record(message: Message) -> JsonObject:
+    role = "user"
+    if isinstance(message, AssistantMessage):
+        role = "assistant"
+    elif isinstance(message, ToolResultMessage):
+        role = "tool_result"
+    content: list[JsonValue] = []
+    for part in message.parts:
+        if isinstance(part, TextPart):
+            content.append({"type": "text", "text": part.text})
+        elif isinstance(part, JsonPart):
+            content.append({"type": "json", "value": part.value})
+    record: JsonObject = {
+        "role": role,
+        "label": message.label,
+        "content": content,
+    }
+    if isinstance(message, AssistantMessage):
+        if message.reasoning is not None:
+            reasoning: JsonObject = {}
+            if message.reasoning.content is not None:
+                reasoning["content"] = message.reasoning.content
+            if message.reasoning.summary is not None:
+                reasoning["summary"] = message.reasoning.summary
+            if message.reasoning.encrypted_items:
+                reasoning["encrypted_items"] = [
+                    to_json_object(item)
+                    for item in message.reasoning.encrypted_items
+                ]
+            record["reasoning"] = reasoning
+        record["tool_calls"] = [
+            {
+                "id": call.id,
+                "name": call.name,
+                "arguments": call.arguments,
+                "kind": call.kind.value if call.kind is not None else "",
+            }
+            for call in message.tool_calls
+        ]
+    elif isinstance(message, ToolResultMessage):
+        record["call_id"] = message.call_id
+        record["tool_name"] = message.tool_name
+        record["status"] = message.status.value
+    elif not isinstance(message, UserMessage):
+        record["role"] = "system"
+    return to_json_object(record)
 
 
 def _signal_call_id(signal: Signal) -> str:

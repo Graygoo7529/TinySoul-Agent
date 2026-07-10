@@ -12,6 +12,7 @@ class TrapHandlerRegistry:
     def __init__(self) -> None:
         self._exact: dict[str, TrapHandler] = {}
         self._prefix: dict[str, TrapHandler] = {}
+        self._fallback: TrapHandler | None = None
 
     def register(self, reason: str, handler: TrapHandler) -> None:
         reason = self._normalize_key(reason)
@@ -27,6 +28,13 @@ class TrapHandlerRegistry:
             )
         self._prefix[prefix] = handler
 
+    def register_fallback(self, handler: TrapHandler) -> None:
+        """Register the policy for otherwise unhandled RuntimeException values."""
+
+        if self._fallback is not None:
+            raise RuntimeContractError("Trap fallback handler is already registered")
+        self._fallback = handler
+
     def handler_for(self, reason: str) -> TrapHandler:
         reason = self._normalize_key(reason)
         handler = self._exact.get(reason)
@@ -36,6 +44,9 @@ class TrapHandlerRegistry:
         matched_prefix = self._match_prefix(reason)
         if matched_prefix is not None:
             return matched_prefix
+
+        if self._fallback is not None:
+            return self._fallback
 
         raise RuntimeContractError(f"Unknown trap reason: {reason}")
 

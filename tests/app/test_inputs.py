@@ -25,16 +25,19 @@ def test_input_command_parser_classifies_by_turn_state() -> None:
 
 
 def test_input_dispatcher_routes_initial_and_turn_inputs() -> None:
-    scope = RunScope().push(RunLevel.PROGRAM, "program")
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, "turn_1")
+    )
     bus = SignalBus()
     queue: Queue[ProgramInputEvent] = Queue()
-    active = False
+    active_scope: RunScope | None = None
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
         bus=bus,
         program_inputs=queue,
-        is_turn_active=lambda: active,
-        scope_provider=lambda: scope,
+        active_turn_scope=lambda: active_scope,
     )
 
     dispatcher.submit(InputEvent("hello"))
@@ -42,21 +45,27 @@ def test_input_dispatcher_routes_initial_and_turn_inputs() -> None:
     assert event.kind is ProgramInputKind.START_TURN
     assert event.text == "hello"
 
-    active = True
+    active_scope = scope
     dispatcher.submit(InputEvent("more context"))
     assert bus.peek()[0].name == SIGNAL_INPUT_APPEND
+    turn_frame = bus.peek()[0].scope.nearest(RunLevel.TURN)
+    assert turn_frame is not None
+    assert turn_frame.name == "turn_1"
 
 
 def test_input_dispatcher_routes_active_control_commands() -> None:
-    scope = RunScope().push(RunLevel.PROGRAM, "program")
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, "turn_1")
+    )
     bus = SignalBus()
     queue: Queue[ProgramInputEvent] = Queue()
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
         bus=bus,
         program_inputs=queue,
-        is_turn_active=lambda: True,
-        scope_provider=lambda: scope,
+        active_turn_scope=lambda: scope,
     )
 
     dispatcher.submit(InputEvent("stop"))
@@ -75,15 +84,13 @@ def test_input_dispatcher_routes_active_control_commands() -> None:
 
 
 def test_input_dispatcher_routes_idle_exit_to_program_queue() -> None:
-    scope = RunScope().push(RunLevel.PROGRAM, "program")
     bus = SignalBus()
     queue: Queue[ProgramInputEvent] = Queue()
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
         bus=bus,
         program_inputs=queue,
-        is_turn_active=lambda: False,
-        scope_provider=lambda: scope,
+        active_turn_scope=lambda: None,
     )
 
     dispatcher.submit(InputEvent("exit", source="test"))

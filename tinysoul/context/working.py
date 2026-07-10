@@ -66,6 +66,29 @@ class WorkspaceResource:
 
 
 @dataclass(frozen=True)
+class WorkspaceSnapshot:
+    """A complete, versioned Workspace manifest projection."""
+
+    revision: int
+    resources: tuple[WorkspaceResource, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 0
+        ):
+            raise ContextInvariantError(
+                "WorkspaceSnapshot.revision must be a non-negative integer"
+            )
+        links = tuple(resource.link for resource in self.resources)
+        if len(set(links)) != len(links):
+            raise ContextInvariantError(
+                "WorkspaceSnapshot.resources must contain unique links"
+            )
+
+
+@dataclass(frozen=True)
 class WorkingPatch:
     """An explicit working-context change set parsed from a signal payload."""
 
@@ -73,8 +96,6 @@ class WorkingPatch:
     remove_milestones: tuple[str, ...] = field(default_factory=tuple)
     set_todos: tuple[TodoItem, ...] = field(default_factory=tuple)
     remove_todos: tuple[str, ...] = field(default_factory=tuple)
-    set_resources: tuple[WorkspaceResource, ...] = field(default_factory=tuple)
-    remove_resources: tuple[str, ...] = field(default_factory=tuple)
 
     def is_empty(self) -> bool:
         return not (
@@ -82,8 +103,6 @@ class WorkingPatch:
             or self.remove_milestones
             or self.set_todos
             or self.remove_todos
-            or self.set_resources
-            or self.remove_resources
         )
 
 
@@ -94,6 +113,7 @@ class WorkingContext:
         self._milestones: dict[str, Milestone] = {}
         self._todos: dict[str, TodoItem] = {}
         self._resources: dict[str, WorkspaceResource] = {}
+        self._workspace_revision = -1
 
     def milestones(self) -> tuple[Milestone, ...]:
         return tuple(self._milestones.values())
@@ -104,17 +124,19 @@ class WorkingContext:
     def resources(self) -> tuple[WorkspaceResource, ...]:
         return tuple(self._resources.values())
 
+    @property
+    def workspace_revision(self) -> int:
+        return self._workspace_revision
+
     def check_patch(self, patch: WorkingPatch) -> str:
         """Return a model-facing problem description, or empty when applicable."""
 
         milestones = dict(self._milestones)
         todos = dict(self._todos)
-        resources = dict(self._resources)
         return _apply_patch_to_projection(
             patch,
             milestones=milestones,
             todos=todos,
-            resources=resources,
         )
 
     def check_patch_sequence(self, patches: tuple[WorkingPatch, ...]) -> tuple[str, ...]:
@@ -122,24 +144,57 @@ class WorkingContext:
 
         milestones = dict(self._milestones)
         todos = dict(self._todos)
-        resources = dict(self._resources)
         problems: list[str] = []
         for patch in patches:
             next_milestones = dict(milestones)
             next_todos = dict(todos)
-            next_resources = dict(resources)
             problem = _apply_patch_to_projection(
                 patch,
                 milestones=next_milestones,
                 todos=next_todos,
-                resources=next_resources,
             )
             problems.append(problem)
             if not problem:
                 milestones = next_milestones
                 todos = next_todos
-                resources = next_resources
         return tuple(problems)
+
+    def check_workspace_sequence(
+        self,
+        snapshots: tuple[WorkspaceSnapshot, ...],
+    ) -> tuple[str, ...]:
+        revision = self._workspace_revision
+        resources = dict(self._resources)
+        problems: list[str] = []
+        for snapshot in snapshots:
+            incoming = {resource.link: resource for resource in snapshot.resources}
+            problem = ""
+            if snapshot.revision < revision:
+                problem = (
+                    "Workspace snapshot revision is stale: "
+                    f"current {revision}, received {snapshot.revision}"
+                )
+            elif snapshot.revision == revision and incoming != resources:
+                problem = (
+                    "Workspace snapshot conflicts with the current revision: "
+                    f"{revision}"
+                )
+            if not problem:
+                revision = snapshot.revision
+                resources = incoming
+            problems.append(problem)
+        return tuple(problems)
+
+    def apply_workspace_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        problem = self.check_workspace_sequence((snapshot,))[0]
+        if problem:
+            raise ContextInvariantError(
+                f"Workspace snapshot is not applicable: {problem}"
+            )
+        self._resources = {
+            resource.link: resource for resource in snapshot.resources
+        }
+        self._workspace_revision = snapshot.revision
 
     def apply_patch(self, patch: WorkingPatch) -> None:
         problem = self.check_patch(patch)
@@ -153,10 +208,6 @@ class WorkingContext:
             self._todos[todo.key] = todo
         for key in patch.remove_todos:
             del self._todos[key]
-        for resource in patch.set_resources:
-            self._resources[resource.link] = resource
-        for link in patch.remove_resources:
-            del self._resources[link]
 
     def to_json(self) -> JsonObject:
         return {
@@ -172,6 +223,7 @@ class WorkingContext:
                 {"link": item.link, "summary": item.summary}
                 for item in self._resources.values()
             ],
+            "workspace_revision": self._workspace_revision,
         }
 
     def render_messages(self) -> tuple[Message, ...]:
@@ -183,7 +235,6 @@ def _apply_patch_to_projection(
     *,
     milestones: dict[str, Milestone],
     todos: dict[str, TodoItem],
-    resources: dict[str, WorkspaceResource],
 ) -> str:
     if patch.is_empty():
         return "Working patch contains no operations"
@@ -201,14 +252,6 @@ def _apply_patch_to_projection(
     )
     if problem:
         return problem
-    problem = _operation_problem(
-        set_keys=tuple(item.link for item in patch.set_resources),
-        remove_keys=patch.remove_resources,
-        label="workspace resource",
-    )
-    if problem:
-        return problem
-
     for key in patch.remove_milestones:
         if key not in milestones:
             return f"Unknown milestone key: {key}"
@@ -217,16 +260,10 @@ def _apply_patch_to_projection(
         if key not in todos:
             return f"Unknown todo key: {key}"
         del todos[key]
-    for link in patch.remove_resources:
-        if link not in resources:
-            return f"Unknown workspace resource link: {link}"
-        del resources[link]
     for milestone in patch.set_milestones:
         milestones[milestone.key] = milestone
     for todo in patch.set_todos:
         todos[todo.key] = todo
-    for resource in patch.set_resources:
-        resources[resource.link] = resource
     return ""
 
 

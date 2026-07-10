@@ -14,19 +14,28 @@ from tinysoul.context import (
     PromptBlock,
     TaskPrompt,
     TraceKind,
+    WorkspaceResource,
+    WorkspaceSnapshot,
     build_input_append_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
+    build_workspace_sync_signal,
 )
 from tinysoul.context.signals import build_working_patch_signal
-from tinysoul.context.working import WorkingPatch, WorkspaceResource
+from tinysoul.context.working import WorkingPatch
 from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import CyclePhase, RunLevel, RunScope, Signal, SignalBus
 
-SCOPE = RunScope().push(RunLevel.PHASE, "phase1")
+def _scope(turn_id: str) -> RunScope:
+    return (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.PHASE, "phase1")
+    )
 
 
 def _engine():
@@ -75,7 +84,7 @@ def test_control_scope_tracks_background_state() -> None:
     with pytest.raises(ContextContractError):
         engine.control_scope()
 
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     names = [tool.name for tool in engine.control_scope().tools]
     # home:what@x is loadable; home:agent@core is loaded (and evictable).
     assert CONTROL_LOAD_BACKGROUND in names
@@ -90,7 +99,7 @@ def test_control_scope_tracks_background_state() -> None:
                 kind=ToolKind.CONTROL,
             ),
         ),
-        scope=SCOPE,
+        scope=scope,
     )
     for signal in normalization.signals:
         bus.emit(signal)
@@ -101,7 +110,7 @@ def test_control_scope_tracks_background_state() -> None:
 
 def test_consume_signals_commits_feasible_valid_changes() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
 
     normalization = engine.normalize_controls(
@@ -119,7 +128,7 @@ def test_consume_signals_commits_feasible_valid_changes() -> None:
                 kind=ToolKind.CONTROL,
             ),
         ),
-        scope=SCOPE,
+        scope=scope,
     )
     assert len(normalization.signals) == 2
     for signal in normalization.signals:
@@ -134,7 +143,7 @@ def test_consume_signals_commits_feasible_valid_changes() -> None:
 
 def test_consume_signals_validates_working_batch_against_projection() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
 
     setup = engine.normalize_controls(
@@ -146,7 +155,7 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
                 kind=ToolKind.CONTROL,
             ),
         ),
-        scope=SCOPE,
+        scope=scope,
     )
     for signal in setup.signals:
         bus.emit(signal)
@@ -167,7 +176,7 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
                 kind=ToolKind.CONTROL,
             ),
         ),
-        scope=SCOPE,
+        scope=scope,
     )
     for signal in batch.signals:
         bus.emit(signal)
@@ -181,13 +190,13 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
 
 def test_consume_signal_results_preserve_signal_order() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "background_first",
                 "load_links": ["missing"],
@@ -199,7 +208,7 @@ def test_consume_signal_results_preserve_signal_order() -> None:
         Signal(
             name=SIGNAL_TRACE_APPEND,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={"kind": "unknown_trace_kind"},
         )
     )
@@ -213,13 +222,13 @@ def test_consume_signal_results_preserve_signal_order() -> None:
 
 def test_consume_signals_validates_background_batch_against_projection() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "load",
                 "load_links": ["home:what@x"],
@@ -231,7 +240,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "evict",
                 "load_links": [],
@@ -243,7 +252,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "evict_again",
                 "load_links": [],
@@ -261,13 +270,13 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
 
 def test_background_signal_rejects_load_evict_conflict() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "conflict",
                 "load_links": ["home:what@x"],
@@ -285,13 +294,13 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
 
 def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
         Signal(
             name=SIGNAL_BACKGROUND_PATCH,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={
                 "call_id": "reload_default",
                 "load_links": ["home:agent@core"],
@@ -306,14 +315,15 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     assert engine.background_links() == ("home:agent@core",)
 
 
-def test_working_resource_patch_can_be_consumed_from_signal() -> None:
+def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
-        build_working_patch_signal(
-            WorkingPatch(
-                set_resources=(
+        build_workspace_sync_signal(
+            WorkspaceSnapshot(
+                revision=1,
+                resources=(
                     WorkspaceResource(
                         link="workspace:doc/a.md",
                         summary="draft notes",
@@ -321,8 +331,8 @@ def test_working_resource_patch_can_be_consumed_from_signal() -> None:
                 )
             ),
             call_id="workspace_sync",
-            scope=SCOPE,
-            source="workspace.sync",
+            scope=scope,
+            source="workspace.scan",
         )
     )
 
@@ -332,17 +342,88 @@ def test_working_resource_patch_can_be_consumed_from_signal() -> None:
     assert engine.working_snapshot()["workspace_resources"] == [
         {"link": "workspace:doc/a.md", "summary": "draft notes"}
     ]
+    assert engine.working_snapshot()["workspace_revision"] == 1
+
+
+def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
+    engine = _engine()
+    old_turn = engine.begin_turn("first")
+    engine.end_turn()
+    engine.begin_turn("second")
+    bus = SignalBus()
+    bus.emit(
+        build_workspace_sync_signal(
+            WorkspaceSnapshot(
+                revision=1,
+                resources=(
+                    WorkspaceResource(
+                        link="workspace:stale.md",
+                        summary="stale",
+                    ),
+                ),
+            ),
+            call_id="stale_sync",
+            scope=_scope(old_turn),
+            source="workspace.scan",
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert len(results) == 1
+    assert "another Turn" in results[0].model_feedback
+    assert engine.working_snapshot()["workspace_resources"] == []
+    assert engine.working_snapshot()["workspace_revision"] == -1
+
+
+def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
+    engine = _engine()
+    scope = _scope(engine.begin_turn("hi"))
+    bus = SignalBus()
+    first = WorkspaceSnapshot(
+        revision=1,
+        resources=(WorkspaceResource(link="workspace:a.md", summary="a"),),
+    )
+    conflicting = WorkspaceSnapshot(
+        revision=1,
+        resources=(WorkspaceResource(link="workspace:b.md", summary="b"),),
+    )
+    bus.emit(
+        build_workspace_sync_signal(
+            first,
+            call_id="sync_1",
+            scope=scope,
+            source="workspace.scan",
+        )
+    )
+    assert engine.consume_signals(bus) == ()
+    bus.emit(
+        build_workspace_sync_signal(
+            conflicting,
+            call_id="sync_2",
+            scope=scope,
+            source="workspace.scan",
+        )
+    )
+
+    results = engine.consume_signals(bus)
+
+    assert len(results) == 1
+    assert "conflicts" in results[0].model_feedback
+    assert engine.working_snapshot()["workspace_resources"] == [
+        {"link": "workspace:a.md", "summary": "a"}
+    ]
 
 
 def test_trace_append_rejects_unknown_kind() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     bus.emit(
         Signal(
             name=SIGNAL_TRACE_APPEND,
             source="test",
-            scope=SCOPE,
+            scope=scope,
             payload={"kind": "unknown_trace_kind"},
         )
     )
@@ -355,7 +436,7 @@ def test_trace_append_rejects_unknown_kind() -> None:
 
 def test_consume_trace_and_input_signals() -> None:
     engine = _engine()
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
 
     bus.emit(
@@ -369,7 +450,7 @@ def test_consume_trace_and_input_signals() -> None:
                 ),
                 label="decision",
             ),
-            scope=SCOPE,
+            scope=scope,
             source="loop.phase2",
             cycle_id="c1",
             phase=CyclePhase.PHASE2,
@@ -382,7 +463,7 @@ def test_consume_trace_and_input_signals() -> None:
                 tool_name="workspace.scan",
                 value={"status": "success"},
             ),
-            scope=SCOPE,
+            scope=scope,
             source="loop.phase3",
             cycle_id="c1",
         )
@@ -390,15 +471,15 @@ def test_consume_trace_and_input_signals() -> None:
     bus.emit(
         build_trace_phase_note_signal(
             {"feedback": "scope preparation failed"},
-            scope=SCOPE,
+            scope=scope,
             source="loop.phase2",
             cycle_id="c1",
             phase=CyclePhase.PHASE2,
         )
     )
-    bus.emit(build_input_append_signal("also do this", scope=SCOPE, source="app.inputs"))
+    bus.emit(build_input_append_signal("also do this", scope=scope, source="app.inputs"))
     # Non-context signals stay queued for other consumers.
-    bus.emit(Signal(name="loop.control.request", source="app.inputs", scope=SCOPE))
+    bus.emit(Signal(name="loop.control.request", source="app.inputs", scope=scope))
 
     results = engine.consume_signals(bus)
     assert results == ()
@@ -433,13 +514,13 @@ def test_compress_via_engine() -> None:
         .with_keep_recent(1)
         .build()
     )
-    engine.begin_turn("hi")
+    scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
     for index in range(3):
         bus.emit(
             build_trace_phase_note_signal(
                 {"note": f"extra {index}"},
-                scope=SCOPE,
+                scope=scope,
                 source="test",
                 cycle_id="c1",
             )
@@ -492,6 +573,6 @@ def test_builder_validates_background_configuration() -> None:
     with pytest.raises(ContextContractError):
         (
             ContextEngineBuilder(system_text="sys")
-            .add_default_background("home:agent@core", "a")
-            .add_loadable_background("home:agent@core", "b")
+            .add_loadable_background("home:what@x", "a")
+            .add_loadable_background("home:what@x", "b")
         )

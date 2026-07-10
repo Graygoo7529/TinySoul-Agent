@@ -125,6 +125,24 @@ def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
     assert "No trap handler registered" in str(raised.value)
 
 
+def test_trap_registry_uses_explicit_fallback_for_unknown_reason() -> None:
+    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    current = scope.current()
+    assert current is not None
+    fallback = _Handler(transfer=RuntimeTransfer.end(current))
+    registry = TrapHandlerRegistry()
+    registry.register_fallback(fallback)
+    trap = RuntimeTrap(registry=registry)
+
+    result = trap.capture(
+        RuntimeException(reason="module.unhandled", message="failed", payload={}),
+        scope,
+    )
+
+    assert result.transfer == RuntimeTransfer.end(current)
+    assert fallback.snaps[0].reason == "module.unhandled"
+
+
 def test_common_reasons_are_constants() -> None:
     assert RUNTIME_STARTUP_FAILED == "runtime.startup_failed"
     assert RUNTIME_CYCLE_END == "runtime.cycle_end"

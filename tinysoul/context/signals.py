@@ -23,10 +23,18 @@ from tinysoul.runtime import CyclePhase, RunScope, Signal
 
 from .errors import ContextContractError
 from .background import BackgroundPatch
-from .working import Milestone, TodoItem, TodoStatus, WorkingPatch, WorkspaceResource
+from .working import (
+    Milestone,
+    TodoItem,
+    TodoStatus,
+    WorkingPatch,
+    WorkspaceResource,
+    WorkspaceSnapshot,
+)
 
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
+SIGNAL_WORKSPACE_SYNC = "context.workspace.sync"
 SIGNAL_BACKGROUND_PATCH = "context.background.patch"
 SIGNAL_TRACE_APPEND = "context.trace.append"
 SIGNAL_INPUT_APPEND = "context.input.append"
@@ -70,10 +78,6 @@ def working_patch_to_json(patch: WorkingPatch) -> JsonObject:
             for item in patch.set_todos
         ],
         "remove_todos": list(patch.remove_todos),
-        "set_resources": [
-            {"link": item.link, "summary": item.summary} for item in patch.set_resources
-        ],
-        "remove_resources": list(patch.remove_resources),
     }
 
 
@@ -96,14 +100,51 @@ def working_patch_from_json(value: JsonObject) -> WorkingPatch:
             for item in _object_list(value, "set_todos")
         ),
         remove_todos=_str_tuple(value, "remove_todos"),
-        set_resources=tuple(
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workspace snapshot
+
+
+def build_workspace_sync_signal(
+    snapshot: WorkspaceSnapshot,
+    *,
+    call_id: str,
+    scope: RunScope,
+    source: str,
+) -> Signal:
+    return Signal(
+        name=SIGNAL_WORKSPACE_SYNC,
+        source=source,
+        scope=scope,
+        payload={
+            "call_id": call_id,
+            "revision": snapshot.revision,
+            "resources": [
+                {"link": resource.link, "summary": resource.summary}
+                for resource in snapshot.resources
+            ],
+        },
+    )
+
+
+def parse_workspace_sync_signal(signal: Signal) -> tuple[str, WorkspaceSnapshot]:
+    call_id = _required_str(signal.payload, "call_id")
+    revision = signal.payload.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ContextContractError(
+            "Workspace sync revision must be a non-negative integer"
+        )
+    return call_id, WorkspaceSnapshot(
+        revision=revision,
+        resources=tuple(
             WorkspaceResource(
                 link=_required_str(item, "link"),
                 summary=_required_str(item, "summary"),
             )
-            for item in _object_list(value, "set_resources")
+            for item in _object_list(signal.payload, "resources")
         ),
-        remove_resources=_str_tuple(value, "remove_resources"),
     )
 
 

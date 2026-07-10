@@ -16,11 +16,7 @@ class AgentHomeLayout:
 
     def __init__(self, settings: AgentHomeSettings) -> None:
         self._settings = settings
-        self._content_root = (
-            settings.original_root / "home"
-            if (settings.original_root / "home").is_dir()
-            else settings.original_root
-        )
+        self._content_root = settings.original_root
 
     @property
     def settings(self) -> AgentHomeSettings:
@@ -47,9 +43,6 @@ class AgentHomeLayout:
 
     def runtime_for_source(self, source: Path) -> Path:
         source_resolved = source.resolve()
-        agent_path = (self._settings.original_root / "AGENT.md").resolve()
-        if source_resolved == agent_path:
-            return self._settings.runtime_root / "agent" / "AGENT.md"
         try:
             relative = source_resolved.relative_to(self._content_root.resolve())
         except ValueError:
@@ -70,10 +63,7 @@ class AgentHomeLayout:
 
     def _top_candidates(self, link: HomeTopLink) -> tuple[Path, ...]:
         if link.space == "agent" and link.name == "core":
-            return (
-                self._settings.original_root / "AGENT.md",
-                self._content_root / "agent" / "AGENT.md",
-            )
+            return (self._content_root / "agent" / "AGENT.md",)
         if link.space == "agent":
             return (self._under_content_root("agent", f"{link.name}.md"),)
         if link.space == "how":

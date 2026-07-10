@@ -1,0 +1,4 @@
+[app]
+interactive = true
+exit_commands = ["exit", "quit"]
+stop_turn_commands = ["stop", "cancel"]

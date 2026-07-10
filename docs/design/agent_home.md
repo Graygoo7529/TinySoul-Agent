@@ -130,9 +130,9 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy`、Trap handler 和 `AgentHomeRuntimeCopyRecovery`。`AgentHomeEngine.read_top`、`read_resource` 与 `read_prompt_mount` 在 runtime 副本缺失时抛出 `AgentHomeRuntimeCopyRequired`；`HomeDomainHowProvider` 与 `HomeResourceReadExecutor` 将其映射为 `HOME_RUNTIME_COPY_REQUIRED`，由 Trap handler 创建副本并重试当前 frame。启动装配默认背景和可加载背景时尚无可重试 Phase frame，因此 AppBuilder 调用 Home 模块提供的 `AgentHomeRuntimeCopyRecovery`，由它使用同一个 runtime copy Trap handler 准备副本后重试读取。
+当前实现提供显式 `ensure_runtime_copy`、Trap handler、`AgentHomeRuntimeCopyRecovery` 和 `HomeBackgroundContentLoader`。启动装配只通过 recovery 物化默认 `home:agent@core`；其它可加载背景只枚举链接并注册 loader，不读取正文、不创建副本。Phase1 实际加载时，loader 在 Context 的事务批次和 Module frame 内读取 runtime home；缺页映射为 `HOME_RUNTIME_COPY_REQUIRED`，Trap 创建副本后重试同一批次。domain/action HOW 与渐进式 action read 复用相同缺页语义。
 
-`home:agent@core` 无论原始内容使用项目根 `AGENT.md`，还是使用 `home/agent/AGENT.md`，runtime 副本都稳定落在 `runtime/home/agent/AGENT.md`。这避免不同原始目录形态导致 runtime home 结构漂移。
+原始 Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@core` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
 
 ## BackgroundContext 接入
 
@@ -144,7 +144,7 @@ Agent Home 向 Context 提供背景条目，而不是让 Context 读文件。建
 
 ContextEngineBuilder 可以继续接收静态 `link + content`，但内容来源应由 Agent Home 门面生成。后续若要支持按 Turn 动态 top-k 语义匹配，仍应由 Agent Home 先解析为顶层条目，再交给 Context。
 
-Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。模型选择顶层链接后，Context 只从自己的 loadable 背景条目表中加载文本，不直接打开 home 文件。
+Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。模型选择顶层链接后，Context 通过已注入的 Home loader 获取文本，不解释 Home 路径；loader 触发的 runtime copy 对模型、ControlResult 和最终 Context 状态透明。
 
 ## Domain/Action HOW 接入
 
@@ -240,7 +240,7 @@ tinysoul/home/
 AppBuilder 的目标职责是：
 
 1. 构建 AgentHomeEngine；
-2. 将 Home 提供的默认背景和 loadable 背景交给 ContextEngineBuilder；
+2. 将默认 core 内容和其它 top-level link 的 lazy loader 交给 ContextEngineBuilder；
 3. 将 HomeDomainHowProvider 注入 Phase2Unit，并将 HomeActionHowProvider 注入 LLM action executor；
 4. 将 Home action handler 注册到 ActionEngineBuilder；
 5. 注册 home runtime copy Trap handler；
@@ -250,12 +250,12 @@ AppBuilder 的目标职责是：
 
 验收点：
 
-- AppBuilder 不直接读取项目根 `AGENT.md`；
+- AppBuilder 不直接读取 `home/agent/AGENT.md`，项目根 `AGENT.md` 不参与 Home 映射；
 - Context 默认背景来自 Agent Home 门面；
 - `DomainHowProvider` 能从 `home:how_domain:domain` 获取 domain HOW；`ActionHowProvider` 能从 `home:how_domain:domain` 与 `home:how_action:<domain>/<action>` 获取 domain/action HOW；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
-- 启动期背景加载通过 `AgentHomeRuntimeCopyRecovery` 准备 runtime 副本后重试；
+- 启动期仅通过 `AgentHomeRuntimeCopyRecovery` 准备默认 core；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
 - `home:agent@core` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
 - `home.resource.read` 不写入 BackgroundContext，并返回有界文本；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
