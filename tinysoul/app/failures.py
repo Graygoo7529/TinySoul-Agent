@@ -8,6 +8,6 @@ from enum import StrEnum
 class AppFailureKind(StrEnum):
     """Stable app failures that need runtime-level control flow."""
 
-    CONFIGURATION_FAILED = "configuration_failed"
-    CONTRACT_VIOLATION = "contract_violation"
-    INTERNAL_FAILURE = "internal_failure"
+    CONFIGURATION_FAILED = "app.configuration_failed"
+    CONTRACT_VIOLATION = "app.contract_violation"
+    INTERNAL_FAILURE = "app.internal_failure"
