@@ -18,3 +18,7 @@ class WorkspaceInvariantError(WorkspaceError):
 class WorkspaceIOError(WorkspaceError):
     """Raised when workspace filesystem operations fail at the module boundary."""
 
+
+class WorkspaceReconciliationError(WorkspaceError):
+    """Raised when disk inventory cannot be reconciled completely."""
+

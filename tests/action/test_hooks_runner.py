@@ -10,7 +10,11 @@ from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuild
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
-from tinysoul.action.core.hooks import ActionExecutionHookPipeline, HookOutcome
+from tinysoul.action.core.hooks import (
+    ActionExecutionHookPipeline,
+    ActionNormalizeHookPipeline,
+    HookOutcome,
+)
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
@@ -26,7 +30,15 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
+from tinysoul.runtime import (
+    HOME_RUNTIME_COPY_REQUIRED,
+    RunFrame,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    RuntimeTransfer,
+    RuntimeTransferInterrupt,
+)
 
 
 class RejectHook:
@@ -37,6 +49,31 @@ class RejectHook:
 class ExplodingHook:
     def check(self, execution, context) -> HookOutcome:
         raise RuntimeError("boom")
+
+
+class RuntimeExceptionHook:
+    def check(self, execution, context) -> HookOutcome:
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+            payload={"link": "home:how/test/ref.md"},
+        )
+
+
+class RuntimeTransferHook:
+    def check(self, execution, context) -> HookOutcome:
+        raise RuntimeTransferInterrupt(
+            RuntimeTransfer.retry(RunFrame(RunLevel.MODULE, "hook"))
+        )
+
+
+class RuntimeNormalizeHook:
+    def check(self, item) -> HookOutcome:
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+            payload={"link": "home:how/test/ref.md"},
+        )
 
 
 class MismatchedExecutor:
@@ -225,6 +262,54 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].stage is ActionResultStage.HOOK
     assert results[0].frame_data["error_type"] == "RuntimeError"
+
+
+@pytest.mark.parametrize(
+    ("hook", "error_type"),
+    (
+        (RuntimeExceptionHook(), RuntimeException),
+        (RuntimeTransferHook(), RuntimeTransferInterrupt),
+    ),
+)
+def test_runner_propagates_runtime_control_from_execution_hook(
+    hook,
+    error_type,
+) -> None:
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_execution_hook("runtime", hook)
+    hooks.registry.register_global_execution("runtime")
+
+    with pytest.raises(error_type):
+        ActionBatchRunner(
+            executors=executors,
+            hooks=hooks,
+        ).run(batch, ActionExecutionContext())
+
+
+def test_normalizer_propagates_runtime_exception_from_hook() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
+    hooks = ActionNormalizeHookPipeline()
+    hooks.registry.register_normalize_hook("runtime", RuntimeNormalizeHook())
+    hooks.registry.register_global_normalize("runtime")
+
+    with pytest.raises(RuntimeException):
+        ActionCallNormalizer(hooks).normalize(
+            (
+                ToolCallRecord(
+                    id="call_1",
+                    name="core.answer",
+                    arguments=ANSWER_ARGS,
+                    kind=ToolKind.ACTION,
+                ),
+            ),
+            catalog=catalog,
+        )
 
 
 def test_runner_returns_timeout_for_blocked_execution() -> None:

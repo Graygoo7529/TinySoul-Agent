@@ -71,6 +71,8 @@ class RuntimeContextBridge:
             budget_payload: JsonObject = {
                 "estimated_chars": error.estimated_chars,
                 "max_chars": error.max_chars,
+                "estimated_image_bytes": error.estimated_image_bytes,
+                "max_image_bytes": error.max_image_bytes,
             }
             if payload is not None:
                 budget_payload = {**budget_payload, **payload}

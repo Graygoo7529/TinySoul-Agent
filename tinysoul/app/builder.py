@@ -7,6 +7,7 @@ from pathlib import Path
 from tinysoul.action import (
     ActionEngine,
     ActionEngineBuilder,
+    ActionError,
     parse_action_settings,
 )
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
@@ -39,6 +40,7 @@ from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeli
 from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.program import ProgramRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
@@ -77,6 +79,7 @@ from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
     WorkspacePromptReferenceResolver,
+    WorkspaceTurnPreparationHandler,
     parse_workspace_settings,
     register_workspace_actions,
 )
@@ -270,6 +273,14 @@ class TinySoulAppBuilder:
                 completion_pipeline=TurnCompletionPipeline(
                     tuple(self._turn_completion_handlers)
                 ),
+                preparation_pipeline=TurnPreparationPipeline(
+                    (
+                        WorkspaceTurnPreparationHandler(
+                            workspace,
+                            runtime_bridge=workspace_bridge,
+                        ),
+                    )
+                ),
             )
             program_runner = ProgramRunner(
                 turn_runner=turn_runner,
@@ -302,11 +313,6 @@ class TinySoulAppBuilder:
             raise app_bridge.from_app_error(exc) from exc
         except RuntimeException:
             raise
-        except Exception as exc:
-            raise app_bridge.startup_failure(
-                message=str(exc),
-                payload={"error_type": type(exc).__name__},
-            ) from exc
 
     def _build_llm(
         self,
@@ -401,6 +407,7 @@ class TinySoulAppBuilder:
                 ContextEngineBuilder(system_text=settings.system_text)
                 .with_journal(settings.journal)
                 .with_budget_max_chars(settings.budget_max_chars)
+                .with_budget_max_image_bytes(settings.budget_max_image_bytes)
                 .with_keep_recent(settings.keep_recent)
             )
             for entry in recovery.run(home.default_background_entries):
@@ -464,7 +471,7 @@ class TinySoulAppBuilder:
             return builder.build()
         except ConfigError as exc:
             raise action_bridge.from_config_error(exc) from exc
-        except Exception as exc:
+        except ActionError as exc:
             raise action_bridge.startup_failure(
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},

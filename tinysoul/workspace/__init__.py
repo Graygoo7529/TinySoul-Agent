@@ -1,11 +1,13 @@
 """TinySoul workspace resource module."""
 
-from .actions import WorkspaceRewriteExecutor, WorkspaceScanExecutor, register_workspace_actions
+from .actions import register_workspace_actions
 from .config import WorkspaceSettings, parse_workspace_settings
 from .engine import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
+    WorkspaceImageRead,
     WorkspacePromptInput,
+    WorkspaceReconcileStatus,
     WorkspaceScanResult,
     WorkspaceScanSkip,
     WorkspaceScanSkipKind,
@@ -17,16 +19,17 @@ from .errors import (
     WorkspaceError,
     WorkspaceIOError,
     WorkspaceInvariantError,
+    WorkspaceReconciliationError,
 )
 from .failures import WorkspaceFailureKind
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
-    WorkspaceManifestStore,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
-from .prompts import WorkspacePromptReferenceResolver, prompt_blocks_from_workspace_input
+from .projection import WorkspaceTurnPreparationHandler
+from .prompts import WorkspacePromptReferenceResolver
 
 __all__ = [
     "WorkspaceContractError",
@@ -35,23 +38,23 @@ __all__ = [
     "WorkspaceError",
     "WorkspaceFailureKind",
     "WorkspaceIOError",
+    "WorkspaceImageRead",
     "WorkspaceInvariantError",
+    "WorkspaceReconciliationError",
     "WorkspaceLink",
     "WorkspaceManifest",
-    "WorkspaceManifestStore",
     "WorkspacePromptInput",
     "WorkspacePromptReferenceResolver",
+    "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",
     "WorkspaceResourceRecord",
-    "WorkspaceRewriteExecutor",
-    "WorkspaceScanExecutor",
     "WorkspaceScanResult",
     "WorkspaceScanSkip",
     "WorkspaceScanSkipKind",
     "WorkspaceSettings",
     "WorkspaceTextRead",
     "WorkspaceTextSlice",
+    "WorkspaceTurnPreparationHandler",
     "parse_workspace_settings",
-    "prompt_blocks_from_workspace_input",
     "register_workspace_actions",
 ]

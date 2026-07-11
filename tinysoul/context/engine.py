@@ -507,6 +507,7 @@ class ContextEngineBuilder:
         self._system_text = system_text
         self._journal = ""
         self._max_chars: int | None = None
+        self._max_image_bytes: int | None = None
         self._keep_recent = 12
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
@@ -519,6 +520,17 @@ class ContextEngineBuilder:
         if max_chars is not None and max_chars <= 0:
             raise ContextContractError("Context budget max chars must be positive")
         self._max_chars = max_chars
+        return self
+
+    def with_budget_max_image_bytes(
+        self,
+        max_image_bytes: int | None,
+    ) -> "ContextEngineBuilder":
+        if max_image_bytes is not None and max_image_bytes <= 0:
+            raise ContextContractError(
+                "Context image byte budget must be positive"
+            )
+        self._max_image_bytes = max_image_bytes
         return self
 
     def with_keep_recent(self, keep_recent: int) -> "ContextEngineBuilder":
@@ -577,7 +589,10 @@ class ContextEngineBuilder:
         return ContextEngine(
             composer=MessageStackComposer(
                 system_text=self._system_text,
-                budget=ContextBudget(max_chars=self._max_chars),
+                budget=ContextBudget(
+                    max_chars=self._max_chars,
+                    max_image_bytes=self._max_image_bytes,
+                ),
             ),
             compressor=ContextCompressor(keep_recent=self._keep_recent),
             background=background,

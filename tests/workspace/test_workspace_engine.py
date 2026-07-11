@@ -19,26 +19,34 @@ from tinysoul.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from tinysoul.context import ContextEngineBuilder, SIGNAL_WORKSPACE_SYNC
+from tinysoul.context import (
+    ContextEngineBuilder,
+    PromptReferenceError,
+    SIGNAL_WORKSPACE_SYNC,
+)
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.messages import TextPart, UserMessage
+from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
+from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
     WorkspaceContractError,
     WorkspaceEngineBuilder,
     WorkspaceLink,
     WorkspaceManifest,
-    WorkspaceManifestStore,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
+    WorkspaceReconcileStatus,
+    WorkspaceResourceKind,
     WorkspaceScanSkipKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
 )
 from tinysoul.workspace.engine import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceIOError
+from tinysoul.workspace.manifest import WorkspaceManifestStore
+from tinysoul.workspace.projection import WorkspaceTurnPreparationHandler
 from tinysoul.workspace.actions import (
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
@@ -119,7 +127,7 @@ def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
     payload = result.payload
     assert payload["count"] == 1
     assert payload["resources"] == [
-        {"link": "workspace:docs/a.md", "summary": ".md file, 5 bytes"}
+        {"link": "workspace:docs/a.md", "summary": "Markdown text, 5 bytes"}
     ]
     assert payload["skipped_count"] == 0
     assert payload["skip_counts"] == {}
@@ -142,7 +150,7 @@ def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None
         WorkspaceSettings(root=tmp_path, manifest_path=manifest_path)
     ).build()
 
-    result = engine.scan()
+    result = engine.reconcile()
 
     assert [resource.link for resource in result.resources] == ["workspace:a.md"]
     assert result.skipped_count == 1
@@ -160,10 +168,130 @@ def test_workspace_scan_reports_limit_reached(tmp_path: Path) -> None:
         )
     ).build()
 
-    result = engine.scan()
+    result = engine.reconcile()
 
     assert [resource.link for resource in result.resources] == ["workspace:a.md"]
     assert result.limit_reached is True
+    assert result.status is WorkspaceReconcileStatus.INCOMPLETE
+    assert engine.load_manifest().resources == ()
+
+
+def test_workspace_reconcile_keeps_revision_when_disk_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    first = engine.reconcile()
+    second = engine.reconcile()
+
+    assert first.changed is True
+    assert second.changed is False
+    assert second.manifest.revision == first.manifest.revision
+
+
+def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "report.pdf").write_bytes(b"%PDF")
+    (tmp_path / "archive.bin").write_bytes(b"\x00\x01")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+
+    records = {record.link: record for record in engine.reconcile().manifest.resources}
+
+    assert records["workspace:a.md"].kind is WorkspaceResourceKind.TEXT
+    assert records["workspace:image.png"].kind is WorkspaceResourceKind.IMAGE
+    assert records["workspace:report.pdf"].kind is WorkspaceResourceKind.DOCUMENT
+    assert records["workspace:archive.bin"].kind is WorkspaceResourceKind.BINARY
+
+
+def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "report.pdf").write_bytes(b"%PDF")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    blocks = resolver.resolve_reference("workspace:image.png")
+
+    assert any(isinstance(part, ImagePart) for part in blocks[0].message.parts)
+    with pytest.raises(PromptReferenceError) as raised:
+        resolver.resolve_reference("workspace:report.pdf")
+    assert raised.value.reason == "conversion_required"
+
+
+def test_workspace_description_is_cleared_when_content_changes(tmp_path: Path) -> None:
+    path = tmp_path / "a.md"
+    path.write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    record = engine.reconcile().manifest.resources[0]
+    described = engine.set_description(
+        record.link,
+        "A greeting document.",
+        expected_digest=record.digest,
+    )
+
+    engine.write_text(
+        record.link,
+        "changed",
+        overwrite=True,
+        expected_digest=described.digest,
+    )
+
+    current = engine.load_manifest().resources[0]
+    assert current.description == ""
+    assert current.described_digest == ""
+
+
+def test_workspace_turn_preparation_projects_manifest_into_context(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hello", encoding="utf-8")
+    workspace = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context = ContextEngineBuilder(system_text="system").build()
+    turn_id = context.begin_turn("hello")
+    scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
+    bus = SignalBus()
+    handler = WorkspaceTurnPreparationHandler(
+        workspace,
+        runtime_bridge=RuntimeWorkspaceBridge(),
+    )
+
+    for signal in handler.prepare(turn_id=turn_id, scope=scope):
+        bus.emit(signal)
+    assert context.consume_signals(bus) == ()
+
+    working = context.working_snapshot()
+    assert working["workspace_revision"] == workspace.load_manifest().revision
+    assert working["workspace_resources"] == [
+        {"link": "workspace:a.md", "summary": "Markdown text, 5 bytes"}
+    ]
 
 
 def test_workspace_read_text_returns_bounded_text(tmp_path: Path) -> None:
@@ -394,7 +522,7 @@ def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> N
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    before = engine.describe("workspace:a.md")
+    before = engine.inspect("workspace:a.md")
     (tmp_path / "a.md").write_text("changed", encoding="utf-8")
 
     with pytest.raises(WorkspaceContractError, match="digest mismatch"):
@@ -428,7 +556,7 @@ def test_workspace_patch_text_replaces_exact_match(tmp_path: Path) -> None:
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    before = engine.describe("workspace:a.md")
+    before = engine.inspect("workspace:a.md")
 
     record = engine.patch_text(
         "workspace:a.md",
@@ -470,7 +598,7 @@ def test_workspace_delete_resource_removes_file_and_manifest(tmp_path: Path) -> 
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-    engine.describe("workspace:a.md")
+    engine.reconcile()
 
     record = engine.delete_resource("workspace:a.md")
 
@@ -499,7 +627,7 @@ def test_workspace_describe_rejects_internal_manifest(tmp_path: Path) -> None:
     ).build()
 
     with pytest.raises(WorkspaceContractError, match="internal"):
-        engine.describe("workspace:workspace_manifest.json")
+        engine.inspect("workspace:workspace_manifest.json")
 
 
 def test_workspace_describe_executor_updates_manifest_and_working_patch(
@@ -513,18 +641,33 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
         )
     ).build()
     bus = SignalBus()
-    execution = _execution("workspace.describe", {"link": "workspace:a.md"})
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("user asks")
+    llm = FakeLLMRunner(answer={"description": "A small greeting document."})
+    llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
+    execution = _execution(
+        "workspace.describe",
+        {"target_link": "workspace:a.md"},
+    )
 
-    result = WorkspaceDescribeExecutor(engine, bus).execute(
+    result = WorkspaceDescribeExecutor(engine, bus, llm_action).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
 
     assert result.status.value == "success"
-    assert result.payload["summary"] == ".md file, 5 bytes"
+    assert result.payload["summary"] == "Markdown text, 5 bytes"
+    assert result.payload["description"] == "A small greeting document."
     assert engine.load_manifest().resources[0].link == "workspace:a.md"
     snapshot = _workspace_snapshot_payload(bus)
     assert snapshot["revision"] == engine.load_manifest().revision
+    resources = snapshot["resources"]
+    assert isinstance(resources, list)
+    resource = resources[0]
+    assert isinstance(resource, dict)
+    assert resource["summary"] == (
+        "Markdown text, 5 bytes. A small greeting document."
+    )
 
 
 def test_workspace_write_executor_generates_text_inside_action(

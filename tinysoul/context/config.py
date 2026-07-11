@@ -15,6 +15,7 @@ class ContextSettings:
     system_text: str = "You are TinySoul."
     journal: str = ""
     budget_max_chars: int | None = None
+    budget_max_image_bytes: int | None = None
     keep_recent: int = 12
 
     def __post_init__(self) -> None:
@@ -30,6 +31,16 @@ class ContextSettings:
                 "Context budget_max_chars must be positive",
                 key="context.budget_max_chars",
                 value=self.budget_max_chars,
+                expected="positive int",
+            )
+        if (
+            self.budget_max_image_bytes is not None
+            and self.budget_max_image_bytes <= 0
+        ):
+            raise ConfigError(
+                "Context budget_max_image_bytes must be positive",
+                key="context.budget_max_image_bytes",
+                value=self.budget_max_image_bytes,
                 expected="positive int",
             )
         if self.keep_recent < 0:
@@ -64,6 +75,11 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
         budget_max_chars=_optional_int(
             tree,
             "budget_max_chars",
+            default=None,
+        ),
+        budget_max_image_bytes=_optional_int(
+            tree,
+            "budget_max_image_bytes",
             default=None,
         ),
         keep_recent=keep_recent,

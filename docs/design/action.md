@@ -113,6 +113,8 @@ hook 只做输入检查、上下文约束和可执行性裁剪，不执行真实
 
 hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。
 
+这里的 hook 失败只指普通拒绝、注册缺失或实现异常。hook 抛出的 `RuntimeException` 与 `RuntimeTransferInterrupt` 已经表达全局恢复或运行转移，normalize/execution hook pipeline 必须原样传播，不能降级为局部 ActionResult。
+
 normalize hook 的未知 hook、hook 自身异常和 hook 拒绝都收敛为 normalize 阶段的 ActionResult。execution hook 的未知 hook、hook 自身异常和 hook 拒绝都收敛为 hook 阶段的 ActionResult。
 
 ### 批次执行

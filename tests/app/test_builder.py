@@ -264,6 +264,54 @@ def test_app_builder_workspace_config_error_is_workspace_startup_failure(
     assert exc.payload["key"] == "workspace.max_files"
 
 
+def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    manifest_path = workspace_root / ".tinysoul" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text("not-json", encoding="utf-8")
+    config = _test_config(
+        tmp_path,
+        {
+            "workspace.root": str(workspace_root),
+            "workspace.manifest_path": str(manifest_path),
+        },
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    assert raised.value.reason == RUNTIME_STARTUP_FAILED
+    assert raised.value.payload["module"] == "workspace"
+
+
+def test_app_builder_does_not_map_programming_errors_to_startup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builder = (
+        TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+    )
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("programming error")
+
+    monkeypatch.setattr(builder, "_build_workspace", explode)
+
+    with pytest.raises(RuntimeError, match="programming error"):
+        builder.build()
+
+
 def test_app_builder_loop_config_error_is_loop_startup_failure(tmp_path: Path) -> None:
     config = _test_config(tmp_path, {"loop.max_cycles_per_turn": 0})
 

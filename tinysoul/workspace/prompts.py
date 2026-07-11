@@ -10,10 +10,12 @@ from tinysoul.context import (
     PromptReferenceResolver,
     TaskPrompt,
 )
+from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 
 from .engine import WorkspaceEngine, WorkspacePromptInput, WorkspaceTextSlice
 from .errors import WorkspaceError
 from .links import WORKSPACE_LINK_PREFIX
+from .manifest import WorkspaceResourceKind
 
 
 class WorkspacePromptReferenceResolver(PromptReferenceResolver):
@@ -48,8 +50,59 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 payload={"link": link},
             )
         try:
-            prompt_input = self._workspace.prepare_task_input((link,))
-            return prompt_blocks_from_workspace_input(prompt_input, role=role)
+            record = self._workspace.inspect(link)
+            if record.kind is WorkspaceResourceKind.TEXT:
+                prompt_input = self._workspace.prepare_task_input((link,))
+                return prompt_blocks_from_workspace_input(prompt_input, role=role)
+            if record.kind is WorkspaceResourceKind.IMAGE:
+                image = self._workspace.read_image(link)
+                label_role = "target" if role == "target" else "reference"
+                heading = (
+                    "# Workspace Target"
+                    if label_role == "target"
+                    else "# Workspace Reference"
+                )
+                label = f"task_prompt:input:workspace:{label_role}:{image.link}:image"
+                metadata = "\n".join(
+                    (
+                        heading,
+                        f"link: {image.link}",
+                        f"media_type: {image.media_type}",
+                        f"size: {image.size} bytes",
+                        f"digest: {image.digest}",
+                    )
+                )
+                return (
+                    PromptBlock(
+                        label=label,
+                        message=UserMessage.from_parts(
+                            TextPart(metadata),
+                            ImagePart(data=image.data, mime_type=image.media_type),
+                            label=label,
+                        ),
+                    ),
+                )
+            if record.kind is WorkspaceResourceKind.DOCUMENT:
+                raise PromptReferenceError(
+                    f"Workspace document requires conversion before prompt use: {link}",
+                    reason="conversion_required",
+                    payload={
+                        "link": link,
+                        "kind": record.kind.value,
+                        "media_type": record.media_type,
+                    },
+                )
+            raise PromptReferenceError(
+                f"Workspace binary resource cannot be loaded into a prompt: {link}",
+                reason="unsupported_binary_resource",
+                payload={
+                    "link": link,
+                    "kind": record.kind.value,
+                    "media_type": record.media_type,
+                },
+            )
+        except PromptReferenceError:
+            raise
         except WorkspaceError as exc:
             raise PromptReferenceError(
                 f"Workspace prompt reference failed: {exc}",
@@ -72,6 +125,42 @@ class WorkspaceEditPromptBuilder:
     def __init__(self, workspace: WorkspaceEngine) -> None:
         self._workspace = workspace
         self._resolver = WorkspacePromptReferenceResolver(workspace)
+
+    def build_describe(
+        self,
+        *,
+        target_link: str,
+        instruction: str,
+    ) -> WorkspaceEditPrompt:
+        record = self._workspace.inspect(target_link)
+        target_blocks = self._resolver.resolve_reference(target_link)
+        guidance = (
+            "Describe the resource's purpose and important contents concisely. "
+            "Do not repeat file size, MIME type, digest, or link metadata."
+        )
+        if instruction:
+            guidance += " Additional instruction: " + instruction
+        return WorkspaceEditPrompt(
+            prompt=TaskPrompt(
+                guide_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:guide:workspace_describe",
+                        "# Task Guide\n" + guidance,
+                    ),
+                ),
+                input_blocks=target_blocks,
+                output_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:output:workspace_describe",
+                        (
+                            "# Expected Output\nReturn a JSON object with a concise "
+                            "string field 'description'."
+                        ),
+                    ),
+                ),
+            ),
+            target_digest=record.digest,
+        )
 
     def build_write(
         self,

@@ -20,6 +20,7 @@ DEFAULT_IGNORE_DIRS = (
 )
 DEFAULT_MAX_FILES = 100
 DEFAULT_MAX_READ_CHARS = 4000
+DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class WorkspaceSettings:
     manifest_path: Path
     max_files: int = DEFAULT_MAX_FILES
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
+    max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     ignore_dirs: tuple[str, ...] = DEFAULT_IGNORE_DIRS
 
     def __post_init__(self) -> None:
@@ -45,6 +47,13 @@ class WorkspaceSettings:
                 "Workspace max_read_chars must be positive",
                 key="workspace.max_read_chars",
                 value=self.max_read_chars,
+                expected="positive int",
+            )
+        if self.max_image_bytes <= 0:
+            raise ConfigError(
+                "Workspace max_image_bytes must be positive",
+                key="workspace.max_image_bytes",
+                value=self.max_image_bytes,
                 expected="positive int",
             )
         for name in self.ignore_dirs:
@@ -82,6 +91,11 @@ def parse_workspace_settings(
             tree,
             "max_read_chars",
             default=DEFAULT_MAX_READ_CHARS,
+        ),
+        max_image_bytes=_optional_int(
+            tree,
+            "max_image_bytes",
+            default=DEFAULT_MAX_IMAGE_BYTES,
         ),
         ignore_dirs=_optional_str_tuple(
             tree,

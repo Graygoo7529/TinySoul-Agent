@@ -17,6 +17,7 @@ from tinysoul.action import (
 from tinysoul.context import (
     ContextEngine,
     ControlResult,
+    SIGNAL_WORKSPACE_SYNC,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
@@ -38,7 +39,7 @@ from tinysoul.runtime import (
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
 from .context_signals import ContextSignalConsumer
-from .errors import LoopContractError, LoopError
+from .errors import LoopContractError, LoopError, LoopInvariantError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
 from .signals import LoopTraceNoteKind
 
@@ -416,6 +417,7 @@ class Phase3Unit:
         results = normalization.merged_results(
             (*preparation.results, *execution_results)
         )
+        self._consume_action_effects(scope=scope)
         self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
         phase_results = preparation.phase_results
         answer_results = tuple(
@@ -450,6 +452,26 @@ class Phase3Unit:
             results=results,
             phase_results=phase_results,
         )
+
+    def _consume_action_effects(self, *, scope: RunScope) -> None:
+        consume_results = self._signal_consumer.consume(scope=scope)
+        workspace_failures = tuple(
+            result
+            for result in consume_results
+            if result.tool_name == SIGNAL_WORKSPACE_SYNC
+        )
+        if workspace_failures:
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError(
+                    "Context rejected an authoritative Workspace snapshot"
+                ),
+                payload={
+                    "results": [
+                        _control_result_payload(result)
+                        for result in workspace_failures
+                    ]
+                },
+            )
 
     def _raise_turn_output(self, result: ActionResult) -> None:
         text = result.payload.get("text")

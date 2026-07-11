@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest 读写、资源扫描、单资源摘要刷新、`workspace.scan` / `workspace.describe` action、Context WorkingPatch 同步和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的资源发现、语境投影、单资源摘要刷新、扫描诊断、内部临时 task prompt 输入和文件变更能力。`WorkspaceEngine` 提供有界 UTF-8 文本前缀读取和行范围切片读取能力，并通过 `WorkspacePromptInput` 组织一个或多个 `WorkspaceTextSlice`。`WorkspacePromptReferenceResolver` 将 `workspace:` 链接按 reference 或 target 角色解析为 Context `PromptBlock`，只在 action 内部临时使用；该能力不暴露为模型侧 `workspace.read` action，避免文件正文通过 ActionResult 持久进入 TurnTraceContext。`workspace.write`、`workspace.patch`、`workspace.delete` 与 `workspace.rewrite` 已由 Workspace 模块提供 executor，变更目标使用 `target_link` 参数表达，成功结果只返回资源摘要，不返回文件正文；其中 `workspace.write` 与 `workspace.rewrite` 在 action 内部复用 action 层 `LLMActionTaskRunner` 生成完整文本。日终归档仍未实现，后续应继续在本模块内扩展，而不是回到 app 装配层或具体 action 中散落实现。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入和文件变更能力。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceContext。`workspace.describe` 把语义描述与 digest 绑定；`workspace.write`、`workspace.patch`、`workspace.delete` 与 `workspace.rewrite` 仍通过 `target_link` 表达变更目标。日终归档仍未实现。
 
 ## 定位
 
@@ -81,7 +81,7 @@ Workspace manifest 记录资源摘要，而不是资源内容。一个资源记�
 
 ## Manifest
 
-Manifest 是 workspace 的当前资源索引。它用于：
+Manifest 是 workspace 的当前资源索引和轻量语义描述层。磁盘是内容事实源；Manifest 只在完整 reconciliation 后原子提交；WorkingContext workspace 段是相同 revision 的 Turn 内投影。它用于：
 
 - 避免每次 Phase 都扫描全目录；
 - 识别资源新增、修改、删除；
@@ -90,7 +90,9 @@ Manifest 是 workspace 的当前资源索引。它用于：
 
 Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根目录的框架子目录中，或放在 runtime 元数据目录中；无论采用哪种位置，都不应暴露为普通 `workspace:` 资源，避免模型误把框架索引当作用户资源。
 
-Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段发现 manifest 损坏时映射为启动失败；运行期扫描发现 manifest 损坏时可以重建，若重建失败再进入 Runtime。
+Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
+
+资源分类使用 Workspace 自有的显式扩展名/MIME 映射，稳定分为 `text`、`image`、`document`、`binary`。text 以有界 UTF-8 文本进入 Prompt；image 在 Workspace 单文件限制与 Context 总图片字节预算内以 `ImagePart` 进入 Prompt；document 必须先由显式转换 action 生成 Markdown 等可读资源；binary 当前只提供元数据。确定性 summary 始终存在，可选 description 由 `workspace.describe` 生成并通过 `described_digest` 绑定当前内容，digest 变化时 reconciliation 自动清除旧 description。
 
 ## 目录与生命周期
 
@@ -121,10 +123,13 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 
 当前已实现的 `workspace.describe` 行为：
 
-1. 解析并校验一个 `workspace:` 链接；
-2. 执行完整磁盘 reconciliation 并原子保存递增 revision 的 manifest；
-3. 发出与 Manifest 完全一致的 `context.workspace.sync` 全量快照；
-4. 返回 compact JSON payload，包含链接、摘要、大小、mtime 和 digest，不包含文件正文。
+1. 解析并校验一个可直接读取的 text/image `target_link`；
+2. 在 action 内部把资源局部挂载为 TextPart/ImagePart，并调用 LLM 生成简短 description；
+3. 提交前重新执行 reconciliation 和 digest 校验，把 description 绑定当前 digest；
+4. 原子更新 Manifest revision，并发出完全一致的 `context.workspace.sync`；
+5. 返回 compact 元数据，不返回文件正文或图片字节。
+
+reconciliation 达到文件数量上限或出现非内部资源读取失败时状态为 incomplete：保留旧 Manifest，不发布全量 Context snapshot。变更 action 在这种情况下回滚磁盘修改；显式 `workspace.scan` 返回局部失败和诊断。
 
 正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。`WorkspaceEditPromptBuilder` 在同一 prompt 模块内组合 write/rewrite 的 instruction、target、reference 和输出协议，并返回构造 prompt 时观察到的 target digest；executor 只负责参数适配、调用 LLM、调用 WorkspaceEngine 和映射结果。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
 
@@ -139,7 +144,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 
 ## Context 接入
 
-WorkspaceEngine 不依赖 Context 类型。只有 `workspace/actions.py` 集成边界把 Manifest records 转成 Context 的 WorkspaceSnapshot，并通过 SignalBus 发出 `context.workspace.sync`。Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
+WorkspaceEngine 不依赖 Context 类型。`workspace/projection.py` 是 Workspace 拥有的 Context 集成边界，统一把 Manifest records 转成 WorkspaceSnapshot，并供 action executor 与 Turn preparation 共用。Turn 开始时先完整 reconcile 并提交 snapshot，使首个 Phase1 已能看到资源摘要；Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
 
 Context 中不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，应在 action 内部进行摘要、切片或转化为临时 task prompt，再把摘要和资源链接写回 trace。
 
@@ -177,13 +182,15 @@ tinysoul/workspace/
   config.py
   links.py
   manifest.py
+  resources.py
+  projection.py
   actions.py
   prompts.py
   errors.py
   failures.py
 ```
 
-`WorkspaceEngine` 是资源管理门面，提供扫描、链接解析、manifest 投影、单资源摘要刷新、扫描诊断、内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、写入、精确 patch 和删除。`WorkspacePromptReferenceResolver` 负责把 workspace 正文切片转换为 Context `PromptBlock`，`WorkspaceEditPromptBuilder` 负责 Workspace LLM edit 的 prompt 业务规则；两者都位于 `prompts.py`，不承担文件变更。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、装配忽略规则和 manifest store。后续日终归档应继续挂在 `WorkspaceEngine` 或其 action executor 上，保持 AppBuilder 不理解 workspace 路径语义。
+`WorkspaceEngine` 是资源管理门面，提供 reconciliation、链接解析、类型化资源检查、有界文本/图片读取、description 提交、写入、精确 patch 和删除。`resources.py` 维护稳定分类规则；`projection.py` 维护 Manifest 到 Context snapshot 的唯一转换和 Turn preparation handler；`WorkspacePromptReferenceResolver` 负责按资源类型生成 Context `PromptBlock`，`WorkspaceEditPromptBuilder` 负责 Workspace LLM task 的 prompt 业务规则。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、主动验证 manifest 并装配 store。后续日终归档应继续挂在 Workspace 模块，保持 AppBuilder 不理解 workspace 路径语义。
 
 AppBuilder 的目标职责是：
 
@@ -198,7 +205,9 @@ AppBuilder 的目标职责是：
 - `workspace.scan`、`workspace.describe`、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/workspace/`；
 - AppBuilder 不包含 workspace 扫描闭包；
 - `workspace:` 链接解析和越界防护有单元测试；
-- manifest 扫描和更新有单元测试；
+- manifest 完整 reconciliation、incomplete 不提交、无变化 revision 稳定和 description digest 失效有单元测试；
+- Turn preparation 在首个 Phase 前投影完整 Manifest；
+- text/image/document/binary 分类、ImagePart 解析、图片预算和 document conversion_required 有单元测试；
 - Engine 内部有界文本前缀读取、行范围文本切片、`WorkspacePromptInput`、workspace link 到 reference/target PromptBlock 的局部解析不会通过模型侧 action 把正文写入 Context 或普通 ActionResult；
 - Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
 - write/patch/delete/rewrite action 使用 `target_link` 表达变更目标；write/rewrite 在 action 内部调用 LLM 生成完整文本，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；

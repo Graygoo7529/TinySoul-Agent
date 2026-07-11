@@ -18,7 +18,17 @@ class ContextInvariantError(ContextError):
 class ContextBudgetError(ContextError):
     """Raised when a composed message stack exceeds the context budget."""
 
-    def __init__(self, message: str, *, estimated_chars: int, max_chars: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        estimated_chars: int,
+        max_chars: int | None,
+        estimated_image_bytes: int = 0,
+        max_image_bytes: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.estimated_chars = estimated_chars
         self.max_chars = max_chars
+        self.estimated_image_bytes = estimated_image_bytes
+        self.max_image_bytes = max_image_bytes

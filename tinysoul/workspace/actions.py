@@ -13,9 +13,6 @@ from tinysoul.action import (
 )
 from tinysoul.context import (
     PromptReferenceError,
-    WorkspaceResource,
-    WorkspaceSnapshot,
-    build_workspace_sync_signal,
 )
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import SignalBus
@@ -26,6 +23,7 @@ from .manifest import WorkspaceResourceRecord
 from .prompts import (
     WorkspaceEditPromptBuilder,
 )
+from .projection import workspace_snapshot_signal
 
 
 WORKSPACE_REWRITE_ACTION = "workspace.rewrite"
@@ -42,7 +40,21 @@ class WorkspaceScanExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        scan = self._workspace.scan()
+        scan = self._workspace.reconcile()
+        if not scan.complete:
+            skip_counts: JsonObject = {}
+            for kind, count in scan.skip_counts().items():
+                skip_counts[kind] = count
+            return _failed(
+                execution,
+                "Workspace scan was incomplete; the existing manifest was preserved.",
+                {
+                    "reason": "incomplete_reconciliation",
+                    "skipped_count": scan.skipped_count,
+                    "skip_counts": skip_counts,
+                    "limit_reached": scan.limit_reached,
+                },
+            )
         _emit_workspace_snapshot(
             self._workspace,
             execution=execution,
@@ -81,7 +93,7 @@ def register_workspace_actions(
         builder.register_executor("workspace.scan", WorkspaceScanExecutor(workspace, bus))
         .register_executor(
             "workspace.describe",
-            WorkspaceDescribeExecutor(workspace, bus),
+            WorkspaceDescribeExecutor(workspace, bus, llm_action),
         )
         .register_executor(
             "workspace.write",
@@ -111,26 +123,75 @@ def register_workspace_actions(
 
 
 class WorkspaceDescribeExecutor(ActionExecutor):
-    """Refresh and return one workspace resource summary."""
+    """Generate a digest-bound semantic description for one resource."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        llm_action: LLMActionTaskRunner,
+    ) -> None:
         self._workspace = workspace
         self._bus = bus
+        self._llm_action = llm_action
+        self._prompt_builder = WorkspaceEditPromptBuilder(workspace)
 
     def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        link = execution.call.params.get("link")
-        if not isinstance(link, str) or not link:
+        target_link = _required_link(execution)
+        if target_link is None:
             return _failed(
                 execution,
-                "workspace.describe requires a non-empty 'link' parameter.",
-                {"reason": "missing_link"},
+                "workspace.describe requires a non-empty 'target_link' parameter.",
+                {"reason": "missing_target_link"},
+            )
+        instruction = execution.call.params.get("instruction", "")
+        if not isinstance(instruction, str):
+            return _failed(
+                execution,
+                "workspace.describe instruction must be a string when provided.",
+                {"reason": "invalid_instruction"},
             )
         try:
-            record = self._workspace.describe(link)
+            prompt_build = self._prompt_builder.build_describe(
+                target_link=target_link,
+                instruction=instruction,
+            )
+        except PromptReferenceError as exc:
+            return _failed(
+                execution,
+                str(exc),
+                {**exc.payload, "reason": exc.reason},
+            )
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace describe failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        payload = self._llm_action.run_json(
+            execution=execution,
+            prompt=prompt_build.prompt,
+            subject="Workspace describe LLM task",
+        )
+        if isinstance(payload, ActionResult):
+            return payload
+        description = payload.get("description")
+        if not isinstance(description, str) or not description.strip():
+            return _failed(
+                execution,
+                "Workspace describe LLM task must return a non-empty description.",
+                {"reason": "invalid_description"},
+            )
+        try:
+            record = self._workspace.set_description(
+                target_link,
+                description,
+                expected_digest=prompt_build.target_digest,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -527,16 +588,9 @@ def _emit_workspace_snapshot(
 ) -> None:
     signal_bus = context.signal_bus or bus
     manifest = workspace.snapshot()
-    snapshot = WorkspaceSnapshot(
-        revision=manifest.revision,
-        resources=tuple(
-            WorkspaceResource(link=record.link, summary=record.summary)
-            for record in manifest.resources
-        ),
-    )
     signal_bus.emit(
-        build_workspace_sync_signal(
-            snapshot,
+        workspace_snapshot_signal(
+            manifest,
             call_id=execution.call.call_id,
             scope=execution.framework.scope,
             source=source,
@@ -548,8 +602,11 @@ def _record_payload(record: WorkspaceResourceRecord) -> JsonObject:
     return {
         "link": record.link,
         "summary": record.summary,
+        "description": record.description,
+        "kind": record.kind.value,
+        "media_type": record.media_type,
         "size": record.size,
-        "mtime": record.mtime,
+        "mtime_ns": record.mtime_ns,
         "digest": record.digest,
     }
 

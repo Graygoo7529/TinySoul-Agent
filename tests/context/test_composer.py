@@ -14,7 +14,13 @@ from tinysoul.context.errors import ContextBudgetError
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.context.trace import PendingInputs, TurnTraceContext
 from tinysoul.context.working import WorkingContext
-from tinysoul.llm.messages import AssistantMessage, SystemMessage, TextPart, UserMessage
+from tinysoul.llm.messages import (
+    AssistantMessage,
+    ImagePart,
+    SystemMessage,
+    TextPart,
+    UserMessage,
+)
 from tinysoul.llm.reasoning import Reasoning
 
 
@@ -108,6 +114,36 @@ def test_compose_budget_exceeded_raises() -> None:
         )
     assert exc_info.value.max_chars == 10
     assert exc_info.value.estimated_chars > 10
+
+
+def test_compose_image_budget_exceeded_raises() -> None:
+    inputs, background, working, trace = _sections()
+    composer = MessageStackComposer(
+        system_text="identity text",
+        budget=ContextBudget(max_image_bytes=2),
+    )
+    image_block = PromptBlock(
+        label="task_prompt:input:image",
+        message=UserMessage.from_parts(
+            ImagePart(data=b"abc", mime_type="image/png"),
+            label="task_prompt:input:image",
+        ),
+    )
+
+    with pytest.raises(ContextBudgetError) as exc_info:
+        composer.compose(
+            inputs=inputs,
+            background=background,
+            working=working,
+            trace=trace,
+            task_prompt=TaskPrompt(
+                guide_blocks=(PromptBlock.from_text("guide", "guide"),),
+                input_blocks=(image_block,),
+            ),
+        )
+
+    assert exc_info.value.estimated_image_bytes == 3
+    assert exc_info.value.max_image_bytes == 2
 
 
 def test_estimate_counts_text_and_json_parts() -> None:

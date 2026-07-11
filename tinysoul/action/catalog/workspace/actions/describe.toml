@@ -2,14 +2,14 @@ name = "workspace.describe"
 domain = "workspace"
 
 [tool]
-description = "Refresh and return a short summary for one workspace resource link."
-schema = { type = "object", properties = { link = { type = "string", description = "A workspace resource link such as workspace:docs/task.md." } }, required = ["link"], additionalProperties = false }
+description = "Generate and store a concise semantic description for a directly readable workspace resource."
+schema = { type = "object", properties = { target_link = { type = "string", description = "A directly readable text or image workspace link." }, instruction = { type = "string", description = "Optional description focus." } }, required = ["target_link"], additionalProperties = false }
 
 [semantic]
-use_when = ["A known workspace resource may have changed and only metadata is needed"]
-avoid_when = ["The file content itself must be inspected"]
+use_when = ["A workspace text or image resource needs a semantic description in the manifest"]
+avoid_when = ["The resource is a document that requires conversion", "Only deterministic file metadata is needed"]
 effects = ["read_only"]
-examples = ["Describe workspace:docs/task.md after an external change"]
+examples = ["Describe workspace:docs/task.md for later Turn discovery"]
 
 [runtime]
 parallel_policy = "serial"
@@ -19,5 +19,5 @@ normalize = []
 execute = []
 
 [backend]
-kind = "native"
+kind = "llm_action"
 handler = "workspace.describe"

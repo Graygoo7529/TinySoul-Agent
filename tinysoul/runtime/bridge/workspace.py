@@ -10,6 +10,7 @@ from tinysoul.workspace.errors import (
     WorkspaceContractError,
     WorkspaceInvariantError,
     WorkspaceIOError,
+    WorkspaceReconciliationError,
 )
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
@@ -65,7 +66,7 @@ class RuntimeWorkspaceBridge:
         kind = WorkspaceFailureKind.INTERNAL_FAILURE
         if isinstance(error, (WorkspaceContractError, WorkspaceInvariantError)):
             kind = WorkspaceFailureKind.CONTRACT_VIOLATION
-        elif isinstance(error, WorkspaceIOError):
+        elif isinstance(error, (WorkspaceIOError, WorkspaceReconciliationError)):
             kind = WorkspaceFailureKind.IO_FAILED
         return self.from_exception(kind, error, payload=payload)
 

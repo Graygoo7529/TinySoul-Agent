@@ -7,6 +7,7 @@ from threading import Lock
 
 from tinysoul.context import ContextEngine, TurnSummary, build_trace_phase_note_signal
 from tinysoul.context.errors import ContextError
+from tinysoul.infra.json import to_json_object
 from tinysoul.runtime import (
     RunLevel,
     RunScope,
@@ -23,6 +24,7 @@ from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
+from .preparation import TurnPreparationPipeline
 from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 
 
@@ -55,6 +57,7 @@ class TurnRunner:
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
         completion_pipeline: TurnCompletionPipeline | None = None,
+        preparation_pipeline: TurnPreparationPipeline | None = None,
     ) -> None:
         self._context = context
         self._bus = bus
@@ -65,6 +68,7 @@ class TurnRunner:
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._completion_pipeline = completion_pipeline or TurnCompletionPipeline()
+        self._preparation_pipeline = preparation_pipeline or TurnPreparationPipeline()
         self._active_scope: RunScope | None = None
         self._active_scope_lock = Lock()
 
@@ -88,6 +92,43 @@ class TurnRunner:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
             self._set_active_scope(turn_scope)
+            preparation_signals = self._preparation_pipeline.prepare(
+                turn_id=turn_id,
+                scope=turn_scope,
+            )
+            if preparation_signals:
+                preparation_results = self._signal_consumer.emit_and_consume(
+                    preparation_signals,
+                    scope=turn_scope,
+                )
+                preparation_call_ids = {
+                    call_id
+                    for signal in preparation_signals
+                    if isinstance((call_id := signal.payload.get("call_id")), str)
+                }
+                rejected = tuple(
+                    result
+                    for result in preparation_results
+                    if result.call_id in preparation_call_ids
+                )
+                if rejected:
+                    raise self._loop_bridge.from_loop_error(
+                        LoopInvariantError(
+                            "Context rejected a Turn preparation signal"
+                        ),
+                        payload=to_json_object(
+                            {
+                                "results": [
+                                    {
+                                        "call_id": result.call_id,
+                                        "tool_name": result.tool_name,
+                                        "feedback": result.model_feedback,
+                                    }
+                                    for result in rejected
+                                ]
+                            }
+                        ),
+                    )
             for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
                 cycle = self._cycle_runner.run(
                     turn_id=turn_id,

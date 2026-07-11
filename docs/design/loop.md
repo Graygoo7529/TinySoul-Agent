@@ -25,6 +25,7 @@ tinysoul/loop/
   failures.py        # loop Runtime bridge 失败枚举
   signals.py         # loop.control.request 信号协议
   prompts.py         # Phase 任务提示构造与 domain HOW provider
+  preparation.py     # 首个 Cycle 前的 Turn preparation pipeline
   phases.py          # Phase1/Phase2/Phase3 执行单元
   cycle.py           # CycleRunner
   turn.py            # TurnRunner
@@ -39,6 +40,8 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。
 
 TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace 的 TurnSummary 与最终 TurnOutput，为未来 Session 持久化等后处理提供稳定边界；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。执行轮数上限只作为无输出时的兜底保护。
+
+Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。Workspace 使用这一生命周期完成磁盘 reconciliation 和 Manifest 摘要投影；属于本次 preparation 的信号若被 Context 拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 

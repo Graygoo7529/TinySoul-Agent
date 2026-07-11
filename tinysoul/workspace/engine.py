@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 import os
 
@@ -24,6 +25,7 @@ from .errors import (
     WorkspaceError,
     WorkspaceInvariantError,
     WorkspaceIOError,
+    WorkspaceReconciliationError,
 )
 from .links import WorkspaceLink
 from .manifest import (
@@ -32,6 +34,7 @@ from .manifest import (
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
+from .resources import WorkspaceResourceClassifier
 
 
 class WorkspaceScanSkipKind(StrEnum):
@@ -42,6 +45,13 @@ class WorkspaceScanSkipKind(StrEnum):
     IO_ERROR = "io_error"
     CONTRACT = "contract"
     INVARIANT = "invariant"
+
+
+class WorkspaceReconcileStatus(StrEnum):
+    """Whether a disk inventory was complete enough to commit."""
+
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,12 @@ class WorkspaceScanResult:
     resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
     skipped: tuple[WorkspaceScanSkip, ...] = field(default_factory=tuple)
     limit_reached: bool = False
+    status: WorkspaceReconcileStatus = WorkspaceReconcileStatus.COMPLETE
+    changed: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return self.status is WorkspaceReconcileStatus.COMPLETE
 
     @property
     def skipped_count(self) -> int:
@@ -88,6 +104,17 @@ class WorkspaceTextRead:
     link: str
     text: str
     truncated: bool
+    size: int
+    digest: str
+
+
+@dataclass(frozen=True)
+class WorkspaceImageRead:
+    """A complete image resource prepared for an LLM image part."""
+
+    link: str
+    data: bytes
+    media_type: str
     size: int
     digest: str
 
@@ -160,6 +187,7 @@ class WorkspaceEngine:
     ) -> None:
         self._settings = settings
         self._manifest_store = manifest_store
+        self._classifier = WorkspaceResourceClassifier()
 
     @property
     def root(self) -> Path:
@@ -187,10 +215,73 @@ class WorkspaceEngine:
 
         return self.load_manifest()
 
-    def describe(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
-        record = self._inspect_record(link)
-        self.scan()
-        return record
+    def set_description(
+        self,
+        link: WorkspaceLink | str,
+        description: str,
+        *,
+        expected_digest: str,
+    ) -> WorkspaceResourceRecord:
+        """Attach a bounded semantic description to the current resource digest."""
+
+        if not isinstance(description, str) or not description.strip():
+            raise WorkspaceContractError(
+                "Workspace description must be a non-empty string"
+            )
+        normalized = description.strip()
+        if len(normalized) > 2000:
+            raise WorkspaceContractError(
+                "Workspace description cannot exceed 2000 characters"
+            )
+        if not expected_digest:
+            raise WorkspaceContractError(
+                "Workspace description requires an expected digest"
+            )
+        reconciliation = self.reconcile()
+        if not reconciliation.complete:
+            raise WorkspaceReconciliationError(
+                "Workspace description could not complete disk reconciliation"
+            )
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        link_value = str(parsed)
+        records = list(reconciliation.manifest.resources)
+        index = next(
+            (index for index, record in enumerate(records) if record.link == link_value),
+            None,
+        )
+        if index is None:
+            raise WorkspaceContractError(
+                f"Workspace resource does not exist: {link_value}"
+            )
+        current = records[index]
+        if current.digest != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {link_value}"
+            )
+        observed = self._inspect_record(link_value)
+        if observed.digest != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource changed while being described: {link_value}"
+            )
+        described = replace(
+            current,
+            description=normalized,
+            described_digest=current.digest,
+        )
+        if described == current:
+            return current
+        records[index] = described
+        manifest = WorkspaceManifest(
+            revision=reconciliation.manifest.revision + 1,
+            resources=tuple(records),
+        )
+        self._manifest_store.save(manifest)
+        return described
+
+    def inspect(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+        """Inspect one disk resource without changing the manifest."""
+
+        return self._inspect_record(link)
 
     def _inspect_record(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
         path = self.path_for(link)
@@ -215,6 +306,10 @@ class WorkspaceEngine:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise WorkspaceContractError("Workspace read limit must be positive")
         record = self._inspect_record(link)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Workspace resource is not directly readable text: {record.link}"
+            )
         path = self.path_for(record.link)
         try:
             read = read_text_prefix(path, max_chars=limit)
@@ -230,6 +325,41 @@ class WorkspaceEngine:
             truncated=read.truncated,
             size=record.size,
             digest=record.digest,
+        )
+
+    def read_image(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_bytes: int | None = None,
+    ) -> WorkspaceImageRead:
+        limit = self._settings.max_image_bytes if max_bytes is None else max_bytes
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise WorkspaceContractError("Workspace image read limit must be positive")
+        record = self._inspect_record(link)
+        if record.kind is not WorkspaceResourceKind.IMAGE:
+            raise WorkspaceContractError(
+                f"Workspace resource is not a directly readable image: {record.link}"
+            )
+        if record.size > limit:
+            raise WorkspaceContractError(
+                f"Workspace image exceeds the read limit: {record.link}"
+            )
+        path = self.path_for(record.link)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to read workspace image: {exc}") from exc
+        if len(data) > limit:
+            raise WorkspaceContractError(
+                f"Workspace image exceeds the read limit: {record.link}"
+            )
+        return WorkspaceImageRead(
+            link=record.link,
+            data=data,
+            media_type=record.media_type,
+            size=len(data),
+            digest=sha256(data).hexdigest(),
         )
 
     def read_text_slice(
@@ -256,6 +386,10 @@ class WorkspaceEngine:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise WorkspaceContractError("Workspace read limit must be positive")
         record = self._inspect_record(link)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Workspace resource is not directly readable text: {record.link}"
+            )
         path = self.path_for(record.link)
         try:
             read = read_text_line_slice(
@@ -414,7 +548,11 @@ class WorkspaceEngine:
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to delete workspace resource: {exc}") from exc
         try:
-            self.scan()
+            reconciliation = self.reconcile()
+            if not reconciliation.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace delete could not complete disk reconciliation"
+                )
         except WorkspaceError as exc:
             self._rollback_mutation(path, previous=previous, cause=exc)
             raise
@@ -452,23 +590,47 @@ class WorkspaceEngine:
         )
         return WorkspacePromptInput(slices=slices)
 
-    def scan(self) -> WorkspaceScanResult:
-        self._settings.root.mkdir(parents=True, exist_ok=True)
-        scan = self._scan_resources()
+    def reconcile(self) -> WorkspaceScanResult:
+        try:
+            self._settings.root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to prepare workspace root: {exc}") from exc
         current = self.load_manifest()
-        manifest = WorkspaceManifest(
-            revision=current.revision + 1,
-            resources=tuple(sorted(scan.resources, key=lambda item: item.link)),
+        current_records = {record.link: record for record in current.resources}
+        scan = self._scan_resources(current_records)
+        incomplete = scan.limit_reached or any(
+            item.kind is not WorkspaceScanSkipKind.INTERNAL for item in scan.skipped
         )
-        self._manifest_store.save(manifest)
+        if incomplete:
+            return WorkspaceScanResult(
+                manifest=current,
+                resources=scan.resources,
+                skipped=scan.skipped,
+                limit_reached=scan.limit_reached,
+                status=WorkspaceReconcileStatus.INCOMPLETE,
+                changed=False,
+            )
+        resources = tuple(sorted(scan.resources, key=lambda item: item.link))
+        changed = resources != current.resources
+        manifest = WorkspaceManifest(
+            revision=current.revision + 1 if changed else current.revision,
+            resources=resources,
+        )
+        if changed:
+            self._manifest_store.save(manifest)
         return WorkspaceScanResult(
             manifest=manifest,
             resources=scan.resources,
             skipped=scan.skipped,
             limit_reached=scan.limit_reached,
+            status=WorkspaceReconcileStatus.COMPLETE,
+            changed=changed,
         )
 
-    def _scan_resources(self) -> _WorkspaceScanBuild:
+    def _scan_resources(
+        self,
+        current_records: dict[str, WorkspaceResourceRecord],
+    ) -> _WorkspaceScanBuild:
         root = self._settings.root
         ignored = set(self._settings.ignore_dirs)
         resources: list[WorkspaceResourceRecord] = []
@@ -493,7 +655,20 @@ class WorkspaceEngine:
                         )
                     )
                     continue
-                build = self._record_for_scan(path)
+                try:
+                    relative = path.relative_to(root).as_posix()
+                    previous = current_records.get(
+                        str(WorkspaceLink.from_relative_path(relative))
+                    )
+                except (ValueError, WorkspaceContractError):
+                    skipped.append(
+                        WorkspaceScanSkip(
+                            kind=WorkspaceScanSkipKind.UNSAFE_PATH,
+                            path=self._scan_path_label(path),
+                        )
+                    )
+                    continue
+                build = self._record_for_scan(path, previous=previous)
                 if build.record is not None:
                     resources.append(build.record)
                 elif build.skip_kind is not None:
@@ -510,9 +685,14 @@ class WorkspaceEngine:
         )
 
     def _record_for(self, path: Path) -> WorkspaceResourceRecord | None:
-        return self._record_for_scan(path).record
+        return self._record_for_scan(path, previous=None).record
 
-    def _record_for_scan(self, path: Path) -> _WorkspaceRecordBuild:
+    def _record_for_scan(
+        self,
+        path: Path,
+        *,
+        previous: WorkspaceResourceRecord | None,
+    ) -> _WorkspaceRecordBuild:
         try:
             relative = path.relative_to(self._settings.root).as_posix()
             link = WorkspaceLink.from_relative_path(relative)
@@ -528,21 +708,36 @@ class WorkspaceEngine:
             return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.CONTRACT)
         except WorkspaceInvariantError:
             return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.INVARIANT)
+        classification = self._classifier.classify(path)
         digest = ""
-        try:
-            digest = file_digest(resolved)
-        except OSError:
-            digest = ""
-        suffix = path.suffix or "file"
-        summary = f"{suffix} file, {stat.st_size} bytes"
+        if (
+            previous is not None
+            and previous.size == stat.st_size
+            and previous.mtime_ns == stat.st_mtime_ns
+        ):
+            digest = previous.digest
+        else:
+            try:
+                digest = file_digest(resolved)
+            except OSError:
+                return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.IO_ERROR)
+        description = ""
+        described_digest = ""
+        if previous is not None and previous.described_digest == digest:
+            description = previous.description
+            described_digest = previous.described_digest
         record = WorkspaceResourceRecord(
             link=str(link),
             relative_path=relative,
-            kind=WorkspaceResourceKind.FILE,
-            summary=summary,
+            kind=classification.kind,
+            media_type=classification.media_type,
+            suffix=classification.suffix,
+            summary=f"{classification.summary_label}, {stat.st_size} bytes",
             size=stat.st_size,
-            mtime=stat.st_mtime,
+            mtime_ns=stat.st_mtime_ns,
             digest=digest,
+            description=description,
+            described_digest=described_digest,
         )
         return _WorkspaceRecordBuild(record=record)
 
@@ -589,7 +784,11 @@ class WorkspaceEngine:
     ) -> WorkspaceResourceRecord:
         try:
             record = self._inspect_record(link)
-            self.scan()
+            reconciliation = self.reconcile()
+            if not reconciliation.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace mutation could not complete disk reconciliation"
+                )
             return record
         except WorkspaceError as exc:
             self._rollback_mutation(path, previous=previous, cause=exc)
@@ -632,10 +831,12 @@ class WorkspaceEngineBuilder:
     def build(self) -> WorkspaceEngine:
         if self._settings.root.exists() and not self._settings.root.is_dir():
             raise WorkspaceIOError("Workspace root must be a directory")
-        return WorkspaceEngine(
+        engine = WorkspaceEngine(
             settings=self._settings,
             manifest_store=WorkspaceManifestStore(self._settings.manifest_path),
         )
+        engine.load_manifest()
+        return engine
 
 
 def _slice_from_read(read: WorkspaceTextRead, *, range_label: str) -> WorkspaceTextSlice:

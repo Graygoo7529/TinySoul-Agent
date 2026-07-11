@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallRecord
+from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt
 
 from .errors import ActionInvariantError
 from .result import ActionResult, ActionResultStage
@@ -218,6 +219,8 @@ class ActionNormalizeHookPipeline:
         for name in self._registry.normalize_names_for(item.action):
             try:
                 hook = self._registry.normalize_hook_for(name)
+            except (RuntimeException, RuntimeTransferInterrupt):
+                raise
             except Exception as exc:
                 return _normalize_hook_failure(
                     item,
@@ -245,6 +248,8 @@ class ActionNormalizeHookPipeline:
     ) -> ActionResult | None:
         try:
             outcome = hook.check(item)
+        except (RuntimeException, RuntimeTransferInterrupt):
+            raise
         except Exception as exc:
             return _normalize_hook_failure(
                 item,
@@ -283,6 +288,8 @@ class ActionExecutionHookPipeline:
         for name in self._registry.execution_names_for(execution.action):
             try:
                 hook = self._registry.execution_hook_for(name)
+            except (RuntimeException, RuntimeTransferInterrupt):
+                raise
             except Exception as exc:
                 return _execution_hook_failure(
                     execution,
@@ -294,6 +301,8 @@ class ActionExecutionHookPipeline:
                 )
             try:
                 outcome = hook.check(execution, context)
+            except (RuntimeException, RuntimeTransferInterrupt):
+                raise
             except Exception as exc:
                 return _execution_hook_failure(
                     execution,
