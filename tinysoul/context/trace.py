@@ -127,6 +127,19 @@ class TraceCompactionReport:
 
 
 @dataclass(frozen=True)
+class TraceRecallPage:
+    """One stable page from an immutable trace leaf."""
+
+    entries: tuple[TraceEntry, ...]
+    cursor: int
+    next_cursor: int | None
+
+    @property
+    def truncated(self) -> bool:
+        return self.next_cursor is not None
+
+
+@dataclass(frozen=True)
 class SealedTurnTrace:
     """Immutable complete trace transferred to Turn completion services."""
 
@@ -281,25 +294,41 @@ class TurnTraceHeap:
         payload = node.to_header(turn_id=self._turn_id)
         return to_json_object({**payload, "children": children})
 
-    def recall(self, ref: str, *, max_chars: int) -> tuple[TraceEntry, ...]:
-        if max_chars <= 0:
+    def recall(
+        self,
+        ref: str,
+        *,
+        max_chars: int,
+        cursor: int = 0,
+    ) -> TraceRecallPage:
+        if isinstance(max_chars, bool) or max_chars <= 0:
             raise ContextContractError("Trace recall max_chars must be positive")
+        if isinstance(cursor, bool) or cursor < 0:
+            raise ContextContractError("Trace recall cursor cannot be negative")
         node = self._node_for_ref(ref)
         if node.kind is not TraceHeapNodeKind.LEAF:
             raise ContextContractError(
                 "Trace recall requires a leaf ref; inspect the branch first"
             )
+        if cursor > len(node.entry_ids):
+            raise ContextContractError("Trace recall cursor exceeds the leaf size")
         by_id = {entry.entry_id: entry for entry in self._entries}
         selected: list[TraceEntry] = []
         used = 0
-        for entry_id in node.entry_ids:
+        next_cursor: int | None = None
+        for index, entry_id in enumerate(node.entry_ids[cursor:], start=cursor):
             entry = by_id[entry_id]
             size = _message_chars(entry.message)
             if selected and used + size > max_chars:
+                next_cursor = index
                 break
             selected.append(entry)
             used += size
-        return tuple(selected)
+        return TraceRecallPage(
+            entries=tuple(selected),
+            cursor=cursor,
+            next_cursor=next_cursor,
+        )
 
     def render_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []

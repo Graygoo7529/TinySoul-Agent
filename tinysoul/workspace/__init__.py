@@ -1,6 +1,9 @@
 """TinySoul workspace resource module."""
 
-from .actions import register_workspace_actions
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .actions import register_workspace_actions
 from .config import WorkspaceSettings, parse_workspace_settings
 from .engine import (
     WorkspaceEngine,
@@ -17,6 +20,7 @@ from .errors import (
     WorkspaceIOError,
     WorkspaceInvariantError,
     WorkspaceReconciliationError,
+    WorkspaceTrashRestoreRequired,
 )
 from .links import WorkspaceLink
 from .manifest import (
@@ -33,8 +37,7 @@ from .reconcile import (
 )
 from .projection import WorkspaceTurnPreparationHandler
 from .prompts import WorkspacePromptReferenceResolver
-from .pressure import WorkspacePressureReclaimer, WorkspacePressureReport
-from .trash import WorkspaceTrashItem, WorkspaceTrashStore
+from .trash import WorkspaceTrashItem
 
 __all__ = [
     "WorkspaceContractError",
@@ -48,12 +51,11 @@ __all__ = [
     "WorkspaceImageValidationError",
     "WorkspaceInvariantError",
     "WorkspaceReconciliationError",
+    "WorkspaceTrashRestoreRequired",
     "WorkspaceLink",
     "WorkspaceManifest",
     "WorkspacePromptInput",
     "WorkspacePromptReferenceResolver",
-    "WorkspacePressureReclaimer",
-    "WorkspacePressureReport",
     "WorkspaceReconcileResult",
     "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",
@@ -64,7 +66,14 @@ __all__ = [
     "WorkspaceTextSlice",
     "WorkspaceTurnPreparationHandler",
     "WorkspaceTrashItem",
-    "WorkspaceTrashStore",
     "parse_workspace_settings",
     "register_workspace_actions",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "register_workspace_actions":
+        from .actions import register_workspace_actions
+
+        return register_workspace_actions
+    raise AttributeError(name)

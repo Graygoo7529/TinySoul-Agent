@@ -49,12 +49,14 @@ from tinysoul.loop.trap_handlers import (
     EndFrameTrapHandler,
     EndTurnOrProgramTrapHandler,
     TurnOutputTrapHandler,
+    WorkspaceTrashRestoreTrapHandler,
 )
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     HOME_RUNTIME_COPY_REQUIRED,
+    WORKSPACE_TRASH_RESTORE_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
@@ -246,6 +248,7 @@ class TinySoulAppBuilder:
                 session=session,
                 home=home,
                 home_bridge=home_bridge,
+                workspace_bridge=workspace_bridge,
                 action_bridge=action_bridge,
                 llm_action=llm_action,
             )
@@ -506,6 +509,7 @@ class TinySoulAppBuilder:
         session: SessionEngine,
         home: AgentHomeEngine,
         home_bridge: RuntimeAgentHomeBridge,
+        workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
     ) -> ActionEngine:
@@ -522,6 +526,7 @@ class TinySoulAppBuilder:
                 workspace=workspace,
                 bus=bus,
                 llm_action=llm_action,
+                runtime_bridge=workspace_bridge,
             )
             register_home_actions(
                 builder,
@@ -530,7 +535,12 @@ class TinySoulAppBuilder:
             )
             register_core_actions(
                 builder,
-                reference_resolvers=(WorkspacePromptReferenceResolver(workspace),),
+                reference_resolvers=(
+                    WorkspacePromptReferenceResolver(
+                        workspace,
+                        runtime_bridge=workspace_bridge,
+                    ),
+                ),
                 llm_action=llm_action,
             )
             return builder.build()
@@ -565,5 +575,9 @@ class TinySoulAppBuilder:
             ),
         )
         registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
+        registry.register(
+            WORKSPACE_TRASH_RESTORE_REQUIRED,
+            WorkspaceTrashRestoreTrapHandler(workspace=workspace, context=context),
+        )
         registry.register_fallback(EndTurnOrProgramTrapHandler())
         return RuntimeTrap(registry=registry)

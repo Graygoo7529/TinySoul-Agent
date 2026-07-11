@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from tinysoul.context import (
     PromptBlock,
@@ -11,18 +12,34 @@ from tinysoul.context import (
     TaskPrompt,
 )
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
+from tinysoul.runtime import RuntimeException
 
 from .engine import WorkspaceEngine, WorkspacePromptInput, WorkspaceTextSlice
-from .errors import WorkspaceError, WorkspaceImageValidationError
+from .errors import (
+    WorkspaceError,
+    WorkspaceImageValidationError,
+    WorkspaceTrashRestoreRequired,
+)
 from .links import WORKSPACE_LINK_PREFIX
 from .manifest import WorkspaceResourceKind
+
+
+class WorkspaceTrashRuntimeBridge(Protocol):
+    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
+        ...
 
 
 class WorkspacePromptReferenceResolver(PromptReferenceResolver):
     """Resolve workspace links into task prompt blocks."""
 
-    def __init__(self, workspace: WorkspaceEngine) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        *,
+        runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
+    ) -> None:
         self._workspace = workspace
+        self._runtime_bridge = runtime_bridge
 
     def supports(self, link: str) -> bool:
         return isinstance(link, str) and link.startswith(WORKSPACE_LINK_PREFIX)
@@ -109,6 +126,13 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 reason="invalid_image_resource",
                 payload={"error_type": type(exc).__name__, "link": link},
             ) from exc
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
         except WorkspaceError as exc:
             raise PromptReferenceError(
                 f"Workspace prompt reference failed: {exc}",
@@ -128,9 +152,17 @@ class WorkspaceEditPrompt:
 class WorkspaceEditPromptBuilder:
     """Build write and rewrite prompts from workspace resource links."""
 
-    def __init__(self, workspace: WorkspaceEngine) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        *,
+        runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
+    ) -> None:
         self._workspace = workspace
-        self._resolver = WorkspacePromptReferenceResolver(workspace)
+        self._resolver = WorkspacePromptReferenceResolver(
+            workspace,
+            runtime_bridge=runtime_bridge,
+        )
 
     def build_describe(
         self,

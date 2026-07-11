@@ -30,7 +30,7 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### TurnTraceHeap
 
-本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整记录，同时维护“热条目 + 冷节点头部”的可见投影。压缩不会删除 canonical entry，而是按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。召回结果携带 origin ref，并在下一次压缩时折叠回短指针，避免召回历史递归膨胀。
+本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整记录，同时维护“热条目 + 冷节点头部”的可见投影。压缩不会删除 canonical entry，而是按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。recall 使用 zero-based continuation cursor；响应包含 `next_cursor` 与 `truncated`，调用额度会被配置的 `trace_recall_max_chars` 限制，因此同一不可变 leaf 可以分段继续探索。轨迹条目保持原子，不在消息 JSON 中间切断。召回结果携带 origin ref，并在下一次压缩时折叠回短指针，避免召回历史递归膨胀。
 
 每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、来源和可选 origin ref。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。Turn 结束时 `seal()` 产生包含完整 entries、节点和 roots 的不可变投影，供 TurnSummary 与 Session 持久化使用。
 
@@ -86,7 +86,7 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. `ContextPressureRecovery` 依据预算 payload 与目标比例计算带滞回的回收量；字符预算和图片预算分开处理，图片单独超限不会触发 Workspace 文件删除；
 3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次只逐出 Phase1 加载的 Background；
-4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn` 的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；同步失败会尝试 restore；
+4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn`、且未被当前 action `target_link`/`reference_links` 保护的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；批次中途失败回滚已移动项，同步失败也尝试 restore；
 5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
 Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、默认 Agent Home 内容和 WorkingContext 业务状态不会被无条件裁剪。

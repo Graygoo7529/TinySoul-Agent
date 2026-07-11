@@ -288,6 +288,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "workspace.restore",
         "workspace.rewrite",
         "workspace.scan",
+        "workspace.trash.list",
         "workspace.write",
     )
     with pytest.raises(ActionContractError, match="home.resource.read"):

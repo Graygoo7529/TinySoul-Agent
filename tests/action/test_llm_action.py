@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from tinysoul.action.backends.llm_action import ActionHow, LLMActionTaskRunner
 from tinysoul.action.builtins.core import CoreAnswerActionExecutor, CoreReasonActionExecutor
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
@@ -15,12 +17,17 @@ from tinysoul.action.core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from tinysoul.context import ContextEngineBuilder, PromptBlock
+from tinysoul.context import ContextEngineBuilder, PromptBlock, TaskPrompt
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import TextPart
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
-from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime import (
+    CONTEXT_COMPRESSION_REQUIRED,
+    RunLevel,
+    RunScope,
+    RuntimeException,
+)
 
 
 class FakeLLMRunner:
@@ -172,6 +179,39 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
     assert result.payload == {"text": "done", "references": ["workspace:a.md"]}
     labels = tuple(message.label for message in llm.calls[0].messages.messages)
     assert "task_prompt:input:test-ref" in labels
+
+
+def test_llm_action_context_pressure_carries_active_resource_links() -> None:
+    context = (
+        ContextEngineBuilder(system_text="system")
+        .with_budget_max_chars(10)
+        .build()
+    )
+    context.begin_turn("user asks")
+    runner = LLMActionTaskRunner(llm_runner=FakeLLMRunner(), context=context)
+    execution = _execution(
+        "core.reason",
+        {
+            "target_link": "workspace:target.md",
+            "reference_links": ["workspace:reference.md", "home:why/example"],
+        },
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run_json(
+            execution=execution,
+            prompt=TaskPrompt(
+                guide_blocks=(PromptBlock.from_text("guide", "reason"),),
+            ),
+            subject="test",
+        )
+
+    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.payload["protected_resource_links"] == [
+        "workspace:target.md",
+        "workspace:reference.md",
+        "home:why/example",
+    ]
 
 
 def _text_for_label(call: TaskCall, label: str) -> str:

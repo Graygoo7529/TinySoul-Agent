@@ -86,7 +86,7 @@ Phase3 构造 `ActionExecutionContext` 时注入 SignalBus，使 native action �
 
 ## Trap 处理器注册
 
-Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；Context pressure handler 依次协调 trace fold/heap compaction、Phase1 Background eviction 和可恢复 Workspace Trash，确实回收字符后优先重试当前 Module、否则重试 Phase；Agent Home runtime copy handler 准备副本后重试当前 Module；无进展或未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
+Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；Context pressure handler 依次协调 trace fold/heap compaction、Phase1 Background eviction 和可恢复 Workspace Trash，跳过 action-internal LLM task 在异常 payload 中声明的活动资源，确实回收字符后优先重试当前 Module、否则重试 Phase；Workspace Trash restore handler 恢复压力暂存资源、同步新的 Manifest snapshot 并重试原 Module；Agent Home runtime copy handler 准备副本后重试当前 Module；无进展或未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
 
 ## 与 app 装配层
 

@@ -12,7 +12,7 @@ from .signals import TurnOutput
 
 @dataclass(frozen=True)
 class TurnCompletion:
-    """Stable data passed to post-Turn services such as a future Session module."""
+    """Stable data passed to ordered post-Turn services such as Session."""
 
     summary: TurnSummary
     output: TurnOutput | None = None

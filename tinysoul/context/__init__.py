@@ -50,14 +50,6 @@ from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
 from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
 from .compress import ContextPressureReport
-from .trace import (
-    SealedTurnTrace,
-    TraceCompactionReport,
-    TraceHeapNode,
-    TraceHeapNodeKind,
-    TraceKind,
-    TurnTraceHeap,
-)
 
 __all__ = [
     "ContextBudgetReport",
@@ -94,12 +86,6 @@ __all__ = [
     "SessionBackgroundItem",
     "SessionBackgroundSnapshot",
     "TaskPrompt",
-    "TraceKind",
-    "TraceCompactionReport",
-    "TraceHeapNode",
-    "TraceHeapNodeKind",
-    "TurnTraceHeap",
-    "SealedTurnTrace",
     "TurnSummary",
     "WorkspaceResource",
     "WorkspaceSnapshot",

@@ -16,7 +16,6 @@ from tinysoul.context import (
     ContextSignalBatch,
     PromptBlock,
     TaskPrompt,
-    TraceKind,
     TurnSummary,
     WorkspaceResource,
     WorkspaceSnapshot,
@@ -26,6 +25,7 @@ from tinysoul.context import (
     build_trace_phase_note_signal,
     build_workspace_sync_signal,
 )
+from tinysoul.context.trace import TraceKind
 from tinysoul.context.signals import build_working_patch_signal
 from tinysoul.context.working import WorkingPatch
 from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage

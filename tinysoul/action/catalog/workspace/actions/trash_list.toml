@@ -1,0 +1,23 @@
+name = "workspace.trash.list"
+domain = "workspace"
+
+[tool]
+description = "List recoverable Workspace Trash items and their restore references."
+
+[tool.schema]
+type = "object"
+required = []
+additionalProperties = false
+
+[semantic]
+use_when = ["Need to find a trash_ref before restoring a removed Workspace resource"]
+avoid_when = ["The active Workspace manifest already contains the resource"]
+effects = ["read_only"]
+examples = ["List Trash, select the matching link, then call workspace.restore"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.trash.list"

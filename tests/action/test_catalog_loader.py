@@ -43,6 +43,7 @@ def test_catalog_view_by_domain() -> None:
         "workspace.restore",
         "workspace.rewrite",
         "workspace.scan",
+        "workspace.trash.list",
         "workspace.write",
     ]
 

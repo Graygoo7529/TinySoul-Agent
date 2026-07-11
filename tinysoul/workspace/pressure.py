@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .engine import WorkspaceEngine
+from .errors import WorkspaceError, WorkspaceIOError
 from .manifest import WorkspaceRetention
 
 
@@ -48,17 +49,28 @@ class WorkspacePressureReclaimer:
         reclaimed = 0
         trash_refs: list[str] = []
         removed_links: list[str] = []
-        for record in candidates:
-            item = self._workspace.trash_resource(
-                record.link,
-                reason="context_pressure",
-                source_turn_id=turn_id,
-            )
-            trash_refs.append(item.ref)
-            removed_links.append(record.link)
-            reclaimed += len(record.link) + len(record.context_summary) + 48
-            if reclaimed >= required_chars:
-                break
+        try:
+            for record in candidates:
+                item = self._workspace.trash_resource(
+                    record.link,
+                    reason="context_pressure",
+                    source_turn_id=turn_id,
+                )
+                trash_refs.append(item.ref)
+                removed_links.append(record.link)
+                reclaimed += len(record.link) + len(record.context_summary) + 48
+                if reclaimed >= required_chars:
+                    break
+        except WorkspaceError as exc:
+            try:
+                for trash_ref in reversed(trash_refs):
+                    self._workspace.restore_resource(trash_ref)
+            except WorkspaceError as rollback_error:
+                raise WorkspaceIOError(
+                    "Workspace pressure cleanup failed and rollback also failed: "
+                    f"{rollback_error}"
+                ) from exc
+            raise
         return WorkspacePressureReport(
             changed=bool(trash_refs),
             reclaimed_chars=reclaimed,

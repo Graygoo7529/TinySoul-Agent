@@ -17,6 +17,10 @@ description = "A session:turn or session:summary ref."
 type = "integer"
 description = "Optional maximum recalled character count."
 
+[tool.schema.properties.cursor]
+type = "integer"
+description = "Optional zero-based continuation cursor returned by an earlier recall."
+
 [semantic]
 use_when = ["Need details hidden behind a Session history ref"]
 avoid_when = ["Only the visible Session background is needed"]

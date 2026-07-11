@@ -8,10 +8,10 @@ import pytest
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.context import (
     ContextEngineBuilder,
-    TraceKind,
     WorkspaceSnapshot,
     build_workspace_sync_signal,
 )
+from tinysoul.context.trace import TraceKind
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
@@ -358,7 +358,8 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
-        .register_native("workspace.restore", lambda execution, context: {"restored": True})
+            .register_native("workspace.restore", lambda execution, context: {"restored": True})
+            .register_native("workspace.trash.list", lambda execution, context: {"items": []})
         .register_native("workspace.scan", emit_invalid_sync)
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
@@ -408,6 +409,7 @@ def _action_engine():
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
         .register_native("workspace.restore", lambda execution, context: {"restored": True})
+        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})

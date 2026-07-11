@@ -434,12 +434,30 @@ class ContextEngine:
         ref: str,
         *,
         max_chars: int | None = None,
-    ) -> tuple[JsonObject, ...]:
+        cursor: int = 0,
+    ) -> JsonObject:
         self._require_turn()
-        limit = self._trace_recall_max_chars if max_chars is None else max_chars
-        return tuple(
-            _trace_entry_record(entry)
-            for entry in self._trace.recall(ref, max_chars=limit)
+        if max_chars is not None and (
+            isinstance(max_chars, bool) or max_chars <= 0
+        ):
+            raise ContextContractError("Trace recall max_chars must be positive")
+        if isinstance(cursor, bool) or cursor < 0:
+            raise ContextContractError("Trace recall cursor cannot be negative")
+        limit = (
+            self._trace_recall_max_chars
+            if max_chars is None
+            else min(max_chars, self._trace_recall_max_chars)
+        )
+        page = self._trace.recall(ref, max_chars=limit, cursor=cursor)
+        return to_json_object(
+            {
+                "origin_ref": ref,
+                "cursor": page.cursor,
+                "next_cursor": page.next_cursor,
+                "truncated": page.truncated,
+                "entry_count": len(page.entries),
+                "entries": [_trace_entry_record(entry) for entry in page.entries],
+            }
         )
 
     def fold_trace_recalls(self) -> int:
@@ -806,12 +824,29 @@ class ContextEngineBuilder:
 
 def _trace_digest(trace: TurnTraceHeap) -> JsonObject:
     entries = trace.entries()
+    action_names = sorted(
+        {
+            name
+            for entry in entries
+            for name in _message_action_names(entry.message)
+        }
+    )
     return to_json_object(
         {
             "entry_count": len(entries),
             "kinds": sorted({entry.kind.value for entry in entries}),
+            "cycle_count": len({entry.cycle_id for entry in entries if entry.cycle_id}),
+            "action_names": action_names,
         }
     )
+
+
+def _message_action_names(message: Message) -> tuple[str, ...]:
+    if isinstance(message, AssistantMessage):
+        return tuple(call.name for call in message.tool_calls)
+    if isinstance(message, ToolResultMessage):
+        return (message.tool_name,)
+    return ()
 
 
 def _trace_records(trace: TurnTraceHeap) -> tuple[JsonObject, ...]:

@@ -15,6 +15,7 @@ RUNTIME_PROGRAM_END = "runtime.program_end"
 RUNTIME_TURN_OUTPUT = "runtime.turn_output"
 CONTEXT_COMPRESSION_REQUIRED = "context.compression_required"
 HOME_RUNTIME_COPY_REQUIRED = "home.runtime_copy_required"
+WORKSPACE_TRASH_RESTORE_REQUIRED = "workspace.trash_restore_required"
 
 
 @dataclass

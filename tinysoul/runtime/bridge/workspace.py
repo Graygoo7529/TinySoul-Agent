@@ -11,16 +11,23 @@ from tinysoul.workspace.errors import (
     WorkspaceInvariantError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
+    WorkspaceTrashRestoreRequired,
 )
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from ..exception import (
+    RUNTIME_STARTUP_FAILED,
+    RUNTIME_TURN_END,
+    WORKSPACE_TRASH_RESTORE_REQUIRED,
+    RuntimeException,
+)
 from ._payload import config_error_payload, exception_payload, runtime_exception
 
 WORKSPACE_RUNTIME_REASON_MAP: dict[WorkspaceFailureKind, str] = {
     WorkspaceFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     WorkspaceFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     WorkspaceFailureKind.IO_FAILED: RUNTIME_TURN_END,
+    WorkspaceFailureKind.TRASH_RESTORE_REQUIRED: WORKSPACE_TRASH_RESTORE_REQUIRED,
     WorkspaceFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
 }
 
@@ -64,11 +71,28 @@ class RuntimeWorkspaceBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = WorkspaceFailureKind.INTERNAL_FAILURE
+        if isinstance(error, WorkspaceTrashRestoreRequired):
+            return self.trash_restore_required(
+                link=error.link,
+                trash_ref=error.trash_ref,
+            )
         if isinstance(error, (WorkspaceContractError, WorkspaceInvariantError)):
             kind = WorkspaceFailureKind.CONTRACT_VIOLATION
         elif isinstance(error, (WorkspaceIOError, WorkspaceReconciliationError)):
             kind = WorkspaceFailureKind.IO_FAILED
         return self.from_exception(kind, error, payload=payload)
+
+    def trash_restore_required(
+        self,
+        *,
+        link: str,
+        trash_ref: str,
+    ) -> RuntimeException:
+        return self.from_failure(
+            WorkspaceFailureKind.TRASH_RESTORE_REQUIRED,
+            message="Workspace resource must be restored from Trash.",
+            payload={"link": link, "trash_ref": trash_ref},
+        )
 
     def startup_failure(
         self,

@@ -82,15 +82,20 @@ class ContextTraceRecallExecutor(ActionExecutor):
                 execution,
                 "context.trace.recall max_chars must be a positive integer",
             )
+        cursor = execution.call.params.get("cursor", 0)
+        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+            return _failed(
+                execution,
+                "context.trace.recall cursor must be a non-negative integer",
+            )
         try:
-            entries = self._context.recall_trace(ref, max_chars=max_chars)
+            payload = self._context.recall_trace(
+                ref,
+                max_chars=max_chars,
+                cursor=cursor,
+            )
         except ContextError as exc:
             return _failed(execution, f"Trace recall failed: {exc}")
-        payload = to_json_object({
-            "origin_ref": ref,
-            "entry_count": len(entries),
-            "entries": list(entries),
-        })
         return _success(
             execution,
             payload,
@@ -99,7 +104,8 @@ class ContextTraceRecallExecutor(ActionExecutor):
                 origin_ref=ref,
                 compact_payload={
                     "origin_ref": ref,
-                    "entry_count": len(entries),
+                    "entry_count": payload["entry_count"],
+                    "next_cursor": payload["next_cursor"],
                     "folded": True,
                 },
             ),

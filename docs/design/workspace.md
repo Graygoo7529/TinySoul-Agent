@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更和可恢复 Trash。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceHeap。`workspace.delete` 是逻辑删除：资源移出 active root 和 Manifest 后返回 `trash:workspace/...`，可由 `workspace.restore` 恢复。日终归档仍未实现。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更和可恢复 Trash。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceHeap。`workspace.delete` 是逻辑删除：资源移出 active root 和 Manifest 后返回 `trash:workspace/...`；`workspace.trash.list` 可重新取得 Trash ref，`workspace.restore` 执行显式恢复。压力清理产生的暂存项还可在资源再次被读取时通过 Runtime Trap 自动恢复。日终归档仍未实现。
 
 ## 定位
 
@@ -101,7 +101,9 @@ Manifest schema 当前为 v2；读取 v1 时显式迁移，旧资源采用 `day`
 
 Trash 位于 active Workspace root 之外，且不参与 Manifest 扫描。删除采用 prepare-record、原子移动 content、reconciliation、COMMITTED marker 的顺序；启动时发现未提交移动会恢复到原路径。Restore 在目标不存在时反向移动，重新 reconciliation，并恢复原 retention 与 owner 元数据。Trash 自身保留记录、原因、来源 Turn 和原资源摘要，因而是可恢复删除而不是物理销毁。
 
-语境压力恢复只选择 `ephemeral` 和 `turn` 资源，按 retention、mtime、link 确定性排序；`day` 和 `persistent` 不会被自动清理。资源移入 Trash 后必须把新 Manifest 全量同步给 Context；Context 拒绝同步时协调器尝试逐项 restore。Workspace 不自行决定何时触发压力恢复，Loop 只负责跨模块编排，实际资源规则仍归 Workspace 所有。
+语境压力恢复只选择 `ephemeral` 和 `turn` 资源，按 retention、mtime、link 确定性排序；`day`、`persistent` 以及当前 action payload 标记的 target/reference links 不会被自动清理。批量移动中途失败必须反向 restore 已移动项。资源移入 Trash 后必须把新 Manifest 全量同步给 Context；Context 拒绝同步时协调器尝试逐项 restore。Workspace 不自行决定何时触发压力恢复，Loop 只负责跨模块编排，实际资源规则仍归 Workspace 所有。
+
+Trash 是 active Workspace 之外的暂存区，不是第二份 Manifest。Trash record 必须基于移动瞬间实际磁盘内容；只有当前 digest 与 Manifest digest 一致时才能继承 description 和 lifecycle 元数据。active miss 只对 `context_pressure` 等框架暂存原因抛出 `workspace.trash_restore_required`，Loop Trap 按 payload 中的确定 trash ref 恢复资源、提交新的 Workspace snapshot 并重试当前 Module。用户显式执行 `workspace.delete` 不触发自动恢复，仍通过 list/restore 完成可观察的手动恢复。
 
 资源分类使用 Workspace 自有的显式扩展名/MIME 映射，稳定分为 `text`、`image`、`document`、`binary`。text 以有界 UTF-8 文本进入 Prompt；image 在 Workspace 单文件限制与 Context 总图片字节预算内以 `ImagePart` 进入 Prompt，并在构造 ImagePart 前校验 PNG/JPEG/GIF/WebP 内容签名，扩展名与内容不符时显式失败；document 必须先由显式转换 action 生成 Markdown 等可读资源；binary 当前只提供元数据。确定性 summary 始终存在，可选 description 由 `workspace.describe` 生成并通过 `described_digest` 绑定当前内容，digest 变化时 reconciliation 自动清除旧 description。
 
@@ -150,6 +152,7 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 - `workspace.patch`：基于 `old_text` 到 `new_text` 的精确单点替换修改资源，可用 `expected_digest` 防止陈旧编辑；
 - `workspace.delete`：把资源移入可恢复 Trash；
 - `workspace.restore`：按 Trash ref 恢复原资源及生命周期元数据；
+- `workspace.trash.list`：列出 Trash ref、原链接、摘要、原因和来源 Turn，不返回文件正文；
 - `workspace.rewrite`：接收 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
 
 这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。

@@ -6,7 +6,7 @@ from datetime import date
 from uuid import uuid4
 
 from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 
 from .config import SessionSettings
 from .errors import SessionContractError
@@ -56,7 +56,14 @@ class SessionEngine:
         ref = f"session:turn/{summary.turn_id}"
         if any(item.ref == ref for item in self._manifest.items):
             raise SessionContractError(f"Turn is already recorded in Session: {summary.turn_id}")
-        background = _turn_background(summary, output=output, exhausted=exhausted)
+        background = _turn_background(
+            summary,
+            output=output,
+            exhausted=exhausted,
+            action_names=frozenset(self._settings.background_action_names),
+            max_actions=self._settings.background_max_actions_per_turn,
+            action_max_chars=self._settings.background_action_max_chars,
+        )
         record = SessionRecord(
             ref=ref,
             kind=SessionHistoryKind.TURN,
@@ -108,21 +115,17 @@ class SessionEngine:
         ref: str,
         *,
         max_chars: int | None = None,
+        cursor: int = 0,
     ) -> JsonObject:
         self._ensure_today()
-        limit = self._settings.recall_max_chars if max_chars is None else max_chars
-        if limit <= 0:
+        requested = self._settings.recall_max_chars if max_chars is None else max_chars
+        if isinstance(requested, bool) or requested <= 0:
             raise SessionContractError("Session recall max_chars must be positive")
+        if isinstance(cursor, bool) or cursor < 0:
+            raise SessionContractError("Session recall cursor cannot be negative")
+        limit = min(requested, self._settings.recall_max_chars)
         record = self._store.load_record(ref)
-        full = record.to_json()
-        if len(dumps_json(full)) <= limit:
-            return {**full, "truncated": False}
-        return {
-            "ref": record.ref,
-            "kind": record.kind.value,
-            "content": _bounded_record_content(record, max_chars=limit),
-            "truncated": True,
-        }
+        return _recall_record(record, max_chars=limit, cursor=cursor)
 
     def _ensure_today(self) -> None:
         today = date.today().isoformat()
@@ -222,6 +225,9 @@ def _turn_background(
     *,
     output: JsonObject | None,
     exhausted: bool,
+    action_names: frozenset[str],
+    max_actions: int,
+    action_max_chars: int,
 ) -> JsonObject:
     asks = tuple(
         text
@@ -237,16 +243,24 @@ def _turn_background(
         raw_references = output.get("references", [])
         if isinstance(raw_references, list):
             references = [item for item in raw_references if isinstance(item, str)]
-    return to_json_object({
-        "kind": "session_turn",
-        "ref": f"session:turn/{summary.turn_id}",
-        "turn_id": summary.turn_id,
-        "user_ask": _bounded_asks(asks),
-        "answer": _clip(answer, 1800),
-        "references": references,
-        "exhausted": exhausted,
-        "trace_digest": summary.trace_digest,
-    })
+    return to_json_object(
+        {
+            "kind": "session_turn",
+            "ref": f"session:turn/{summary.turn_id}",
+            "turn_id": summary.turn_id,
+            "user_ask": _bounded_asks(asks),
+            "actions": _project_action_history(
+                summary.trace,
+                action_names=action_names,
+                max_actions=max_actions,
+                action_max_chars=action_max_chars,
+            ),
+            "answer": _clip(answer, 1800),
+            "references": references,
+            "exhausted": exhausted,
+            "trace_digest": summary.trace_digest,
+        }
+    )
 
 
 def _summary_background(
@@ -297,30 +311,115 @@ def _summary_split(
     return split
 
 
-def _bounded_record_content(record: SessionRecord, *, max_chars: int) -> JsonObject:
+def _recall_record(
+    record: SessionRecord,
+    *,
+    max_chars: int,
+    cursor: int,
+) -> JsonObject:
     background = record.content.get("background")
     result: JsonObject = {
         "background": to_json_object(background) if isinstance(background, dict) else {},
     }
     if record.kind is SessionHistoryKind.SUMMARY:
+        if cursor:
+            raise SessionContractError("Session summary recall does not accept a cursor")
         refs = record.content.get("child_refs", [])
         result["child_refs"] = refs if isinstance(refs, list) else []
-        return result
+        return {
+            "ref": record.ref,
+            "kind": record.kind.value,
+            "content": result,
+            "cursor": 0,
+            "next_cursor": None,
+            "truncated": False,
+        }
     completion = record.content.get("completion")
-    if not isinstance(completion, dict):
-        return result
-    trace = completion.get("trace", [])
-    selected: list[object] = []
-    if isinstance(trace, list):
-        for entry in reversed(trace):
-            candidate = [entry, *selected]
-            candidate_record = to_json_object({**result, "trace": candidate})
-            if len(dumps_json(candidate_record)) > max_chars:
-                break
-            selected = candidate
-    result["trace_tail"] = to_json_object({"entries": selected})["entries"]
-    result["trace_entry_count"] = len(trace) if isinstance(trace, list) else 0
-    return result
+    trace_value = completion.get("trace", []) if isinstance(completion, dict) else []
+    trace = trace_value if isinstance(trace_value, list) else []
+    if cursor > len(trace):
+        raise SessionContractError("Session recall cursor exceeds the Turn trace size")
+    selected: list[JsonValue] = []
+    next_cursor: int | None = None
+    for index, entry in enumerate(trace[cursor:], start=cursor):
+        candidate = [*selected, entry]
+        candidate_record = to_json_object({**result, "trace": candidate})
+        if selected and len(dumps_json(candidate_record)) > max_chars:
+            next_cursor = index
+            break
+        selected = candidate
+    result["trace"] = selected
+    result["trace_entry_count"] = len(trace)
+    return {
+        "ref": record.ref,
+        "kind": record.kind.value,
+        "content": result,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "truncated": next_cursor is not None,
+    }
+
+
+def _project_action_history(
+    trace: tuple[JsonObject, ...],
+    *,
+    action_names: frozenset[str],
+    max_actions: int,
+    action_max_chars: int,
+) -> list[JsonObject]:
+    calls: dict[str, JsonObject] = {}
+    order: list[str] = []
+    for entry in trace:
+        message = entry.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        tool_calls = message.get("tool_calls", [])
+        if not isinstance(tool_calls, list):
+            continue
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            call_id = call.get("id")
+            name = call.get("name")
+            if (
+                not isinstance(call_id, str)
+                or not isinstance(name, str)
+                or name not in action_names
+            ):
+                continue
+            calls[call_id] = to_json_object(
+                {
+                    "action": name,
+                    "call_id": call_id,
+                    "arguments": _bounded_json(call.get("arguments"), 600),
+                }
+            )
+            order.append(call_id)
+    for entry in trace:
+        message = entry.get("message")
+        if not isinstance(message, dict) or message.get("role") != "tool_result":
+            continue
+        call_id = message.get("call_id")
+        if not isinstance(call_id, str) or call_id not in calls:
+            continue
+        calls[call_id]["status"] = message.get("status", "")
+        calls[call_id]["result"] = _bounded_json(
+            message.get("content"),
+            action_max_chars,
+        )
+    return [calls[call_id] for call_id in order[-max_actions:]]
+
+
+def _bounded_json(value: object, max_chars: int) -> JsonValue:
+    wrapped = to_json_object({"value": value})["value"]
+    rendered = dumps_json(wrapped)
+    if len(rendered) <= max_chars:
+        return wrapped
+    preview_limit = max(1, max_chars - 48)
+    return {
+        "truncated": True,
+        "preview": rendered[:preview_limit],
+    }
 
 
 def _clip(text: str, limit: int) -> str:

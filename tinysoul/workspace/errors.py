@@ -26,3 +26,12 @@ class WorkspaceIOError(WorkspaceError):
 class WorkspaceReconciliationError(WorkspaceError):
     """Raised when disk inventory cannot be reconciled completely."""
 
+
+class WorkspaceTrashRestoreRequired(WorkspaceError):
+    """Raised when an active resource can be recovered from Workspace Trash."""
+
+    def __init__(self, *, link: str, trash_ref: str) -> None:
+        super().__init__(f"Workspace resource requires Trash restore: {link}")
+        self.link = link
+        self.trash_ref = trash_ref
+

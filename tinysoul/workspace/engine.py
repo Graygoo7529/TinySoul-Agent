@@ -26,6 +26,7 @@ from .errors import (
     WorkspaceInvariantError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
+    WorkspaceTrashRestoreRequired,
 )
 from .links import WorkspaceLink
 from .manifest import (
@@ -38,6 +39,11 @@ from .manifest import (
 from .reconcile import WorkspaceReconcileResult, WorkspaceReconciler
 from .resources import WorkspaceResourceClassifier, image_data_matches
 from .trash import WorkspaceTrashItem, WorkspaceTrashStore
+
+
+_AUTO_RESTORE_TRASH_REASONS = frozenset(
+    {"context_pressure", "trash_restore_context_rejected"}
+)
 
 
 @dataclass(frozen=True)
@@ -203,6 +209,7 @@ class WorkspaceEngine:
             None,
         )
         if index is None:
+            self._raise_trash_restore_required(link_value)
             raise WorkspaceContractError(
                 f"Workspace resource does not exist: {link_value}"
             )
@@ -236,11 +243,18 @@ class WorkspaceEngine:
 
         return self._inspect_record(link)
 
-    def _inspect_record(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+    def _inspect_record(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        restore_if_trashed: bool = True,
+    ) -> WorkspaceResourceRecord:
         path = self.path_for(link)
         if self._is_internal_path(path):
             raise WorkspaceContractError(f"Workspace resource is internal: {link}")
         if not path.exists():
+            if restore_if_trashed:
+                self._raise_trash_restore_required(link)
             raise WorkspaceContractError(f"Workspace resource does not exist: {link}")
         if not path.is_file():
             raise WorkspaceContractError(f"Workspace resource is not a file: {link}")
@@ -248,6 +262,18 @@ class WorkspaceEngine:
         if record is None:
             raise WorkspaceContractError(f"Workspace resource cannot be described: {link}")
         return record
+
+    def _raise_trash_restore_required(self, link: WorkspaceLink | str) -> None:
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        item = self._trash_store.latest_for_link(
+            str(parsed),
+            reasons=_AUTO_RESTORE_TRASH_REASONS,
+        )
+        if item is not None:
+            raise WorkspaceTrashRestoreRequired(
+                link=str(parsed),
+                trash_ref=item.ref,
+            )
 
     def read_text(
         self,
@@ -451,6 +477,7 @@ class WorkspaceEngine:
                         f"Workspace resource digest mismatch: {parsed}"
                     )
         elif expected_digest:
+            self._raise_trash_restore_required(parsed)
             raise WorkspaceContractError(
                 f"Workspace resource does not exist for digest check: {parsed}"
             )
@@ -568,8 +595,14 @@ class WorkspaceEngine:
         reason: str,
         source_turn_id: str,
     ) -> WorkspaceTrashItem:
-        inspected = self._inspect_record(link)
-        record = self._manifest_record(inspected.link) or inspected
+        inspected = self._inspect_record(link, restore_if_trashed=False)
+        manifest_record = self._manifest_record(inspected.link)
+        record = (
+            manifest_record
+            if manifest_record is not None
+            and manifest_record.digest == inspected.digest
+            else inspected
+        )
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
         item = self._trash_store.prepare(

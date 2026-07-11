@@ -10,8 +10,9 @@ from tinysoul.context import ContextEngine, ContextSignalBatch
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonValue
 from tinysoul.runtime import RunLevel, RunScope
-from tinysoul.workspace import WorkspaceEngine, WorkspacePressureReclaimer
+from tinysoul.workspace import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceError
+from tinysoul.workspace.pressure import WorkspacePressureReclaimer
 from tinysoul.workspace.projection import workspace_snapshot_signal
 
 
@@ -61,6 +62,7 @@ class ContextPressureRecovery:
             remaining = max(0, required - context_report.reclaimed_chars)
             workspace_report = self._workspace_reclaimer.reclaim(
                 required_chars=remaining,
+                protected_links=_protected_workspace_links(payload),
                 turn_id=_turn_id(scope),
             )
             if workspace_report.changed:
@@ -136,3 +138,16 @@ def _required_chars(
 def _turn_id(scope: RunScope) -> str:
     turn = scope.nearest(RunLevel.TURN)
     return turn.name if turn is not None else ""
+
+
+def _protected_workspace_links(
+    payload: Mapping[str, JsonValue],
+) -> frozenset[str]:
+    value = payload.get("protected_resource_links", [])
+    if not isinstance(value, list):
+        return frozenset()
+    return frozenset(
+        link
+        for link in value
+        if isinstance(link, str) and link.startswith("workspace:")
+    )

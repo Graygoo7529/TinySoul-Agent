@@ -18,6 +18,9 @@ class SessionSettings:
     summary_target_ratio: float = 0.40
     min_recent_turns: int = 2
     recall_max_chars: int = 8000
+    background_action_names: tuple[str, ...] = ("core.reason",)
+    background_max_actions_per_turn: int = 3
+    background_action_max_chars: int = 1600
 
     def __post_init__(self) -> None:
         root = self.root.resolve()
@@ -33,9 +36,14 @@ class SessionSettings:
                 value=str(self.archive_root),
                 expected="non-overlapping path",
             )
-        for name in {"background_max_chars", "recall_max_chars"}:
+        for name in {
+            "background_max_chars",
+            "recall_max_chars",
+            "background_max_actions_per_turn",
+            "background_action_max_chars",
+        }:
             value = getattr(self, name)
-            if value <= 0:
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ConfigError(
                     "Session size setting must be positive",
                     key=f"session.{name}",
@@ -56,12 +64,35 @@ class SessionSettings:
                 value=self.summary_watermark_ratio,
                 expected="ordered ratios",
             )
-        if self.min_recent_turns < 0:
+        if (
+            isinstance(self.min_recent_turns, bool)
+            or not isinstance(self.min_recent_turns, int)
+            or self.min_recent_turns < 0
+        ):
             raise ConfigError(
                 "Session min_recent_turns cannot be negative",
                 key="session.min_recent_turns",
                 value=self.min_recent_turns,
                 expected="non-negative int",
+            )
+        if any(
+            not isinstance(name, str) or not name
+            for name in self.background_action_names
+        ):
+            raise ConfigError(
+                "Session background action names must be non-empty",
+                key="session.background_action_names",
+                value=self.background_action_names,
+                expected="list of non-empty strings",
+            )
+        if len(set(self.background_action_names)) != len(
+            self.background_action_names
+        ):
+            raise ConfigError(
+                "Session background action names must be unique",
+                key="session.background_action_names",
+                value=self.background_action_names,
+                expected="unique strings",
             )
 
 
@@ -83,6 +114,21 @@ def parse_session_settings(
         summary_target_ratio=_float(tree, "summary_target_ratio", 0.40),
         min_recent_turns=_int(tree, "min_recent_turns", 2),
         recall_max_chars=_int(tree, "recall_max_chars", 8000),
+        background_action_names=_strings(
+            tree,
+            "background_action_names",
+            ("core.reason",),
+        ),
+        background_max_actions_per_turn=_int(
+            tree,
+            "background_max_actions_per_turn",
+            3,
+        ),
+        background_action_max_chars=_int(
+            tree,
+            "background_action_max_chars",
+            1600,
+        ),
     )
 
 
@@ -128,3 +174,21 @@ def _float(tree: Mapping[str, object], name: str, default: float) -> float:
             expected="float",
         )
     return float(value)
+
+
+def _strings(
+    tree: Mapping[str, object],
+    name: str,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    value = tree.get(name, list(default))
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        raise ConfigError(
+            "Session setting must be a list of non-empty strings",
+            key=f"session.{name}",
+            value=value,
+            expected="list[str]",
+        )
+    return tuple(item for item in value if isinstance(item, str))

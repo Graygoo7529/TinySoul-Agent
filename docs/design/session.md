@@ -17,7 +17,7 @@ runtime/session/
   summaries/<summary_id>.json
 ```
 
-`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出和 exhausted 状态。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。summary record 保存被合并节点的完整头部和子引用，不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
+`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出和 exhausted 状态。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态和 trace digest；action 调用与结果由 Session 配置的 `background_action_names` allowlist 选择，默认只投影最多三个 `core.reason`，避免把所有工具结果复制进跨 Turn 背景。每个被投影 action 的参数与结果分别有界，完整内容仍只存在于 Turn record。summary record 保存被合并节点的完整头部和子引用，不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
 
 进程跨日时，active 根目录原子移动到 `archive_root/<yyyy-mm-dd>`，然后创建新日 Manifest。Manifest 和 record 使用稳定 JSON 与原子写入；损坏或归档目标冲突显式失败，不静默重建。
 
@@ -28,7 +28,7 @@ Session 的 `background_max_chars` 是跨 Turn 历史头部预算。当可见 it
 恢复是分层、显式和有界的：
 
 - `session.history.inspect` 返回当日 Manifest 头部及 `session:turn/...`、`session:summary/...` refs；
-- `session.history.recall` 读取一个 Turn 或 summary record；summary 返回 child refs，允许继续向底部探索；
+- `session.history.recall` 读取一个 Turn 或 summary record；summary 返回 child refs，Turn trace 使用 `cursor`、`next_cursor` 和 `truncated` 分页，允许继续向底部探索；调用方提供的 `max_chars` 不得突破 Session 配置上限；
 - recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史召回递归放大当前 TurnTraceHeap。
 
 ## Turn 生命周期

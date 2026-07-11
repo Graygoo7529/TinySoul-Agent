@@ -45,12 +45,13 @@ from tinysoul.workspace import (
     WorkspaceResourceKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
-    WorkspacePressureReclaimer,
+    WorkspaceTrashRestoreRequired,
 )
 from tinysoul.workspace.engine import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceIOError
 from tinysoul.workspace.manifest import WorkspaceManifestStore
 from tinysoul.workspace.projection import WorkspaceTurnPreparationHandler
+from tinysoul.workspace.pressure import WorkspacePressureReclaimer
 from tinysoul.workspace.actions import (
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
@@ -703,6 +704,113 @@ def test_workspace_trash_restore_preserves_lifecycle_metadata(tmp_path: Path) ->
     assert restored.owner_turn_id == "turn_1"
     assert restored.description == "Temporary draft"
     assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "draft"
+    assert engine.trash_items() == ()
+
+
+def test_workspace_trash_uses_current_disk_digest_after_external_change(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    created = engine.write_text("workspace:draft.md", "old")
+    engine.set_description(
+        created.link,
+        "Old description",
+        expected_digest=created.digest,
+    )
+    (tmp_path / "draft.md").write_text("new", encoding="utf-8")
+
+    trash = engine.trash_resource(created.link, reason="external_change")
+    restored = engine.restore_resource(trash.ref)
+
+    assert restored.digest != created.digest
+    assert restored.description == ""
+    assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "new"
+
+
+def test_workspace_missing_active_resource_exposes_trash_restore_ref(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text("workspace:draft.md", "draft")
+    trash = engine.trash_resource("workspace:draft.md", reason="context_pressure")
+
+    with pytest.raises(WorkspaceTrashRestoreRequired) as exc_info:
+        engine.inspect("workspace:draft.md")
+
+    assert exc_info.value.link == "workspace:draft.md"
+    assert exc_info.value.trash_ref == trash.ref
+
+
+def test_workspace_explicit_delete_requires_manual_restore(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text("workspace:draft.md", "draft")
+    engine.trash_resource("workspace:draft.md", reason="workspace.delete")
+
+    with pytest.raises(WorkspaceContractError, match="does not exist"):
+        engine.inspect("workspace:draft.md")
+
+    assert engine.trash_items()[0].original.link == "workspace:draft.md"
+
+
+def test_workspace_pressure_rolls_back_prior_moves_when_a_later_move_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    for name in ("a.txt", "b.txt"):
+        engine.write_text(
+            f"workspace:{name}",
+            name,
+            retention=WorkspaceRetention.EPHEMERAL,
+        )
+    original = engine.trash_resource
+    calls = 0
+
+    def fail_second(
+        link: WorkspaceLink | str,
+        *,
+        reason: str,
+        source_turn_id: str = "",
+    ):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise WorkspaceIOError("injected failure")
+        return original(
+            link,
+            reason=reason,
+            source_turn_id=source_turn_id,
+        )
+
+    monkeypatch.setattr(engine, "trash_resource", fail_second)
+
+    with pytest.raises(WorkspaceIOError, match="injected failure"):
+        WorkspacePressureReclaimer(engine).reclaim(required_chars=10000)
+
+    assert {record.link for record in engine.snapshot().resources} == {
+        "workspace:a.txt",
+        "workspace:b.txt",
+    }
     assert engine.trash_items() == ()
 
 

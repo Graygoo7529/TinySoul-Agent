@@ -139,6 +139,22 @@ class WorkspaceTrashStore:
                 items.append(self._load_directory(directory))
         return tuple(items)
 
+    def latest_for_link(
+        self,
+        link: str,
+        *,
+        reasons: frozenset[str] | None = None,
+    ) -> WorkspaceTrashItem | None:
+        candidates = tuple(
+            item
+            for item in self.list()
+            if item.original.link == link
+            and (reasons is None or item.reason in reasons)
+        )
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: (item.trashed_at, item.trash_id))
+
     def discard(self, item: WorkspaceTrashItem) -> None:
         try:
             shutil.rmtree(self._directory(item.trash_id))

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action import (
     ActionEngineBuilder,
@@ -15,10 +17,10 @@ from tinysoul.context import (
     PromptReferenceError,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime import SignalBus
+from tinysoul.runtime import RuntimeException, SignalBus
 
 from .engine import WorkspaceEngine
-from .errors import WorkspaceError
+from .errors import WorkspaceError, WorkspaceTrashRestoreRequired
 from .manifest import WorkspaceResourceRecord, WorkspaceRetention
 from .prompts import (
     WorkspaceEditPromptBuilder,
@@ -27,6 +29,11 @@ from .projection import workspace_snapshot_signal
 
 
 WORKSPACE_REWRITE_ACTION = "workspace.rewrite"
+
+
+class WorkspaceActionRuntimeBridge(Protocol):
+    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
+        ...
 
 class WorkspaceScanExecutor(ActionExecutor):
     """Scan workspace resources and sync their summaries into WorkingContext."""
@@ -86,6 +93,7 @@ def register_workspace_actions(
     workspace: WorkspaceEngine,
     bus: SignalBus,
     llm_action: LLMActionTaskRunner,
+    runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
 ) -> ActionEngineBuilder:
     """Register workspace action executors on an action builder."""
 
@@ -93,7 +101,12 @@ def register_workspace_actions(
         builder.register_executor("workspace.scan", WorkspaceScanExecutor(workspace, bus))
         .register_executor(
             "workspace.describe",
-            WorkspaceDescribeExecutor(workspace, bus, llm_action),
+            WorkspaceDescribeExecutor(
+                workspace,
+                bus,
+                llm_action,
+                runtime_bridge=runtime_bridge,
+            ),
         )
         .register_executor(
             "workspace.write",
@@ -101,11 +114,16 @@ def register_workspace_actions(
                 workspace=workspace,
                 bus=bus,
                 llm_action=llm_action,
+                runtime_bridge=runtime_bridge,
             ),
         )
         .register_executor(
             "workspace.patch",
-            WorkspacePatchExecutor(workspace, bus),
+            WorkspacePatchExecutor(
+                workspace,
+                bus,
+                runtime_bridge=runtime_bridge,
+            ),
         )
         .register_executor(
             "workspace.delete",
@@ -115,6 +133,10 @@ def register_workspace_actions(
             "workspace.restore",
             WorkspaceRestoreExecutor(workspace, bus),
         )
+        .register_executor(
+            "workspace.trash.list",
+            WorkspaceTrashListExecutor(workspace),
+        )
     )
     return result.register_executor(
         WORKSPACE_REWRITE_ACTION,
@@ -122,6 +144,7 @@ def register_workspace_actions(
             workspace=workspace,
             bus=bus,
             llm_action=llm_action,
+            runtime_bridge=runtime_bridge,
         ),
     )
 
@@ -134,11 +157,16 @@ class WorkspaceDescribeExecutor(ActionExecutor):
         workspace: WorkspaceEngine,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._bus = bus
         self._llm_action = llm_action
-        self._prompt_builder = WorkspaceEditPromptBuilder(workspace)
+        self._runtime_bridge = runtime_bridge
+        self._prompt_builder = WorkspaceEditPromptBuilder(
+            workspace,
+            runtime_bridge=self._runtime_bridge,
+        )
 
     def execute(
         self,
@@ -196,6 +224,13 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 description,
                 expected_digest=prompt_build.target_digest,
             )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -221,11 +256,16 @@ class WorkspaceWriteExecutor(ActionExecutor):
         workspace: WorkspaceEngine,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._bus = bus
         self._llm_action = llm_action
-        self._prompt_builder = WorkspaceEditPromptBuilder(workspace)
+        self._runtime_bridge = runtime_bridge
+        self._prompt_builder = WorkspaceEditPromptBuilder(
+            workspace,
+            runtime_bridge=self._runtime_bridge,
+        )
 
     def execute(
         self,
@@ -343,6 +383,13 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 retention=retention,
                 owner_turn_id=execution.framework.turn_id,
             )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -363,9 +410,16 @@ class WorkspaceWriteExecutor(ActionExecutor):
 class WorkspacePatchExecutor(ActionExecutor):
     """Apply an exact text replacement to one workspace resource."""
 
-    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        *,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
+    ) -> None:
         self._workspace = workspace
         self._bus = bus
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -407,6 +461,13 @@ class WorkspacePatchExecutor(ActionExecutor):
                 new_text=new_text,
                 expected_digest=expected_digest,
             )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -508,6 +569,43 @@ class WorkspaceRestoreExecutor(ActionExecutor):
         return _success(execution, payload)
 
 
+class WorkspaceTrashListExecutor(ActionExecutor):
+    """List recoverable Workspace Trash items without exposing file content."""
+
+    def __init__(self, workspace: WorkspaceEngine) -> None:
+        self._workspace = workspace
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        try:
+            items = self._workspace.trash_items()
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace Trash listing failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _success(
+            execution,
+            {
+                "items": [
+                    {
+                        "trash_ref": item.ref,
+                        "link": item.original.link,
+                        "summary": item.original.context_summary,
+                        "reason": item.reason,
+                        "source_turn_id": item.source_turn_id,
+                        "trashed_at": item.trashed_at,
+                    }
+                    for item in items
+                ]
+            },
+        )
+
+
 class WorkspaceRewriteExecutor(ActionExecutor):
     """Rewrite a workspace text resource through an internal LLM task."""
 
@@ -517,11 +615,16 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         workspace: WorkspaceEngine,
         bus: SignalBus,
         llm_action: LLMActionTaskRunner,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
         self._bus = bus
         self._llm_action = llm_action
-        self._prompt_builder = WorkspaceEditPromptBuilder(workspace)
+        self._runtime_bridge = runtime_bridge
+        self._prompt_builder = WorkspaceEditPromptBuilder(
+            workspace,
+            runtime_bridge=self._runtime_bridge,
+        )
 
     def execute(
         self,
@@ -603,6 +706,13 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 overwrite=True,
                 expected_digest=expected_digest or prompt_build.target_digest,
             )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
         except WorkspaceError as exc:
             return _failed(
                 execution,

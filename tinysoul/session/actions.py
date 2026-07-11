@@ -72,8 +72,18 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 execution,
                 "session.history.recall max_chars must be a positive integer",
             )
+        cursor = execution.call.params.get("cursor", 0)
+        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+            return _failed(
+                execution,
+                "session.history.recall cursor must be a non-negative integer",
+            )
         try:
-            payload = self._session.recall_history(ref, max_chars=max_chars)
+            payload = self._session.recall_history(
+                ref,
+                max_chars=max_chars,
+                cursor=cursor,
+            )
         except SessionError as exc:
             return _failed(execution, f"Session history recall failed: {exc}")
         return _success(
@@ -82,7 +92,11 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             trace_projection=ActionTraceProjection(
                 mode=ActionTraceMode.FOLDABLE,
                 origin_ref=ref,
-                compact_payload={"origin_ref": ref, "folded": True},
+                compact_payload={
+                    "origin_ref": ref,
+                    "next_cursor": payload["next_cursor"],
+                    "folded": True,
+                },
             ),
         )
 

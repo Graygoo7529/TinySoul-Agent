@@ -204,7 +204,29 @@ def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
     ref = root["ref"]
     assert isinstance(ref, str)
     recalled = trace.recall(ref, max_chars=1000)
-    assert [entry.kind for entry in recalled] == [TraceKind.PHASE_NOTE] * 3
+    assert [entry.kind for entry in recalled.entries] == [TraceKind.PHASE_NOTE] * 3
+    assert recalled.next_cursor is None
+
+
+def test_trace_recall_pages_through_an_immutable_leaf() -> None:
+    trace = TurnTraceHeap(turn_id="turn_page", min_hot_entries=0)
+    for index in range(4):
+        trace.append_phase_note(f"note {index}" + "x" * 30)
+    trace.compact(required_chars=1)
+    head = trace.inspect(trace.head_ref())
+    roots = head["roots"]
+    assert isinstance(roots, list)
+    root = roots[0]
+    assert isinstance(root, dict)
+    ref = root["ref"]
+    assert isinstance(ref, str)
+
+    first = trace.recall(ref, max_chars=40)
+    assert len(first.entries) == 1
+    assert first.next_cursor == 1
+    second = trace.recall(ref, max_chars=1000, cursor=first.next_cursor)
+    assert len(second.entries) == 3
+    assert second.next_cursor is None
 
 
 def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:

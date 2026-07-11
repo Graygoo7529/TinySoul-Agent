@@ -104,7 +104,11 @@ class LLMActionTaskRunner:
         except RuntimeException:
             raise
         except ContextError as exc:
-            raise self._context_bridge.from_context_error(exc) from exc
+            protected_links = _protected_resource_links(execution)
+            payload: JsonObject | None = None
+            if protected_links:
+                payload = {"protected_resource_links": list(protected_links)}
+            raise self._context_bridge.from_context_error(exc, payload=payload) from exc
         if result.status is TaskResultStatus.FAILURE:
             feedback = f"{subject} output did not satisfy its protocol."
             if result.failure is not None and result.failure.model_feedback:
@@ -117,6 +121,19 @@ class LLMActionTaskRunner:
                 {"reason": "missing_json_answer"},
             )
         return result.answer.value
+
+
+def _protected_resource_links(execution: ActionExecution) -> tuple[str, ...]:
+    links: list[str] = []
+    target = execution.call.params.get("target_link")
+    if isinstance(target, str) and target:
+        links.append(target)
+    references = execution.call.params.get("reference_links", [])
+    if isinstance(references, list):
+        for link in references:
+            if isinstance(link, str) and link and link not in links:
+                links.append(link)
+    return tuple(links)
 
 
 def with_action_how(prompt: TaskPrompt, how: ActionHow) -> TaskPrompt:

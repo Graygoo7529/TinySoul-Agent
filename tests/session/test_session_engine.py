@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from tinysoul.context import ContextEngineBuilder, ContextSignalBatch, TurnSummary
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
+from tinysoul.infra.json import JsonObject
 from tinysoul.loop import TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope
 from tinysoul.session import SessionEngine, SessionSettings
@@ -98,6 +100,61 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
     assert "preparation" in late_results[0].model_feedback
 
 
+def test_session_projects_only_policy_selected_action_history(tmp_path: Path) -> None:
+    session = SessionEngine(_settings(tmp_path))
+    summary = TurnSummary(
+        turn_id="turn_actions",
+        inputs=({"input_id": "input_1", "text": "analyze", "merged": True},),
+        trace=(
+            _decision_entry("call_reason", "core.reason", {"topic": "design"}),
+            _decision_entry("call_scan", "workspace.scan", {}),
+            _result_entry("call_reason", "core.reason", {"conclusion": "keep it"}),
+            _result_entry("call_scan", "workspace.scan", {"count": 2}),
+        ),
+    )
+
+    session.record_turn(summary=summary, output={"text": "done"}, exhausted=False)
+
+    snapshot = session.background_snapshot()
+    actions = snapshot.items[0].content["actions"]
+    assert isinstance(actions, list)
+    assert len(actions) == 1
+    action = actions[0]
+    assert isinstance(action, dict)
+    assert action["action"] == "core.reason"
+    assert action["result"]
+
+
+def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) -> None:
+    settings = replace(_settings(tmp_path), recall_max_chars=350)
+    session = SessionEngine(settings)
+    trace: tuple[JsonObject, ...] = tuple(
+        {"entry_id": f"entry_{index}", "detail": "x" * 180}
+        for index in range(3)
+    )
+    session.record_turn(
+        summary=TurnSummary(
+            turn_id="turn_paged",
+            inputs=({"input_id": "input_1", "text": "page", "merged": True},),
+            trace=trace,
+        ),
+        output={"text": "done"},
+        exhausted=False,
+    )
+
+    first = session.recall_history(
+        "session:turn/turn_paged",
+        max_chars=10000,
+    )
+    assert first["next_cursor"] == 1
+    second = session.recall_history(
+        "session:turn/turn_paged",
+        cursor=1,
+    )
+    assert second["cursor"] == 1
+    assert second["next_cursor"] == 2
+
+
 def _settings(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionSettings:
     return SessionSettings(
         root=tmp_path / "session",
@@ -130,3 +187,30 @@ def _summary(turn_id: str, *, ask: str) -> TurnSummary:
             },
         ),
     )
+
+
+def _decision_entry(call_id: str, name: str, arguments: JsonObject) -> JsonObject:
+    return {
+        "entry_id": f"decision_{call_id}",
+        "kind": "decision",
+        "message": {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": call_id, "name": name, "arguments": arguments},
+            ],
+        },
+    }
+
+
+def _result_entry(call_id: str, name: str, result: JsonObject) -> JsonObject:
+    return {
+        "entry_id": f"result_{call_id}",
+        "kind": "action_result",
+        "message": {
+            "role": "tool_result",
+            "call_id": call_id,
+            "tool_name": name,
+            "status": "ok",
+            "content": [{"type": "json", "value": result}],
+        },
+    }
