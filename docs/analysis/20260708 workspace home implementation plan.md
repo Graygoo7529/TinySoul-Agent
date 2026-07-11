@@ -83,13 +83,13 @@ Workspace 模块提供 `WorkspacePromptReferenceResolver`，支持把 `workspace
 
 ### 2.6 Action timeout frame 与 Workspace 写入 guard
 
-status: pending
+status: done
 
-当前实现功能可用，但有两个需要收束的质量点。
+Action timeout result 已具有稳定 frame 协议；Workspace LLM 写入 guard 已下沉到 `WorkspaceEngine.write_text`，write/rewrite 会把构造 prompt 时观察到的 target digest 作为最终写入 guard。
 
-Action runner timeout 结果的 `frame_data` 仍由不同分支临时拼装。全量测试中曾出现 `test_native_cooperative_timeout_does_not_block_later_group` 偶发失败：根因是 10ms timeout 下 worker thread 可能在 deadline 后才真正开始执行，`_run_one` 走 “before execution started” timeout 分支，而不是 native executor 捕获取消后的 “executor_leaked=false” 分支。该行为本身合理，但 timeout result 协议不稳定。后续应统一 timeout frame 结构，例如稳定包含 `reason`、`cancel_requested`、`executor_started`、`executor_leaked`、`late_success` 等字段。
+`ActionBatchRunner._timeout_result` 统一提供 `reason`、`cancel_requested`、`executor_started`、`executor_leaked` 和 `late_success` 字段，各 timeout 分支只覆盖实际差异。worker 在 deadline 后才启动与执行中协作取消仍是两种合法时序，但结果载荷结构保持稳定。
 
-Workspace LLM 写入类 action 的 stale guard 仍分散在 executor 中。`workspace.write` / `workspace.rewrite` 在构造 prompt 前读取目标状态，在 LLM 返回后再写入；当前会做 digest 检查，但 check 与 write 之间仍有竞态窗口。后续应把 digest guard 下沉到 `WorkspaceEngine` 的写入接口，使 “目标状态校验 + 原子写入 + manifest 更新” 在 Workspace 门面内收束。对于 `rewrite`，默认应以进入 prompt 的目标 digest 作为最终写入 guard；对于 `write overwrite=true`，若目标存在并被加载进 prompt，也应使用该 digest 作为最终 guard。
+`workspace.write` / `workspace.rewrite` 在构造 prompt 时记录 target digest，LLM 返回后把显式 `expected_digest` 或该观察 digest 传给 `WorkspaceEngine.write_text`；Engine 在原子替换前完成 digest 检查，并在 reconciliation 失败时回滚文件。当前 catalog 将全部 Workspace action 配置为 serial，因此 Agent 内部 action 不并发修改 Workspace。外部进程仍可能在 digest 检查和原子替换之间修改文件；这是现有单进程个人项目边界下接受的残余风险，不宣称为跨进程 compare-and-swap。
 
 ### 3. Agent Home 检索与 runtime 写入
 
@@ -120,7 +120,7 @@ status: pending
 
 ## 下一阶段实施边界
 
-下一阶段建议先完成第 2.6 阶段的工程收束，然后推进第 3 阶段：Agent Home 顶层检索与 runtime home 写入。实现时继续保持原始 Agent Home 只读，写入落在 runtime home，副本缺失继续走 `HOME_RUNTIME_COPY_REQUIRED` Trap。
+第 2.6 阶段已完成。后续推进第 3 阶段时，继续保持原始 Agent Home 只读，写入落在 runtime home，副本缺失继续走 `HOME_RUNTIME_COPY_REQUIRED` Trap。
 
 ## 验收点
 
@@ -129,7 +129,7 @@ status: pending
 - 行范围读取可以读取长文件局部片段；
 - 读取能力仍不暴露为模型侧 `workspace.read` action；
 - `workspace.write`、`workspace.patch`、`workspace.delete`、`workspace.rewrite` 成功结果不携带文件正文；
-- workspace 变更 action 通过 `context.working.patch` 同步资源摘要或资源移除；
+- workspace 变更 action 通过 `context.workspace.sync` 全量同步版本化资源摘要；
 - workspace 变更 action 的参数和文件失败收敛为局部 `ActionResult`；
 - `core.reason` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；
 - `core.answer` 支持 PromptBlock-only `TaskPrompt` 与 `reference_links`；

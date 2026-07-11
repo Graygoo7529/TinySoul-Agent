@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from tinysoul.context import PromptBlock, PromptReferenceError, PromptReferenceResolver
+from dataclasses import dataclass
+
+from tinysoul.context import (
+    PromptBlock,
+    PromptReferenceError,
+    PromptReferenceResolver,
+    TaskPrompt,
+)
 
 from .engine import WorkspaceEngine, WorkspacePromptInput, WorkspaceTextSlice
 from .errors import WorkspaceError
@@ -49,6 +56,136 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
                 reason="workspace_reference_failed",
                 payload={"error_type": type(exc).__name__, "link": link},
             ) from exc
+
+
+@dataclass(frozen=True)
+class WorkspaceEditPrompt:
+    """One workspace edit task prompt and the target state it was built from."""
+
+    prompt: TaskPrompt
+    target_digest: str = ""
+
+
+class WorkspaceEditPromptBuilder:
+    """Build write and rewrite prompts from workspace resource links."""
+
+    def __init__(self, workspace: WorkspaceEngine) -> None:
+        self._workspace = workspace
+        self._resolver = WorkspacePromptReferenceResolver(workspace)
+
+    def build_write(
+        self,
+        *,
+        target_link: str,
+        instruction: str,
+        reference_links: tuple[str, ...],
+        include_target: bool,
+        overwrite: bool,
+    ) -> WorkspaceEditPrompt:
+        target_blocks: tuple[PromptBlock, ...] = ()
+        target_digest = ""
+        if include_target:
+            target_input = self._workspace.prepare_task_input((target_link,))
+            target_digest = target_input.slices[0].digest
+            target_blocks = prompt_blocks_from_workspace_input(
+                target_input,
+                role="target",
+            )
+        overwrite_text = "true" if overwrite else "false"
+        return WorkspaceEditPrompt(
+            prompt=TaskPrompt(
+                guide_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:guide:workspace_write",
+                        (
+                            "# Task Guide\n"
+                            "Generate the complete UTF-8 text for the workspace target. "
+                            "Return only the full text that should be written."
+                        ),
+                    ),
+                ),
+                input_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_write_instruction",
+                        "# Write Instruction\n" + instruction,
+                    ),
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_write_target",
+                        (
+                            "# Workspace Write Target\n"
+                            f"link: {target_link}\n"
+                            f"overwrite: {overwrite_text}"
+                        ),
+                    ),
+                    *target_blocks,
+                    *self._reference_blocks(reference_links),
+                ),
+                output_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:output:workspace_write",
+                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
+                    ),
+                ),
+            ),
+            target_digest=target_digest,
+        )
+
+    def build_rewrite(
+        self,
+        *,
+        target_link: str,
+        instruction: str,
+        reference_links: tuple[str, ...],
+    ) -> WorkspaceEditPrompt:
+        target_input = self._workspace.prepare_task_input((target_link,))
+        target_blocks = prompt_blocks_from_workspace_input(
+            target_input,
+            role="target",
+        )
+        return WorkspaceEditPrompt(
+            prompt=TaskPrompt(
+                guide_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:guide:workspace_rewrite",
+                        (
+                            "# Task Guide\n"
+                            "Rewrite the workspace target according to the instruction. "
+                            "Return the complete replacement text for the target resource."
+                        ),
+                    ),
+                ),
+                input_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:input:workspace_rewrite_instruction",
+                        "# Rewrite Instruction\n" + instruction,
+                    ),
+                    *target_blocks,
+                    *self._reference_blocks(reference_links),
+                ),
+                output_blocks=(
+                    PromptBlock.from_text(
+                        "task_prompt:output:workspace_rewrite",
+                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
+                    ),
+                ),
+            ),
+            target_digest=target_input.slices[0].digest,
+        )
+
+    def _reference_blocks(
+        self,
+        links: tuple[str, ...],
+    ) -> tuple[PromptBlock, ...]:
+        blocks: list[PromptBlock] = []
+        for link in links:
+            if not self._resolver.supports(link):
+                raise PromptReferenceError(
+                    f"Unsupported workspace reference link: {link}",
+                    reason="unsupported_reference_link",
+                    payload={"link": link},
+                )
+            blocks.extend(self._resolver.resolve_reference(link))
+        return tuple(blocks)
 
 
 def prompt_blocks_from_workspace_input(

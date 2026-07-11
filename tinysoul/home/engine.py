@@ -104,10 +104,7 @@ class AgentHomeEngine:
         if not domain:
             return None
         link = HomePromptMountLink("how_domain", domain)
-        try:
-            return self.read_prompt_mount(link)
-        except AgentHomeContractError:
-            return None
+        return self._read_optional_prompt_mount(link)
 
     def guidance_for_action(self, domain: str, action_name: str) -> str | None:
         if not domain or not action_name:
@@ -117,10 +114,7 @@ class AgentHomeEngine:
         if action_name.startswith(prefix):
             action_key = action_name[len(prefix) :]
         link = HomePromptMountLink("how_action", f"{domain}/{action_key}")
-        try:
-            return self.read_prompt_mount(link)
-        except AgentHomeContractError:
-            return None
+        return self._read_optional_prompt_mount(link)
 
     def ensure_runtime_copy(self, link: HomeLink) -> None:
         if isinstance(link, HomeTopLink):
@@ -141,6 +135,12 @@ class AgentHomeEngine:
                 runtime_path=runtime,
             )
         return runtime
+
+    def _read_optional_prompt_mount(self, link: HomePromptMountLink) -> str | None:
+        source = self._layout.source_for_prompt_mount(link)
+        if not source.is_file():
+            return None
+        return _read_text(self._runtime_read_path(str(link), source))
 
 
 class AgentHomeEngineBuilder:
@@ -164,6 +164,10 @@ class AgentHomeEngineBuilder:
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AgentHomeContractError(
+            f"Agent Home file is not readable as UTF-8 text: {path}"
+        ) from exc
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc
 

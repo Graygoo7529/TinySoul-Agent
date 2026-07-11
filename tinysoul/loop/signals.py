@@ -22,6 +22,16 @@ class LoopControlKind(StrEnum):
     EXIT_PROGRAM = "exit_program"
 
 
+class LoopTraceNoteKind(StrEnum):
+    """Stable kinds for Loop-owned trace note payloads."""
+
+    PHASE1_CONTROL_FEEDBACK = "phase1_control_feedback"
+    PHASE2_TASK_FAILED = "phase2_task_failed"
+    ACTION_PHASE_RESULT = "action_phase_result"
+    MULTIPLE_TURN_OUTPUTS = "multiple_turn_outputs"
+    TURN_CYCLE_LIMIT_REACHED = "turn_cycle_limit_reached"
+
+
 @dataclass(frozen=True)
 class LoopControlRequest:
     """Parsed loop control request."""

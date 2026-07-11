@@ -4,6 +4,8 @@
 
 status: done
 
+superseded: 当前 Workspace 同步协议、HOW 命名和已实现 action 清单以 `AGENT.md`、`docs/design/workspace.md` 与 `docs/design/agent_home.md` 为准。本文保留 2026-07-07 当时的分析过程，其中 `context.working.patch`、`HomeDomainGuidanceProvider` 和 `home:how_action@<domain>` 等名称不再代表当前实现。
+
 本文记录 App 装配层中与 Workspace、Agent Home 后续模块相关的遗留装配问题。Loop 与 App 已拆分：Loop 保留 Program/Turn/Cycle/Phase 运行编排，App 负责 TinySoulApp 装配入口、输入源、输入解析与输入分发。本文记录的问题已通过 Workspace 与 Agent Home 基础接入处理；剩余项继续进入后续模块切面推进。
 
 ## 当前实现位置

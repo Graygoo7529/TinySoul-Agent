@@ -23,6 +23,8 @@ from tinysoul.home import (
     AgentHomeContractError,
     AgentHomeEngine,
     AgentHomeEngineBuilder,
+    AgentHomeFailureKind,
+    AgentHomeIOError,
     AgentHomeRuntimeCopyRequired,
     AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
@@ -40,6 +42,7 @@ from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     HOME_RUNTIME_COPY_REQUIRED,
+    RUNTIME_TURN_END,
     RunLevel,
     RunScope,
     RuntimeException,
@@ -386,6 +389,99 @@ def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
 
     assert guidance.domain == ("workspace guidance",)
     assert guidance.action == ("rewrite guidance",)
+
+
+def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=home_root,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    assert HomeDomainHowProvider(home).guidance_for(("workspace",)) == ()
+    assert HomeActionHowProvider(home).guidance_for(
+        domain="workspace",
+        action_name="workspace.rewrite",
+    ).domain == ()
+
+
+def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> None:
+    prompt_mount = tmp_path / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+    prompt_mount.parent.mkdir(parents=True)
+    prompt_mount.write_bytes(b"\xff")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    home.ensure_runtime_copy(home.parse_link("home:how_domain:workspace"))
+
+    with pytest.raises(RuntimeException) as raised:
+        HomeDomainHowProvider(home).guidance_for(("workspace",))
+
+    assert raised.value.reason == RUNTIME_TURN_END
+    assert raised.value.payload["kind"] == AgentHomeFailureKind.CONTRACT_VIOLATION.value
+    assert raised.value.payload["domain"] == "workspace"
+    assert raised.value.payload["error_type"] == "AgentHomeContractError"
+
+
+def test_home_prompt_mount_io_error_maps_to_runtime_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=home_root,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    def fail_guidance(_self: AgentHomeEngine, _domain: str) -> str | None:
+        raise AgentHomeIOError("unavailable")
+
+    monkeypatch.setattr(AgentHomeEngine, "guidance_for_domain", fail_guidance)
+
+    with pytest.raises(RuntimeException) as raised:
+        HomeDomainHowProvider(home).guidance_for(("workspace",))
+
+    assert raised.value.reason == RUNTIME_TURN_END
+    assert raised.value.payload["kind"] == AgentHomeFailureKind.IO_FAILED.value
+    assert raised.value.payload["domain"] == "workspace"
+
+
+def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=home_root,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, "turn")
+        .push(RunLevel.PHASE, "phase2")
+    )
+
+    result = AgentHomeRuntimeCopyTrapHandler(home).handle(
+        TrapSnap(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+            payload={"link": "home:how_domain:missing"},
+            scope=scope,
+        )
+    )
+
+    assert result.transfer.action is RuntimeTransferAction.END
+    assert result.transfer.target == scope.nearest(RunLevel.TURN)
 
 def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "how" / "refactor" / "references"

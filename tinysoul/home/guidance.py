@@ -6,7 +6,7 @@ from tinysoul.action.backends.llm_action import ActionHow
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
-from .errors import AgentHomeRuntimeCopyRequired
+from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
 
 
 class HomeDomainHowProvider:
@@ -29,6 +29,11 @@ class HomeDomainHowProvider:
                 raise self._runtime_bridge.runtime_copy_required(
                     link=exc.link,
                     payload=exc.to_payload(),
+                ) from exc
+            except AgentHomeError as exc:
+                raise self._runtime_bridge.from_home_error(
+                    exc,
+                    payload={"domain": domain},
                 ) from exc
             if guidance:
                 snippets.append(guidance)
@@ -54,6 +59,11 @@ class HomeActionHowProvider:
             raise self._runtime_bridge.runtime_copy_required(
                 link=exc.link,
                 payload=exc.to_payload(),
+            ) from exc
+        except AgentHomeError as exc:
+            raise self._runtime_bridge.from_home_error(
+                exc,
+                payload={"domain": domain, "action_name": action_name},
             ) from exc
         return ActionHow(
             domain=(domain_guidance,) if domain_guidance else (),

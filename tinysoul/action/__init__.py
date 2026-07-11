@@ -9,6 +9,8 @@ from .core.call import (
     ActionNormalization,
 )
 from .core.catalog import ActionCatalog
+from .core.errors import ActionContractError, ActionError, ActionInvariantError
+from .core.executor import ActionExecutionContext, ActionExecutor
 from .core.result import (
     ActionPhaseResult,
     ActionPhaseResultStage,
@@ -51,7 +53,10 @@ __all__ = [
     "ActionEngine",
     "ActionEngineBuilder",
     "ActionEnvironmentEffect",
+    "ActionError",
     "ActionExecution",
+    "ActionExecutionContext",
+    "ActionExecutor",
     "ActionFramework",
     "ActionHookSpec",
     "ActionNormalization",
@@ -68,6 +73,8 @@ __all__ = [
     "ActionSpec",
     "ActionSettings",
     "ActionToolSpec",
+    "ActionContractError",
+    "ActionInvariantError",
     "DOMAIN_SELECTION_TOOL",
     "parse_action_settings",
 ]

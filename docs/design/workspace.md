@@ -126,7 +126,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 3. 发出与 Manifest 完全一致的 `context.workspace.sync` 全量快照；
 4. 返回 compact JSON payload，包含链接、摘要、大小、mtime 和 digest，不包含文件正文。
 
-正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
+正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。`WorkspaceEditPromptBuilder` 在同一 prompt 模块内组合 write/rewrite 的 instruction、target、reference 和输出协议，并返回构造 prompt 时观察到的 target digest；executor 只负责参数适配、调用 LLM、调用 WorkspaceEngine 和映射结果。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
 
 当前已实现的变更类 action：
 
@@ -183,7 +183,7 @@ tinysoul/workspace/
   failures.py
 ```
 
-`WorkspaceEngine` 是资源管理门面，提供扫描、链接解析、manifest 投影、单资源摘要刷新、扫描诊断、内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、写入、精确 patch 和删除。`WorkspacePromptReferenceResolver` 是 prompt 适配层，负责在 workspace action 或通用 read-only reference 解析中把 workspace 正文切片转换为 Context `PromptBlock`。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、装配忽略规则和 manifest store。后续日终归档应继续挂在 `WorkspaceEngine` 或其 action executor 上，保持 AppBuilder 不理解 workspace 路径语义。
+`WorkspaceEngine` 是资源管理门面，提供扫描、链接解析、manifest 投影、单资源摘要刷新、扫描诊断、内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、写入、精确 patch 和删除。`WorkspacePromptReferenceResolver` 负责把 workspace 正文切片转换为 Context `PromptBlock`，`WorkspaceEditPromptBuilder` 负责 Workspace LLM edit 的 prompt 业务规则；两者都位于 `prompts.py`，不承担文件变更。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、装配忽略规则和 manifest store。后续日终归档应继续挂在 `WorkspaceEngine` 或其 action executor 上，保持 AppBuilder 不理解 workspace 路径语义。
 
 AppBuilder 的目标职责是：
 

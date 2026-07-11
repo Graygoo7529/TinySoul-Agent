@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.context import ContextEngine, ControlResult
 from tinysoul.context.errors import ContextError
-from tinysoul.runtime import RunScope, RuntimeModuleRunner, SignalBus
+from tinysoul.runtime import RunScope, RuntimeModuleRunner, Signal, SignalBus
 from tinysoul.runtime.bridge import RuntimeContextBridge
 
 
@@ -18,6 +18,18 @@ class ContextSignalConsumer:
     bus: SignalBus
     module_runner: RuntimeModuleRunner | None = None
     runtime_bridge: RuntimeContextBridge = RuntimeContextBridge()
+
+    def emit_and_consume(
+        self,
+        signals: tuple[Signal, ...],
+        *,
+        scope: RunScope,
+    ) -> tuple[ControlResult, ...]:
+        """Emit related Context signals and commit them as one captured batch."""
+
+        for signal in signals:
+            self.bus.emit(signal)
+        return self.consume(scope=scope)
 
     def consume(self, *, scope: RunScope) -> tuple[ControlResult, ...]:
         try:

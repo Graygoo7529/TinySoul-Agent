@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tinysoul.context import ContextEngineBuilder, build_input_append_signal
 from tinysoul.loop import (
     LoopControlKind,
     SIGNAL_CONTROL_REQUEST,
@@ -7,6 +8,7 @@ from tinysoul.loop import (
     consume_control_requests,
     parse_control_request_signal,
 )
+from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 
 
@@ -46,3 +48,27 @@ def test_consume_control_requests_leaves_non_loop_signals() -> None:
         "loop.observation",
         "context.trace.append",
     )
+
+
+def test_context_signal_consumer_emits_and_commits_one_group() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("initial")
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+    )
+    bus = SignalBus()
+    consumer = ContextSignalConsumer(context=context, bus=bus)
+
+    results = consumer.emit_and_consume(
+        (
+            build_input_append_signal("first", scope=scope, source="test"),
+            build_input_append_signal("second", scope=scope, source="test"),
+        ),
+        scope=scope,
+    )
+
+    assert results == ()
+    assert len(bus) == 0
+    assert context.merge_pending_inputs() == 2

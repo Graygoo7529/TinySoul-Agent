@@ -73,9 +73,11 @@ Domain 级 HOW 的来源由 `DomainHowProvider` 注入。Agent Home 未接入时
 
 ### Phase3：采取行动
 
-Phase3 将归一化行动调用经 action 门面装配为批次并执行，归一化失败结果与执行结果按原始顺序合并，经反馈渲染整理为工具结果消息与轨迹载荷，通过轨迹信号记入语境。唯一成功的 `core.answer` 在结果已进入 TurnTrace 后构造 `runtime.turn_output`；多个成功 answer 收敛为 phase-level result，不产生 Turn 输出。
+Phase3 将归一化行动调用经 action 门面装配为批次并执行，归一化失败结果与执行结果按原始顺序合并，经反馈渲染整理为工具结果消息与轨迹载荷，通过轨迹信号记入语境。唯一成功的 `core.answer` 在结果已进入 TurnTrace 后构造 `runtime.turn_output`；多个成功 answer 表示违反 Loop 的唯一输出规则，记录为 Loop 自有 phase note，不伪造成 Action phase result，也不产生 Turn 输出。
 
 Phase3 构造 `ActionExecutionContext` 时注入 SignalBus，使 native action 或后端 executor 可以通过既有信号协议向 context 提交状态变更。当前 app 装配层注册的 `workspace.scan` 使用这一通道提交 workspace 资源摘要。
+
+`ContextSignalConsumer.emit_and_consume` 用于把同一逻辑步骤产生的 Context signals 成组发送并作为一个可重放批次提交。Phase decision、成组 action results 和成组 phase notes 不逐条提交；这既保持信号顺序，也使 Home 缺页发生时能够重放完整批次。Loop 自有 trace note 的稳定 `kind` 由 `LoopTraceNoteKind` 表达。
 
 ## Trap 处理器注册
 
@@ -95,7 +97,7 @@ Loop 与 app 的接口保持明确：
 ## 与其他模块的关系
 
 - 对 llm：构造 TaskCall，处理任务成功与任务失败两态结果；任务失败走局部反馈重试，模型链耗尽等边界失败由 llm bridge 进入 Trap。
-- 对 action：只经 ActionEngine 门面使用域作用域、行动作用域、归一化、批次装配与执行。
+- 对 action：只经 ActionEngine 门面使用域作用域、行动作用域、归一化、批次装配与执行；实现 executor 所需的 `ActionExecution`、`ActionExecutionContext`、`ActionExecutor` 与结果类型由 Action 顶层包作为公共 SPI 暴露，上层不导入 `action.core`。
 - 对 context：只经 ContextEngine 门面使用语境构造、控制工具、信号消费、输入合并与 Turn 生命周期。
 - 对 runtime：信号经 SignalBus，控制流经 Runtime 语义异常与 Trap；loop 自身跨边界失败由 `failures.py` 稳定失败枚举经专门 bridge 映射为 Runtime 通用原因。
 - 对 app：接收 app 已解析的 ProgramInputEvent 与 Turn 内部控制/追加输入信号，不关心外部输入源类型。

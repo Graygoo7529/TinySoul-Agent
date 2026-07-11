@@ -5,14 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.action import ActionEngineBuilder
+from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.context import ContextEngineBuilder, TraceKind
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
-from tinysoul.loop import Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.runtime import (
+    RUNTIME_TURN_END,
     RUNTIME_TURN_OUTPUT,
     CyclePhase,
     RunLevel,
@@ -145,6 +146,35 @@ def test_phase1_retries_invalid_domain_selection() -> None:
     assert outcome.attempts == 2
 
 
+def test_phase1_maps_loop_scope_failure_to_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("answer now")
+    action = _action_engine()
+    duplicate_scope = context.control_scope()
+    monkeypatch.setattr(
+        ActionEngine,
+        "phase1_scope",
+        lambda _self: duplicate_scope,
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        Phase1Unit(
+            context=context,
+            action=action,
+            llm=FakeLLM(()),
+            bus=SignalBus(),
+            retry_limit=2,
+        ).run(
+            scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+            cycle_id="cycle_1",
+        )
+
+    assert raised.value.reason == RUNTIME_TURN_END
+    assert raised.value.payload["kind"] == "loop.contract_violation"
+
+
 def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
@@ -182,6 +212,60 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
     assert context.trace_kinds() == (
         TraceKind.PHASE_NOTE,
     )
+
+
+def test_phase3_records_multiple_answers_as_loop_note() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    action = _action_engine()
+    bus = SignalBus()
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="answer_1",
+                name="core.answer",
+                arguments={"guide_blocks": [{"text": "answer"}]},
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="answer_2",
+                name="core.answer",
+                arguments={"guide_blocks": [{"text": "answer"}]},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+
+    outcome = Phase3Unit(context=context, action=action, bus=bus).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+    summary = context.end_turn()
+
+    assert len(outcome.results) == 2
+    assert outcome.phase_results == ()
+    assert context.turn_active is False
+    note_message = summary.trace[-1]["message"]
+    assert isinstance(note_message, dict)
+    content = note_message["content"]
+    assert isinstance(content, list)
+    note_part = content[0]
+    assert isinstance(note_part, dict)
+    note = note_part["value"]
+    assert isinstance(note, dict)
+    assert note["kind"] == LoopTraceNoteKind.MULTIPLE_TURN_OUTPUTS.value
+    result_ids = note["result_ids"]
+    assert isinstance(result_ids, list)
+    assert len(result_ids) == 2
 
 
 def _action_engine():

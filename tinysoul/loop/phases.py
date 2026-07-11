@@ -7,14 +7,13 @@ from typing import Protocol
 
 from tinysoul.action import (
     ActionEngine,
+    ActionError,
+    ActionExecutionContext,
     ActionNormalization,
     ActionPhaseResult,
     ActionResult,
     ActionResultStatus,
 )
-from tinysoul.action.core.result import ActionPhaseResultStage
-from tinysoul.action.core.errors import ActionError
-from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.context import (
     ContextEngine,
     ControlResult,
@@ -39,8 +38,9 @@ from tinysoul.runtime import (
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
 from .context_signals import ContextSignalConsumer
-from .errors import LoopContractError
+from .errors import LoopContractError, LoopError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
+from .signals import LoopTraceNoteKind
 
 ANSWER_ACTION = "core.answer"
 
@@ -126,6 +126,8 @@ class Phase1Unit:
                 raise self._context_bridge.from_context_error(exc) from exc
             except ActionError as exc:
                 raise self._action_bridge.from_action_error(exc) from exc
+            except LoopError as exc:
+                raise self._loop_bridge.from_loop_error(exc) from exc
 
             result = self._llm.run(
                 TaskCall(
@@ -150,16 +152,17 @@ class Phase1Unit:
             )
             try:
                 normalization = self._context.normalize_controls(control_calls, scope=scope)
-                for signal in normalization.signals:
-                    self._bus.emit(signal)
-                consume_results = self._consume_context_signals(scope=scope)
+                consume_results = self._signal_consumer.emit_and_consume(
+                    normalization.signals,
+                    scope=scope,
+                )
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             last_control_results = (*normalization.results, *consume_results)
             if last_control_results:
                 self._emit_phase_note(
                     {
-                        "kind": "phase1_control_feedback",
+                        "kind": LoopTraceNoteKind.PHASE1_CONTROL_FEEDBACK.value,
                         "results": [
                             _control_result_payload(result)
                             for result in last_control_results
@@ -185,23 +188,18 @@ class Phase1Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        self._bus.emit(
-            build_trace_phase_note_signal(
-                note,
-                scope=scope,
-                source="loop.phase1",
-                cycle_id=cycle_id,
-                phase=CyclePhase.PHASE1,
-            )
+        self._signal_consumer.emit_and_consume(
+            (
+                build_trace_phase_note_signal(
+                    note,
+                    scope=scope,
+                    source="loop.phase1",
+                    cycle_id=cycle_id,
+                    phase=CyclePhase.PHASE1,
+                ),
+            ),
+            scope=scope,
         )
-        self._consume_context_signals(scope=scope)
-
-    def _consume_context_signals(
-        self,
-        *,
-        scope: RunScope,
-    ) -> tuple[ControlResult, ...]:
-        return self._signal_consumer.consume(scope=scope)
 
 
 class Phase2Unit:
@@ -285,7 +283,7 @@ class Phase2Unit:
 
         self._emit_note(
             {
-                "kind": "phase2_task_failed",
+                "kind": LoopTraceNoteKind.PHASE2_TASK_FAILED.value,
                 "feedback": list(feedback),
             },
             scope=scope,
@@ -309,16 +307,18 @@ class Phase2Unit:
             tool_calls=result.tool_calls,
             label="decision",
         )
-        self._bus.emit(
-            build_trace_decision_signal(
-                message,
-                scope=scope,
-                source="loop.phase2",
-                cycle_id=cycle_id,
-                phase=CyclePhase.PHASE2,
-            )
+        self._signal_consumer.emit_and_consume(
+            (
+                build_trace_decision_signal(
+                    message,
+                    scope=scope,
+                    source="loop.phase2",
+                    cycle_id=cycle_id,
+                    phase=CyclePhase.PHASE2,
+                ),
+            ),
+            scope=scope,
         )
-        self._consume_context_signals(scope=scope)
 
     def _emit_phase_results(
         self,
@@ -327,15 +327,21 @@ class Phase2Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        for result in results:
-            self._emit_note(
+        signals = tuple(
+            build_trace_phase_note_signal(
                 {
-                    "kind": "action_phase_result",
+                    "kind": LoopTraceNoteKind.ACTION_PHASE_RESULT.value,
                     "result": self._action.render_phase_trace_payload(result),
                 },
                 scope=scope,
+                source="loop.phase2",
                 cycle_id=cycle_id,
+                phase=CyclePhase.PHASE2,
             )
+            for result in results
+        )
+        if signals:
+            self._signal_consumer.emit_and_consume(signals, scope=scope)
 
     def _emit_note(
         self,
@@ -344,23 +350,18 @@ class Phase2Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        self._bus.emit(
-            build_trace_phase_note_signal(
-                note,
-                scope=scope,
-                source="loop.phase2",
-                cycle_id=cycle_id,
-                phase=CyclePhase.PHASE2,
-            )
+        self._signal_consumer.emit_and_consume(
+            (
+                build_trace_phase_note_signal(
+                    note,
+                    scope=scope,
+                    source="loop.phase2",
+                    cycle_id=cycle_id,
+                    phase=CyclePhase.PHASE2,
+                ),
+            ),
+            scope=scope,
         )
-        self._consume_context_signals(scope=scope)
-
-    def _consume_context_signals(
-        self,
-        *,
-        scope: RunScope,
-    ) -> tuple[ControlResult, ...]:
-        return self._signal_consumer.consume(scope=scope)
 
 
 class Phase3Unit:
@@ -424,19 +425,19 @@ class Phase3Unit:
             and result.status is ActionResultStatus.SUCCESS
         )
         if len(answer_results) > 1:
-            phase_results = (
-                *phase_results,
-                ActionPhaseResult.failed(
-                    phase=CyclePhase.PHASE3,
-                    stage=ActionPhaseResultStage.RUN,
-                    model_feedback=(
+            self._emit_note(
+                {
+                    "kind": LoopTraceNoteKind.MULTIPLE_TURN_OUTPUTS.value,
+                    "status": "failed",
+                    "phase": CyclePhase.PHASE3.value,
+                    "feedback": (
                         "Phase3 produced multiple successful core.answer results; "
                         "produce exactly one final answer."
                     ),
-                    frame_data={"reason": "multiple_turn_outputs"},
-                    turn_id=turn_id,
-                    cycle_id=cycle_id,
-                ),
+                    "result_ids": [result.result_id for result in answer_results],
+                },
+                scope=scope,
+                cycle_id=cycle_id,
             )
         self._emit_phase_results(
             phase_results,
@@ -485,16 +486,16 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        for message in self._action.to_tool_result_messages(results):
-            self._bus.emit(
-                build_trace_action_result_signal(
-                    message,
-                    scope=scope,
-                    source="loop.phase3",
-                    cycle_id=cycle_id,
-                )
+        signals = tuple(
+            build_trace_action_result_signal(
+                message,
+                scope=scope,
+                source="loop.phase3",
+                cycle_id=cycle_id,
             )
-        self._consume_context_signals(scope=scope)
+            for message in self._action.to_tool_result_messages(results)
+        )
+        self._signal_consumer.emit_and_consume(signals, scope=scope)
 
     def _emit_phase_results(
         self,
@@ -503,23 +504,41 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        for result in results:
-            self._bus.emit(
+        signals = tuple(
+            build_trace_phase_note_signal(
+                {
+                    "kind": LoopTraceNoteKind.ACTION_PHASE_RESULT.value,
+                    "result": self._action.render_phase_trace_payload(result),
+                },
+                scope=scope,
+                source="loop.phase3",
+                cycle_id=cycle_id,
+                phase=CyclePhase.PHASE3,
+            )
+            for result in results
+        )
+        if signals:
+            self._signal_consumer.emit_and_consume(signals, scope=scope)
+
+    def _emit_note(
+        self,
+        note: JsonObject,
+        *,
+        scope: RunScope,
+        cycle_id: str,
+    ) -> None:
+        self._signal_consumer.emit_and_consume(
+            (
                 build_trace_phase_note_signal(
-                    {
-                        "kind": "action_phase_result",
-                        "result": self._action.render_phase_trace_payload(result),
-                    },
+                    note,
                     scope=scope,
                     source="loop.phase3",
                     cycle_id=cycle_id,
                     phase=CyclePhase.PHASE3,
-                )
-            )
-        self._consume_context_signals(scope=scope)
-
-    def _consume_context_signals(self, *, scope: RunScope) -> None:
-        self._signal_consumer.consume(scope=scope)
+                ),
+            ),
+            scope=scope,
+        )
 
 
 def _merge_tool_scopes(

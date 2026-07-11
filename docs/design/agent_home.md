@@ -132,6 +132,8 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 当前实现提供显式 `ensure_runtime_copy`、Trap handler、`AgentHomeRuntimeCopyRecovery` 和 `HomeBackgroundContentLoader`。启动装配只通过 recovery 物化默认 `home:agent@core`；其它可加载背景只枚举链接并注册 loader，不读取正文、不创建副本。Phase1 实际加载时，loader 在 Context 的事务批次和 Module frame 内读取 runtime home；缺页映射为 `HOME_RUNTIME_COPY_REQUIRED`，Trap 创建副本后重试同一批次。domain/action HOW 与渐进式 action read 复用相同缺页语义。
 
+runtime copy handler 只在副本成功建立时重试当前 frame；链接失效、源文件消失或复制失败时结束最近 Turn（启动阶段结束 Program），避免对不可恢复的缺页重复重试。
+
 原始 Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@core` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
 
 ## BackgroundContext 接入
@@ -153,6 +155,8 @@ Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home �
 Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
 Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部自动加载机制：Phase2 自动加载 domain HOW；Phase3 中带内部 LLM task 的 action 同时自动加载 domain HOW 与 action HOW。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 HOW，Loop 与 Action 也不感知 Agent Home 的目录结构。
+
+HOW prompt mount 是可选内容：对应源文件不存在时 provider 返回空 guidance；文件存在但编码损坏、不可读或映射不变量失败时，不得伪装成“没有 HOW”，而应由 Home provider 通过 Runtime bridge 映射为模块边界失败。副本缺失仍使用专门的 runtime-copy 恢复原因。
 
 ## Progressive Resource Actions
 
@@ -210,7 +214,7 @@ Agent Home 和 Workspace 都基于链接和相对路径，但语义边界不同�
 Agent Home 失败分三层：
 
 1. 局部 action result：链接不存在、资源不是渐进式链接、文件过大、写入冲突、patch 不适用；
-2. 模块边界异常：home root 不可用、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
+2. 模块边界异常：home root 不可用、已有内容无法按 UTF-8 解释、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
 3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，运行期不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`。
 
 Agent Home 应定义 `AgentHomeFailureKind`，并通过 `tinysoul/runtime/bridge/` 下的专门 bridge 转换为 Runtime 通用原因。`home.runtime_copy_required` 的 payload 应包含 `link`、`source_path`、`runtime_path`、`error_type` 和模块失败类型等摘要，不包含文件正文。Home 配置错误应由 home bridge 映射为 `runtime.startup_failed`，而不是落入 infra 或 app 的兜底失败。
@@ -262,4 +266,4 @@ AppBuilder 的目标职责是：
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；
 - 每日沉淀只作为独立维护任务接入，不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点包括：home 写入/patch action、top search、memory append、HOW 使用反馈、daily settlement，以及更完整的 Runtime trap handler 失败路径测试。
+仍需补充的验收点包括：home 写入/patch action、top search、memory append、HOW 使用反馈和 daily settlement。

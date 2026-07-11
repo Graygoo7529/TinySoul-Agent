@@ -23,7 +23,7 @@ from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
-from .signals import TurnOutput, consume_turn_outputs
+from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 
 
 @dataclass(frozen=True)
@@ -173,17 +173,19 @@ class TurnRunner:
         return transfer
 
     def _record_cycle_limit(self, scope: RunScope) -> None:
-        self._bus.emit(
-            build_trace_phase_note_signal(
-                {
-                    "kind": "turn_cycle_limit_reached",
-                    "max_cycles": self._settings.max_cycles_per_turn,
-                },
-                scope=scope,
-                source="loop.turn",
-            )
+        self._signal_consumer.emit_and_consume(
+            (
+                build_trace_phase_note_signal(
+                    {
+                        "kind": LoopTraceNoteKind.TURN_CYCLE_LIMIT_REACHED.value,
+                        "max_cycles": self._settings.max_cycles_per_turn,
+                    },
+                    scope=scope,
+                    source="loop.turn",
+                ),
+            ),
+            scope=scope,
         )
-        self._consume_context_signals(scope=scope)
 
     def _end_turn(self) -> TurnSummary | None:
         if not self._context.turn_active:
@@ -208,9 +210,6 @@ class TurnRunner:
         for signal in result.signals:
             self._bus.emit(signal)
         return result.transfer
-
-    def _consume_context_signals(self, *, scope: RunScope) -> None:
-        self._signal_consumer.consume(scope=scope)
 
     def _set_active_scope(self, scope: RunScope | None) -> None:
         with self._active_scope_lock:

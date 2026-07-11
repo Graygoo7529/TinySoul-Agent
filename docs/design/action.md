@@ -214,6 +214,8 @@ Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide 
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 
+Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home 与 Loop 只从顶层包引用这些协作类型；`action.core` 散件继续只服务于 Action 内部实现与底层单元测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
+
 `ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。已注册 backend 可以同步提供 backend options validator；这些 validator 在 catalog 加载阶段校验各自的 TOML options，并把动态边界尽早转换为后端明确类型。通用 `subprocess.default` 和 `script.temporary` 后端由 builder 默认注册 executor 与 options validator；native handler 需要调用方显式注册具体函数。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。
 
 ## Action Schema
