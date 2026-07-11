@@ -1,0 +1,7 @@
+name = "context"
+description = "Current Turn context and recoverable trace history."
+selection_hint = "Use when compressed current-Turn reasoning or action history must be explored."
+
+[runtime]
+timeout_seconds = 5
+parallel_policy = "serial"

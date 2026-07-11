@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 import json
-import re
 from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject, JsonTypeError, to_json_object
@@ -253,7 +252,7 @@ class ResponseInterpreter:
         return tool_calls
 
     def _parse_json_object(self, text: str) -> JsonObject:
-        cleaned = _extract_json_text(text)
+        cleaned = _normalize_json_text(text)
         try:
             value = json.loads(cleaned)
         except json.JSONDecodeError as exc:
@@ -267,19 +266,15 @@ class ResponseInterpreter:
         return to_json_object(value)
 
 
-def _extract_json_text(text: str) -> str:
+def _normalize_json_text(text: str) -> str:
     stripped = text.strip()
-    fenced = re.search(r"```json\s*\n(.*?)\n\s*```", stripped, re.DOTALL)
-    if fenced:
-        stripped = fenced.group(1).strip()
-
-    decoder = json.JSONDecoder()
-    for start in (index for index, char in enumerate(stripped) if char == "{"):
-        try:
-            _, end = decoder.raw_decode(stripped[start:])
-        except json.JSONDecodeError:
-            continue
-        return stripped[start : start + end]
+    lines = stripped.splitlines()
+    if (
+        len(lines) >= 3
+        and lines[0].strip().lower() == "```json"
+        and lines[-1].strip() == "```"
+    ):
+        return "\n".join(lines[1:-1]).strip()
     return stripped
 
 

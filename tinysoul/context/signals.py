@@ -22,7 +22,11 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
 from tinysoul.runtime import CyclePhase, RunScope, Signal
 
 from .errors import ContextContractError
-from .background import BackgroundPatch
+from .background import (
+    BackgroundPatch,
+    SessionBackgroundItem,
+    SessionBackgroundSnapshot,
+)
 from .working import (
     Milestone,
     TodoItem,
@@ -35,6 +39,7 @@ from .working import (
 SIGNAL_NAMESPACE = "context"
 SIGNAL_WORKING_PATCH = "context.working.patch"
 SIGNAL_WORKSPACE_SYNC = "context.workspace.sync"
+SIGNAL_SESSION_SYNC = "context.session.sync"
 SIGNAL_BACKGROUND_PATCH = "context.background.patch"
 SIGNAL_TRACE_APPEND = "context.trace.append"
 SIGNAL_INPUT_APPEND = "context.input.append"
@@ -149,6 +154,51 @@ def parse_workspace_sync_signal(signal: Signal) -> tuple[str, WorkspaceSnapshot]
 
 
 # ---------------------------------------------------------------------------
+# Session background snapshot
+
+
+def build_session_sync_signal(
+    snapshot: SessionBackgroundSnapshot,
+    *,
+    call_id: str,
+    scope: RunScope,
+    source: str,
+) -> Signal:
+    return Signal(
+        name=SIGNAL_SESSION_SYNC,
+        source=source,
+        scope=scope,
+        payload={
+            "call_id": call_id,
+            "revision": snapshot.revision,
+            "items": [
+                {"item_id": item.item_id, "content": item.content}
+                for item in snapshot.items
+            ],
+        },
+    )
+
+
+def parse_session_sync_signal(
+    signal: Signal,
+) -> tuple[str, SessionBackgroundSnapshot]:
+    call_id = _required_str(signal.payload, "call_id")
+    revision = signal.payload.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ContextContractError(
+            "Session background snapshot revision must be non-negative"
+        )
+    items = tuple(
+        SessionBackgroundItem(
+            item_id=_required_str(item, "item_id"),
+            content=_object_field(item, "content"),
+        )
+        for item in _object_list(signal.payload, "items")
+    )
+    return call_id, SessionBackgroundSnapshot(revision=revision, items=items)
+
+
+# ---------------------------------------------------------------------------
 # Background patch
 
 
@@ -195,6 +245,8 @@ class TraceAppend:
     phase: CyclePhase | None = None
     decision: AssistantMessage | None = None
     action_result: ToolResultMessage | None = None
+    compact_action_result: ToolResultMessage | None = None
+    origin_ref: str = ""
     note: JsonObject | None = None
 
 
@@ -246,6 +298,8 @@ def build_trace_action_result_signal(
     scope: RunScope,
     source: str,
     cycle_id: str = "",
+    origin_ref: str = "",
+    compact_payload: JsonObject | None = None,
 ) -> Signal:
     payload: JsonObject = {
         "kind": TRACE_APPEND_ACTION_RESULT,
@@ -255,6 +309,13 @@ def build_trace_action_result_signal(
         "status": message.status.value,
         "content": _parts_to_json(message.parts),
     }
+    if compact_payload is not None:
+        if not origin_ref:
+            raise ContextContractError(
+                "Foldable trace action result requires a non-empty origin_ref"
+            )
+        payload["origin_ref"] = origin_ref
+        payload["compact_payload"] = to_json_object(compact_payload)
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
 
@@ -349,11 +410,28 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
                     status=status,
                     label="action_result",
                 )
+        origin_ref = _optional_str(signal.payload, "origin_ref")
+        compact_action_result = None
+        compact_payload = signal.payload.get("compact_payload")
+        if compact_payload is not None:
+            if not origin_ref or not isinstance(compact_payload, dict):
+                raise ContextContractError(
+                    "Foldable trace result requires origin_ref and compact_payload"
+                )
+            compact_action_result = ToolResultMessage.from_json(
+                call_id=_required_str(signal.payload, "call_id"),
+                tool_name=_required_str(signal.payload, "tool_name"),
+                value=compact_payload,
+                status=status,
+                label="action_result_folded",
+            )
         return TraceAppend(
             kind=kind,
             cycle_id=cycle_id,
             phase=CyclePhase.PHASE3,
             action_result=message,
+            compact_action_result=compact_action_result,
+            origin_ref=origin_ref,
         )
     if kind is TraceAppendKind.PHASE_NOTE:
         note = signal.payload.get("note")

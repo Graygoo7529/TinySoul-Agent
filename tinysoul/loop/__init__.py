@@ -28,7 +28,11 @@ from .completion import (
     TurnCompletionHandler,
     TurnCompletionPipeline,
 )
-from .preparation import TurnPreparationHandler, TurnPreparationPipeline
+from .preparation import (
+    TurnPreparationHandler,
+    TurnPreparationPipeline,
+    TurnPreparationRequest,
+)
 
 if TYPE_CHECKING:
     from .cycle import CycleOutcome, CycleRunner
@@ -71,6 +75,7 @@ __all__ = [
     "TurnOutput",
     "TurnPreparationHandler",
     "TurnPreparationPipeline",
+    "TurnPreparationRequest",
     "TurnCompletion",
     "TurnCompletionHandler",
     "TurnCompletionPipeline",

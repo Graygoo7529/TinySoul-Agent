@@ -1,0 +1,27 @@
+name = "context.trace.inspect"
+domain = "context"
+
+[tool]
+description = "Inspect one TurnTrace heap head or branch and return its next-level headers."
+
+[tool.schema]
+type = "object"
+required = ["ref"]
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "A turn:trace heap head or node reference."
+
+[semantic]
+use_when = ["Need to navigate compressed current-Turn history"]
+avoid_when = ["The needed interaction is already visible in the recent trace"]
+effects = ["read_only"]
+examples = ["Inspect turn:trace@turn_x before recalling an older leaf"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "context.trace.inspect"

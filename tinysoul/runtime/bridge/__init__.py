@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .infra import RuntimeInfraBridge
     from .llm import RuntimeLLMBridge
     from .loop import RuntimeLoopBridge
+    from .session import RuntimeSessionBridge
     from .workspace import RuntimeWorkspaceBridge
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "RuntimeInfraBridge",
     "RuntimeLLMBridge",
     "RuntimeLoopBridge",
+    "RuntimeSessionBridge",
     "RuntimeWorkspaceBridge",
 ]
 
@@ -55,6 +57,10 @@ def __getattr__(name: str) -> object:
         from .loop import RuntimeLoopBridge
 
         return RuntimeLoopBridge
+    if name == "RuntimeSessionBridge":
+        from .session import RuntimeSessionBridge
+
+        return RuntimeSessionBridge
     if name == "RuntimeWorkspaceBridge":
         from .workspace import RuntimeWorkspaceBridge
 

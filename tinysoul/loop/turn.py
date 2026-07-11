@@ -26,7 +26,7 @@ from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
-from .preparation import TurnPreparationPipeline
+from .preparation import TurnPreparationPipeline, TurnPreparationRequest
 from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 
 
@@ -94,7 +94,11 @@ class TurnRunner:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
             self._set_active_scope(turn_scope)
-            transfer = self._run_preparation(turn_id=turn_id, scope=turn_scope)
+            transfer = self._run_preparation(
+                turn_id=turn_id,
+                user_input=user_input,
+                scope=turn_scope,
+            )
             if transfer is None:
                 for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
                     cycle = self._cycle_runner.run(
@@ -148,6 +152,7 @@ class TurnRunner:
         self,
         *,
         turn_id: str,
+        user_input: str,
         scope: RunScope,
     ) -> RuntimeTransfer | None:
         turn_frame = scope.nearest(RunLevel.TURN)
@@ -158,10 +163,14 @@ class TurnRunner:
         while True:
             try:
                 signals = self._preparation_pipeline.prepare(
-                    turn_id=turn_id,
-                    scope=scope,
+                    TurnPreparationRequest(
+                        turn_id=turn_id,
+                        user_input=user_input,
+                        scope=scope,
+                    )
                 )
                 self._commit_preparation_signals(signals, scope=scope)
+                self._context.complete_preparation()
                 return None
             except RuntimeTransferInterrupt as interrupt:
                 transfer = interrupt.transfer

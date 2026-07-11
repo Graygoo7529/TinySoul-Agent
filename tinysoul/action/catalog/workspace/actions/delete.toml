@@ -2,7 +2,7 @@ name = "workspace.delete"
 domain = "workspace"
 
 [tool]
-description = "Delete one workspace resource. The action result returns metadata for the deleted resource only."
+description = "Remove one resource from the active Workspace by moving it to recoverable Trash."
 
 [tool.schema]
 type = "object"

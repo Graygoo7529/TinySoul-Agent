@@ -29,6 +29,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.loop import TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
@@ -40,9 +41,11 @@ from tinysoul.workspace import (
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
     WorkspaceReconcileStatus,
+    WorkspaceRetention,
     WorkspaceResourceKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
+    WorkspacePressureReclaimer,
 )
 from tinysoul.workspace.engine import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceIOError
@@ -341,7 +344,9 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
         runtime_bridge=RuntimeWorkspaceBridge(),
     )
 
-    for signal in handler.prepare(turn_id=turn_id, scope=scope):
+    for signal in handler.prepare(
+        TurnPreparationRequest(turn_id=turn_id, user_input="hello", scope=scope)
+    ):
         bus.emit(signal)
     assert context.consume_signals(bus) == ()
 
@@ -648,7 +653,7 @@ def test_workspace_patch_text_rejects_ambiguous_or_stale_patch(tmp_path: Path) -
         )
 
 
-def test_workspace_delete_resource_removes_file_and_manifest(tmp_path: Path) -> None:
+def test_workspace_trash_resource_removes_file_and_manifest(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -658,11 +663,107 @@ def test_workspace_delete_resource_removes_file_and_manifest(tmp_path: Path) -> 
     ).build()
     engine.reconcile()
 
-    record = engine.delete_resource("workspace:a.md")
+    record = engine.trash_resource(
+        "workspace:a.md",
+        reason="test",
+    ).original
 
     assert record.link == "workspace:a.md"
     assert not (tmp_path / "a.md").exists()
     assert engine.load_manifest().resources == ()
+
+
+def test_workspace_trash_restore_preserves_lifecycle_metadata(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    created = engine.write_text(
+        "workspace:draft.md",
+        "draft",
+        retention=WorkspaceRetention.TURN,
+        owner_turn_id="turn_1",
+    )
+    created = engine.set_description(
+        created.link,
+        "Temporary draft",
+        expected_digest=created.digest,
+    )
+
+    trash = engine.trash_resource(
+        created.link,
+        reason="test_restore",
+        source_turn_id="turn_1",
+    )
+    restored = engine.restore_resource(trash.ref)
+
+    assert restored.retention is WorkspaceRetention.TURN
+    assert restored.owner_turn_id == "turn_1"
+    assert restored.description == "Temporary draft"
+    assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "draft"
+    assert engine.trash_items() == ()
+
+
+def test_workspace_pressure_only_trashes_explicitly_reclaimable_resources(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    engine.write_text(
+        "workspace:temporary.txt",
+        "temporary",
+        retention=WorkspaceRetention.EPHEMERAL,
+        owner_turn_id="turn_1",
+    )
+    engine.write_text(
+        "workspace:daily.txt",
+        "daily",
+        retention=WorkspaceRetention.DAY,
+        owner_turn_id="turn_1",
+    )
+
+    report = WorkspacePressureReclaimer(engine).reclaim(
+        required_chars=1,
+        turn_id="turn_1",
+    )
+
+    assert report.removed_links == ("workspace:temporary.txt",)
+    assert tuple(record.link for record in engine.snapshot().resources) == (
+        "workspace:daily.txt",
+    )
+    assert len(engine.trash_items()) == 1
+
+
+def test_workspace_manifest_v1_migrates_lifecycle_defaults() -> None:
+    manifest = WorkspaceManifest.from_json(
+        {
+            "schema_version": 1,
+            "revision": 3,
+            "resources": [
+                {
+                    "link": "workspace:old.md",
+                    "relative_path": "old.md",
+                    "kind": "text",
+                    "media_type": "text/markdown",
+                    "suffix": ".md",
+                    "summary": "Markdown text, 3 bytes",
+                    "size": 3,
+                    "mtime_ns": 1,
+                    "digest": "abc",
+                }
+            ],
+        }
+    )
+
+    assert manifest.schema_version == 2
+    assert manifest.resources[0].retention is WorkspaceRetention.DAY
+    assert manifest.resources[0].owner_turn_id == ""
 
 
 def test_workspace_prepare_task_input_rejects_empty_links(tmp_path: Path) -> None:

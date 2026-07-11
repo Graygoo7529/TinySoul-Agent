@@ -1,0 +1,19 @@
+name = "context.trace.fold"
+domain = "context"
+
+[tool]
+description = "Fold currently recalled TurnTrace content back to compact references."
+schema = { type = "object", properties = {}, required = [], additionalProperties = false }
+
+[semantic]
+use_when = ["Recalled trace details are no longer needed"]
+avoid_when = ["The recalled details are still needed for the next decision"]
+effects = ["modifying"]
+examples = ["Fold recalled trace details after extracting the needed conclusion"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "context.trace.fold"

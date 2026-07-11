@@ -19,7 +19,7 @@ from tinysoul.runtime import SignalBus
 
 from .engine import WorkspaceEngine
 from .errors import WorkspaceError
-from .manifest import WorkspaceResourceRecord
+from .manifest import WorkspaceResourceRecord, WorkspaceRetention
 from .prompts import (
     WorkspaceEditPromptBuilder,
 )
@@ -110,6 +110,10 @@ def register_workspace_actions(
         .register_executor(
             "workspace.delete",
             WorkspaceDeleteExecutor(workspace, bus),
+        )
+        .register_executor(
+            "workspace.restore",
+            WorkspaceRestoreExecutor(workspace, bus),
         )
     )
     return result.register_executor(
@@ -256,6 +260,17 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 "workspace.write expected_digest must be a string when provided.",
                 {"reason": "invalid_expected_digest"},
             )
+        retention_value = execution.call.params.get("retention")
+        retention = None
+        if retention_value is not None:
+            try:
+                retention = WorkspaceRetention(retention_value)
+            except (TypeError, ValueError):
+                return _failed(
+                    execution,
+                    "workspace.write retention must be ephemeral, turn, day, or persistent.",
+                    {"reason": "invalid_retention"},
+                )
         reference_links = _string_list_param(
             execution.call.params.get("reference_links", []),
         )
@@ -325,6 +340,8 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest or prompt_build.target_digest,
+                retention=retention,
+                owner_turn_id=execution.framework.turn_id,
             )
         except WorkspaceError as exc:
             return _failed(
@@ -407,7 +424,7 @@ class WorkspacePatchExecutor(ActionExecutor):
 
 
 class WorkspaceDeleteExecutor(ActionExecutor):
-    """Delete one workspace resource and remove its working summary."""
+    """Move one resource to recoverable Trash and remove its active summary."""
 
     def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
         self._workspace = workspace
@@ -426,7 +443,11 @@ class WorkspaceDeleteExecutor(ActionExecutor):
                 {"reason": "missing_target_link"},
             )
         try:
-            record = self._workspace.delete_resource(link)
+            item = self._workspace.trash_resource(
+                link,
+                reason="workspace.delete",
+                source_turn_id=execution.framework.turn_id,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -440,8 +461,50 @@ class WorkspaceDeleteExecutor(ActionExecutor):
             bus=self._bus,
             source="workspace.delete",
         )
-        payload = _record_payload(record)
+        payload = _record_payload(item.original)
         payload["deleted"] = True
+        payload["trashed"] = True
+        payload["trash_ref"] = item.ref
+        return _success(execution, payload)
+
+
+class WorkspaceRestoreExecutor(ActionExecutor):
+    """Restore one logically deleted resource from Workspace Trash."""
+
+    def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
+        self._workspace = workspace
+        self._bus = bus
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        trash_ref = execution.call.params.get("trash_ref")
+        if not isinstance(trash_ref, str) or not trash_ref:
+            return _failed(
+                execution,
+                "workspace.restore requires a non-empty 'trash_ref' parameter.",
+                {"reason": "missing_trash_ref"},
+            )
+        try:
+            record = self._workspace.restore_resource(trash_ref)
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace restore failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        _emit_workspace_snapshot(
+            self._workspace,
+            execution=execution,
+            context=context,
+            bus=self._bus,
+            source="workspace.restore",
+        )
+        payload = _record_payload(record)
+        payload["restored"] = True
+        payload["trash_ref"] = trash_ref
         return _success(execution, payload)
 
 

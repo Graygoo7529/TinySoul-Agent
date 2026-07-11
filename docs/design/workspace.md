@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入和文件变更能力。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceContext。`workspace.describe` 把语义描述与 digest 绑定；`workspace.write`、`workspace.patch`、`workspace.delete` 与 `workspace.rewrite` 仍通过 `target_link` 表达变更目标。日终归档仍未实现。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更和可恢复 Trash。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceHeap。`workspace.delete` 是逻辑删除：资源移出 active root 和 Manifest 后返回 `trash:workspace/...`，可由 `workspace.restore` 恢复。日终归档仍未实现。
 
 ## 定位
 
@@ -38,7 +38,7 @@ Workspace 的核心职责：
 
 Workspace 不负责：
 
-- 把文件正文写入 BackgroundContext 或 TurnTraceContext；
+- 把文件正文写入 BackgroundContext 或 TurnTraceHeap；
 - 决定 Phase1/Phase2 的行动策略；
 - 维护 Agent Home 的 WHAT、WHY、HOW 或 MEMORY；
 - 解析终端、HTTP、WebSocket 等外部输入；
@@ -77,6 +77,8 @@ Workspace manifest 记录资源摘要，而不是资源内容。一个资源记�
 - `mtime_ns`：纳秒精度修改时间，用于扫描缓存与提交复核；
 - `digest`：内容摘要，用于变更检测和 description 绑定；
 - `description` / `described_digest`：可选语义描述及其绑定的内容摘要。
+- `retention`：`ephemeral`、`turn`、`day` 或 `persistent`；
+- `owner_turn_id`：产生该资源的 Turn，可用于生命周期回收和审计。
 
 投影到 Context 时只提交轻量信息。当前 WorkingContext 已有 `WorkspaceResource(link, summary)`，Workspace 模块可以先投影为这两个字段；后续如需 size、kind、mtime，应先扩展 Context 的资源摘要协议，而不是把完整 manifest 塞进 trace。
 
@@ -92,6 +94,14 @@ Manifest 是 workspace 的当前资源索引和轻量语义描述层。磁盘是
 Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根目录的框架子目录中，或放在 runtime 元数据目录中；无论采用哪种位置，都不应暴露为普通 `workspace:` 资源，避免模型误把框架索引当作用户资源。
 
 Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
+
+Manifest schema 当前为 v2；读取 v1 时显式迁移，旧资源采用 `day` retention。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
+
+## Trash 与压力回收
+
+Trash 位于 active Workspace root 之外，且不参与 Manifest 扫描。删除采用 prepare-record、原子移动 content、reconciliation、COMMITTED marker 的顺序；启动时发现未提交移动会恢复到原路径。Restore 在目标不存在时反向移动，重新 reconciliation，并恢复原 retention 与 owner 元数据。Trash 自身保留记录、原因、来源 Turn 和原资源摘要，因而是可恢复删除而不是物理销毁。
+
+语境压力恢复只选择 `ephemeral` 和 `turn` 资源，按 retention、mtime、link 确定性排序；`day` 和 `persistent` 不会被自动清理。资源移入 Trash 后必须把新 Manifest 全量同步给 Context；Context 拒绝同步时协调器尝试逐项 restore。Workspace 不自行决定何时触发压力恢复，Loop 只负责跨模块编排，实际资源规则仍归 Workspace 所有。
 
 资源分类使用 Workspace 自有的显式扩展名/MIME 映射，稳定分为 `text`、`image`、`document`、`binary`。text 以有界 UTF-8 文本进入 Prompt；image 在 Workspace 单文件限制与 Context 总图片字节预算内以 `ImagePart` 进入 Prompt，并在构造 ImagePart 前校验 PNG/JPEG/GIF/WebP 内容签名，扩展名与内容不符时显式失败；document 必须先由显式转换 action 生成 Markdown 等可读资源；binary 当前只提供元数据。确定性 summary 始终存在，可选 description 由 `workspace.describe` 生成并通过 `described_digest` 绑定当前内容，digest 变化时 reconciliation 自动清除旧 description。
 
@@ -138,7 +148,8 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 
 - `workspace.write`：接收 `target_link`、`instruction` 和可选 `reference_links`/`overwrite`/`expected_digest`，在 action 内部生成完整文本并写入或覆盖资源；
 - `workspace.patch`：基于 `old_text` 到 `new_text` 的精确单点替换修改资源，可用 `expected_digest` 防止陈旧编辑；
-- `workspace.delete`：删除资源；
+- `workspace.delete`：把资源移入可恢复 Trash；
+- `workspace.restore`：按 Trash ref 恢复原资源及生命周期元数据；
 - `workspace.rewrite`：接收 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
 
 这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
@@ -147,7 +158,7 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 
 WorkspaceEngine 不依赖 Context 类型。`workspace/projection.py` 是 Workspace 拥有的 Context 集成边界，统一把 Manifest records 转成 WorkspaceSnapshot，并供 action executor 与 Turn preparation 共用。Turn 开始时先完整 reconcile 并提交 snapshot，使首个 Phase1 已能看到资源摘要；Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
 
-`WorkspaceReconciler` 专门负责磁盘发现、旧 digest/description 复用、完整性判定、候选状态复核和 Manifest 原子提交。`WorkspaceEngine` 负责资源操作与变更回滚，并以进程内可重入锁串行化同一 Engine 实例上的 write、patch、delete、description 和 reconciliation；外部进程仍可能修改磁盘，因此提交前会重新检查候选文件的 size/mtime，检测到并发变化时 reconciliation 返回 incomplete 并保留旧 Manifest。
+`WorkspaceReconciler` 专门负责磁盘发现、旧 digest/description/lifecycle 复用、完整性判定、候选状态复核和 Manifest 原子提交。`WorkspaceEngine` 负责资源操作、Trash/restore 与变更回滚，并以进程内可重入锁串行化同一 Engine 实例上的 write、patch、trash、restore、description 和 reconciliation；外部进程仍可能修改磁盘，因此提交前会重新检查候选文件的 size/mtime，检测到并发变化时 reconciliation 返回 incomplete 并保留旧 Manifest。
 
 Context 中不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，应在 action 内部进行摘要、切片或转化为临时 task prompt，再把摘要和资源链接写回 trace。
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from tinysoul.context import WorkspaceResource, WorkspaceSnapshot, build_workspace_sync_signal
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -13,6 +13,9 @@ from .engine import WorkspaceEngine
 from .errors import WorkspaceError
 from .failures import WorkspaceFailureKind
 from .manifest import WorkspaceManifest
+
+if TYPE_CHECKING:
+    from tinysoul.loop.preparation import TurnPreparationRequest
 
 
 class WorkspaceRuntimeBridge(Protocol):
@@ -65,7 +68,7 @@ class WorkspaceTurnPreparationHandler:
     workspace: WorkspaceEngine
     runtime_bridge: WorkspaceRuntimeBridge
 
-    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+    def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         try:
             result = self.workspace.reconcile()
         except WorkspaceError as exc:
@@ -86,8 +89,8 @@ class WorkspaceTurnPreparationHandler:
         return (
             workspace_snapshot_signal(
                 result.manifest,
-                call_id=f"{turn_id}:workspace",
-                scope=scope,
+                call_id=f"{request.turn_id}:workspace",
+                scope=request.scope,
                 source="workspace.turn_prepare",
             ),
         )

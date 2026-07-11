@@ -16,7 +16,11 @@ class ContextSettings:
     journal: str = ""
     budget_max_chars: int | None = None
     budget_max_image_bytes: int | None = None
-    keep_recent: int = 12
+    compression_target_ratio: float = 0.80
+    trace_chunk_max_chars: int = 12000
+    trace_branch_factor: int = 4
+    trace_min_hot_entries: int = 2
+    trace_recall_max_chars: int = 8000
 
     def __post_init__(self) -> None:
         if not self.system_text:
@@ -43,28 +47,32 @@ class ContextSettings:
                 value=self.budget_max_image_bytes,
                 expected="positive int",
             )
-        if self.keep_recent < 0:
+        if not 0 < self.compression_target_ratio < 1:
             raise ConfigError(
-                "Context keep_recent cannot be negative",
-                key="context.keep_recent",
-                value=self.keep_recent,
+                "Context compression_target_ratio must be between 0 and 1",
+                key="context.compression_target_ratio",
+                value=self.compression_target_ratio,
+                expected="float between 0 and 1",
+            )
+        _require_positive(self.trace_chunk_max_chars, "trace_chunk_max_chars")
+        if self.trace_branch_factor < 2:
+            raise ConfigError(
+                "Context trace_branch_factor must be at least 2",
+                key="context.trace_branch_factor",
+                value=self.trace_branch_factor,
+                expected="int >= 2",
+            )
+        if self.trace_min_hot_entries < 0:
+            raise ConfigError(
+                "Context trace_min_hot_entries cannot be negative",
+                key="context.trace_min_hot_entries",
+                value=self.trace_min_hot_entries,
                 expected="non-negative int",
             )
+        _require_positive(self.trace_recall_max_chars, "trace_recall_max_chars")
 
 
 def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
-    keep_recent = _optional_int(
-        tree,
-        "keep_recent",
-        default=ContextSettings.keep_recent,
-    )
-    if keep_recent is None:
-        raise ConfigError(
-            "Context keep_recent cannot be null",
-            key="context.keep_recent",
-            value=None,
-            expected="int",
-        )
     return ContextSettings(
         system_text=_optional_str(
             tree,
@@ -82,7 +90,31 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "budget_max_image_bytes",
             default=None,
         ),
-        keep_recent=keep_recent,
+        compression_target_ratio=_optional_float(
+            tree,
+            "compression_target_ratio",
+            default=ContextSettings.compression_target_ratio,
+        ),
+        trace_chunk_max_chars=_required_optional_int(
+            tree,
+            "trace_chunk_max_chars",
+            default=ContextSettings.trace_chunk_max_chars,
+        ),
+        trace_branch_factor=_required_optional_int(
+            tree,
+            "trace_branch_factor",
+            default=ContextSettings.trace_branch_factor,
+        ),
+        trace_min_hot_entries=_required_optional_int(
+            tree,
+            "trace_min_hot_entries",
+            default=ContextSettings.trace_min_hot_entries,
+        ),
+        trace_recall_max_chars=_required_optional_int(
+            tree,
+            "trace_recall_max_chars",
+            default=ContextSettings.trace_recall_max_chars,
+        ),
     )
 
 
@@ -121,3 +153,47 @@ def _optional_int(
             expected="int",
         )
     return value
+
+
+def _required_optional_int(
+    tree: Mapping[str, object],
+    name: str,
+    *,
+    default: int,
+) -> int:
+    value = _optional_int(tree, name, default=default)
+    if value is None:
+        raise ConfigError(
+            "Context configuration value cannot be null",
+            key=f"context.{name}",
+            value=None,
+            expected="int",
+        )
+    return value
+
+
+def _optional_float(
+    tree: Mapping[str, object],
+    name: str,
+    *,
+    default: float,
+) -> float:
+    value = tree.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(
+            "Context configuration value must be numeric",
+            key=f"context.{name}",
+            value=value,
+            expected="float",
+        )
+    return float(value)
+
+
+def _require_positive(value: int, name: str) -> None:
+    if value <= 0:
+        raise ConfigError(
+            "Context configuration value must be positive",
+            key=f"context.{name}",
+            value=value,
+            expected="positive int",
+        )

@@ -26,6 +26,8 @@ tinysoul/loop/
   signals.py         # loop.control.request 信号协议
   prompts.py         # Phase 任务提示构造与 domain HOW provider
   preparation.py     # 首个 Cycle 前的 Turn preparation pipeline
+  completion.py      # Turn 完成后的持久化/后处理 pipeline
+  pressure.py        # Context 与 Workspace 的压力恢复协调
   phases.py          # Phase1/Phase2/Phase3 执行单元
   cycle.py           # CycleRunner
   turn.py            # TurnRunner
@@ -39,9 +41,9 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace 的 TurnSummary 与最终 TurnOutput，为未来 Session 持久化等后处理提供稳定边界；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。执行轮数上限只作为无输出时的兜底保护。
+TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace/heap 元数据的 TurnSummary 与最终 TurnOutput。默认首个处理器把 Turn 持久化到 Session，之后才运行应用追加的 completion handlers；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。执行轮数上限只作为无输出时的兜底保护。
 
-Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。Workspace 使用这一生命周期完成磁盘 reconciliation 和 Manifest 摘要投影；属于本次 preparation 的信号若被 Context 拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
+Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。默认顺序是 Session 先投影当日跨 Turn 历史，Workspace 再完成磁盘 reconciliation 和 Manifest 摘要投影；Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 
@@ -84,7 +86,7 @@ Phase3 构造 `ActionExecutionContext` 时注入 SignalBus，使 native action �
 
 ## Trap 处理器注册
 
-Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；语境压缩优先重试当前 Module，没有 Module 时重试 Phase；Agent Home runtime copy handler 准备副本后重试当前 Module；未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
+Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；Context pressure handler 依次协调 trace fold/heap compaction、Phase1 Background eviction 和可恢复 Workspace Trash，确实回收字符后优先重试当前 Module、否则重试 Phase；Agent Home runtime copy handler 准备副本后重试当前 Module；无进展或未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
 
 ## 与 app 装配层
 

@@ -10,7 +10,7 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ## 设计目标
 
-1. 三段语境（BackgroundContext、TurnTraceContext、WorkingContext）各自职责清晰，状态变更入口收敛。
+1. 三段语境（BackgroundContext、TurnTraceHeap、WorkingContext）各自职责清晰，状态变更入口收敛。
 2. MessageStack 采用构造式组装：每次 LLM Task 单独构造，区段顺序服务提示缓存的稳定前缀。
 3. 语境变更不由模型输出直接驱动：Control Tool Calls 先归一化为信号，再由 Context 整批解析、投影验证并提交可行变更。
 4. 用户轮执行中的追加输入进入语境有明确的暂存与合并语义。
@@ -22,15 +22,17 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### BackgroundContext
 
-用户轮开始前的背景。持有顶层内容条目（BackgroundEntry）的有序集合与当日会话历程摘要。每个条目对应一个 Agent Home 顶层内容链接（如 `home:what@xxx`）及其渲染文本，并区分默认加载与 Phase1 加载两种来源。条目可以被 Phase1 的控制意图加载或逐出。批量消费背景变更时，Context 会在投影状态上顺序验证同批 load/evict：未知链接、逐出未加载链接、同一信号同时加载和逐出同一链接都会收敛为局部结果；加载已经存在的链接是幂等 no-op，不改变已有条目的内容和来源；可行变更再统一提交。
+用户轮开始前的背景。它由两类所有权不同的内容组成：Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；Agent Home 提供 journal、默认顶层条目和 Phase1 动态加载条目。SessionBackground 在每个 Turn 开始时重置，只能在 preparation 窗口提交，并始终渲染在 Agent Home 顶层内容之前。Agent Home 条目可以被 Phase1 的控制意图加载或逐出；预算恢复只允许自动逐出 Phase1 来源，不删除默认顶层规约。
 
 ### WorkingContext
 
 本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 只验证和渲染资源句柄，不读取 workspace 文件内容。
 
-### TurnTraceContext
+### TurnTraceHeap
 
-本轮行为轨迹，append-only。每条轨迹记录（TraceEntry）直接持有 llm 公共消息类型——含工具调用记录的助手消息、工具结果消息和阶段性 note——并附带执行轮、Phase 与来源等结构化元数据。轨迹是 Phase2 行动决策与 Phase3 行动反馈的规范历史，也是语境压缩的作用对象。用户输入不再作为普通 trace 条目保存，而是由本轮输入列表单独渲染。trace append 信号使用 llm 消息能力的稳定投影表达：文本与 JSON 内容以多片段 `content` 载荷保留，assistant decision 可携带 provider-neutral `Reasoning`；Context 只保存该结构，不判断供应商能否回放。图片、文件等非文本资源仍应通过链接进入上下文，而不是塞入 trace 信号。
+本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整记录，同时维护“热条目 + 冷节点头部”的可见投影。压缩不会删除 canonical entry，而是按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。召回结果携带 origin ref，并在下一次压缩时折叠回短指针，避免召回历史递归膨胀。
+
+每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、来源和可选 origin ref。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。Turn 结束时 `seal()` 产生包含完整 entries、节点和 roots 的不可变投影，供 TurnSummary 与 Session 持久化使用。
 
 ### PendingInputs
 
@@ -42,10 +44,11 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 
 1. system 段：Agent 身份与规约；
 2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
-3. BackgroundContext 段：Turn 内基本稳定；
-4. WorkingContext 段：低频变化；
-5. TurnTraceContext 段：Turn 内只追加，按序回放行动决策、行动反馈与阶段 note；
-6. task prompt overlay：每次 LLM Task 不同。
+3. SessionBackground 段：Turn preparation 后固定；
+4. Agent Home Background 段：默认内容稳定，Phase1 可调整动态条目；
+5. WorkingContext 段：低频变化；
+6. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
+7. task prompt overlay：每次 LLM Task 不同。
 
 这个顺序保证跨 LLM Task 的消息前缀尽量稳定，服务供应商提示缓存。
 
@@ -67,6 +70,7 @@ Context 消费的信号协议：
 
 - `context.working.patch`：WorkingContext 变更请求；
 - `context.workspace.sync`：Workspace 独占的版本化 Manifest 全量投影；
+- `context.session.sync`：Session 独占、仅 preparation 可提交的版本化历史头部；
 - `context.background.patch`：顶层内容加载与逐出请求；
 - `context.trace.append`：轨迹追加请求，载荷为消息投影与元数据；decision/action result 的消息内容使用 `content` 多片段投影，支持 text/json，并可为 assistant decision 保留 provider-neutral Reasoning；
 - `context.input.append`：用户追加输入。
@@ -77,14 +81,15 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 ## 语境压缩
 
-压缩流程遵循 Runtime 统一陷入协议，Context 只承担失败表达与压缩服务两个角色：
+压缩流程遵循 Runtime 统一陷入协议，并由 Loop 的压力恢复协调器按所有权边界执行：
 
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
-2. Trap 按原因调用注册的压缩处理器；处理器调用 Context 提供的压缩服务（ContextCompressor）；
-3. 压缩策略为对 TurnTrace 旧条目的裁剪与摘要占位替换：占位条目记录被裁剪的条目数与条目类型，UserInputs、BackgroundContext 与 WorkingContext 不参与裁剪；多次压缩会合并已有摘要占位，压缩报告会标明本次是否实际改变了 trace；
-4. 压缩完成后优先返回重试当前 Module 的运行转移；没有 Module frame 时重试 Phase；压缩后仍不可改变则结束 Turn。
+2. `ContextPressureRecovery` 依据预算 payload 与目标比例计算带滞回的回收量；字符预算和图片预算分开处理，图片单独超限不会触发 Workspace 文件删除；
+3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次只逐出 Phase1 加载的 Background；
+4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn` 的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；同步失败会尝试 restore；
+5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
-压缩策略可以替换（例如升级为 LLM 归纳压缩），流程与接入方式不变。
+Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、默认 Agent Home 内容和 WorkingContext 业务状态不会被无条件裁剪。
 
 ## 失败与异常边界
 
@@ -96,13 +101,13 @@ Context 失败处理分三层：
 
 ## 持久化边界
 
-Context 维护内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary，包含输入全量记录、工作台终态、Background 链接、轨迹摘要及 provider-neutral 完整 JSON trace。Context 不执行持久化；Loop 的 TurnCompletionPipeline 把 summary 与最终 output 提供给未来 Session 等处理器。
+Context 维护 Turn 内内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary，包含输入全量记录、工作台终态、Background 链接、轨迹摘要、provider-neutral 完整 JSON trace 和 heap 元数据。Context 不执行持久化；Loop 的 TurnCompletionPipeline 把 summary 与最终 output 交给 Session 持久化。
 
 持久化读写不属于 Context 职责：workspace 与 Agent Home 的链接读写、运行时副本机制由对应资源模块承担；Context 在这些机制接入后通过既有的条目与摘要模型消费其内容。
 
 ## 组装入口
 
-ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压缩服务；它只向上层暴露 compose、control scope、信号消费、输入合并、压缩、TurnSummary、异常放弃 Turn 与只读快照/摘要，不暴露可变状态持有者。异常放弃 Turn 用于结束阶段无法产出 TurnSummary 时清理活跃状态，不产出持久化摘要。ContextEngineBuilder 负责装配配置（身份 system 文本、默认背景来源、预算阈值等），并在装配边界校验背景链接冲突、非正预算、负数压缩保留数等配置问题。包级公共导出只保留上层装配和协作需要的门面、结果类型、信号 helper、错误和常量；状态持有者、patch 类型和 codec 细节从子模块显式导入，默认服务于模块内部与测试。
+ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压力回收服务；它只向上层暴露 compose、control scope、信号消费、trace inspect/recall/fold、TurnSummary、异常放弃 Turn 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 在装配边界校验背景链接冲突、预算、heap chunk、branch factor、热条目下限、召回上限和压缩目标比例。Context action registrar 采用惰性公共导出，避免 Context 核心包反向 eager import Action 装配层。
 
 ## 设计范围
 

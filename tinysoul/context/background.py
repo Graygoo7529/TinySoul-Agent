@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.llm.messages import Message, UserMessage
+from tinysoul.infra.json import JsonObject, to_json_object
 
 from .errors import ContextContractError, ContextInvariantError
 
@@ -45,12 +46,54 @@ class BackgroundPatch:
         return not (self.load_links or self.evict_links)
 
 
+@dataclass(frozen=True)
+class BackgroundEvictionReport:
+    changed: bool
+    reclaimed_chars: int
+    evicted_links: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class SessionBackgroundItem:
+    """One Session-owned message projected into BackgroundContext."""
+
+    item_id: str
+    content: JsonObject
+
+    def __post_init__(self) -> None:
+        if not self.item_id:
+            raise ContextInvariantError(
+                "SessionBackgroundItem.item_id must be non-empty"
+            )
+        object.__setattr__(self, "content", to_json_object(self.content))
+
+
+@dataclass(frozen=True)
+class SessionBackgroundSnapshot:
+    """Immutable Session history projection for one Turn."""
+
+    revision: int
+    items: tuple[SessionBackgroundItem, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if self.revision < 0:
+            raise ContextInvariantError(
+                "SessionBackgroundSnapshot.revision cannot be negative"
+            )
+        ids = tuple(item.item_id for item in self.items)
+        if len(ids) != len(set(ids)):
+            raise ContextInvariantError(
+                "SessionBackgroundSnapshot.items must have unique ids"
+            )
+
+
 class BackgroundContext:
     """Ordered top-level content entries plus the day journal."""
 
     def __init__(self, *, journal: str = "") -> None:
         self._entries: dict[str, BackgroundEntry] = {}
         self._journal = journal
+        self._session = SessionBackgroundSnapshot(revision=0)
 
     @property
     def journal(self) -> str:
@@ -58,6 +101,28 @@ class BackgroundContext:
 
     def set_journal(self, journal: str) -> None:
         self._journal = journal
+
+    def reset_session(self) -> None:
+        self._session = SessionBackgroundSnapshot(revision=0)
+
+    def check_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> str:
+        if snapshot.revision < self._session.revision:
+            return (
+                "Session background snapshot revision is stale: "
+                f"current {self._session.revision}, received {snapshot.revision}"
+            )
+        if snapshot.revision == self._session.revision and snapshot != self._session:
+            return (
+                "Session background snapshot conflicts with current revision: "
+                f"{snapshot.revision}"
+            )
+        return ""
+
+    def apply_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> None:
+        problem = self.check_session_snapshot(snapshot)
+        if problem:
+            raise ContextInvariantError(problem)
+        self._session = snapshot
 
     def has(self, link: str) -> bool:
         return link in self._entries
@@ -110,6 +175,18 @@ class BackgroundContext:
         return tuple(problems)
 
     def render_messages(self) -> tuple[Message, ...]:
+        return (*self.render_session_messages(), *self.render_home_messages())
+
+    def render_session_messages(self) -> tuple[Message, ...]:
+        return tuple(
+            UserMessage.from_json(
+                item.content,
+                label=f"background:session:{item.item_id}",
+            )
+            for item in self._session.items
+        )
+
+    def render_home_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []
         if self._journal:
             messages.append(
@@ -120,6 +197,25 @@ class BackgroundContext:
                 UserMessage.from_text(entry.content, label=f"background:{entry.link}")
             )
         return tuple(messages)
+
+    def evict_phase1_for_budget(self, *, required_chars: int) -> BackgroundEvictionReport:
+        if required_chars <= 0:
+            return BackgroundEvictionReport(changed=False, reclaimed_chars=0)
+        reclaimed = 0
+        evicted: list[str] = []
+        for entry in tuple(self._entries.values()):
+            if entry.source is not BackgroundSource.PHASE1:
+                continue
+            del self._entries[entry.link]
+            evicted.append(entry.link)
+            reclaimed += len(entry.link) + len(entry.content) + 24
+            if reclaimed >= required_chars:
+                break
+        return BackgroundEvictionReport(
+            changed=bool(evicted),
+            reclaimed_chars=reclaimed,
+            evicted_links=tuple(evicted),
+        )
 
     def _check_patch_against_loaded(
         self,

@@ -42,7 +42,7 @@ home:how_action:<domain>/<action>
 - `home:how@python_refactor`
 - `home:memory@2026-07-07`
 
-`home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceContext。例如：
+`home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceHeap。例如：
 
 - `home:how/python_refactor/references/checklist.md`
 - `home:how/python_refactor/scripts/inspect.py`
@@ -174,7 +174,7 @@ HOW prompt mount 是可选内容：对应源文件不存在时 provider 返回�
 - `home.memory.append`：向当日 memory 草稿追加候选记忆；
 - `home.how.record_feedback`：更新 HOW 包的当日使用反馈。
 
-这些 action 不应默认把长文件内容写入 TurnTraceContext。读取长内容时应提供大小限制、片段读取和摘要策略；写入结果应返回变更摘要和资源链接。
+这些 action 不应默认把长文件内容写入 TurnTraceHeap。读取长内容时应提供大小限制、片段读取和摘要策略；写入结果应返回变更摘要和资源链接。
 
 ## 每日记忆与沉淀
 

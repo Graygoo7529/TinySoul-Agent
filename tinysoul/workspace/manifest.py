@@ -22,6 +22,15 @@ class WorkspaceResourceKind(StrEnum):
     BINARY = "binary"
 
 
+class WorkspaceRetention(StrEnum):
+    """How long an active Workspace resource should normally be retained."""
+
+    EPHEMERAL = "ephemeral"
+    TURN = "turn"
+    DAY = "day"
+    PERSISTENT = "persistent"
+
+
 @dataclass(frozen=True)
 class WorkspaceResourceRecord:
     """One resource entry in a workspace manifest."""
@@ -37,6 +46,8 @@ class WorkspaceResourceRecord:
     digest: str = ""
     description: str = ""
     described_digest: str = ""
+    retention: WorkspaceRetention = WorkspaceRetention.DAY
+    owner_turn_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.link:
@@ -75,6 +86,10 @@ class WorkspaceResourceRecord:
             raise WorkspaceContractError(
                 "Workspace resource description must match the current digest"
             )
+        if not isinstance(self.retention, WorkspaceRetention):
+            raise WorkspaceContractError(
+                "Workspace resource retention must be a WorkspaceRetention"
+            )
 
     @property
     def context_summary(self) -> str:
@@ -95,6 +110,8 @@ class WorkspaceResourceRecord:
             "digest": self.digest,
             "description": self.description,
             "described_digest": self.described_digest,
+            "retention": self.retention.value,
+            "owner_turn_id": self.owner_turn_id,
         }
 
     @classmethod
@@ -103,6 +120,13 @@ class WorkspaceResourceRecord:
             kind = WorkspaceResourceKind(_required_str(value, "kind"))
         except ValueError as exc:
             raise WorkspaceContractError("Unknown workspace resource kind") from exc
+        retention_value = _optional_str(value, "retention") or WorkspaceRetention.DAY.value
+        try:
+            retention = WorkspaceRetention(retention_value)
+        except ValueError as exc:
+            raise WorkspaceContractError(
+                f"Unknown Workspace resource retention: {retention_value}"
+            ) from exc
         return cls(
             link=_required_str(value, "link"),
             relative_path=_required_str(value, "relative_path"),
@@ -115,6 +139,8 @@ class WorkspaceResourceRecord:
             digest=_optional_str(value, "digest"),
             description=_optional_str(value, "description"),
             described_digest=_optional_str(value, "described_digest"),
+            retention=retention,
+            owner_turn_id=_optional_str(value, "owner_turn_id"),
         )
 
 
@@ -122,7 +148,7 @@ class WorkspaceResourceRecord:
 class WorkspaceManifest:
     """Current workspace resource index."""
 
-    schema_version: int = 1
+    schema_version: int = 2
     revision: int = 0
     resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
 
@@ -130,10 +156,10 @@ class WorkspaceManifest:
         if (
             isinstance(self.schema_version, bool)
             or not isinstance(self.schema_version, int)
-            or self.schema_version != 1
+            or self.schema_version != 2
         ):
             raise WorkspaceContractError(
-                "Workspace manifest schema_version must be 1"
+                "Workspace manifest schema_version must be 2"
             )
         if (
             isinstance(self.revision, bool)
@@ -244,6 +270,6 @@ def _optional_non_negative_int(value: JsonObject, name: str) -> int:
 
 def _schema_version(value: JsonObject) -> int:
     item = value.get("schema_version", 1)
-    if isinstance(item, bool) or not isinstance(item, int) or item != 1:
-        raise WorkspaceContractError("Workspace manifest schema_version must be 1")
-    return item
+    if isinstance(item, bool) or not isinstance(item, int) or item not in {1, 2}:
+        raise WorkspaceContractError("Workspace manifest schema_version must be 1 or 2")
+    return 2

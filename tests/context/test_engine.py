@@ -103,7 +103,8 @@ def test_control_scope_tracks_background_state() -> None:
     with pytest.raises(ContextContractError):
         engine.control_scope()
 
-    scope = _scope(engine.begin_turn("hi"))
+    turn_id = engine.begin_turn("hi")
+    scope = _scope(turn_id)
     names = [tool.name for tool in engine.control_scope().tools]
     # home:what@x is loadable; home:agent@core is loaded (and evictable).
     assert CONTROL_LOAD_BACKGROUND in names
@@ -129,7 +130,8 @@ def test_control_scope_tracks_background_state() -> None:
 
 def test_consume_signals_commits_feasible_valid_changes() -> None:
     engine = _engine()
-    scope = _scope(engine.begin_turn("hi"))
+    turn_id = engine.begin_turn("hi")
+    scope = _scope(turn_id)
     bus = SignalBus()
 
     normalization = engine.normalize_controls(
@@ -530,10 +532,15 @@ def test_consume_trace_and_input_signals() -> None:
 def test_compress_via_engine() -> None:
     engine = (
         ContextEngineBuilder(system_text="sys")
-        .with_keep_recent(1)
+        .with_trace_heap(
+            chunk_max_chars=12000,
+            branch_factor=4,
+            min_hot_entries=0,
+        )
         .build()
     )
-    scope = _scope(engine.begin_turn("hi"))
+    turn_id = engine.begin_turn("hi")
+    scope = _scope(turn_id)
     bus = SignalBus()
     for index in range(3):
         bus.emit(
@@ -548,8 +555,9 @@ def test_compress_via_engine() -> None:
 
     report = engine.compress()
     assert report.changed is True
-    assert report.dropped_count == 2
-    assert engine.trace_kinds()[0] is TraceKind.SUMMARY_PLACEHOLDER
+    assert report.compacted_count == 3
+    assert engine.trace_kinds() == (TraceKind.PHASE_NOTE,) * 3
+    assert engine.inspect_trace(f"turn:trace@{turn_id}")["roots"]
 
 
 def test_abort_turn_discards_active_state() -> None:
@@ -578,7 +586,11 @@ def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:
 
 def test_builder_validates_background_configuration() -> None:
     with pytest.raises(ContextContractError):
-        ContextEngineBuilder(system_text="sys").with_keep_recent(-1)
+        ContextEngineBuilder(system_text="sys").with_trace_heap(
+            chunk_max_chars=1,
+            branch_factor=1,
+            min_hot_entries=0,
+        )
     with pytest.raises(ContextContractError):
         ContextEngineBuilder(system_text="sys").with_budget_max_chars(0)
     with pytest.raises(ContextContractError):

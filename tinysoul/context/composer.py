@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
-from tinysoul.infra.json import dumps_json
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -19,7 +20,7 @@ from tinysoul.llm.messages import (
 from .background import BackgroundContext
 from .errors import ContextBudgetError, ContextInvariantError
 from .prompts import TaskPrompt
-from .trace import PendingInputs, TurnTraceContext
+from .trace import PendingInputs, TurnTraceHeap
 from .working import WorkingContext
 
 
@@ -37,6 +38,57 @@ class ContextBudget:
             raise ContextInvariantError(
                 "ContextBudget.max_image_bytes must be positive"
             )
+
+
+class ContextSection(StrEnum):
+    """Stable sections used for budget diagnostics and recovery planning."""
+
+    IDENTITY = "identity"
+    USER_INPUTS = "user_inputs"
+    SESSION_BACKGROUND = "session_background"
+    HOME_BACKGROUND = "home_background"
+    WORKING = "working"
+    TRACE = "trace"
+    TASK_PROMPT = "task_prompt"
+
+
+@dataclass(frozen=True)
+class ContextSectionUsage:
+    chars: int
+    image_bytes: int
+
+    def to_json(self) -> dict[str, int]:
+        return {"chars": self.chars, "image_bytes": self.image_bytes}
+
+
+@dataclass(frozen=True)
+class ContextBudgetReport:
+    """Per-section usage for one attempted MessageStack composition."""
+
+    sections: dict[ContextSection, ContextSectionUsage]
+    total_chars: int
+    total_image_bytes: int
+    max_chars: int | None
+    max_image_bytes: int | None
+
+    @property
+    def required_chars(self) -> int:
+        if self.max_chars is None:
+            return 0
+        return max(0, self.total_chars - self.max_chars)
+
+    def to_json(self) -> JsonObject:
+        return to_json_object({
+            "sections": {
+                section.value: usage.to_json()
+                for section, usage in self.sections.items()
+            },
+            "total_chars": self.total_chars,
+            "total_image_bytes": self.total_image_bytes,
+            "max_chars": self.max_chars,
+            "max_image_bytes": self.max_image_bytes,
+            "required_chars": self.required_chars,
+        })
 
 
 class MessageStackComposer:
@@ -58,26 +110,50 @@ class MessageStackComposer:
         inputs: PendingInputs,
         background: BackgroundContext,
         working: WorkingContext,
-        trace: TurnTraceContext,
+        trace: TurnTraceHeap,
         task_prompt: TaskPrompt,
     ) -> MessageStack:
-        messages: tuple[Message, ...] = (
-            SystemMessage.from_text(self._system_text, label="identity"),
-            *inputs.render_messages(),
-            *background.render_messages(),
-            *working.render_messages(),
-            *trace.render_messages(),
-            *task_prompt.render_messages(),
+        section_messages: dict[ContextSection, tuple[Message, ...]] = {
+            ContextSection.IDENTITY: (
+                SystemMessage.from_text(self._system_text, label="identity"),
+            ),
+            ContextSection.USER_INPUTS: inputs.render_messages(),
+            ContextSection.SESSION_BACKGROUND: background.render_session_messages(),
+            ContextSection.HOME_BACKGROUND: background.render_home_messages(),
+            ContextSection.WORKING: working.render_messages(),
+            ContextSection.TRACE: trace.render_messages(),
+            ContextSection.TASK_PROMPT: task_prompt.render_messages(),
+        }
+        messages = tuple(
+            message
+            for section in ContextSection
+            for message in section_messages[section]
         )
-        estimated = estimate_chars(messages)
+        report = ContextBudgetReport(
+            sections={
+                section: ContextSectionUsage(
+                    chars=estimate_chars(section_messages[section]),
+                    image_bytes=estimate_image_bytes(section_messages[section]),
+                )
+                for section in ContextSection
+            },
+            total_chars=estimate_chars(messages),
+            total_image_bytes=estimate_image_bytes(messages),
+            max_chars=self._budget.max_chars,
+            max_image_bytes=self._budget.max_image_bytes,
+        )
+        estimated = report.total_chars
         max_chars = self._budget.max_chars
         if max_chars is not None and estimated > max_chars:
             raise ContextBudgetError(
                 "Composed message stack exceeds the context budget",
                 estimated_chars=estimated,
                 max_chars=max_chars,
+                estimated_image_bytes=report.total_image_bytes,
+                max_image_bytes=report.max_image_bytes,
+                section_usage=report.to_json(),
             )
-        estimated_image_bytes = estimate_image_bytes(messages)
+        estimated_image_bytes = report.total_image_bytes
         max_image_bytes = self._budget.max_image_bytes
         if (
             max_image_bytes is not None
@@ -89,6 +165,7 @@ class MessageStackComposer:
                 max_chars=max_chars,
                 estimated_image_bytes=estimated_image_bytes,
                 max_image_bytes=max_image_bytes,
+                section_usage=report.to_json(),
             )
         return MessageStack(messages=messages)
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from tinysoul.context import ContextEngineBuilder, build_trace_phase_note_signal
-from tinysoul.loop.trap_handlers import ContextCompressionTrapHandler
+from tinysoul.loop.pressure import ContextPressureRecovery
+from tinysoul.loop.trap_handlers import ContextPressureTrapHandler
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     CyclePhase,
@@ -11,10 +14,27 @@ from tinysoul.runtime import (
     SignalBus,
     TrapSnap,
 )
+from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
-def test_context_compression_trap_retries_current_phase_when_trace_changes() -> None:
-    context = ContextEngineBuilder(system_text="sys").with_keep_recent(1).build()
+def test_context_pressure_trap_retries_current_phase_when_trace_changes(
+    tmp_path: Path,
+) -> None:
+    context = (
+        ContextEngineBuilder(system_text="sys")
+        .with_trace_heap(
+            chunk_max_chars=12000,
+            branch_factor=4,
+            min_hot_entries=0,
+        )
+        .build()
+    )
+    workspace = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
     turn_id = context.begin_turn("compress me")
     bus = SignalBus()
     scope = (
@@ -27,7 +47,7 @@ def test_context_compression_trap_retries_current_phase_when_trace_changes() -> 
     for index in range(3):
         bus.emit(
             build_trace_phase_note_signal(
-                {"index": index},
+                    {"index": index, "detail": "x" * 500},
                 scope=scope,
                 source="test",
                 cycle_id="cycle_1",
@@ -36,11 +56,18 @@ def test_context_compression_trap_retries_current_phase_when_trace_changes() -> 
         )
     context.consume_signals(bus)
 
-    result = ContextCompressionTrapHandler(context).handle(
+    result = ContextPressureTrapHandler(
+        ContextPressureRecovery(
+            context=context,
+            workspace=workspace,
+            target_ratio=0.8,
+        )
+    ).handle(
         TrapSnap(
             reason=CONTEXT_COMPRESSION_REQUIRED,
             message="budget exceeded",
             scope=scope,
+            payload={"estimated_chars": 100, "max_chars": 50},
         )
     )
 

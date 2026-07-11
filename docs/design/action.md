@@ -174,7 +174,7 @@ Action result 需要同时表达三类信息：
 2. 给 trace/log 使用的完整 JSON payload。
 3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
 
-Context 模块决定这些渲染结果如何进入 TurnTraceContext 或 Interaction Context；Action 模块不直接维护 MessageStack。
+Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。对于可逐层召回的大结果，ActionResult 可以附带 foldable trace projection，使 Context 在当前 Cycle 展示完整结果、压缩后只保留 origin ref。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 

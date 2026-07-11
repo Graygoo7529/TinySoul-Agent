@@ -16,6 +16,8 @@ from .result import (
     ActionResult,
     ActionResultStage,
     ActionResultStatus,
+    ActionTraceMode,
+    ActionTraceProjection,
 )
 from .scope import ActionDomainPromptRenderer, ActionScopePreparation
 from .specs import (
@@ -52,6 +54,8 @@ __all__ = [
     "ActionResult",
     "ActionResultStage",
     "ActionResultStatus",
+    "ActionTraceMode",
+    "ActionTraceProjection",
     "ActionRuntimeSpec",
     "ActionSemanticSpec",
     "ActionScopePreparation",

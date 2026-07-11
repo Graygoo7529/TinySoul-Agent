@@ -1,0 +1,27 @@
+name = "workspace.restore"
+domain = "workspace"
+
+[tool]
+description = "Restore one logically deleted resource from recoverable Workspace Trash."
+
+[tool.schema]
+type = "object"
+required = ["trash_ref"]
+additionalProperties = false
+
+[tool.schema.properties.trash_ref]
+type = "string"
+description = "A trash:workspace reference returned by workspace.delete or pressure recovery."
+
+[semantic]
+use_when = ["A resource removed from the active Workspace is needed again"]
+avoid_when = ["An active resource already exists at the original path"]
+effects = ["modifying"]
+examples = ["Restore trash:workspace/trash_abcd after discovering the draft is needed"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "workspace.restore"

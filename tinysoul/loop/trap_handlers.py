@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.context import ContextEngine
 from tinysoul.runtime import (
     RunFrame,
     RunLevel,
@@ -14,6 +13,7 @@ from tinysoul.runtime import (
 )
 
 from .errors import LoopInvariantError
+from .pressure import ContextPressureRecovery
 from .signals import TurnOutput, build_turn_output_signal
 
 
@@ -52,13 +52,13 @@ class EndTurnOrProgramTrapHandler:
 
 
 @dataclass(frozen=True)
-class ContextCompressionTrapHandler:
-    """Compress context trace and retry the current phase when possible."""
+class ContextPressureTrapHandler:
+    """Relieve context pressure and retry the narrowest replayable frame."""
 
-    context: ContextEngine
+    recovery: ContextPressureRecovery
 
     def handle(self, snap: TrapSnap) -> TrapResult:
-        report = self.context.compress()
+        report = self.recovery.recover(payload=snap.payload, scope=snap.scope)
         if report.changed:
             module = snap.scope.nearest(RunLevel.MODULE)
             if module is not None:

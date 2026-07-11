@@ -13,6 +13,7 @@ from tinysoul.action import (
     ActionPhaseResult,
     ActionResult,
     ActionResultStatus,
+    ActionTraceMode,
 )
 from tinysoul.context import (
     ContextEngine,
@@ -34,6 +35,7 @@ from tinysoul.runtime import (
     RunScope,
     RuntimeException,
     RuntimeModuleRunner,
+    Signal,
     SignalBus,
 )
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
@@ -523,16 +525,31 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        signals = tuple(
-            build_trace_action_result_signal(
-                message,
-                scope=scope,
-                source="loop.phase3",
-                cycle_id=cycle_id,
+        messages = self._action.to_tool_result_messages(results)
+        signals: list[Signal] = []
+        for result, message in zip(results, messages):
+            projection = result.trace_projection
+            signals.append(
+                build_trace_action_result_signal(
+                    message,
+                    scope=scope,
+                    source="loop.phase3",
+                    cycle_id=cycle_id,
+                    origin_ref=(
+                        projection.origin_ref
+                        if projection is not None
+                        and projection.mode is ActionTraceMode.FOLDABLE
+                        else ""
+                    ),
+                    compact_payload=(
+                        projection.compact_payload
+                        if projection is not None
+                        and projection.mode is ActionTraceMode.FOLDABLE
+                        else None
+                    ),
+                )
             )
-            for message in self._action.to_tool_result_messages(results)
-        )
-        self._signal_consumer.emit_and_consume(signals, scope=scope)
+        self._signal_consumer.emit_and_consume(tuple(signals), scope=scope)
 
     def _emit_phase_results(
         self,

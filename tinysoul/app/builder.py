@@ -17,6 +17,7 @@ from tinysoul.context import (
     ContextEngineBuilder,
     parse_context_settings,
 )
+from tinysoul.context.actions import register_context_actions
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
     AgentHomeEngine,
@@ -44,12 +45,13 @@ from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.program import ProgramRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
-    ContextCompressionTrapHandler,
+    ContextPressureTrapHandler,
     EndFrameTrapHandler,
     EndTurnOrProgramTrapHandler,
     TurnOutputTrapHandler,
 )
 from tinysoul.loop.turn import TurnRunner
+from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     HOME_RUNTIME_COPY_REQUIRED,
@@ -73,7 +75,18 @@ from tinysoul.runtime.bridge import (
     RuntimeInfraBridge,
     RuntimeLLMBridge,
     RuntimeLoopBridge,
+    RuntimeSessionBridge,
     RuntimeWorkspaceBridge,
+)
+from tinysoul.session import (
+    SessionEngine,
+    parse_session_settings,
+)
+from tinysoul.session.actions import register_session_actions
+from tinysoul.session.errors import SessionError
+from tinysoul.session.projection import (
+    SessionTurnCompletionHandler,
+    SessionTurnPreparationHandler,
 )
 from tinysoul.workspace import (
     WorkspaceEngine,
@@ -103,6 +116,7 @@ class TinySoulAppBuilder:
         self._llm: LLMRunner | None = None
         self._action: ActionEngine | None = None
         self._context: ContextEngine | None = None
+        self._session: SessionEngine | None = None
         self._bus: SignalBus | None = None
         self._domain_how: DomainHowProvider | None = None
         self._input_parser: InputCommandParser | None = None
@@ -134,6 +148,10 @@ class TinySoulAppBuilder:
 
     def with_context_engine(self, context: ContextEngine) -> "TinySoulAppBuilder":
         self._context = context
+        return self
+
+    def with_session_engine(self, session: SessionEngine) -> "TinySoulAppBuilder":
+        self._session = session
         return self
 
     def with_signal_bus(self, bus: SignalBus) -> "TinySoulAppBuilder":
@@ -169,6 +187,7 @@ class TinySoulAppBuilder:
         loop_bridge = RuntimeLoopBridge()
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
+        session_bridge = RuntimeSessionBridge()
         workspace_bridge = RuntimeWorkspaceBridge()
         home_bridge = RuntimeAgentHomeBridge()
         try:
@@ -191,6 +210,11 @@ class TinySoulAppBuilder:
             llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
             home = self._build_home(config, home_bridge)
             workspace = self._build_workspace(config, workspace_bridge)
+            session = (
+                self._session
+                if self._session is not None
+                else self._build_session(config, session_bridge)
+            )
             context = (
                 self._context
                 if self._context is not None
@@ -218,12 +242,14 @@ class TinySoulAppBuilder:
                 config=config,
                 bus=bus,
                 workspace=workspace,
+                context=context,
+                session=session,
                 home=home,
                 home_bridge=home_bridge,
                 action_bridge=action_bridge,
                 llm_action=llm_action,
             )
-            trap = self._build_trap(context, home)
+            trap = self._build_trap(context, home, workspace)
             module_runner = RuntimeModuleRunner(trap=trap, bus=bus)
             signal_consumer = ContextSignalConsumer(
                 context=context,
@@ -271,10 +297,20 @@ class TinySoulAppBuilder:
                 settings=loop_settings,
                 signal_consumer=signal_consumer,
                 completion_pipeline=TurnCompletionPipeline(
-                    tuple(self._turn_completion_handlers)
+                    (
+                        SessionTurnCompletionHandler(
+                            session,
+                            runtime_bridge=session_bridge,
+                        ),
+                        *self._turn_completion_handlers,
+                    )
                 ),
                 preparation_pipeline=TurnPreparationPipeline(
                     (
+                        SessionTurnPreparationHandler(
+                            session,
+                            runtime_bridge=session_bridge,
+                        ),
                         WorkspaceTurnPreparationHandler(
                             workspace,
                             runtime_bridge=workspace_bridge,
@@ -408,7 +444,13 @@ class TinySoulAppBuilder:
                 .with_journal(settings.journal)
                 .with_budget_max_chars(settings.budget_max_chars)
                 .with_budget_max_image_bytes(settings.budget_max_image_bytes)
-                .with_keep_recent(settings.keep_recent)
+                .with_trace_heap(
+                    chunk_max_chars=settings.trace_chunk_max_chars,
+                    branch_factor=settings.trace_branch_factor,
+                    min_hot_entries=settings.trace_min_hot_entries,
+                )
+                .with_trace_recall_max_chars(settings.trace_recall_max_chars)
+                .with_compression_target_ratio(settings.compression_target_ratio)
             )
             for entry in recovery.run(home.default_background_entries):
                 builder.add_default_background(entry.link, entry.content)
@@ -435,12 +477,33 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
+    def _build_session(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeSessionBridge,
+    ) -> SessionEngine:
+        try:
+            settings = parse_session_settings(
+                config.section_tree("session"),
+                project_root=self._root,
+            )
+            return SessionEngine(settings)
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+        except SessionError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+
     def _build_action(
         self,
         *,
         config: ConfigEnvironment,
         bus: SignalBus,
         workspace: WorkspaceEngine,
+        context: ContextEngine,
+        session: SessionEngine,
         home: AgentHomeEngine,
         home_bridge: RuntimeAgentHomeBridge,
         action_bridge: RuntimeActionBridge,
@@ -452,6 +515,8 @@ class TinySoulAppBuilder:
                 project_root=self._root,
             )
             builder = ActionEngineBuilder(settings.catalog_root)
+            register_context_actions(builder, context=context)
+            register_session_actions(builder, session=session)
             register_workspace_actions(
                 builder,
                 workspace=workspace,
@@ -481,6 +546,7 @@ class TinySoulAppBuilder:
         self,
         context: ContextEngine,
         home: AgentHomeEngine,
+        workspace: WorkspaceEngine,
     ) -> RuntimeTrap:
         registry = TrapHandlerRegistry()
         registry.register(RUNTIME_TURN_END, EndFrameTrapHandler(RunLevel.TURN))
@@ -488,7 +554,16 @@ class TinySoulAppBuilder:
         registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
         registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))
-        registry.register(CONTEXT_COMPRESSION_REQUIRED, ContextCompressionTrapHandler(context))
+        registry.register(
+            CONTEXT_COMPRESSION_REQUIRED,
+            ContextPressureTrapHandler(
+                ContextPressureRecovery(
+                    context=context,
+                    workspace=workspace,
+                    target_ratio=context.compression_target_ratio,
+                )
+            ),
+        )
         registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
         registry.register_fallback(EndTurnOrProgramTrapHandler())
         return RuntimeTrap(registry=registry)

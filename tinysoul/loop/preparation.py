@@ -7,13 +7,28 @@ from typing import Protocol
 
 from tinysoul.runtime import RunScope, Signal
 
+from .errors import LoopContractError
+
 
 class TurnPreparationHandler(Protocol):
     """Produce context signals before the first Cycle of a Turn."""
 
-    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+    def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         """Return scoped preparation signals."""
         ...
+
+
+@dataclass(frozen=True)
+class TurnPreparationRequest:
+    turn_id: str
+    user_input: str
+    scope: RunScope
+
+    def __post_init__(self) -> None:
+        if not self.turn_id or not self.user_input:
+            raise LoopContractError(
+                "TurnPreparationRequest requires turn_id and user_input"
+            )
 
 
 @dataclass(frozen=True)
@@ -22,8 +37,8 @@ class TurnPreparationPipeline:
 
     handlers: tuple[TurnPreparationHandler, ...] = field(default_factory=tuple)
 
-    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         signals: list[Signal] = []
         for handler in self.handlers:
-            signals.extend(handler.prepare(turn_id=turn_id, scope=scope))
+            signals.extend(handler.prepare(request))
         return tuple(signals)

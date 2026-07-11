@@ -18,6 +18,8 @@ from .core.result import (
     ActionResult,
     ActionResultStage,
     ActionResultStatus,
+    ActionTraceMode,
+    ActionTraceProjection,
 )
 from .core.scope import (
     DOMAIN_SELECTION_TOOL,
@@ -67,6 +69,8 @@ __all__ = [
     "ActionResult",
     "ActionResultStage",
     "ActionResultStatus",
+    "ActionTraceMode",
+    "ActionTraceProjection",
     "ActionRuntimeSpec",
     "ActionSemanticSpec",
     "ActionScopePreparation",

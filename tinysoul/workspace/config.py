@@ -29,12 +29,32 @@ class WorkspaceSettings:
 
     root: Path
     manifest_path: Path
+    trash_root: Path = Path()
     max_files: int = DEFAULT_MAX_FILES
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     ignore_dirs: tuple[str, ...] = DEFAULT_IGNORE_DIRS
 
     def __post_init__(self) -> None:
+        if self.trash_root == Path():
+            object.__setattr__(
+                self,
+                "trash_root",
+                self.root.parent / f".{self.root.name}.trash",
+            )
+        root = self.root.resolve()
+        trash_root = self.trash_root.resolve()
+        if (
+            root == trash_root
+            or root in trash_root.parents
+            or trash_root in root.parents
+        ):
+            raise ConfigError(
+                "Workspace trash_root must not overlap the active workspace root",
+                key="workspace.trash_root",
+                value=str(self.trash_root),
+                expected="non-overlapping path",
+            )
         if self.max_files <= 0:
             raise ConfigError(
                 "Workspace max_files must be positive",
@@ -84,6 +104,12 @@ def parse_workspace_settings(
             tree,
             "manifest_path",
             default=manifest_default,
+            project_root=project_root,
+        ),
+        trash_root=_optional_path(
+            tree,
+            "trash_root",
+            default=project_root / "runtime" / "trash" / "workspace",
             project_root=project_root,
         ),
         max_files=_optional_int(tree, "max_files", default=DEFAULT_MAX_FILES),

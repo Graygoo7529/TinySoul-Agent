@@ -32,6 +32,37 @@ class ActionResultStage(StrEnum):
     TIMEOUT = "timeout"
 
 
+class ActionTraceMode(StrEnum):
+    """How an action result should be retained in TurnTrace."""
+
+    STANDARD = "standard"
+    FOLDABLE = "foldable"
+
+
+@dataclass(frozen=True)
+class ActionTraceProjection:
+    """Optional compact trace form for a large, recall-style action result."""
+
+    mode: ActionTraceMode = ActionTraceMode.STANDARD
+    origin_ref: str = ""
+    compact_payload: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, ActionTraceMode):
+            raise ActionInvariantError(
+                "ActionTraceProjection.mode must be an ActionTraceMode"
+            )
+        if self.mode is ActionTraceMode.FOLDABLE and not self.origin_ref:
+            raise ActionInvariantError(
+                "Foldable ActionTraceProjection requires a non-empty origin_ref"
+            )
+        object.__setattr__(
+            self,
+            "compact_payload",
+            to_json_object(self.compact_payload),
+        )
+
+
 class ActionPhaseResultStatus(StrEnum):
     """Status for an action-module phase-level local result."""
 
@@ -64,6 +95,7 @@ class ActionResult:
     payload: JsonObject = field(default_factory=dict)
     model_feedback: str = ""
     frame_data: JsonObject = field(default_factory=dict)
+    trace_projection: ActionTraceProjection | None = None
 
     def __post_init__(self) -> None:
         if not self.result_id:
@@ -78,6 +110,13 @@ class ActionResult:
             raise ActionInvariantError("ActionResult.stage must be an ActionResultStage")
         if self.sequence <= 0:
             raise ActionInvariantError("ActionResult.sequence must be positive")
+        if self.trace_projection is not None and not isinstance(
+            self.trace_projection,
+            ActionTraceProjection,
+        ):
+            raise ActionInvariantError(
+                "ActionResult.trace_projection must be an ActionTraceProjection or None"
+            )
         object.__setattr__(self, "payload", to_json_object(self.payload))
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
@@ -94,6 +133,7 @@ class ActionResult:
         payload: JsonObject | None = None,
         model_feedback: str = "",
         frame_data: JsonObject | None = None,
+        trace_projection: ActionTraceProjection | None = None,
     ) -> "ActionResult":
         return cls(
             result_id=_result_id(),
@@ -108,6 +148,7 @@ class ActionResult:
             payload=payload or {},
             model_feedback=model_feedback,
             frame_data=frame_data or {},
+            trace_projection=trace_projection,
         )
 
     @classmethod

@@ -11,7 +11,7 @@ from tinysoul.context.background import (
     BackgroundSource,
 )
 from tinysoul.context.errors import ContextContractError
-from tinysoul.context.trace import PendingInputs, TraceKind, TurnTraceContext
+from tinysoul.context.trace import PendingInputs, TraceKind, TurnTraceHeap
 from tinysoul.context.working import (
     Milestone,
     TodoItem,
@@ -149,7 +149,7 @@ def test_working_patch_sequence_validates_projected_state() -> None:
 
 
 def test_trace_appends_and_render_order() -> None:
-    trace = TurnTraceContext()
+    trace = TurnTraceHeap()
     trace.append_decision(
         AssistantMessage.from_text("thinking"),
         cycle_id="c1",
@@ -173,40 +173,76 @@ def test_trace_appends_and_render_order() -> None:
     assert len(trace.render_messages()) == 3
 
 
-def test_trace_compression_keeps_recent_and_adds_placeholder() -> None:
-    trace = TurnTraceContext()
+def test_trace_compaction_keeps_canonical_entries_and_exposes_heap_head() -> None:
+    trace = TurnTraceHeap(min_hot_entries=2)
     for index in range(6):
         trace.append_phase_note(f"note {index}")
-    report = trace.compress_oldest(keep_recent=2)
+    report = trace.compact(required_chars=1)
     assert report.changed is True
-    assert report.dropped_count == 4
-    entries = trace.entries()
-    assert entries[0].kind is TraceKind.SUMMARY_PLACEHOLDER
-    assert len(entries) == 3
+    assert report.compacted_count == 4
+    assert len(trace.entries()) == 6
+    assert len(trace.hot_entries()) == 2
+    assert trace.render_messages()[0].label == "trace_heap_head"
 
-    # A second pass with nothing else to drop reports no progress.
-    again = trace.compress_oldest(keep_recent=2)
+    again = trace.compact(required_chars=1)
     assert again.changed is False
-    assert again.dropped_count == 0
+    assert again.compacted_count == 0
 
 
-def test_trace_compression_merges_existing_placeholder() -> None:
-    trace = TurnTraceContext()
+def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
+    trace = TurnTraceHeap(turn_id="turn_test", min_hot_entries=1)
     for index in range(4):
         trace.append_phase_note(f"note {index}")
-    first = trace.compress_oldest(keep_recent=1)
-    assert first.dropped_count == 3
-    for index in range(2):
-        trace.append_phase_note(f"new {index}")
+    report = trace.compact(required_chars=1)
+    assert report.compacted_count == 3
+    head = trace.inspect(trace.head_ref())
+    roots = head["roots"]
+    assert isinstance(roots, list)
+    assert roots
+    root = roots[0]
+    assert isinstance(root, dict)
+    ref = root["ref"]
+    assert isinstance(ref, str)
+    recalled = trace.recall(ref, max_chars=1000)
+    assert [entry.kind for entry in recalled] == [TraceKind.PHASE_NOTE] * 3
 
-    second = trace.compress_oldest(keep_recent=1)
-    assert second.changed is True
-    assert second.dropped_count == 2
-    entries = trace.entries()
-    assert [entry.kind for entry in entries].count(TraceKind.SUMMARY_PLACEHOLDER) == 1
-    placeholder = entries[0].message.parts[0]
-    assert isinstance(placeholder, JsonPart)
-    assert placeholder.value["dropped_count"] == 5
+
+def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:
+    trace = TurnTraceHeap(min_hot_entries=2)
+    for index in range(3):
+        trace.append_phase_note(f"cycle one {index}", cycle_id="cycle_1")
+    trace.append_phase_note("cycle two", cycle_id="cycle_2")
+
+    report = trace.compact(required_chars=1)
+
+    assert report.changed is False
+    assert report.compacted_count == 0
+    assert len(trace.hot_entries()) == 4
+
+
+def test_trace_recall_overlay_folds_back_to_origin_pointer() -> None:
+    trace = TurnTraceHeap()
+    full = ToolResultMessage.from_json(
+        call_id="recall_1",
+        tool_name="session.history.recall",
+        value={"detail": "x" * 200},
+    )
+    compact = ToolResultMessage.from_json(
+        call_id="recall_1",
+        tool_name="session.history.recall",
+        value={"origin_ref": "session:turn/old", "folded": True},
+    )
+    trace.append_action_result(
+        full,
+        compact_message=compact,
+        origin_ref="session:turn/old",
+    )
+
+    assert trace.render_messages()[0] == full
+    report = trace.compact(required_chars=0)
+    assert report.folded_recall_count == 1
+    assert trace.render_messages()[0] == compact
+    assert trace.entries()[0].origin_ref == "session:turn/old"
 
 
 def test_pending_inputs_merge_lifecycle() -> None:

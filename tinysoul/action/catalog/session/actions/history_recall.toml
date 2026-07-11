@@ -1,0 +1,31 @@
+name = "session.history.recall"
+domain = "session"
+
+[tool]
+description = "Recall bounded detail for a prior Turn or Session summary ref."
+
+[tool.schema]
+type = "object"
+required = ["ref"]
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "A session:turn or session:summary ref."
+
+[tool.schema.properties.max_chars]
+type = "integer"
+description = "Optional maximum recalled character count."
+
+[semantic]
+use_when = ["Need details hidden behind a Session history ref"]
+avoid_when = ["Only the visible Session background is needed"]
+effects = ["read_only"]
+examples = ["Recall a prior Turn, then follow a summary child ref"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "session.history.recall"

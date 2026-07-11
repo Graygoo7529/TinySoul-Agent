@@ -1,0 +1,22 @@
+name = "session.history.inspect"
+domain = "session"
+
+[tool]
+description = "Inspect the bounded daily Session history head and its recovery refs."
+
+[tool.schema]
+type = "object"
+additionalProperties = false
+
+[semantic]
+use_when = ["Need to locate an earlier Turn or nested Session summary"]
+avoid_when = ["The required current-Turn detail belongs to context.trace"]
+effects = ["read_only"]
+examples = ["List available prior Turn and Session summary refs"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "session.history.inspect"

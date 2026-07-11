@@ -1,0 +1,7 @@
+name = "session"
+description = "Daily cross-Turn conversation history and recoverable detail records."
+selection_hint = "Use when an earlier Turn or summarized conversation detail is needed."
+
+[runtime]
+timeout_seconds = 5
+parallel_policy = "serial"

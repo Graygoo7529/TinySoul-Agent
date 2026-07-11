@@ -275,11 +275,17 @@ def test_executor_registry_validates_catalog_handlers() -> None:
     executors.register("core.answer", NativeFunctionExecutor(lambda execution, context: {"ok": True}))
 
     assert executors.missing_handlers_for(catalog) == (
+        "context.trace.fold",
+        "context.trace.inspect",
+        "context.trace.recall",
         "core.reason",
         "home.resource.read",
+        "session.history.inspect",
+        "session.history.recall",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
+        "workspace.restore",
         "workspace.rewrite",
         "workspace.scan",
         "workspace.write",

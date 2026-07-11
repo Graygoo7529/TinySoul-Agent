@@ -1,0 +1,31 @@
+name = "context.trace.recall"
+domain = "context"
+
+[tool]
+description = "Recall a bounded leaf from compressed current-Turn history."
+
+[tool.schema]
+type = "object"
+required = ["ref"]
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "A leaf turn:trace node reference returned by context.trace.inspect."
+
+[tool.schema.properties.max_chars]
+type = "integer"
+description = "Optional maximum recalled character count."
+
+[semantic]
+use_when = ["Need original details from a compressed current-Turn interaction"]
+avoid_when = ["A branch still needs to be inspected before reaching a leaf"]
+effects = ["read_only"]
+examples = ["Recall a leaf containing an earlier failed action result"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "context.trace.recall"

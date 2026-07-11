@@ -1,26 +1,59 @@
-"""Context compression service."""
+"""TurnTrace compaction policy."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .errors import ContextInvariantError
-from .trace import CompressionReport, TurnTraceContext
+from .trace import TraceCompactionReport, TurnTraceHeap
+
+
+@dataclass(frozen=True)
+class ContextPressureReport:
+    changed: bool
+    reclaimed_chars: int
+    trace: TraceCompactionReport
+    evicted_background_links: tuple[str, ...] = ()
 
 
 class ContextCompressor:
-    """Trim old turn trace entries when the context budget is exceeded.
+    """Create and compact lossless TurnTrace heaps."""
 
-    The compression flow is owned by the runtime trap handler; this service only
-    applies the strategy. Background and working sections are never trimmed.
-    """
+    def __init__(
+        self,
+        *,
+        chunk_max_chars: int,
+        branch_factor: int,
+        min_hot_entries: int,
+    ) -> None:
+        if chunk_max_chars <= 0:
+            raise ContextInvariantError(
+                "ContextCompressor.chunk_max_chars must be positive"
+            )
+        if branch_factor < 2:
+            raise ContextInvariantError(
+                "ContextCompressor.branch_factor must be at least 2"
+            )
+        if min_hot_entries < 0:
+            raise ContextInvariantError(
+                "ContextCompressor.min_hot_entries cannot be negative"
+            )
+        self._chunk_max_chars = chunk_max_chars
+        self._branch_factor = branch_factor
+        self._min_hot_entries = min_hot_entries
 
-    def __init__(self, *, keep_recent: int) -> None:
-        if keep_recent < 0:
-            raise ContextInvariantError("ContextCompressor.keep_recent cannot be negative")
-        self._keep_recent = keep_recent
+    def new_trace(self, turn_id: str) -> TurnTraceHeap:
+        return TurnTraceHeap(
+            turn_id=turn_id,
+            chunk_max_chars=self._chunk_max_chars,
+            branch_factor=self._branch_factor,
+            min_hot_entries=self._min_hot_entries,
+        )
 
-    @property
-    def keep_recent(self) -> int:
-        return self._keep_recent
-
-    def compress(self, trace: TurnTraceContext) -> CompressionReport:
-        return trace.compress_oldest(keep_recent=self._keep_recent)
+    def compress(
+        self,
+        trace: TurnTraceHeap,
+        *,
+        required_chars: int,
+    ) -> TraceCompactionReport:
+        return trace.compact(required_chars=required_chars)

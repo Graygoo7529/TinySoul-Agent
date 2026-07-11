@@ -11,6 +11,7 @@ from tinysoul.loop import (
     TurnCompletionPipeline,
     TurnOutput,
     TurnPreparationPipeline,
+    TurnPreparationRequest,
     build_turn_output_signal,
 )
 from tinysoul.loop.cycle import CycleOutcome, CycleRunner
@@ -42,6 +43,9 @@ class _EndFailingContext:
     def begin_turn(self, user_input: str) -> str:
         self.active = True
         return "turn_1"
+
+    def complete_preparation(self) -> None:
+        pass
 
     def end_turn(self) -> object:
         raise ContextContractError("summary failed")
@@ -110,18 +114,18 @@ class _CountingCycleRunner:
 class _RetryTurnPreparation:
     calls: int = 0
 
-    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         self.calls += 1
         if self.calls == 1:
-            frame = scope.nearest(RunLevel.TURN)
+            frame = request.scope.nearest(RunLevel.TURN)
             assert frame is not None
             raise RuntimeTransferInterrupt(RuntimeTransfer.retry(frame))
         return ()
 
 
 class _EndProgramPreparation:
-    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
-        frame = scope.nearest(RunLevel.PROGRAM)
+    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+        frame = request.scope.nearest(RunLevel.PROGRAM)
         assert frame is not None
         raise RuntimeTransferInterrupt(RuntimeTransfer.end(frame))
 

@@ -73,6 +73,7 @@ class RuntimeContextBridge:
                 "max_chars": error.max_chars,
                 "estimated_image_bytes": error.estimated_image_bytes,
                 "max_image_bytes": error.max_image_bytes,
+                "section_usage": error.section_usage,
             }
             if payload is not None:
                 budget_payload = {**budget_payload, **payload}

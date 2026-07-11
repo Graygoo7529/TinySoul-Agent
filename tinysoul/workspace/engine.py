@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
 from threading import RLock
+import os
 
 from tinysoul.infra.filesystem import (
     FilesystemBoundaryError,
@@ -22,6 +23,7 @@ from .errors import (
     WorkspaceContractError,
     WorkspaceError,
     WorkspaceImageValidationError,
+    WorkspaceInvariantError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
 )
@@ -29,11 +31,13 @@ from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
+    WorkspaceRetention,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
 from .reconcile import WorkspaceReconcileResult, WorkspaceReconciler
 from .resources import WorkspaceResourceClassifier, image_data_matches
+from .trash import WorkspaceTrashItem, WorkspaceTrashStore
 
 
 @dataclass(frozen=True)
@@ -110,9 +114,11 @@ class WorkspaceEngine:
         *,
         settings: WorkspaceSettings,
         manifest_store: WorkspaceManifestStore,
+        trash_store: WorkspaceTrashStore | None = None,
     ) -> None:
         self._settings = settings
         self._manifest_store = manifest_store
+        self._trash_store = trash_store or WorkspaceTrashStore(settings.trash_root)
         classifier = WorkspaceResourceClassifier()
         self._reconciler = WorkspaceReconciler(
             settings=settings,
@@ -171,7 +177,6 @@ class WorkspaceEngine:
         *,
         expected_digest: str,
     ) -> WorkspaceResourceRecord:
-
         if not isinstance(description, str) or not description.strip():
             raise WorkspaceContractError(
                 "Workspace description must be a non-empty string"
@@ -212,9 +217,9 @@ class WorkspaceEngine:
                 f"Workspace resource changed while being described: {link_value}"
             )
         described = replace(
-            observed,
+            current,
             description=normalized,
-            described_digest=observed.digest,
+            described_digest=current.digest,
         )
         if described == current:
             return current
@@ -390,6 +395,8 @@ class WorkspaceEngine:
         *,
         overwrite: bool = False,
         expected_digest: str = "",
+        retention: WorkspaceRetention | None = None,
+        owner_turn_id: str = "",
     ) -> WorkspaceResourceRecord:
         with self._lock:
             return self._write_text(
@@ -397,6 +404,8 @@ class WorkspaceEngine:
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest,
+                retention=retention,
+                owner_turn_id=owner_turn_id,
             )
 
     def _write_text(
@@ -406,6 +415,8 @@ class WorkspaceEngine:
         *,
         overwrite: bool = False,
         expected_digest: str = "",
+        retention: WorkspaceRetention | None = None,
+        owner_turn_id: str = "",
     ) -> WorkspaceResourceRecord:
         if not isinstance(text, str):
             raise WorkspaceContractError("Workspace write text must be a string")
@@ -415,6 +426,12 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 "Workspace write expected_digest must be a string"
             )
+        if retention is not None and not isinstance(retention, WorkspaceRetention):
+            raise WorkspaceContractError(
+                "Workspace write retention must be a WorkspaceRetention or None"
+            )
+        if not isinstance(owner_turn_id, str):
+            raise WorkspaceContractError("Workspace write owner_turn_id must be a string")
         parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
         path = self.path_for(parsed)
         self._check_mutable_path(path, link=str(parsed))
@@ -448,10 +465,17 @@ class WorkspaceEngine:
             atomic_write_text(path, text)
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to write workspace resource: {exc}") from exc
-        return self._reconcile_mutation(
+        record = self._reconcile_mutation(
             path,
             link=str(parsed),
             previous=previous,
+        )
+        if retention is None and existed:
+            return record
+        return self._set_record_lifecycle(
+            record,
+            retention=retention or WorkspaceRetention.DAY,
+            owner_turn_id=owner_turn_id,
         )
 
     def patch_text(
@@ -523,32 +547,108 @@ class WorkspaceEngine:
             previous=previous,
         )
 
-    def delete_resource(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
-        with self._lock:
-            return self._delete_resource(link)
-
-    def _delete_resource(
+    def trash_resource(
         self,
         link: WorkspaceLink | str,
-    ) -> WorkspaceResourceRecord:
-        record = self._inspect_record(link)
+        *,
+        reason: str,
+        source_turn_id: str = "",
+    ) -> WorkspaceTrashItem:
+        with self._lock:
+            return self._trash_resource(
+                link,
+                reason=reason,
+                source_turn_id=source_turn_id,
+            )
+
+    def _trash_resource(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        reason: str,
+        source_turn_id: str,
+    ) -> WorkspaceTrashItem:
+        inspected = self._inspect_record(link)
+        record = self._manifest_record(inspected.link) or inspected
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
-        previous = self._read_rollback_bytes(path)
+        item = self._trash_store.prepare(
+            record,
+            reason=reason,
+            source_turn_id=source_turn_id,
+        )
+        content = self._trash_store.content_path(item)
         try:
-            path.unlink()
+            os.replace(path, content)
         except OSError as exc:
-            raise WorkspaceIOError(f"Failed to delete workspace resource: {exc}") from exc
+            self._trash_store.discard(item)
+            raise WorkspaceIOError(f"Failed to stage workspace trash move: {exc}") from exc
         try:
             reconciliation = self.reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
-                    "Workspace delete could not complete disk reconciliation"
+                    "Workspace trash could not complete disk reconciliation"
                 )
+            self._trash_store.commit(item)
         except WorkspaceError as exc:
-            self._rollback_mutation(path, previous=previous, cause=exc)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(content, path)
+                self._trash_store.discard(item)
+                self.reconcile()
+                restored = self._manifest_record(record.link)
+                if restored is not None:
+                    self._restore_record_metadata(restored, original=record)
+            except (OSError, WorkspaceError) as rollback_error:
+                raise WorkspaceIOError(
+                    "Workspace trash failed and rollback also failed: "
+                    f"{rollback_error}"
+                ) from exc
             raise
-        return record
+        return item
+
+    def restore_resource(self, trash_ref: str) -> WorkspaceResourceRecord:
+        with self._lock:
+            item = self._trash_store.load(trash_ref)
+            target = self.path_for(item.original.link)
+            self._check_mutable_path(target, link=item.original.link)
+            if target.exists():
+                raise WorkspaceContractError(
+                    f"Workspace restore target already exists: {item.original.link}"
+                )
+            content = self._trash_store.content_path(item)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(content, target)
+            except OSError as exc:
+                raise WorkspaceIOError(f"Failed to restore Workspace resource: {exc}") from exc
+            try:
+                reconciliation = self.reconcile()
+                if not reconciliation.complete:
+                    raise WorkspaceReconciliationError(
+                        "Workspace restore could not complete disk reconciliation"
+                    )
+                record = self._inspect_record(item.original.link)
+                record = self._restore_record_metadata(
+                    record,
+                    original=item.original,
+                )
+                self._trash_store.discard(item)
+                return record
+            except WorkspaceError as exc:
+                try:
+                    os.replace(target, content)
+                    self.reconcile()
+                except (OSError, WorkspaceError) as rollback_error:
+                    raise WorkspaceIOError(
+                        "Workspace restore failed and rollback also failed: "
+                        f"{rollback_error}"
+                    ) from exc
+                raise
+
+    def trash_items(self) -> tuple[WorkspaceTrashItem, ...]:
+        with self._lock:
+            return self._trash_store.list()
 
     def prepare_task_input(
         self,
@@ -614,16 +714,96 @@ class WorkspaceEngine:
         previous: bytes | None,
     ) -> WorkspaceResourceRecord:
         try:
-            record = self._inspect_record(link)
+            self._inspect_record(link)
             reconciliation = self.reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace mutation could not complete disk reconciliation"
                 )
+            record = self._manifest_record(link)
+            if record is None:
+                raise WorkspaceInvariantError(
+                    f"Reconciled Workspace record is absent from Manifest: {link}"
+                )
             return record
         except WorkspaceError as exc:
             self._rollback_mutation(path, previous=previous, cause=exc)
             raise
+
+    def _set_record_lifecycle(
+        self,
+        record: WorkspaceResourceRecord,
+        *,
+        retention: WorkspaceRetention,
+        owner_turn_id: str,
+    ) -> WorkspaceResourceRecord:
+        updated = replace(
+            record,
+            retention=retention,
+            owner_turn_id=owner_turn_id,
+        )
+        if updated == record:
+            return record
+        manifest = self._manifest_store.load()
+        if all(item.link != record.link for item in manifest.resources):
+            raise WorkspaceInvariantError(
+                f"Reconciled Workspace record is absent from Manifest: {record.link}"
+            )
+        self._manifest_store.save(
+            WorkspaceManifest(
+                revision=manifest.revision + 1,
+                resources=tuple(
+                    updated if item.link == record.link else item
+                    for item in manifest.resources
+                ),
+            )
+        )
+        return updated
+
+    def _manifest_record(self, link: str) -> WorkspaceResourceRecord | None:
+        return next(
+            (
+                record
+                for record in self._manifest_store.load().resources
+                if record.link == link
+            ),
+            None,
+        )
+
+    def _restore_record_metadata(
+        self,
+        record: WorkspaceResourceRecord,
+        *,
+        original: WorkspaceResourceRecord,
+    ) -> WorkspaceResourceRecord:
+        if record.digest != original.digest:
+            raise WorkspaceInvariantError(
+                f"Restored Workspace resource digest changed: {record.link}"
+            )
+        updated = replace(
+            record,
+            description=original.description,
+            described_digest=original.described_digest,
+            retention=original.retention,
+            owner_turn_id=original.owner_turn_id,
+        )
+        if updated == record:
+            return record
+        manifest = self._manifest_store.load()
+        if all(item.link != record.link for item in manifest.resources):
+            raise WorkspaceInvariantError(
+                f"Restored Workspace record is absent from Manifest: {record.link}"
+            )
+        self._manifest_store.save(
+            WorkspaceManifest(
+                revision=manifest.revision + 1,
+                resources=tuple(
+                    updated if item.link == record.link else item
+                    for item in manifest.resources
+                ),
+            )
+        )
+        return updated
 
     @staticmethod
     def _read_rollback_bytes(path: Path) -> bytes:
@@ -662,11 +842,20 @@ class WorkspaceEngineBuilder:
     def build(self) -> WorkspaceEngine:
         if self._settings.root.exists() and not self._settings.root.is_dir():
             raise WorkspaceIOError("Workspace root must be a directory")
+        trash_store = WorkspaceTrashStore(self._settings.trash_root)
+        recovered = trash_store.recover_uncommitted(self._settings.root)
         engine = WorkspaceEngine(
             settings=self._settings,
             manifest_store=WorkspaceManifestStore(self._settings.manifest_path),
+            trash_store=trash_store,
         )
         engine.load_manifest()
+        if recovered:
+            result = engine.reconcile()
+            if not result.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace recovery could not complete disk reconciliation"
+                )
         return engine
 
 

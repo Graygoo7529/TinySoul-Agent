@@ -24,6 +24,7 @@ from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
     WorkspaceManifestStore,
+    WorkspaceRetention,
     WorkspaceResourceRecord,
 )
 from .resources import WorkspaceResourceClassifier
@@ -289,6 +290,12 @@ class WorkspaceReconciler:
                 digest=digest,
                 description=description,
                 described_digest=described_digest,
+                retention=(
+                    previous.retention
+                    if previous is not None
+                    else WorkspaceRetention.DAY
+                ),
+                owner_turn_id=(previous.owner_turn_id if previous is not None else ""),
             )
         )
 

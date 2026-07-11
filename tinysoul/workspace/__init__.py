@@ -21,6 +21,7 @@ from .errors import (
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
+    WorkspaceRetention,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
@@ -32,6 +33,8 @@ from .reconcile import (
 )
 from .projection import WorkspaceTurnPreparationHandler
 from .prompts import WorkspacePromptReferenceResolver
+from .pressure import WorkspacePressureReclaimer, WorkspacePressureReport
+from .trash import WorkspaceTrashItem, WorkspaceTrashStore
 
 __all__ = [
     "WorkspaceContractError",
@@ -49,14 +52,19 @@ __all__ = [
     "WorkspaceManifest",
     "WorkspacePromptInput",
     "WorkspacePromptReferenceResolver",
+    "WorkspacePressureReclaimer",
+    "WorkspacePressureReport",
     "WorkspaceReconcileResult",
     "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",
+    "WorkspaceRetention",
     "WorkspaceResourceRecord",
     "WorkspaceSettings",
     "WorkspaceTextRead",
     "WorkspaceTextSlice",
     "WorkspaceTurnPreparationHandler",
+    "WorkspaceTrashItem",
+    "WorkspaceTrashStore",
     "parse_workspace_settings",
     "register_workspace_actions",
 ]

@@ -12,7 +12,7 @@ from tinysoul.context.composer import (
 )
 from tinysoul.context.errors import ContextBudgetError
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
-from tinysoul.context.trace import PendingInputs, TurnTraceContext
+from tinysoul.context.trace import PendingInputs, TurnTraceHeap
 from tinysoul.context.working import WorkingContext
 from tinysoul.llm.messages import (
     AssistantMessage,
@@ -26,13 +26,13 @@ from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
 
-def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnTraceContext]:
+def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnTraceHeap]:
     inputs = PendingInputs()
     inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
     background.load(BackgroundEntry(link="home:what@x", content="entry text"))
     working = WorkingContext()
-    trace = TurnTraceContext()
+    trace = TurnTraceHeap()
     trace.append_phase_note("trace note")
     return inputs, background, working, trace
 

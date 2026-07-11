@@ -1,5 +1,10 @@
 """TinySoul context module."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .actions import register_context_actions
+
 from .controls import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
@@ -30,20 +35,32 @@ from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
     SIGNAL_NAMESPACE,
+    SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
     SIGNAL_WORKSPACE_SYNC,
     build_input_append_signal,
+    build_session_sync_signal,
     build_trace_action_result_signal,
     build_trace_decision_signal,
     build_trace_phase_note_signal,
     build_workspace_sync_signal,
 )
 from .working import WorkspaceResource, WorkspaceSnapshot
-from .trace import CompressionReport, TraceKind
+from .background import SessionBackgroundItem, SessionBackgroundSnapshot
+from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
+from .compress import ContextPressureReport
+from .trace import (
+    SealedTurnTrace,
+    TraceCompactionReport,
+    TraceHeapNode,
+    TraceHeapNodeKind,
+    TraceKind,
+    TurnTraceHeap,
+)
 
 __all__ = [
-    "CompressionReport",
+    "ContextBudgetReport",
     "BackgroundContentLoader",
     "CONTROL_EVICT_BACKGROUND",
     "CONTROL_LOAD_BACKGROUND",
@@ -56,6 +73,9 @@ __all__ = [
     "ContextInvariantError",
     "ContextSignalBatch",
     "ContextSettings",
+    "ContextSection",
+    "ContextSectionUsage",
+    "ContextPressureReport",
     "ControlNormalization",
     "ControlResult",
     "ControlResultStage",
@@ -66,19 +86,37 @@ __all__ = [
     "SIGNAL_BACKGROUND_PATCH",
     "SIGNAL_INPUT_APPEND",
     "SIGNAL_NAMESPACE",
+    "SIGNAL_SESSION_SYNC",
     "SIGNAL_TRACE_APPEND",
     "SIGNAL_WORKING_PATCH",
     "SIGNAL_WORKSPACE_SYNC",
     "StaticBackgroundContentLoader",
+    "SessionBackgroundItem",
+    "SessionBackgroundSnapshot",
     "TaskPrompt",
     "TraceKind",
+    "TraceCompactionReport",
+    "TraceHeapNode",
+    "TraceHeapNodeKind",
+    "TurnTraceHeap",
+    "SealedTurnTrace",
     "TurnSummary",
     "WorkspaceResource",
     "WorkspaceSnapshot",
     "build_input_append_signal",
+    "build_session_sync_signal",
     "build_trace_action_result_signal",
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",
     "build_workspace_sync_signal",
     "parse_context_settings",
+    "register_context_actions",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "register_context_actions":
+        from .actions import register_context_actions
+
+        return register_context_actions
+    raise AttributeError(name)

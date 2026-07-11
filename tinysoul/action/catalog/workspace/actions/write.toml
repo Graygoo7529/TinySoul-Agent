@@ -33,6 +33,11 @@ description = "Set true to replace an existing file. Existing target content is 
 type = "string"
 description = "Optional current digest from workspace.describe to guard against stale overwrites."
 
+[tool.schema.properties.retention]
+type = "string"
+enum = ["ephemeral", "turn", "day", "persistent"]
+description = "Resource lifetime; only ephemeral or turn resources may be auto-trashed under pressure."
+
 [semantic]
 use_when = ["Need to create or intentionally replace a complete workspace text resource with LLM-generated content"]
 avoid_when = ["A precise deterministic replacement is enough", "The target content is already fully available as a small literal"]

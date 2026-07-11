@@ -24,9 +24,10 @@ from .background import (
     BackgroundEntry,
     BackgroundPatch,
     BackgroundSource,
+    SessionBackgroundSnapshot,
 )
 from .composer import ContextBudget, MessageStackComposer
-from .compress import ContextCompressor
+from .compress import ContextCompressor, ContextPressureReport
 from .controls import (
     ContextControlScopeBuilder,
     ControlCallNormalizer,
@@ -40,17 +41,26 @@ from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
     SIGNAL_NAMESPACE,
+    SIGNAL_SESSION_SYNC,
     SIGNAL_TRACE_APPEND,
     SIGNAL_WORKING_PATCH,
     SIGNAL_WORKSPACE_SYNC,
     TraceAppend,
     parse_background_patch_signal,
     parse_input_append_signal,
+    parse_session_sync_signal,
     parse_trace_append_signal,
     parse_working_patch_signal,
     parse_workspace_sync_signal,
 )
-from .trace import CompressionReport, PendingInputs, TraceKind, TurnTraceContext
+from .trace import (
+    PendingInputs,
+    SealedTurnTrace,
+    TraceCompactionReport,
+    TraceEntry,
+    TraceKind,
+    TurnTraceHeap,
+)
 from .working import WorkingContext, WorkingPatch, WorkspaceSnapshot
 
 
@@ -64,6 +74,7 @@ class TurnSummary:
     background_links: tuple[str, ...] = field(default_factory=tuple)
     trace_digest: JsonObject = field(default_factory=dict)
     trace: tuple[JsonObject, ...] = field(default_factory=tuple)
+    trace_heap: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.turn_id:
@@ -92,6 +103,7 @@ class TurnSummary:
             "trace",
             tuple(to_json_object(item) for item in self.trace),
         )
+        object.__setattr__(self, "trace_heap", to_json_object(self.trace_heap))
 
     def to_json(self) -> JsonObject:
         return {
@@ -101,6 +113,7 @@ class TurnSummary:
             "background_links": list(self.background_links),
             "trace_digest": self.trace_digest,
             "trace": list(self.trace),
+            "trace_heap": self.trace_heap,
         }
 
 
@@ -150,21 +163,30 @@ class ContextEngine:
         compressor: ContextCompressor,
         background: BackgroundContext,
         loadable_entries: dict[str, BackgroundContentLoader],
+        trace_recall_max_chars: int,
+        compression_target_ratio: float,
     ) -> None:
         self._composer = composer
         self._compressor = compressor
         self._background = background
         self._loadable_entries = dict(loadable_entries)
+        self._trace_recall_max_chars = trace_recall_max_chars
+        self._compression_target_ratio = compression_target_ratio
         self._scope_builder = ContextControlScopeBuilder()
         self._normalizer = ControlCallNormalizer()
         self._working = WorkingContext()
-        self._trace = TurnTraceContext()
+        self._trace = compressor.new_trace("detached")
         self._inputs = PendingInputs()
         self._turn_id = ""
+        self._preparing_turn = False
 
     @property
     def turn_active(self) -> bool:
         return bool(self._turn_id)
+
+    @property
+    def compression_target_ratio(self) -> float:
+        return self._compression_target_ratio
 
     def background_links(self) -> tuple[str, ...]:
         """Return currently loaded background links without exposing mutable state."""
@@ -196,10 +218,16 @@ class ContextEngine:
             raise ContextContractError("begin_turn requires non-empty user input")
         self._turn_id = f"turn_{uuid4().hex[:8]}"
         self._working = WorkingContext()
-        self._trace = TurnTraceContext()
+        self._trace = self._compressor.new_trace(self._turn_id)
         self._inputs = PendingInputs()
         self._inputs.add(user_input, merged=True)
+        self._background.reset_session()
+        self._preparing_turn = True
         return self._turn_id
+
+    def complete_preparation(self) -> None:
+        self._require_turn()
+        self._preparing_turn = False
 
     def compose(self, task_prompt: TaskPrompt) -> MessageStack:
         self._require_turn()
@@ -269,6 +297,9 @@ class ContextEngine:
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
         workspace_candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]] = []
+        session_candidates: list[
+            tuple[int, Signal, str, SessionBackgroundSnapshot]
+        ] = []
         background_candidates: list[tuple[int, Signal, str, BackgroundPatch]] = []
         trace_appends: list[TraceAppend] = []
         input_texts: list[str] = []
@@ -293,6 +324,15 @@ class ContextEngine:
                 elif signal.name == SIGNAL_WORKSPACE_SYNC:
                     call_id, snapshot = parse_workspace_sync_signal(signal)
                     workspace_candidates.append(
+                        (sequence, signal, call_id, snapshot)
+                    )
+                elif signal.name == SIGNAL_SESSION_SYNC:
+                    if not self._preparing_turn:
+                        raise ContextContractError(
+                            "Session background can only be synchronized during Turn preparation"
+                        )
+                    call_id, snapshot = parse_session_sync_signal(signal)
+                    session_candidates.append(
                         (sequence, signal, call_id, snapshot)
                     )
                 elif signal.name == SIGNAL_BACKGROUND_PATCH:
@@ -329,6 +369,10 @@ class ContextEngine:
             workspace_candidates,
             results=results,
         )
+        session_snapshots = self._validated_session_snapshots(
+            session_candidates,
+            results=results,
+        )
         background_patches = self._validated_background_patches(
             background_candidates,
             results=results,
@@ -339,6 +383,8 @@ class ContextEngine:
             self._working.apply_patch(patch)
         for snapshot in workspace_snapshots:
             self._working.apply_workspace_snapshot(snapshot)
+        for snapshot in session_snapshots:
+            self._background.apply_session_snapshot(snapshot)
         for patch in background_patches:
             self._apply_background_patch(patch, prepared=prepared_background)
         for append in trace_appends:
@@ -353,9 +399,56 @@ class ContextEngine:
         self._inputs.mark_merged(tuple(item.input_id for item in unmerged))
         return len(unmerged)
 
-    def compress(self) -> CompressionReport:
+    def compress(self, *, required_chars: int = 1) -> TraceCompactionReport:
         self._require_turn()
-        return self._compressor.compress(self._trace)
+        return self._compressor.compress(
+            self._trace,
+            required_chars=required_chars,
+        )
+
+    def reclaim_pressure(self, *, required_chars: int) -> ContextPressureReport:
+        self._require_turn()
+        trace_report = self._compressor.compress(
+            self._trace,
+            required_chars=max(0, required_chars),
+        )
+        remaining = max(0, required_chars - trace_report.reclaimed_chars)
+        background_report = self._background.evict_phase1_for_budget(
+            required_chars=remaining
+        )
+        return ContextPressureReport(
+            changed=trace_report.changed or background_report.changed,
+            reclaimed_chars=(
+                trace_report.reclaimed_chars + background_report.reclaimed_chars
+            ),
+            trace=trace_report,
+            evicted_background_links=background_report.evicted_links,
+        )
+
+    def inspect_trace(self, ref: str) -> JsonObject:
+        self._require_turn()
+        return self._trace.inspect(ref)
+
+    def recall_trace(
+        self,
+        ref: str,
+        *,
+        max_chars: int | None = None,
+    ) -> tuple[JsonObject, ...]:
+        self._require_turn()
+        limit = self._trace_recall_max_chars if max_chars is None else max_chars
+        return tuple(
+            _trace_entry_record(entry)
+            for entry in self._trace.recall(ref, max_chars=limit)
+        )
+
+    def fold_trace_recalls(self) -> int:
+        self._require_turn()
+        return self._trace.fold_recalls()
+
+    def seal_trace(self) -> SealedTurnTrace:
+        self._require_turn()
+        return self._trace.seal()
 
     def end_turn(self) -> TurnSummary:
         self._require_turn()
@@ -375,8 +468,10 @@ class ContextEngine:
             background_links=self._background.links(),
             trace_digest=trace_digest,
             trace=_trace_records(self._trace),
+            trace_heap=_trace_heap_record(self._trace.seal()),
         )
         self._turn_id = ""
+        self._preparing_turn = False
         return summary
 
     def abort_turn(self) -> None:
@@ -386,8 +481,9 @@ class ContextEngine:
             return
         self._turn_id = ""
         self._working = WorkingContext()
-        self._trace = TurnTraceContext()
+        self._trace = self._compressor.new_trace("detached")
         self._inputs = PendingInputs()
+        self._preparing_turn = False
 
     def _validated_working_patches(
         self,
@@ -437,6 +533,32 @@ class ContextEngine:
             candidates,
             problems,
         ):
+            if problem:
+                results.append(_consume_failure(signal, call_id, sequence, problem))
+                continue
+            valid.append(snapshot)
+        return tuple(valid)
+
+    def _validated_session_snapshots(
+        self,
+        candidates: list[tuple[int, Signal, str, SessionBackgroundSnapshot]],
+        *,
+        results: list[ControlResult],
+    ) -> tuple[SessionBackgroundSnapshot, ...]:
+        if len(candidates) > 1:
+            for sequence, signal, call_id, _ in candidates:
+                results.append(
+                    _consume_failure(
+                        signal,
+                        call_id,
+                        sequence,
+                        "A preparation batch may contain only one Session snapshot",
+                    )
+                )
+            return ()
+        valid: list[SessionBackgroundSnapshot] = []
+        for sequence, signal, call_id, snapshot in candidates:
+            problem = self._background.check_session_snapshot(snapshot)
             if problem:
                 results.append(_consume_failure(signal, call_id, sequence, problem))
                 continue
@@ -496,6 +618,8 @@ class ContextEngine:
             self._trace.append_action_result(
                 append.action_result,
                 cycle_id=append.cycle_id,
+                compact_message=append.compact_action_result,
+                origin_ref=append.origin_ref,
             )
         elif append.note is not None:
             self._trace.append_phase_note(
@@ -546,7 +670,11 @@ class ContextEngineBuilder:
         self._journal = ""
         self._max_chars: int | None = None
         self._max_image_bytes: int | None = None
-        self._keep_recent = 12
+        self._trace_chunk_max_chars = 12000
+        self._trace_branch_factor = 4
+        self._trace_min_hot_entries = 2
+        self._trace_recall_max_chars = 8000
+        self._compression_target_ratio = 0.80
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
 
@@ -571,10 +699,42 @@ class ContextEngineBuilder:
         self._max_image_bytes = max_image_bytes
         return self
 
-    def with_keep_recent(self, keep_recent: int) -> "ContextEngineBuilder":
-        if keep_recent < 0:
-            raise ContextContractError("Context keep_recent cannot be negative")
-        self._keep_recent = keep_recent
+    def with_trace_heap(
+        self,
+        *,
+        chunk_max_chars: int,
+        branch_factor: int,
+        min_hot_entries: int,
+    ) -> "ContextEngineBuilder":
+        if chunk_max_chars <= 0:
+            raise ContextContractError("Trace chunk_max_chars must be positive")
+        if branch_factor < 2:
+            raise ContextContractError("Trace branch_factor must be at least 2")
+        if min_hot_entries < 0:
+            raise ContextContractError("Trace min_hot_entries cannot be negative")
+        self._trace_chunk_max_chars = chunk_max_chars
+        self._trace_branch_factor = branch_factor
+        self._trace_min_hot_entries = min_hot_entries
+        return self
+
+    def with_trace_recall_max_chars(
+        self,
+        max_chars: int,
+    ) -> "ContextEngineBuilder":
+        if max_chars <= 0:
+            raise ContextContractError("Trace recall max_chars must be positive")
+        self._trace_recall_max_chars = max_chars
+        return self
+
+    def with_compression_target_ratio(
+        self,
+        ratio: float,
+    ) -> "ContextEngineBuilder":
+        if not 0 < ratio < 1:
+            raise ContextContractError(
+                "Context compression target ratio must be between 0 and 1"
+            )
+        self._compression_target_ratio = ratio
         return self
 
     def add_default_background(self, link: str, content: str) -> "ContextEngineBuilder":
@@ -632,13 +792,19 @@ class ContextEngineBuilder:
                     max_image_bytes=self._max_image_bytes,
                 ),
             ),
-            compressor=ContextCompressor(keep_recent=self._keep_recent),
+            compressor=ContextCompressor(
+                chunk_max_chars=self._trace_chunk_max_chars,
+                branch_factor=self._trace_branch_factor,
+                min_hot_entries=self._trace_min_hot_entries,
+            ),
             background=background,
             loadable_entries=loadable,
+            trace_recall_max_chars=self._trace_recall_max_chars,
+            compression_target_ratio=self._compression_target_ratio,
         )
 
 
-def _trace_digest(trace: TurnTraceContext) -> JsonObject:
+def _trace_digest(trace: TurnTraceHeap) -> JsonObject:
     entries = trace.entries()
     return to_json_object(
         {
@@ -648,16 +814,47 @@ def _trace_digest(trace: TurnTraceContext) -> JsonObject:
     )
 
 
-def _trace_records(trace: TurnTraceContext) -> tuple[JsonObject, ...]:
+def _trace_records(trace: TurnTraceHeap) -> tuple[JsonObject, ...]:
     return tuple(
+        _trace_entry_record(entry)
+        for entry in trace.entries()
+    )
+
+
+def _trace_heap_record(trace: SealedTurnTrace) -> JsonObject:
+    return to_json_object(
+        {
+            "turn_id": trace.turn_id,
+            "head_ref": f"turn:trace@{trace.turn_id}",
+            "root_ids": list(trace.root_ids),
+            "nodes": [
+                {
+                    "node_id": node.node_id,
+                    "kind": node.kind.value,
+                    "level": node.level,
+                    "entry_ids": list(node.entry_ids),
+                    "child_ids": list(node.child_ids),
+                    "cycle_ids": list(node.cycle_ids),
+                    "trace_kinds": list(node.trace_kinds),
+                    "action_names": list(node.action_names),
+                    "char_count": node.char_count,
+                }
+                for node in trace.nodes
+            ],
+        }
+    )
+
+
+def _trace_entry_record(entry: TraceEntry) -> JsonObject:
+    return to_json_object(
         {
             "entry_id": entry.entry_id,
             "kind": entry.kind.value,
             "cycle_id": entry.cycle_id,
             "phase": entry.phase.value if entry.phase is not None else "",
             "message": _message_record(entry.message),
+            "origin_ref": entry.origin_ref,
         }
-        for entry in trace.entries()
     )
 
 

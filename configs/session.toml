@@ -1,0 +1,8 @@
+[session]
+root = "runtime/session"
+archive_root = "runtime/archive/session"
+background_max_chars = 24000
+summary_watermark_ratio = 0.60
+summary_target_ratio = 0.40
+min_recent_turns = 2
+recall_max_chars = 8000
