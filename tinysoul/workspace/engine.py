@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
-from enum import StrEnum
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
-import os
+from threading import RLock
 
 from tinysoul.infra.filesystem import (
     FilesystemBoundaryError,
     atomic_write_bytes,
     atomic_write_text,
-    file_digest,
     read_text_line_slice,
     read_text_prefix,
     resolve_under_root,
@@ -23,7 +21,7 @@ from .config import WorkspaceSettings
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
-    WorkspaceInvariantError,
+    WorkspaceImageValidationError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
 )
@@ -34,67 +32,8 @@ from .manifest import (
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
-from .resources import WorkspaceResourceClassifier
-
-
-class WorkspaceScanSkipKind(StrEnum):
-    """Stable workspace scan skip reasons."""
-
-    INTERNAL = "internal"
-    UNSAFE_PATH = "unsafe_path"
-    IO_ERROR = "io_error"
-    CONTRACT = "contract"
-    INVARIANT = "invariant"
-
-
-class WorkspaceReconcileStatus(StrEnum):
-    """Whether a disk inventory was complete enough to commit."""
-
-    COMPLETE = "complete"
-    INCOMPLETE = "incomplete"
-
-
-@dataclass(frozen=True)
-class WorkspaceScanSkip:
-    """One resource skipped during workspace scanning."""
-
-    kind: WorkspaceScanSkipKind
-    path: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.kind, WorkspaceScanSkipKind):
-            raise WorkspaceContractError(
-                "WorkspaceScanSkip.kind must be a WorkspaceScanSkipKind"
-            )
-        if not self.path:
-            raise WorkspaceContractError("WorkspaceScanSkip.path must be non-empty")
-
-
-@dataclass(frozen=True)
-class WorkspaceScanResult:
-    """Result of a workspace scan."""
-
-    manifest: WorkspaceManifest
-    resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
-    skipped: tuple[WorkspaceScanSkip, ...] = field(default_factory=tuple)
-    limit_reached: bool = False
-    status: WorkspaceReconcileStatus = WorkspaceReconcileStatus.COMPLETE
-    changed: bool = False
-
-    @property
-    def complete(self) -> bool:
-        return self.status is WorkspaceReconcileStatus.COMPLETE
-
-    @property
-    def skipped_count(self) -> int:
-        return len(self.skipped)
-
-    def skip_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for item in self.skipped:
-            key = item.kind.value
-            counts[key] = counts.get(key, 0) + 1
-        return counts
+from .reconcile import WorkspaceReconcileResult, WorkspaceReconciler
+from .resources import WorkspaceResourceClassifier, image_data_matches
 
 
 @dataclass(frozen=True)
@@ -163,19 +102,6 @@ class WorkspacePromptInput:
         )
 
 
-@dataclass(frozen=True)
-class _WorkspaceScanBuild:
-    resources: tuple[WorkspaceResourceRecord, ...]
-    skipped: tuple[WorkspaceScanSkip, ...]
-    limit_reached: bool
-
-
-@dataclass(frozen=True)
-class _WorkspaceRecordBuild:
-    record: WorkspaceResourceRecord | None = None
-    skip_kind: WorkspaceScanSkipKind | None = None
-
-
 class WorkspaceEngine:
     """Workspace resource management entry point."""
 
@@ -187,7 +113,13 @@ class WorkspaceEngine:
     ) -> None:
         self._settings = settings
         self._manifest_store = manifest_store
-        self._classifier = WorkspaceResourceClassifier()
+        classifier = WorkspaceResourceClassifier()
+        self._reconciler = WorkspaceReconciler(
+            settings=settings,
+            manifest_store=manifest_store,
+            classifier=classifier,
+        )
+        self._lock = RLock()
 
     @property
     def root(self) -> Path:
@@ -208,7 +140,8 @@ class WorkspaceEngine:
             raise WorkspaceContractError(str(exc)) from exc
 
     def load_manifest(self) -> WorkspaceManifest:
-        return self._manifest_store.load()
+        with self._lock:
+            return self._manifest_store.load()
 
     def snapshot(self) -> WorkspaceManifest:
         """Return the persisted state used for Context synchronization."""
@@ -223,6 +156,21 @@ class WorkspaceEngine:
         expected_digest: str,
     ) -> WorkspaceResourceRecord:
         """Attach a bounded semantic description to the current resource digest."""
+
+        with self._lock:
+            return self._set_description(
+                link,
+                description,
+                expected_digest=expected_digest,
+            )
+
+    def _set_description(
+        self,
+        link: WorkspaceLink | str,
+        description: str,
+        *,
+        expected_digest: str,
+    ) -> WorkspaceResourceRecord:
 
         if not isinstance(description, str) or not description.strip():
             raise WorkspaceContractError(
@@ -264,9 +212,9 @@ class WorkspaceEngine:
                 f"Workspace resource changed while being described: {link_value}"
             )
         described = replace(
-            current,
+            observed,
             description=normalized,
-            described_digest=current.digest,
+            described_digest=observed.digest,
         )
         if described == current:
             return current
@@ -354,6 +302,11 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 f"Workspace image exceeds the read limit: {record.link}"
             )
+        if not image_data_matches(record.media_type, data):
+            raise WorkspaceImageValidationError(
+                "Workspace image content does not match its media type: "
+                f"{record.link}"
+            )
         return WorkspaceImageRead(
             link=record.link,
             data=data,
@@ -438,6 +391,22 @@ class WorkspaceEngine:
         overwrite: bool = False,
         expected_digest: str = "",
     ) -> WorkspaceResourceRecord:
+        with self._lock:
+            return self._write_text(
+                link,
+                text,
+                overwrite=overwrite,
+                expected_digest=expected_digest,
+            )
+
+    def _write_text(
+        self,
+        link: WorkspaceLink | str,
+        text: str,
+        *,
+        overwrite: bool = False,
+        expected_digest: str = "",
+    ) -> WorkspaceResourceRecord:
         if not isinstance(text, str):
             raise WorkspaceContractError("Workspace write text must be a string")
         if not isinstance(overwrite, bool):
@@ -493,6 +462,22 @@ class WorkspaceEngine:
         new_text: str,
         expected_digest: str = "",
     ) -> WorkspaceResourceRecord:
+        with self._lock:
+            return self._patch_text(
+                link,
+                old_text=old_text,
+                new_text=new_text,
+                expected_digest=expected_digest,
+            )
+
+    def _patch_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        old_text: str,
+        new_text: str,
+        expected_digest: str = "",
+    ) -> WorkspaceResourceRecord:
         if not isinstance(old_text, str) or not old_text:
             raise WorkspaceContractError(
                 "Workspace patch old_text must be a non-empty string"
@@ -539,6 +524,13 @@ class WorkspaceEngine:
         )
 
     def delete_resource(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
+        with self._lock:
+            return self._delete_resource(link)
+
+    def _delete_resource(
+        self,
+        link: WorkspaceLink | str,
+    ) -> WorkspaceResourceRecord:
         record = self._inspect_record(link)
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
@@ -590,176 +582,15 @@ class WorkspaceEngine:
         )
         return WorkspacePromptInput(slices=slices)
 
-    def reconcile(self) -> WorkspaceScanResult:
-        try:
-            self._settings.root.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise WorkspaceIOError(f"Failed to prepare workspace root: {exc}") from exc
-        current = self.load_manifest()
-        current_records = {record.link: record for record in current.resources}
-        scan = self._scan_resources(current_records)
-        incomplete = scan.limit_reached or any(
-            item.kind is not WorkspaceScanSkipKind.INTERNAL for item in scan.skipped
-        )
-        if incomplete:
-            return WorkspaceScanResult(
-                manifest=current,
-                resources=scan.resources,
-                skipped=scan.skipped,
-                limit_reached=scan.limit_reached,
-                status=WorkspaceReconcileStatus.INCOMPLETE,
-                changed=False,
-            )
-        resources = tuple(sorted(scan.resources, key=lambda item: item.link))
-        changed = resources != current.resources
-        manifest = WorkspaceManifest(
-            revision=current.revision + 1 if changed else current.revision,
-            resources=resources,
-        )
-        if changed:
-            self._manifest_store.save(manifest)
-        return WorkspaceScanResult(
-            manifest=manifest,
-            resources=scan.resources,
-            skipped=scan.skipped,
-            limit_reached=scan.limit_reached,
-            status=WorkspaceReconcileStatus.COMPLETE,
-            changed=changed,
-        )
-
-    def _scan_resources(
-        self,
-        current_records: dict[str, WorkspaceResourceRecord],
-    ) -> _WorkspaceScanBuild:
-        root = self._settings.root
-        ignored = set(self._settings.ignore_dirs)
-        resources: list[WorkspaceResourceRecord] = []
-        skipped: list[WorkspaceScanSkip] = []
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [
-                name for name in sorted(dirnames) if name not in ignored and not name.startswith(".")
-            ]
-            for filename in sorted(filenames):
-                if len(resources) >= self._settings.max_files:
-                    return _WorkspaceScanBuild(
-                        resources=tuple(resources),
-                        skipped=tuple(skipped),
-                        limit_reached=True,
-                    )
-                path = Path(dirpath) / filename
-                if self._is_internal_path(path):
-                    skipped.append(
-                        WorkspaceScanSkip(
-                            kind=WorkspaceScanSkipKind.INTERNAL,
-                            path=self._scan_path_label(path),
-                        )
-                    )
-                    continue
-                try:
-                    relative = path.relative_to(root).as_posix()
-                    previous = current_records.get(
-                        str(WorkspaceLink.from_relative_path(relative))
-                    )
-                except (ValueError, WorkspaceContractError):
-                    skipped.append(
-                        WorkspaceScanSkip(
-                            kind=WorkspaceScanSkipKind.UNSAFE_PATH,
-                            path=self._scan_path_label(path),
-                        )
-                    )
-                    continue
-                build = self._record_for_scan(path, previous=previous)
-                if build.record is not None:
-                    resources.append(build.record)
-                elif build.skip_kind is not None:
-                    skipped.append(
-                        WorkspaceScanSkip(
-                            kind=build.skip_kind,
-                            path=self._scan_path_label(path),
-                        )
-                    )
-        return _WorkspaceScanBuild(
-            resources=tuple(resources),
-            skipped=tuple(skipped),
-            limit_reached=False,
-        )
+    def reconcile(self) -> WorkspaceReconcileResult:
+        with self._lock:
+            return self._reconciler.reconcile()
 
     def _record_for(self, path: Path) -> WorkspaceResourceRecord | None:
-        return self._record_for_scan(path, previous=None).record
-
-    def _record_for_scan(
-        self,
-        path: Path,
-        *,
-        previous: WorkspaceResourceRecord | None,
-    ) -> _WorkspaceRecordBuild:
-        try:
-            relative = path.relative_to(self._settings.root).as_posix()
-            link = WorkspaceLink.from_relative_path(relative)
-            resolved = resolve_under_root(self._settings.root, link.relative_path)
-            stat = resolved.stat()
-        except FilesystemBoundaryError:
-            return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.UNSAFE_PATH)
-        except ValueError:
-            return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.UNSAFE_PATH)
-        except OSError:
-            return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.IO_ERROR)
-        except WorkspaceContractError:
-            return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.CONTRACT)
-        except WorkspaceInvariantError:
-            return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.INVARIANT)
-        classification = self._classifier.classify(path)
-        digest = ""
-        if (
-            previous is not None
-            and previous.size == stat.st_size
-            and previous.mtime_ns == stat.st_mtime_ns
-        ):
-            digest = previous.digest
-        else:
-            try:
-                digest = file_digest(resolved)
-            except OSError:
-                return _WorkspaceRecordBuild(skip_kind=WorkspaceScanSkipKind.IO_ERROR)
-        description = ""
-        described_digest = ""
-        if previous is not None and previous.described_digest == digest:
-            description = previous.description
-            described_digest = previous.described_digest
-        record = WorkspaceResourceRecord(
-            link=str(link),
-            relative_path=relative,
-            kind=classification.kind,
-            media_type=classification.media_type,
-            suffix=classification.suffix,
-            summary=f"{classification.summary_label}, {stat.st_size} bytes",
-            size=stat.st_size,
-            mtime_ns=stat.st_mtime_ns,
-            digest=digest,
-            description=description,
-            described_digest=described_digest,
-        )
-        return _WorkspaceRecordBuild(record=record)
+        return self._reconciler.inspect_record(path)
 
     def _is_internal_path(self, path: Path) -> bool:
-        path_resolved = path.resolve()
-        manifest_path = self._manifest_store.path.resolve()
-        if path_resolved == manifest_path:
-            return True
-        manifest_parent = manifest_path.parent
-        if manifest_parent == self._settings.root.resolve():
-            return False
-        try:
-            path_resolved.relative_to(manifest_parent)
-        except ValueError:
-            return False
-        return True
-
-    def _scan_path_label(self, path: Path) -> str:
-        try:
-            return path.relative_to(self._settings.root).as_posix()
-        except ValueError:
-            return path.name
+        return self._reconciler.is_internal_path(path)
 
     def _check_mutable_path(self, path: Path, *, link: str) -> None:
         if self._is_internal_path(path):

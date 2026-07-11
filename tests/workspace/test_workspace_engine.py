@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import os
 from pathlib import Path
 from typing import cast
 
@@ -32,6 +33,7 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
     WorkspaceContractError,
+    WorkspaceDiscoverySkipKind,
     WorkspaceEngineBuilder,
     WorkspaceLink,
     WorkspaceManifest,
@@ -39,7 +41,6 @@ from tinysoul.workspace import (
     WorkspacePromptReferenceResolver,
     WorkspaceReconcileStatus,
     WorkspaceResourceKind,
-    WorkspaceScanSkipKind,
     WorkspaceSettings,
     WorkspaceTextSlice,
 )
@@ -154,7 +155,7 @@ def test_workspace_scan_manifest_file_does_not_hide_root(tmp_path: Path) -> None
 
     assert [resource.link for resource in result.resources] == ["workspace:a.md"]
     assert result.skipped_count == 1
-    assert result.skipped[0].kind is WorkspaceScanSkipKind.INTERNAL
+    assert result.skipped[0].kind is WorkspaceDiscoverySkipKind.INTERNAL
 
 
 def test_workspace_scan_reports_limit_reached(tmp_path: Path) -> None:
@@ -195,9 +196,48 @@ def test_workspace_reconcile_keeps_revision_when_disk_is_unchanged(
     assert second.manifest.revision == first.manifest.revision
 
 
+def test_workspace_reconcile_preserves_manifest_when_candidate_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("hello", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    original_stat = Path.stat
+    target_stat_calls = 0
+
+    def changing_stat(
+        path: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        nonlocal target_stat_calls
+        stat = original_stat(path, follow_symlinks=follow_symlinks)
+        if path == target:
+            target_stat_calls += 1
+            if target_stat_calls >= 2:
+                values = list(stat)
+                values[6] += 1
+                return os.stat_result(values)
+        return stat
+
+    monkeypatch.setattr(Path, "stat", changing_stat)
+
+    result = engine.reconcile()
+
+    assert result.status is WorkspaceReconcileStatus.INCOMPLETE
+    assert result.skipped[-1].kind is WorkspaceDiscoverySkipKind.CONCURRENT_CHANGE
+    assert engine.load_manifest().resources == ()
+
+
 def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
-    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "report.pdf").write_bytes(b"%PDF")
     (tmp_path / "archive.bin").write_bytes(b"\x00\x01")
     engine = WorkspaceEngineBuilder(
@@ -218,7 +258,7 @@ def test_workspace_classifies_prompt_access_kinds(tmp_path: Path) -> None:
 def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (tmp_path / "report.pdf").write_bytes(b"%PDF")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -234,6 +274,24 @@ def test_workspace_prompt_resolver_loads_images_and_rejects_documents(
     with pytest.raises(PromptReferenceError) as raised:
         resolver.resolve_reference("workspace:report.pdf")
     assert raised.value.reason == "conversion_required"
+
+
+def test_workspace_prompt_resolver_rejects_image_with_invalid_signature(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "image.png").write_bytes(b"not a png")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    resolver = WorkspacePromptReferenceResolver(engine)
+
+    with pytest.raises(PromptReferenceError) as raised:
+        resolver.resolve_reference("workspace:image.png")
+
+    assert raised.value.reason == "invalid_image_resource"
 
 
 def test_workspace_description_is_cleared_when_content_changes(tmp_path: Path) -> None:

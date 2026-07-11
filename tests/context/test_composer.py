@@ -19,9 +19,11 @@ from tinysoul.llm.messages import (
     ImagePart,
     SystemMessage,
     TextPart,
+    ToolResultMessage,
     UserMessage,
 )
 from tinysoul.llm.reasoning import Reasoning
+from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
 
 def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnTraceContext]:
@@ -170,6 +172,27 @@ def test_estimate_counts_assistant_reasoning() -> None:
     estimated = estimate_chars(messages)
 
     assert estimated > len("answer") + len("thinking content") + len("thinking summary")
+
+
+def test_estimate_counts_tool_calls_and_result_metadata() -> None:
+    call = ToolCallRecord(
+        id="call_1",
+        name="workspace.write_text",
+        arguments={"path": "notes.txt", "content": "x" * 40},
+        kind=ToolKind.ACTION,
+    )
+    messages = (
+        AssistantMessage.from_tool_calls(call),
+        ToolResultMessage.from_text(
+            call_id=call.id,
+            tool_name=call.name,
+            text="written",
+        ),
+    )
+
+    estimated = estimate_chars(messages)
+
+    assert estimated > len("x" * 40) + len("written")
 
 
 def _prompt(text: str) -> TaskPrompt:

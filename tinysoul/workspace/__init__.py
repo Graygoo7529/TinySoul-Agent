@@ -7,16 +7,13 @@ from .engine import (
     WorkspaceEngineBuilder,
     WorkspaceImageRead,
     WorkspacePromptInput,
-    WorkspaceReconcileStatus,
-    WorkspaceScanResult,
-    WorkspaceScanSkip,
-    WorkspaceScanSkipKind,
     WorkspaceTextRead,
     WorkspaceTextSlice,
 )
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
+    WorkspaceImageValidationError,
     WorkspaceIOError,
     WorkspaceInvariantError,
     WorkspaceReconciliationError,
@@ -28,6 +25,12 @@ from .manifest import (
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
 )
+from .reconcile import (
+    WorkspaceDiscoverySkip,
+    WorkspaceDiscoverySkipKind,
+    WorkspaceReconcileResult,
+    WorkspaceReconcileStatus,
+)
 from .projection import WorkspaceTurnPreparationHandler
 from .prompts import WorkspacePromptReferenceResolver
 
@@ -37,20 +40,21 @@ __all__ = [
     "WorkspaceEngineBuilder",
     "WorkspaceError",
     "WorkspaceFailureKind",
+    "WorkspaceDiscoverySkip",
+    "WorkspaceDiscoverySkipKind",
     "WorkspaceIOError",
     "WorkspaceImageRead",
+    "WorkspaceImageValidationError",
     "WorkspaceInvariantError",
     "WorkspaceReconciliationError",
     "WorkspaceLink",
     "WorkspaceManifest",
     "WorkspacePromptInput",
     "WorkspacePromptReferenceResolver",
+    "WorkspaceReconcileResult",
     "WorkspaceReconcileStatus",
     "WorkspaceResourceKind",
     "WorkspaceResourceRecord",
-    "WorkspaceScanResult",
-    "WorkspaceScanSkip",
-    "WorkspaceScanSkipKind",
     "WorkspaceSettings",
     "WorkspaceTextRead",
     "WorkspaceTextSlice",

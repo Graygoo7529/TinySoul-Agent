@@ -417,7 +417,16 @@ class Phase3Unit:
         results = normalization.merged_results(
             (*preparation.results, *execution_results)
         )
-        self._consume_action_effects(scope=scope)
+        expected_workspace_call_ids = frozenset(
+            result.call_id
+            for result in results
+            if result.domain == "workspace"
+            and result.status is ActionResultStatus.SUCCESS
+        )
+        self._consume_action_effects(
+            scope=scope,
+            expected_workspace_call_ids=expected_workspace_call_ids,
+        )
         self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
         phase_results = preparation.phase_results
         answer_results = tuple(
@@ -453,12 +462,18 @@ class Phase3Unit:
             phase_results=phase_results,
         )
 
-    def _consume_action_effects(self, *, scope: RunScope) -> None:
+    def _consume_action_effects(
+        self,
+        *,
+        scope: RunScope,
+        expected_workspace_call_ids: frozenset[str],
+    ) -> None:
         consume_results = self._signal_consumer.consume(scope=scope)
         workspace_failures = tuple(
             result
             for result in consume_results
             if result.tool_name == SIGNAL_WORKSPACE_SYNC
+            and result.call_id in expected_workspace_call_ids
         )
         if workspace_failures:
             raise self._loop_bridge.from_loop_error(

@@ -13,7 +13,7 @@ from tinysoul.context import (
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 
 from .engine import WorkspaceEngine, WorkspacePromptInput, WorkspaceTextSlice
-from .errors import WorkspaceError
+from .errors import WorkspaceError, WorkspaceImageValidationError
 from .links import WORKSPACE_LINK_PREFIX
 from .manifest import WorkspaceResourceKind
 
@@ -103,6 +103,12 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
             )
         except PromptReferenceError:
             raise
+        except WorkspaceImageValidationError as exc:
+            raise PromptReferenceError(
+                f"Workspace image resource is invalid: {link}",
+                reason="invalid_image_resource",
+                payload={"error_type": type(exc).__name__, "link": link},
+            ) from exc
         except WorkspaceError as exc:
             raise PromptReferenceError(
                 f"Workspace prompt reference failed: {exc}",

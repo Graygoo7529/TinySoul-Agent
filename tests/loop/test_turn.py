@@ -10,6 +10,7 @@ from tinysoul.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
     TurnOutput,
+    TurnPreparationPipeline,
     build_turn_output_signal,
 )
 from tinysoul.loop.cycle import CycleOutcome, CycleRunner
@@ -21,7 +22,9 @@ from tinysoul.runtime import (
     RunScope,
     RuntimeTransfer,
     RuntimeTransferAction,
+    RuntimeTransferInterrupt,
     RuntimeTrap,
+    Signal,
     SignalBus,
     TrapHandlerRegistry,
 )
@@ -81,6 +84,46 @@ class _ProgramEndCycleRunner:
             cycle_id=f"cycle_{cycle_index}",
             transfer=RuntimeTransfer.end(frame),
         )
+
+
+@dataclass
+class _CountingCycleRunner:
+    calls: int = 0
+
+    def run(
+        self,
+        *,
+        turn_id: str,
+        cycle_index: int,
+        scope: RunScope,
+    ) -> CycleOutcome:
+        self.calls += 1
+        frame = scope.nearest(RunLevel.TURN)
+        assert frame is not None
+        return CycleOutcome(
+            cycle_id=f"cycle_{cycle_index}",
+            transfer=RuntimeTransfer.end(frame),
+        )
+
+
+@dataclass
+class _RetryTurnPreparation:
+    calls: int = 0
+
+    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+        self.calls += 1
+        if self.calls == 1:
+            frame = scope.nearest(RunLevel.TURN)
+            assert frame is not None
+            raise RuntimeTransferInterrupt(RuntimeTransfer.retry(frame))
+        return ()
+
+
+class _EndProgramPreparation:
+    def prepare(self, *, turn_id: str, scope: RunScope) -> tuple[Signal, ...]:
+        frame = scope.nearest(RunLevel.PROGRAM)
+        assert frame is not None
+        raise RuntimeTransferInterrupt(RuntimeTransfer.end(frame))
 
 
 @dataclass
@@ -177,6 +220,48 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert completion.summary.trace == ()
     assert completion.output is not None
     assert completion.output.text == "done"
+
+
+def test_turn_preparation_retry_replays_only_preparation() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    preparation = _RetryTurnPreparation()
+    cycles = _CountingCycleRunner()
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, cycles),
+        settings=LoopSettings(max_cycles_per_turn=1),
+        preparation_pipeline=TurnPreparationPipeline((preparation,)),
+    )
+
+    outcome = runner.run("hello", scope=_program_scope())
+
+    assert preparation.calls == 2
+    assert cycles.calls == 1
+    assert outcome.summary is not None
+    assert outcome.transfer is not None
+    assert outcome.transfer.target.level is RunLevel.TURN
+
+
+def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    cycles = _CountingCycleRunner()
+    runner = TurnRunner(
+        context=context,
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, cycles),
+        settings=LoopSettings(max_cycles_per_turn=1),
+        preparation_pipeline=TurnPreparationPipeline((_EndProgramPreparation(),)),
+    )
+
+    outcome = runner.run("hello", scope=_program_scope())
+
+    assert cycles.calls == 0
+    assert outcome.summary is not None
+    assert outcome.transfer is not None
+    assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
 def _trap() -> RuntimeTrap:

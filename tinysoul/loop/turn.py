@@ -15,6 +15,8 @@ from tinysoul.runtime import (
     RuntimeTrap,
     RuntimeTransfer,
     RuntimeTransferAction,
+    RuntimeTransferInterrupt,
+    Signal,
     SignalBus,
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
@@ -92,57 +94,22 @@ class TurnRunner:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
             self._set_active_scope(turn_scope)
-            preparation_signals = self._preparation_pipeline.prepare(
-                turn_id=turn_id,
-                scope=turn_scope,
-            )
-            if preparation_signals:
-                preparation_results = self._signal_consumer.emit_and_consume(
-                    preparation_signals,
-                    scope=turn_scope,
-                )
-                preparation_call_ids = {
-                    call_id
-                    for signal in preparation_signals
-                    if isinstance((call_id := signal.payload.get("call_id")), str)
-                }
-                rejected = tuple(
-                    result
-                    for result in preparation_results
-                    if result.call_id in preparation_call_ids
-                )
-                if rejected:
-                    raise self._loop_bridge.from_loop_error(
-                        LoopInvariantError(
-                            "Context rejected a Turn preparation signal"
-                        ),
-                        payload=to_json_object(
-                            {
-                                "results": [
-                                    {
-                                        "call_id": result.call_id,
-                                        "tool_name": result.tool_name,
-                                        "feedback": result.model_feedback,
-                                    }
-                                    for result in rejected
-                                ]
-                            }
-                        ),
+            transfer = self._run_preparation(turn_id=turn_id, scope=turn_scope)
+            if transfer is None:
+                for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
+                    cycle = self._cycle_runner.run(
+                        turn_id=turn_id,
+                        cycle_index=cycle_index,
+                        scope=turn_scope,
                     )
-            for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
-                cycle = self._cycle_runner.run(
-                    turn_id=turn_id,
-                    cycle_index=cycle_index,
-                    scope=turn_scope,
-                )
-                if cycle.transfer is not None:
-                    transfer = self._consume_cycle_transfer(cycle, turn_scope)
-                    if transfer is not None:
-                        break
-                    continue
-            else:
-                exhausted = True
-                self._record_cycle_limit(turn_scope)
+                    if cycle.transfer is not None:
+                        transfer = self._consume_cycle_transfer(cycle, turn_scope)
+                        if transfer is not None:
+                            break
+                        continue
+                else:
+                    exhausted = True
+                    self._record_cycle_limit(turn_scope)
         except RuntimeException as exc:
             transfer = self._capture(exc, turn_scope)
         try:
@@ -176,6 +143,81 @@ class TurnRunner:
             exhausted=exhausted,
             transfer=transfer,
         )
+
+    def _run_preparation(
+        self,
+        *,
+        turn_id: str,
+        scope: RunScope,
+    ) -> RuntimeTransfer | None:
+        turn_frame = scope.nearest(RunLevel.TURN)
+        if turn_frame is None:
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError("Turn preparation scope has no Turn frame")
+            )
+        while True:
+            try:
+                signals = self._preparation_pipeline.prepare(
+                    turn_id=turn_id,
+                    scope=scope,
+                )
+                self._commit_preparation_signals(signals, scope=scope)
+                return None
+            except RuntimeTransferInterrupt as interrupt:
+                transfer = interrupt.transfer
+            except RuntimeException as exc:
+                transfer = self._capture(exc, scope)
+
+            if transfer.target != turn_frame:
+                return transfer
+            if transfer.action is RuntimeTransferAction.RETRY:
+                continue
+            if transfer.action is RuntimeTransferAction.END:
+                return transfer
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError(
+                    f"Unsupported Turn preparation transfer: {transfer}"
+                )
+            )
+
+    def _commit_preparation_signals(
+        self,
+        signals: tuple[Signal, ...],
+        *,
+        scope: RunScope,
+    ) -> None:
+        if not signals:
+            return
+        preparation_results = self._signal_consumer.emit_and_consume(
+            signals,
+            scope=scope,
+        )
+        preparation_call_ids = {
+            call_id
+            for signal in signals
+            if isinstance((call_id := signal.payload.get("call_id")), str)
+        }
+        rejected = tuple(
+            result
+            for result in preparation_results
+            if result.call_id in preparation_call_ids
+        )
+        if rejected:
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError("Context rejected a Turn preparation signal"),
+                payload=to_json_object(
+                    {
+                        "results": [
+                            {
+                                "call_id": result.call_id,
+                                "tool_name": result.tool_name,
+                                "feedback": result.model_feedback,
+                            }
+                            for result in rejected
+                        ]
+                    }
+                ),
+            )
 
     def _consume_turn_output(self, turn_id: str) -> TurnOutput | None:
         if not turn_id:

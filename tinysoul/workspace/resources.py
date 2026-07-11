@@ -92,6 +92,24 @@ class WorkspaceResourceClassifier:
         )
 
 
+def image_data_matches(media_type: str, data: bytes) -> bool:
+    """Return whether image bytes match a supported classified media type."""
+
+    if media_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if media_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if media_type == "image/gif":
+        return data.startswith((b"GIF87a", b"GIF89a"))
+    if media_type == "image/webp":
+        return (
+            len(data) >= 12
+            and data.startswith(b"RIFF")
+            and data[8:12] == b"WEBP"
+        )
+    return False
+
+
 def _text_label(suffix: str) -> str:
     labels = {
         ".md": "Markdown text",

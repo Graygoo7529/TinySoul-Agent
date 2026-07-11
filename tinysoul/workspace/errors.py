@@ -11,6 +11,10 @@ class WorkspaceContractError(WorkspaceError):
     """Raised when callers violate the workspace module contract."""
 
 
+class WorkspaceImageValidationError(WorkspaceContractError):
+    """Raised when image bytes do not match the classified media type."""
+
+
 class WorkspaceInvariantError(WorkspaceError):
     """Raised when workspace internal invariants are broken."""
 

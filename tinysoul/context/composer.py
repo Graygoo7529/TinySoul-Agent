@@ -13,6 +13,7 @@ from tinysoul.llm.messages import (
     MessageStack,
     SystemMessage,
     TextPart,
+    ToolResultMessage,
 )
 
 from .background import BackgroundContext
@@ -102,14 +103,24 @@ def estimate_chars(messages: tuple[Message, ...]) -> int:
                 total += len(part.text)
             elif isinstance(part, JsonPart):
                 total += len(dumps_json(part.value))
-        if isinstance(message, AssistantMessage) and message.reasoning is not None:
-            reasoning = message.reasoning
-            if reasoning.content is not None:
-                total += len(reasoning.content)
-            if reasoning.summary is not None:
-                total += len(reasoning.summary)
-            for item in reasoning.encrypted_items:
-                total += len(dumps_json(item))
+        if isinstance(message, AssistantMessage):
+            for call in message.tool_calls:
+                total += len(call.id) + len(call.name)
+                total += len(dumps_json(call.arguments))
+                if call.kind is not None:
+                    total += len(call.kind.value)
+            if message.reasoning is not None:
+                reasoning = message.reasoning
+                if reasoning.content is not None:
+                    total += len(reasoning.content)
+                if reasoning.summary is not None:
+                    total += len(reasoning.summary)
+                for item in reasoning.encrypted_items:
+                    total += len(dumps_json(item))
+        elif isinstance(message, ToolResultMessage):
+            total += len(message.call_id)
+            total += len(message.tool_name)
+            total += len(message.status.value)
     return total
 
 
