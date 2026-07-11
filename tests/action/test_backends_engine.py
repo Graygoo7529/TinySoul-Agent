@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from time import sleep
+from time import monotonic, sleep
 
 import pytest
 
@@ -27,7 +27,7 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.infra.config import ConfigError
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
 
 
 def test_native_cooperative_timeout_does_not_block_later_group() -> None:
@@ -197,6 +197,76 @@ def test_subprocess_executor_kills_timed_out_process() -> None:
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[0].frame_data["reason"] == "process_timeout"
+
+
+def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "started.txt"
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _action(
+                "test.interrupt",
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.NATIVE,
+                    handler="test.interrupt",
+                ),
+            ),
+            _action(
+                "test.process",
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.SUBPROCESS,
+                    handler="subprocess.default",
+                    options={
+                        "argv": [
+                            sys.executable,
+                            "-c",
+                            (
+                                "from pathlib import Path; import sys,time; "
+                                "Path(sys.argv[1]).write_text('started'); "
+                                "time.sleep(10)"
+                            ),
+                            str(marker),
+                        ]
+                    },
+                ),
+            ),
+        ),
+    )
+    batch = _batch(
+        catalog,
+        (
+            ToolCallRecord("call_1", "test.interrupt", {}, ToolKind.ACTION),
+            ToolCallRecord("call_2", "test.process", {}, ToolKind.ACTION),
+        ),
+    )
+    executors = ExecutorRegistry()
+
+    def interrupt_after_process_starts(execution, context):
+        deadline = monotonic() + 3.0
+        while not marker.exists() and monotonic() < deadline:
+            sleep(0.005)
+        assert marker.exists()
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+        )
+
+    executors.register(
+        "test.interrupt",
+        NativeFunctionExecutor(interrupt_after_process_starts),
+    )
+    executors.register("subprocess.default", SubprocessActionExecutor())
+    started = monotonic()
+
+    with pytest.raises(RuntimeException):
+        ActionBatchRunner(
+            executors=executors,
+            process_cancel_grace_seconds=2.0,
+        ).run(batch, ActionExecutionContext())
+
+    assert monotonic() - started < 5.0
 
 
 def test_temporary_script_executor_runs_python_code() -> None:

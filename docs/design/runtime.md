@@ -36,7 +36,7 @@ Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Progr
 
 Runtime 的异常入口应保持单一。模块外交给 Runtime 的异常使用统一异常类型承载原因标识、错误消息和结构化载荷。Runtime 不通过庞大的异常继承树区分恢复、中断和退出，也不直接接收各模块的细粒度失败原因；模块失败原因由模块内部维护，并通过 bridge 映射到 Runtime 的通用原因。这样可以保持异常入口稳定，并避免 LLM、Infra、Action 或 Context 的内部错误分类污染 Runtime 控制协议。
 
-Runtime 自身仍然有模块内部的契约和不变量错误。`RuntimeException` 只表示需要进入 Trap 的控制流语义，不用于表达 `RunScope`、`Signal`、`TrapResult` 或 handler registry 的构造错误。Runtime 公共对象、Signal/Trap 注册表和 JSON payload 边界使用 Runtime 自有错误层表达：调用方违反 Runtime API 约定时抛出 `RuntimeContractError`，已装配 Runtime 状态无法满足自身运行不变量时抛出 `RuntimeInvariantError`。这些错误表示代码或装配边界失败，不作为普通业务恢复原因进入 Trap，也不新增 Runtime reason。
+Runtime 自身仍然有模块内部的契约和不变量错误。`RuntimeException` 只表示需要进入 Trap 的控制流语义，不用于表达 `RunScope`、`Signal`、`TrapResult` 或 Trap registry 的构造错误。Runtime 公共对象、SignalBus/Trap 注册表和 JSON payload 边界使用 Runtime 自有错误层表达：调用方违反 Runtime API 约定时抛出 `RuntimeContractError`，已装配 Runtime 状态无法满足自身运行不变量时抛出 `RuntimeInvariantError`。这些错误表示代码或装配边界失败，不作为普通业务恢复原因进入 Trap，也不新增 Runtime reason。
 
 TrapSnap 是 Trap 捕获异常后形成的陷入上下文快照。它包含原因标识、错误消息、结构化载荷和运行位置。结构化载荷是模块 bridge 显式构造的 JSON 对象；原始异常链可以供日志和调试使用，但不应成为 payload 协议。TrapSnap 不再被抛出；它只在 Trap 处理器、日志、TurnTrace 和可观测流程中流动。
 
@@ -65,6 +65,8 @@ Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中
 重试目标 frame 必须具备可重放语义。模块级重试只有在模块边界保存了可重放调用时才成立，例如资源操作、Action Invoke 或明确的 LLM Task 调用。否则处理器应选择重试 Phase、Cycle，或结束 Turn。Runtime 不提供从异常抛出点下一行继续执行的语义；若某个问题可以在模块内部继续调度，它不应进入 Trap，而应由模块内部流程或信号系统处理。
 
 运行器负责消费运行转移。Program、Turn、Cycle 和 Phase 运行器只消费指向自身 frame 的转移；`RuntimeModuleRunner` 为 action invoke、Context signal batch 等可重放调用建立 Module frame，捕获一次 RuntimeException、发出 Trap 信号并在 RETRY 指向自身时重放同一调用。指向上层 frame 的转移通过 `RuntimeTransferInterrupt` 展开传播，不会在每层重复进入 Trap。Runtime 本身不直接提交业务状态。
+
+Trap 只接受指向本次捕获 `RunScope` 内 frame 的运行转移。处理器若返回外部 scope、已经失效或从未属于该运行栈的 target，Trap 以 `RuntimeInvariantError` 拒绝结果；运行器不能消费一个没有栈归属的跳转目标。这个校验位于 Trap 边界，而不是分散到每级运行器。
 
 ## 异常处理
 
@@ -106,11 +108,11 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 信号通过 SignalBus 发出和暂存。SignalBus 提供线程安全的发出、查看、批量消费和按命名空间前缀选择性消费的能力，以支持 Phase3 的并行动作执行、用户追加输入和后台事件；命名空间消费使某个模块可以只取走属于自己的信号，而不影响其他消费者的队列。
 
-信号消费由信号处理器表负责。处理器按信号名称或命名空间订阅信号，并在明确边界批量消费。Phase1 产生的状态信号应在 Phase1 结束后按消费模块协议批量处理；Phase3 的 Action 结果信号应在并行执行完成后批量消费；用户追加输入信号应在 User Turn 可接收输入的位置合并进当前 Turn。
+信号消费由拥有业务协议的模块在明确边界负责。消费者通过 SignalBus 的精确名称或命名空间批量选择能力取得信号，再按自身类型解析、投影和提交；Runtime 不维护一个脱离业务所有权的通用 SignalHandlerRegistry。Phase1 产生的状态信号应在 Phase1 结束后按消费模块协议批量处理；Phase3 的 Action 结果信号应在并行执行完成后批量消费；用户追加输入信号应在 User Turn 可接收输入的位置合并进当前 Turn。
 
-模块信号的主链路是 SignalBus 和信号处理器，不是 Trap。这样可以保持异常控制流和模块事件流分离。Trap 不识别控制信号；请求结束当前 Turn、请求结束 Program 或请求进入全局恢复流程等控制流变化，应由运行器构造 Runtime 语义异常进入 Trap。其他信号由对应模块处理器消费。
+模块信号的主链路是 SignalBus 和业务模块消费者，不是 Trap。这样可以保持异常控制流和模块事件流分离。Trap 不识别控制信号；请求结束当前 Turn、请求结束 Program 或请求进入全局恢复流程等控制流变化，应由运行器构造 Runtime 语义异常进入 Trap。其他信号由对应模块在自身安全边界消费。
 
-信号处理器不应依赖发送方的内部对象。发送方负责在边界处把动态数据转换为清晰的 JSON 对象；接收方负责把 JSON 载荷解析为自身模块的明确类型，并执行校验和状态提交。这样可以避免宽泛动态对象在模块内部扩散。
+信号消费者不应依赖发送方的内部对象。发送方负责在边界处把动态数据转换为清晰的 JSON 对象；接收方负责把 JSON 载荷解析为自身模块的明确类型，并执行校验和状态提交。这样可以避免宽泛动态对象在模块内部扩散。
 
 控制流变化不通过普通信号表达。需要结束 Turn、结束 Program、触发全局恢复或处理无法继续的错误时，应构造 Runtime 语义异常进入 Trap。信号用于模块事件和状态变更请求，例如追加 TurnTrace、提交 WorkingContext patch、记录 trace 或传递用户追加内容。
 
@@ -120,7 +122,7 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 Trap 是 Runtime 的 OS 风格陷入控制器。它处理 Runtime 语义异常并返回运行转移，但不拥有业务状态。
 
-Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapSnap，按照原因标识查找处理器，并返回运行转移。Trap 不处理普通信号；模块状态信号、动作结果信号和可观测信号由信号处理器系统消费。
+Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapSnap，按照原因标识查找处理器，验证处理器给出的 target 属于捕获 scope，再返回运行转移。Trap 不处理普通信号；模块状态信号、动作结果信号和可观测信号由各业务模块从 SignalBus 消费。
 
 Trap 不执行 LLM 调用，不重跑 Phase，不修改 Context，不写 Action Record，也不直接写 Workspace。它只负责把 Runtime 语义异常转换为运行转移，并把必要的副作用意图表达为信号。具体恢复任务由注册的 Trap 处理器执行；具体运行跳转由 Program、Turn、Phase 或 Module 运行器执行。
 
@@ -136,15 +138,15 @@ LLM 输出解释失败不默认进入 Runtime。若模型调用已经成功返�
 
 模型侧工具调用仍属于 LLM 输出协议。Control Tool Calls 和 Action Tool Calls 的业务含义由上层模块解释，并通过信号或 Action Invoke 进入后续流程。Provider 原生 tool calling 结构不进入 Runtime。
 
-LLM 是模块接入 Runtime 的参考实现之一。它把模型链耗尽、供应商失败、配置失败、调用契约错误等 Runtime bridge 失败语义保留在 LLM 内部，再由 LLM bridge 映射到 Runtime 通用原因；模型输出解释失败则作为任务失败结果返回调用方，通过 `model_feedback` 供上层参考，不默认进入 Runtime，也不纳入 LLM bridge failure 枚举。
+LLM 是模块接入 Runtime 的参考实现之一。供应商错误先由 LLM 模型链按策略重试或切换，不单独作为 Runtime bridge failure 暴露；模型链耗尽、配置失败和调用契约错误等需要改变控制流的模块失败，再由 LLM bridge 映射到 Runtime 通用原因。模型输出解释失败则作为任务失败结果返回调用方，通过 `model_feedback` 供上层参考，不默认进入 Runtime，也不纳入 LLM bridge failure 枚举。
 
 ## 与 Infra 的关系
 
-Infra 继续提供配置、JSON、资源读取、进程运行、日志渲染等基础设施。Runtime 可以使用 Infra 的 JSON 基础能力约束信号载荷和异常详情，但 Runtime 不属于 Infra。
+Infra 继续提供配置、JSON 边界和受控文件系统能力。Runtime 可以使用 Infra 的 JSON 基础能力约束信号载荷和异常详情，但 Runtime 不属于 Infra。
 
 配置加载错误可以在配置模块边界转换为表示启动失败的 Runtime 语义异常。可观测事件可以由 Runtime 或其他模块发出 trace 信号，再交由 Infra 渲染。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
 
-Infra 是基础设施模块接入 Runtime 的参考实现之一。它自身不表达 Runtime 控制流，只维护配置失败、JSON 边界失败、调用契约错误和内部失败等基础设施失败语义；应用入口、组合层或专门 bridge 再根据发生阶段映射为启动失败或结束当前 Turn。
+Infra 自身不表达 Runtime 控制流。当前 Infra bridge 只映射配置加载失败为启动失败；JSON 与文件系统边界错误由实际拥有该调用流程的业务模块局部处理或归入自身 bridge，不维持没有真实调用路径的通用失败分类。
 
 ## 设计范围
 

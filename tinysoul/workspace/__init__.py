@@ -18,7 +18,6 @@ from .errors import (
     WorkspaceInvariantError,
     WorkspaceReconciliationError,
 )
-from .failures import WorkspaceFailureKind
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
@@ -39,7 +38,6 @@ __all__ = [
     "WorkspaceEngine",
     "WorkspaceEngineBuilder",
     "WorkspaceError",
-    "WorkspaceFailureKind",
     "WorkspaceDiscoverySkip",
     "WorkspaceDiscoverySkipKind",
     "WorkspaceIOError",

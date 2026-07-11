@@ -2,19 +2,38 @@
 
 from __future__ import annotations
 
+from typing import cast
+
+import pytest
+
 from tinysoul.context.controls import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
     CONTROL_UPDATE_WORKING,
     ContextControlScopeBuilder,
     ControlCallNormalizer,
+    ControlResult,
+    ControlResultStatus,
     ControlResultStage,
 )
+from tinysoul.context.errors import ContextInvariantError
 from tinysoul.context.signals import SIGNAL_BACKGROUND_PATCH, SIGNAL_WORKING_PATCH
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunLevel, RunScope
 
 SCOPE = RunScope().push(RunLevel.PHASE, "phase1")
+
+
+def test_control_result_validates_protocol_fields() -> None:
+    with pytest.raises(ContextInvariantError, match="status"):
+        ControlResult(
+            result_id="result_1",
+            call_id="call_1",
+            tool_name="test",
+            status=cast(ControlResultStatus, "failed"),
+            stage=ControlResultStage.NORMALIZE,
+            sequence=1,
+        )
 
 
 def test_control_scope_reflects_loadable_and_loaded_links() -> None:

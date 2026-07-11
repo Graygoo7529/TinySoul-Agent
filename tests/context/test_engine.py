@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from tinysoul.context import (
@@ -11,9 +13,11 @@ from tinysoul.context import (
     SIGNAL_TRACE_APPEND,
     ContextContractError,
     ContextEngineBuilder,
+    ContextSignalBatch,
     PromptBlock,
     TaskPrompt,
     TraceKind,
+    TurnSummary,
     WorkspaceResource,
     WorkspaceSnapshot,
     build_input_append_signal,
@@ -77,6 +81,21 @@ def test_turn_lifecycle_and_compose() -> None:
     assert summary.inputs[0]["text"] == "please help"
     assert summary.background_links == ("home:agent@core",)
     assert not engine.turn_active
+
+
+def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
+    with pytest.raises(ContextContractError, match="turn_id"):
+        ContextSignalBatch(turn_id="")
+    with pytest.raises(ContextContractError, match="Signal"):
+        ContextSignalBatch(
+            turn_id="turn_1",
+            signals=cast(tuple[Signal, ...], (object(),)),
+        )
+    with pytest.raises(ContextContractError, match="background_links"):
+        TurnSummary(
+            turn_id="turn_1",
+            background_links=("home:agent@core", "home:agent@core"),
+        )
 
 
 def test_control_scope_tracks_background_state() -> None:

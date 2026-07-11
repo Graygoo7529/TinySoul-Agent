@@ -53,13 +53,15 @@ BackgroundContext、WorkingContext、UserInputs 与 task prompt overlay 均渲�
 
 task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。TaskPrompt 渲染为多条可切分 user messages：guide、domain HOW、task input、额外 task input blocks 和 expected output 分别可以成为独立 message。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain HOW）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
 
-composer 在构造时执行语境预算检查。文本预算覆盖消息可见文本、JSON 片段，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见推理轨迹绕过上下文预算；内联 `ImagePart` 使用独立的总字节预算，避免多资源 Prompt 绕过字符预算。任一预算超限都不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
+composer 在构造时执行语境预算检查。文本预算覆盖消息可见文本、JSON 片段、Assistant tool call 的名称/标识/参数、ToolResult 的调用关联与元数据，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见协议数据绕过上下文预算；内联 `ImagePart` 使用独立的总字节预算，避免多资源 Prompt 绕过字符预算。任一预算超限都不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
 
 ## 语境控制工具与信号
 
 Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载顶层内容、逐出顶层内容。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
+
+Context 的协议对象在构造边界维持自身不变量：`ControlResult` 校验标识、状态、阶段、序号和 JSON 载荷，`ControlNormalization` 与 `ContextSignalBatch` 只接受对应成员类型并冻结顺序，`TurnSummary` 校验 Turn 标识、唯一背景链接及所有快照/trace 的 JSON 安全性。配置 parser、signal codec 与直接 Python 调用因此共享同一组底层约束。
 
 Context 消费的信号协议：
 

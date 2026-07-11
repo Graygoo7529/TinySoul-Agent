@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
@@ -45,27 +44,38 @@ from .core.scope import (
 )
 
 
-@dataclass(frozen=True)
 class ActionEngine:
     """Assembled action module entry point for loop/context integration."""
 
-    catalog: ActionCatalog
-    normalizer: ActionCallNormalizer
-    builder: ActionExecutionBuilder
-    runner: ActionBatchRunner
-    renderer: ActionFeedbackRenderer
-    phase1_scope_builder: Phase1DomainScopeBuilder
-    phase2_scope_builder: Phase2ActionScopeBuilder
-    domain_prompt_renderer: ActionDomainPromptRenderer
+    def __init__(
+        self,
+        *,
+        catalog: ActionCatalog,
+        normalizer: ActionCallNormalizer,
+        builder: ActionExecutionBuilder,
+        runner: ActionBatchRunner,
+        renderer: ActionFeedbackRenderer,
+        phase1_scope_builder: Phase1DomainScopeBuilder,
+        phase2_scope_builder: Phase2ActionScopeBuilder,
+        domain_prompt_renderer: ActionDomainPromptRenderer,
+    ) -> None:
+        self._catalog = catalog
+        self._normalizer = normalizer
+        self._builder = builder
+        self._runner = runner
+        self._renderer = renderer
+        self._phase1_scope_builder = phase1_scope_builder
+        self._phase2_scope_builder = phase2_scope_builder
+        self._domain_prompt_renderer = domain_prompt_renderer
 
     def phase1_scope(self) -> ToolScope:
-        return self.phase1_scope_builder.build(self.catalog)
+        return self._phase1_scope_builder.build(self._catalog)
 
     def phase1_domain_tool_name(self) -> str:
         return DOMAIN_SELECTION_TOOL
 
     def phase1_domain_prompt(self) -> str:
-        return self.domain_prompt_renderer.render(self.catalog)
+        return self._domain_prompt_renderer.render(self._catalog)
 
     def normalize_domain_selection(
         self,
@@ -73,8 +83,8 @@ class ActionEngine:
     ) -> ActionDomainSelection:
         """Normalize Phase1 action-domain control calls."""
 
-        return self.phase1_scope_builder.normalize_selection(
-            self.catalog,
+        return self._phase1_scope_builder.normalize_selection(
+            self._catalog,
             tool_calls,
         )
 
@@ -85,8 +95,8 @@ class ActionEngine:
         turn_id: str = "",
         cycle_id: str = "",
     ) -> ActionScopePreparation:
-        return self.phase2_scope_builder.prepare(
-            self.catalog,
+        return self._phase2_scope_builder.prepare(
+            self._catalog,
             selected_domains=selected_domains,
             phase=CyclePhase.PHASE2,
             turn_id=turn_id,
@@ -97,9 +107,9 @@ class ActionEngine:
         self,
         tool_calls: tuple[ToolCallRecord, ...],
     ) -> ActionNormalization:
-        return self.normalizer.normalize(
+        return self._normalizer.normalize(
             tool_calls,
-            catalog=self.catalog,
+            catalog=self._catalog,
         )
 
     def prepare_batch(
@@ -111,9 +121,9 @@ class ActionEngine:
         turn_id: str = "",
         cycle_id: str = "",
     ) -> ActionBatchPreparation:
-        return self.builder.prepare_batch(
+        return self._builder.prepare_batch(
             calls,
-            catalog=self.catalog,
+            catalog=self._catalog,
             scope=scope,
             batch_id=batch_id,
             turn_id=turn_id,
@@ -127,17 +137,17 @@ class ActionEngine:
         *,
         context: ActionExecutionContext | None = None,
     ) -> tuple[ActionResult, ...]:
-        return self.runner.run(batch, context or ActionExecutionContext())
+        return self._runner.run(batch, context or ActionExecutionContext())
 
     def render_result_model_payload(self, result: ActionResult) -> JsonObject:
         """Render one action result for model feedback."""
 
-        return self.renderer.render_model_payload(result)
+        return self._renderer.render_model_payload(result)
 
     def render_result_trace_payload(self, result: ActionResult) -> JsonObject:
         """Render one action result for trace storage."""
 
-        return self.renderer.render_trace_payload(result)
+        return self._renderer.render_trace_payload(result)
 
     def render_result_model_payloads(
         self,
@@ -145,7 +155,7 @@ class ActionEngine:
     ) -> tuple[JsonObject, ...]:
         """Render action results for compact model feedback."""
 
-        return self.renderer.render_many(results)
+        return self._renderer.render_many(results)
 
     def to_tool_result_messages(
         self,
@@ -153,17 +163,17 @@ class ActionEngine:
     ) -> tuple[ToolResultMessage, ...]:
         """Render action results as model-side tool result replay messages."""
 
-        return self.renderer.to_tool_result_messages(results)
+        return self._renderer.to_tool_result_messages(results)
 
     def render_phase_model_payload(self, result: ActionPhaseResult) -> JsonObject:
         """Render one phase-level action result for model feedback."""
 
-        return self.renderer.render_phase_model_payload(result)
+        return self._renderer.render_phase_model_payload(result)
 
     def render_phase_trace_payload(self, result: ActionPhaseResult) -> JsonObject:
         """Render one phase-level action result for trace storage."""
 
-        return self.renderer.render_phase_trace_payload(result)
+        return self._renderer.render_phase_trace_payload(result)
 
     def render_phase_model_payloads(
         self,
@@ -171,7 +181,7 @@ class ActionEngine:
     ) -> tuple[JsonObject, ...]:
         """Render phase-level action results for compact model feedback."""
 
-        return self.renderer.render_phase_many(results)
+        return self._renderer.render_phase_many(results)
 
 
 class ActionEngineBuilder:

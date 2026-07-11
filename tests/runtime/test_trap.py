@@ -125,6 +125,24 @@ def test_trap_unknown_reason_raises_runtime_invariant_error() -> None:
     assert "No trap handler registered" in str(raised.value)
 
 
+def test_trap_rejects_transfer_target_outside_captured_scope() -> None:
+    scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
+    handler = _Handler(
+        transfer=RuntimeTransfer.end(RunFrame(RunLevel.TURN, "foreign"))
+    )
+    registry = TrapHandlerRegistry()
+    registry.register(RUNTIME_TURN_END, handler)
+
+    with pytest.raises(RuntimeInvariantError, match="outside the captured scope"):
+        RuntimeTrap(registry=registry).capture(
+            RuntimeException(
+                reason=RUNTIME_TURN_END,
+                message="stop",
+            ),
+            scope,
+        )
+
+
 def test_trap_registry_uses_explicit_fallback_for_unknown_reason() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
     current = scope.current()

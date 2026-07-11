@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 import glob
 
+from ..filesystem import FilesystemBoundaryError, resolve_under_root
 from .errors import ConfigError
 from .source import ConfigSource
 from .toml_file import ConfigFileToml, deep_copy_mapping, flatten_mapping, merge_trees
@@ -28,9 +29,13 @@ class ProjectConfig:
 
     def env_file_path(self, default_name: str = ".env") -> Path:
         configured = _get_config_string(self._data, "env_file")
-        if configured:
-            return self.root / configured
-        return self.root / default_name
+        value = configured or default_name
+        return _project_path(
+            self.root,
+            value,
+            key="config.env_file",
+            source=str(self.main_path),
+        )
 
     def _load(self) -> dict[str, object]:
         main = ConfigFileToml(self.main_path).data
@@ -67,6 +72,11 @@ def _expand_include_paths(root: Path, includes: list[str], *, source: str) -> li
 
 
 def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:
+    _validate_relative_project_path(
+        include,
+        key="config.include",
+        source=source,
+    )
     if _has_glob_pattern(include):
         matches = sorted(root.glob(include), key=lambda path: path.as_posix())
         if not matches:
@@ -78,7 +88,12 @@ def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:
             )
         paths = matches
     else:
-        path = root / include
+        path = _project_path(
+            root,
+            include,
+            key="config.include",
+            source=source,
+        )
         if not path.exists():
             raise ConfigError(
                 "Included configuration file does not exist",
@@ -88,6 +103,13 @@ def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:
             )
         paths = [path]
     for path in paths:
+        _ensure_under_project_root(
+            root,
+            path,
+            value=include,
+            key="config.include",
+            source=source,
+        )
         if not path.is_file():
             raise ConfigError(
                 "Configuration include must reference TOML files",
@@ -96,6 +118,67 @@ def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:
                 value=include,
             )
     return paths
+
+
+def _project_path(
+    root: Path,
+    value: str,
+    *,
+    key: str,
+    source: str,
+) -> Path:
+    _validate_relative_project_path(value, key=key, source=source)
+    candidate = root / value
+    try:
+        resolve_under_root(root, value)
+    except FilesystemBoundaryError as exc:
+        raise ConfigError(
+            "Project configuration path must stay within the project root",
+            key=key,
+            source=source,
+            value=value,
+            expected="project-relative path",
+        ) from exc
+    return candidate
+
+
+def _validate_relative_project_path(value: str, *, key: str, source: str) -> None:
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise ConfigError(
+            "Project configuration path must stay within the project root",
+            key=key,
+            source=source,
+            value=value,
+            expected="project-relative path without '..'",
+        )
+
+
+def _ensure_under_project_root(
+    root: Path,
+    path: Path,
+    *,
+    value: str,
+    key: str,
+    source: str,
+) -> None:
+    try:
+        resolved_root = root.resolve()
+        resolved_path = path.resolve()
+        if resolved_path != resolved_root and resolved_root not in resolved_path.parents:
+            raise FilesystemBoundaryError(
+                f"Path escapes root: {value}",
+                root=resolved_root,
+                path=resolved_path,
+            )
+    except FilesystemBoundaryError as exc:
+        raise ConfigError(
+            "Project configuration path must stay within the project root",
+            key=key,
+            source=source,
+            value=value,
+            expected="project-relative path",
+        ) from exc
 
 
 def _has_glob_pattern(value: str) -> bool:

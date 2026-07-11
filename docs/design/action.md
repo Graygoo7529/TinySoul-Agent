@@ -59,11 +59,13 @@ Phase3 负责：
 - 对每个 action 执行输入 hook
 - 按 batch 维度处理并发和超时
 - 将每个 action 的执行结果结构化
-- 等待全部 action 收敛并整理 `ActionResult` 序列
+- 等待 action 收敛并整理 `ActionResult` 序列；Runtime transfer 出现时立即中止局部 reduce
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
 `native` 后端运行在宿主 Python 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native action 通过 `context.control.check_cancelled()` 等方式协作退出，结果收敛为 timeout 且后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
+
+并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，runner 立即对同组未完成 action 请求 `runtime_transfer` 取消：subprocess/script 后端通过 `ActionExecutionControl` 的取消回调终止进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
 
 ## 定义结构
 
@@ -135,6 +137,8 @@ Batch 只是执行编排容器，runner 的核心输出是 `ActionResult` 序列
 批次内允许部分成功，但不需要额外定义 batch result。
 
 Phase2 的模型侧 action tool call 即使无法归一化，也必须产出局部 ActionResult。因此一个 action tool call 在 Action 模块内总是对应一个局部结果：normalize failed、prepare failed、hook failed、schedule failed、execute failed、timeout 或 success。
+
+上述局部收敛规则不包含 Runtime 控制异常。并行 worker 一旦产生 Runtime transfer，批次不再为未完成 sibling 伪造局部 ActionResult，而是先执行取消清理，再把同一个控制异常交回 Runtime 边界。
 
 超时结果有两类来源：runner 发现 deadline 已过并给出 timeout；后端执行器在自身边界内发现 timeout 并给出 timeout。超时后的成功结果必须改判为 timeout，避免越过 deadline 的副作用被当作正常完成；超时后的失败结果可以保留 failed，因为失败信息通常比 timeout 标签更有利于下一 cycle 修正。
 
@@ -212,7 +216,7 @@ Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide 
 
 ## 组装入口
 
-`ActionEngine` 是 action 模块面向 Loop/Context 的装配门面，位于 `tinysoul/action/engine.py`。它负责持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer，不改变结果模型，不引入 batch result。
+`ActionEngine` 是 action 模块面向 Loop/Context 的唯一调用门面，位于 `tinysoul/action/engine.py`。它以私有字段持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer，不把内部组件作为公共状态暴露，不改变结果模型，也不引入 batch result。
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.action.core.errors import ActionContractError, ActionInvariantError
+from tinysoul.action import ActionContractError, ActionInvariantError
 from tinysoul.action.failures import ActionFailureKind
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
@@ -14,7 +14,6 @@ from ._payload import config_error_payload, exception_payload, runtime_exception
 
 ACTION_RUNTIME_REASON_MAP: dict[ActionFailureKind, str] = {
     ActionFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
-    ActionFailureKind.CATALOG_FAILED: RUNTIME_STARTUP_FAILED,
     ActionFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     ActionFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
 }

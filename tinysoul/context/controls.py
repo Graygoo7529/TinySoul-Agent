@@ -11,6 +11,7 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope, ToolSelectio
 from tinysoul.runtime import RunScope, Signal
 
 from .background import BackgroundPatch
+from .errors import ContextInvariantError
 from .signals import build_background_patch_signal, build_working_patch_signal
 from .working import Milestone, TodoItem, TodoStatus, WorkingPatch
 
@@ -49,6 +50,22 @@ class ControlResult:
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not self.result_id:
+            raise ContextInvariantError("ControlResult.result_id must be non-empty")
+        if not self.call_id:
+            raise ContextInvariantError("ControlResult.call_id must be non-empty")
+        if not self.tool_name:
+            raise ContextInvariantError("ControlResult.tool_name must be non-empty")
+        if not isinstance(self.status, ControlResultStatus):
+            raise ContextInvariantError(
+                "ControlResult.status must be a ControlResultStatus"
+            )
+        if not isinstance(self.stage, ControlResultStage):
+            raise ContextInvariantError(
+                "ControlResult.stage must be a ControlResultStage"
+            )
+        if self.sequence <= 0:
+            raise ContextInvariantError("ControlResult.sequence must be positive")
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
     @classmethod
@@ -80,6 +97,20 @@ class ControlNormalization:
 
     signals: tuple[Signal, ...] = field(default_factory=tuple)
     results: tuple[ControlResult, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        signals = tuple(self.signals)
+        results = tuple(self.results)
+        if any(not isinstance(signal, Signal) for signal in signals):
+            raise ContextInvariantError(
+                "ControlNormalization.signals must contain Signal values"
+            )
+        if any(not isinstance(result, ControlResult) for result in results):
+            raise ContextInvariantError(
+                "ControlNormalization.results must contain ControlResult values"
+            )
+        object.__setattr__(self, "signals", signals)
+        object.__setattr__(self, "results", results)
 
 
 class ContextControlScopeBuilder:

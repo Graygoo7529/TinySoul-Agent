@@ -7,15 +7,7 @@ import pytest
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime.errors import RuntimeContractError
 from tinysoul.runtime.scope import RunFrame, RunLevel, RunScope
-from tinysoul.runtime.signals import Signal, SignalBus, SignalHandlerRegistry
-
-
-class _Collector:
-    def __init__(self) -> None:
-        self.items: list[str] = []
-
-    def handle(self, signal: Signal) -> None:
-        self.items.append(signal.name)
+from tinysoul.runtime.signals import Signal, SignalBus
 
 
 def test_signal_bus_keeps_order_and_clears() -> None:
@@ -66,31 +58,3 @@ def test_signal_rejects_non_object_payload() -> None:
 
     with pytest.raises(RuntimeContractError):
         Signal("runtime.trace", "trap", scope, cast(JsonObject, ["x"]))
-
-
-def test_signal_registry_dispatches_exact_and_prefix() -> None:
-    exact = _Collector()
-    prefix = _Collector()
-    registry = SignalHandlerRegistry()
-    registry.register("runtime.turn.end_requested", exact)
-    registry.register_prefix("runtime.trace", prefix)
-
-    scope = RunScope.of(RunFrame(RunLevel.TURN, "user"))
-    registry.dispatch(
-        [
-            Signal("runtime.turn.end_requested", "runner", scope),
-            Signal("runtime.trace.emitted", "trap", scope),
-        ]
-    )
-
-    assert exact.items == ["runtime.turn.end_requested"]
-    assert prefix.items == ["runtime.trace.emitted"]
-
-
-def test_signal_registry_rejects_duplicates() -> None:
-    registry = SignalHandlerRegistry()
-    collector = _Collector()
-    registry.register("runtime.turn.end_requested", collector)
-
-    with pytest.raises(RuntimeContractError):
-        registry.register("runtime.turn.end_requested", collector)

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from threading import Event
+from threading import Event, Lock
 from time import monotonic
 from typing import Protocol
 
@@ -22,6 +23,12 @@ class ActionExecutionControl:
     deadline: float | None = None
     cancel_event: Event = field(default_factory=Event)
     cancel_reason: str = ""
+    _cancel_callbacks: list[Callable[[str], None]] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
+    _cancel_lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
     def remaining_seconds(self) -> float | None:
         if self.deadline is None:
@@ -32,9 +39,37 @@ class ActionExecutionControl:
         return self.deadline is not None and monotonic() >= self.deadline
 
     def request_cancel(self, reason: str) -> None:
-        if not self.cancel_reason:
-            self.cancel_reason = reason
-        self.cancel_event.set()
+        callbacks: tuple[Callable[[str], None], ...]
+        with self._cancel_lock:
+            if self.cancel_event.is_set():
+                return
+            self.cancel_reason = reason or "cancelled"
+            self.cancel_event.set()
+            callbacks = tuple(self._cancel_callbacks)
+            self._cancel_callbacks.clear()
+        for callback in callbacks:
+            try:
+                callback(self.cancel_reason)
+            except Exception:
+                # Cancellation cleanup must not replace the controlling transfer.
+                continue
+
+    def add_cancel_callback(self, callback: Callable[[str], None]) -> None:
+        """Run callback when cancellation is requested, or immediately if cancelled."""
+
+        reason = ""
+        with self._cancel_lock:
+            if self.cancel_event.is_set():
+                reason = self.cancel_reason or "cancelled"
+            else:
+                self._cancel_callbacks.append(callback)
+        if reason:
+            callback(reason)
+
+    def remove_cancel_callback(self, callback: Callable[[str], None]) -> None:
+        with self._cancel_lock:
+            if callback in self._cancel_callbacks:
+                self._cancel_callbacks.remove(callback)
 
     def is_cancelled(self) -> bool:
         return self.cancel_event.is_set()

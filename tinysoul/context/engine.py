@@ -65,6 +65,34 @@ class TurnSummary:
     trace_digest: JsonObject = field(default_factory=dict)
     trace: tuple[JsonObject, ...] = field(default_factory=tuple)
 
+    def __post_init__(self) -> None:
+        if not self.turn_id:
+            raise ContextContractError("TurnSummary.turn_id must be non-empty")
+        object.__setattr__(
+            self,
+            "inputs",
+            tuple(to_json_object(item) for item in self.inputs),
+        )
+        object.__setattr__(self, "working", to_json_object(self.working))
+        links = tuple(self.background_links)
+        if any(not isinstance(link, str) or not link for link in links):
+            raise ContextContractError(
+                "TurnSummary.background_links must contain non-empty strings"
+            )
+        if len(set(links)) != len(links):
+            raise ContextContractError("TurnSummary.background_links must be unique")
+        object.__setattr__(self, "background_links", links)
+        object.__setattr__(
+            self,
+            "trace_digest",
+            to_json_object(self.trace_digest),
+        )
+        object.__setattr__(
+            self,
+            "trace",
+            tuple(to_json_object(item) for item in self.trace),
+        )
+
     def to_json(self) -> JsonObject:
         return {
             "turn_id": self.turn_id,
@@ -100,6 +128,16 @@ class ContextSignalBatch:
 
     turn_id: str
     signals: tuple[Signal, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not self.turn_id:
+            raise ContextContractError("ContextSignalBatch.turn_id must be non-empty")
+        signals = tuple(self.signals)
+        if any(not isinstance(signal, Signal) for signal in signals):
+            raise ContextContractError(
+                "ContextSignalBatch.signals must contain Signal values"
+            )
+        object.__setattr__(self, "signals", signals)
 
 
 class ContextEngine:

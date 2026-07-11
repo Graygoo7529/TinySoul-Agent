@@ -15,7 +15,7 @@ from .errors import RuntimeContractError, RuntimeInvariantError, RuntimeModuleEr
 from .scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
-from .signals import Signal, SignalBus, SignalHandler, SignalHandlerRegistry
+from .signals import Signal, SignalBus
 
 __all__ = [
     "CONTEXT_COMPRESSION_REQUIRED",
@@ -40,8 +40,6 @@ __all__ = [
     "RuntimeTrap",
     "Signal",
     "SignalBus",
-    "SignalHandler",
-    "SignalHandlerRegistry",
     "TrapHandler",
     "TrapHandlerRegistry",
     "TrapResult",

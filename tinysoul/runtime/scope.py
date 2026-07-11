@@ -75,6 +75,9 @@ class RunScope:
                 return frame
         return None
 
+    def contains(self, frame: RunFrame) -> bool:
+        return frame in self.frames
+
     def __iter__(self) -> Iterator[RunFrame]:
         return iter(self.frames)
 

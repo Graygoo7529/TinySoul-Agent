@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from time import sleep
+from threading import Event
+from time import monotonic, sleep
 
 import pytest
 
@@ -154,6 +155,108 @@ def test_runner_allows_runtime_exception_to_reach_trap() -> None:
 
     assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
     assert raised.value.payload["link"] == "home:how/test/ref.md"
+
+
+def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
+    peer_started = Event()
+    cancel_seen = Event()
+    catalog, batch = _parallel_runtime_batch()
+    executors = ExecutorRegistry()
+
+    def interrupting(execution, context):
+        assert peer_started.wait(1.0)
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+        )
+
+    def cooperative(execution, context):
+        peer_started.set()
+        while not context.control.is_cancelled():
+            sleep(0.001)
+        cancel_seen.set()
+        context.control.check_cancelled()
+        return {}
+
+    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
+    executors.register("test.peer", NativeFunctionExecutor(cooperative))
+
+    with pytest.raises(RuntimeException):
+        ActionBatchRunner(
+            executors=executors,
+            cooperative_cancel_grace_seconds=0.2,
+        ).run(batch, ActionExecutionContext())
+
+    assert cancel_seen.is_set()
+
+
+def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> None:
+    peer_started = Event()
+    release_peer = Event()
+    catalog, batch = _parallel_runtime_batch()
+    executors = ExecutorRegistry()
+
+    def interrupting(execution, context):
+        assert peer_started.wait(1.0)
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+        )
+
+    def blocking(execution, context):
+        peer_started.set()
+        assert release_peer.wait(1.0)
+        return {}
+
+    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
+    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    started = monotonic()
+    try:
+        with pytest.raises(RuntimeException):
+            ActionBatchRunner(
+                executors=executors,
+                cooperative_cancel_grace_seconds=0.01,
+            ).run(batch, ActionExecutionContext())
+        elapsed = monotonic() - started
+    finally:
+        release_peer.set()
+
+    assert elapsed < 0.5
+
+
+def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None:
+    peer_started = Event()
+    release_peer = Event()
+    _, batch = _parallel_runtime_batch(peer_timeout_seconds=0.02)
+    executors = ExecutorRegistry()
+
+    def interrupting(execution, context):
+        assert peer_started.wait(1.0)
+        sleep(0.08)
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+        )
+
+    def blocking(execution, context):
+        peer_started.set()
+        assert release_peer.wait(1.0)
+        return {}
+
+    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
+    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    started = monotonic()
+    try:
+        with pytest.raises(RuntimeException):
+            ActionBatchRunner(
+                executors=executors,
+                cooperative_cancel_grace_seconds=0.005,
+            ).run(batch, ActionExecutionContext())
+        elapsed = monotonic() - started
+    finally:
+        release_peer.set()
+
+    assert elapsed < 0.5
 
 
 def test_runner_rejects_invalid_max_workers() -> None:
@@ -477,3 +580,56 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
     assert results[1].frame_data["blocked_by_invoke_ids"] == [
         results[0].invoke_id
     ]
+
+
+def _parallel_runtime_batch(*, peer_timeout_seconds: float | None = None):
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _test_action("test.interrupt"),
+            _test_action("test.peer", timeout_seconds=peer_timeout_seconds),
+        ),
+    )
+    normalization = ActionCallNormalizer().normalize(
+        (
+            ToolCallRecord("call_1", "test.interrupt", {}, ToolKind.ACTION),
+            ToolCallRecord("call_2", "test.peer", {}, ToolKind.ACTION),
+        ),
+        catalog=catalog,
+    )
+    return catalog, ActionExecutionBuilder().build_batch(
+        normalization.calls,
+        catalog=catalog,
+        scope=RunScope(),
+        batch_id="batch_runtime",
+    )
+
+
+def _test_action(
+    name: str,
+    *,
+    timeout_seconds: float | None = None,
+) -> ActionSpec:
+    return ActionSpec(
+        name=name,
+        domain="test",
+        tool=ActionToolSpec(
+            name=name,
+            description="Test action.",
+            schema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        ),
+        semantic=ActionSemanticSpec(),
+        runtime=ActionRuntimeSpec(
+            timeout_seconds=timeout_seconds,
+            parallel_policy=ActionParallelPolicy.ALLOWED,
+        ),
+        backend=ActionBackendSpec(
+            kind=ActionBackendKind.NATIVE,
+            handler=name,
+        ),
+    )

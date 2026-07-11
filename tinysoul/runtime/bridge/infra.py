@@ -8,14 +8,11 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.infra.failures import InfraFailureKind
 from tinysoul.infra.json import JsonObject
 
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from ..exception import RUNTIME_STARTUP_FAILED, RuntimeException
+from ._payload import config_error_payload, runtime_exception
 
 INFRA_RUNTIME_REASON_MAP: dict[InfraFailureKind, str] = {
     InfraFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
-    InfraFailureKind.JSON_BOUNDARY_FAILED: RUNTIME_TURN_END,
-    InfraFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
-    InfraFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
 }
 
 
@@ -36,19 +33,6 @@ class RuntimeInfraBridge:
             reason_map=INFRA_RUNTIME_REASON_MAP,
             message=message,
             payload=payload,
-        )
-
-    def from_exception(
-        self,
-        kind: InfraFailureKind,
-        error: Exception,
-        *,
-        payload: JsonObject | None = None,
-    ) -> RuntimeException:
-        return self.from_failure(
-            kind,
-            message=str(error),
-            payload=exception_payload(error, payload),
         )
 
     def startup_failure(

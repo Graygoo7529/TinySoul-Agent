@@ -9,6 +9,5 @@ class ActionFailureKind(StrEnum):
     """Stable action failure kinds used by runtime bridges."""
 
     CONFIGURATION_FAILED = "action.configuration_failed"
-    CATALOG_FAILED = "action.catalog_failed"
     CONTRACT_VIOLATION = "action.contract_violation"
     INTERNAL_FAILURE = "action.internal_failure"

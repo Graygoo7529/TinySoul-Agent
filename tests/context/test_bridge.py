@@ -5,9 +5,9 @@ from __future__ import annotations
 from tinysoul.context import (
     ContextBudgetError,
     ContextContractError,
-    ContextFailureKind,
     ContextInvariantError,
 )
+from tinysoul.context.failures import ContextFailureKind
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_STARTUP_FAILED,

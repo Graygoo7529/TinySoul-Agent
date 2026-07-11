@@ -156,6 +156,10 @@ def run_process_action(
             frame_data={"reason": "process_start_failed", "error_type": type(exc).__name__},
         )
 
+    def terminate_on_cancel(_reason: str) -> None:
+        _terminate_process_tree(process)
+
+    context.control.add_cancel_callback(terminate_on_cancel)
     try:
         stdout, stderr = process.communicate(
             input=stdin_text,
@@ -173,10 +177,22 @@ def run_process_action(
             payload=_process_payload(process.returncode, stdout, stderr, stdout_limit, stderr_limit),
             frame_data={"reason": "process_timeout", "executor_leaked": False},
         )
+    finally:
+        context.control.remove_cancel_callback(terminate_on_cancel)
 
     stdout = stdout or ""
     stderr = stderr or ""
     payload = _process_payload(process.returncode, stdout, stderr, stdout_limit, stderr_limit)
+    if context.control.is_cancelled():
+        return _timeout_result(
+            execution,
+            "Subprocess action stopped after cancellation was requested.",
+            payload=payload,
+            frame_data={
+                "reason": context.control.cancel_reason or "cancelled",
+                "executor_leaked": False,
+            },
+        )
     if process.returncode == 0:
         return ActionResult.success(
             call_id=execution.call.call_id,

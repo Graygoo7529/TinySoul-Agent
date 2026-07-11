@@ -49,10 +49,21 @@ class ModelChain:
     retry_policy: RetryPolicy = RetryPolicy()
 
     def __post_init__(self) -> None:
-        if not self.profile:
+        if not isinstance(self.profile, str) or not self.profile:
             raise LLMContractError("profile must be non-empty")
-        if not self.model_ids:
+        try:
+            model_ids = tuple(self.model_ids)
+        except TypeError as exc:
+            raise LLMContractError("model_ids must be an iterable of strings") from exc
+        if not model_ids:
             raise LLMContractError("model_ids must be non-empty")
+        if any(not isinstance(model_id, str) or not model_id for model_id in model_ids):
+            raise LLMContractError("model_ids must contain non-empty strings")
+        if len(set(model_ids)) != len(model_ids):
+            raise LLMContractError("model_ids must be unique")
+        if not isinstance(self.retry_policy, RetryPolicy):
+            raise LLMContractError("retry_policy must be a RetryPolicy")
+        object.__setattr__(self, "model_ids", model_ids)
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,16 @@ class TaskSpec:
     profile: str
     chain: ModelChain
     settings: CallSettings = field(default_factory=CallSettings)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.profile, str) or not self.profile:
+            raise LLMContractError("TaskSpec.profile must be non-empty")
+        if not isinstance(self.chain, ModelChain):
+            raise LLMContractError("TaskSpec.chain must be a ModelChain")
+        if self.chain.profile != self.profile:
+            raise LLMContractError("TaskSpec.profile must match ModelChain.profile")
+        if not isinstance(self.settings, CallSettings):
+            raise LLMContractError("TaskSpec.settings must be CallSettings")
 
 
 class TaskSpecTable:

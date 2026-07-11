@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from time import monotonic
 
@@ -123,7 +123,11 @@ class ActionBatchRunner:
             pending: set[Future[ActionResult]] = set(futures)
             while pending:
                 timeout = self._remaining_timeout(futures[future] for future in pending)
-                done, pending = wait(pending, timeout=timeout)
+                done, pending = wait(
+                    pending,
+                    timeout=timeout,
+                    return_when=FIRST_COMPLETED,
+                )
                 if not done and pending:
                     expired = {
                         future
@@ -168,13 +172,47 @@ class ActionBatchRunner:
                     continue
                 for future in done:
                     execution = futures[future]
-                    results.append(self._future_result(future, execution))
+                    try:
+                        results.append(self._future_result(future, execution))
+                    except (RuntimeException, RuntimeTransferInterrupt):
+                        transfer_workers_finished = self._cancel_for_runtime_transfer(
+                            pending,
+                            futures=futures,
+                            contexts=contexts,
+                        )
+                        wait_for_workers = wait_for_workers and transfer_workers_finished
+                        raise
         finally:
             pool.shutdown(wait=wait_for_workers, cancel_futures=True)
         return _GroupRun(
             results=tuple(results),
             leaked_timeout_invoke_ids=tuple(leaked_timeout_invoke_ids),
         )
+
+    def _cancel_for_runtime_transfer(
+        self,
+        pending: set[Future[ActionResult]],
+        *,
+        futures: dict[Future[ActionResult], ActionExecution],
+        contexts: dict[Future[ActionResult], ActionExecutionContext],
+    ) -> bool:
+        """Cancel sibling actions and return whether shutdown may wait for them."""
+
+        for future in pending:
+            contexts[future].control.request_cancel("runtime_transfer")
+            future.cancel()
+        running = {future for future in pending if not future.done()}
+        if not running:
+            return True
+        _, leaked = wait(
+            running,
+            timeout=self._cancel_grace_seconds(
+                futures[future] for future in running
+            ),
+        )
+        for future in leaked:
+            future.cancel()
+        return not leaked
 
     def _blocked_by_leaked_timeout(
         self,

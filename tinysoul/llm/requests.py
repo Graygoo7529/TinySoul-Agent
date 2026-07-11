@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from .cache import PromptCache
+from .errors import LLMContractError
 from .messages import MessageStack
 from .models import ModelCapability
 from .responses import AnswerFormat
@@ -28,6 +29,41 @@ class CallSettings:
     temperature: float | None = None
     max_output_tokens: int | None = None
     required_capabilities: frozenset[ModelCapability] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        if self.answer_format is not None and not isinstance(
+            self.answer_format, AnswerFormat
+        ):
+            raise LLMContractError(
+                "CallSettings.answer_format must be AnswerFormat or None"
+            )
+        if self.tool_use is not None and not isinstance(self.tool_use, ToolUse):
+            raise LLMContractError("CallSettings.tool_use must be ToolUse or None")
+        if self.temperature is not None and (
+            isinstance(self.temperature, bool)
+            or not isinstance(self.temperature, (int, float))
+        ):
+            raise LLMContractError("CallSettings.temperature must be a number or None")
+        if self.max_output_tokens is not None and (
+            isinstance(self.max_output_tokens, bool)
+            or not isinstance(self.max_output_tokens, int)
+            or self.max_output_tokens <= 0
+        ):
+            raise LLMContractError(
+                "CallSettings.max_output_tokens must be a positive integer or None"
+            )
+        try:
+            capabilities = frozenset(self.required_capabilities)
+        except TypeError as exc:
+            raise LLMContractError(
+                "CallSettings.required_capabilities must be an iterable"
+            ) from exc
+        for capability in capabilities:
+            if not isinstance(capability, ModelCapability):
+                raise LLMContractError(
+                    "CallSettings.required_capabilities must contain ModelCapability values"
+                )
+        object.__setattr__(self, "required_capabilities", capabilities)
 
     def override_with(self, other: "CallSettings") -> "CallSettings":
         return CallSettings(
@@ -56,3 +92,19 @@ class TaskCall:
     tool_scope: ToolScope = field(default_factory=ToolScope)
     prompt_cache: PromptCache | None = None
     settings: CallSettings = field(default_factory=CallSettings)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.profile, (TaskProfile, str)) or not self.profile:
+            raise LLMContractError("TaskCall.profile must be non-empty")
+        if not isinstance(self.messages, MessageStack):
+            raise LLMContractError("TaskCall.messages must be a MessageStack")
+        if not isinstance(self.tool_scope, ToolScope):
+            raise LLMContractError("TaskCall.tool_scope must be a ToolScope")
+        if self.prompt_cache is not None and not isinstance(
+            self.prompt_cache, PromptCache
+        ):
+            raise LLMContractError(
+                "TaskCall.prompt_cache must be PromptCache or None"
+            )
+        if not isinstance(self.settings, CallSettings):
+            raise LLMContractError("TaskCall.settings must be CallSettings")

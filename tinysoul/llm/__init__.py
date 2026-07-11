@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from .cache import PromptCache
 from .errors import LLMContractError, LLMError, LLMInvariantError
-from .failures import LLMFailureKind
 from .messages import (
     AssistantMessage,
     ImagePart,
@@ -84,7 +83,6 @@ __all__ = [
     "JsonPart",
     "LLMContractError",
     "LLMError",
-    "LLMFailureKind",
     "LLMInvariantError",
     "LLMTaskError",
     "LLMTaskRunner",

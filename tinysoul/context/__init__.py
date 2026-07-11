@@ -24,7 +24,6 @@ from .errors import (
     ContextError,
     ContextInvariantError,
 )
-from .failures import ContextFailureKind
 from .prompts import PromptBlock, TaskPrompt
 from .references import PromptReferenceError, PromptReferenceResolver
 from .signals import (
@@ -54,7 +53,6 @@ __all__ = [
     "ContextEngine",
     "ContextEngineBuilder",
     "ContextError",
-    "ContextFailureKind",
     "ContextInvariantError",
     "ContextSignalBatch",
     "ContextSettings",

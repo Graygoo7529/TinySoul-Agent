@@ -271,21 +271,16 @@ def _extract_json_text(text: str) -> str:
     stripped = text.strip()
     fenced = re.search(r"```json\s*\n(.*?)\n\s*```", stripped, re.DOTALL)
     if fenced:
-        return fenced.group(1).strip()
+        stripped = fenced.group(1).strip()
 
-    start = stripped.find("{")
-    if start == -1:
-        return stripped
-
-    depth = 0
-    for index, char in enumerate(stripped[start:], start):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return stripped[start : index + 1]
-    return stripped[start:]
+    decoder = json.JSONDecoder()
+    for start in (index for index, char in enumerate(stripped) if char == "{"):
+        try:
+            _, end = decoder.raw_decode(stripped[start:])
+        except json.JSONDecodeError:
+            continue
+        return stripped[start : start + end]
+    return stripped
 
 
 def _json_object(value: object, *, field: str) -> JsonObject:

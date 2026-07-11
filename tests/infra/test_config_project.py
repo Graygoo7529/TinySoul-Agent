@@ -229,3 +229,36 @@ def test_project_config_uses_configured_env_file(local_tmp: Path) -> None:
     )
 
     assert ProjectConfig(local_tmp).env_file_path() == local_tmp / "configs" / ".env"
+
+
+def test_project_config_rejects_include_outside_project_root(
+    local_tmp: Path,
+) -> None:
+    outside = local_tmp.parent / "outside.toml"
+    outside.write_text("[outside]\nvalue = true\n", encoding="utf-8")
+    (local_tmp / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["../outside.toml"]\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError) as raised:
+        ProjectConfig(local_tmp)
+
+    assert raised.value.key == "config.include"
+    assert raised.value.expected == "project-relative path without '..'"
+
+
+def test_project_config_rejects_env_file_outside_project_root(
+    local_tmp: Path,
+) -> None:
+    (local_tmp / "tinysoul.toml").write_text(
+        '[config]\nenv_file = "../.env"\n',
+        encoding="utf-8",
+    )
+    config = ProjectConfig(local_tmp)
+
+    with pytest.raises(ConfigError) as raised:
+        config.env_file_path()
+
+    assert raised.value.key == "config.env_file"
+    assert raised.value.expected == "project-relative path without '..'"

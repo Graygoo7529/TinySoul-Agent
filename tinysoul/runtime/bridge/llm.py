@@ -17,7 +17,6 @@ from ._payload import config_error_payload, exception_payload, runtime_exception
 
 LLM_RUNTIME_REASON_MAP: dict[LLMFailureKind, str] = {
     LLMFailureKind.MODEL_CHAIN_EXHAUSTED: RUNTIME_TURN_END,
-    LLMFailureKind.PROVIDER_FAILURE: RUNTIME_TURN_END,
     LLMFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     LLMFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     LLMFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,

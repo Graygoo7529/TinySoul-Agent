@@ -24,4 +24,10 @@ class RuntimeTrap:
             raise RuntimeInvariantError(
                 f"No trap handler registered for runtime reason: {snap.reason}"
             ) from exc
-        return handler.handle(snap)
+        result = handler.handle(snap)
+        if not snap.scope.contains(result.transfer.target):
+            raise RuntimeInvariantError(
+                "Trap handler returned a transfer target outside the captured scope: "
+                f"{result.transfer.target}"
+            )
+        return result

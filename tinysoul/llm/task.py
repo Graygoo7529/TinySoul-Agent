@@ -172,15 +172,6 @@ class LLMTaskRunner:
                 exc,
                 payload=self._model_chain_exhausted_payload(call, exc),
             ) from exc
-        except ProviderError as exc:
-            raise self._runtime_bridge.from_exception(
-                LLMFailureKind.PROVIDER_FAILURE,
-                exc,
-                payload={
-                    "profile": call.profile,
-                    "provider_error_kind": exc.kind.value,
-                },
-            ) from exc
         except LLMContractError as exc:
             raise self._runtime_bridge.from_exception(
                 LLMFailureKind.CONTRACT_VIOLATION,
