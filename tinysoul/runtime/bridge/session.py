@@ -48,8 +48,10 @@ class RuntimeSessionBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = SessionFailureKind.INTERNAL_FAILURE
-        if isinstance(error, (SessionContractError, SessionInvariantError)):
+        if isinstance(error, SessionContractError):
             kind = SessionFailureKind.CONTRACT_VIOLATION
+        elif isinstance(error, SessionInvariantError):
+            kind = SessionFailureKind.INTERNAL_FAILURE
         elif isinstance(error, SessionIOError):
             kind = SessionFailureKind.IO_FAILED
         return self.from_failure(

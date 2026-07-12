@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from queue import Queue
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
     RUNTIME_PROGRAM_END,
     RunLevel,
     RunScope,
@@ -16,6 +21,8 @@ from tinysoul.runtime import (
     RuntimeTransfer,
     RuntimeTransferAction,
     SignalBus,
+    emit_observation,
+    observation_enabled,
 )
 
 from .errors import LoopContractError
@@ -85,7 +92,18 @@ class ProgramOutcome:
     """Outcome of a program run."""
 
     turns: tuple[TurnOutcome, ...]
+    turn_count: int
     transfer: RuntimeTransfer | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.turn_count, bool)
+            or not isinstance(self.turn_count, int)
+            or self.turn_count < len(self.turns)
+        ):
+            raise LoopContractError(
+                "ProgramOutcome.turn_count cannot be smaller than retained turns"
+            )
 
 
 class ProgramRunner:
@@ -98,12 +116,22 @@ class ProgramRunner:
         bus: SignalBus,
         trap: RuntimeTrap,
         input_queue: Queue[ProgramInputEvent] | None = None,
+        retained_outcomes: int = 32,
+        observations: ObservationEmitter | None = None,
     ) -> None:
+        if (
+            isinstance(retained_outcomes, bool)
+            or not isinstance(retained_outcomes, int)
+            or retained_outcomes <= 0
+        ):
+            raise LoopContractError("retained_outcomes must be positive")
         self._turn_runner = turn_runner
         self._bus = bus
         self._trap = trap
         self._input_queue: Queue[ProgramInputEvent] = input_queue or Queue()
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
+        self._retained_outcomes = retained_outcomes
+        self._observations = observations or NullObservationEmitter()
 
     def submit_event(self, event: ProgramInputEvent) -> None:
         self._input_queue.put(event)
@@ -120,18 +148,38 @@ class ProgramRunner:
         return self._turn_runner.run(user_input, scope=self._scope)
 
     def run(self) -> ProgramOutcome:
-        outcomes: list[TurnOutcome] = []
+        outcomes: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)
+        turn_count = 0
+        self._emit("program.started", "Program started.", {})
         while True:
             event = self._input_queue.get()
             if event.kind is ProgramInputKind.EXIT_PROGRAM:
                 transfer = self._request_program_end(event)
-                return ProgramOutcome(turns=tuple(outcomes), transfer=transfer)
+                self._emit(
+                    "program.completed",
+                    "Program completed.",
+                    {"turn_count": turn_count},
+                )
+                return ProgramOutcome(
+                    turns=tuple(outcomes),
+                    transfer=transfer,
+                    turn_count=turn_count,
+                )
             outcomes.append(self.run_once(event.text))
+            turn_count += 1
             transfer = outcomes[-1].transfer
             if transfer is not None and transfer.target.level is RunLevel.PROGRAM:
                 if transfer.action is RuntimeTransferAction.END:
-                    return ProgramOutcome(turns=tuple(outcomes), transfer=transfer)
-        return ProgramOutcome(turns=tuple(outcomes))
+                    self._emit(
+                        "program.completed",
+                        "Program completed.",
+                        {"turn_count": turn_count},
+                    )
+                    return ProgramOutcome(
+                        turns=tuple(outcomes),
+                        transfer=transfer,
+                        turn_count=turn_count,
+                    )
 
     def _request_program_end(self, event: ProgramInputEvent) -> RuntimeTransfer:
         result = self._trap.capture(
@@ -149,3 +197,21 @@ class ProgramRunner:
         for signal in result.signals:
             self._bus.emit(signal)
         return result.transfer
+
+    def _emit(self, name: str, message: str, payload: JsonObject) -> None:
+        if not observation_enabled(
+            self._observations,
+            ObservationLevel.VERBOSE,
+        ):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.VERBOSE,
+                source="loop.program",
+                scope=self._scope,
+                message=message,
+                payload=payload,
+            ),
+        )

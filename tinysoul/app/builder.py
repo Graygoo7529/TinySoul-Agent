@@ -42,6 +42,7 @@ from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
+from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.loop.program import ProgramRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
@@ -52,16 +53,16 @@ from tinysoul.loop.trap_handlers import (
     WorkspaceTrashRestoreTrapHandler,
 )
 from tinysoul.loop.turn import TurnRunner
-from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     HOME_RUNTIME_COPY_REQUIRED,
-    WORKSPACE_TRASH_RESTORE_REQUIRED,
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RUNTIME_TURN_OUTPUT,
+    WORKSPACE_TRASH_RESTORE_REQUIRED,
+    ObservationEmitter,
     RunLevel,
     RuntimeException,
     RuntimeModuleRunner,
@@ -80,10 +81,7 @@ from tinysoul.runtime.bridge import (
     RuntimeSessionBridge,
     RuntimeWorkspaceBridge,
 )
-from tinysoul.session import (
-    SessionEngine,
-    parse_session_settings,
-)
+from tinysoul.session import SessionEngine, parse_session_settings
 from tinysoul.session.actions import register_session_actions
 from tinysoul.session.errors import SessionError
 from tinysoul.session.projection import (
@@ -103,6 +101,7 @@ from tinysoul.workspace.errors import WorkspaceError
 from .config import AppSettings, parse_app_settings
 from .errors import AppError
 from .inputs import InputCommandParser, InputDispatcher, InputSource
+from .outputs import ConsoleOutputSink, ObservationRouter, OutputSink
 from .runtime import TinySoulApp
 from .sources import TerminalInputSource
 
@@ -124,6 +123,7 @@ class TinySoulAppBuilder:
         self._input_parser: InputCommandParser | None = None
         self._input_sources: list[InputSource] = []
         self._turn_completion_handlers: list[TurnCompletionHandler] = []
+        self._output_sinks: list[OutputSink] = []
 
     def with_loop_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
         self._loop_settings = settings
@@ -182,6 +182,10 @@ class TinySoulAppBuilder:
         self._turn_completion_handlers.append(handler)
         return self
 
+    def with_output_sink(self, sink: OutputSink) -> "TinySoulAppBuilder":
+        self._output_sinks.append(sink)
+        return self
+
     def build(self) -> TinySoulApp:
         app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
@@ -198,6 +202,19 @@ class TinySoulAppBuilder:
                 if self._config_env is not None
                 else ConfigEnvironment.from_project_root(self._root)
             )
+            config.validate_sections(
+                {
+                    "config",
+                    "app",
+                    "loop",
+                    "llm",
+                    "action",
+                    "context",
+                    "home",
+                    "session",
+                    "workspace",
+                }
+            )
             loop_settings = (
                 self._loop_settings
                 if self._loop_settings is not None
@@ -208,8 +225,21 @@ class TinySoulAppBuilder:
                 if self._app_settings is not None
                 else self._build_app_settings(config, app_bridge)
             )
+            output_sinks = tuple(self._output_sinks)
+            if not output_sinks and app_settings.interactive:
+                output_sinks = (
+                    ConsoleOutputSink(max_chars=app_settings.output.model_max_chars),
+                )
+            observations = ObservationRouter(
+                mode=app_settings.output.mode,
+                sinks=output_sinks,
+            )
             bus = self._bus if self._bus is not None else SignalBus()
-            llm = self._llm if self._llm is not None else self._build_llm(config, llm_bridge)
+            llm = (
+                self._llm
+                if self._llm is not None
+                else self._build_llm(config, llm_bridge, observations)
+            )
             home = self._build_home(config, home_bridge)
             workspace = self._build_workspace(config, workspace_bridge)
             session = (
@@ -251,9 +281,14 @@ class TinySoulAppBuilder:
                 workspace_bridge=workspace_bridge,
                 action_bridge=action_bridge,
                 llm_action=llm_action,
+                observations=observations,
             )
             trap = self._build_trap(context, home, workspace)
-            module_runner = RuntimeModuleRunner(trap=trap, bus=bus)
+            module_runner = RuntimeModuleRunner(
+                trap=trap,
+                bus=bus,
+                observations=observations,
+            )
             signal_consumer = ContextSignalConsumer(
                 context=context,
                 bus=bus,
@@ -291,6 +326,7 @@ class TinySoulAppBuilder:
                 phase2=phase2,
                 phase3=phase3,
                 signal_consumer=signal_consumer,
+                observations=observations,
             )
             turn_runner = TurnRunner(
                 context=context,
@@ -320,11 +356,14 @@ class TinySoulAppBuilder:
                         ),
                     )
                 ),
+                observations=observations,
             )
             program_runner = ProgramRunner(
                 turn_runner=turn_runner,
                 bus=bus,
                 trap=trap,
+                retained_outcomes=app_settings.retained_turn_outcomes,
+                observations=observations,
             )
             parser = self._input_parser or InputCommandParser(app_settings.input_commands)
             dispatcher = InputDispatcher(
@@ -335,11 +374,16 @@ class TinySoulAppBuilder:
             )
             input_sources = tuple(self._input_sources)
             if not input_sources and app_settings.interactive:
-                input_sources = (TerminalInputSource(),)
+                input_sources = (
+                    TerminalInputSource(
+                        eof_command=app_settings.input_commands.exit_commands[0],
+                    ),
+                )
             return TinySoulApp(
                 program_runner=program_runner,
                 input_dispatcher=dispatcher,
                 input_sources=input_sources,
+                observations=observations,
             )
         except ConfigError as exc:
             raise infra_bridge.from_config_error(exc) from exc
@@ -357,9 +401,10 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         bridge: RuntimeLLMBridge,
+        observations: ObservationEmitter,
     ) -> LLMTaskRunner:
         try:
-            llm_config = LLMConfigParser().parse(config.section_tree("llm"))
+            llm_config = config.parse_section("llm", LLMConfigParser().parse)
             providers = build_provider_registry(
                 llm_config.providers,
                 env=config.runtime_env,
@@ -369,9 +414,11 @@ class TinySoulAppBuilder:
                 providers=providers,
                 tasks=llm_config.tasks,
                 runtime_bridge=bridge,
+                observations=observations,
             )
         except ConfigError as exc:
-            raise bridge.from_config_error(exc) from exc
+            enriched = config.enrich_error(exc)
+            raise bridge.from_config_error(enriched) from exc
 
     def _build_loop_settings(
         self,
@@ -379,7 +426,7 @@ class TinySoulAppBuilder:
         bridge: RuntimeLoopBridge,
     ) -> LoopSettings:
         try:
-            return parse_loop_settings(config.section_tree("loop"))
+            return config.parse_section("loop", parse_loop_settings)
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
 
@@ -389,7 +436,7 @@ class TinySoulAppBuilder:
         bridge: RuntimeAppBridge,
     ) -> AppSettings:
         try:
-            return parse_app_settings(config.section_tree("app"))
+            return config.parse_section("app", parse_app_settings)
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
 
@@ -399,9 +446,12 @@ class TinySoulAppBuilder:
         bridge: RuntimeAgentHomeBridge,
     ) -> AgentHomeEngine:
         try:
-            settings = parse_agent_home_settings(
-                config.section_tree("home"),
-                project_root=self._root,
+            settings = config.parse_section(
+                "home",
+                lambda tree: parse_agent_home_settings(
+                    tree,
+                    project_root=self._root,
+                ),
             )
             home = AgentHomeEngineBuilder(settings).build()
             return home
@@ -419,9 +469,12 @@ class TinySoulAppBuilder:
         bridge: RuntimeWorkspaceBridge,
     ) -> WorkspaceEngine:
         try:
-            settings = parse_workspace_settings(
-                config.section_tree("workspace"),
-                project_root=self._root,
+            settings = config.parse_section(
+                "workspace",
+                lambda tree: parse_workspace_settings(
+                    tree,
+                    project_root=self._root,
+                ),
             )
             return WorkspaceEngineBuilder(settings).build()
         except ConfigError as exc:
@@ -440,7 +493,7 @@ class TinySoulAppBuilder:
         home_bridge: RuntimeAgentHomeBridge,
     ) -> ContextEngine:
         try:
-            settings = parse_context_settings(config.section_tree("context"))
+            settings = config.parse_section("context", parse_context_settings)
             recovery = AgentHomeRuntimeCopyRecovery.startup(home)
             builder = (
                 ContextEngineBuilder(system_text=settings.system_text)
@@ -486,9 +539,12 @@ class TinySoulAppBuilder:
         bridge: RuntimeSessionBridge,
     ) -> SessionEngine:
         try:
-            settings = parse_session_settings(
-                config.section_tree("session"),
-                project_root=self._root,
+            settings = config.parse_section(
+                "session",
+                lambda tree: parse_session_settings(
+                    tree,
+                    project_root=self._root,
+                ),
             )
             return SessionEngine(settings)
         except ConfigError as exc:
@@ -512,13 +568,18 @@ class TinySoulAppBuilder:
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
+        observations: ObservationEmitter,
     ) -> ActionEngine:
         try:
-            settings = parse_action_settings(
-                config.section_tree("action"),
-                project_root=self._root,
+            settings = config.parse_section(
+                "action",
+                lambda tree: parse_action_settings(
+                    tree,
+                    project_root=self._root,
+                ),
             )
             builder = ActionEngineBuilder(settings.catalog_root)
+            builder.with_observations(observations)
             register_context_actions(builder, context=context)
             register_session_actions(builder, session=session)
             register_workspace_actions(

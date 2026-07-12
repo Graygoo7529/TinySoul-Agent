@@ -14,6 +14,14 @@ from .exception import (
 from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
 from .errors import RuntimeContractError, RuntimeInvariantError, RuntimeModuleError
 from .scope import CyclePhase, RunFrame, RunLevel, RunScope
+from .observation import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    emit_observation,
+    observation_enabled,
+)
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
 from .signals import Signal, SignalBus
@@ -34,6 +42,12 @@ __all__ = [
     "RuntimeContractError",
     "RuntimeInvariantError",
     "RuntimeModuleError",
+    "NullObservationEmitter",
+    "ObservationEmitter",
+    "ObservationEvent",
+    "ObservationLevel",
+    "emit_observation",
+    "observation_enabled",
     "RunFrame",
     "RunLevel",
     "RunScope",

@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.llm.config import LLMConfigParser, ProviderApiStyle
+from tinysoul.llm.config import LLMConfigParser, ProviderAdapterKind, ProviderApiStyle
+from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 from tinysoul.llm.requests import TaskProfile
@@ -23,8 +24,13 @@ def test_llm_config_parses_project_config_files() -> None:
     assert kimi_provider.base_url == "https://api.moonshot.cn/v1"
     assert kimi_provider.api_key_envs == ("KIMI_API_KEY", "MOONSHOT_API_KEY")
 
+    proxy_provider = config.provider("sublyx_proxy")
+    assert proxy_provider.enabled is True
+    assert proxy_provider.adapter is ProviderAdapterKind.OPENAI
+    assert config.provider("openai").enabled is False
+
     openai_model = config.models.get("gpt_5_5")
-    assert openai_model.provider_id == "openai"
+    assert openai_model.provider_id == "sublyx_proxy"
     assert openai_model.provider_model == "gpt-5.5"
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
@@ -121,6 +127,8 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -148,6 +156,8 @@ def test_llm_config_rejects_task_with_unknown_model() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -175,6 +185,8 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -205,6 +217,8 @@ def test_provider_options_rejects_unknown_reasoning_keep() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -233,6 +247,8 @@ def test_llm_config_rejects_invalid_request_override() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -263,6 +279,8 @@ def test_llm_config_rejects_invalid_enum_values_at_parse_time() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -293,6 +311,8 @@ def test_llm_config_rejects_invalid_retry_policy_at_parse_time() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -318,10 +338,13 @@ def test_llm_config_rejects_invalid_retry_policy_at_parse_time() -> None:
 
     assert error.value.key == "llm.tasks.framework"
 
+
 def test_llm_config_rejects_task_required_capability_missing_from_chain_model() -> None:
     tree = {
         "providers": {
             "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
                 "api_style": "openai_chat",
                 "base_url": "https://api.moonshot.cn/v1",
                 "api_key_envs": ["KIMI_API_KEY"],
@@ -344,3 +367,83 @@ def test_llm_config_rejects_task_required_capability_missing_from_chain_model() 
 
     with pytest.raises(ConfigError):
         LLMConfigParser().parse(tree)
+
+
+def test_llm_config_rejects_unknown_nested_provider_option_key() -> None:
+    tree = {
+        "providers": {
+            "glm": {
+                "enabled": True,
+                "adapter": "glm",
+                "api_style": "openai_chat",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key_envs": ["GLM_API_KEY"],
+            }
+        },
+        "models": {
+            "glm_model": {
+                "provider": "glm",
+                "provider_model": "glm-model",
+                "capabilities": ["text_input"],
+                "provider_options": {
+                    "thinking": {
+                        "type": "enabled",
+                        "clear_thikning": True,
+                    }
+                },
+            }
+        },
+        "tasks": {"framework": {"models": ["glm_model"]}},
+    }
+
+    with pytest.raises(ConfigError) as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key.endswith("thinking.clear_thikning")
+
+
+def test_disabled_provider_is_filtered_without_resolving_its_credential() -> None:
+    tree = {
+        "providers": {
+            "disabled": {
+                "enabled": False,
+                "adapter": "generic",
+                "api_style": "openai_chat",
+                "base_url": "https://disabled.example/v1",
+                "api_key_envs": ["DISABLED_API_KEY"],
+            },
+            "enabled": {
+                "enabled": True,
+                "adapter": "generic",
+                "api_style": "openai_chat",
+                "base_url": "https://enabled.example/v1",
+                "api_key_envs": ["ENABLED_API_KEY"],
+            },
+        },
+        "models": {
+            "disabled_model": {
+                "provider": "disabled",
+                "provider_model": "disabled-model",
+                "capabilities": ["text_input"],
+            },
+            "enabled_model": {
+                "provider": "enabled",
+                "provider_model": "enabled-model",
+                "capabilities": ["text_input"],
+            },
+        },
+        "tasks": {
+            "framework": {
+                "models": ["disabled_model", "enabled_model"],
+            }
+        },
+    }
+
+    config = LLMConfigParser().parse(tree)
+    registry = build_provider_registry(
+        config.providers,
+        env={"ENABLED_API_KEY": "configured"},
+    )
+
+    assert config.tasks.get("framework").chain.model_ids == ("enabled_model",)
+    assert registry.get("enabled").provider_id == "enabled"

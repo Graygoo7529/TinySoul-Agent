@@ -138,7 +138,7 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - 模块 failure payload 应保持稳定、精简和 JSON 安全。跨 Runtime 边界时 payload 至少应能表达模块名和模块失败类型，其中 `kind` 使用 `<module>.<failure_name>` 格式的全局稳定标识，`module` 字段继续保留用于筛选和展示；并可按需携带 `error_type`、配置 key、profile、资源句柄等摘要字段；不要放原始异常对象、traceback、大块文件内容、完整消息栈或业务模块内部对象。
 - Runtime 语义异常应通过稳定原因标识进入 Trap，由 Trap 处理器返回运行转移；Runtime 原因应收敛为启动失败、结束 Turn、结束 Cycle、结束 Program 和少量全局恢复原因，不要为恢复、中断、退出和无法处理的错误过早扩展庞大的异常继承树。
 - Runtime 运行转移应以运行位置栈中的 frame 为目标，并收敛为重试 frame 或结束 frame；重试目标必须具备可重放语义，结束 Program frame 表示退出程序。
-- 控制流变化应统一通过 Runtime 语义异常进入 Trap；信号只表达模块事件、状态变更请求和可观测事件，Trap 处理过程中需要业务状态变更时也应发出信号交由对应模块消费。
+- 控制流变化应统一通过 Runtime 语义异常进入 Trap；信号只表达需要业务模块消费的事件和状态变更请求，Trap 处理过程中需要业务状态变更时也应发出信号交由对应模块消费；不参与业务提交、只面向外部输出的事件使用 ObservationEvent，不能反向改变控制流。
 - 允许引入轻量、灵活、基础性的外部依赖，用于配置、数据校验、HTTP/API 客户端、序列化等通用基础能力。引入依赖时应说明其职责边界，避免为很小的问题引入沉重框架。
 - 测试应服务于当前真实架构契约，而不是机械延续历史测试假设。
 - 代码应通过 `ty` 语言服务器的类型检查。若类型检查暴露真实设计问题，应修正设计或类型边界，而不是用宽泛忽略掩盖问题。
@@ -190,7 +190,7 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 ## 当前任务
 彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action、context、loop、app（含 TinySoulApp 装配入口与输入边界）已完成；Workspace 与 Agent Home 已完成基础接入。Workspace 已覆盖独立 reconciliation、版本化 manifest、text/image/document/binary 资源分类、digest 绑定语义描述、图片内容签名与预算、Turn preparation 初始投影、workspace write/rewrite/patch/delete、PromptBlock 局部解析和变更回滚；Action hook 会原样传播 Runtime 控制流，Phase3 按 workspace call id 核对 Context sync；Context 预算覆盖 tool call 与图片内容；Turn preparation 可在 Turn 边界重放并传播上层 transfer。Agent Home 已覆盖顶层背景、how_domain/how_action 自动 HOW 注入、渐进式资源只读 action、runtime home 缺页式副本准备和模块配置错误归属。下一步建议继续推进 Agent Home 检索与写入、HOW 使用反馈、memory append、Workspace 日终归档和每日沉淀。每完成一个模块或重要切面，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
+当前进度：infra、runtime、llm、action、context、loop、app（含 TinySoulApp 装配入口、输入边界、ObservationEvent/OutputSink 三档输出和 console script）已完成；Session 已覆盖不可变 record、幂等 Turn 提交、确定性 summary、orphan reconciliation 与跨日归档前恢复。配置环境保留 main/include 来源诊断，各模块统一拒绝未知键；LLM provider 显式区分端点身份、adapter 和 enabled 状态，代理 provider 可独立持有凭据并提供模型。Workspace 已覆盖独立 reconciliation、版本化 manifest、text/image/document/binary 资源分类、digest 绑定语义描述、图片内容签名与预算、Turn preparation 初始投影、workspace write/rewrite/patch/delete、PromptBlock 局部解析、变更回滚和 Engine 实例内线性化；Action hook/并发 runner 会原样传播 Runtime 控制流并取消 sibling，Phase3 按 workspace call id 核对 Context sync；Context 预算覆盖 tool call 与图片内容；Turn preparation 可在 Turn 边界重放并传播上层 transfer。Agent Home 已覆盖顶层背景、how_domain/how_action 自动 HOW 注入、渐进式资源只读 action、原子 runtime home 缺页式副本准备、有限恢复重试和模块配置错误归属。下一步建议继续推进 Agent Home 检索与写入、HOW 使用反馈、memory append、Workspace 日终归档和每日沉淀。每完成一个模块或重要切面，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
 
 重构实现纪律：
 

@@ -39,9 +39,9 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ## 运行层级与运行器
 
-ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。
+ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。ProgramOutcome 只按 `app.retained_turn_outcomes` 保留最近若干 TurnOutcome，同时单独累计总 Turn 数；这只限制进程返回对象的内存，不影响 Session 对全部已提交 Turn 的持久化。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace/heap 元数据的 TurnSummary 与最终 TurnOutput。默认首个处理器把 Turn 持久化到 Session，之后才运行应用追加的 completion handlers；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。执行轮数上限只作为无输出时的兜底保护。
+TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace/heap 元数据的 TurnSummary 与最终 TurnOutput。默认首个处理器把 Turn 持久化到 Session，之后才运行应用追加的 completion handlers；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。只有 completion pipeline 全部成功后才发布 normal 级 `turn.output` ObservationEvent，确保外部看到的最终回答已经通过提交边界。执行轮数上限只作为无输出时的兜底保护。
 
 Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。默认顺序是 Session 先投影当日跨 Turn 历史，Workspace 再完成磁盘 reconciliation 和 Manifest 摘要投影；Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
 

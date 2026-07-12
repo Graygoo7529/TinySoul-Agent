@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import cast
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.runtime import ObservationLevel
 
 
 @dataclass(frozen=True)
@@ -21,11 +23,41 @@ class InputCommandSettings:
 
 
 @dataclass(frozen=True)
+class OutputSettings:
+    """Observation filtering and bounded model-detail rendering settings."""
+
+    mode: ObservationLevel = ObservationLevel.NORMAL
+    model_max_chars: int = 20000
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, ObservationLevel):
+            raise ConfigError(
+                "App output mode is invalid",
+                key="app.output.mode",
+                value=self.mode,
+                expected="normal | verbose | model",
+            )
+        if (
+            isinstance(self.model_max_chars, bool)
+            or not isinstance(self.model_max_chars, int)
+            or self.model_max_chars <= 0
+        ):
+            raise ConfigError(
+                "App output model_max_chars must be positive",
+                key="app.output.model_max_chars",
+                value=self.model_max_chars,
+                expected="positive int",
+            )
+
+
+@dataclass(frozen=True)
 class AppSettings:
     """Process-level TinySoul app settings."""
 
     interactive: bool = True
     input_commands: InputCommandSettings = field(default_factory=InputCommandSettings)
+    output: OutputSettings = field(default_factory=OutputSettings)
+    retained_turn_outcomes: int = 32
 
     def __post_init__(self) -> None:
         if not isinstance(self.input_commands, InputCommandSettings):
@@ -35,11 +67,40 @@ class AppSettings:
                 value=type(self.input_commands).__name__,
                 expected="InputCommandSettings",
             )
+        if not isinstance(self.output, OutputSettings):
+            raise ConfigError(
+                "App output settings must be OutputSettings",
+                key="app.output",
+                value=type(self.output).__name__,
+                expected="OutputSettings",
+            )
+        if (
+            isinstance(self.retained_turn_outcomes, bool)
+            or not isinstance(self.retained_turn_outcomes, int)
+            or self.retained_turn_outcomes <= 0
+        ):
+            raise ConfigError(
+                "App retained_turn_outcomes must be positive",
+                key="app.retained_turn_outcomes",
+                value=self.retained_turn_outcomes,
+                expected="positive int",
+            )
 
 
 def parse_app_settings(tree: Mapping[str, object]) -> AppSettings:
     """Parse app settings from a dynamic configuration tree."""
 
+    reject_unknown_keys(
+        tree,
+        {
+            "interactive",
+            "exit_commands",
+            "stop_turn_commands",
+            "output",
+            "retained_turn_outcomes",
+        },
+        key="app",
+    )
     return AppSettings(
         interactive=_optional_bool(
             tree,
@@ -58,6 +119,52 @@ def parse_app_settings(tree: Mapping[str, object]) -> AppSettings:
                 default=InputCommandSettings.stop_turn_commands,
             ),
         ),
+        output=_parse_output_settings(tree.get("output")),
+        retained_turn_outcomes=_optional_int(
+            tree,
+            "retained_turn_outcomes",
+            default=AppSettings.retained_turn_outcomes,
+        ),
+    )
+
+
+def _parse_output_settings(value: object) -> OutputSettings:
+    if value is None:
+        return OutputSettings()
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "App output configuration must be a table",
+            key="app.output",
+            value=value,
+            expected="table",
+        )
+    table = cast(Mapping[str, object], value)
+    reject_unknown_keys(table, {"mode", "model_max_chars"}, key="app.output")
+    raw_mode = table.get("mode", ObservationLevel.NORMAL.value)
+    if not isinstance(raw_mode, str):
+        raise ConfigError(
+            "App output mode must be a string",
+            key="app.output.mode",
+            value=raw_mode,
+            expected="normal | verbose | model",
+        )
+    try:
+        mode = ObservationLevel(raw_mode)
+    except ValueError as exc:
+        raise ConfigError(
+            "App output mode is invalid",
+            key="app.output.mode",
+            value=raw_mode,
+            expected="normal | verbose | model",
+        ) from exc
+    return OutputSettings(
+        mode=mode,
+        model_max_chars=_optional_int(
+            table,
+            "model_max_chars",
+            default=OutputSettings.model_max_chars,
+            key_prefix="app.output",
+        ),
     )
 
 
@@ -74,6 +181,24 @@ def _optional_bool(
             key=f"app.{name}",
             value=value,
             expected="bool",
+        )
+    return value
+
+
+def _optional_int(
+    tree: Mapping[str, object],
+    name: str,
+    *,
+    default: int,
+    key_prefix: str = "app",
+) -> int:
+    value = tree.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(
+            "App configuration value must be an integer",
+            key=f"{key_prefix}.{name}",
+            value=value,
+            expected="int",
         )
     return value
 

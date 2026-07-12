@@ -1,5 +1,5 @@
 [llm.models.gpt_5_5]
-provider = "openai"
+provider = "sublyx_proxy"
 provider_model = "gpt-5.5"
 capabilities = [
   "text_input",

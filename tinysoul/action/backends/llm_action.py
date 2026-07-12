@@ -99,6 +99,7 @@ class LLMActionTaskRunner:
                         answer_format=AnswerFormat.JSON_OBJECT,
                         tool_use=ToolUse.DISABLED,
                     ),
+                    scope=execution.framework.scope,
                 )
             )
         except RuntimeException:

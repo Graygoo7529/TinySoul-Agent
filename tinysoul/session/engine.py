@@ -3,47 +3,70 @@
 from __future__ import annotations
 
 from datetime import date
-from uuid import uuid4
+from hashlib import sha256
+from threading import RLock
 
 from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 
 from .config import SessionSettings
-from .errors import SessionContractError
+from .errors import SessionContractError, SessionInvariantError
 from .models import (
     SessionHistoryItem,
     SessionHistoryKind,
     SessionManifest,
     SessionRecord,
 )
+from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
 
 
 class SessionEngine:
     """Persist completed Turns and expose a bounded history head."""
 
-    def __init__(self, settings: SessionSettings) -> None:
+    def __init__(
+        self,
+        settings: SessionSettings,
+        *,
+        store: SessionStore | None = None,
+    ) -> None:
         self._settings = settings
-        self._store = SessionStore(
+        self._lock = RLock()
+        self._store = store or SessionStore(
             root=settings.root,
             archive_root=settings.archive_root,
         )
-        self._manifest = self._store.initialize(date.today().isoformat())
+        self._reconciler = SessionReconciler(self._store)
+        today = date.today().isoformat()
+        active = self._store.load_active_manifest()
+        self._manifest = active or self._store.create_manifest(today)
+        self._last_reconcile_result = self._reconcile_current()
+        if self._manifest.day != today:
+            self._store.archive(self._manifest.day)
+            self._manifest = self._store.create_manifest(today)
+            self._last_reconcile_result = SessionReconcileResult(revision=0)
 
     @property
     def revision(self) -> int:
-        return self._manifest.revision
+        with self._lock:
+            return self._manifest.revision
+
+    @property
+    def last_reconcile_result(self) -> SessionReconcileResult:
+        with self._lock:
+            return self._last_reconcile_result
 
     def background_snapshot(self) -> SessionBackgroundSnapshot:
-        self._ensure_today()
-        items = self._bounded_background_items()
-        return SessionBackgroundSnapshot(
-            revision=self._manifest.revision,
-            items=tuple(
-                SessionBackgroundItem(item_id=item.item_id, content=item.background)
-                for item in items
-            ),
-        )
+        with self._lock:
+            self._ensure_today()
+            items = self._bounded_background_items()
+            return SessionBackgroundSnapshot(
+                revision=self._manifest.revision,
+                items=tuple(
+                    SessionBackgroundItem(item_id=item.item_id, content=item.background)
+                    for item in items
+                ),
+            )
 
     def record_turn(
         self,
@@ -52,63 +75,50 @@ class SessionEngine:
         output: JsonObject | None,
         exhausted: bool,
     ) -> None:
-        self._ensure_today()
-        ref = f"session:turn/{summary.turn_id}"
-        if any(item.ref == ref for item in self._manifest.items):
-            raise SessionContractError(f"Turn is already recorded in Session: {summary.turn_id}")
-        background = _turn_background(
-            summary,
-            output=output,
-            exhausted=exhausted,
-            action_names=frozenset(self._settings.background_action_names),
-            max_actions=self._settings.background_max_actions_per_turn,
-            action_max_chars=self._settings.background_action_max_chars,
-        )
-        record = SessionRecord(
-            ref=ref,
-            kind=SessionHistoryKind.TURN,
-            content={
-                "background": background,
-                "completion": summary.to_json(),
-                "output": output,
-                "exhausted": exhausted,
-            },
-        )
-        self._store.save_record(record)
-        item = SessionHistoryItem(
-            item_id=summary.turn_id,
-            ref=ref,
-            kind=SessionHistoryKind.TURN,
-            background=background,
-            char_count=len(dumps_json(background)),
-        )
-        items = (*self._manifest.items, item)
-        items = self._summarize_once(items)
-        manifest = SessionManifest(
-            day=self._manifest.day,
-            revision=self._manifest.revision + 1,
-            items=items,
-        )
-        self._store.save_manifest(manifest)
-        self._manifest = manifest
+        with self._lock:
+            self._ensure_today()
+            ref = f"session:turn/{summary.turn_id}"
+            background = _turn_background(
+                summary,
+                output=output,
+                exhausted=exhausted,
+                action_names=frozenset(self._settings.background_action_names),
+                max_actions=self._settings.background_max_actions_per_turn,
+                action_max_chars=self._settings.background_action_max_chars,
+            )
+            self._store.save_record_if_absent(
+                SessionRecord(
+                    ref=ref,
+                    kind=SessionHistoryKind.TURN,
+                    content={
+                        "day": self._manifest.day,
+                        "background": background,
+                        "completion": summary.to_json(),
+                        "output": output,
+                        "exhausted": exhausted,
+                    },
+                )
+            )
+            self._last_reconcile_result = self._reconcile_current()
 
     def inspect_history(self) -> JsonObject:
-        self._ensure_today()
-        return {
-            "revision": self._manifest.revision,
-            "day": self._manifest.day,
-            "estimated_chars": sum(item.char_count for item in self._manifest.items),
-            "items": [
-                {
-                    "item_id": item.item_id,
-                    "ref": item.ref,
-                    "kind": item.kind.value,
-                    "char_count": item.char_count,
-                    "child_refs": list(item.child_refs),
-                }
-                for item in self._manifest.items
-            ],
-        }
+        with self._lock:
+            self._ensure_today()
+            return {
+                "revision": self._manifest.revision,
+                "day": self._manifest.day,
+                "estimated_chars": sum(item.char_count for item in self._manifest.items),
+                "items": [
+                    {
+                        "item_id": item.item_id,
+                        "ref": item.ref,
+                        "kind": item.kind.value,
+                        "char_count": item.char_count,
+                        "child_refs": list(item.child_refs),
+                    }
+                    for item in self._manifest.items
+                ],
+            }
 
     def recall_history(
         self,
@@ -117,20 +127,53 @@ class SessionEngine:
         max_chars: int | None = None,
         cursor: int = 0,
     ) -> JsonObject:
-        self._ensure_today()
-        requested = self._settings.recall_max_chars if max_chars is None else max_chars
-        if isinstance(requested, bool) or requested <= 0:
-            raise SessionContractError("Session recall max_chars must be positive")
-        if isinstance(cursor, bool) or cursor < 0:
-            raise SessionContractError("Session recall cursor cannot be negative")
-        limit = min(requested, self._settings.recall_max_chars)
-        record = self._store.load_record(ref)
-        return _recall_record(record, max_chars=limit, cursor=cursor)
+        with self._lock:
+            self._ensure_today()
+            requested = self._settings.recall_max_chars if max_chars is None else max_chars
+            if isinstance(requested, bool) or requested <= 0:
+                raise SessionContractError("Session recall max_chars must be positive")
+            if isinstance(cursor, bool) or cursor < 0:
+                raise SessionContractError("Session recall cursor cannot be negative")
+            limit = min(requested, self._settings.recall_max_chars)
+            record = self._store.load_record(ref)
+            return _recall_record(record, max_chars=limit, cursor=cursor)
 
     def _ensure_today(self) -> None:
         today = date.today().isoformat()
         if self._manifest.day != today:
-            self._manifest = self._store.initialize(today)
+            self._last_reconcile_result = self._reconcile_current()
+            self._store.archive(self._manifest.day)
+            self._manifest = self._store.create_manifest(today)
+            self._last_reconcile_result = SessionReconcileResult(revision=0)
+            return
+        self._last_reconcile_result = self._reconcile_current()
+
+    def _reconcile_current(self) -> SessionReconcileResult:
+        scan = self._reconciler.scan(self._manifest)
+        if not scan.orphan_turn_records:
+            return SessionReconcileResult(
+                revision=self._manifest.revision,
+                orphan_summary_refs=scan.orphan_summary_refs,
+            )
+        items = self._manifest.items
+        adopted: list[str] = []
+        for record in scan.orphan_turn_records:
+            items = (*items, _turn_item_from_record(record))
+            items = self._summarize_once(items)
+            adopted.append(record.ref)
+        manifest = SessionManifest(
+            day=self._manifest.day,
+            revision=self._manifest.revision + len(adopted),
+            items=items,
+        )
+        self._store.save_manifest(manifest)
+        self._manifest = manifest
+        committed_scan = self._reconciler.scan(manifest)
+        return SessionReconcileResult(
+            revision=manifest.revision,
+            adopted_turn_refs=tuple(adopted),
+            orphan_summary_refs=committed_scan.orphan_summary_refs,
+        )
 
     def _bounded_background_items(self) -> tuple[SessionHistoryItem, ...]:
         total = sum(item.char_count for item in self._manifest.items)
@@ -181,15 +224,17 @@ class SessionEngine:
         )
         if max_split < 2:
             return items
-        summary_id = f"summary_{uuid4().hex[:12]}"
-        ref = f"session:summary/{summary_id}"
+        provisional_ref = f"session:summary/summary_{'0' * 16}"
         target = int(
             self._settings.background_max_chars
             * self._settings.summary_target_ratio
         )
         split = max_split
         for candidate in range(2, max_split + 1):
-            candidate_background = _summary_background(ref, items[:candidate])
+            candidate_background = _summary_background(
+                provisional_ref,
+                items[:candidate],
+            )
             candidate_chars = len(dumps_json(candidate_background)) + sum(
                 item.char_count for item in items[candidate:]
             )
@@ -198,17 +243,29 @@ class SessionEngine:
                 break
         children = items[:split]
         child_refs = tuple(item.ref for item in children)
+        summary_digest = sha256(
+            dumps_json(
+                {
+                    "schema_version": 1,
+                    "day": self._manifest.day,
+                    "child_refs": list(child_refs),
+                }
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        summary_id = f"summary_{summary_digest}"
+        ref = f"session:summary/{summary_id}"
         background = _summary_background(ref, children)
         record = SessionRecord(
             ref=ref,
             kind=SessionHistoryKind.SUMMARY,
             content={
+                "day": self._manifest.day,
                 "background": background,
                 "child_refs": list(child_refs),
                 "children": [item.to_json() for item in children],
             },
         )
-        self._store.save_record(record)
+        self._store.save_record_if_absent(record)
         summary_item = SessionHistoryItem(
             item_id=summary_id,
             ref=ref,
@@ -218,6 +275,37 @@ class SessionEngine:
             child_refs=child_refs,
         )
         return (summary_item, *items[split:])
+
+
+def _turn_item_from_record(record: SessionRecord) -> SessionHistoryItem:
+    if record.kind is not SessionHistoryKind.TURN:
+        raise SessionInvariantError(
+            f"Session orphan is not a Turn record: {record.ref}"
+        )
+    background = record.content.get("background")
+    completion = record.content.get("completion")
+    if not isinstance(background, dict) or not isinstance(completion, dict):
+        raise SessionInvariantError(
+            f"Session Turn record is missing committed content: {record.ref}"
+        )
+    turn_id = completion.get("turn_id")
+    if not isinstance(turn_id, str):
+        raise SessionInvariantError(
+            f"Session Turn record has an invalid turn id: {record.ref}"
+        )
+    expected_ref = f"session:turn/{turn_id}"
+    if expected_ref != record.ref:
+        raise SessionInvariantError(
+            f"Session Turn record identity does not match completion: {record.ref}"
+        )
+    stable_background = to_json_object(background)
+    return SessionHistoryItem(
+        item_id=turn_id,
+        ref=record.ref,
+        kind=SessionHistoryKind.TURN,
+        background=stable_background,
+        char_count=len(dumps_json(stable_background)),
+    )
 
 
 def _turn_background(

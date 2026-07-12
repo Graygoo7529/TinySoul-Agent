@@ -6,6 +6,7 @@ from .errors import ConfigError
 from .project import ProjectConfig
 from .source import ConfigSource
 from .toml_file import ConfigFileToml
+from .validation import reject_unknown_keys
 
 __all__ = [
     "ConfigEnvironment",
@@ -14,5 +15,6 @@ __all__ = [
     "ConfigFileToml",
     "DotenvSource",
     "ProjectConfig",
+    "reject_unknown_keys",
     "parse_dotenv",
 ]

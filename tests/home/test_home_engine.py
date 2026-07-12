@@ -39,6 +39,7 @@ from tinysoul.context import ContextEngineBuilder
 from tinysoul.context.background import BackgroundPatch
 from tinysoul.context.signals import build_background_patch_signal
 from tinysoul.loop.context_signals import ContextSignalConsumer
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     HOME_RUNTIME_COPY_REQUIRED,
@@ -56,6 +57,16 @@ from tinysoul.runtime import (
 
 
 T = TypeVar("T")
+
+
+def test_home_settings_reject_overlapping_original_and_runtime_roots(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ConfigError, match="must not overlap"):
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "home" / "runtime",
+        )
 
 
 def test_home_background_is_copied_only_when_context_loads_it(
@@ -219,6 +230,38 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
     assert result.transfer.action is RuntimeTransferAction.RETRY
     assert result.transfer.target == scope.current()
     assert (tmp_path / "runtime" / "home" / "how" / "refactor" / "SKILL.md").is_file()
+
+
+def test_home_runtime_copy_does_not_retry_after_materialized_target_disappears(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "home" / "agent" / "AGENT.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("rules", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    link = HomeTopLink("agent", "core")
+    home.ensure_runtime_copy(link)
+    runtime = tmp_path / "runtime" / "home" / "agent" / "AGENT.md"
+    runtime.unlink()
+    scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, "turn")
+
+    result = AgentHomeRuntimeCopyTrapHandler(home).handle(
+        TrapSnap(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+            payload={"link": str(link)},
+            scope=scope,
+        )
+    )
+
+    assert result.transfer.action is RuntimeTransferAction.END
+    assert result.transfer.target == scope.nearest(RunLevel.TURN)
+    assert not runtime.exists()
 
 
 def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> None:

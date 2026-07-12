@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
 
 from .base import ProviderAdapter, ProviderError, ProviderErrorKind
 from .deepseek import DeepSeekProviderAdapter
@@ -23,8 +23,10 @@ def build_provider_registry(
 ) -> ProviderRegistry:
     adapters: list[ProviderAdapter] = []
     for provider in providers:
+        if not provider.enabled:
+            continue
         api_key = provider.resolve_api_key(env)
-        if provider.id == "openai":
+        if provider.adapter is ProviderAdapterKind.OPENAI:
             adapters.append(
                 OpenAIProviderAdapter(
                     provider=provider,
@@ -32,7 +34,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.id == "kimi":
+        if provider.adapter is ProviderAdapterKind.KIMI:
             adapters.append(
                 KimiProviderAdapter(
                     provider=provider,
@@ -40,7 +42,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.id == "deepseek":
+        if provider.adapter is ProviderAdapterKind.DEEPSEEK:
             adapters.append(
                 DeepSeekProviderAdapter(
                     provider=provider,
@@ -48,7 +50,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.id == "glm":
+        if provider.adapter is ProviderAdapterKind.GLM:
             adapters.append(
                 GlmProviderAdapter(
                     provider=provider,
@@ -56,7 +58,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.id == "minimax":
+        if provider.adapter is ProviderAdapterKind.MINIMAX:
             adapters.append(
                 MiniMaxProviderAdapter(
                     provider=provider,

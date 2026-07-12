@@ -2,11 +2,11 @@
 
 ## 定位
 
-Runtime 是 TinySoul 的顶层运行控制模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断和内部信号分发。
+Runtime 是 TinySoul 的顶层运行控制模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
 
 Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境状态，不读写 Workspace 或 Agent Home，也不解释 LLM、Action、Context 的业务结果。具体模块负责完成自身局部处理，并在模块边界通过异常或信号向 Runtime 和其他模块表达需要上层协调的运行事实。
 
-Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖全局控制器；当模块局部处理失败、运行环境需要全局恢复、用户请求中断或程序需要退出时，执行流程陷入 Runtime，由 Runtime 根据当前运行位置和异常语义给出恢复或中断决策。内部信号则作为软事件，用于在模块之间表达状态变更请求、动作结果、用户追加输入和可观测事件。
+Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖全局控制器；当模块局部处理失败、运行环境需要全局恢复、用户请求中断或程序需要退出时，执行流程陷入 Runtime，由 Runtime 根据当前运行位置和异常语义给出恢复或中断决策。内部信号作为可消费的软事件，用于在模块之间表达状态变更请求、动作结果和用户追加输入；只供外部观察、没有业务消费者的事件使用独立 Observation 协议。
 
 ## 运行层级
 
@@ -54,7 +54,7 @@ Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻�
 
 不同 bridge 可以复用私有 helper 完成机械性的 payload 拼装、异常类型摘要和 `ConfigError` 投影，但模块名、模块 failure enum、Runtime reason 映射表和专用恢复入口仍保留在各自 bridge 文件中。公共 helper 不承担模块失败分类，也不决定控制流语义。
 
-模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace、需要观测输出或需要通知其他模块消费数据时，应发出信号。只有结束 Turn、结束 Cycle、结束 Program、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
+模块事件和状态变更请求不应通过 Runtime 异常表达。模块完成一次动作、产生状态 patch、需要追加 TurnTrace 或需要通知其他模块消费数据时，应发出信号；只需要向外部报告运行边界时应发布 ObservationEvent。只有结束 Turn、结束 Cycle、结束 Program、触发全局恢复或启动失败这类控制流变化，才进入 Runtime Trap。
 
 ## 运行转移
 
@@ -80,7 +80,7 @@ Trap registry 支持精确 reason、命名空间前缀和一个显式 fallback�
 
 通用处理策略包括：启动失败结束 Program；结束 Turn 原因结束当前 Turn；结束 Cycle 原因结束当前执行轮；结束 Program 原因退出程序；`runtime.turn_output` 校验并发布最终输出后结束 Turn；语境压缩或 Agent Home 运行时副本准备等原因由对应处理器执行恢复后返回运行转移；未处理 RuntimeException 由 fallback 结束 Turn 或 Program。
 
-Trap 处理器可以发出信号，例如请求记录 TurnTrace、请求终端显示故障或通知某个恢复任务已完成。Trap 处理器不应直接修改业务状态；实际状态修改仍由对应信号消费者完成。
+Trap 处理器可以发出信号，例如请求记录 TurnTrace 或通知某个恢复任务已完成。Trap 处理器不应直接修改业务状态；实际状态修改仍由对应信号消费者完成。运行器可在捕获 Trap 后另行发布观察事件，但输出适配器不参与 Trap 决策。
 
 ## 恢复例程
 
@@ -100,7 +100,7 @@ Trap 处理器不应直接驱动运行器跳转。Trap 只返回运行转移，�
 
 信号由统一信封承载。信封至少表达信号名称、来源、运行位置和结构化载荷。信号名称使用命名空间形式，区分 Runtime 保留信号和模块信号。运行位置说明信号产生处；结构化载荷使用 JSON 对象，保证跨模块边界可校验、可记录、可渲染。
 
-Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段。具体信号协议由生产模块和消费模块共同维护。例如 Phase1 可以把 Control Tool Calls 汇聚、校验并归一化为 WorkingContext 或 BackgroundContext 的状态信号；Phase3 可以把并行动作结果汇聚为 TurnTrace 追加信号；可观测模块可以消费 trace 信号并交由 Infra 渲染。
+Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段。具体信号协议由生产模块和消费模块共同维护。例如 Phase1 可以把 Control Tool Calls 汇聚、校验并归一化为 WorkingContext 或 BackgroundContext 的状态信号；Phase3 可以把并行动作结果汇聚为 TurnTrace 追加信号。外部渲染不消费这些业务信号，而由运行器在已经确定的边界发布 ObservationEvent。
 
 信号载荷应保持为结构化摘要和资源句柄，不应携带大量文件内容。Workspace 文件、Agent Home 渐进式内容、图片或长文本应通过链接或资源句柄表达，由需要的模块在具体执行边界读取。
 
@@ -118,11 +118,19 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 外部输入也遵循这个边界。用户追加普通内容时，可以先形成用户追加信号，由 Turn 运行器在安全边界合并；如果外部输入请求停止当前 Turn 或结束 Program，则由对应运行器构造 Runtime 语义异常进入 Trap，并由 Trap 返回结束 Turn 或结束 Program 的运行转移。
 
+## 观察事件
+
+`ObservationEvent` 是不可用于控制流的结构化旁路事件。它包含稳定事件名、`normal` / `verbose` / `model` 详细度、来源、RunScope、可读消息、JSON payload 和产生时间。Runtime 只定义事件与 `ObservationEmitter` 协议；Loop、LLM、Action 和 RuntimeModuleRunner 在各自拥有事实的边界发布，App 负责过滤和连接 `OutputSink`。
+
+Observation 与 Signal 的区别由消费语义决定：SignalBus 中的事件等待业务模块消费并可能形成状态提交；Observation 只面向人机界面、日志适配或嵌入方，不排队等待业务确认。Observation 与 Trap 的区别由控制语义决定：emitter/sink 失败不能触发恢复、重试或结束 frame。发布 helper 吞掉 emitter 异常，App router 隔离失败 sink，并在业务边界结束后由 App 语义报告输出故障。
+
+详细 observation payload 必须 provider-neutral、JSON 安全且有界表达二进制和敏感结构。MODEL 级可以表达文本消息、工具协议和归一化回答以支持诊断，但图片只携带摘要，推理原文、加密项原文与 provider 原始响应不进入事件。是否渲染及文本裁剪属于 App/OutputSink 责任，不属于 Runtime 控制协议。
+
 ## Trap
 
 Trap 是 Runtime 的 OS 风格陷入控制器。它处理 Runtime 语义异常并返回运行转移，但不拥有业务状态。
 
-Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapSnap，按照原因标识查找处理器，验证处理器给出的 target 属于捕获 scope，再返回运行转移。Trap 不处理普通信号；模块状态信号、动作结果信号和可观测信号由各业务模块从 SignalBus 消费。
+Trap 的异常入口接收 Runtime 语义异常和运行位置，转换为 TrapSnap，按照原因标识查找处理器，验证处理器给出的 target 属于捕获 scope，再返回运行转移。Trap 不处理普通信号或 ObservationEvent；模块状态信号和动作结果信号由各业务模块从 SignalBus 消费，观察事件直接进入已注入 emitter。
 
 Trap 不执行 LLM 调用，不重跑 Phase，不修改 Context，不写 Action Record，也不直接写 Workspace。它只负责把 Runtime 语义异常转换为运行转移，并把必要的副作用意图表达为信号。具体恢复任务由注册的 Trap 处理器执行；具体运行跳转由 Program、Turn、Phase 或 Module 运行器执行。
 
@@ -144,12 +152,12 @@ LLM 是模块接入 Runtime 的参考实现之一。供应商错误先由 LLM �
 
 Infra 继续提供配置、JSON 边界和受控文件系统能力。Runtime 可以使用 Infra 的 JSON 基础能力约束信号载荷和异常详情，但 Runtime 不属于 Infra。
 
-配置加载错误可以在配置模块边界转换为表示启动失败的 Runtime 语义异常。可观测事件可以由 Runtime 或其他模块发出 trace 信号，再交由 Infra 渲染。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
+配置加载错误可以在配置模块边界转换为表示启动失败的 Runtime 语义异常。观察事件由 Runtime 或业务运行器通过 ObservationEmitter 发布，并由 App 输出边界渲染；Infra 不拥有终端输出语义。资源读写、Workspace 边界检查和 Agent Home 运行时副本机制应由对应资源模块实现；当这些机制需要全局恢复流程时，再通过 Runtime 语义异常或 Runtime 保留信号进入 Trap。
 
 Infra 自身不表达 Runtime 控制流。当前 Infra bridge 只映射配置加载失败为启动失败；JSON 与文件系统边界错误由实际拥有该调用流程的业务模块局部处理或归入自身 bridge，不维持没有真实调用路径的通用失败分类。
 
 ## 设计范围
 
-Runtime 的核心范围是运行位置、异常陷入、运行转移、Trap 处理器、信号分发和信号消费协议。
+Runtime 的核心范围是运行位置、异常陷入、运行转移、Trap 处理器、信号分发、信号消费协议和非控制性 Observation 信封。
 
 Runtime 不承担 Loop 业务策略、Context 状态模型、Action 执行、LLM 任务构造、Workspace 文件内容管理、Agent Home 知识合并和终端渲染细节。这些能力应在对应模块中设计，并通过 Runtime 的异常和信号协议与整体运行控制协作。

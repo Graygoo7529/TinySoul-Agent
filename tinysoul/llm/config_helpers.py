@@ -49,6 +49,18 @@ def required_str(table: Mapping[str, object], name: str, *, key: str) -> str:
     return value
 
 
+def required_bool(table: Mapping[str, object], name: str, *, key: str) -> bool:
+    value = table.get(name)
+    if not isinstance(value, bool):
+        raise ConfigError(
+            "Configuration value must be a boolean",
+            key=f"{key}.{name}",
+            value=value,
+            expected="bool",
+        )
+    return value
+
+
 def optional_str(
     table: Mapping[str, object],
     name: str,

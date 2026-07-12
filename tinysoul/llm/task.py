@@ -5,13 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime import RuntimeException
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RuntimeException,
+    emit_observation,
+    observation_enabled,
+)
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
 from .errors import LLMContractError, LLMError
 from .failures import LLMFailureKind
 from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
+    ChainErrorDisposition,
     Clock,
     ModelChainExhaustedError,
     ModelChainPlanner,
@@ -22,6 +31,7 @@ from .model_chain import (
     TaskSpecTable,
 )
 from .models import ModelCapability, ModelRegistry, ModelSpec
+from .observation_payloads import task_request_observation, task_response_observation
 from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
 from .requests import CallSettings, TaskCall, TaskProfile
 from .responses import (
@@ -142,6 +152,7 @@ class LLMTaskRunner:
         capability_policy: CapabilityPolicy | None = None,
         call_validator: TaskCallValidator | None = None,
         runtime_bridge: RuntimeLLMBridge | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
@@ -151,6 +162,7 @@ class LLMTaskRunner:
         self._call_validator = call_validator or TaskCallValidator()
         self._sleeper = sleeper or Sleeper()
         self._runtime_bridge = runtime_bridge or RuntimeLLMBridge()
+        self._observations = observations or NullObservationEmitter()
         self._chain_runner = chain_runner or ModelChainRunner(
             state=chain_state,
             planner=chain_planner,
@@ -163,8 +175,8 @@ class LLMTaskRunner:
             task = self._tasks.get(call.profile)
             return self._chain_runner.run(
                 task.chain,
-                lambda model_id: self._try_model(call, task, model_id),
-                is_fatal=self._is_fatal_error,
+                lambda model_id: self._run_model(call, task, model_id),
+                classify_error=self._classify_chain_error,
             )
         except ModelChainExhaustedError as exc:
             raise self._runtime_bridge.from_exception(
@@ -230,7 +242,40 @@ class LLMTaskRunner:
 
         for attempt in range(task.chain.retry_policy.max_retries_per_model):
             if attempt > 0:
+                self._emit(
+                    call,
+                    "llm.model.retry",
+                    ObservationLevel.VERBOSE,
+                    "Retrying transient provider failure.",
+                    {
+                        "profile": task.profile,
+                        "model_id": model.id,
+                        "provider_id": model.provider_id,
+                        "attempt": attempt + 1,
+                    },
+                )
                 self._sleeper.sleep(task.chain.retry_policy.retry_wait_seconds)
+            if observation_enabled(self._observations, ObservationLevel.MODEL):
+                request_payload = task_request_observation(
+                    call.messages,
+                    call.tool_scope,
+                )
+                request_payload.update(
+                    {
+                        "profile": task.profile,
+                        "model_id": model.id,
+                        "provider_id": model.provider_id,
+                        "provider_model": model.provider_model,
+                        "attempt": attempt + 1,
+                    }
+                )
+                self._emit(
+                    call,
+                    "llm.model.request",
+                    ObservationLevel.MODEL,
+                    "Provider-neutral model request.",
+                    request_payload,
+                )
             try:
                 response = provider.invoke(
                     ProviderRequest(
@@ -250,6 +295,14 @@ class LLMTaskRunner:
                     raise
                 last_error = exc
                 continue
+            if observation_enabled(self._observations, ObservationLevel.MODEL):
+                self._emit(
+                    call,
+                    "llm.model.response",
+                    ObservationLevel.MODEL,
+                    "Provider-neutral model response.",
+                    task_response_observation(response),
+                )
             try:
                 return self._interpreter.interpret(
                     response,
@@ -274,12 +327,80 @@ class LLMTaskRunner:
             raise LLMTaskError("Model retry failed without a provider error")
         raise last_error
 
-    def _is_fatal_error(self, error: Exception) -> bool:
+    def _run_model(
+        self,
+        call: TaskCall,
+        task: TaskSpec,
+        model_id: str,
+    ) -> TaskResult:
+        model = self._models.get(model_id)
+        payload: JsonObject = {
+            "profile": task.profile,
+            "model_id": model.id,
+            "provider_id": model.provider_id,
+        }
+        self._emit(
+            call,
+            "llm.model.started",
+            ObservationLevel.VERBOSE,
+            "Starting model attempt.",
+            payload,
+        )
+        try:
+            result = self._try_model(call, task, model_id)
+        except Exception as exc:
+            failure_payload = {**payload, "error_type": type(exc).__name__}
+            if isinstance(exc, ProviderError):
+                failure_payload["provider_error_kind"] = exc.kind.value
+            self._emit(
+                call,
+                "llm.model.failed",
+                ObservationLevel.VERBOSE,
+                "Model attempt failed.",
+                failure_payload,
+            )
+            raise
+        self._emit(
+            call,
+            "llm.model.completed",
+            ObservationLevel.VERBOSE,
+            "Model attempt completed.",
+            {**payload, "status": result.status.value},
+        )
+        return result
+
+    def _emit(
+        self,
+        call: TaskCall,
+        name: str,
+        level: ObservationLevel,
+        message: str,
+        payload: JsonObject,
+    ) -> None:
+        if not observation_enabled(self._observations, level):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=level,
+                source="llm.task",
+                scope=call.scope,
+                message=message,
+                payload=payload,
+            ),
+        )
+
+    def _classify_chain_error(self, error: Exception) -> ChainErrorDisposition:
         if isinstance(error, RuntimeException):
-            return True
+            return ChainErrorDisposition.ABORT
         if isinstance(error, ModelCapabilityError):
-            return False
-        return isinstance(error, LLMContractError)
+            return ChainErrorDisposition.SWITCH
+        if isinstance(error, ProviderError):
+            if error.kind is ProviderErrorKind.TRANSIENT:
+                return ChainErrorDisposition.RETRY_NEXT_CYCLE
+            return ChainErrorDisposition.SWITCH
+        return ChainErrorDisposition.ABORT
 
     def _model_chain_exhausted_payload(
         self,

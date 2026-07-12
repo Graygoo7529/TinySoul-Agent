@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ def parse_action_settings(
     *,
     project_root: Path,
 ) -> ActionSettings:
+    reject_unknown_keys(tree, {"catalog_root"}, key="action")
     value = tree.get("catalog_root", "tinysoul/action/catalog")
     if not isinstance(value, str) or not value:
         raise ConfigError(

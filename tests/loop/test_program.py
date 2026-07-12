@@ -95,6 +95,26 @@ def test_program_runner_exit_event_ends_program_without_turn() -> None:
     }
 
 
+def test_program_runner_bounds_retained_outcomes_but_counts_all_turns() -> None:
+    fake_turn_runner = _FakeTurnRunner()
+    handler = _ProgramEndHandler()
+    runner = ProgramRunner(
+        turn_runner=cast(TurnRunner, fake_turn_runner),
+        bus=SignalBus(),
+        trap=_trap(handler),
+        retained_outcomes=2,
+    )
+    for text in ("one", "two", "three"):
+        runner.submit_event(ProgramInputEvent.start_turn(text))
+    runner.submit_event(ProgramInputEvent.exit_program(text="exit"))
+
+    outcome = runner.run()
+
+    assert fake_turn_runner.inputs == ["one", "two", "three"]
+    assert outcome.turn_count == 3
+    assert len(outcome.turns) == 2
+
+
 def _trap(handler: _ProgramEndHandler) -> RuntimeTrap:
     registry = TrapHandlerRegistry()
     registry.register(RUNTIME_PROGRAM_END, handler)

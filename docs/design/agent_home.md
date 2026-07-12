@@ -130,9 +130,9 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy`、Trap handler、`AgentHomeRuntimeCopyRecovery` 和 `HomeBackgroundContentLoader`。启动装配只通过 recovery 物化默认 `home:agent@core`；其它可加载背景只枚举链接并注册 loader，不读取正文、不创建副本。Phase1 实际加载时，loader 在 Context 的事务批次和 Module frame 内读取 runtime home；缺页映射为 `HOME_RUNTIME_COPY_REQUIRED`，Trap 创建副本后重试同一批次。domain/action HOW 与渐进式 action read 复用相同缺页语义。
+当前实现提供显式 `ensure_runtime_copy`、Trap handler、`AgentHomeRuntimeCopyRecovery` 和 `HomeBackgroundContentLoader`。启动装配只通过 recovery 物化默认 `home:agent@core`；其它可加载背景只枚举链接并注册 loader，不读取正文、不创建副本。Phase1 实际加载时，loader 在 Context 的事务批次和 Module frame 内读取 runtime home；缺页映射为 `HOME_RUNTIME_COPY_REQUIRED`，Trap 创建副本后重试同一批次。domain/action HOW 与渐进式 action read 复用相同缺页语义。副本通过 runtime 目标同目录临时文件流式复制、flush/fsync 后原子 replace，读取方不会观察半份内容；原始根和 runtime 根禁止相同或互相嵌套，目标路径始终重新约束在 runtime root 内。
 
-runtime copy handler 只在副本成功建立时重试当前 frame；链接失效、源文件消失或复制失败时结束最近 Turn（启动阶段结束 Program），避免对不可恢复的缺页重复重试。
+runtime copy manager 以进程内锁串行化同一目标，并记住已经物化的目标。已经物化的副本若随后消失或变成非普通文件，视为 I/O 不变量失败，不从 original home 静默重建覆盖运行期状态。runtime copy handler 只在副本成功建立时重试当前 frame；启动 recovery 对同一 link 最多处理一次缺页，链接失效、源文件消失、复制失败或重试后仍缺页时结束最近 Turn（启动阶段结束 Program），避免不可恢复缺页形成无上限重试。
 
 原始 Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@core` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
 

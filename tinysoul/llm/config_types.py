@@ -20,6 +20,17 @@ class ProviderApiStyle(StrEnum):
     OPENAI_RESPONSES = "openai_responses"
 
 
+class ProviderAdapterKind(StrEnum):
+    """Provider behavior implementation independent of endpoint identity."""
+
+    GENERIC = "generic"
+    OPENAI = "openai"
+    KIMI = "kimi"
+    DEEPSEEK = "deepseek"
+    GLM = "glm"
+    MINIMAX = "minimax"
+
+
 @dataclass(frozen=True)
 class ProviderSpec:
     """Configured provider API endpoint."""
@@ -28,12 +39,18 @@ class ProviderSpec:
     api_style: ProviderApiStyle
     base_url: str
     api_key_envs: tuple[str, ...]
+    adapter: ProviderAdapterKind = ProviderAdapterKind.GENERIC
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ProviderSpec.id must be non-empty")
         if not isinstance(self.api_style, ProviderApiStyle):
             raise LLMContractError("ProviderSpec.api_style must be a ProviderApiStyle")
+        if not isinstance(self.adapter, ProviderAdapterKind):
+            raise LLMContractError("ProviderSpec.adapter must be a ProviderAdapterKind")
+        if not isinstance(self.enabled, bool):
+            raise LLMContractError("ProviderSpec.enabled must be a boolean")
         if not isinstance(self.base_url, str) or not self.base_url:
             raise LLMContractError("ProviderSpec.base_url must be non-empty")
         try:
@@ -50,6 +67,18 @@ class ProviderSpec:
                     "ProviderSpec.api_key_envs must contain non-empty strings"
                 )
         object.__setattr__(self, "api_key_envs", api_key_envs)
+        expected_style = {
+            ProviderAdapterKind.OPENAI: ProviderApiStyle.OPENAI_RESPONSES,
+            ProviderAdapterKind.KIMI: ProviderApiStyle.OPENAI_CHAT,
+            ProviderAdapterKind.DEEPSEEK: ProviderApiStyle.OPENAI_CHAT,
+            ProviderAdapterKind.GLM: ProviderApiStyle.OPENAI_CHAT,
+            ProviderAdapterKind.MINIMAX: ProviderApiStyle.OPENAI_CHAT,
+        }.get(self.adapter)
+        if expected_style is not None and self.api_style is not expected_style:
+            raise LLMContractError(
+                f"Provider adapter '{self.adapter.value}' requires "
+                f"API style '{expected_style.value}'"
+            )
 
     def resolve_api_key(self, values: Mapping[str, str]) -> str:
         for name in self.api_key_envs:

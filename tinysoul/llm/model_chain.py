@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 import time
 from typing import Callable, TypeVar
 
@@ -10,6 +11,14 @@ from .errors import LLMContractError, LLMInvariantError
 from .requests import CallSettings, TaskProfile
 
 T = TypeVar("T")
+
+
+class ChainErrorDisposition(StrEnum):
+    """How a model-chain call should handle one model failure."""
+
+    ABORT = "abort"
+    SWITCH = "switch"
+    RETRY_NEXT_CYCLE = "retry_next_cycle"
 
 
 @dataclass(frozen=True)
@@ -198,21 +207,33 @@ class ModelChainRunner:
         chain: ModelChain,
         attempt: Callable[[str], T],
         *,
-        is_fatal: Callable[[Exception], bool],
+        classify_error: Callable[[Exception], ChainErrorDisposition],
     ) -> T:
         start_index = self._state.current_index(chain, now=self._clock.now())
         cycles = 0
         last_error: Exception | None = None
+        blocked_models: set[str] = set()
+        attempted_models: set[str] = set()
 
         while chain.retry_policy.max_cycles is None or cycles < chain.retry_policy.max_cycles:
             cycles += 1
-            for model_id in self._planner.model_order(chain, start_index=start_index):
+            retry_next_cycle = False
+            order = self._planner.model_order(chain, start_index=start_index)
+            for model_id in order:
+                if model_id in blocked_models:
+                    continue
+                attempted_models.add(model_id)
                 try:
                     result = attempt(model_id)
                 except Exception as exc:
-                    if is_fatal(exc):
+                    disposition = classify_error(exc)
+                    if disposition is ChainErrorDisposition.ABORT:
                         raise
                     last_error = exc
+                    if disposition is ChainErrorDisposition.SWITCH:
+                        blocked_models.add(model_id)
+                    else:
+                        retry_next_cycle = True
                     self._sleeper.sleep(chain.retry_policy.switch_wait_seconds)
                     continue
 
@@ -220,6 +241,12 @@ class ModelChainRunner:
                 return result
 
             start_index = 0
+            untried_models = any(
+                model_id not in attempted_models and model_id not in blocked_models
+                for model_id in chain.model_ids
+            )
+            if not retry_next_cycle and not untried_models:
+                break
 
         raise ModelChainExhaustedError(
             "Model chain exhausted",

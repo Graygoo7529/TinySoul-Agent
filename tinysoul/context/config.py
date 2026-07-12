@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,21 @@ class ContextSettings:
 
 
 def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
+    reject_unknown_keys(
+        tree,
+        {
+            "system_text",
+            "journal",
+            "budget_max_chars",
+            "budget_max_image_bytes",
+            "compression_target_ratio",
+            "trace_chunk_max_chars",
+            "trace_branch_factor",
+            "trace_min_hot_entries",
+            "trace_recall_max_chars",
+        },
+        key="context",
+    )
     return ContextSettings(
         system_text=_optional_str(
             tree,

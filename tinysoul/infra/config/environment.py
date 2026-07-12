@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 import os
 from pathlib import Path
@@ -48,7 +48,7 @@ class ConfigEnvironment:
         dotenv_raw = dotenv.load_raw()
         process_env = dict(env if env is not None else os.environ)
         sources = [
-            project.to_source(),
+            *project.sources,
             dotenv.load(),
             ConfigSource(
                 name="environment",
@@ -75,6 +75,63 @@ class ConfigEnvironment:
     def runtime_env(self) -> dict[str, str]:
         return dict(self._runtime_env)
 
+    def source_for(self, key: str) -> str:
+        """Return the winning or nearest owning source for a dotted key."""
+
+        if not key:
+            return ""
+        prefix = f"{key}."
+        for source in reversed(self._sources):
+            if key in source.values:
+                return source.name
+            if any(candidate.startswith(prefix) for candidate in source.values):
+                return source.name
+        parts = key.split(".")
+        for end in range(len(parts) - 1, 0, -1):
+            parent = ".".join(parts[:end])
+            for source in reversed(self._sources):
+                if parent in source.values:
+                    return source.name
+        return ""
+
+    def enrich_error(self, error: ConfigError) -> ConfigError:
+        """Attach source provenance when a module parser only knows the key."""
+
+        if error.source or not error.key:
+            return error
+        source = self.source_for(error.key)
+        return replace(error, source=source) if source else error
+
+    def parse_section(
+        self,
+        section: str,
+        parser: Callable[[Mapping[str, object]], T],
+    ) -> T:
+        """Build a section tree, parse it, and preserve source diagnostics."""
+
+        try:
+            return parser(self.section_tree(section))
+        except ConfigError as exc:
+            enriched = self.enrich_error(exc)
+            if enriched is exc:
+                raise
+            raise enriched from exc
+
+    def validate_sections(self, allowed: Iterable[str]) -> None:
+        """Reject unknown project-level configuration sections."""
+
+        allowed_names = frozenset(allowed)
+        for source in self._sources:
+            for key, value in source.values.items():
+                section = key.split(".", 1)[0]
+                if section not in allowed_names:
+                    raise ConfigError(
+                        "Unknown configuration section",
+                        key=section,
+                        source=source.name,
+                        value=value,
+                    )
+
     def section_tree(self, section: str) -> dict[str, object]:
         if not section:
             raise ConfigError(
@@ -98,7 +155,13 @@ class ConfigEnvironment:
                     )
                 if not key.startswith(prefix):
                     continue
-                _set_dotted_value(tree, key[len(prefix) :], value)
+                _set_dotted_value(
+                    tree,
+                    key[len(prefix) :],
+                    value,
+                    source=source.name,
+                    full_key=key,
+                )
         return tree
 
     def load_section(self, section: str, settings_type: type[T]) -> T:
@@ -162,7 +225,14 @@ class ConfigEnvironment:
         return {field.name for field in fields(settings_type)}
 
 
-def _set_dotted_value(tree: dict[str, object], dotted_key: str, value: object) -> None:
+def _set_dotted_value(
+    tree: dict[str, object],
+    dotted_key: str,
+    value: object,
+    *,
+    source: str = "",
+    full_key: str = "",
+) -> None:
     parts = dotted_key.split(".")
     current = tree
     for part in parts[:-1]:
@@ -175,7 +245,8 @@ def _set_dotted_value(tree: dict[str, object], dotted_key: str, value: object) -
         if not isinstance(existing, dict):
             raise ConfigError(
                 "Cannot set nested configuration key below scalar value",
-                key=dotted_key,
+                key=full_key or dotted_key,
+                source=source,
                 value=value,
             )
         current = cast(dict[str, object], existing)

@@ -47,7 +47,13 @@ class AgentHomeLayout:
             relative = source_resolved.relative_to(self._content_root.resolve())
         except ValueError:
             raise AgentHomeContractError("Home source path is outside content root")
-        return self._settings.runtime_root / relative
+        try:
+            return resolve_under_root(
+                self._settings.runtime_root,
+                relative.as_posix(),
+            )
+        except FilesystemBoundaryError as exc:
+            raise AgentHomeContractError(str(exc)) from exc
 
     def top_links(self) -> tuple[HomeTopLink, ...]:
         links: list[HomeTopLink] = []

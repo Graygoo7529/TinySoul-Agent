@@ -219,7 +219,9 @@ class WorkspaceEngine:
                 f"Workspace resource digest mismatch: {link_value}"
             )
         observed = self._inspect_record(link_value)
-        if observed.digest != expected_digest:
+        observed_path = self.path_for(observed.link)
+        observed_bytes = self._read_rollback_bytes(observed_path)
+        if sha256(observed_bytes).hexdigest() != expected_digest:
             raise WorkspaceContractError(
                 f"Workspace resource changed while being described: {link_value}"
             )
@@ -241,7 +243,8 @@ class WorkspaceEngine:
     def inspect(self, link: WorkspaceLink | str) -> WorkspaceResourceRecord:
         """Inspect one disk resource without changing the manifest."""
 
-        return self._inspect_record(link)
+        with self._lock:
+            return self._inspect_record(link)
 
     def _inspect_record(
         self,
@@ -281,6 +284,15 @@ class WorkspaceEngine:
         *,
         max_chars: int | None = None,
     ) -> WorkspaceTextRead:
+        with self._lock:
+            return self._read_text(link, max_chars=max_chars)
+
+    def _read_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_chars: int | None,
+    ) -> WorkspaceTextRead:
         limit = self._settings.max_read_chars if max_chars is None else max_chars
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise WorkspaceContractError("Workspace read limit must be positive")
@@ -311,6 +323,15 @@ class WorkspaceEngine:
         link: WorkspaceLink | str,
         *,
         max_bytes: int | None = None,
+    ) -> WorkspaceImageRead:
+        with self._lock:
+            return self._read_image(link, max_bytes=max_bytes)
+
+    def _read_image(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_bytes: int | None,
     ) -> WorkspaceImageRead:
         limit = self._settings.max_image_bytes if max_bytes is None else max_bytes
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
@@ -353,6 +374,22 @@ class WorkspaceEngine:
         start_line: int = 1,
         max_lines: int | None = None,
         max_chars: int | None = None,
+    ) -> WorkspaceTextSlice:
+        with self._lock:
+            return self._read_text_slice(
+                link,
+                start_line=start_line,
+                max_lines=max_lines,
+                max_chars=max_chars,
+            )
+
+    def _read_text_slice(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        start_line: int,
+        max_lines: int | None,
+        max_chars: int | None,
     ) -> WorkspaceTextSlice:
         limit = self._settings.max_read_chars if max_chars is None else max_chars
         if (
@@ -402,6 +439,10 @@ class WorkspaceEngine:
         )
 
     def write_target_exists(self, link: WorkspaceLink | str) -> bool:
+        with self._lock:
+            return self._write_target_exists(link)
+
+    def _write_target_exists(self, link: WorkspaceLink | str) -> bool:
         parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
         path = self.path_for(parsed)
         self._check_mutable_path(path, link=str(parsed))
@@ -470,12 +511,6 @@ class WorkspaceEngine:
                 raise WorkspaceContractError(
                     f"Workspace resource already exists: {parsed}"
                 )
-            if expected_digest:
-                current = self._inspect_record(str(parsed))
-                if current.digest != expected_digest:
-                    raise WorkspaceContractError(
-                        f"Workspace resource digest mismatch: {parsed}"
-                    )
         elif expected_digest:
             self._raise_trash_restore_required(parsed)
             raise WorkspaceContractError(
@@ -488,6 +523,12 @@ class WorkspaceEngine:
             )
         existed = path.exists()
         previous = self._read_rollback_bytes(path) if existed else None
+        if expected_digest and (
+            previous is None or sha256(previous).hexdigest() != expected_digest
+        ):
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {parsed}"
+            )
         try:
             atomic_write_text(path, text)
         except OSError as exc:
@@ -542,19 +583,17 @@ class WorkspaceEngine:
         record = self._inspect_record(link)
         path = self.path_for(record.link)
         self._check_mutable_path(path, link=record.link)
-        if expected_digest and record.digest != expected_digest:
+        previous = self._read_rollback_bytes(path)
+        if expected_digest and sha256(previous).hexdigest() != expected_digest:
             raise WorkspaceContractError(
                 f"Workspace resource digest mismatch: {record.link}"
             )
-        previous = self._read_rollback_bytes(path)
         try:
-            current = path.read_text(encoding="utf-8")
+            current = previous.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise WorkspaceContractError(
                 f"Workspace resource is not readable as UTF-8 text: {record.link}"
             ) from exc
-        except OSError as exc:
-            raise WorkspaceIOError(f"Failed to read workspace resource: {exc}") from exc
         matches = current.count(old_text)
         if matches == 0:
             raise WorkspaceContractError(
@@ -688,6 +727,18 @@ class WorkspaceEngine:
         links: Sequence[WorkspaceLink | str],
         *,
         max_chars_per_resource: int | None = None,
+    ) -> WorkspacePromptInput:
+        with self._lock:
+            return self._prepare_task_input(
+                links,
+                max_chars_per_resource=max_chars_per_resource,
+            )
+
+    def _prepare_task_input(
+        self,
+        links: Sequence[WorkspaceLink | str],
+        *,
+        max_chars_per_resource: int | None,
     ) -> WorkspacePromptInput:
         if not links:
             raise WorkspaceContractError(

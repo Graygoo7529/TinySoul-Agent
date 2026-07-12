@@ -795,7 +795,7 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
                 model_ids=("a", "b"),
                 retry_policy=RetryPolicy(
                     max_retries_per_model=3,
-                    max_cycles=1,
+                    max_cycles=10,
                 ),
             )
         ),
@@ -814,6 +814,38 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
     assert exc_info.value.payload["last_error_type"] == "ProviderError"
     assert exc_info.value.payload["provider_error_kind"] == "config"
     assert provider.calls == ["a", "b"]
+
+
+def test_programming_error_aborts_chain_without_switching_models() -> None:
+    @dataclass
+    class BuggyProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            raise RuntimeError("programming error")
+
+    provider = BuggyProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b"),
+                retry_policy=RetryPolicy(max_retries_per_model=3, max_cycles=10),
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.payload["kind"] == LLMFailureKind.INTERNAL_FAILURE
+    assert provider.calls == ["a"]
 
 
 def test_contract_failure_maps_to_runtime_turn_end() -> None:

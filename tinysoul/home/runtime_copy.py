@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import TYPE_CHECKING, TypeVar
 
-from tinysoul.infra.filesystem import copy_file
+from tinysoul.infra import atomic_copy_file
 from tinysoul.runtime import (
     HOME_RUNTIME_COPY_REQUIRED,
     RunLevel,
@@ -35,16 +36,50 @@ T = TypeVar("T")
 class AgentHomeRuntimeCopyManager:
     """Prepare writable runtime copies for Agent Home source files."""
 
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._ready_targets: set[Path] = set()
+
+    def is_ready(self, runtime: Path) -> bool:
+        """Observe a valid runtime file and remember its process lifetime."""
+
+        with self._lock:
+            if runtime.is_symlink():
+                return False
+            if runtime.is_file():
+                self._ready_targets.add(runtime)
+                return True
+            return False
+
     def ensure_source_copy(self, source: Path, runtime: Path) -> Path:
-        if runtime.exists():
+        with self._lock:
+            if runtime in self._ready_targets:
+                if runtime.is_file() and not runtime.is_symlink():
+                    return runtime
+                raise AgentHomeIOError(
+                    f"Home runtime copy disappeared after materialization: {runtime}"
+                )
+            if runtime.exists() or runtime.is_symlink():
+                if not runtime.is_file() or runtime.is_symlink():
+                    raise AgentHomeIOError(
+                        f"Home runtime copy target is not a regular file: {runtime}"
+                    )
+                self._ready_targets.add(runtime)
+                return runtime
+            if not source.is_file() or source.is_symlink():
+                raise AgentHomeContractError(
+                    f"Home source is not a regular file: {source}"
+                )
+            try:
+                atomic_copy_file(source, runtime)
+            except OSError as exc:
+                raise AgentHomeIOError(f"Failed to copy home resource: {exc}") from exc
+            if not runtime.is_file() or runtime.is_symlink():
+                raise AgentHomeIOError(
+                    f"Home runtime copy was not materialized as a regular file: {runtime}"
+                )
+            self._ready_targets.add(runtime)
             return runtime
-        if not source.is_file():
-            raise AgentHomeContractError(f"Home source file does not exist: {source}")
-        try:
-            copy_file(source, runtime)
-        except OSError as exc:
-            raise AgentHomeIOError(f"Failed to copy home resource: {exc}") from exc
-        return runtime
 
 
 @dataclass(frozen=True)

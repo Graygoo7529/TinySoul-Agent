@@ -7,8 +7,13 @@ from typing import Callable, TypeVar
 
 from tinysoul.context import ContextEngine
 from tinysoul.context.errors import ContextError
+from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     CyclePhase,
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
     RUNTIME_PROGRAM_END,
     RUNTIME_TURN_END,
     RunLevel,
@@ -19,6 +24,8 @@ from tinysoul.runtime import (
     RuntimeTransfer,
     RuntimeTransferAction,
     SignalBus,
+    emit_observation,
+    observation_enabled,
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
@@ -60,6 +67,7 @@ class CycleRunner:
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
         context_bridge: RuntimeContextBridge | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._context = context
         self._bus = bus
@@ -70,6 +78,7 @@ class CycleRunner:
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
+        self._observations = observations or NullObservationEmitter()
 
     def run(
         self,
@@ -89,10 +98,12 @@ class CycleRunner:
             return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
 
         phase1_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+        self._emit_phase(phase1_scope, CyclePhase.PHASE1, started=True)
         phase1 = self._run_phase(
             phase1_scope,
             lambda: self._phase1.run(scope=phase1_scope, cycle_id=cycle_id),
         )
+        self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)
         if phase1.transfer is not None:
             return CycleOutcome(cycle_id=cycle_id, transfer=phase1.transfer)
         if phase1.ended:
@@ -108,6 +119,7 @@ class CycleRunner:
             return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
 
         phase2_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value)
+        self._emit_phase(phase2_scope, CyclePhase.PHASE2, started=True)
         phase2 = self._run_phase(
             phase2_scope,
             lambda: self._phase2.run(
@@ -117,6 +129,7 @@ class CycleRunner:
                 turn_id=turn_id,
             ),
         )
+        self._emit_phase_result(phase2_scope, CyclePhase.PHASE2, phase2)
         if phase2.transfer is not None:
             return CycleOutcome(cycle_id=cycle_id, transfer=phase2.transfer)
         if phase2.ended:
@@ -132,6 +145,7 @@ class CycleRunner:
             return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
 
         phase3_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+        self._emit_phase(phase3_scope, CyclePhase.PHASE3, started=True)
         phase3 = self._run_phase(
             phase3_scope,
             lambda: self._phase3.run(
@@ -141,6 +155,7 @@ class CycleRunner:
                 turn_id=turn_id,
             ),
         )
+        self._emit_phase_result(phase3_scope, CyclePhase.PHASE3, phase3)
         if phase3.transfer is not None:
             return CycleOutcome(cycle_id=cycle_id, transfer=phase3.transfer)
         if phase3.ended:
@@ -155,6 +170,52 @@ class CycleRunner:
         if boundary is not None:
             return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
         return CycleOutcome(cycle_id=cycle_id)
+
+    def _emit_phase(
+        self,
+        scope: RunScope,
+        phase: CyclePhase,
+        *,
+        started: bool,
+        payload: JsonObject | None = None,
+    ) -> None:
+        if not observation_enabled(
+            self._observations,
+            ObservationLevel.VERBOSE,
+        ):
+            return
+        state = "started" if started else "completed"
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=f"loop.phase.{state}",
+                level=ObservationLevel.VERBOSE,
+                source="loop.cycle",
+                scope=scope,
+                message=f"{phase.value} {state}.",
+                payload={"phase": phase.value, **(payload or {})},
+            ),
+        )
+
+    def _emit_phase_result(
+        self,
+        scope: RunScope,
+        phase: CyclePhase,
+        result: _PhaseRun,
+    ) -> None:
+        self._emit_phase(
+            scope,
+            phase,
+            started=False,
+            payload={
+                "ended": result.ended,
+                "transfer_action": (
+                    result.transfer.action.value
+                    if result.transfer is not None
+                    else None
+                ),
+            },
+        )
 
     def _run_phase(
         self,

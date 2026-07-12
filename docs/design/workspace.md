@@ -161,7 +161,11 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 
 WorkspaceEngine 不依赖 Context 类型。`workspace/projection.py` 是 Workspace 拥有的 Context 集成边界，统一把 Manifest records 转成 WorkspaceSnapshot，并供 action executor 与 Turn preparation 共用。Turn 开始时先完整 reconcile 并提交 snapshot，使首个 Phase1 已能看到资源摘要；Context 以 revision 检查顺序和冲突后整体替换 Workspace 段。
 
-`WorkspaceReconciler` 专门负责磁盘发现、旧 digest/description/lifecycle 复用、完整性判定、候选状态复核和 Manifest 原子提交。`WorkspaceEngine` 负责资源操作、Trash/restore 与变更回滚，并以进程内可重入锁串行化同一 Engine 实例上的 write、patch、trash、restore、description 和 reconciliation；外部进程仍可能修改磁盘，因此提交前会重新检查候选文件的 size/mtime，检测到并发变化时 reconciliation 返回 incomplete 并保留旧 Manifest。
+`WorkspaceReconciler` 专门负责磁盘发现、旧 digest/description/lifecycle 复用、完整性判定、候选状态复核和 Manifest 原子提交。`WorkspaceEngine` 负责资源操作、Trash/restore 与变更回滚，并以进程内可重入锁串行化同一 Engine 实例上的 inspect/read/task-input、write、patch、trash、restore、description 和 reconciliation。
+
+Workspace 的明确一致性等级是“单进程单写者、Engine 实例内线性化”。没有外部文件写入者时，同一 Engine 的公开读写按锁获取顺序观察完整操作；数据文件原子替换和 Manifest 原子替换各自不会暴露半写文件。二者不是一个跨文件系统事务：内容提交后 Manifest 提交失败时，Engine 尝试用操作前字节回滚；Trash/restore 使用 prepare、原子移动、reconcile、commit marker，并由启动 reconciliation 修复未完成移动。
+
+Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；write/patch/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。Reconciler 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
 
 Context 中不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，应在 action 内部进行摘要、切片或转化为临时 task prompt，再把摘要和资源链接写回 trace。
 

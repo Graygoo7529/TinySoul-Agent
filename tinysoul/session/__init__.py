@@ -14,6 +14,7 @@ from .errors import (
     SessionInvariantError,
 )
 from .failures import SessionFailureKind
+from .reconcile import SessionReconcileResult
 
 __all__ = [
     "SessionContractError",
@@ -22,6 +23,7 @@ __all__ = [
     "SessionFailureKind",
     "SessionIOError",
     "SessionInvariantError",
+    "SessionReconcileResult",
     "SessionSettings",
     "SessionTurnCompletionHandler",
     "SessionTurnPreparationHandler",

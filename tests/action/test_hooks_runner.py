@@ -259,6 +259,41 @@ def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None
     assert elapsed < 0.5
 
 
+def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
+    peer_started = Event()
+    release_peer = Event()
+    _, batch = _parallel_runtime_batch(interrupt_timeout_seconds=0.01)
+    executors = ExecutorRegistry()
+
+    def interrupting(execution, context):
+        assert peer_started.wait(1.0)
+        sleep(0.02)
+        raise RuntimeException(
+            reason=HOME_RUNTIME_COPY_REQUIRED,
+            message="copy required",
+        )
+
+    def blocking(execution, context):
+        peer_started.set()
+        assert release_peer.wait(1.0)
+        return {}
+
+    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
+    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    started = monotonic()
+    try:
+        with pytest.raises(RuntimeException):
+            ActionBatchRunner(
+                executors=executors,
+                cooperative_cancel_grace_seconds=0.05,
+            ).run(batch, ActionExecutionContext())
+        elapsed = monotonic() - started
+    finally:
+        release_peer.set()
+
+    assert elapsed < 0.5
+
+
 def test_runner_rejects_invalid_max_workers() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 
@@ -589,11 +624,18 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
     ]
 
 
-def _parallel_runtime_batch(*, peer_timeout_seconds: float | None = None):
+def _parallel_runtime_batch(
+    *,
+    interrupt_timeout_seconds: float | None = None,
+    peer_timeout_seconds: float | None = None,
+):
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
         actions=(
-            _test_action("test.interrupt"),
+            _test_action(
+                "test.interrupt",
+                timeout_seconds=interrupt_timeout_seconds,
+            ),
             _test_action("test.peer", timeout_seconds=peer_timeout_seconds),
         ),
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -7,7 +8,13 @@ from typing import cast
 
 import pytest
 
-from tinysoul.infra.config import ConfigEnvironment, ConfigError, ConfigSource, ProjectConfig
+from tinysoul.infra.config import (
+    ConfigEnvironment,
+    ConfigError,
+    ConfigSource,
+    ProjectConfig,
+    reject_unknown_keys,
+)
 
 
 class LogLevel(Enum):
@@ -127,6 +134,21 @@ def test_environment_reports_unknown_project_key(local_tmp: Path) -> None:
     assert "project" in message
 
 
+def test_environment_reports_unknown_top_level_section_with_source(
+    local_tmp: Path,
+) -> None:
+    environment = ConfigEnvironment(
+        project=ProjectConfig(local_tmp),
+        sources=[ConfigSource("overrides", {"appp.interactive": True})],
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        environment.validate_sections({"app"})
+
+    assert exc_info.value.key == "appp"
+    assert exc_info.value.source == "overrides"
+
+
 def test_environment_reports_type_errors_with_source_and_value(local_tmp: Path) -> None:
     environment = ConfigEnvironment(
         project=ProjectConfig(local_tmp),
@@ -203,3 +225,27 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
 
     assert typed_kimi["provider"] == "kimi"
     assert typed_kimi["provider_model"] == "kimi-k2.7"
+
+
+def test_environment_enriches_module_error_with_include_source(
+    local_tmp: Path,
+) -> None:
+    config_dir = local_tmp / "configs"
+    config_dir.mkdir()
+    include_path = config_dir / "app.toml"
+    (local_tmp / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["configs/app.toml"]\n',
+        encoding="utf-8",
+    )
+    include_path.write_text("[app]\ninterative = true\n", encoding="utf-8")
+    environment = ConfigEnvironment.from_project_root(local_tmp, env={})
+
+    def parse_app(tree: Mapping[str, object]) -> Mapping[str, object]:
+        reject_unknown_keys(tree, {"interactive"}, key="app")
+        return tree
+
+    with pytest.raises(ConfigError) as exc_info:
+        environment.parse_section("app", parse_app)
+
+    assert exc_info.value.key == "app.interative"
+    assert exc_info.value.source == str(include_path)

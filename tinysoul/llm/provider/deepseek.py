@@ -22,16 +22,12 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     """DeepSeek-specific option mapping."""
 
     def validate_tools(self, request: ProviderRequest) -> None:
-        # DeepSeek strict function calling is a beta capability. The provider
-        # adapter rejects strict tools unless the configured endpoint is beta.
         for tool in request.tool_scope.visible_tools():
             if tool.strict:
-                provider_options = request.provider_options
-                if not _deepseek_beta_enabled(provider_options):
-                    raise ProviderError(
-                        "DeepSeek strict tool calling requires beta endpoint opt-in",
-                        kind=ProviderErrorKind.CONFIG,
-                    )
+                raise ProviderError(
+                    "DeepSeek adapter does not support strict tool calling",
+                    kind=ProviderErrorKind.CONFIG,
+                )
 
     def tool_choice_payload(
         self,
@@ -159,12 +155,6 @@ def _rename_max_tokens(kwargs: dict[str, object]) -> None:
     value = kwargs.pop("max_completion_tokens", None)
     if value is not None:
         kwargs["max_tokens"] = value
-
-
-def _deepseek_beta_enabled(options: Mapping[str, object] | None) -> bool:
-    if not options:
-        return False
-    return options.get("beta") is True
 
 
 def _deepseek_thinking_enabled(options: Mapping[str, object] | None) -> bool:

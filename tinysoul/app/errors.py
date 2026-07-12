@@ -13,3 +13,7 @@ class AppContractError(AppError):
 
 class AppInvariantError(AppError):
     """Raised when app internal state is inconsistent."""
+
+
+class AppOutputError(AppError):
+    """Raised at the app boundary after an output sink has failed."""

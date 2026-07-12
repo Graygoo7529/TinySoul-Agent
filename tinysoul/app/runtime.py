@@ -8,6 +8,7 @@ from tinysoul.loop import ProgramOutcome, ProgramRunner, TurnOutcome
 
 from .errors import AppInvariantError
 from .inputs import InputDispatcher, InputEvent, InputSource
+from .outputs import ObservationRouter
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class TinySoulApp:
     program_runner: ProgramRunner
     input_dispatcher: InputDispatcher
     input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
+    observations: ObservationRouter = field(default_factory=ObservationRouter)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "input_sources", tuple(self.input_sources))
@@ -26,7 +28,7 @@ class TinySoulApp:
         for source in self.input_sources:
             try:
                 source.start(self.input_dispatcher)
-            except Exception:
+            except BaseException:
                 self._stop_sources(started, suppress_errors=True)
                 raise
             started.append(source)
@@ -36,10 +38,13 @@ class TinySoulApp:
             self._stop_sources(started, suppress_errors=True)
             raise
         self._stop_sources(started, suppress_errors=False)
+        self.observations.raise_if_failed()
         return outcome
 
     def run_once(self, user_input: str) -> TurnOutcome:
-        return self.program_runner.run_once(user_input)
+        outcome = self.program_runner.run_once(user_input)
+        self.observations.raise_if_failed()
+        return outcome
 
     def submit_input(self, text: str, *, source: str = "api") -> None:
         self.submit_event(InputEvent(text=text, source=source))

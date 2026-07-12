@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
+from threading import Barrier
 from typing import cast
 
 import pytest
@@ -598,6 +600,71 @@ def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> N
         )
 
     assert (tmp_path / "a.md").read_text(encoding="utf-8") == "changed"
+
+
+def test_workspace_expected_digest_hashes_exact_same_stat_base_bytes(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.reconcile().manifest.resources[0]
+    old_stat = target.stat()
+    target.write_text("new", encoding="utf-8")
+    os.utime(
+        target,
+        ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns),
+    )
+
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.write_text(
+            "workspace:a.md",
+            "replacement",
+            overwrite=True,
+            expected_digest=before.digest,
+        )
+
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+def test_workspace_expected_digest_linearizes_competing_engine_writes(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("base", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    expected = engine.reconcile().manifest.resources[0].digest
+    barrier = Barrier(2)
+
+    def write(text: str) -> str:
+        barrier.wait(timeout=1.0)
+        try:
+            engine.write_text(
+                "workspace:a.md",
+                text,
+                overwrite=True,
+                expected_digest=expected,
+            )
+        except WorkspaceContractError:
+            return "conflict"
+        return text
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(write, ("first", "second")))
+
+    assert results.count("conflict") == 1
+    winner = next(result for result in results if result != "conflict")
+    assert target.read_text(encoding="utf-8") == winner
 
 
 def test_workspace_write_text_rejects_ignored_parent(tmp_path: Path) -> None:

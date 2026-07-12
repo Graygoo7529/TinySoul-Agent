@@ -1595,7 +1595,7 @@ def test_kimi_adapter_validates_only_visible_tools() -> None:
     assert client.calls[0]["tools"] == [_provider_tool_payload()]
 
 
-def test_deepseek_adapter_rejects_strict_tools_without_beta_opt_in() -> None:
+def test_deepseek_adapter_rejects_strict_tools() -> None:
     adapter = DeepSeekProviderAdapter(
         provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",

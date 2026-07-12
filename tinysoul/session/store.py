@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ from tinysoul.infra.filesystem import (
 )
 from tinysoul.infra.json import JsonObject, to_json_object
 
-from .errors import SessionContractError, SessionIOError
+from .errors import SessionContractError, SessionIOError, SessionInvariantError
 from .models import SessionHistoryKind, SessionManifest, SessionRecord
 
 
@@ -23,12 +24,12 @@ class SessionStore:
         self._archive_root = archive_root
         self._manifest_path = root / "manifest.json"
 
-    def initialize(self, day: str) -> SessionManifest:
-        if self._manifest_path.exists():
-            manifest = self.load_manifest()
-            if manifest.day == day:
-                return manifest
-            self._archive(manifest.day)
+    def load_active_manifest(self) -> SessionManifest | None:
+        if not self._manifest_path.exists():
+            return None
+        return self.load_manifest()
+
+    def create_manifest(self, day: str) -> SessionManifest:
         self._root.mkdir(parents=True, exist_ok=True)
         manifest = SessionManifest(day=day)
         self.save_manifest(manifest)
@@ -36,25 +37,78 @@ class SessionStore:
 
     def load_manifest(self) -> SessionManifest:
         value = self._read_object(self._manifest_path, label="manifest")
-        return SessionManifest.from_json(value)
+        try:
+            return SessionManifest.from_json(value)
+        except SessionContractError as exc:
+            raise SessionInvariantError(
+                f"Persisted Session manifest is invalid: {exc}"
+            ) from exc
 
     def save_manifest(self, manifest: SessionManifest) -> None:
         self._write_object(self._manifest_path, manifest.to_json(), label="manifest")
 
-    def save_record(self, record: SessionRecord) -> None:
+    def save_record_if_absent(self, record: SessionRecord) -> SessionRecord:
+        """Persist an immutable record or reuse semantically identical content."""
+
         path = self._record_path(record.ref, kind=record.kind)
         if path.exists():
-            raise SessionContractError(f"Session record already exists: {record.ref}")
+            existing = self._load_record_path(path, ref=record.ref, kind=record.kind)
+            if not _record_contents_match(existing, record):
+                raise SessionInvariantError(
+                    f"Session record content conflicts with existing ref: {record.ref}"
+                )
+            return existing
         self._write_object(path, record.to_json(), label="record")
+        return record
 
     def load_record(self, ref: str) -> SessionRecord:
         kind = _ref_kind(ref)
         path = self._record_path(ref, kind=kind)
         if not path.is_file():
             raise SessionContractError(f"Unknown Session history ref: {ref}")
-        record = SessionRecord.from_json(self._read_object(path, label="record"))
+        return self._load_record_path(path, ref=ref, kind=kind)
+
+    def list_records(self, kind: SessionHistoryKind) -> tuple[SessionRecord, ...]:
+        directory = self._root / (
+            "turns" if kind is SessionHistoryKind.TURN else "summaries"
+        )
+        if not directory.exists():
+            return ()
+        if not directory.is_dir():
+            raise SessionInvariantError(
+                f"Session record location is not a directory: {directory}"
+            )
+        records: list[SessionRecord] = []
+        for path in sorted(directory.glob("*.json"), key=lambda item: item.name):
+            record_id = path.stem
+            ref = f"session:{kind.value}/{record_id}"
+            records.append(self._load_record_path(path, ref=ref, kind=kind))
+        return tuple(records)
+
+    def _load_record_path(
+        self,
+        path: Path,
+        *,
+        ref: str,
+        kind: SessionHistoryKind,
+    ) -> SessionRecord:
+        try:
+            record = SessionRecord.from_json(
+                self._read_object(path, label="record")
+            )
+        except SessionContractError as exc:
+            raise SessionInvariantError(
+                f"Persisted Session record is invalid: {ref}: {exc}"
+            ) from exc
         if record.ref != ref or record.kind is not kind:
-            raise SessionContractError(f"Session record identity mismatch: {ref}")
+            raise SessionInvariantError(f"Session record identity mismatch: {ref}")
+        if record.recorded_at_ns == 0:
+            try:
+                record = replace(record, recorded_at_ns=path.stat().st_mtime_ns)
+            except OSError as exc:
+                raise SessionIOError(
+                    f"Failed to stat legacy Session record: {exc}"
+                ) from exc
         return record
 
     def _record_path(self, ref: str, *, kind: SessionHistoryKind) -> Path:
@@ -73,7 +127,7 @@ class SessionStore:
         except FilesystemBoundaryError as exc:
             raise SessionContractError(f"Invalid Session history ref: {ref}") from exc
 
-    def _archive(self, day: str) -> None:
+    def archive(self, day: str) -> None:
         target = self._archive_root / day
         if target.exists():
             raise SessionIOError(f"Session archive already exists: {target}")
@@ -90,7 +144,9 @@ class SessionStore:
         except (OSError, json.JSONDecodeError) as exc:
             raise SessionIOError(f"Failed to read Session {label}: {exc}") from exc
         if not isinstance(raw, dict):
-            raise SessionContractError(f"Session {label} root must be an object")
+            raise SessionInvariantError(
+                f"Persisted Session {label} root must be an object"
+            )
         return to_json_object(raw)
 
     @staticmethod
@@ -109,3 +165,22 @@ def _ref_kind(ref: str) -> SessionHistoryKind:
         if ref.startswith(f"session:{kind.value}/"):
             return kind
     raise SessionContractError(f"Invalid Session history ref: {ref}")
+
+
+def _record_contents_match(left: SessionRecord, right: SessionRecord) -> bool:
+    if left.kind is not right.kind or not _record_days_match(left, right):
+        return False
+    if left.kind is SessionHistoryKind.TURN:
+        return all(
+            left.content.get(key) == right.content.get(key)
+            for key in ("completion", "output", "exhausted")
+        )
+    if left.kind is SessionHistoryKind.SUMMARY:
+        return left.content.get("child_refs") == right.content.get("child_refs")
+    return left.content == right.content
+
+
+def _record_days_match(left: SessionRecord, right: SessionRecord) -> bool:
+    left_day = left.content.get("day")
+    right_day = right.content.get("day")
+    return left_day is None or right_day is None or left_day == right_day

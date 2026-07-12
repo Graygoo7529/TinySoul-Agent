@@ -18,6 +18,8 @@ from tinysoul.loop.cycle import CycleOutcome, CycleRunner
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import (
+    ObservationEvent,
+    ObservationLevel,
     RUNTIME_TURN_END,
     RunLevel,
     RunScope,
@@ -133,9 +135,25 @@ class _EndProgramPreparation:
 @dataclass
 class _CompletionRecorder:
     completions: list[TurnCompletion]
+    timeline: list[str] | None = None
 
     def handle(self, completion: TurnCompletion) -> None:
         self.completions.append(completion)
+        if self.timeline is not None:
+            self.timeline.append("completion")
+
+
+@dataclass
+class _RecordingObservations:
+    events: list[ObservationEvent]
+    timeline: list[str]
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
+        self.timeline.append(event.name)
 
 
 @dataclass
@@ -204,7 +222,9 @@ def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> No
 def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     bus = SignalBus()
-    recorder = _CompletionRecorder([])
+    timeline: list[str] = []
+    recorder = _CompletionRecorder([], timeline)
+    observations = _RecordingObservations([], timeline)
     runner = TurnRunner(
         context=context,
         bus=bus,
@@ -212,6 +232,7 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
         settings=LoopSettings(max_cycles_per_turn=1),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
+        observations=observations,
     )
 
     outcome = runner.run("hello", scope=_program_scope())
@@ -224,6 +245,11 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert completion.summary.trace == ()
     assert completion.output is not None
     assert completion.output.text == "done"
+    output_event = next(
+        event for event in observations.events if event.name == "turn.output"
+    )
+    assert output_event.payload["text"] == "done"
+    assert timeline.index("completion") < timeline.index("turn.output")
 
 
 def test_turn_preparation_retry_replays_only_preparation() -> None:

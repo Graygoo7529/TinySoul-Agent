@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date, timedelta
+import json
 from pathlib import Path
+
+import pytest
 
 from tinysoul.context import ContextEngineBuilder, ContextSignalBatch, TurnSummary
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.infra.json import JsonObject
 from tinysoul.loop import TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope
-from tinysoul.session import SessionEngine, SessionSettings
+from tinysoul.session import (
+    SessionEngine,
+    SessionIOError,
+    SessionInvariantError,
+    SessionSettings,
+)
+from tinysoul.session.store import SessionStore
+from tinysoul.session.models import SessionHistoryKind, SessionRecord
 from tinysoul.session.projection import SessionTurnPreparationHandler
 
 
@@ -153,6 +164,204 @@ def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) ->
     )
     assert second["cursor"] == 1
     assert second["next_cursor"] == 2
+
+
+def test_session_record_turn_is_idempotent_for_identical_completion(
+    tmp_path: Path,
+) -> None:
+    session = SessionEngine(_settings(tmp_path))
+    summary = _summary("turn_repeat", ask="same question")
+    output: JsonObject = {"text": "same answer"}
+
+    session.record_turn(summary=summary, output=output, exhausted=False)
+    revision = session.revision
+    session.record_turn(summary=summary, output=output, exhausted=False)
+
+    assert session.revision == revision
+    items = session.inspect_history()["items"]
+    assert isinstance(items, list)
+    assert len(items) == 1
+
+
+def test_session_rejects_same_turn_ref_with_different_content(tmp_path: Path) -> None:
+    session = SessionEngine(_settings(tmp_path))
+    session.record_turn(
+        summary=_summary("turn_conflict", ask="first"),
+        output={"text": "answer"},
+        exhausted=False,
+    )
+
+    with pytest.raises(SessionInvariantError, match="conflicts"):
+        session.record_turn(
+            summary=_summary("turn_conflict", ask="different"),
+            output={"text": "answer"},
+            exhausted=False,
+        )
+
+
+def test_session_idempotency_ignores_changed_background_projection_settings(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    summary = replace(
+        _summary("turn_projection", ask="same completion"),
+        trace=(
+            _decision_entry("reason_1", "core.reason", {"topic": "one"}),
+            _result_entry("reason_1", "core.reason", {"text": "detail"}),
+        ),
+        trace_digest={"entry_count": 2},
+    )
+    first = SessionEngine(settings)
+    first.record_turn(
+        summary=summary,
+        output={"text": "same answer"},
+        exhausted=False,
+    )
+    revision = first.revision
+
+    restarted = SessionEngine(
+        replace(settings, background_action_names=())
+    )
+    restarted.record_turn(
+        summary=summary,
+        output={"text": "same answer"},
+        exhausted=False,
+    )
+
+    assert restarted.revision == revision
+
+
+def test_session_reconciles_turn_orphan_after_manifest_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
+    session = SessionEngine(settings, store=store)
+    original_save = store.save_manifest
+    failed = False
+
+    def fail_once(manifest) -> None:
+        nonlocal failed
+        if not failed and manifest.revision == 1:
+            failed = True
+            raise SessionIOError("injected manifest failure")
+        original_save(manifest)
+
+    monkeypatch.setattr(store, "save_manifest", fail_once)
+    summary = _summary("turn_orphan", ask="recover me")
+
+    with pytest.raises(SessionIOError, match="injected"):
+        session.record_turn(
+            summary=summary,
+            output={"text": "recovered"},
+            exhausted=False,
+        )
+
+    recovered = SessionEngine(settings)
+    assert recovered.revision == 1
+    assert recovered.last_reconcile_result.adopted_turn_refs == (
+        "session:turn/turn_orphan",
+    )
+    recovered.record_turn(
+        summary=summary,
+        output={"text": "recovered"},
+        exhausted=False,
+    )
+    assert recovered.revision == 1
+
+
+def test_session_reuses_deterministic_summary_after_manifest_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path, background_max_chars=900)
+    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
+    session = SessionEngine(settings, store=store)
+    for index in range(2):
+        session.record_turn(
+            summary=_summary(f"turn_{index}", ask=f"question {index}"),
+            output={"text": "x" * 700},
+            exhausted=False,
+        )
+    original_save = store.save_manifest
+
+    def fail_revision_three(manifest) -> None:
+        if manifest.revision == 3:
+            raise SessionIOError("injected summary commit failure")
+        original_save(manifest)
+
+    monkeypatch.setattr(store, "save_manifest", fail_revision_three)
+    with pytest.raises(SessionIOError, match="injected"):
+        session.record_turn(
+            summary=_summary("turn_2", ask="question 2"),
+            output={"text": "x" * 700},
+            exhausted=False,
+        )
+
+    summary_files = tuple((settings.root / "summaries").glob("*.json"))
+    assert len(summary_files) == 1
+    recovered = SessionEngine(settings)
+    assert recovered.revision == 3
+    assert len(tuple((settings.root / "summaries").glob("*.json"))) == 1
+
+
+def test_session_reconciles_previous_day_before_archiving(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    old_day = (date.today() - timedelta(days=1)).isoformat()
+    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
+    store.create_manifest(old_day)
+    summary = _summary("turn_before_midnight", ask="persist before archive")
+    store.save_record_if_absent(
+        SessionRecord(
+            ref="session:turn/turn_before_midnight",
+            kind=SessionHistoryKind.TURN,
+            content={
+                "day": old_day,
+                "background": {
+                    "kind": "session_turn",
+                    "turn_id": "turn_before_midnight",
+                },
+                "completion": summary.to_json(),
+                "output": {"text": "archived answer"},
+                "exhausted": False,
+            },
+        )
+    )
+
+    active = SessionEngine(settings)
+    archived_store = SessionStore(
+        root=settings.archive_root / old_day,
+        archive_root=tmp_path / "unused_archive",
+    )
+    archived = archived_store.load_manifest()
+
+    assert active.revision == 0
+    assert archived.revision == 1
+    assert tuple(item.ref for item in archived.items) == (
+        "session:turn/turn_before_midnight",
+    )
+
+
+def test_session_reports_persisted_manifest_shape_as_invariant_failure(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    settings.root.mkdir(parents=True)
+    (settings.root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 99,
+                "day": date.today().isoformat(),
+                "revision": 0,
+                "items": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SessionInvariantError, match="manifest is invalid"):
+        SessionEngine(settings)
 
 
 def _settings(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionSettings:

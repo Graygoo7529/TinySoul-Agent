@@ -138,6 +138,7 @@ class Phase1Unit:
                     messages=messages,
                     tool_scope=tool_scope,
                     settings=_required_tool_settings(),
+                    scope=scope,
                 )
             )
             if result.status is TaskResultStatus.FAILURE:
@@ -272,6 +273,7 @@ class Phase2Unit:
                     messages=messages,
                     tool_scope=preparation.tool_scope,
                     settings=_required_tool_settings(),
+                    scope=scope,
                 )
             )
             if result.status is TaskResultStatus.FAILURE:

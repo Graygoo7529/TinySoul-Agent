@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 from .config_helpers import (
     as_table,
@@ -16,11 +16,12 @@ from .config_helpers import (
     optional_int_or_none,
     optional_provider_options,
     optional_str,
+    required_bool,
     required_capability_set,
     required_str,
     required_str_list,
 )
-from .config_types import ProviderApiStyle, ProviderSpec
+from .config_types import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
 from .errors import LLMContractError
 from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
 from .models import ModelCapability, ModelRegistry, ModelSpec
@@ -36,10 +37,29 @@ class ProviderConfigParser:
         providers: list[ProviderSpec] = []
         for provider_id, value in table.items():
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
+            reject_unknown_keys(
+                provider_table,
+                {"enabled", "adapter", "api_style", "base_url", "api_key_envs"},
+                key=f"llm.providers.{provider_id}",
+            )
             try:
                 providers.append(
                     ProviderSpec(
                         id=provider_id,
+                        enabled=required_bool(
+                            provider_table,
+                            "enabled",
+                            key=f"llm.providers.{provider_id}",
+                        ),
+                        adapter=enum_value(
+                            ProviderAdapterKind,
+                            required_str(
+                                provider_table,
+                                "adapter",
+                                key=f"llm.providers.{provider_id}",
+                            ),
+                            key=f"llm.providers.{provider_id}.adapter",
+                        ),
                         api_style=enum_value(
                             ProviderApiStyle,
                             required_str(
@@ -79,23 +99,37 @@ class ModelConfigParser:
         self,
         table: Mapping[str, object],
         *,
-        provider_ids: set[str],
+        providers: Mapping[str, ProviderSpec],
     ) -> ModelRegistry:
         registry = ModelRegistry()
         for model_id, value in table.items():
             model_table = as_table(value, key=f"llm.models.{model_id}")
+            reject_unknown_keys(
+                model_table,
+                {"provider", "provider_model", "capabilities", "provider_options"},
+                key=f"llm.models.{model_id}",
+            )
             provider_id = required_str(
                 model_table,
                 "provider",
                 key=f"llm.models.{model_id}",
             )
-            if provider_id not in provider_ids:
+            if provider_id not in providers:
                 raise ConfigError(
                     "Model references unknown provider",
                     key=f"llm.models.{model_id}.provider",
                     value=provider_id,
                 )
             try:
+                provider_options = optional_provider_options(
+                    model_table,
+                    key=f"llm.models.{model_id}",
+                )
+                _validate_provider_option_keys(
+                    provider_options.values,
+                    adapter=providers[provider_id].adapter,
+                    key=f"llm.models.{model_id}.provider_options",
+                )
                 registry.register(
                     ModelSpec(
                         id=model_id,
@@ -110,10 +144,7 @@ class ModelConfigParser:
                             "capabilities",
                             key=f"llm.models.{model_id}",
                         ),
-                        provider_options=optional_provider_options(
-                            model_table,
-                            key=f"llm.models.{model_id}",
-                        ),
+                        provider_options=provider_options,
                     )
                 )
             except LLMContractError as exc:
@@ -129,10 +160,28 @@ class TaskConfigParser:
         table: Mapping[str, object],
         *,
         models: ModelRegistry,
+        enabled_provider_ids: frozenset[str] | None = None,
     ) -> TaskSpecTable:
         tasks = TaskSpecTable()
         for profile, value in table.items():
             task_table = as_table(value, key=f"llm.tasks.{profile}")
+            reject_unknown_keys(
+                task_table,
+                {
+                    "models",
+                    "required_capabilities",
+                    "answer_format",
+                    "tool_use",
+                    "temperature",
+                    "max_output_tokens",
+                    "max_retries_per_model",
+                    "retry_wait_seconds",
+                    "switch_wait_seconds",
+                    "max_cycles",
+                    "prefer_successful_model_seconds",
+                },
+                key=f"llm.tasks.{profile}",
+            )
             model_ids = tuple(
                 required_str_list(
                     task_table,
@@ -147,6 +196,17 @@ class TaskConfigParser:
                         "Task references unknown model",
                         key=f"llm.tasks.{profile}.models",
                         value=model_id,
+                    )
+            if enabled_provider_ids is not None:
+                model_ids = tuple(
+                    model_id
+                    for model_id in model_ids
+                    if models.get(model_id).provider_id in enabled_provider_ids
+                )
+                if not model_ids:
+                    raise ConfigError(
+                        "Task has no models from enabled providers",
+                        key=f"llm.tasks.{profile}.models",
                     )
             required_capabilities = optional_capability_set(
                 task_table,
@@ -293,3 +353,103 @@ class TaskConfigParser:
                     key=f"llm.tasks.{profile}.required_capabilities",
                     value=f"{model_id}: {names}",
                 )
+
+
+_PROVIDER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
+    ProviderAdapterKind.GENERIC: frozenset(),
+    ProviderAdapterKind.OPENAI: frozenset(
+        {
+            "reasoning_effort",
+            "reasoning_summary",
+            "reasoning_keep",
+            "verbosity",
+            "prompt_cache_retention",
+            "service_tier",
+            "store",
+            "top_p",
+        }
+    ),
+    ProviderAdapterKind.KIMI: frozenset({"thinking", "reasoning_keep", "top_p"}),
+    ProviderAdapterKind.DEEPSEEK: frozenset(
+        {"thinking", "reasoning_effort", "reasoning_keep"}
+    ),
+    ProviderAdapterKind.GLM: frozenset(
+        {
+            "thinking",
+            "reasoning_keep",
+            "reasoning_effort",
+            "do_sample",
+            "top_p",
+            "request_id",
+            "user_id",
+        }
+    ),
+    ProviderAdapterKind.MINIMAX: frozenset(
+        {"thinking", "reasoning_split", "reasoning_keep", "top_p"}
+    ),
+}
+
+
+def _validate_provider_option_keys(
+    options: Mapping[str, object],
+    *,
+    adapter: ProviderAdapterKind,
+    key: str,
+) -> None:
+    reject_unknown_keys(
+        options,
+        {*_PROVIDER_OPTION_KEYS[adapter], "request_overrides"},
+        key=key,
+    )
+    if "thinking" in options:
+        _validate_thinking_option(
+            options["thinking"],
+            adapter=adapter,
+            key=f"{key}.thinking",
+        )
+
+
+def _validate_thinking_option(
+    value: object,
+    *,
+    adapter: ProviderAdapterKind,
+    key: str,
+) -> None:
+    allowed_types = {"enabled", "disabled"}
+    if adapter is ProviderAdapterKind.MINIMAX:
+        allowed_types.add("adaptive")
+    if isinstance(value, str):
+        if value not in allowed_types:
+            raise ConfigError(
+                "Provider thinking type is invalid",
+                key=key,
+                value=value,
+                expected=" | ".join(sorted(allowed_types)),
+            )
+        return
+    if adapter is ProviderAdapterKind.KIMI or not isinstance(value, Mapping):
+        raise ConfigError(
+            "Provider thinking option has an invalid type",
+            key=key,
+            value=value,
+            expected="string" if adapter is ProviderAdapterKind.KIMI else "string | table",
+        )
+    table = as_table(value, key=key)
+    allowed_keys = {"type", "clear_thinking"} if adapter is ProviderAdapterKind.GLM else {"type"}
+    reject_unknown_keys(table, allowed_keys, key=key)
+    raw_type = table.get("type")
+    if raw_type not in allowed_types:
+        raise ConfigError(
+            "Provider thinking type is invalid",
+            key=f"{key}.type",
+            value=raw_type,
+            expected=" | ".join(sorted(allowed_types)),
+        )
+    clear_thinking = table.get("clear_thinking")
+    if clear_thinking is not None and not isinstance(clear_thinking, bool):
+        raise ConfigError(
+            "Provider clear_thinking must be a boolean",
+            key=f"{key}.clear_thinking",
+            value=clear_thinking,
+            expected="bool",
+        )

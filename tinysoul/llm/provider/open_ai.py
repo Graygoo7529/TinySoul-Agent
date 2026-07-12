@@ -109,7 +109,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
 
 
 class OpenAIProviderAdapter(OpenAIResponsesAdapter):
-    """OpenAI official provider adapter."""
+    """OpenAI Responses behavior for official or compatible proxy endpoints."""
 
     def __init__(
         self,

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_MAX_READ_CHARS = 4000
 
@@ -20,6 +20,19 @@ class AgentHomeSettings:
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
 
     def __post_init__(self) -> None:
+        original_root = self.original_root.resolve()
+        runtime_root = self.runtime_root.resolve()
+        if (
+            original_root == runtime_root
+            or original_root in runtime_root.parents
+            or runtime_root in original_root.parents
+        ):
+            raise ConfigError(
+                "Agent Home original and runtime roots must not overlap",
+                key="home.runtime_root",
+                value=str(self.runtime_root),
+                expected="non-overlapping path",
+            )
         if self.max_read_chars <= 0:
             raise ConfigError(
                 "Agent Home max_read_chars must be positive",
@@ -34,6 +47,7 @@ def parse_agent_home_settings(
     *,
     project_root: Path,
 ) -> AgentHomeSettings:
+    reject_unknown_keys(tree, {"root", "runtime_root", "max_read_chars"}, key="home")
     original_root = _optional_path(
         tree,
         "root",

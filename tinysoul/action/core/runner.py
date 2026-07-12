@@ -8,7 +8,17 @@ from dataclasses import dataclass, replace
 from time import monotonic
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt, RunScope
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RuntimeException,
+    RuntimeTransferInterrupt,
+    RunScope,
+    emit_observation,
+    observation_enabled,
+)
 
 from .call import ActionBatch, ActionExecution
 from .errors import ActionContractError
@@ -63,6 +73,7 @@ class ActionBatchRunner:
         max_workers: int = 8,
         cooperative_cancel_grace_seconds: float = 0.05,
         process_cancel_grace_seconds: float = 1.0,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         if max_workers <= 0:
             raise ActionContractError("ActionBatchRunner.max_workers must be positive")
@@ -80,12 +91,23 @@ class ActionBatchRunner:
         self._max_workers = max_workers
         self._cooperative_cancel_grace_seconds = cooperative_cancel_grace_seconds
         self._process_cancel_grace_seconds = process_cancel_grace_seconds
+        self._observations = observations or NullObservationEmitter()
 
     def run(
         self,
         batch: ActionBatch,
         context: ActionExecutionContext,
     ) -> tuple[ActionResult, ...]:
+        if batch.executions:
+            self._emit(
+                batch.executions[0].framework.scope,
+                "action.batch.started",
+                "Starting action batch.",
+                {
+                    "batch_id": batch.executions[0].framework.batch_id,
+                    "action_count": len(batch.executions),
+                },
+            )
         results: list[ActionResult] = []
         groups = self._planner.plan(batch)
         for index, group in enumerate(groups):
@@ -100,7 +122,26 @@ class ActionBatchRunner:
                         )
                     )
                 break
-        return tuple(sorted(results, key=lambda result: result.sequence))
+        ordered = tuple(sorted(results, key=lambda result: result.sequence))
+        if batch.executions:
+            self._emit(
+                batch.executions[0].framework.scope,
+                "action.batch.completed",
+                "Action batch completed.",
+                {
+                    "batch_id": batch.executions[0].framework.batch_id,
+                    "results": [
+                        {
+                            "action": result.action_name,
+                            "call_id": result.call_id,
+                            "status": result.status.value,
+                            "stage": result.stage.value,
+                        }
+                        for result in ordered
+                    ],
+                },
+            )
+        return ordered
 
     def _run_group(
         self,
@@ -138,7 +179,7 @@ class ActionBatchRunner:
                         continue
                     for future in expired:
                         contexts[future].control.request_cancel("timeout")
-                    cancelled_done, still_expired = wait(
+                    cancelled_done, _ = wait(
                         expired,
                         timeout=self._cancel_grace_seconds(
                             futures[future] for future in expired
@@ -172,21 +213,52 @@ class ActionBatchRunner:
                     continue
                 for future in done:
                     execution = futures[future]
-                    try:
-                        results.append(self._future_result(future, execution))
-                    except (RuntimeException, RuntimeTransferInterrupt):
-                        transfer_workers_finished = self._cancel_for_runtime_transfer(
-                            pending,
-                            futures=futures,
-                            contexts=contexts,
-                        )
-                        wait_for_workers = wait_for_workers and transfer_workers_finished
-                        raise
+                    results.append(self._future_result(future, execution))
+        except (RuntimeException, RuntimeTransferInterrupt):
+            scope = group[0].framework.scope if group else RunScope()
+            self._emit(
+                scope,
+                "action.batch.transfer",
+                "Action batch propagated a runtime transfer.",
+                {"unfinished_action_count": sum(not future.done() for future in futures)},
+            )
+            unfinished = {future for future in futures if not future.done()}
+            transfer_workers_finished = self._cancel_for_runtime_transfer(
+                unfinished,
+                futures=futures,
+                contexts=contexts,
+            )
+            wait_for_workers = wait_for_workers and transfer_workers_finished
+            raise
         finally:
             pool.shutdown(wait=wait_for_workers, cancel_futures=True)
         return _GroupRun(
             results=tuple(results),
             leaked_timeout_invoke_ids=tuple(leaked_timeout_invoke_ids),
+        )
+
+    def _emit(
+        self,
+        scope: RunScope,
+        name: str,
+        message: str,
+        payload: JsonObject,
+    ) -> None:
+        if not observation_enabled(
+            self._observations,
+            ObservationLevel.VERBOSE,
+        ):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.VERBOSE,
+                source="action.runner",
+                scope=scope,
+                message=message,
+                payload=payload,
+            ),
         )
 
     def _cancel_for_runtime_transfer(

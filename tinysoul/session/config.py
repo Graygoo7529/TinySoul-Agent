@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,22 @@ def parse_session_settings(
     *,
     project_root: Path,
 ) -> SessionSettings:
+    reject_unknown_keys(
+        tree,
+        {
+            "root",
+            "archive_root",
+            "background_max_chars",
+            "summary_watermark_ratio",
+            "summary_target_ratio",
+            "min_recent_turns",
+            "recall_max_chars",
+            "background_action_names",
+            "background_max_actions_per_turn",
+            "background_action_max_chars",
+        },
+        key="session",
+    )
     return SessionSettings(
         root=_path(tree, "root", project_root / "runtime" / "session", project_root),
         archive_root=_path(

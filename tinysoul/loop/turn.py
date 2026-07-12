@@ -9,6 +9,10 @@ from tinysoul.context import ContextEngine, TurnSummary, build_trace_phase_note_
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import to_json_object
 from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
     RunLevel,
     RunScope,
     RuntimeException,
@@ -18,6 +22,8 @@ from tinysoul.runtime import (
     RuntimeTransferInterrupt,
     Signal,
     SignalBus,
+    emit_observation,
+    observation_enabled,
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
@@ -60,6 +66,7 @@ class TurnRunner:
         signal_consumer: ContextSignalConsumer | None = None,
         completion_pipeline: TurnCompletionPipeline | None = None,
         preparation_pipeline: TurnPreparationPipeline | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._context = context
         self._bus = bus
@@ -71,6 +78,7 @@ class TurnRunner:
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._completion_pipeline = completion_pipeline or TurnCompletionPipeline()
         self._preparation_pipeline = preparation_pipeline or TurnPreparationPipeline()
+        self._observations = observations or NullObservationEmitter()
         self._active_scope: RunScope | None = None
         self._active_scope_lock = Lock()
 
@@ -94,6 +102,13 @@ class TurnRunner:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
             self._set_active_scope(turn_scope)
+            self._emit(
+                turn_scope,
+                "turn.started",
+                ObservationLevel.VERBOSE,
+                "Turn started.",
+                {"turn_id": turn_id},
+            )
             transfer = self._run_preparation(
                 turn_id=turn_id,
                 user_input=user_input,
@@ -129,6 +144,7 @@ class TurnRunner:
             self._set_active_scope(None)
         if finish_transfer is not None and transfer is None:
             transfer = finish_transfer
+        completion_committed = False
         if summary is not None:
             try:
                 self._completion_pipeline.run(
@@ -138,9 +154,37 @@ class TurnRunner:
                         exhausted=exhausted,
                     )
                 )
+                completion_committed = True
             except RuntimeException as exc:
                 if transfer is None:
                     transfer = self._capture(exc, turn_scope)
+        if output is not None and completion_committed:
+            self._emit(
+                turn_scope,
+                "turn.output",
+                ObservationLevel.NORMAL,
+                output.text,
+                {
+                    "turn_id": turn_id,
+                    "text": output.text,
+                    "result_id": output.result_id,
+                    "references": list(output.references),
+                    "metadata": output.metadata,
+                },
+            )
+        self._emit(
+            turn_scope,
+            "turn.completed",
+            ObservationLevel.VERBOSE,
+            "Turn completed.",
+            {
+                "turn_id": turn_id,
+                "answered": output is not None,
+                "completion_committed": completion_committed,
+                "exhausted": exhausted,
+                "transfer_action": transfer.action.value if transfer is not None else None,
+            },
+        )
         return TurnOutcome(
             summary=summary,
             output=output,
@@ -299,9 +343,42 @@ class TurnRunner:
 
     def _capture(self, exc: RuntimeException, scope: RunScope) -> RuntimeTransfer:
         result = self._trap.capture(exc, scope)
+        self._emit(
+            scope,
+            "runtime.trap",
+            ObservationLevel.VERBOSE,
+            exc.message,
+            {
+                "reason": exc.reason,
+                "transfer_action": result.transfer.action.value,
+                "transfer_target": str(result.transfer.target),
+            },
+        )
         for signal in result.signals:
             self._bus.emit(signal)
         return result.transfer
+
+    def _emit(
+        self,
+        scope: RunScope,
+        name: str,
+        level: ObservationLevel,
+        message: str,
+        payload: dict[str, object],
+    ) -> None:
+        if not observation_enabled(self._observations, level):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=level,
+                source="loop.turn",
+                scope=scope,
+                message=message,
+                payload=to_json_object(payload),
+            ),
+        )
 
     def _set_active_scope(self, scope: RunScope | None) -> None:
         with self._active_scope_lock:

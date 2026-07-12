@@ -128,7 +128,7 @@ class AgentHomeEngine:
 
     def _runtime_read_path(self, link: str, source: Path) -> Path:
         runtime = self._layout.runtime_for_source(source)
-        if not runtime.is_file():
+        if not self._runtime_copy.is_ready(runtime):
             raise AgentHomeRuntimeCopyRequired(
                 link,
                 source_path=source,

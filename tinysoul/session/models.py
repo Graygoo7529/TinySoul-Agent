@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from time import time_ns
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
@@ -121,14 +122,32 @@ class SessionRecord:
     ref: str
     kind: SessionHistoryKind
     content: JsonObject
+    recorded_at_ns: int = field(default_factory=time_ns)
+    schema_version: int = 2
 
     def __post_init__(self) -> None:
         if not self.ref:
             raise SessionContractError("Session record ref must be non-empty")
+        if self.schema_version != 2:
+            raise SessionContractError("Session record schema_version must be 2")
+        if (
+            isinstance(self.recorded_at_ns, bool)
+            or not isinstance(self.recorded_at_ns, int)
+            or self.recorded_at_ns < 0
+        ):
+            raise SessionContractError(
+                "Session record recorded_at_ns must be a non-negative integer"
+            )
         object.__setattr__(self, "content", to_json_object(self.content))
 
     def to_json(self) -> JsonObject:
-        return {"ref": self.ref, "kind": self.kind.value, "content": self.content}
+        return {
+            "schema_version": self.schema_version,
+            "ref": self.ref,
+            "kind": self.kind.value,
+            "recorded_at_ns": self.recorded_at_ns,
+            "content": self.content,
+        }
 
     @classmethod
     def from_json(cls, value: JsonObject) -> "SessionRecord":
@@ -139,7 +158,26 @@ class SessionRecord:
             raise SessionContractError(
                 f"Unknown Session record kind: {kind_value}"
             ) from exc
-        return cls(ref=_str(value, "ref"), kind=kind, content=_object(value, "content"))
+        schema_version = value.get("schema_version", 1)
+        if schema_version not in {1, 2}:
+            raise SessionContractError(
+                f"Unsupported Session record schema_version: {schema_version}"
+            )
+        recorded_at_ns = value.get("recorded_at_ns", 0)
+        if (
+            isinstance(recorded_at_ns, bool)
+            or not isinstance(recorded_at_ns, int)
+            or recorded_at_ns < 0
+        ):
+            raise SessionContractError(
+                "Session record recorded_at_ns must be a non-negative integer"
+            )
+        return cls(
+            ref=_str(value, "ref"),
+            kind=kind,
+            content=_object(value, "content"),
+            recorded_at_ns=recorded_at_ns,
+        )
 
 
 def _str(value: JsonObject, name: str) -> str:

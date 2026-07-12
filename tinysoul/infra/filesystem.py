@@ -84,17 +84,32 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             raise
 
 
-def copy_file(source: Path, target: Path) -> None:
-    """Copy one file without preserving metadata."""
+def atomic_copy_file(source: Path, target: Path) -> None:
+    """Copy one file through a same-directory temporary and atomic replace."""
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    with source.open("rb") as source_handle:
-        with target.open("wb") as target_handle:
-            while True:
-                chunk = source_handle.read(1024 * 1024)
-                if not chunk:
-                    break
-                target_handle.write(chunk)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=target.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as target_handle:
+            with source.open("rb") as source_handle:
+                while True:
+                    chunk = source_handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    target_handle.write(chunk)
+            target_handle.flush()
+            os.fsync(target_handle.fileno())
+        os.replace(tmp_path, target)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        finally:
+            raise
 
 
 def read_text_prefix(

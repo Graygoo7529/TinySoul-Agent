@@ -17,7 +17,7 @@ runtime/session/
   summaries/<summary_id>.json
 ```
 
-`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出和 exhausted 状态。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态和 trace digest；action 调用与结果由 Session 配置的 `background_action_names` allowlist 选择，默认只投影最多三个 `core.reason`，避免把所有工具结果复制进跨 Turn 背景。每个被投影 action 的参数与结果分别有界，完整内容仍只存在于 Turn record。summary record 保存被合并节点的完整头部和子引用，不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
+`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态和用于恢复排序的 `recorded_at_ns`。Record schema 当前为 v2；v1 record 读取时以文件 mtime 补足排序时间。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态和 trace digest；action 调用与结果由 Session 配置的 `background_action_names` allowlist 选择，默认只投影最多三个 `core.reason`，避免把所有工具结果复制进跨 Turn 背景。每个被投影 action 的参数与结果分别有界，完整内容仍只存在于 Turn record。summary record 保存被合并节点的完整头部和子引用，不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
 
 进程跨日时，active 根目录原子移动到 `archive_root/<yyyy-mm-dd>`，然后创建新日 Manifest。Manifest 和 record 使用稳定 JSON 与原子写入；损坏或归档目标冲突显式失败，不静默重建。
 
@@ -40,6 +40,16 @@ Session 的 `background_max_chars` 是跨 Turn 历史头部预算。当可见 it
 5. `SessionTurnCompletionHandler` 先持久化完整 Turn record，再原子提交新 Manifest，必要时生成一个 summary node；
 6. Session completion 失败经 RuntimeSessionBridge 映射，仍在原 Turn scope 进入 Trap。
 
+## 幂等提交与 orphan reconciliation
+
+Turn completion 使用“不可变 record 先行、Manifest 后提交”的顺序。Turn record 的幂等语义由 completion、output、exhausted 和兼容旧 schema 的 day 共同决定；background 是首次提交时按 Session 配置生成的派生投影，不参与重放身份，因此重启后调整投影配置不会把同一完成事实误判为冲突。相同 `session:turn/<turn_id>` 与相同语义内容重复提交时直接复用已有 record；若同一 ref 对应不同完成事实，则抛出 `SessionInvariantError`，不会覆盖先前事实。summary record 以 day 和有序 child refs 判断幂等。Manifest revision 只对新接入的 Turn 递增，完全相同的重放不改变 revision。
+
+进程可能在 record 原子落盘后、Manifest 原子提交前退出，因此 record 存在而未从 Manifest 图可达是合法的可恢复中间态。Session 在启动、每个公开轮次边界和跨日归档前执行 reconciliation：递归校验 Manifest/summary 图的引用存在性、kind、background、char count、child refs、重复子节点和环；再按 `recorded_at_ns, ref` 的稳定顺序接入 orphan Turn。损坏的已提交图属于内部不变量失败，不静默重建。
+
+summary id 由 day、schema 和有序 child refs 的 digest 确定。若生成 summary record 后 Manifest 提交失败，重试会复用同一 summary，而不会产生重复摘要。不可达 summary 不独立接入可见头部，因为它是派生索引而不是新的 Turn 事实；reconciliation 会报告这些 refs，并在后续确定性汇总需要时复用。跨日时必须先完成旧日 reconciliation，再把完整旧日目录原子归档。
+
+SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、completion、recall 和 reconciliation。当前不提供跨进程锁；active Session 的支持运行模型是单进程写入，多进程同时提交同一 active 根不属于一致性保证范围。
+
 ## 失败边界
 
-Session 参数和 ref 不合规使用 `SessionContractError`，持久化与归档失败使用 `SessionIOError`，内部状态破坏使用 `SessionInvariantError`。跨模块边界统一经 `SessionFailureKind` 和 `RuntimeSessionBridge` 转为少量 Runtime 原因：启动配置/初始化失败结束 Program，Turn preparation/completion 期间失败结束当前 Turn。AppBuilder 只负责构建 Session、注册 action 和安装 preparation/completion adapters，不读取或修改 Session 文件。
+Session 参数和 ref 不合规使用 `SessionContractError`，持久化与归档失败使用 `SessionIOError`，内部状态破坏使用 `SessionInvariantError`。bridge 分别映射为 contract、I/O 和 internal failure，不把持久图损坏误报为调用方契约错误。跨模块边界统一经 `SessionFailureKind` 和 `RuntimeSessionBridge` 转为少量 Runtime 原因：启动配置/初始化失败结束 Program，Turn preparation/completion 期间失败结束当前 Turn。AppBuilder 只负责构建 Session、注册 action 和安装 preparation/completion adapters，不读取或修改 Session 文件。

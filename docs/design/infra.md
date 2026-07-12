@@ -28,7 +28,7 @@ Infra 当前负责配置环境、JSON 动态边界和受控文件系统读写。
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定，Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
 
 ## 可写配置
 
@@ -56,7 +56,7 @@ Infra 当前负责配置环境、JSON 动态边界和受控文件系统读写。
 
 复杂领域配置不应退化为任意字典在模块内部流动。需要复杂结构时，应由对应模块定义清楚的配置形态，从配置树入口读取动态数据，并在模块边界完成解析和校验。
 
-配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。项目配置文件中的未知键通常应视为错误，以避免拼写错误被静默忽略。
+配置错误应尽早暴露，错误信息应包含配置键、来源、原始值、期望类型和失败原因。AppBuilder 先拒绝未知顶层 section，各模块 parser 再拒绝自身 table 中的未知键；嵌套未知键也不允许静默穿过。`ConfigEnvironment.parse_section` 根据最终获胜的 main/include/dotenv/environment/override source 为模块 parser 产生的 `ConfigError` 补充来源，因此拼写错误和语义错误使用同一套 key/source 诊断。
 
 Infra 自身只抛出配置和基础设施语义的错误，不直接表达 Runtime 控制流。当前 Infra bridge 的真实跨模块路径只有配置加载失败，并将其映射为启动失败；JSON 和受控文件系统错误由拥有具体调用流程的业务模块局部处理或通过该模块 bridge 映射。Infra 不为没有消费路径的假想失败维护枚举项。这样 Infra 保持纯基础设施边界，Runtime 也不会反向侵入配置加载实现。
 

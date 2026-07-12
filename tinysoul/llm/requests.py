@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from tinysoul.runtime import RunScope
+
 from .cache import PromptCache
 from .errors import LLMContractError
 from .messages import MessageStack
@@ -83,6 +85,7 @@ class CallSettings:
             | other.required_capabilities,
         )
 
+
 @dataclass(frozen=True)
 class TaskCall:
     """A provider-neutral LLM task call."""
@@ -92,6 +95,7 @@ class TaskCall:
     tool_scope: ToolScope = field(default_factory=ToolScope)
     prompt_cache: PromptCache | None = None
     settings: CallSettings = field(default_factory=CallSettings)
+    scope: RunScope = field(default_factory=RunScope)
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, (TaskProfile, str)) or not self.profile:
@@ -108,3 +112,5 @@ class TaskCall:
             )
         if not isinstance(self.settings, CallSettings):
             raise LLMContractError("TaskCall.settings must be CallSettings")
+        if not isinstance(self.scope, RunScope):
+            raise LLMContractError("TaskCall.scope must be a RunScope")

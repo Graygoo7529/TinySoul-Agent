@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_IGNORE_DIRS = (
     ".agents",
@@ -91,6 +91,19 @@ def parse_workspace_settings(
     *,
     project_root: Path,
 ) -> WorkspaceSettings:
+    reject_unknown_keys(
+        tree,
+        {
+            "root",
+            "manifest_path",
+            "trash_root",
+            "max_files",
+            "max_read_chars",
+            "max_image_bytes",
+            "ignore_dirs",
+        },
+        key="workspace",
+    )
     root = _optional_path(
         tree,
         "root",

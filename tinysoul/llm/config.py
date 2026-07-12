@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from tinysoul.infra.config import reject_unknown_keys
+
 from .config_helpers import required_table
 from .config_sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
-from .config_types import LLMConfig, ProviderApiStyle, ProviderSpec
+from .config_types import LLMConfig, ProviderAdapterKind, ProviderApiStyle, ProviderSpec
 
 
 class LLMConfigParser:
@@ -24,16 +26,21 @@ class LLMConfigParser:
         self._tasks = tasks or TaskConfigParser()
 
     def parse(self, llm_tree: Mapping[str, object]) -> LLMConfig:
+        reject_unknown_keys(llm_tree, {"providers", "models", "tasks"}, key="llm")
         provider_specs = self._providers.parse(
             required_table(llm_tree, "providers", key="llm")
         )
+        providers_by_id = {provider.id: provider for provider in provider_specs}
         model_registry = self._models.parse(
             required_table(llm_tree, "models", key="llm"),
-            provider_ids={provider.id for provider in provider_specs},
+            providers=providers_by_id,
         )
         task_specs = self._tasks.parse(
             required_table(llm_tree, "tasks", key="llm"),
             models=model_registry,
+            enabled_provider_ids=frozenset(
+                provider.id for provider in provider_specs if provider.enabled
+            ),
         )
         return LLMConfig(
             providers=tuple(provider_specs),
@@ -46,6 +53,7 @@ __all__ = [
     "LLMConfig",
     "LLMConfigParser",
     "ModelConfigParser",
+    "ProviderAdapterKind",
     "ProviderApiStyle",
     "ProviderConfigParser",
     "ProviderSpec",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,11 @@ class LoopSettings:
 def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
     """Parse loop settings from a dynamic configuration tree."""
 
+    reject_unknown_keys(
+        tree,
+        {"max_cycles_per_turn", "phase_retry_limit"},
+        key="loop",
+    )
     return LoopSettings(
         max_cycles_per_turn=_optional_int(
             tree,

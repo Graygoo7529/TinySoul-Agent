@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 import glob
+from typing import cast
 
 from ..filesystem import FilesystemBoundaryError, resolve_under_root
 from .errors import ConfigError
 from .source import ConfigSource
 from .toml_file import ConfigFileToml, deep_copy_mapping, flatten_mapping, merge_trees
+from .validation import reject_unknown_keys
 
 
 class ProjectConfig:
@@ -18,11 +20,17 @@ class ProjectConfig:
     def __init__(self, root: Path, main_file_name: str = "tinysoul.toml") -> None:
         self.root = root
         self.main_path = root / main_file_name
-        self._data = self._load()
+        self._data, self._sources = self._load()
 
     @property
     def data(self) -> dict[str, object]:
         return deep_copy_mapping(self._data)
+
+    @property
+    def sources(self) -> tuple[ConfigSource, ...]:
+        """Return main and included files in effective merge order."""
+
+        return self._sources
 
     def to_source(self) -> ConfigSource:
         return ConfigSource(name=str(self.main_path), values=flatten_mapping(self._data))
@@ -37,15 +45,20 @@ class ProjectConfig:
             source=str(self.main_path),
         )
 
-    def _load(self) -> dict[str, object]:
-        main = ConfigFileToml(self.main_path).data
+    def _load(self) -> tuple[dict[str, object], tuple[ConfigSource, ...]]:
+        main_file = ConfigFileToml(self.main_path)
+        main = main_file.data
+        _validate_config_table(main, source=str(self.main_path))
         result = deep_copy_mapping(main)
+        sources = [main_file.to_source()]
         for include_path in _expand_include_paths(
             self.root,
             _get_config_string_list(main, "include"),
             source=str(self.main_path),
         ):
-            include_data = ConfigFileToml(include_path).data
+            include_file = ConfigFileToml(include_path)
+            include_data = include_file.data
+            _validate_config_table(include_data, source=str(include_path))
             if _get_config_string_list(include_data, "include"):
                 raise ConfigError(
                     "Nested configuration includes are not supported",
@@ -54,7 +67,41 @@ class ProjectConfig:
                     value=str(include_path),
                 )
             result = merge_trees(result, include_data)
-        return result
+            sources.append(include_file.to_source())
+        return result, tuple(sources)
+
+
+def _validate_config_table(data: Mapping[str, object], *, source: str) -> None:
+    value = data.get("config")
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Project configuration section must be a table",
+            key="config",
+            source=source,
+            value=value,
+            expected="table",
+        )
+    if any(not isinstance(name, str) for name in value):
+        raise ConfigError(
+            "Project configuration keys must be strings",
+            key="config",
+            source=source,
+            value=value,
+            expected="table with string keys",
+        )
+    table = cast(Mapping[str, object], value)
+    try:
+        reject_unknown_keys(table, {"include", "env_file"}, key="config")
+    except ConfigError as exc:
+        raise ConfigError(
+            exc.message,
+            key=exc.key,
+            source=source,
+            value=exc.value,
+            expected=exc.expected,
+        ) from exc
 
 
 def _expand_include_paths(root: Path, includes: list[str], *, source: str) -> list[Path]:

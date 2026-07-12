@@ -8,7 +8,12 @@ from typing import Self
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ToolResultMessage
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
-from tinysoul.runtime import CyclePhase, RunScope
+from tinysoul.runtime import (
+    CyclePhase,
+    NullObservationEmitter,
+    ObservationEmitter,
+    RunScope,
+)
 
 from .backends.native import NativeActionFunction, NativeFunctionExecutor
 from .backends.script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
@@ -195,6 +200,7 @@ class ActionEngineBuilder:
         self._max_workers = 8
         self._cooperative_cancel_grace_seconds = 0.05
         self._process_cancel_grace_seconds = 1.0
+        self._observations: ObservationEmitter = NullObservationEmitter()
         self.register_executor(
             "subprocess.default",
             SubprocessActionExecutor(),
@@ -273,6 +279,10 @@ class ActionEngineBuilder:
         self._process_cancel_grace_seconds = seconds
         return self
 
+    def with_observations(self, observations: ObservationEmitter) -> Self:
+        self._observations = observations
+        return self
+
     def build(self) -> ActionEngine:
         catalog = ActionCatalogLoader(
             backend_options_validators=self._backend_options_validators,
@@ -290,6 +300,7 @@ class ActionEngineBuilder:
                 max_workers=self._max_workers,
                 cooperative_cancel_grace_seconds=self._cooperative_cancel_grace_seconds,
                 process_cancel_grace_seconds=self._process_cancel_grace_seconds,
+                observations=self._observations,
             ),
             renderer=ActionFeedbackRenderer(),
             phase1_scope_builder=Phase1DomainScopeBuilder(),
