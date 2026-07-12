@@ -10,7 +10,7 @@
 
 Agent Home 模块负责 TinySoul 的持久化语境资源，包括身份规约、用户偏好、知识、技能、行动域 HOW 和长期记忆。它是 `home:` 链接的唯一语义归属方。
 
-Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，不执行模型供应商调用，也不管理 workspace 文件。它向 Context 提供可加载的顶层背景内容，向 Loop 提供 domain HOW provider，向 Action 内部 LLM task 提供 action HOW provider，并向 Action 提供 home 资源读取和编辑动作，并通过 Runtime 恢复例程维护当日 runtime home 副本。
+Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，不执行模型供应商调用，也不管理 workspace 文件。它向 Context 提供可加载的顶层背景内容，向 Loop 提供 domain HOW provider，向 Action 内部 LLM task 提供 action HOW provider，当前向 Action 提供 home 资源读取动作，并通过 Runtime 恢复例程维护当日 runtime home 副本。Home 编辑动作仍待实现。
 
 ## 设计目标
 

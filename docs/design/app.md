@@ -69,7 +69,7 @@ MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需
 
 `OutputSink.write` 属于外部 I/O 边界。单个 sink 失败后由 router 禁用并记录，不能反向打断 Turn、修改 Session/Workspace 提交或伪装成 Runtime 控制异常；`TinySoulApp.run()` / `run_once()` 在业务边界结束后把累计失败报告为 `AppOutputError`。`ConsoleOutputSink` 只把最终回答写到 stdout，verbose/model 诊断写到 stderr，便于脚本分别消费结果和诊断。
 
-安装项目后，`tinysoul` console script 是正式交互入口。默认从当前目录加载 `tinysoul.toml` 并启动终端输入源；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入并只执行一个 User Turn。CLI 仍使用 `ConfigEnvironment`、`TinySoulAppBuilder` 和同一 Console sink，不建立第二套运行流程。
+在包含 `tinysoul.toml`、`configs`、Home 与 Action Catalog 的 TinySoul 项目根中，`tinysoul` console script 是当前正式交互入口。默认从当前目录加载 `tinysoul.toml` 并启动终端输入源；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入并只执行一个 User Turn。CLI 仍使用 `ConfigEnvironment`、`TinySoulAppBuilder` 和同一 Console sink，不建立第二套运行流程。当前仓库尚未提供独立安装后的默认资产打包或项目初始化流程，因此 standalone wheel 的调用方仍需准备完整项目根。
 
 ## 装配入口
 
