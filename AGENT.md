@@ -54,7 +54,6 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
 
 - home：原始内容
 - runtime：每日运行时
-  - archive：时间戳保存的旧的归档
   - workspace：当前工作区
   - home：Agent Home 动态“懒加载”副本
     - agent（AGENT.md, /user, /identity）
@@ -64,6 +63,7 @@ Agent Home 与链接/Link：Agent Home 存储持久化语境，包含 Agent 记�
     - how_domain（/domain_name/(DOMAIN.md+DOMAIN_MEMORY.md))
     - how_action（/domain_name/<action>.md）
     - this_day_memory.md（以前 memory 只读，在 home 中不需要拉过来，查询即可）
+- archive：时间戳保存的旧的归档
 
 Trap/异常和信号：TinySoul 使用统一的异常定义和内部信号处理，采用 OS-中断设计思路和实现风格。对于异常，可以分为（1）模块层面暂时抛出并局部处理，例如 Action 执行中的失败，被执行器捕获后结构化为 Action Result，以及 llm 模块的模型重试和切换；（2）上层逻辑层面的全局处理，并在触发后陷入处理流程，例如语境过长需要压缩、home 副本拷贝等框架层面的机制（类似页表换出），以及响应用户外部指令，例如中断当前用户轮、中断程序，或追加用户输入（陷入处理后转化为内部信号给内部模块消费）。TinySoul 整体异常处理分成如下层次：（a）局部修复策略（llm 模块的模型重试和切换）和错误映射（Action 异常转换为模型反馈），局部处理失败后再向上层报错；（b）由全局处理决定继续当前用户轮（返回异常陷入位置）/中断当前用户轮/退出程序；
 
