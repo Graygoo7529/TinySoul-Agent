@@ -2,84 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
-from threading import RLock
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
-from tinysoul.infra import atomic_copy_file
 from tinysoul.runtime import (
-    HOME_RUNTIME_COPY_REQUIRED,
     RunLevel,
-    RunScope,
     RuntimeTransfer,
-    RuntimeTransferAction,
     TrapResult,
     TrapSnap,
 )
 
-from .errors import (
-    AgentHomeContractError,
-    AgentHomeError,
-    AgentHomeIOError,
-    AgentHomeRuntimeCopyRequired,
-)
+from .errors import AgentHomeContractError, AgentHomeError
 from .links import parse_home_link
 
 if TYPE_CHECKING:
     from .engine import AgentHomeEngine
-
-T = TypeVar("T")
-
-
-class AgentHomeRuntimeCopyManager:
-    """Prepare writable runtime copies for Agent Home source files."""
-
-    def __init__(self) -> None:
-        self._lock = RLock()
-        self._ready_targets: set[Path] = set()
-
-    def is_ready(self, runtime: Path) -> bool:
-        """Observe a valid runtime file and remember its process lifetime."""
-
-        with self._lock:
-            if runtime.is_symlink():
-                return False
-            if runtime.is_file():
-                self._ready_targets.add(runtime)
-                return True
-            return False
-
-    def ensure_source_copy(self, source: Path, runtime: Path) -> Path:
-        with self._lock:
-            if runtime in self._ready_targets:
-                if runtime.is_file() and not runtime.is_symlink():
-                    return runtime
-                raise AgentHomeIOError(
-                    f"Home runtime copy disappeared after materialization: {runtime}"
-                )
-            if runtime.exists() or runtime.is_symlink():
-                if not runtime.is_file() or runtime.is_symlink():
-                    raise AgentHomeIOError(
-                        f"Home runtime copy target is not a regular file: {runtime}"
-                    )
-                self._ready_targets.add(runtime)
-                return runtime
-            if not source.is_file() or source.is_symlink():
-                raise AgentHomeContractError(
-                    f"Home source is not a regular file: {source}"
-                )
-            try:
-                atomic_copy_file(source, runtime)
-            except OSError as exc:
-                raise AgentHomeIOError(f"Failed to copy home resource: {exc}") from exc
-            if not runtime.is_file() or runtime.is_symlink():
-                raise AgentHomeIOError(
-                    f"Home runtime copy was not materialized as a regular file: {runtime}"
-                )
-            self._ready_targets.add(runtime)
-            return runtime
 
 
 @dataclass(frozen=True)
@@ -92,46 +29,15 @@ class AgentHomeRuntimeCopyTrapHandler:
         link_value = snap.payload.get("link")
         if isinstance(link_value, str):
             try:
-                self.home.ensure_runtime_copy(parse_home_link(link_value))
+                materialized = self.home.ensure_runtime_copy(
+                    parse_home_link(link_value)
+                )
             except AgentHomeError:
                 return _end_available_scope(snap)
             current = snap.scope.current()
-            if current is not None:
+            if materialized and current is not None:
                 return TrapResult(transfer=RuntimeTransfer.retry(current))
         return _end_available_scope(snap)
-
-
-@dataclass(frozen=True)
-class AgentHomeRuntimeCopyRecovery:
-    """Run a callable and satisfy Agent Home runtime-copy misses through Trap."""
-
-    home: "AgentHomeEngine"
-    scope: RunScope
-
-    @classmethod
-    def startup(cls, home: "AgentHomeEngine") -> "AgentHomeRuntimeCopyRecovery":
-        return cls(home=home, scope=RunScope().push(RunLevel.PROGRAM, "startup"))
-
-    def run(self, callback: Callable[[], T]) -> T:
-        handler = AgentHomeRuntimeCopyTrapHandler(self.home)
-        handled_links: set[str] = set()
-        while True:
-            try:
-                return callback()
-            except AgentHomeRuntimeCopyRequired as exc:
-                if exc.link in handled_links:
-                    raise
-                handled_links.add(exc.link)
-                result = handler.handle(
-                    TrapSnap(
-                        reason=HOME_RUNTIME_COPY_REQUIRED,
-                        message=str(exc),
-                        payload=exc.to_payload(),
-                        scope=self.scope,
-                    )
-                )
-                if result.transfer.action is not RuntimeTransferAction.RETRY:
-                    raise
 
 
 def _end_available_scope(snap: TrapSnap) -> TrapResult:

@@ -309,14 +309,17 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("context.trace.recall", lambda execution, context: {})
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
+        .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
+        .register_native("home.resource.patch", lambda execution, context: {"patched": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
+        .register_native("home.resource.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
-            .register_native("workspace.restore", lambda execution, context: {"restored": True})
-            .register_native("workspace.trash.list", lambda execution, context: {"items": []})
+        .register_native("workspace.restore", lambda execution, context: {"restored": True})
+        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
@@ -445,7 +448,8 @@ def _write_catalog_action(
         "\n"
         "[tool]\n"
         'description = "Test action."\n'
-        'schema = { type = "object", properties = {}, required = [], additionalProperties = false }\n'
+        'schema = { type = "object", properties = {}, required = [], '
+        'additionalProperties = false }\n'
         "\n"
         "[backend]\n"
         f'kind = "{backend_kind}"\n'

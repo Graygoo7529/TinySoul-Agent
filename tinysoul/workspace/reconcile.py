@@ -145,6 +145,7 @@ class WorkspaceReconciler:
                     status=WorkspaceReconcileStatus.INCOMPLETE,
                 )
         manifest = WorkspaceManifest(
+            day=current.day,
             revision=current.revision + 1 if changed else current.revision,
             resources=resources,
         )

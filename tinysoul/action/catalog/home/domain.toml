@@ -1,6 +1,6 @@
 name = "home"
 description = "Agent Home knowledge, memory, and skill resource actions."
-selection_hint = "Use when the task needs to inspect Agent Home progressive resources."
+selection_hint = "Use to read or edit progressive Agent Home resources in today's runtime mirror."
 
 [runtime]
 timeout_seconds = 30

@@ -1,0 +1,23 @@
+name = "home.resource.delete"
+domain = "home"
+
+[tool]
+description = "Hide one progressive Agent Home resource for today using an overlay tombstone."
+schema = { type = "object", properties = { link = { type = "string" }, expected_digest = { type = "string" } }, required = ["link"], additionalProperties = false }
+
+[semantic]
+use_when = ["A progressive Home resource should be removed from today's effective view"]
+avoid_when = ["A top-level or historical memory entry should be deleted"]
+effects = ["modifying"]
+examples = ["Delete an obsolete generated reference from today's Home mirror"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.resource.delete"

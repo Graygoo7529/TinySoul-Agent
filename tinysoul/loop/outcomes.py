@@ -1,0 +1,77 @@
+"""Stable User Turn outcome status and bounded failure details."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+from tinysoul.runtime import (
+    RUNTIME_CYCLE_END,
+    RUNTIME_PROGRAM_END,
+    RUNTIME_TURN_END,
+    RUNTIME_TURN_OUTPUT,
+    RuntimeException,
+)
+
+from .errors import LoopContractError
+
+TURN_FAILURE_MESSAGE_MAX_CHARS = 1000
+
+
+class TurnOutcomeStatus(StrEnum):
+    ANSWERED = "answered"
+    EXHAUSTED = "exhausted"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class TurnFailure:
+    reason: str
+    message: str
+    module: str = ""
+    kind: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reason, str) or not self.reason:
+            raise LoopContractError("TurnFailure.reason must be non-empty")
+        if not isinstance(self.message, str) or not self.message:
+            raise LoopContractError("TurnFailure requires reason and message")
+        if not isinstance(self.module, str) or not isinstance(self.kind, str):
+            raise LoopContractError("TurnFailure module and kind must be strings")
+        if len(self.message) > TURN_FAILURE_MESSAGE_MAX_CHARS:
+            object.__setattr__(
+                self,
+                "message",
+                self.message[: TURN_FAILURE_MESSAGE_MAX_CHARS - 3] + "...",
+            )
+
+    @classmethod
+    def from_runtime(cls, exc: RuntimeException) -> "TurnFailure":
+        module = exc.payload.get("module", "")
+        kind = exc.payload.get("kind", "")
+        return cls(
+            reason=exc.reason,
+            message=exc.message or exc.reason,
+            module=module if isinstance(module, str) else "",
+            kind=kind if isinstance(kind, str) else "",
+        )
+
+
+def failure_from_runtime(exc: RuntimeException) -> TurnFailure | None:
+    """Return failure details only for Runtime exceptions that mean failure."""
+
+    if exc.reason in {
+        RUNTIME_CYCLE_END,
+        RUNTIME_PROGRAM_END,
+        RUNTIME_TURN_OUTPUT,
+    }:
+        return None
+    if exc.reason == RUNTIME_TURN_END and not (
+        isinstance(exc.payload.get("module"), str)
+        and exc.payload.get("module")
+        and isinstance(exc.payload.get("kind"), str)
+        and exc.payload.get("kind")
+    ):
+        return None
+    return TurnFailure.from_runtime(exc)

@@ -307,14 +307,20 @@ def test_runner_rejects_invalid_max_workers() -> None:
 def test_executor_registry_validates_catalog_handlers() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
     executors = ExecutorRegistry()
-    executors.register("core.answer", NativeFunctionExecutor(lambda execution, context: {"ok": True}))
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
 
     assert executors.missing_handlers_for(catalog) == (
         "context.trace.fold",
         "context.trace.inspect",
         "context.trace.recall",
         "core.reason",
+        "home.resource.delete",
+        "home.resource.patch",
         "home.resource.read",
+        "home.resource.write",
         "session.history.inspect",
         "session.history.recall",
         "workspace.delete",

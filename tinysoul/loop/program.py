@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from queue import Queue
+from threading import RLock
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
@@ -24,8 +25,11 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
+from tinysoul.runtime.bridge import RuntimeLoopBridge
 
-from .errors import LoopContractError
+from .daily import DailyLifecycleCoordinator
+from .day import BusinessClock, BusinessDay, IanaBusinessClock
+from .errors import LoopContractError, LoopError
 from .turn import TurnOutcome, TurnRunner
 
 
@@ -115,8 +119,11 @@ class ProgramRunner:
         turn_runner: TurnRunner,
         bus: SignalBus,
         trap: RuntimeTrap,
+        daily_lifecycle: DailyLifecycleCoordinator,
         input_queue: Queue[ProgramInputEvent] | None = None,
         retained_outcomes: int = 32,
+        business_clock: BusinessClock | None = None,
+        loop_bridge: RuntimeLoopBridge | None = None,
         observations: ObservationEmitter | None = None,
     ) -> None:
         if (
@@ -128,10 +135,14 @@ class ProgramRunner:
         self._turn_runner = turn_runner
         self._bus = bus
         self._trap = trap
+        self._daily_lifecycle = daily_lifecycle
         self._input_queue: Queue[ProgramInputEvent] = input_queue or Queue()
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
         self._retained_outcomes = retained_outcomes
+        self._business_clock = business_clock or IanaBusinessClock()
+        self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._observations = observations or NullObservationEmitter()
+        self._work_lock = RLock()
 
     def submit_event(self, event: ProgramInputEvent) -> None:
         self._input_queue.put(event)
@@ -145,7 +156,24 @@ class ProgramRunner:
         return self._input_queue
 
     def run_once(self, user_input: str) -> TurnOutcome:
-        return self._turn_runner.run(user_input, scope=self._scope)
+        with self._work_lock:
+            now = self._business_clock.now()
+            business_day = BusinessDay(now.date())
+            try:
+                self._daily_lifecycle.ensure_active_day(business_day, now=now)
+            except LoopError as exc:
+                raise self._loop_bridge.startup_failure(
+                    message=str(exc),
+                    payload={
+                        "stage": "daily_rollover",
+                        "business_day": str(business_day),
+                    },
+                ) from exc
+            return self._turn_runner.run(
+                user_input,
+                business_day=business_day,
+                scope=self._scope,
+            )
 
     def run(self) -> ProgramOutcome:
         outcomes: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)

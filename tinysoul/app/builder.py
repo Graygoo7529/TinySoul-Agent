@@ -17,15 +17,15 @@ from tinysoul.context import (
     ContextEngineBuilder,
     parse_context_settings,
 )
+from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.context.actions import register_context_actions
 from tinysoul.context.errors import ContextError
 from tinysoul.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
-    AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
     HomeActionHowProvider,
-    HomeBackgroundContentLoader,
+    HomeBackgroundEntryProvider,
     HomeDomainHowProvider,
     parse_agent_home_settings,
     register_home_actions,
@@ -37,6 +37,8 @@ from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
 from tinysoul.loop.config import LoopSettings, parse_loop_settings
+from tinysoul.loop.day import IanaBusinessClock
+from tinysoul.loop.daily import DailyLifecycleCoordinator
 from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
 from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
@@ -346,6 +348,10 @@ class TinySoulAppBuilder:
                 ),
                 preparation_pipeline=TurnPreparationPipeline(
                     (
+                        ContextTurnPreparationHandler(
+                            context,
+                            runtime_bridge=context_bridge,
+                        ),
                         SessionTurnPreparationHandler(
                             session,
                             runtime_bridge=session_bridge,
@@ -362,7 +368,15 @@ class TinySoulAppBuilder:
                 turn_runner=turn_runner,
                 bus=bus,
                 trap=trap,
+                daily_lifecycle=DailyLifecycleCoordinator(
+                    archive_root=loop_settings.daily.archive_root,
+                    session=session,
+                    workspace=workspace,
+                    home=home,
+                ),
                 retained_outcomes=app_settings.retained_turn_outcomes,
+                business_clock=IanaBusinessClock(loop_settings.daily.timezone),
+                loop_bridge=loop_bridge,
                 observations=observations,
             )
             parser = self._input_parser or InputCommandParser(app_settings.input_commands)
@@ -426,7 +440,10 @@ class TinySoulAppBuilder:
         bridge: RuntimeLoopBridge,
     ) -> LoopSettings:
         try:
-            return config.parse_section("loop", parse_loop_settings)
+            return config.parse_section(
+                "loop",
+                lambda tree: parse_loop_settings(tree, project_root=self._root),
+            )
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
 
@@ -494,7 +511,6 @@ class TinySoulAppBuilder:
     ) -> ContextEngine:
         try:
             settings = config.parse_section("context", parse_context_settings)
-            recovery = AgentHomeRuntimeCopyRecovery.startup(home)
             builder = (
                 ContextEngineBuilder(system_text=settings.system_text)
                 .with_journal(settings.journal)
@@ -507,18 +523,13 @@ class TinySoulAppBuilder:
                 )
                 .with_trace_recall_max_chars(settings.trace_recall_max_chars)
                 .with_compression_target_ratio(settings.compression_target_ratio)
-            )
-            for entry in recovery.run(home.default_background_entries):
-                builder.add_default_background(entry.link, entry.content)
-            for link in home.loadable_background_links():
-                builder.add_lazy_background(
-                    link,
-                    HomeBackgroundContentLoader(
+                .with_background_provider(
+                    HomeBackgroundEntryProvider(
                         home=home,
-                        link=link,
                         runtime_bridge=home_bridge,
-                    ),
+                    )
                 )
+            )
             return builder.build()
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc

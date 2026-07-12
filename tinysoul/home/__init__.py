@@ -1,9 +1,14 @@
 """TinySoul Agent Home resource module."""
 
 from .actions import HomeResourceReadExecutor, register_home_actions
-from .background import HomeBackgroundContentLoader
+from .background import HomeBackgroundContentLoader, HomeBackgroundEntryProvider
 from .config import AgentHomeSettings, parse_agent_home_settings
-from .engine import AgentHomeEngine, AgentHomeEngineBuilder, HomeBackgroundEntry
+from .engine import (
+    AgentHomeEngine,
+    AgentHomeEngineBuilder,
+    HomeBackgroundEntry,
+    HomeResourceMutation,
+)
 from .errors import (
     AgentHomeContractError,
     AgentHomeError,
@@ -21,10 +26,9 @@ from .links import (
     parse_home_link,
 )
 from .runtime_copy import (
-    AgentHomeRuntimeCopyManager,
-    AgentHomeRuntimeCopyRecovery,
     AgentHomeRuntimeCopyTrapHandler,
 )
+from .overlay import HomeOverlayRecord, HomeOverlayState
 
 __all__ = [
     "AgentHomeContractError",
@@ -34,19 +38,21 @@ __all__ = [
     "AgentHomeFailureKind",
     "AgentHomeIOError",
     "AgentHomeInvariantError",
-    "AgentHomeRuntimeCopyManager",
-    "AgentHomeRuntimeCopyRecovery",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",
     "HomeActionHowProvider",
     "HomeBackgroundContentLoader",
+    "HomeBackgroundEntryProvider",
     "HomeBackgroundEntry",
     "HomeDomainHowProvider",
     "HomeLink",
     "HomePromptMountLink",
     "HomeResourceLink",
     "HomeResourceReadExecutor",
+    "HomeResourceMutation",
+    "HomeOverlayRecord",
+    "HomeOverlayState",
     "HomeTopLink",
     "parse_agent_home_settings",
     "parse_home_link",

@@ -9,7 +9,7 @@ from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallRecord
 from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt
 
-from .errors import ActionInvariantError
+from .errors import ActionContractError, ActionInvariantError
 from .result import ActionResult, ActionResultStage
 from .schema import ActionSchemaValidationError, validate_action_params
 from .specs import ActionSpec
@@ -164,13 +164,17 @@ class ActionHookRegistry:
         try:
             return self._normalize_hooks[name]
         except KeyError as exc:
-            raise KeyError(f"Unknown action normalize hook: {name}") from exc
+            raise ActionContractError(
+                f"Unknown action normalize hook: {name}"
+            ) from exc
 
     def execution_hook_for(self, name: str) -> ActionExecutionHook:
         try:
             return self._execution_hooks[name]
         except KeyError as exc:
-            raise KeyError(f"Unknown action execution hook: {name}") from exc
+            raise ActionContractError(
+                f"Unknown action execution hook: {name}"
+            ) from exc
 
     def normalize_names_for(self, action: ActionSpec) -> tuple[str, ...]:
         return (

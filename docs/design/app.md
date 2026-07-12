@@ -67,9 +67,9 @@ TinySoulApp 启动输入源后负责在程序退出或启动失败时停止已�
 
 MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需要诊断时开启。图片字节只记录长度、MIME 与 digest，远程图片 URL 去掉 query/fragment，data URL 被替换为 redacted 标记；推理只保留 summary 和 encrypted item digest，不输出 reasoning content、加密项原文或 provider 原始 payload。Console 渲染再按 `app.output.model_max_chars` 限制单条诊断文本。
 
-`OutputSink.write` 属于外部 I/O 边界。单个 sink 失败后由 router 禁用并记录，不能反向打断 Turn、修改 Session/Workspace 提交或伪装成 Runtime 控制异常；`TinySoulApp.run()` / `run_once()` 在业务边界结束后把累计失败报告为 `AppOutputError`。`ConsoleOutputSink` 只把最终回答写到 stdout，verbose/model 诊断写到 stderr，便于脚本分别消费结果和诊断。
+`OutputSink.write` 属于外部 I/O 边界。单个 sink 失败后由 router 禁用并记录，不能反向打断 Turn、修改 Session/Workspace 提交或伪装成 Runtime 控制异常；`TinySoulApp.run()` / `run_once()` 在业务边界结束后把累计失败报告为 `AppOutputError`。`ConsoleOutputSink` 只把已完成 completion 提交的最终回答写到 stdout；failed/exhausted/stopped 和 verbose/model 诊断写到 stderr，便于脚本分别消费结果和诊断。
 
-在包含 `tinysoul.toml`、`configs`、Home 与 Action Catalog 的 TinySoul 项目根中，`tinysoul` console script 是当前正式交互入口。默认从当前目录加载 `tinysoul.toml` 并启动终端输入源；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入并只执行一个 User Turn。CLI 仍使用 `ConfigEnvironment`、`TinySoulAppBuilder` 和同一 Console sink，不建立第二套运行流程。当前仓库尚未提供独立安装后的默认资产打包或项目初始化流程，因此 standalone wheel 的调用方仍需准备完整项目根。
+在包含 `tinysoul.toml`、`configs`、Home 与 Action Catalog 的 TinySoul 项目根中，`tinysoul` console script 是当前正式交互入口。默认从当前目录加载配置并启动终端输入源；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入并只执行一个 User Turn。`--once` 只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1；启动/配置失败也返回 1，键盘中断返回 130。CLI 使用同一 AppBuilder/Console sink，不建立第二套流程。当前仓库尚未提供独立安装后的默认资产打包或项目初始化流程。
 
 ## 装配入口
 
@@ -79,8 +79,8 @@ TinySoulAppBuilder 负责：
 - 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/loop/session/workspace/llm 各自解析所属 settings；
 - 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块 registrar 装配模块 executor；
-- 构建 Phase、CycleRunner、TurnRunner、ProgramRunner；
-- 把 Session preparation 放在 Workspace preparation 前；把 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
+- 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入 IANA business clock 与 DailyLifecycleCoordinator；
+- preparation 顺序固定为 Context 动态 Home 默认项、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher 和输入源；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime 和各级 Loop runner；
 - 返回 TinySoulApp。
@@ -91,9 +91,9 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 ## 与其他模块的关系
 
-- 对 loop：app 创建各级 runner，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
+- 对 loop：app 创建各级 runner，注入 daily settings/coordinator，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
-- 对 context：app 只物化 Agent Home 默认 core，并为其它背景注入 lazy loader；不直接读取 Agent Home 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
+- 对 context：app 注入 `HomeBackgroundEntryProvider`，不物化 core、不读取 Agent Home 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
 - 对 session：app 只构建门面、注册 history actions 和安装 Turn preparation/completion adapters，不读取 Session 持久文件。
 - 对 workspace / Agent Home：app 只装配模块门面和 executor，不解释 `workspace:` 或 `home:` 链接。

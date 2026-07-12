@@ -22,7 +22,7 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### BackgroundContext
 
-用户轮开始前的背景。它由两类所有权不同的内容组成：Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；Agent Home 提供 journal、默认顶层条目和 Phase1 动态加载条目。SessionBackground 在每个 Turn 开始时重置，只能在 preparation 窗口提交，并始终渲染在 Agent Home 顶层内容之前。Agent Home 条目可以被 Phase1 的控制意图加载或逐出；预算恢复只允许自动逐出 Phase1 来源，不删除默认顶层规约。
+用户轮开始前的背景。它由两类所有权不同的内容组成：Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；Agent Home 通过 `BackgroundEntryProvider` 提供当前默认目录、可加载顶层目录和按链接正文。`begin_turn` 同时清空上一 Turn 的 Session/Home Background；preparation 先原子重建 Home 默认项，再提交 Session snapshot。Phase1 动态加载项只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session 或 Home 持久事实。SessionBackground 始终渲染在 Agent Home 顶层内容之前；预算恢复只允许自动逐出 Phase1 来源，不删除默认顶层规约。
 
 ### WorkingContext
 
@@ -45,7 +45,7 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 1. system 段：Agent 身份与规约；
 2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
 3. SessionBackground 段：Turn preparation 后固定；
-4. Agent Home Background 段：默认内容稳定，Phase1 可调整动态条目；
+4. Agent Home Background 段：每 Turn 从 provider 重建默认内容，Phase1 可调整本 Turn 动态条目；
 5. WorkingContext 段：低频变化；
 6. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
 7. task prompt overlay：每次 LLM Task 不同。

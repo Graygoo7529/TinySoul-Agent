@@ -12,7 +12,6 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 @dataclass(frozen=True)
 class SessionSettings:
     root: Path
-    archive_root: Path
     background_max_chars: int = 24000
     summary_watermark_ratio: float = 0.60
     summary_target_ratio: float = 0.40
@@ -23,19 +22,22 @@ class SessionSettings:
     background_action_max_chars: int = 1600
 
     def __post_init__(self) -> None:
-        root = self.root.resolve()
-        archive_root = self.archive_root.resolve()
-        if (
-            root == archive_root
-            or root in archive_root.parents
-            or archive_root in root.parents
-        ):
+        if not isinstance(self.root, Path):
             raise ConfigError(
-                "Session root and archive_root must not overlap",
-                key="session.archive_root",
-                value=str(self.archive_root),
-                expected="non-overlapping path",
+                "Session root must be a path",
+                key="session.root",
+                value=self.root,
+                expected="path",
             )
+        for name in {"summary_watermark_ratio", "summary_target_ratio"}:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigError(
+                    "Session summary ratio must be numeric",
+                    key=f"session.{name}",
+                    value=value,
+                    expected="float",
+                )
         for name in {
             "background_max_chars",
             "recall_max_chars",
@@ -75,7 +77,7 @@ class SessionSettings:
                 value=self.min_recent_turns,
                 expected="non-negative int",
             )
-        if any(
+        if not isinstance(self.background_action_names, tuple) or any(
             not isinstance(name, str) or not name
             for name in self.background_action_names
         ):
@@ -105,7 +107,6 @@ def parse_session_settings(
         tree,
         {
             "root",
-            "archive_root",
             "background_max_chars",
             "summary_watermark_ratio",
             "summary_target_ratio",
@@ -119,12 +120,6 @@ def parse_session_settings(
     )
     return SessionSettings(
         root=_path(tree, "root", project_root / "runtime" / "session", project_root),
-        archive_root=_path(
-            tree,
-            "archive_root",
-            project_root / "runtime" / "archive" / "session",
-            project_root,
-        ),
         background_max_chars=_int(tree, "background_max_chars", 24000),
         summary_watermark_ratio=_float(tree, "summary_watermark_ratio", 0.60),
         summary_target_ratio=_float(tree, "summary_target_ratio", 0.40),

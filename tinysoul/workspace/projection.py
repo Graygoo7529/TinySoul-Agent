@@ -70,6 +70,7 @@ class WorkspaceTurnPreparationHandler:
 
     def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         try:
+            self.workspace.require_day(request.business_day)
             result = self.workspace.reconcile()
         except WorkspaceError as exc:
             raise self.runtime_bridge.from_workspace_error(exc) from exc

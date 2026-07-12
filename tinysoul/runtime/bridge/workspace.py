@@ -76,8 +76,10 @@ class RuntimeWorkspaceBridge:
                 link=error.link,
                 trash_ref=error.trash_ref,
             )
-        if isinstance(error, (WorkspaceContractError, WorkspaceInvariantError)):
+        if isinstance(error, WorkspaceContractError):
             kind = WorkspaceFailureKind.CONTRACT_VIOLATION
+        elif isinstance(error, WorkspaceInvariantError):
+            kind = WorkspaceFailureKind.INTERNAL_FAILURE
         elif isinstance(error, (WorkspaceIOError, WorkspaceReconciliationError)):
             kind = WorkspaceFailureKind.IO_FAILED
         return self.from_exception(kind, error, payload=payload)

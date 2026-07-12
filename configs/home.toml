@@ -2,3 +2,4 @@
 root = "home"
 runtime_root = "runtime/home"
 max_read_chars = 4000
+max_write_chars = 16000

@@ -21,6 +21,9 @@ Loop 模块按运行职责拆分：
 ```text
 tinysoul/loop/
   config.py          # LoopSettings 与配置解析
+  day.py             # BusinessDay 与可注入 IANA 业务时钟
+  daily.py           # 跨 Session/Workspace/Home 的可恢复日切 journal
+  outcomes.py        # 稳定 TurnOutcomeStatus 与有界 TurnFailure
   errors.py          # loop 契约与不变量错误
   failures.py        # loop Runtime bridge 失败枚举
   signals.py         # loop.control.request 信号协议
@@ -39,15 +42,32 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ## 运行层级与运行器
 
-ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。ProgramRunner 不解析原始字符串命令，也不直接接入终端、HTTP 或其他外部输入源。ProgramOutcome 只按 `app.retained_turn_outcomes` 保留最近若干 TurnOutcome，同时单独累计总 Turn 数；这只限制进程返回对象的内存，不影响 Session 对全部已提交 Turn 的持久化。
+ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。每个 work item 在进程锁内从配置的 IANA 时钟捕获一次 aware `now` 和 `BusinessDay`；先调用 `DailyLifecycleCoordinator.ensure_active_day`，成功后才开始 Turn。同一 Turn 内不再次读取日期，因而跨午夜 Turn 仍归属开始日；并发 `run_once` 被串行化，符合 active Session/Workspace/Home 的单写者模型。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。TurnRunner 只接受本 Turn 的唯一输出信号，并把对应 END 识别为正常完成。Context 结束后，`TurnCompletionPipeline` 按注册顺序接收包含完整 JSON trace/heap 元数据的 TurnSummary 与最终 TurnOutput。默认首个处理器把 Turn 持久化到 Session，之后才运行应用追加的 completion handlers；处理器 RuntimeException 仍在原 Turn scope 内进入 Trap。只有 completion pipeline 全部成功后才发布 normal 级 `turn.output` ObservationEvent，确保外部看到的最终回答已经通过提交边界。执行轮数上限只作为无输出时的兜底保护。
+TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。Cycle/Turn 从 Runtime exception chain 提取 reason/module/kind 和有界安全 message，但把 turn output、用户 stop/exit 等控制异常排除在失败之外。最终 `TurnOutcomeStatus` 稳定区分 `answered/exhausted/stopped/failed`；失败、耗尽和停止发布 normal Observation，只有 completion pipeline 全部成功后才发布 `turn.output`。默认首个 completion handler 是幂等 Session 提交；后续 handler 必须自行以 Turn id/业务 operation id 实现幂等，因为 pipeline 保证确定顺序和失败停止，不提供跨 handler 原子事务或自动回滚。
 
-Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。默认顺序是 Session 先投影当日跨 Turn 历史，Workspace 再完成磁盘 reconciliation 和 Manifest 摘要投影；Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
+Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。默认顺序是 Context 先从动态 Home provider 原子重建默认 Background，Session 再投影显式 business day 的跨 Turn 历史，Workspace 最后校验相同 day、完成 reconciliation 并投影 Manifest。Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 
 各级运行器在自己的 frame 边界捕获 Runtime 语义异常，交 Trap 处理并消费运行转移：转移目标是本级 frame 时，结束转移正常收束本级、重试转移重放本级（语境保持已提交状态）；目标是上级 frame 时以运行结果向上传播。重试语义要求各级边界可重放，这由"语境变更只在信号消费点提交"保证。
+
+## 业务日与确定性归档
+
+`loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session、Workspace、Home 不自行调用系统日期。
+
+日切顺序固定为：
+
+1. 恢复或创建 `archive/.pending-<operation-id>/transition.json`；
+2. Session 完成 orphan reconciliation 并移动到 pending `session/`；
+3. Workspace 完整 reconcile，把 active Workspace 和 active Trash 分别移动到 `workspace/`、`trash/`；
+4. Home 完成 overlay operation recovery/reconciliation 并移动到 `home/`；
+5. 为三者初始化相同的新 business day；
+6. 原子把 pending 目录改名为 `archive/<timezone-timestamp>/`。
+
+每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、Manifest 已初始化但最终 rename 未完成等窗口都可在重启时前滚；多个 pending、day 分歧、时钟倒退、archive 与任何 active/original root 重叠均显式失败。该协议是可恢复的跨模块 partial completion，不宣称跨目录原子事务。
+
+归档完成只表示旧日事实已冻结。`transition.json` 的 `settlement_status` 当前固定为 `pending`；后续后台 Agent、启动检测或用户命令执行 settlement。普通新日启动不等待 LLM 沉淀，也不直接修改 original Home。
 
 ## 输入边界
 

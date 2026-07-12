@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, timedelta
 import json
 from pathlib import Path
 
@@ -12,7 +11,7 @@ import pytest
 from tinysoul.context import ContextEngineBuilder, ContextSignalBatch, TurnSummary
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.infra.json import JsonObject
-from tinysoul.loop import TurnPreparationRequest
+from tinysoul.loop import BusinessDay, TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope
 from tinysoul.session import (
     SessionEngine,
@@ -25,12 +24,16 @@ from tinysoul.session.models import SessionHistoryKind, SessionRecord
 from tinysoul.session.projection import SessionTurnPreparationHandler
 
 
+DAY = BusinessDay.parse("2026-07-12")
+
+
 def test_session_persists_turns_and_builds_hierarchical_summary(tmp_path: Path) -> None:
     settings = _settings(tmp_path, background_max_chars=900)
-    session = SessionEngine(settings)
+    session = _engine(settings)
 
     for index in range(3):
-        session.record_turn(
+        _record_turn(
+            session,
             summary=_summary(f"turn_{index}", ask=f"question {index}"),
             output={
                 "text": f"answer {index} " + "x" * 700,
@@ -60,14 +63,15 @@ def test_session_persists_turns_and_builds_hierarchical_summary(tmp_path: Path) 
     recalled_turn = session.recall_history("session:turn/turn_0", max_chars=700)
     assert recalled_turn["ref"] == "session:turn/turn_0"
 
-    reloaded = SessionEngine(settings)
+    reloaded = _engine(settings)
     assert reloaded.revision == session.revision
     assert reloaded.inspect_history()["items"] == items
 
 
 def test_session_background_is_prepared_before_home_background(tmp_path: Path) -> None:
-    session = SessionEngine(_settings(tmp_path))
-    session.record_turn(
+    session = _engine(_settings(tmp_path))
+    _record_turn(
+        session,
         summary=_summary("turn_previous", ask="earlier question"),
         output={
             "text": "earlier answer",
@@ -83,10 +87,12 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
         .build()
     )
     turn_id = context.begin_turn("current question")
+    context.prepare_default_background()
     scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
     request = TurnPreparationRequest(
         turn_id=turn_id,
         user_input="current question",
+        business_day=DAY,
         scope=scope,
     )
     signals = SessionTurnPreparationHandler(session).prepare(request)
@@ -112,7 +118,7 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
 
 
 def test_session_projects_only_policy_selected_action_history(tmp_path: Path) -> None:
-    session = SessionEngine(_settings(tmp_path))
+    session = _engine(_settings(tmp_path))
     summary = TurnSummary(
         turn_id="turn_actions",
         inputs=({"input_id": "input_1", "text": "analyze", "merged": True},),
@@ -124,9 +130,9 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
         ),
     )
 
-    session.record_turn(summary=summary, output={"text": "done"}, exhausted=False)
+    _record_turn(session, summary=summary, output={"text": "done"}, exhausted=False)
 
-    snapshot = session.background_snapshot()
+    snapshot = session.background_snapshot(DAY)
     actions = snapshot.items[0].content["actions"]
     assert isinstance(actions, list)
     assert len(actions) == 1
@@ -138,12 +144,13 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
 
 def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) -> None:
     settings = replace(_settings(tmp_path), recall_max_chars=350)
-    session = SessionEngine(settings)
+    session = _engine(settings)
     trace: tuple[JsonObject, ...] = tuple(
         {"entry_id": f"entry_{index}", "detail": "x" * 180}
         for index in range(3)
     )
-    session.record_turn(
+    _record_turn(
+        session,
         summary=TurnSummary(
             turn_id="turn_paged",
             inputs=({"input_id": "input_1", "text": "page", "merged": True},),
@@ -169,13 +176,13 @@ def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) ->
 def test_session_record_turn_is_idempotent_for_identical_completion(
     tmp_path: Path,
 ) -> None:
-    session = SessionEngine(_settings(tmp_path))
+    session = _engine(_settings(tmp_path))
     summary = _summary("turn_repeat", ask="same question")
     output: JsonObject = {"text": "same answer"}
 
-    session.record_turn(summary=summary, output=output, exhausted=False)
+    _record_turn(session, summary=summary, output=output, exhausted=False)
     revision = session.revision
-    session.record_turn(summary=summary, output=output, exhausted=False)
+    _record_turn(session, summary=summary, output=output, exhausted=False)
 
     assert session.revision == revision
     items = session.inspect_history()["items"]
@@ -184,15 +191,17 @@ def test_session_record_turn_is_idempotent_for_identical_completion(
 
 
 def test_session_rejects_same_turn_ref_with_different_content(tmp_path: Path) -> None:
-    session = SessionEngine(_settings(tmp_path))
-    session.record_turn(
+    session = _engine(_settings(tmp_path))
+    _record_turn(
+        session,
         summary=_summary("turn_conflict", ask="first"),
         output={"text": "answer"},
         exhausted=False,
     )
 
     with pytest.raises(SessionInvariantError, match="conflicts"):
-        session.record_turn(
+        _record_turn(
+            session,
             summary=_summary("turn_conflict", ask="different"),
             output={"text": "answer"},
             exhausted=False,
@@ -211,18 +220,20 @@ def test_session_idempotency_ignores_changed_background_projection_settings(
         ),
         trace_digest={"entry_count": 2},
     )
-    first = SessionEngine(settings)
-    first.record_turn(
+    first = _engine(settings)
+    _record_turn(
+        first,
         summary=summary,
         output={"text": "same answer"},
         exhausted=False,
     )
     revision = first.revision
 
-    restarted = SessionEngine(
+    restarted = _engine(
         replace(settings, background_action_names=())
     )
-    restarted.record_turn(
+    _record_turn(
+        restarted,
         summary=summary,
         output={"text": "same answer"},
         exhausted=False,
@@ -236,8 +247,8 @@ def test_session_reconciles_turn_orphan_after_manifest_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = _settings(tmp_path)
-    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
-    session = SessionEngine(settings, store=store)
+    store = SessionStore(root=settings.root)
+    session = _engine(settings, store=store)
     original_save = store.save_manifest
     failed = False
 
@@ -252,18 +263,20 @@ def test_session_reconciles_turn_orphan_after_manifest_failure(
     summary = _summary("turn_orphan", ask="recover me")
 
     with pytest.raises(SessionIOError, match="injected"):
-        session.record_turn(
+        _record_turn(
+            session,
             summary=summary,
             output={"text": "recovered"},
             exhausted=False,
         )
 
-    recovered = SessionEngine(settings)
+    recovered = _engine(settings)
     assert recovered.revision == 1
     assert recovered.last_reconcile_result.adopted_turn_refs == (
         "session:turn/turn_orphan",
     )
-    recovered.record_turn(
+    _record_turn(
+        recovered,
         summary=summary,
         output={"text": "recovered"},
         exhausted=False,
@@ -276,10 +289,11 @@ def test_session_reuses_deterministic_summary_after_manifest_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = _settings(tmp_path, background_max_chars=900)
-    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
-    session = SessionEngine(settings, store=store)
+    store = SessionStore(root=settings.root)
+    session = _engine(settings, store=store)
     for index in range(2):
-        session.record_turn(
+        _record_turn(
+            session,
             summary=_summary(f"turn_{index}", ask=f"question {index}"),
             output={"text": "x" * 700},
             exhausted=False,
@@ -293,7 +307,8 @@ def test_session_reuses_deterministic_summary_after_manifest_failure(
 
     monkeypatch.setattr(store, "save_manifest", fail_revision_three)
     with pytest.raises(SessionIOError, match="injected"):
-        session.record_turn(
+        _record_turn(
+            session,
             summary=_summary("turn_2", ask="question 2"),
             output={"text": "x" * 700},
             exhausted=False,
@@ -301,23 +316,23 @@ def test_session_reuses_deterministic_summary_after_manifest_failure(
 
     summary_files = tuple((settings.root / "summaries").glob("*.json"))
     assert len(summary_files) == 1
-    recovered = SessionEngine(settings)
+    recovered = _engine(settings)
     assert recovered.revision == 3
     assert len(tuple((settings.root / "summaries").glob("*.json"))) == 1
 
 
-def test_session_reconciles_previous_day_before_archiving(tmp_path: Path) -> None:
+def test_session_reconciles_orphans_before_explicit_archive(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    old_day = (date.today() - timedelta(days=1)).isoformat()
-    store = SessionStore(root=settings.root, archive_root=settings.archive_root)
-    store.create_manifest(old_day)
+    old_day = BusinessDay.parse("2026-07-11")
+    store = SessionStore(root=settings.root)
+    store.create_manifest(str(old_day))
     summary = _summary("turn_before_midnight", ask="persist before archive")
     store.save_record_if_absent(
         SessionRecord(
             ref="session:turn/turn_before_midnight",
             kind=SessionHistoryKind.TURN,
             content={
-                "day": old_day,
+                "day": str(old_day),
                 "background": {
                     "kind": "session_turn",
                     "turn_id": "turn_before_midnight",
@@ -330,13 +345,12 @@ def test_session_reconciles_previous_day_before_archiving(tmp_path: Path) -> Non
     )
 
     active = SessionEngine(settings)
-    archived_store = SessionStore(
-        root=settings.archive_root / old_day,
-        archive_root=tmp_path / "unused_archive",
-    )
+    archive_target = tmp_path / "archive" / "stamp" / "session"
+    active.archive_day(old_day, target=archive_target)
+    archived_store = SessionStore(root=archive_target)
     archived = archived_store.load_manifest()
 
-    assert active.revision == 0
+    assert active.active_day is None
     assert archived.revision == 1
     assert tuple(item.ref for item in archived.items) == (
         "session:turn/turn_before_midnight",
@@ -352,7 +366,7 @@ def test_session_reports_persisted_manifest_shape_as_invariant_failure(
         json.dumps(
             {
                 "schema_version": 99,
-                "day": date.today().isoformat(),
+                "day": str(DAY),
                 "revision": 0,
                 "items": [],
             }
@@ -367,13 +381,40 @@ def test_session_reports_persisted_manifest_shape_as_invariant_failure(
 def _settings(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionSettings:
     return SessionSettings(
         root=tmp_path / "session",
-        archive_root=tmp_path / "archive",
         background_max_chars=background_max_chars,
         summary_watermark_ratio=0.60,
         summary_target_ratio=0.40,
         min_recent_turns=1,
         recall_max_chars=8000,
     )
+
+
+def _record_turn(
+    session: SessionEngine,
+    *,
+    summary: TurnSummary,
+    output: JsonObject | None,
+    exhausted: bool,
+) -> None:
+    session.record_turn(
+        summary=summary,
+        output=output,
+        exhausted=exhausted,
+        day=DAY,
+    )
+
+
+def _engine(
+    settings: SessionSettings,
+    *,
+    store: SessionStore | None = None,
+) -> SessionEngine:
+    engine = SessionEngine(settings, store=store)
+    if engine.active_day is None:
+        engine.initialize_day(DAY)
+    elif engine.active_day != DAY:
+        raise AssertionError("test Session has an unexpected active day")
+    return engine
 
 
 def _summary(turn_id: str, *, ask: str) -> TurnSummary:

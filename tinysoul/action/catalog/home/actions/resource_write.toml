@@ -1,0 +1,23 @@
+name = "home.resource.write"
+domain = "home"
+
+[tool]
+description = "Create or replace one progressive Agent Home text resource in today's runtime mirror."
+schema = { type = "object", properties = { link = { type = "string", description = "Progressive home:*/ resource link; top-level and memory links are not accepted." }, text = { type = "string", description = "Complete UTF-8 text content." }, overwrite = { type = "boolean", description = "Whether an existing effective resource may be replaced." }, expected_digest = { type = "string", description = "Optional current effective digest precondition." } }, required = ["link", "text"], additionalProperties = false }
+
+[semantic]
+use_when = ["A progressive Agent Home reference or code resource should be created or fully replaced"]
+avoid_when = ["A top-level WHAT, WHY, HOW, or MEMORY entry should change", "Historical memory should change"]
+effects = ["modifying"]
+examples = ["Create home:how/refactor/references/checklist.md for today's work"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.resource.write"

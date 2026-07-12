@@ -7,7 +7,7 @@ from pathlib import Path
 from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_root
 
 from .config import AgentHomeSettings
-from .errors import AgentHomeContractError
+from .errors import AgentHomeContractError, AgentHomeInvariantError
 from .links import HomePromptMountLink, HomeResourceLink, HomeTopLink
 
 
@@ -28,9 +28,13 @@ class AgentHomeLayout:
 
     def source_for_top(self, link: HomeTopLink) -> Path:
         candidates = self._top_candidates(link)
-        for path in candidates:
-            if path.is_file():
-                return path
+        existing = tuple(path for path in candidates if path.is_file())
+        if len(existing) > 1:
+            raise AgentHomeInvariantError(
+                f"Home top-level link has multiple source files: {link}"
+            )
+        if existing:
+            return existing[0]
         return candidates[0]
 
     def source_for_resource(self, link: HomeResourceLink) -> Path:
@@ -42,18 +46,29 @@ class AgentHomeLayout:
         return self._under_content_root("how_action", f"{link.name}.md")
 
     def runtime_for_source(self, source: Path) -> Path:
+        relative = self.relative_for_source(source)
+        try:
+            return resolve_under_root(
+                self._settings.runtime_root,
+                relative,
+            )
+        except FilesystemBoundaryError as exc:
+            raise AgentHomeContractError(str(exc)) from exc
+
+    def relative_for_source(self, source: Path) -> str:
         source_resolved = source.resolve()
         try:
             relative = source_resolved.relative_to(self._content_root.resolve())
         except ValueError:
             raise AgentHomeContractError("Home source path is outside content root")
-        try:
-            return resolve_under_root(
-                self._settings.runtime_root,
-                relative.as_posix(),
-            )
-        except FilesystemBoundaryError as exc:
-            raise AgentHomeContractError(str(exc)) from exc
+        return relative.as_posix()
+
+    def is_top_source(self, source: Path) -> bool:
+        relative = self.relative_for_source(source)
+        return any(
+            self.relative_for_source(self.source_for_top(link)) == relative
+            for link in self.top_links()
+        )
 
     def top_links(self) -> tuple[HomeTopLink, ...]:
         links: list[HomeTopLink] = []
@@ -61,7 +76,7 @@ class AgentHomeLayout:
         if self.source_for_top(core).is_file():
             links.append(core)
         links.extend(self._agent_links())
-        links.extend(self._simple_space_links("what"))
+        links.extend(self._what_links())
         links.extend(self._simple_space_links("why"))
         links.extend(self._package_links("how", "SKILL.md"))
         links.extend(self._simple_space_links("memory"))
@@ -100,10 +115,22 @@ class AgentHomeLayout:
         result: list[HomeTopLink] = []
         for path in sorted(root.rglob("*.md"), key=lambda item: item.as_posix()):
             if path.name == "AGENT.md":
-                result.append(HomeTopLink("agent", "core"))
                 continue
             relative = path.relative_to(root).with_suffix("").as_posix()
             result.append(HomeTopLink("agent", relative))
+        return tuple(result)
+
+    def _what_links(self) -> tuple[HomeTopLink, ...]:
+        root = self._content_root / "what"
+        if not root.is_dir():
+            return ()
+        result: list[HomeTopLink] = []
+        for path in sorted(root.rglob("*.md"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(root).with_suffix("")
+            parts = relative.parts
+            if len(parts) > 1 and parts[0] in {"entity", "concept"}:
+                relative = Path(*parts[1:])
+            result.append(HomeTopLink("what", relative.as_posix()))
         return tuple(result)
 
     def _simple_space_links(self, space: str) -> tuple[HomeTopLink, ...]:
@@ -135,7 +162,9 @@ def _dedupe_links(links: tuple[HomeTopLink, ...]) -> tuple[HomeTopLink, ...]:
     for link in links:
         text = str(link)
         if text in seen:
-            continue
+            raise AgentHomeInvariantError(
+                f"Agent Home contains duplicate top-level link: {text}"
+            )
         seen.add(text)
         result.append(link)
     return tuple(result)

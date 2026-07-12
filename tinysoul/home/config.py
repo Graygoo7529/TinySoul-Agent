@@ -9,6 +9,7 @@ from pathlib import Path
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_MAX_READ_CHARS = 4000
+DEFAULT_MAX_WRITE_CHARS = 16000
 
 
 @dataclass(frozen=True)
@@ -18,8 +19,23 @@ class AgentHomeSettings:
     original_root: Path
     runtime_root: Path
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
+    max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
 
     def __post_init__(self) -> None:
+        if not isinstance(self.original_root, Path):
+            raise ConfigError(
+                "Agent Home root must be a path",
+                key="home.root",
+                value=self.original_root,
+                expected="path",
+            )
+        if not isinstance(self.runtime_root, Path):
+            raise ConfigError(
+                "Agent Home runtime_root must be a path",
+                key="home.runtime_root",
+                value=self.runtime_root,
+                expected="path",
+            )
         original_root = self.original_root.resolve()
         runtime_root = self.runtime_root.resolve()
         if (
@@ -33,11 +49,26 @@ class AgentHomeSettings:
                 value=str(self.runtime_root),
                 expected="non-overlapping path",
             )
-        if self.max_read_chars <= 0:
+        if (
+            isinstance(self.max_read_chars, bool)
+            or not isinstance(self.max_read_chars, int)
+            or self.max_read_chars <= 0
+        ):
             raise ConfigError(
                 "Agent Home max_read_chars must be positive",
                 key="home.max_read_chars",
                 value=self.max_read_chars,
+                expected="positive int",
+            )
+        if (
+            isinstance(self.max_write_chars, bool)
+            or not isinstance(self.max_write_chars, int)
+            or self.max_write_chars <= 0
+        ):
+            raise ConfigError(
+                "Agent Home max_write_chars must be positive",
+                key="home.max_write_chars",
+                value=self.max_write_chars,
                 expected="positive int",
             )
 
@@ -47,7 +78,11 @@ def parse_agent_home_settings(
     *,
     project_root: Path,
 ) -> AgentHomeSettings:
-    reject_unknown_keys(tree, {"root", "runtime_root", "max_read_chars"}, key="home")
+    reject_unknown_keys(
+        tree,
+        {"root", "runtime_root", "max_read_chars", "max_write_chars"},
+        key="home",
+    )
     original_root = _optional_path(
         tree,
         "root",
@@ -66,6 +101,11 @@ def parse_agent_home_settings(
             tree,
             "max_read_chars",
             default=DEFAULT_MAX_READ_CHARS,
+        ),
+        max_write_chars=_optional_int(
+            tree,
+            "max_write_chars",
+            default=DEFAULT_MAX_WRITE_CHARS,
         ),
     )
 

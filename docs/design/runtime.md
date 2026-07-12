@@ -122,6 +122,8 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 `ObservationEvent` 是不可用于控制流的结构化旁路事件。它包含稳定事件名、`normal` / `verbose` / `model` 详细度、来源、RunScope、可读消息、JSON payload 和产生时间。Runtime 只定义事件与 `ObservationEmitter` 协议；Loop、LLM、Action 和 RuntimeModuleRunner 在各自拥有事实的边界发布，App 负责过滤和连接 `OutputSink`。
 
+Runtime transfer 本身只表达恢复位置，不等于业务失败。Loop 在消费 transfer 时可从原始 `RuntimeException` 异常链提取 bridge 已提供的 reason/module/kind，形成有界 Turn failure；`runtime.turn_output`、用户 stop/exit 和无模块失败字段的控制 END 不得被归类为失败。该分类属于 Loop 的 Turn outcome 语义，不扩展 RuntimeTransfer 字段，也不把 traceback 或大 payload 带入 Observation。
+
 Observation 与 Signal 的区别由消费语义决定：SignalBus 中的事件等待业务模块消费并可能形成状态提交；Observation 只面向人机界面、日志适配或嵌入方，不排队等待业务确认。Observation 与 Trap 的区别由控制语义决定：emitter/sink 失败不能触发恢复、重试或结束 frame。发布 helper 吞掉 emitter 异常，App router 隔离失败 sink，并在业务边界结束后由 App 语义报告输出故障。
 
 详细 observation payload 必须 provider-neutral、JSON 安全且有界表达二进制和敏感结构。MODEL 级可以表达文本消息、工具协议和归一化回答以支持诊断，但图片只携带摘要，推理原文、加密项原文与 provider 原始响应不进入事件。是否渲染及文本裁剪属于 App/OutputSink 责任，不属于 Runtime 控制协议。

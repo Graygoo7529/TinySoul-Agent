@@ -26,12 +26,13 @@ TRASH_REF_PREFIX = "trash:workspace/"
 
 @dataclass(frozen=True)
 class WorkspaceTrashItem:
-    """One recoverable resource outside the active Workspace root."""
+    """One recoverable resource in the active Workspace day."""
 
     trash_id: str
     original: WorkspaceResourceRecord
     trashed_at: float
     reason: str
+    day: str = ""
     source_turn_id: str = ""
 
     @property
@@ -44,6 +45,7 @@ class WorkspaceTrashItem:
             "original": self.original.to_json(),
             "trashed_at": self.trashed_at,
             "reason": self.reason,
+            "day": self.day,
             "source_turn_id": self.source_turn_id,
         }
 
@@ -53,6 +55,7 @@ class WorkspaceTrashItem:
         original = value.get("original")
         trashed_at = value.get("trashed_at")
         reason = value.get("reason")
+        day = value.get("day", "")
         source_turn_id = value.get("source_turn_id", "")
         if not isinstance(trash_id, str) or not trash_id:
             raise WorkspaceContractError("Trash item requires a non-empty trash_id")
@@ -62,6 +65,8 @@ class WorkspaceTrashItem:
             raise WorkspaceContractError("Trash item trashed_at must be numeric")
         if not isinstance(reason, str) or not reason:
             raise WorkspaceContractError("Trash item requires a non-empty reason")
+        if not isinstance(day, str):
+            raise WorkspaceContractError("Trash item day must be a string")
         if not isinstance(source_turn_id, str):
             raise WorkspaceContractError("Trash item source_turn_id must be a string")
         return cls(
@@ -69,6 +74,7 @@ class WorkspaceTrashItem:
             original=WorkspaceResourceRecord.from_json(to_json_object(original)),
             trashed_at=float(trashed_at),
             reason=reason,
+            day=day,
             source_turn_id=source_turn_id,
         )
 
@@ -88,6 +94,7 @@ class WorkspaceTrashStore:
         record: WorkspaceResourceRecord,
         *,
         reason: str,
+        day: str = "",
         source_turn_id: str = "",
     ) -> WorkspaceTrashItem:
         if not reason:
@@ -97,6 +104,7 @@ class WorkspaceTrashStore:
             original=record,
             trashed_at=time(),
             reason=reason,
+            day=day,
             source_turn_id=source_turn_id,
         )
         directory = self._directory(item.trash_id)

@@ -28,6 +28,7 @@ from .errors import (
     WorkspaceReconciliationError,
     WorkspaceTrashRestoreRequired,
 )
+from tinysoul.loop.day import BusinessDay
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,
@@ -141,6 +142,81 @@ class WorkspaceEngine:
     def settings(self) -> WorkspaceSettings:
         return self._settings
 
+    @property
+    def active_day(self) -> BusinessDay | None:
+        with self._lock:
+            day = self._manifest_store.load().day
+            return BusinessDay.parse(day) if day else None
+
+    def initialize_day(self, day: BusinessDay) -> WorkspaceReconcileResult:
+        """Claim an empty or legacy active root for one explicit business day."""
+
+        with self._lock:
+            if not isinstance(day, BusinessDay):
+                raise WorkspaceContractError("Workspace day must be a BusinessDay")
+            manifest = self._manifest_store.load()
+            if manifest.day and manifest.day != str(day):
+                raise WorkspaceInvariantError(
+                    "Workspace active day mismatch: "
+                    f"expected {day}, found {manifest.day}"
+                )
+            if not manifest.day:
+                self._manifest_store.save(replace(manifest, day=str(day)))
+            return self.reconcile()
+
+    def require_day(self, day: BusinessDay) -> None:
+        with self._lock:
+            manifest = self._manifest_store.load()
+            if not isinstance(day, BusinessDay) or manifest.day != str(day):
+                raise WorkspaceInvariantError(
+                    "Workspace is not initialized for the requested business day"
+                )
+
+    def archive_day(
+        self,
+        day: BusinessDay,
+        *,
+        workspace_target: Path,
+        trash_target: Path,
+    ) -> None:
+        """Move one reconciled active day into a unified pending archive."""
+
+        with self._lock:
+            self.require_day(day)
+            reconciliation = self.reconcile()
+            if not reconciliation.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace archive requires complete reconciliation"
+                )
+            trash_source = self._trash_store.root
+            if trash_target.exists() and trash_source.exists():
+                raise WorkspaceIOError(
+                    "Workspace archive has both active and archived Trash"
+                )
+            if not trash_target.exists():
+                trash_target.parent.mkdir(parents=True, exist_ok=True)
+                if trash_source.exists():
+                    try:
+                        os.replace(trash_source, trash_target)
+                    except OSError as exc:
+                        raise WorkspaceIOError(
+                            f"Failed to archive Workspace Trash: {exc}"
+                        ) from exc
+                else:
+                    trash_target.mkdir(parents=True)
+            if workspace_target.exists() and self._settings.root.exists():
+                raise WorkspaceIOError(
+                    "Workspace archive has both active and archived roots"
+                )
+            if not workspace_target.exists():
+                workspace_target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.replace(self._settings.root, workspace_target)
+                except OSError as exc:
+                    raise WorkspaceIOError(
+                        f"Failed to archive Workspace: {exc}"
+                    ) from exc
+
     def parse_link(self, value: str) -> WorkspaceLink:
         return WorkspaceLink.parse(value)
 
@@ -234,6 +310,7 @@ class WorkspaceEngine:
             return current
         records[index] = described
         manifest = WorkspaceManifest(
+            day=reconciliation.manifest.day,
             revision=reconciliation.manifest.revision + 1,
             resources=tuple(records),
         )
@@ -647,6 +724,7 @@ class WorkspaceEngine:
         item = self._trash_store.prepare(
             record,
             reason=reason,
+            day=self._manifest_store.load().day,
             source_turn_id=source_turn_id,
         )
         content = self._trash_store.content_path(item)
@@ -835,6 +913,7 @@ class WorkspaceEngine:
             )
         self._manifest_store.save(
             WorkspaceManifest(
+                day=manifest.day,
                 revision=manifest.revision + 1,
                 resources=tuple(
                     updated if item.link == record.link else item
@@ -880,6 +959,7 @@ class WorkspaceEngine:
             )
         self._manifest_store.save(
             WorkspaceManifest(
+                day=manifest.day,
                 revision=manifest.revision + 1,
                 resources=tuple(
                     updated if item.link == record.link else item

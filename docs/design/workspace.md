@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更和可恢复 Trash。`WorkspaceEngine` 提供有界 UTF-8 文本读取和受限图片读取；`WorkspacePromptReferenceResolver` 按资源类型生成 TextPart/ImagePart，document 明确要求显式转换，binary 只提供元数据。所有正文和图片只在 action 内部临时使用，不通过 ActionResult 持久进入 TurnTraceHeap。`workspace.delete` 是逻辑删除：资源移出 active root 和 Manifest 后返回 `trash:workspace/...`；`workspace.trash.list` 可重新取得 Trash ref，`workspace.restore` 执行显式恢复。压力清理产生的暂存项还可在资源再次被读取时通过 Runtime Trap 自动恢复。日终归档仍未实现。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
 
 ## 定位
 
@@ -34,7 +34,7 @@ Workspace 的核心职责：
 - 在需要时读取、写入或删除 workspace 文件；
 - 在日级生命周期中归档 workspace。
 
-当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、Engine 内部有界文本前缀读取、行范围文本切片、临时 task prompt 输入渲染、Workspace PromptBlock 链接解析、workspace action registrar、`workspace.scan` handler、`workspace.describe` executor、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite`；其中 `workspace.write`/`workspace.rewrite` 是 workspace 业务 LLM action，归档仍是待扩展职责。
+当前实现已经承担扫描、manifest、链接解析、单资源摘要刷新、扫描跳过诊断、有界读取、PromptBlock 解析、workspace actions、active day 初始化/校验，以及完整 reconcile 后把 workspace/trash 移入跨模块 pending archive；调度仍不属于 Workspace。
 
 Workspace 不负责：
 
@@ -95,15 +95,15 @@ Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根�
 
 Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
 
-Manifest schema 当前为 v2；读取 v1 时显式迁移，旧资源采用 `day` retention。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
+Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Program 日协调器按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
 
 ## Trash 与压力回收
 
-Trash 位于 active Workspace root 之外，且不参与 Manifest 扫描。删除采用 prepare-record、原子移动 content、reconciliation、COMMITTED marker 的顺序；启动时发现未提交移动会恢复到原路径。Restore 在目标不存在时反向移动，重新 reconciliation，并恢复原 retention 与 owner 元数据。Trash 自身保留记录、原因、来源 Turn 和原资源摘要，因而是可恢复删除而不是物理销毁。
+Trash 固定位于 active Workspace root 内部的 `.tinysoul/trash`，由 module-owned ignore 规则排除在资源 Manifest 和 `workspace:` 链接之外。删除采用 prepare-record、原子移动 content、reconciliation、COMMITTED marker 的顺序；启动时发现未提交移动会恢复到原路径。Restore 在目标不存在时反向移动，重新 reconciliation，并恢复原 retention 与 owner 元数据。活动日 Trash 保留记录、原因、day、来源 Turn 和原资源摘要，因而是可恢复删除而不是物理销毁。
 
 语境压力恢复只选择 `ephemeral` 和 `turn` 资源，按 retention、mtime、link 确定性排序；`day`、`persistent` 以及当前 action payload 标记的 target/reference links 不会被自动清理。批量移动中途失败必须反向 restore 已移动项。资源移入 Trash 后必须把新 Manifest 全量同步给 Context；Context 拒绝同步时协调器尝试逐项 restore。Workspace 不自行决定何时触发压力恢复，Loop 只负责跨模块编排，实际资源规则仍归 Workspace 所有。
 
-Trash 是 active Workspace 之外的暂存区，不是第二份 Manifest。Trash record 必须基于移动瞬间实际磁盘内容；只有当前 digest 与 Manifest digest 一致时才能继承 description 和 lifecycle 元数据。active miss 只对 `context_pressure` 等框架暂存原因抛出 `workspace.trash_restore_required`，Loop Trap 按 payload 中的确定 trash ref 恢复资源、提交新的 Workspace snapshot 并重试当前 Module。用户显式执行 `workspace.delete` 不触发自动恢复，仍通过 list/restore 完成可观察的手动恢复。
+Trash 是 active Workspace 的内部暂存区，不是第二份资源 Manifest。Trash record 必须基于移动瞬间实际磁盘内容；只有当前 digest 与 Manifest digest 一致时才能继承 description 和 lifecycle 元数据。active miss 只对 `context_pressure` 等框架暂存原因抛出 `workspace.trash_restore_required`。用户显式执行 delete 不触发自动恢复。日切时 Trash 先移到 pending archive 的独立 `trash/`，随后再移动剩余 Workspace root；崩溃发生在两次移动之间时，重复 `archive_day` 根据 source/target 存在性继续。归档后旧 Trash 不再由 list/restore 暴露。
 
 资源分类使用 Workspace 自有的显式扩展名/MIME 映射，稳定分为 `text`、`image`、`document`、`binary`。text 以有界 UTF-8 文本进入 Prompt；image 在 Workspace 单文件限制与 Context 总图片字节预算内以 `ImagePart` 进入 Prompt，并在构造 ImagePart 前校验 PNG/JPEG/GIF/WebP 内容签名，扩展名与内容不符时显式失败；document 必须先由显式转换 action 生成 Markdown 等可读资源；binary 当前只提供元数据。确定性 summary 始终存在，可选 description 由 `workspace.describe` 生成并通过 `described_digest` 绑定当前内容，digest 变化时 reconciliation 自动清除旧 description。
 
@@ -120,7 +120,7 @@ runtime/
 
 Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日终归档由 workspace 门面提供归档能力，但调度归档的 Program 同级任务不属于 Workspace 自身。
 
-当前实现默认使用 `runtime/workspace` 作为 workspace root，并通过 `configs/workspace.toml` 配置 root、manifest、读取上限与忽略规则。Workspace 模块解析配置；AppBuilder 只传递 section tree 并构建门面，不直接扫描目录。
+当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 只配置 root、读取/扫描上限与忽略规则。Workspace 模块解析配置；AppBuilder 只传递 section tree 并构建门面。
 
 ## Action 接入
 
@@ -212,7 +212,7 @@ tinysoul/workspace/
   failures.py
 ```
 
-`WorkspaceEngine` 是资源管理门面，提供 reconciliation、链接解析、类型化资源检查、有界文本/图片读取、description 提交、写入、精确 patch 和删除。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`resources.py` 维护稳定分类和图片内容校验规则；`projection.py` 维护 Manifest 到 Context snapshot 的唯一转换和 Turn preparation handler；`WorkspacePromptReferenceResolver` 负责按资源类型生成 Context `PromptBlock`，`WorkspaceEditPromptBuilder` 负责 Workspace LLM task 的 prompt 业务规则。`WorkspaceEngineBuilder` 负责接收已解析设置、校验 root、主动验证 manifest 并装配 store。后续日终归档应继续挂在 Workspace 模块，保持 AppBuilder 不理解 workspace 路径语义。
+`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验和 `archive_day(workspace_target, trash_target)`。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Loop coordinator 只调用这些门面，不理解 Workspace 内部资源路径。
 
 AppBuilder 的目标职责是：
 
@@ -236,4 +236,4 @@ AppBuilder 的目标职责是：
 - workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
 - Context 测试继续证明 WorkingContext 只保存链接和摘要。
 
-仍需补充的验收点是日终归档。
+仍需补充的主要能力是 document conversion action；日终 workspace/trash 归档与 partial resume 已有故障测试。

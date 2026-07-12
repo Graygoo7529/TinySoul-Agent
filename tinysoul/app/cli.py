@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.runtime import ObservationLevel, RuntimeException
 
 from .builder import TinySoulAppBuilder
@@ -42,7 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             .build()
         )
         if args.once is not None:
-            app.run_once(args.once)
+            outcome = app.run_once(args.once)
+            return 0 if outcome.status is TurnOutcomeStatus.ANSWERED else 1
         else:
             app.run()
         return 0

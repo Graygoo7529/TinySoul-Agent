@@ -105,6 +105,9 @@ class BackgroundContext:
     def reset_session(self) -> None:
         self._session = SessionBackgroundSnapshot(revision=0)
 
+    def reset_home(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
+        self._entries = {entry.link: entry for entry in entries}
+
     def check_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> str:
         if snapshot.revision < self._session.revision:
             return (

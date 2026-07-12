@@ -13,6 +13,7 @@ from tinysoul.runtime import (
     ObservationEmitter,
     ObservationEvent,
     ObservationLevel,
+    RUNTIME_TURN_END,
     RunLevel,
     RunScope,
     RuntimeException,
@@ -31,7 +32,10 @@ from .config import LoopSettings
 from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
+from .day import BusinessDay
 from .errors import LoopInvariantError
+from .failures import LoopFailureKind
+from .outcomes import TurnFailure, TurnOutcomeStatus, failure_from_runtime
 from .preparation import TurnPreparationPipeline, TurnPreparationRequest
 from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 
@@ -41,13 +45,40 @@ class TurnOutcome:
     """Outcome of one user turn."""
 
     summary: TurnSummary | None
+    business_day: BusinessDay
+    status: TurnOutcomeStatus
     output: TurnOutput | None = None
     exhausted: bool = False
     transfer: RuntimeTransfer | None = None
+    failure: TurnFailure | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.business_day, BusinessDay):
+            raise LoopInvariantError("TurnOutcome requires a BusinessDay")
+        if not isinstance(self.status, TurnOutcomeStatus):
+            raise LoopInvariantError("TurnOutcome requires a TurnOutcomeStatus")
+        if self.status is TurnOutcomeStatus.ANSWERED:
+            if self.output is None or self.failure is not None or self.exhausted:
+                raise LoopInvariantError("Answered TurnOutcome is inconsistent")
+        elif self.status is TurnOutcomeStatus.EXHAUSTED:
+            if self.output is not None or self.failure is not None or not self.exhausted:
+                raise LoopInvariantError("Exhausted TurnOutcome is inconsistent")
+        elif self.status is TurnOutcomeStatus.FAILED:
+            if self.failure is None:
+                raise LoopInvariantError("Failed TurnOutcome requires failure details")
+        elif self.output is not None or self.failure is not None or self.exhausted:
+            raise LoopInvariantError("Stopped TurnOutcome is inconsistent")
 
     @property
     def answered(self) -> bool:
-        return self.output is not None
+        return self.status is TurnOutcomeStatus.ANSWERED
+
+
+@dataclass(frozen=True)
+class _TurnBoundary:
+    transfer: RuntimeTransfer
+    failure: TurnFailure | None = None
+    stopped: bool = False
 
 
 class TurnRunner:
@@ -89,12 +120,24 @@ class TurnRunner:
         with self._active_scope_lock:
             return self._active_scope
 
-    def run(self, user_input: str, *, scope: RunScope) -> TurnOutcome:
+    def run(
+        self,
+        user_input: str,
+        *,
+        business_day: BusinessDay,
+        scope: RunScope,
+    ) -> TurnOutcome:
+        if not isinstance(business_day, BusinessDay):
+            raise self._loop_bridge.from_loop_error(
+                LoopInvariantError("TurnRunner requires a BusinessDay")
+            )
         turn_id = ""
         turn_scope = scope.push(RunLevel.TURN, "turn_start")
         output: TurnOutput | None = None
         exhausted = False
         transfer: RuntimeTransfer | None = None
+        failure: TurnFailure | None = None
+        stopped = False
         try:
             try:
                 turn_id = self._context.begin_turn(user_input)
@@ -109,11 +152,16 @@ class TurnRunner:
                 "Turn started.",
                 {"turn_id": turn_id},
             )
-            transfer = self._run_preparation(
+            preparation = self._run_preparation(
                 turn_id=turn_id,
                 user_input=user_input,
+                business_day=business_day,
                 scope=turn_scope,
             )
+            if preparation is not None:
+                transfer = preparation.transfer
+                failure = preparation.failure
+                stopped = preparation.stopped
             if transfer is None:
                 for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
                     cycle = self._cycle_runner.run(
@@ -121,44 +169,66 @@ class TurnRunner:
                         cycle_index=cycle_index,
                         scope=turn_scope,
                     )
+                    if failure is None:
+                        failure = cycle.failure
+                    stopped = stopped or cycle.stopped
                     if cycle.transfer is not None:
                         transfer = self._consume_cycle_transfer(cycle, turn_scope)
-                        if transfer is not None:
+                        if transfer is not None or failure is not None or stopped:
                             break
                         continue
+                    if failure is not None or stopped:
+                        break
                 else:
                     exhausted = True
                     self._record_cycle_limit(turn_scope)
         except RuntimeException as exc:
-            transfer = self._capture(exc, turn_scope)
+            captured = self._capture(exc, turn_scope)
+            transfer = captured.transfer
+            failure = failure or captured.failure
         try:
             output = self._consume_turn_output(turn_id)
         except RuntimeException as exc:
+            captured = self._capture(exc, turn_scope)
             if transfer is None:
-                transfer = self._capture(exc, turn_scope)
+                transfer = captured.transfer
+            failure = failure or captured.failure
         if output is not None and self._is_turn_end(transfer, turn_scope):
             transfer = None
         try:
-            summary, finish_transfer = self._finish_turn(turn_scope)
+            summary, finish_boundary = self._finish_turn(turn_scope)
         finally:
             self._set_active_scope(None)
-        if finish_transfer is not None and transfer is None:
-            transfer = finish_transfer
+        if finish_boundary is not None:
+            if transfer is None:
+                transfer = finish_boundary.transfer
+            failure = failure or finish_boundary.failure
         completion_committed = False
         if summary is not None:
             try:
                 self._completion_pipeline.run(
                     TurnCompletion(
                         summary=summary,
+                        business_day=business_day,
                         output=output,
                         exhausted=exhausted,
                     )
                 )
                 completion_committed = True
             except RuntimeException as exc:
+                captured = self._capture(exc, turn_scope)
                 if transfer is None:
-                    transfer = self._capture(exc, turn_scope)
-        if output is not None and completion_committed:
+                    transfer = captured.transfer
+                failure = failure or captured.failure
+        status, failure = self._outcome_status(
+            output=output,
+            completion_committed=completion_committed,
+            exhausted=exhausted,
+            stopped=stopped,
+            transfer=transfer,
+            failure=failure,
+        )
+        if status is TurnOutcomeStatus.ANSWERED and output is not None:
             self._emit(
                 turn_scope,
                 "turn.output",
@@ -172,6 +242,8 @@ class TurnRunner:
                     "metadata": output.metadata,
                 },
             )
+        else:
+            self._emit_non_answered(turn_scope, status=status, failure=failure)
         self._emit(
             turn_scope,
             "turn.completed",
@@ -179,7 +251,8 @@ class TurnRunner:
             "Turn completed.",
             {
                 "turn_id": turn_id,
-                "answered": output is not None,
+                "answered": status is TurnOutcomeStatus.ANSWERED,
+                "status": status.value,
                 "completion_committed": completion_committed,
                 "exhausted": exhausted,
                 "transfer_action": transfer.action.value if transfer is not None else None,
@@ -187,9 +260,12 @@ class TurnRunner:
         )
         return TurnOutcome(
             summary=summary,
+            business_day=business_day,
+            status=status,
             output=output,
             exhausted=exhausted,
             transfer=transfer,
+            failure=failure,
         )
 
     def _run_preparation(
@@ -197,8 +273,9 @@ class TurnRunner:
         *,
         turn_id: str,
         user_input: str,
+        business_day: BusinessDay,
         scope: RunScope,
-    ) -> RuntimeTransfer | None:
+    ) -> _TurnBoundary | None:
         turn_frame = scope.nearest(RunLevel.TURN)
         if turn_frame is None:
             raise self._loop_bridge.from_loop_error(
@@ -210,6 +287,7 @@ class TurnRunner:
                     TurnPreparationRequest(
                         turn_id=turn_id,
                         user_input=user_input,
+                        business_day=business_day,
                         scope=scope,
                     )
                 )
@@ -217,16 +295,18 @@ class TurnRunner:
                 self._context.complete_preparation()
                 return None
             except RuntimeTransferInterrupt as interrupt:
-                transfer = interrupt.transfer
+                boundary = self._from_interrupt(interrupt)
+                transfer = boundary.transfer
             except RuntimeException as exc:
-                transfer = self._capture(exc, scope)
+                boundary = self._capture(exc, scope)
+                transfer = boundary.transfer
 
             if transfer.target != turn_frame:
-                return transfer
+                return boundary
             if transfer.action is RuntimeTransferAction.RETRY:
                 continue
             if transfer.action is RuntimeTransferAction.END:
-                return transfer
+                return boundary
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError(
                     f"Unsupported Turn preparation transfer: {transfer}"
@@ -334,14 +414,14 @@ class TurnRunner:
     def _finish_turn(
         self,
         scope: RunScope,
-    ) -> tuple[TurnSummary | None, RuntimeTransfer | None]:
+    ) -> tuple[TurnSummary | None, _TurnBoundary | None]:
         try:
             return self._end_turn(), None
         except RuntimeException as exc:
             self._context.abort_turn()
             return None, self._capture(exc, scope)
 
-    def _capture(self, exc: RuntimeException, scope: RunScope) -> RuntimeTransfer:
+    def _capture(self, exc: RuntimeException, scope: RunScope) -> _TurnBoundary:
         result = self._trap.capture(exc, scope)
         self._emit(
             scope,
@@ -356,7 +436,79 @@ class TurnRunner:
         )
         for signal in result.signals:
             self._bus.emit(signal)
-        return result.transfer
+        return _TurnBoundary(
+            transfer=result.transfer,
+            failure=failure_from_runtime(exc),
+        )
+
+    @staticmethod
+    def _from_interrupt(interrupt: RuntimeTransferInterrupt) -> _TurnBoundary:
+        cause = interrupt.__cause__
+        failure = (
+            failure_from_runtime(cause)
+            if isinstance(cause, RuntimeException)
+            else None
+        )
+        return _TurnBoundary(transfer=interrupt.transfer, failure=failure)
+
+    def _outcome_status(
+        self,
+        *,
+        output: TurnOutput | None,
+        completion_committed: bool,
+        exhausted: bool,
+        stopped: bool,
+        transfer: RuntimeTransfer | None,
+        failure: TurnFailure | None,
+    ) -> tuple[TurnOutcomeStatus, TurnFailure | None]:
+        if output is not None and completion_committed:
+            return TurnOutcomeStatus.ANSWERED, None
+        if failure is not None:
+            return TurnOutcomeStatus.FAILED, failure
+        if exhausted:
+            return TurnOutcomeStatus.EXHAUSTED, None
+        if stopped or transfer is not None:
+            return TurnOutcomeStatus.STOPPED, None
+        return (
+            TurnOutcomeStatus.FAILED,
+            TurnFailure(
+                reason=RUNTIME_TURN_END,
+                message="Turn ended without an answer.",
+                module="loop",
+                kind=LoopFailureKind.INTERNAL_FAILURE.value,
+            ),
+        )
+
+    def _emit_non_answered(
+        self,
+        scope: RunScope,
+        *,
+        status: TurnOutcomeStatus,
+        failure: TurnFailure | None,
+    ) -> None:
+        payload: dict[str, object] = {"status": status.value}
+        if failure is not None:
+            payload.update(
+                {
+                    "reason": failure.reason,
+                    "module": failure.module,
+                    "kind": failure.kind,
+                }
+            )
+        messages = {
+            TurnOutcomeStatus.EXHAUSTED: "Turn exhausted its cycle limit.",
+            TurnOutcomeStatus.STOPPED: "Turn stopped before producing an answer.",
+            TurnOutcomeStatus.FAILED: (
+                failure.message if failure is not None else "Turn failed."
+            ),
+        }
+        self._emit(
+            scope,
+            f"turn.{status.value}",
+            ObservationLevel.NORMAL,
+            messages[status],
+            payload,
+        )
 
     def _emit(
         self,

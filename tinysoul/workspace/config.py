@@ -28,7 +28,7 @@ class WorkspaceSettings:
     """Workspace module settings."""
 
     root: Path
-    manifest_path: Path
+    manifest_path: Path = Path()
     trash_root: Path = Path()
     max_files: int = DEFAULT_MAX_FILES
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
@@ -36,45 +36,95 @@ class WorkspaceSettings:
     ignore_dirs: tuple[str, ...] = DEFAULT_IGNORE_DIRS
 
     def __post_init__(self) -> None:
+        if not isinstance(self.root, Path):
+            raise ConfigError(
+                "Workspace root must be a path",
+                key="workspace.root",
+                value=self.root,
+                expected="path",
+            )
+        if not isinstance(self.manifest_path, Path):
+            raise ConfigError(
+                "Workspace manifest_path must be a path",
+                key="workspace.manifest_path",
+                value=self.manifest_path,
+                expected="path",
+            )
+        if not isinstance(self.trash_root, Path):
+            raise ConfigError(
+                "Workspace trash_root must be a path",
+                key="workspace.trash_root",
+                value=self.trash_root,
+                expected="path",
+            )
+        if self.manifest_path == Path():
+            object.__setattr__(
+                self,
+                "manifest_path",
+                self.root / ".tinysoul" / "workspace_manifest.json",
+            )
         if self.trash_root == Path():
             object.__setattr__(
                 self,
                 "trash_root",
-                self.root.parent / f".{self.root.name}.trash",
+                self.root / ".tinysoul" / "trash",
             )
         root = self.root.resolve()
         trash_root = self.trash_root.resolve()
-        if (
-            root == trash_root
-            or root in trash_root.parents
-            or trash_root in root.parents
-        ):
+        if root == trash_root or root not in trash_root.parents:
             raise ConfigError(
-                "Workspace trash_root must not overlap the active workspace root",
+                "Workspace trash_root must be inside the active workspace root",
                 key="workspace.trash_root",
                 value=str(self.trash_root),
-                expected="non-overlapping path",
+                expected="path under workspace.root",
             )
-        if self.max_files <= 0:
+        manifest_path = self.manifest_path.resolve()
+        if root == manifest_path or root not in manifest_path.parents:
+            raise ConfigError(
+                "Workspace manifest_path must be inside the active workspace root",
+                key="workspace.manifest_path",
+                value=str(self.manifest_path),
+                expected="path under workspace.root",
+            )
+        if (
+            isinstance(self.max_files, bool)
+            or not isinstance(self.max_files, int)
+            or self.max_files <= 0
+        ):
             raise ConfigError(
                 "Workspace max_files must be positive",
                 key="workspace.max_files",
                 value=self.max_files,
                 expected="positive int",
             )
-        if self.max_read_chars <= 0:
+        if (
+            isinstance(self.max_read_chars, bool)
+            or not isinstance(self.max_read_chars, int)
+            or self.max_read_chars <= 0
+        ):
             raise ConfigError(
                 "Workspace max_read_chars must be positive",
                 key="workspace.max_read_chars",
                 value=self.max_read_chars,
                 expected="positive int",
             )
-        if self.max_image_bytes <= 0:
+        if (
+            isinstance(self.max_image_bytes, bool)
+            or not isinstance(self.max_image_bytes, int)
+            or self.max_image_bytes <= 0
+        ):
             raise ConfigError(
                 "Workspace max_image_bytes must be positive",
                 key="workspace.max_image_bytes",
                 value=self.max_image_bytes,
                 expected="positive int",
+            )
+        if not isinstance(self.ignore_dirs, tuple):
+            raise ConfigError(
+                "Workspace ignore_dirs must be a tuple",
+                key="workspace.ignore_dirs",
+                value=self.ignore_dirs,
+                expected="tuple[str, ...]",
             )
         for name in self.ignore_dirs:
             if not isinstance(name, str) or not name:
@@ -95,8 +145,6 @@ def parse_workspace_settings(
         tree,
         {
             "root",
-            "manifest_path",
-            "trash_root",
             "max_files",
             "max_read_chars",
             "max_image_bytes",
@@ -110,21 +158,8 @@ def parse_workspace_settings(
         default=project_root / "runtime" / "workspace",
         project_root=project_root,
     )
-    manifest_default = root / ".tinysoul" / "workspace_manifest.json"
     return WorkspaceSettings(
         root=root,
-        manifest_path=_optional_path(
-            tree,
-            "manifest_path",
-            default=manifest_default,
-            project_root=project_root,
-        ),
-        trash_root=_optional_path(
-            tree,
-            "trash_root",
-            default=project_root / "runtime" / "trash" / "workspace",
-            project_root=project_root,
-        ),
         max_files=_optional_int(tree, "max_files", default=DEFAULT_MAX_FILES),
         max_read_chars=_optional_int(
             tree,

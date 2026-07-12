@@ -31,6 +31,7 @@ from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopInvariantError
+from .outcomes import TurnFailure, failure_from_runtime
 from .phases import Phase1Outcome, Phase1Unit, Phase2Outcome, Phase2Unit, Phase3Outcome, Phase3Unit
 from .signals import LoopControlKind, consume_control_signal_requests
 
@@ -43,13 +44,23 @@ class CycleOutcome:
 
     cycle_id: str
     transfer: RuntimeTransfer | None = None
+    failure: TurnFailure | None = None
+    stopped: bool = False
 
 
 @dataclass(frozen=True)
 class _PhaseRun:
     value: object | None = None
     transfer: RuntimeTransfer | None = None
+    failure: TurnFailure | None = None
     ended: bool = False
+
+
+@dataclass(frozen=True)
+class _CycleBoundary:
+    transfer: RuntimeTransfer
+    failure: TurnFailure | None = None
+    stopped: bool = False
 
 
 class CycleRunner:
@@ -95,7 +106,12 @@ class CycleRunner:
         cycle_scope = scope.push(RunLevel.CYCLE, cycle_id)
         boundary = self._boundary(cycle_scope)
         if boundary is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=boundary.transfer,
+                failure=boundary.failure,
+                stopped=boundary.stopped,
+            )
 
         phase1_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value)
         self._emit_phase(phase1_scope, CyclePhase.PHASE1, started=True)
@@ -105,9 +121,13 @@ class CycleRunner:
         )
         self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)
         if phase1.transfer is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=phase1.transfer)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=phase1.transfer,
+                failure=phase1.failure,
+            )
         if phase1.ended:
-            return CycleOutcome(cycle_id=cycle_id)
+            return CycleOutcome(cycle_id=cycle_id, failure=phase1.failure)
         phase1_outcome = phase1.value
         if not isinstance(phase1_outcome, Phase1Outcome):
             raise self._loop_bridge.from_loop_error(
@@ -116,7 +136,12 @@ class CycleRunner:
 
         boundary = self._boundary(phase1_scope)
         if boundary is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=boundary.transfer,
+                failure=boundary.failure,
+                stopped=boundary.stopped,
+            )
 
         phase2_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value)
         self._emit_phase(phase2_scope, CyclePhase.PHASE2, started=True)
@@ -131,9 +156,13 @@ class CycleRunner:
         )
         self._emit_phase_result(phase2_scope, CyclePhase.PHASE2, phase2)
         if phase2.transfer is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=phase2.transfer)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=phase2.transfer,
+                failure=phase2.failure,
+            )
         if phase2.ended:
-            return CycleOutcome(cycle_id=cycle_id)
+            return CycleOutcome(cycle_id=cycle_id, failure=phase2.failure)
         phase2_outcome = phase2.value
         if not isinstance(phase2_outcome, Phase2Outcome):
             raise self._loop_bridge.from_loop_error(
@@ -142,7 +171,12 @@ class CycleRunner:
 
         boundary = self._boundary(phase2_scope)
         if boundary is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=boundary.transfer,
+                failure=boundary.failure,
+                stopped=boundary.stopped,
+            )
 
         phase3_scope = cycle_scope.push(RunLevel.PHASE, CyclePhase.PHASE3.value)
         self._emit_phase(phase3_scope, CyclePhase.PHASE3, started=True)
@@ -157,9 +191,13 @@ class CycleRunner:
         )
         self._emit_phase_result(phase3_scope, CyclePhase.PHASE3, phase3)
         if phase3.transfer is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=phase3.transfer)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=phase3.transfer,
+                failure=phase3.failure,
+            )
         if phase3.ended:
-            return CycleOutcome(cycle_id=cycle_id)
+            return CycleOutcome(cycle_id=cycle_id, failure=phase3.failure)
         phase3_outcome = phase3.value
         if not isinstance(phase3_outcome, Phase3Outcome):
             raise self._loop_bridge.from_loop_error(
@@ -168,7 +206,12 @@ class CycleRunner:
 
         boundary = self._boundary(phase3_scope)
         if boundary is not None:
-            return CycleOutcome(cycle_id=cycle_id, transfer=boundary)
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                transfer=boundary.transfer,
+                failure=boundary.failure,
+                stopped=boundary.stopped,
+            )
         return CycleOutcome(cycle_id=cycle_id)
 
     def _emit_phase(
@@ -231,29 +274,37 @@ class CycleRunner:
             try:
                 return _PhaseRun(value=phase())
             except RuntimeTransferInterrupt as interrupt:
-                transfer = interrupt.transfer
+                boundary = self._from_interrupt(interrupt)
+                transfer = boundary.transfer
                 if transfer.target != current:
-                    return _PhaseRun(transfer=transfer)
+                    return _PhaseRun(
+                        transfer=transfer,
+                        failure=boundary.failure,
+                    )
                 if transfer.action is RuntimeTransferAction.RETRY:
                     continue
                 if transfer.action is RuntimeTransferAction.END:
-                    return _PhaseRun(ended=True)
+                    return _PhaseRun(ended=True, failure=boundary.failure)
                 raise self._loop_bridge.from_loop_error(
                     LoopInvariantError(f"Unsupported phase transfer: {transfer}")
                 )
             except RuntimeException as exc:
-                transfer = self._capture(exc, scope)
+                boundary = self._capture(exc, scope)
+                transfer = boundary.transfer
                 if transfer.target != current:
-                    return _PhaseRun(transfer=transfer)
+                    return _PhaseRun(
+                        transfer=transfer,
+                        failure=boundary.failure,
+                    )
                 if transfer.action is RuntimeTransferAction.RETRY:
                     continue
                 if transfer.action is RuntimeTransferAction.END:
-                    return _PhaseRun(ended=True)
+                    return _PhaseRun(ended=True, failure=boundary.failure)
                 raise self._loop_bridge.from_loop_error(
                     LoopInvariantError(f"Unsupported phase transfer: {transfer}")
                 )
 
-    def _boundary(self, scope: RunScope) -> RuntimeTransfer | None:
+    def _boundary(self, scope: RunScope) -> _CycleBoundary | None:
         try:
             current_turn = scope.nearest(RunLevel.TURN)
             requests = tuple(
@@ -273,21 +324,27 @@ class CycleRunner:
                         payload={"source": "loop.control"},
                     ),
                     scope,
+                    failure=False,
                 )
             if any(request.kind is LoopControlKind.STOP_TURN for request in requests):
-                return self._capture(
+                boundary = self._capture(
                     RuntimeException(
                         reason=RUNTIME_TURN_END,
                         message="Turn stop requested.",
                         payload={"source": "loop.control"},
                     ),
                     scope,
+                    failure=False,
+                )
+                return _CycleBoundary(
+                    transfer=boundary.transfer,
+                    stopped=True,
                 )
         try:
             self._signal_consumer.consume(scope=scope)
             self._context.merge_pending_inputs()
         except RuntimeTransferInterrupt as interrupt:
-            return interrupt.transfer
+            return self._from_interrupt(interrupt)
         except RuntimeException as exc:
             return self._capture(exc, scope)
         except ContextError as exc:
@@ -297,8 +354,27 @@ class CycleRunner:
             )
         return None
 
-    def _capture(self, exc: RuntimeException, scope: RunScope) -> RuntimeTransfer:
+    def _capture(
+        self,
+        exc: RuntimeException,
+        scope: RunScope,
+        *,
+        failure: bool = True,
+    ) -> _CycleBoundary:
         result = self._trap.capture(exc, scope)
         for signal in result.signals:
             self._bus.emit(signal)
-        return result.transfer
+        return _CycleBoundary(
+            transfer=result.transfer,
+            failure=failure_from_runtime(exc) if failure else None,
+        )
+
+    @staticmethod
+    def _from_interrupt(interrupt: RuntimeTransferInterrupt) -> _CycleBoundary:
+        cause = interrupt.__cause__
+        failure = (
+            failure_from_runtime(cause)
+            if isinstance(cause, RuntimeException)
+            else None
+        )
+        return _CycleBoundary(transfer=interrupt.transfer, failure=failure)

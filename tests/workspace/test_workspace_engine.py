@@ -31,7 +31,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
-from tinysoul.loop import TurnPreparationRequest
+from tinysoul.loop import BusinessDay, TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
@@ -62,6 +62,9 @@ from tinysoul.workspace.actions import (
     WorkspaceScanExecutor,
     WorkspaceWriteExecutor,
 )
+
+
+DAY = BusinessDay.parse("2026-07-12")
 
 
 class FakeLLMRunner:
@@ -193,7 +196,6 @@ def test_workspace_reconcile_keeps_revision_when_disk_is_unchanged(
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
-
     first = engine.reconcile()
     second = engine.reconcile()
 
@@ -338,6 +340,7 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
             manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
         )
     ).build()
+    workspace.initialize_day(DAY)
     context = ContextEngineBuilder(system_text="system").build()
     turn_id = context.begin_turn("hello")
     scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
@@ -348,7 +351,12 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
     )
 
     for signal in handler.prepare(
-        TurnPreparationRequest(turn_id=turn_id, user_input="hello", scope=scope)
+        TurnPreparationRequest(
+            turn_id=turn_id,
+            user_input="hello",
+            business_day=DAY,
+            scope=scope,
+        )
     ):
         bus.emit(signal)
     assert context.consume_signals(bus) == ()
@@ -936,7 +944,8 @@ def test_workspace_manifest_v1_migrates_lifecycle_defaults() -> None:
         }
     )
 
-    assert manifest.schema_version == 2
+    assert manifest.schema_version == 3
+    assert manifest.day == ""
     assert manifest.resources[0].retention is WorkspaceRetention.DAY
     assert manifest.resources[0].owner_turn_id == ""
 

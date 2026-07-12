@@ -25,7 +25,7 @@ class SessionTurnPreparationHandler:
 
     def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         try:
-            snapshot = self._session.background_snapshot()
+            snapshot = self._session.background_snapshot(request.business_day)
         except SessionError as exc:
             raise self._runtime_bridge.from_session_error(exc) from exc
         return (
@@ -60,6 +60,7 @@ class SessionTurnCompletionHandler:
         try:
             self._session.record_turn(
                 summary=completion.summary,
+                day=completion.business_day,
                 output=output,
                 exhausted=completion.exhausted,
             )

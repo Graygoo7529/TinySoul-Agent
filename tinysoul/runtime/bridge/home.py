@@ -69,8 +69,10 @@ class RuntimeAgentHomeBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = AgentHomeFailureKind.INTERNAL_FAILURE
-        if isinstance(error, (AgentHomeContractError, AgentHomeInvariantError)):
+        if isinstance(error, AgentHomeContractError):
             kind = AgentHomeFailureKind.CONTRACT_VIOLATION
+        elif isinstance(error, AgentHomeInvariantError):
+            kind = AgentHomeFailureKind.INTERNAL_FAILURE
         elif isinstance(error, AgentHomeIOError):
             kind = AgentHomeFailureKind.IO_FAILED
         return self.from_exception(kind, error, payload=payload)

@@ -35,8 +35,13 @@ from .controls import (
     ControlResult,
     ControlResultStage,
 )
-from .errors import ContextContractError
+from .errors import ContextContractError, ContextInvariantError
 from .prompts import TaskPrompt
+from .providers import (
+    BackgroundCatalog,
+    BackgroundEntryProvider,
+    EmptyBackgroundEntryProvider,
+)
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_INPUT_APPEND,
@@ -162,14 +167,18 @@ class ContextEngine:
         composer: MessageStackComposer,
         compressor: ContextCompressor,
         background: BackgroundContext,
+        default_entries: tuple[BackgroundEntry, ...],
         loadable_entries: dict[str, BackgroundContentLoader],
+        background_provider: BackgroundEntryProvider,
         trace_recall_max_chars: int,
         compression_target_ratio: float,
     ) -> None:
         self._composer = composer
         self._compressor = compressor
         self._background = background
+        self._default_entries = tuple(default_entries)
         self._loadable_entries = dict(loadable_entries)
+        self._background_provider = background_provider
         self._trace_recall_max_chars = trace_recall_max_chars
         self._compression_target_ratio = compression_target_ratio
         self._scope_builder = ContextControlScopeBuilder()
@@ -221,9 +230,37 @@ class ContextEngine:
         self._trace = self._compressor.new_trace(self._turn_id)
         self._inputs = PendingInputs()
         self._inputs.add(user_input, merged=True)
+        self._background.reset_home()
         self._background.reset_session()
         self._preparing_turn = True
         return self._turn_id
+
+    def prepare_default_background(self) -> None:
+        """Load a complete default Home snapshot before the first Cycle."""
+
+        self._require_turn()
+        catalog = self._background_catalog()
+        entries = list(self._default_entries)
+        seen = {entry.link for entry in entries}
+        for link in catalog.default_links:
+            if link in seen:
+                raise ContextInvariantError(
+                    f"Duplicate static and dynamic default Background link: {link}"
+                )
+            content = self._background_provider.load(link)
+            if not content:
+                raise ContextInvariantError(
+                    f"Background provider returned empty content: {link}"
+                )
+            entries.append(
+                BackgroundEntry(
+                    link=link,
+                    content=content,
+                    source=BackgroundSource.DEFAULT,
+                )
+            )
+            seen.add(link)
+        self._background.reset_home(tuple(entries))
 
     def complete_preparation(self) -> None:
         self._require_turn()
@@ -241,13 +278,14 @@ class ContextEngine:
 
     def control_scope(self) -> ToolScope:
         self._require_turn()
+        loadable_links = self._all_loadable_links()
         loadable = tuple(
-            link for link in self._loadable_entries if not self._background.has(link)
+            link for link in loadable_links if not self._background.has(link)
         )
         evictable = tuple(
             link
             for link in self._background.links()
-            if link in self._loadable_entries
+            if link in loadable_links
         )
         return self._scope_builder.build(
             loadable_links=loadable,
@@ -528,7 +566,7 @@ class ContextEngine:
         patches = tuple(patch for _, _, _, patch in candidates)
         problems = self._background.check_patch_sequence(
             patches,
-            loadable_links=tuple(self._loadable_entries),
+            loadable_links=self._all_loadable_links(),
         )
         valid: list[BackgroundPatch] = []
         for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
@@ -595,7 +633,7 @@ class ContextEngine:
                     continue
                 content = prepared.get(link)
                 if content is None:
-                    content = self._loadable_entries[link].load()
+                    content = self._load_background(link)
                     if not content:
                         raise ContextContractError(
                             f"Background loader returned empty content: {link}"
@@ -605,6 +643,32 @@ class ContextEngine:
             for link in patch.evict_links:
                 loaded.discard(link)
         return prepared
+
+    def _background_catalog(self) -> BackgroundCatalog:
+        catalog = self._background_provider.catalog()
+        if not isinstance(catalog, BackgroundCatalog):
+            raise ContextInvariantError(
+                "Background provider returned an invalid catalog"
+            )
+        duplicates = set(self._loadable_entries) & set(catalog.loadable_links)
+        if duplicates:
+            raise ContextInvariantError(
+                f"Duplicate static and dynamic Background link: {sorted(duplicates)[0]}"
+            )
+        return catalog
+
+    def _all_loadable_links(self) -> tuple[str, ...]:
+        catalog = self._background_catalog()
+        return (*self._loadable_entries, *catalog.loadable_links)
+
+    def _load_background(self, link: str) -> str:
+        loader = self._loadable_entries.get(link)
+        if loader is not None:
+            return loader.load()
+        catalog = self._background_catalog()
+        if link not in catalog.loadable_links:
+            raise ContextInvariantError(f"Unknown Background link: {link}")
+        return self._background_provider.load(link)
 
     def _apply_background_patch(
         self,
@@ -695,6 +759,9 @@ class ContextEngineBuilder:
         self._compression_target_ratio = 0.80
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
+        self._background_provider: BackgroundEntryProvider = (
+            EmptyBackgroundEntryProvider()
+        )
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
         self._journal = journal
@@ -792,11 +859,21 @@ class ContextEngineBuilder:
         self._loadable_entries[link] = loader
         return self
 
+    def with_background_provider(
+        self,
+        provider: BackgroundEntryProvider,
+    ) -> "ContextEngineBuilder":
+        if not hasattr(provider, "catalog") or not hasattr(provider, "load"):
+            raise ContextContractError(
+                "Background provider must provide catalog() and load()"
+            )
+        self._background_provider = provider
+        return self
+
     def build(self) -> ContextEngine:
         background = BackgroundContext(journal=self._journal)
         loadable = dict(self._loadable_entries)
         for entry in self._default_entries:
-            background.load(entry)
             # Default entries are evictable and reloadable like Phase1-loaded ones.
             loadable.setdefault(
                 entry.link,
@@ -816,7 +893,9 @@ class ContextEngineBuilder:
                 min_hot_entries=self._trace_min_hot_entries,
             ),
             background=background,
+            default_entries=tuple(self._default_entries),
             loadable_entries=loadable,
+            background_provider=self._background_provider,
             trace_recall_max_chars=self._trace_recall_max_chars,
             compression_target_ratio=self._compression_target_ratio,
         )

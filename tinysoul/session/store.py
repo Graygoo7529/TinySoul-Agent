@@ -19,10 +19,13 @@ from .models import SessionHistoryKind, SessionManifest, SessionRecord
 
 
 class SessionStore:
-    def __init__(self, *, root: Path, archive_root: Path) -> None:
+    def __init__(self, *, root: Path) -> None:
         self._root = root
-        self._archive_root = archive_root
         self._manifest_path = root / "manifest.json"
+
+    @property
+    def root(self) -> Path:
+        return self._root
 
     def load_active_manifest(self) -> SessionManifest | None:
         if not self._manifest_path.exists():
@@ -127,15 +130,14 @@ class SessionStore:
         except FilesystemBoundaryError as exc:
             raise SessionContractError(f"Invalid Session history ref: {ref}") from exc
 
-    def archive(self, day: str) -> None:
-        target = self._archive_root / day
+    def archive_to(self, target: Path) -> None:
         if target.exists():
             raise SessionIOError(f"Session archive already exists: {target}")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(self._root, target)
         except OSError as exc:
-            raise SessionIOError(f"Failed to archive Session day {day}: {exc}") from exc
+            raise SessionIOError(f"Failed to archive Session: {exc}") from exc
 
     @staticmethod
     def _read_object(path: Path, *, label: str) -> JsonObject:

@@ -2,15 +2,15 @@
 
 ## 状态
 
-本文描述 Agent Home 模块的当前设计。代码已包含独立 Agent Home 模块，并完成 `home:` 链接解析、默认和可加载背景条目、`home:agent@core` 加载、`home:how_domain:<domain>` domain HOW 注入、`home:how_action:<domain>/<action>` action HOW 注入、运行时副本准备、`home.resource.read` action 和 Runtime bridge/trap handler 接入。
+本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态顶层目录、`home:agent@core`、domain/action HOW、历史 MEMORY 原始读取旁路、带 operation recovery 的当日 overlay、渐进资源 read/write/patch/delete、Runtime copy Trap 和显式日生命周期。
 
-当前实现覆盖 Agent Home 的背景加载、domain/action HOW 注入、渐进式只读资源和 runtime home 缺页式副本准备切面。顶层内容和渐进式资源在读取时都以 runtime 副本为读取位置；当运行期边界发现副本缺失时，通过 `HOME_RUNTIME_COPY_REQUIRED` 进入 Trap，准备副本后重试当前 frame。资源写入、patch、检索、当日 memory 草稿、HOW 使用反馈和每日沉淀仍未实现，后续应继续在 Agent Home 模块内扩展。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；历史 MEMORY 始终读取 original，不进入当日镜像。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到 overlay；日切把完整镜像归档并留下 settlement pending，不直接写回 original。top search、memory append、HOW feedback 和 settlement plan/review/apply 仍未实现。
 
 ## 定位
 
 Agent Home 模块负责 TinySoul 的持久化语境资源，包括身份规约、用户偏好、知识、技能、行动域 HOW 和长期记忆。它是 `home:` 链接的唯一语义归属方。
 
-Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，不执行模型供应商调用，也不管理 workspace 文件。它向 Context 提供可加载的顶层背景内容，向 Loop 提供 domain HOW provider，向 Action 内部 LLM task 提供 action HOW provider，当前向 Action 提供 home 资源读取动作，并通过 Runtime 恢复例程维护当日 runtime home 副本。Home 编辑动作仍待实现。
+Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，不执行模型供应商调用，也不管理 workspace 文件。它向 Context 提供动态顶层目录与内容 provider，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供渐进资源读写门面。跨模块日切调度属于 Loop，Home 只负责自身 active day、overlay reconciliation 和 runtime root 归档。
 
 ## 设计目标
 
@@ -91,14 +91,18 @@ home/
 
 runtime/
   home/
+    .tinysoul/
+      home_overlay.json
+      operations/
     agent/
     what/
     why/
     how/
     how_domain/
     how_action/
-    this_day_memory.md
 ```
+
+`runtime/home` 只包含当日实际物化或创建的非 MEMORY 文件，不预建完整目录树；上图中的内容目录均为按需出现。历史 `home/memory/*.md` 不复制到 runtime。
 
 顶层内容映射建议：
 
@@ -121,7 +125,7 @@ Agent Home 分为原始 home 和当日 runtime home：
 - runtime home 是当日懒加载副本，运行期可写；
 - 每日沉淀任务比较 runtime home 与原始 home 的差异，再决定合并、丢弃或生成记忆。
 
-当某个顶层内容或渐进式资源被加载到运行期时，Agent Home 应确保 runtime home 中存在对应副本，并从 runtime home 读取。语义检索这类候选发现可以只读取原始 home；一旦链接内容进入 BackgroundContext、domain HOW 或 action result，就按链接建立 runtime 副本。可写操作必须落在 runtime home。
+当非 MEMORY 顶层内容或渐进式资源被加载到运行期时，Agent Home 确保 runtime home 中存在对应副本，并从 runtime home 读取。历史 MEMORY 是明确例外：它直接读取 original，旧记忆不复制到当日镜像。语义检索可以只读取 effective metadata；一旦非 MEMORY 链接正文进入 BackgroundContext、HOW 或 action result，就按链接建立 runtime record。可写操作只能落在 runtime home。
 
 运行时副本准备有两种入口：
 
@@ -130,21 +134,21 @@ Agent Home 分为原始 home 和当日 runtime home：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现提供显式 `ensure_runtime_copy`、Trap handler、`AgentHomeRuntimeCopyRecovery` 和 `HomeBackgroundContentLoader`。启动装配只通过 recovery 物化默认 `home:agent@core`；其它可加载背景只枚举链接并注册 loader，不读取正文、不创建副本。Phase1 实际加载时，loader 在 Context 的事务批次和 Module frame 内读取 runtime home；缺页映射为 `HOME_RUNTIME_COPY_REQUIRED`，Trap 创建副本后重试同一批次。domain/action HOW 与渐进式 action read 复用相同缺页语义。副本通过 runtime 目标同目录临时文件流式复制、flush/fsync 后原子 replace，读取方不会观察半份内容；原始根和 runtime 根禁止相同或互相嵌套，目标路径始终重新约束在 runtime root 内。
+当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete、reconciliation 和 archive。Manifest 每条记录包含 relative path、`copied/created/modified/deleted` state、original baseline digest、runtime digest、size 与 mtime；所有持久 schema 带版本。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation。若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚；Manifest 已提交但 operation 未清理也可幂等收尾。未由 operation 记录的 runtime 文件在初始化或 reconciliation 时收养为 overlay record，symlink 和丢失的 modified/created 内容显式失败。
 
-runtime copy manager 以进程内锁串行化同一目标，并记住已经物化的目标。已经物化的副本若随后消失或变成非普通文件，视为 I/O 不变量失败，不从 original home 静默重建覆盖运行期状态。runtime copy handler 只在副本成功建立时重试当前 frame；启动 recovery 对同一 link 最多处理一次缺页，链接失效、源文件消失、复制失败或重试后仍缺页时结束最近 Turn（启动阶段结束 Program），避免不可恢复缺页形成无上限重试。
+Overlay manager 使用进程内 `RLock` 串行化同一 Engine 的读写。纯 `copied` 文件丢失且 original 仍等于 baseline 时可以确定性重建；modified/created 文件丢失、original baseline 已变化、tombstone 路径重现或 Manifest/operation 状态歧义均属于不变量失败。runtime copy handler 只有在调用前 runtime 文件确实缺失、调用后完成物化时才返回一次 RETRY；文件已经存在却再次请求缺页时直接结束最近 Turn，避免无上限重试。
 
 原始 Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@core` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
 
 ## BackgroundContext 接入
 
-Agent Home 向 Context 提供背景条目，而不是让 Context 读文件。建议定义背景条目提供协议，返回：
+Agent Home 通过 `HomeBackgroundEntryProvider` 向 Context 提供背景目录与正文，而不是让 Context 读文件。provider 每次返回：
 
 - 默认加载条目；
 - 可由 Phase1 加载的顶层条目；
 - 每个条目的 `home:*@` 链接和渲染文本。
 
-ContextEngineBuilder 可以继续接收静态 `link + content`，但内容来源应由 Agent Home 门面生成。后续若要支持按 Turn 动态 top-k 语义匹配，仍应由 Agent Home 先解析为顶层条目，再交给 Context。
+`ContextEngine.begin_turn` 会清空上一 Turn 的 Home Background；`ContextTurnPreparationHandler` 在首个 Cycle 前重新读取 provider catalog 并原子加载默认 core。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须先进入 Session 或 original/当日 Home 持久事实。静态 `link + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
 
 Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。模型选择顶层链接后，Context 通过已注入的 Home loader 获取文本，不解释 Home 路径；loader 触发的 runtime copy 对模型、ControlResult 和最终 Context 状态透明。
 
@@ -165,20 +169,23 @@ HOW prompt mount 是可选内容：对应源文件不存在时 provider 返回�
 当前已实现的 action：
 
 - `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本文本前缀，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。读取实现只读取上限后的一个额外字符来判断截断，不先把完整文件读入内存。
+- `home.resource.write`：在当日 overlay 创建 runtime-only 文本，或在显式 `overwrite` 和可选 `expected_digest` 前置条件下替换 effective 内容；
+- `home.resource.patch`：对 effective UTF-8 文本执行唯一 `old_text` 精确替换，校验 digest 与完整结果的 `max_write_chars`；
+- `home.resource.delete`：写入 tombstone 隐藏当日资源，不删除 original。
 
 后续可设计的 action：
 
-- `home.resource.write`：写入 runtime home 副本；
-- `home.resource.patch`：按结构化 patch 修改资源；
 - `home.top.search`：按 WHAT、WHY、HOW、MEMORY 检索候选顶层链接；
 - `home.memory.append`：向当日 memory 草稿追加候选记忆；
 - `home.how.record_feedback`：更新 HOW 包的当日使用反馈。
 
-这些 action 不应默认把长文件内容写入 TurnTraceHeap。读取长内容时应提供大小限制、片段读取和摘要策略；写入结果应返回变更摘要和资源链接。
+普通渐进资源冲突和 patch 不适用收敛为局部 ActionResult；overlay 图损坏等不变量经 Home bridge 进入 Runtime，不降级为普通模型反馈。成功修改只返回 link、state、digest、baseline digest 和 size，不返回完整新正文。顶层 WHAT/WHY/HOW/MEMORY 的修改留给后续专用 action 或 settlement，不能伪装为渐进资源写入。
 
 ## 每日记忆与沉淀
 
 每日沉淀是与用户 Turn 同级的维护任务，不属于普通 User Turn 内的 Phase 主链路。
+
+当前日切只执行确定性冻结：`HomeOverlayManager.archive_day` 在完整 reconciliation 后把 `runtime/home` 移入跨模块 pending archive，随后由 coordinator 创建带新 business day 的空 overlay。归档的 `transition.json` 标记 `settlement_status = pending`；夜间后台 Agent、启动时检测或用户命令可以在以后消费该事实。日切本身不调用 LLM，也不写 original Home。
 
 沉淀任务输入：
 
@@ -232,6 +239,7 @@ tinysoul/home/
   config.py
   links.py
   layout.py
+  overlay.py
   runtime_copy.py
   guidance.py
   actions.py
@@ -239,12 +247,12 @@ tinysoul/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是上层唯一门面，提供链接解析、顶层背景条目、渐进式资源访问、runtime copy 和 domain/action HOW。`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录、装配布局和 runtime copy manager。每日沉淀资源操作尚未落地，后续可在 `settlement.py` 或更明确的维护任务模块中加入。
+`AgentHomeEngine` 是上层唯一门面，提供链接解析、动态顶层目录、渐进式资源访问与修改、business day、runtime copy、archive 和 domain/action HOW。`HomeOverlayManager` 是当日镜像唯一状态持有者；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配布局与 overlay。每日沉淀资源操作尚未落地，后续可在 `settlement.py` 或更明确的维护任务模块中加入。
 
 AppBuilder 的目标职责是：
 
 1. 构建 AgentHomeEngine；
-2. 将默认 core 内容和其它 top-level link 的 lazy loader 交给 ContextEngineBuilder；
+2. 将 `HomeBackgroundEntryProvider` 交给 ContextEngineBuilder，不在启动时读取或物化 core；
 3. 将 HomeDomainHowProvider 注入 Phase2Unit，并将 HomeActionHowProvider 注入 LLM action executor；
 4. 将 Home action handler 注册到 ActionEngineBuilder；
 5. 注册 home runtime copy Trap handler；
@@ -259,11 +267,12 @@ AppBuilder 的目标职责是：
 - `DomainHowProvider` 能从 `home:how_domain:domain` 获取 domain HOW；`ActionHowProvider` 能从 `home:how_domain:domain` 与 `home:how_action:<domain>/<action>` 获取 domain/action HOW；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
-- 启动期仅通过 `AgentHomeRuntimeCopyRecovery` 准备默认 core；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
+- 每个 User Turn 的 preparation 通过动态 provider 重建默认 core；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
 - `home:agent@core` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
-- `home.resource.read` 不写入 BackgroundContext，并返回有界文本；
+- `home.resource.read` 不写入 BackgroundContext，并返回有界文本；write/patch/delete 只修改当日 overlay，original 保持零写入；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；
-- 每日沉淀只作为独立维护任务接入，不改变普通 User Turn 的三阶段主流程。
+- MEMORY 读取不创建 runtime copy；runtime-only 内容、tombstone 和 operation recovery 在重启后保持；
+- 日切归档只冻结 runtime Home 并标记 settlement pending，不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点包括：home 写入/patch action、top search、memory append、HOW 使用反馈和 daily settlement。
+仍需补充的验收点包括：top search、memory append、HOW 使用反馈和 settlement plan/review/apply。

@@ -30,6 +30,8 @@ from .errors import (
     ContextInvariantError,
 )
 from .prompts import PromptBlock, TaskPrompt
+from .preparation import ContextTurnPreparationHandler
+from .providers import BackgroundCatalog, BackgroundEntryProvider
 from .references import PromptReferenceError, PromptReferenceResolver
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
@@ -54,6 +56,8 @@ from .compress import ContextPressureReport
 __all__ = [
     "ContextBudgetReport",
     "BackgroundContentLoader",
+    "BackgroundCatalog",
+    "BackgroundEntryProvider",
     "CONTROL_EVICT_BACKGROUND",
     "CONTROL_LOAD_BACKGROUND",
     "CONTROL_UPDATE_WORKING",
@@ -68,6 +72,7 @@ __all__ = [
     "ContextSection",
     "ContextSectionUsage",
     "ContextPressureReport",
+    "ContextTurnPreparationHandler",
     "ControlNormalization",
     "ControlResult",
     "ControlResultStage",

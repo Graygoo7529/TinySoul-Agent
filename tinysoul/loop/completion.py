@@ -7,6 +7,8 @@ from typing import Protocol
 
 from tinysoul.context import TurnSummary
 
+from .day import BusinessDay
+from .errors import LoopContractError
 from .signals import TurnOutput
 
 
@@ -15,8 +17,17 @@ class TurnCompletion:
     """Stable data passed to ordered post-Turn services such as Session."""
 
     summary: TurnSummary
+    business_day: BusinessDay
     output: TurnOutput | None = None
     exhausted: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.business_day, BusinessDay):
+            raise LoopContractError(
+                "TurnCompletion.business_day must be a BusinessDay"
+            )
+        if not isinstance(self.exhausted, bool):
+            raise LoopContractError("TurnCompletion.exhausted must be a boolean")
 
 
 class TurnCompletionHandler(Protocol):

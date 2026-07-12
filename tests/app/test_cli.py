@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from tinysoul.app import AppSettings, OutputSettings
 from tinysoul.app import cli
+from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.runtime import ObservationLevel
 
 
@@ -20,11 +22,16 @@ class _FakeConfig:
 
 
 class _FakeApp:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        status: TurnOutcomeStatus = TurnOutcomeStatus.ANSWERED,
+    ) -> None:
         self.once_inputs: list[str] = []
+        self.status = status
 
-    def run_once(self, user_input: str) -> None:
+    def run_once(self, user_input: str):
         self.once_inputs.append(user_input)
+        return SimpleNamespace(status=self.status)
 
 
 class _FakeBuilder:
@@ -82,3 +89,19 @@ def test_cli_once_uses_config_overrides_and_console_sink(
     }
     assert builder.sink_max_chars == 321
     assert app.once_inputs == ["hello"]
+
+
+def test_cli_once_returns_nonzero_without_final_answer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _FakeApp(TurnOutcomeStatus.EXHAUSTED)
+    builder = _FakeBuilder(tmp_path, app)
+    monkeypatch.setattr(
+        cli.ConfigEnvironment,
+        "from_project_root",
+        lambda root, *, overrides: _FakeConfig(),
+    )
+    monkeypatch.setattr(cli, "TinySoulAppBuilder", lambda root: builder)
+
+    assert cli.main(["--root", str(tmp_path), "--once", "hello"]) == 1

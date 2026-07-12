@@ -14,7 +14,11 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
-from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
+from .errors import (
+    AgentHomeError,
+    AgentHomeInvariantError,
+    AgentHomeRuntimeCopyRequired,
+)
 
 
 def register_home_actions(
@@ -25,10 +29,23 @@ def register_home_actions(
 ) -> ActionEngineBuilder:
     """Register Agent Home action executors on an action builder."""
 
-    return builder.register_executor(
+    builder.register_executor(
         "home.resource.read",
         HomeResourceReadExecutor(home, runtime_bridge=runtime_bridge),
     )
+    builder.register_executor(
+        "home.resource.write",
+        HomeResourceWriteExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.resource.patch",
+        HomeResourcePatchExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.resource.delete",
+        HomeResourceDeleteExecutor(home, runtime_bridge),
+    )
+    return builder
 
 
 class HomeResourceReadExecutor(ActionExecutor):
@@ -73,6 +90,8 @@ class HomeResourceReadExecutor(ActionExecutor):
                 link=exc.link,
                 payload=exc.to_payload(),
             ) from exc
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
         except AgentHomeError as exc:
             return self._failed(
                 execution,
@@ -90,6 +109,7 @@ class HomeResourceReadExecutor(ActionExecutor):
                 "link": result.link,
                 "text": result.text,
                 "truncated": result.truncated,
+                "digest": result.digest,
             },
         )
 
@@ -110,3 +130,186 @@ class HomeResourceReadExecutor(ActionExecutor):
             model_feedback=model_feedback,
             frame_data=frame_data,
         )
+
+
+class HomeResourceWriteExecutor(ActionExecutor):
+    """Create or replace a progressive resource in today's Home overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        text = execution.call.params.get("text")
+        overwrite = execution.call.params.get("overwrite", False)
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(link, str) or not link or not isinstance(text, str):
+            return _failed(
+                execution,
+                "home.resource.write requires non-empty 'link' and string 'text'.",
+                {"reason": "invalid_parameters"},
+            )
+        if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "home.resource.write overwrite/expected_digest parameters are invalid.",
+                {"reason": "invalid_precondition"},
+            )
+        try:
+            result = self._home.write_resource(
+                link,
+                text,
+                overwrite=overwrite,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home resource write failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomeResourcePatchExecutor(ActionExecutor):
+    """Apply one deterministic exact replacement to today's Home overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        old_text = execution.call.params.get("old_text")
+        new_text = execution.call.params.get("new_text")
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if (
+            not isinstance(link, str)
+            or not link
+            or not isinstance(old_text, str)
+            or not old_text
+            or not isinstance(new_text, str)
+            or not isinstance(expected_digest, str)
+        ):
+            return _failed(
+                execution,
+                "home.resource.patch parameters are invalid.",
+                {"reason": "invalid_parameters"},
+            )
+        try:
+            result = self._home.patch_resource(
+                link,
+                old_text=old_text,
+                new_text=new_text,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home resource patch failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomeResourceDeleteExecutor(ActionExecutor):
+    """Tombstone a progressive resource in today's Home overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(link, str) or not link or not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "home.resource.delete parameters are invalid.",
+                {"reason": "invalid_parameters"},
+            )
+        try:
+            result = self._home.delete_resource(
+                link,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home resource delete failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+def _mutation_success(execution: ActionExecution, result: object) -> ActionResult:
+    from .engine import HomeResourceMutation
+
+    if not isinstance(result, HomeResourceMutation):
+        raise AgentHomeInvariantError(
+            "Home mutation executor received an invalid result"
+        )
+    return ActionResult.success(
+        call_id=execution.call.call_id,
+        invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id,
+        action_name=execution.call.action_name,
+        sequence=execution.call.sequence,
+        domain=execution.framework.domain,
+        payload={
+            "link": result.link,
+            "state": result.state.value,
+            "digest": result.digest,
+            "baseline_digest": result.baseline_digest,
+            "size": result.size,
+        },
+    )
+
+
+def _failed(
+    execution: ActionExecution,
+    model_feedback: str,
+    frame_data: JsonObject,
+) -> ActionResult:
+    return ActionResult.failed(
+        call_id=execution.call.call_id,
+        invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id,
+        action_name=execution.call.action_name,
+        stage=ActionResultStage.EXECUTE,
+        sequence=execution.call.sequence,
+        domain=execution.framework.domain,
+        model_feedback=model_feedback,
+        frame_data=frame_data,
+    )

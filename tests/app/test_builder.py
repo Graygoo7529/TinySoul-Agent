@@ -99,12 +99,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
     (workspace_root / "doc.md").write_text("hello", encoding="utf-8")
     config = _test_config(
         tmp_path,
-        {
-            "workspace.root": str(workspace_root),
-            "workspace.manifest_path": str(
-                workspace_root / ".tinysoul" / "manifest.json"
-            ),
-        },
+        {"workspace.root": str(workspace_root)},
     )
     app = (
         TinySoulAppBuilder()
@@ -268,15 +263,12 @@ def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
-    manifest_path = workspace_root / ".tinysoul" / "manifest.json"
+    manifest_path = workspace_root / ".tinysoul" / "workspace_manifest.json"
     manifest_path.parent.mkdir(parents=True)
     manifest_path.write_text("not-json", encoding="utf-8")
     config = _test_config(
         tmp_path,
-        {
-            "workspace.root": str(workspace_root),
-            "workspace.manifest_path": str(manifest_path),
-        },
+        {"workspace.root": str(workspace_root)},
     )
 
     with pytest.raises(RuntimeException) as raised:

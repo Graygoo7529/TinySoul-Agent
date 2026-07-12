@@ -69,6 +69,7 @@ def test_turn_lifecycle_and_compose() -> None:
     assert turn_id
     with pytest.raises(ContextContractError):
         engine.begin_turn("again")
+    engine.prepare_default_background()
 
     stack = engine.compose(_prompt("Phase one."))
     labels = [message.label for message in stack.messages]
@@ -333,6 +334,35 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     results = engine.consume_signals(bus)
 
     assert results == ()
+    assert engine.background_links() == ("home:agent@core",)
+
+
+def test_home_background_is_rebuilt_for_each_user_turn() -> None:
+    engine = _engine()
+    first_turn = engine.begin_turn("first")
+    engine.prepare_default_background()
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=_scope(first_turn),
+            payload={
+                "call_id": "load_x",
+                "load_links": ["home:what@x"],
+                "evict_links": [],
+            },
+        )
+    )
+
+    assert engine.consume_signals(bus) == ()
+    assert engine.background_links() == ("home:agent@core", "home:what@x")
+    engine.complete_preparation()
+    engine.end_turn()
+
+    engine.begin_turn("second")
+    assert engine.background_links() == ()
+    engine.prepare_default_background()
     assert engine.background_links() == ("home:agent@core",)
 
 

@@ -148,7 +148,8 @@ class WorkspaceResourceRecord:
 class WorkspaceManifest:
     """Current workspace resource index."""
 
-    schema_version: int = 2
+    day: str = ""
+    schema_version: int = 3
     revision: int = 0
     resources: tuple[WorkspaceResourceRecord, ...] = field(default_factory=tuple)
 
@@ -156,11 +157,13 @@ class WorkspaceManifest:
         if (
             isinstance(self.schema_version, bool)
             or not isinstance(self.schema_version, int)
-            or self.schema_version != 2
+            or self.schema_version != 3
         ):
             raise WorkspaceContractError(
-                "Workspace manifest schema_version must be 2"
+                "Workspace manifest schema_version must be 3"
             )
+        if not isinstance(self.day, str):
+            raise WorkspaceContractError("Workspace manifest day must be a string")
         if (
             isinstance(self.revision, bool)
             or not isinstance(self.revision, int)
@@ -178,6 +181,7 @@ class WorkspaceManifest:
     def to_json(self) -> JsonObject:
         return {
             "schema_version": self.schema_version,
+            "day": self.day,
             "revision": self.revision,
             "resources": [resource.to_json() for resource in self.resources],
         }
@@ -195,6 +199,7 @@ class WorkspaceManifest:
                 )
             resources.append(WorkspaceResourceRecord.from_json(to_json_object(item)))
         return cls(
+            day=_optional_str(value, "day"),
             schema_version=_schema_version(value),
             revision=_optional_non_negative_int(value, "revision"),
             resources=tuple(resources),
@@ -270,6 +275,8 @@ def _optional_non_negative_int(value: JsonObject, name: str) -> int:
 
 def _schema_version(value: JsonObject) -> int:
     item = value.get("schema_version", 1)
-    if isinstance(item, bool) or not isinstance(item, int) or item not in {1, 2}:
-        raise WorkspaceContractError("Workspace manifest schema_version must be 1 or 2")
-    return 2
+    if isinstance(item, bool) or not isinstance(item, int) or item not in {1, 2, 3}:
+        raise WorkspaceContractError(
+            "Workspace manifest schema_version must be 1, 2, or 3"
+        )
+    return 3

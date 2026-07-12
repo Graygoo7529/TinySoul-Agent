@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
 from hashlib import sha256
+from pathlib import Path
 from threading import RLock
 
 from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.loop.day import BusinessDay
 
 from .config import SessionSettings
 from .errors import SessionContractError, SessionInvariantError
@@ -34,34 +35,75 @@ class SessionEngine:
         self._lock = RLock()
         self._store = store or SessionStore(
             root=settings.root,
-            archive_root=settings.archive_root,
         )
+        if self._store.root.resolve() != settings.root.resolve():
+            raise SessionContractError(
+                "Session store root must match Session settings root"
+            )
         self._reconciler = SessionReconciler(self._store)
-        today = date.today().isoformat()
-        active = self._store.load_active_manifest()
-        self._manifest = active or self._store.create_manifest(today)
-        self._last_reconcile_result = self._reconcile_current()
-        if self._manifest.day != today:
-            self._store.archive(self._manifest.day)
-            self._manifest = self._store.create_manifest(today)
-            self._last_reconcile_result = SessionReconcileResult(revision=0)
+        self._manifest = self._store.load_active_manifest()
+        self._last_reconcile_result = SessionReconcileResult(revision=0)
+        if self._manifest is not None:
+            self._last_reconcile_result = self._reconcile_current()
+
+    @property
+    def root(self) -> Path:
+        return self._settings.root
+
+    @property
+    def active_day(self) -> BusinessDay | None:
+        with self._lock:
+            if self._manifest is None:
+                return None
+            return BusinessDay.parse(self._manifest.day)
 
     @property
     def revision(self) -> int:
         with self._lock:
-            return self._manifest.revision
+            return self._manifest.revision if self._manifest is not None else 0
 
     @property
     def last_reconcile_result(self) -> SessionReconcileResult:
         with self._lock:
             return self._last_reconcile_result
 
-    def background_snapshot(self) -> SessionBackgroundSnapshot:
+    def initialize_day(self, day: BusinessDay) -> None:
         with self._lock:
-            self._ensure_today()
+            if not isinstance(day, BusinessDay):
+                raise SessionContractError("Session day must be a BusinessDay")
+            if self._manifest is not None:
+                self._require_day(day)
+                self._last_reconcile_result = self._reconcile_current()
+                return
+            self._manifest = self._store.create_manifest(str(day))
+            self._last_reconcile_result = SessionReconcileResult(revision=0)
+
+    def archive_day(self, day: BusinessDay, *, target: Path) -> None:
+        with self._lock:
+            self._require_day(day)
+            self._last_reconcile_result = self._reconcile_current()
+            self._store.archive_to(target)
+            self._manifest = None
+            self._last_reconcile_result = SessionReconcileResult(revision=0)
+
+    def reconcile_active(self) -> SessionReconcileResult:
+        with self._lock:
+            if self._manifest is None:
+                return SessionReconcileResult(revision=0)
+            self._last_reconcile_result = self._reconcile_current()
+            return self._last_reconcile_result
+
+    def background_snapshot(
+        self,
+        day: BusinessDay,
+    ) -> SessionBackgroundSnapshot:
+        with self._lock:
+            self._require_day(day)
+            self._last_reconcile_result = self._reconcile_current()
+            manifest = self._require_manifest()
             items = self._bounded_background_items()
             return SessionBackgroundSnapshot(
-                revision=self._manifest.revision,
+                revision=manifest.revision,
                 items=tuple(
                     SessionBackgroundItem(item_id=item.item_id, content=item.background)
                     for item in items
@@ -74,9 +116,11 @@ class SessionEngine:
         summary: TurnSummary,
         output: JsonObject | None,
         exhausted: bool,
+        day: BusinessDay,
     ) -> None:
         with self._lock:
-            self._ensure_today()
+            self._require_day(day)
+            manifest = self._require_manifest()
             ref = f"session:turn/{summary.turn_id}"
             background = _turn_background(
                 summary,
@@ -91,7 +135,7 @@ class SessionEngine:
                     ref=ref,
                     kind=SessionHistoryKind.TURN,
                     content={
-                        "day": self._manifest.day,
+                        "day": manifest.day,
                         "background": background,
                         "completion": summary.to_json(),
                         "output": output,
@@ -103,11 +147,12 @@ class SessionEngine:
 
     def inspect_history(self) -> JsonObject:
         with self._lock:
-            self._ensure_today()
+            self._last_reconcile_result = self._reconcile_current()
+            manifest = self._require_manifest()
             return {
-                "revision": self._manifest.revision,
-                "day": self._manifest.day,
-                "estimated_chars": sum(item.char_count for item in self._manifest.items),
+                "revision": manifest.revision,
+                "day": manifest.day,
+                "estimated_chars": sum(item.char_count for item in manifest.items),
                 "items": [
                     {
                         "item_id": item.item_id,
@@ -116,7 +161,7 @@ class SessionEngine:
                         "char_count": item.char_count,
                         "child_refs": list(item.child_refs),
                     }
-                    for item in self._manifest.items
+                    for item in manifest.items
                 ],
             }
 
@@ -128,7 +173,8 @@ class SessionEngine:
         cursor: int = 0,
     ) -> JsonObject:
         with self._lock:
-            self._ensure_today()
+            self._require_manifest()
+            self._last_reconcile_result = self._reconcile_current()
             requested = self._settings.recall_max_chars if max_chars is None else max_chars
             if isinstance(requested, bool) or requested <= 0:
                 raise SessionContractError("Session recall max_chars must be positive")
@@ -138,32 +184,37 @@ class SessionEngine:
             record = self._store.load_record(ref)
             return _recall_record(record, max_chars=limit, cursor=cursor)
 
-    def _ensure_today(self) -> None:
-        today = date.today().isoformat()
-        if self._manifest.day != today:
-            self._last_reconcile_result = self._reconcile_current()
-            self._store.archive(self._manifest.day)
-            self._manifest = self._store.create_manifest(today)
-            self._last_reconcile_result = SessionReconcileResult(revision=0)
-            return
-        self._last_reconcile_result = self._reconcile_current()
+    def _require_manifest(self) -> SessionManifest:
+        if self._manifest is None:
+            raise SessionInvariantError("Session has no active business day")
+        return self._manifest
+
+    def _require_day(self, day: BusinessDay) -> None:
+        if not isinstance(day, BusinessDay):
+            raise SessionContractError("Session day must be a BusinessDay")
+        manifest = self._require_manifest()
+        if manifest.day != str(day):
+            raise SessionInvariantError(
+                f"Session active day mismatch: expected {day}, found {manifest.day}"
+            )
 
     def _reconcile_current(self) -> SessionReconcileResult:
-        scan = self._reconciler.scan(self._manifest)
+        current = self._require_manifest()
+        scan = self._reconciler.scan(current)
         if not scan.orphan_turn_records:
             return SessionReconcileResult(
-                revision=self._manifest.revision,
+                revision=current.revision,
                 orphan_summary_refs=scan.orphan_summary_refs,
             )
-        items = self._manifest.items
+        items = current.items
         adopted: list[str] = []
         for record in scan.orphan_turn_records:
             items = (*items, _turn_item_from_record(record))
             items = self._summarize_once(items)
             adopted.append(record.ref)
         manifest = SessionManifest(
-            day=self._manifest.day,
-            revision=self._manifest.revision + len(adopted),
+            day=current.day,
+            revision=current.revision + len(adopted),
             items=items,
         )
         self._store.save_manifest(manifest)
@@ -176,9 +227,10 @@ class SessionEngine:
         )
 
     def _bounded_background_items(self) -> tuple[SessionHistoryItem, ...]:
-        total = sum(item.char_count for item in self._manifest.items)
+        manifest = self._require_manifest()
+        total = sum(item.char_count for item in manifest.items)
         if total <= self._settings.background_max_chars:
-            return self._manifest.items
+            return manifest.items
         head_background: JsonObject = {
             "kind": "session_overflow_head",
             "inspect_action": "session.history.inspect",
@@ -186,7 +238,7 @@ class SessionEngine:
         head_chars = len(dumps_json(head_background)) + 32
         selected: list[SessionHistoryItem] = []
         used = 0
-        for item in reversed(self._manifest.items):
+        for item in reversed(manifest.items):
             if (
                 used + item.char_count + head_chars
                 > self._settings.background_max_chars
@@ -195,7 +247,7 @@ class SessionEngine:
             selected.append(item)
             used += item.char_count
         selected.reverse()
-        omitted = len(self._manifest.items) - len(selected)
+        omitted = len(manifest.items) - len(selected)
         if omitted <= 0:
             return tuple(selected)
         head_background["omitted_item_count"] = omitted
@@ -212,6 +264,7 @@ class SessionEngine:
         self,
         items: tuple[SessionHistoryItem, ...],
     ) -> tuple[SessionHistoryItem, ...]:
+        manifest = self._require_manifest()
         watermark = int(
             self._settings.background_max_chars
             * self._settings.summary_watermark_ratio
@@ -247,7 +300,7 @@ class SessionEngine:
             dumps_json(
                 {
                     "schema_version": 1,
-                    "day": self._manifest.day,
+                    "day": manifest.day,
                     "child_refs": list(child_refs),
                 }
             ).encode("utf-8")
@@ -259,7 +312,7 @@ class SessionEngine:
             ref=ref,
             kind=SessionHistoryKind.SUMMARY,
             content={
-                "day": self._manifest.day,
+                "day": manifest.day,
                 "background": background,
                 "child_refs": list(child_refs),
                 "children": [item.to_json() for item in children],

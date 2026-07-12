@@ -48,7 +48,12 @@ def test_catalog_view_by_domain() -> None:
     ]
 
     home_view = catalog.with_domains(("home",))
-    assert [action.name for action in home_view.actions()] == ["home.resource.read"]
+    assert [action.name for action in home_view.actions()] == [
+        "home.resource.delete",
+        "home.resource.patch",
+        "home.resource.read",
+        "home.resource.write",
+    ]
 
 
 def test_missing_catalog_root_raises_config_error() -> None:
