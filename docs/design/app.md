@@ -89,6 +89,8 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 也在装配期注入到 action 层共享 LLM action backend 服务，让 `core.reason`、`core.answer` 等通用动作可以使用 `reference_links`，让带内部 LLM task 的 action 自动获得 domain/action HOW。
 
+当前 App 只把 `DailyLifecycleCoordinator` 注入 ProgramRunner；日切在 `run_once` 接受 User Turn 前发生。App 尚未定义 settlement 命令、后台 scheduler、程序空闲启动时的 pending archive 扫描或 Daily maintenance 输入类型。后续这些入口仍应由 App 负责外部触发与装配，但 archive claim、plan/apply 状态和 Home 写入语义必须分别归 Loop maintenance coordinator 与 Agent Home settlement 门面，不能实现为 CLI 内的文件操作。
+
 ## 与其他模块的关系
 
 - 对 loop：app 创建各级 runner，注入 daily settings/coordinator，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。

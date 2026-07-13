@@ -109,16 +109,23 @@ Trash 是 active Workspace 的内部暂存区，不是第二份资源 Manifest�
 
 ## 目录与生命周期
 
-Workspace 具有当日属性。目标运行结构为：
+Workspace 具有当日属性。当前运行结构为：
 
 ```text
 runtime/
-  archive/
+  session/
   workspace/
   home/
+archive/
+  <timezone-timestamp>/
+    transition.json
+    session/
+    workspace/
+    home/
+    trash/
 ```
 
-Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日终归档由 workspace 门面提供归档能力，但调度归档的 Program 同级任务不属于 Workspace 自身。
+Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日切时旧 Workspace 与 active Trash 被移出 runtime，分别进入统一时间戳归档的 `workspace/`、`trash/`；新日 runtime Workspace 从空 Manifest 开始。日终归档由 workspace 门面提供归档能力，但跨模块调度不属于 Workspace 自身，后续 settlement 也不能通过 active Trash API 追踪或恢复旧日 Trash。
 
 当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 只配置 root、读取/扫描上限与忽略规则。Workspace 模块解析配置；AppBuilder 只传递 section tree 并构建门面。
 

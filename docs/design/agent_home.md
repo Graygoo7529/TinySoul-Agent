@@ -185,7 +185,7 @@ HOW prompt mount 是可选内容：对应源文件不存在时 provider 返回�
 
 每日沉淀是与用户 Turn 同级的维护任务，不属于普通 User Turn 内的 Phase 主链路。
 
-当前日切只执行确定性冻结：`HomeOverlayManager.archive_day` 在完整 reconciliation 后把 `runtime/home` 移入跨模块 pending archive，随后由 coordinator 创建带新 business day 的空 overlay。归档的 `transition.json` 标记 `settlement_status = pending`；夜间后台 Agent、启动时检测或用户命令可以在以后消费该事实。日切本身不调用 LLM，也不写 original Home。
+当前日切只执行确定性冻结：`HomeOverlayManager.archive_day` 在 operation recovery 和完整 reconciliation 后把 `runtime/home` 移入跨模块 pending archive，随后由 coordinator 创建带新 business day 的空 overlay。归档的 `transition.json` 写入固定 `settlement_status = pending`；夜间后台 Agent、启动时检测或用户命令可以在以后消费该事实。日切本身不调用 LLM，也不写 original Home。“归档写回 Home”应准确理解为“归档为后续 Settlement 提供输入”；归档移动和 Settlement apply 是两个独立提交边界。
 
 沉淀任务输入：
 
@@ -203,6 +203,17 @@ HOW prompt mount 是可选内容：对应源文件不存在时 provider 返回�
 - 生成可审阅的 diff 摘要。
 
 执行沉淀可以调用独立 LLM Task，但调度和审批策略不属于 Agent Home 的基础读写门面。Agent Home 只提供 diff、写入候选、合并和归档所需的资源操作。
+
+后续 Settlement 应遵守以下一致性边界：
+
+1. archive 是不可变输入，plan 只能引用 archive id、来源 ref、目标 Home link、操作类型和有界摘要，不能直接修改 archive；
+2. 对 modified/deleted 资源，apply 只有在 current original digest 等于归档 overlay 的 baseline digest 时才能提交；对 created 资源，前置条件是 original 不存在；
+3. apply 使用稳定 settlement id 和 operation id，先持久化 intent，再原子替换 original，再提交状态；重复执行必须幂等；
+4. original 已变化时保留 conflict/needs-review，不覆盖人工或其它 settlement 的新内容；
+5. Settlement 不改写当前日 runtime overlay。当前日已经物化的内容继续使用当日 baseline，尚未物化的内容可以观察 apply 后的 original；这是一种明确的日内快照边界，不应通过隐式同步破坏正在执行的 Turn；
+6. 自动后台模式只能 apply 已满足预设审批策略的 operation；高影响删除、顶层规约和冲突必须进入人工 review。
+
+上述 plan/review/apply、pending claim 和调度入口尚未实现。启用后台 apply 前，还必须把 top catalog、top read 和 prompt mount 的 source-first 判断改为 original 与 active overlay 的统一 effective view，确保 original 被 settlement 删除后，当日已物化快照仍按当日 baseline 工作。实现时应建立独立 settlement 模块，不把 LLM 规划、审批状态和 original 写入继续堆入 `HomeOverlayManager`；overlay 仍只负责当前日 effective view。
 
 ## 与 Workspace 的关系
 

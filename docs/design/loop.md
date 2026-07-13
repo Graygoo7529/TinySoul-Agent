@@ -56,6 +56,8 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 `loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session、Workspace、Home 不自行调用系统日期。
 
+这里必须区分两个不同流程：`daily rollover` 是确定性的 active-root 冻结与换日，不调用 LLM；`settlement` 是消费已冻结归档的语义维护任务，可以调用 LLM 并修改 original Home。新日 User Turn 只依赖 rollover 完成，不等待 settlement。现有代码只实现 rollover，并在每次 `ProgramRunner.run_once` 开始、创建 Turn 之前检查日期；程序空闲启动时不会主动换日或扫描 settlement，后台定时和人工维护入口尚未实现。
+
 日切顺序固定为：
 
 1. 恢复或创建 `archive/.pending-<operation-id>/transition.json`；
@@ -67,7 +69,9 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、Manifest 已初始化但最终 rename 未完成等窗口都可在重启时前滚；多个 pending、day 分歧、时钟倒退、archive 与任何 active/original root 重叠均显式失败。该协议是可恢复的跨模块 partial completion，不宣称跨目录原子事务。
 
-归档完成只表示旧日事实已冻结。`transition.json` 的 `settlement_status` 当前固定为 `pending`；后续后台 Agent、启动检测或用户命令执行 settlement。普通新日启动不等待 LLM 沉淀，也不直接修改 original Home。
+归档完成后的稳定结构是 `archive/<timezone-timestamp>/{transition.json,session,workspace,home,trash}`。`runtime/` 中只重新建立当前日的 `session/`、`workspace/`、`home/` active roots；coordinator 不删除 runtime 下不属于这三个参与者的其它目录。旧日 Trash 已退出 active Workspace API，只保留物理归档事实。
+
+归档完成只表示旧日事实已冻结。`transition.json` 的 `settlement_status` 当前是写出时固定的 `pending` 标记，不是已经实现的 settlement 状态机；当前没有 pending archive 索引、claim、plan、review、apply、abort 或重试协议。后续后台 Agent、启动检测或用户命令应调度独立 Daily maintenance work。该工作不能重新打开或修改归档，应以归档为只读输入，通过 Home 所有的 apply/journal 能力更新 original Home，并把冲突作为可审阅结果保存。
 
 ## 输入边界
 
