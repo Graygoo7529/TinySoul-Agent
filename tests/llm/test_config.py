@@ -122,6 +122,12 @@ def test_llm_config_parses_project_config_files() -> None:
     assert llm_action.settings.temperature == pytest.approx(0.3)
     assert llm_action.settings.max_output_tokens == 2048
 
+    home_maintenance = config.tasks.get(TaskProfile.HOME_MAINTENANCE)
+    assert home_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert home_maintenance.settings.tool_use is ToolUse.DISABLED
+    assert home_maintenance.settings.temperature == pytest.approx(0.2)
+    assert home_maintenance.settings.max_output_tokens == 256
+
 
 def test_llm_config_rejects_model_with_unknown_provider() -> None:
     tree = {

@@ -22,6 +22,7 @@ from .errors import (
     AgentHomeError,
     AgentHomeIOError,
     AgentHomeInvariantError,
+    AgentHomeReviewError,
     AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
@@ -37,6 +38,19 @@ from .links import (
 from .runtime_copy import (
     AgentHomeRuntimeCopyTrapHandler,
 )
+from .maintenance import (
+    HomeMaintenanceChange,
+    HomeMaintenanceDecision,
+    HomeMaintenanceDecisionProvider,
+    HomeMaintenanceFailure,
+    HomeMaintenanceItemOutcome,
+    HomeMaintenanceMode,
+    HomeMaintenanceOutcome,
+    HomeMaintenanceReviewer,
+    HomeMaintenanceStatus,
+    HomeSkillMemoryContext,
+    LLMHomeMaintenanceReviewer,
+)
 from .overlay import HomeOverlayRecord, HomeOverlayState
 
 __all__ = [
@@ -47,6 +61,7 @@ __all__ = [
     "AgentHomeFailureKind",
     "AgentHomeIOError",
     "AgentHomeInvariantError",
+    "AgentHomeReviewError",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",
@@ -56,6 +71,15 @@ __all__ = [
     "HomeBackgroundEntry",
     "HomeDomainHowProvider",
     "HomeLink",
+    "HomeMaintenanceChange",
+    "HomeMaintenanceDecision",
+    "HomeMaintenanceDecisionProvider",
+    "HomeMaintenanceFailure",
+    "HomeMaintenanceItemOutcome",
+    "HomeMaintenanceMode",
+    "HomeMaintenanceOutcome",
+    "HomeMaintenanceReviewer",
+    "HomeMaintenanceStatus",
     "HomePromptMountLink",
     "HomePromptMountPatchExecutor",
     "HomePromptMountWriteExecutor",
@@ -69,6 +93,8 @@ __all__ = [
     "HomeTopPatchExecutor",
     "HomeTopWriteExecutor",
     "HomeWhatKind",
+    "HomeSkillMemoryContext",
+    "LLMHomeMaintenanceReviewer",
     "parse_agent_home_settings",
     "parse_home_link",
     "register_home_actions",

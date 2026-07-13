@@ -11,6 +11,7 @@ from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_roo
 from .config import AgentHomeSettings
 from .errors import AgentHomeContractError, AgentHomeInvariantError
 from .links import (
+    HomeLink,
     HomePromptMountLink,
     HomeResourceLink,
     HomeTopLink,
@@ -168,6 +169,23 @@ class AgentHomeLayout:
                 f"{parts[1]}/{PurePosixPath(parts[2]).stem}",
             )
         return None
+
+    def link_for_relative(self, relative_path: str) -> HomeLink | None:
+        top = self.top_link_for_relative(relative_path)
+        if top is not None:
+            return top
+        prompt_mount = self.prompt_mount_link_for_relative(relative_path)
+        if prompt_mount is not None:
+            return prompt_mount
+        parts = PurePosixPath(relative_path).parts
+        if len(parts) < 2 or parts[0] in {
+            ".tinysoul",
+            "memory",
+            "how_domain",
+            "how_action",
+        }:
+            return None
+        return HomeResourceLink(parts[0], PurePosixPath(*parts[1:]).as_posix())
 
     def _actual_relatives(
         self,

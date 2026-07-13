@@ -20,6 +20,7 @@ class TaskProfile(StrEnum):
 
     FRAMEWORK = "framework"
     LLM_ACTION = "llm_action"
+    HOME_MAINTENANCE = "home_maintenance"
 
 
 @dataclass(frozen=True)

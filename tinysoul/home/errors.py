@@ -23,6 +23,10 @@ class AgentHomeIOError(AgentHomeError):
     """Raised when Agent Home filesystem operations fail at the module boundary."""
 
 
+class AgentHomeReviewError(AgentHomeError):
+    """Raised when an automatic Home review cannot produce a valid decision."""
+
+
 class AgentHomeRuntimeCopyRequired(AgentHomeError):
     """Raised when a home link must be copied into runtime home before reading."""
 

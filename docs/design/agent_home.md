@@ -4,7 +4,7 @@
 
 本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、domain/action HOW、年月 MEMORY actual-read、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance 直接 review active overlay 并写回 actual Home；Memory Maintenance 独立读取指定日期 Session archive 和可选同日期旧 MEMORY。Home top search、Home Maintenance 和 Memory Maintenance 仍未实现。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance service 已直接 review active overlay 并写回 actual Home；Memory Maintenance 将独立读取指定日期 Session archive 和可选同日期旧 MEMORY。Home top search、Memory Maintenance 和 Program/App 调度入口仍未实现。
 
 ## 定位
 
@@ -219,6 +219,10 @@ Home Maintenance 的输入只包括当前 active `runtime/home`、actual Home，
 
 Home Maintenance 与 User Turn 由 Program 单写者边界串行化，因而 review/apply 期间不会出现新的 runtime mutation。未触发或人工跳过 Home Maintenance 时，active overlay 原样跨 Turn、跨日、跨重启保留，Agent 继续透明读取和修改同一 effective Home。`SKILL_MEMORY.md` 同样保留到下一次 Home Maintenance。
 
+当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。Home 服务返回有界 outcome；Program work、Observation、终端逐项输入与 scheduler 尚未装配。
+
+overlay cleanup 不保存 review decision。copied record 若遇到 actual 外部变化，先把 runtime 对齐 current actual 或形成 current deletion，再清除 record，旧副本永不写回。created/modified 的 runtime digest 已等于 current actual、或 deleted 对应 actual 已不存在时，Maintenance 直接清理，覆盖“actual 原子写完成但 runtime 清理中断”的恢复窗口。discard 清理若中断，未清除的 runtime diff 可以在下一次重新 review。
+
 ### Memory Maintenance
 
 Memory Maintenance 接受明确的目标 Business Day，并读取该日期不可变 Session archive 中已经提交的 Turn/summary 事实。输出固定为：
@@ -309,4 +313,4 @@ AppBuilder 的目标职责是：
 - Memory Maintenance 从指定日期 Session 和可选同日旧 MEMORY 原子重写固定日期文件；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点包括：top search、Home Maintenance、Memory Maintenance 和 scheduler/启动/人工调度。
+仍需补充的验收点包括：top search、Memory Maintenance 和 Home/Memory 的 scheduler/启动/人工调度。

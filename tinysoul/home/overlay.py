@@ -181,6 +181,19 @@ class HomeOverlayManifest:
             records=tuple(records[path] for path in sorted(records)),
         )
 
+    def without_record(self, relative_path: str) -> "HomeOverlayManifest":
+        if self.record_for(relative_path) is None:
+            return self
+        return replace(
+            self,
+            revision=self.revision + 1,
+            records=tuple(
+                record
+                for record in self.records
+                if record.relative_path != relative_path
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class EffectiveHomeResource:
@@ -362,6 +375,27 @@ class HomeOverlayManager:
         with self._lock:
             _validate_relative_path(relative_path)
             return self._reconcile(self._require_manifest()).record_for(relative_path)
+
+    def clear_record(self, relative_path: str) -> bool:
+        """Remove one processed overlay record without encoding review state."""
+
+        with self._lock:
+            _validate_relative_path(relative_path)
+            manifest = self._reconcile(self._require_manifest())
+            record = manifest.record_for(relative_path)
+            if record is None:
+                return False
+            self._store.save(manifest.without_record(relative_path))
+            if record.state is not HomeOverlayState.DELETED:
+                target = self._runtime_path(relative_path)
+                try:
+                    target.unlink(missing_ok=True)
+                    _prune_empty_parents(target.parent, stop=self._runtime_root)
+                except OSError as exc:
+                    raise AgentHomeIOError(
+                        f"Failed to clear processed runtime Home content: {exc}"
+                    ) from exc
+            return True
 
     def effective(self, relative_path: str) -> EffectiveHomeResource | None:
         with self._lock:
@@ -924,6 +958,17 @@ def _write_object(path: Path, value: JsonObject) -> None:
         )
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to write Home metadata: {exc}") from exc
+
+
+def _prune_empty_parents(path: Path, *, stop: Path) -> None:
+    current = path
+    stop_resolved = stop.resolve()
+    while current.resolve() != stop_resolved:
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 def _required_str(value: JsonObject, name: str) -> str:

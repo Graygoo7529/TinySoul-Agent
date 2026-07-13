@@ -54,13 +54,13 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done | provider-neutral Task、模型链、输出解释 | 增加 Home reviewer 与 Memory consolidator 的明确 prompt/profile。 |
+| LLM | done for Home review | provider-neutral Task、模型链、输出解释、JSON-only `home_maintenance` profile | 增加 Memory consolidator 的明确 profile。 |
 | Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
 | Session | done for lifecycle boundary | 不可变 Turn record、summary、orphan reconciliation、日归档、按 Business Day 校验 archive snapshot | Memory Maintenance 尚未消费该只读边界。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
 | Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
-| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、年月 MEMORY actual-read、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY 约束 | 增加 Home/Memory Maintenance 与 top search。 |
+| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、年月 MEMORY actual-read、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、无持久状态 Home Maintenance | 增加 Memory Maintenance 与 top search。 |
 | App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
@@ -438,7 +438,7 @@ status: done
 
 ### 阶段 3：Home Maintenance
 
-status: pending
+status: done
 
 优先级：P0
 
@@ -453,9 +453,11 @@ status: pending
 5. 实现单文件原子 apply、discard 与 overlay cleanup；
 6. copied 自动清理，SKILL_MEMORY review 后清空；
 7. 保证 actual 写后清理前、部分多文件处理和人工中止可重跑；
-8. 输出有界 summary/Observation，不写 review 文件。
+8. 输出供 Loop 发布 Observation 的有界 outcome，不写 review 文件。
 
 验收：后台全自动和终端逐项确认共享同一 reviewer/apply 服务；中断后只需 active overlay 与 actual Home 即可继续。
+
+实施结果：新增 Home-owned `HomeMaintenanceService` 及 frozen change/decision/item outcome/run outcome；review 输入只含有界 runtime/current actual 预览、baseline/digest 元数据和可选同 skill `SKILL_MEMORY`。自动模式通过独立 JSON-only `home_maintenance` LLM profile 返回严格 apply/discard，review 协议失败收敛为非持久 `FAILED/review_failed` outcome；人工模式通过注入 provider 逐项决策并允许在未确认项前停止。copied、runtime/actual 已一致项和 actual 写后残留 overlay 均确定性清理；apply 使用单文件原子替换/删除，discard 不写 actual，core tombstone 在 review 前失败。SKILL_MEMORY 在对应 skill 全部 change 处理后清理，人工中止前未完成的 skill memory 保留。服务不序列化 diff/decision/outcome；Program work、Observation、终端 provider 和 scheduler 装配仍归阶段 6。
 
 ### 阶段 4：Memory Maintenance
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
+from tinysoul.runtime import RunScope
 
 from .config import AgentHomeSettings
 from .errors import (
@@ -22,6 +23,13 @@ from .links import (
     HomeTopLink,
     HomeWhatKind,
     parse_home_link,
+)
+from .maintenance import (
+    HomeMaintenanceDecisionProvider,
+    HomeMaintenanceMode,
+    HomeMaintenanceOutcome,
+    HomeMaintenanceReviewer,
+    HomeMaintenanceService,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 
@@ -71,6 +79,12 @@ class AgentHomeEngine:
         self._max_read_chars = max_read_chars
         self._max_write_chars = max_write_chars
         self._prompt_mount_links: frozenset[HomePromptMountLink] | None = None
+        self._maintenance = HomeMaintenanceService(
+            layout=layout,
+            overlay=overlay,
+            max_preview_chars=max_read_chars,
+            max_write_chars=max_write_chars,
+        )
 
     @property
     def layout(self) -> AgentHomeLayout:
@@ -87,6 +101,24 @@ class AgentHomeEngine:
     def reconcile(self) -> None:
         self._overlay.reconcile()
         self._validate_overlay_semantics()
+
+    def run_maintenance(
+        self,
+        *,
+        mode: HomeMaintenanceMode,
+        automatic_reviewer: HomeMaintenanceReviewer | None = None,
+        manual_decisions: HomeMaintenanceDecisionProvider | None = None,
+        scope: RunScope | None = None,
+    ) -> HomeMaintenanceOutcome:
+        """Review and process the active overlay without persisted decisions."""
+
+        self._validate_overlay_semantics()
+        return self._maintenance.run(
+            mode=mode,
+            automatic_reviewer=automatic_reviewer,
+            manual_decisions=manual_decisions,
+            scope=scope,
+        )
 
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
@@ -571,6 +603,13 @@ class AgentHomeEngine:
         for record in self._overlay.records():
             relative = record.relative_path
             parts = PurePosixPath(relative).parts
+            if (
+                relative == "agent/AGENT.md"
+                and record.state is HomeOverlayState.DELETED
+            ):
+                raise AgentHomeInvariantError(
+                    "home:agent@core cannot be deleted in the runtime overlay"
+                )
             if parts and parts[0] == "memory":
                 raise AgentHomeInvariantError(
                     f"Home MEMORY cannot exist in runtime overlay: {relative}"
@@ -584,6 +623,10 @@ class AgentHomeEngine:
                 ):
                     raise AgentHomeInvariantError(
                         f"Invalid runtime Home memory file: {relative}"
+                    )
+                if record.baseline_digest or record.state is HomeOverlayState.COPIED:
+                    raise AgentHomeInvariantError(
+                        f"Runtime-only SKILL_MEMORY has an actual baseline: {relative}"
                     )
                 if self._resolve_top_relative(HomeTopLink("how", parts[1])) is None:
                     raise AgentHomeInvariantError(
