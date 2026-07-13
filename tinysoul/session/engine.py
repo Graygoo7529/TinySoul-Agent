@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from threading import RLock
@@ -20,6 +21,43 @@ from .models import (
 )
 from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
+
+
+@dataclass(frozen=True)
+class SessionArchiveSnapshot:
+    """Validated, read-only history head for one archived Business Day."""
+
+    day: BusinessDay
+    root: Path
+    revision: int
+    items: tuple[SessionHistoryItem, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.day, BusinessDay):
+            raise SessionContractError(
+                "Session archive snapshot day must be a BusinessDay"
+            )
+        if not isinstance(self.root, Path) or not self.root.is_absolute():
+            raise SessionContractError(
+                "Session archive snapshot root must be an absolute Path"
+            )
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 0
+        ):
+            raise SessionContractError(
+                "Session archive snapshot revision must be a non-negative integer"
+            )
+        if any(not isinstance(item, SessionHistoryItem) for item in self.items):
+            raise SessionContractError(
+                "Session archive snapshot items must be SessionHistoryItem values"
+            )
+        object.__setattr__(self, "items", tuple(self.items))
+
+    @property
+    def has_facts(self) -> bool:
+        return bool(self.items)
 
 
 class SessionEngine:
@@ -92,6 +130,46 @@ class SessionEngine:
                 return SessionReconcileResult(revision=0)
             self._last_reconcile_result = self._reconcile_current()
             return self._last_reconcile_result
+
+    def archive_snapshot(
+        self,
+        day: BusinessDay,
+        *,
+        root: Path,
+    ) -> SessionArchiveSnapshot:
+        """Validate and expose one archived Session head without mutating it."""
+
+        with self._lock:
+            if not isinstance(day, BusinessDay):
+                raise SessionContractError("Session archive day must be a BusinessDay")
+            if not isinstance(root, Path):
+                raise SessionContractError("Session archive root must be a Path")
+            resolved = root.resolve()
+            if resolved == self.root.resolve():
+                raise SessionContractError(
+                    "Session archive root must differ from the active root"
+                )
+            store = SessionStore(root=resolved)
+            manifest = store.load_active_manifest()
+            if manifest is None:
+                raise SessionContractError(
+                    f"Session archive does not contain a manifest: {resolved}"
+                )
+            if manifest.day != str(day):
+                raise SessionInvariantError(
+                    f"Session archive day mismatch: expected {day}, found {manifest.day}"
+                )
+            scan = SessionReconciler(store).scan(manifest)
+            if scan.orphan_turn_records:
+                raise SessionInvariantError(
+                    "Session archive contains uncommitted Turn records"
+                )
+            return SessionArchiveSnapshot(
+                day=day,
+                root=resolved,
+                revision=manifest.revision,
+                items=manifest.items,
+            )
 
     def background_snapshot(
         self,

@@ -31,8 +31,11 @@ ROLLOVER_TIME = datetime(
 )
 
 
-def test_daily_lifecycle_initializes_one_clean_active_day(tmp_path: Path) -> None:
+def test_daily_lifecycle_initializes_session_and_workspace_only(
+    tmp_path: Path,
+) -> None:
     session, workspace, home, coordinator = _daily_system(tmp_path)
+    home_manifest_before = _home_manifest_bytes(home)
 
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
@@ -40,11 +43,11 @@ def test_daily_lifecycle_initializes_one_clean_active_day(tmp_path: Path) -> Non
     assert outcome.archive_path is None
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
-    assert home.active_day == NEW_DAY
+    assert _home_manifest_bytes(home) == home_manifest_before
     assert not (tmp_path / "archive").exists()
 
 
-def test_daily_rollover_archives_all_old_day_roots_before_new_day(
+def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     tmp_path: Path,
 ) -> None:
     session, workspace, home, coordinator = _daily_system(tmp_path)
@@ -66,6 +69,7 @@ def test_daily_rollover_archives_all_old_day_roots_before_new_day(
         "home:how/refactor/references/new.md",
         "runtime-only home resource",
     )
+    home_manifest_before = _home_manifest_bytes(home)
 
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
@@ -77,19 +81,16 @@ def test_daily_rollover_archives_all_old_day_roots_before_new_day(
         "old workspace"
     )
     assert any((archive / "trash").rglob("*.json"))
-    assert (
-        archive / "home" / "how" / "refactor" / "references" / "new.md"
-    ).read_text(encoding="utf-8") == "runtime-only home resource"
+    assert not (archive / "home").exists()
     transition = json.loads(
         (archive / "transition.json").read_text(encoding="utf-8")
     )
     assert transition["from_day"] == str(OLD_DAY)
     assert transition["to_day"] == str(NEW_DAY)
-    assert transition["settlement_status"] == "pending"
+    assert "settlement_status" not in transition
     assert transition["completed_steps"] == [
         "session_archived",
         "workspace_archived",
-        "home_archived",
         "active_initialized",
     ]
 
@@ -97,12 +98,16 @@ def test_daily_rollover_archives_all_old_day_roots_before_new_day(
     assert session.revision == 0
     assert workspace.active_day == NEW_DAY
     assert workspace.load_manifest().resources == ()
-    assert home.active_day == NEW_DAY
-    assert not (home.runtime_root / "how" / "refactor" / "references" / "new.md").exists()
+    assert (
+        home.runtime_root / "how" / "refactor" / "references" / "new.md"
+    ).read_text(encoding="utf-8") == "runtime-only home resource"
+    assert _home_manifest_bytes(home) == home_manifest_before
+    assert coordinator.session_archive_for(OLD_DAY) == archive / "session"
+    assert coordinator.session_archive_for(NEW_DAY) is None
     assert not tuple((tmp_path / "archive").glob(".pending-*"))
 
 
-def test_daily_rollover_resumes_move_completed_before_journal_step(
+def test_daily_rollover_resume_does_not_touch_home(
     tmp_path: Path,
 ) -> None:
     session, workspace, home, _ = _daily_system(tmp_path)
@@ -111,10 +116,11 @@ def test_daily_rollover_resumes_move_completed_before_journal_step(
         archive_root=tmp_path / "archive",
         session=session,
         workspace=failing_workspace,
-        home=home,
     )
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     workspace.write_text("workspace:old.md", "old")
+    home.write_resource("home:how/refactor/notes.md", "keep home")
+    home_manifest_before = _home_manifest_bytes(home)
 
     with pytest.raises(LoopInvariantError, match="injected Workspace failure"):
         coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
@@ -123,24 +129,84 @@ def test_daily_rollover_resumes_move_completed_before_journal_step(
     assert len(pending) == 1
     assert (pending[0] / "workspace" / "old.md").is_file()
     assert workspace.active_day is None
-    assert home.active_day == OLD_DAY
+    assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
+    assert _home_manifest_bytes(home) == home_manifest_before
 
     resumed = DailyLifecycleCoordinator(
         archive_root=tmp_path / "archive",
         session=session,
         workspace=workspace,
-        home=home,
     ).ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     assert resumed.resumed is True
     assert resumed.archive_path is not None
     assert (resumed.archive_path / "workspace" / "old.md").is_file()
+    assert not (resumed.archive_path / "home").exists()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
-    assert home.active_day == NEW_DAY
+    assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
+    assert _home_manifest_bytes(home) == home_manifest_before
 
 
-def test_legacy_untagged_workspace_and_home_inherit_session_day(
+def test_finalized_legacy_transition_still_resolves_session_archive(
+    tmp_path: Path,
+) -> None:
+    _, _, _, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+    assert outcome.archive_path is not None
+    transition_path = outcome.archive_path / "transition.json"
+    transition = json.loads(transition_path.read_text(encoding="utf-8"))
+    transition["completed_steps"].insert(2, "home_archived")
+    transition["settlement_status"] = "pending"
+    transition_path.write_text(
+        json.dumps(transition, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    assert coordinator.session_archive_for(OLD_DAY) == (
+        outcome.archive_path / "session"
+    )
+
+
+def test_legacy_pending_transition_with_home_requires_manual_recovery(
+    tmp_path: Path,
+) -> None:
+    _, _, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    pending = tmp_path / "archive" / ".pending-daily_legacy"
+    pending_home = pending / "home"
+    pending_home.mkdir(parents=True)
+    (pending_home / "legacy.md").write_text("preserve", encoding="utf-8")
+    (pending / "transition.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "operation_id": "daily_legacy",
+                "from_day": str(OLD_DAY),
+                "to_day": str(NEW_DAY),
+                "archive_name": "20260712T000001.123456+0800",
+                "started_at": ROLLOVER_TIME.isoformat(),
+                "completed_steps": ["session_archived", "home_archived"],
+                "settlement_status": "pending",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    home_manifest_before = _home_manifest_bytes(home)
+
+    with pytest.raises(LoopInvariantError, match="manual recovery"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    assert (pending_home / "legacy.md").read_text(encoding="utf-8") == "preserve"
+    assert _home_manifest_bytes(home) == home_manifest_before
+
+
+def test_legacy_untagged_workspace_inherits_session_day_without_moving_home(
     tmp_path: Path,
 ) -> None:
     session, workspace, home, coordinator = _daily_system(tmp_path)
@@ -156,9 +222,10 @@ def test_legacy_untagged_workspace_and_home_inherit_session_day(
 
     assert outcome.archive_path is not None
     assert (outcome.archive_path / "workspace" / "legacy.md").is_file()
-    assert (
-        outcome.archive_path / "home" / "how" / "legacy" / "notes.txt"
-    ).is_file()
+    assert not (outcome.archive_path / "home").exists()
+    assert legacy_home.read_text(encoding="utf-8") == "legacy home"
+    home.reconcile()
+    assert home.read_resource("home:how/legacy/notes.txt").text == "legacy home"
     transition = json.loads(
         (outcome.archive_path / "transition.json").read_text(encoding="utf-8")
     )
@@ -169,11 +236,11 @@ def test_daily_lifecycle_rejects_overlapping_archive_before_initialization(
     tmp_path: Path,
 ) -> None:
     session, workspace, home, _ = _daily_system(tmp_path)
+    home_manifest_before = _home_manifest_bytes(home)
     coordinator = DailyLifecycleCoordinator(
         archive_root=tmp_path / "runtime",
         session=session,
         workspace=workspace,
-        home=home,
     )
 
     with pytest.raises(LoopContractError, match="overlaps"):
@@ -181,7 +248,7 @@ def test_daily_lifecycle_rejects_overlapping_archive_before_initialization(
 
     assert session.active_day is None
     assert workspace.active_day is None
-    assert home.active_day is None
+    assert _home_manifest_bytes(home) == home_manifest_before
 
 
 @dataclass
@@ -243,6 +310,11 @@ def _daily_system(
         archive_root=root / "archive",
         session=session,
         workspace=workspace,
-        home=home,
     )
     return session, workspace, home, coordinator
+
+
+def _home_manifest_bytes(home: AgentHomeEngine) -> bytes:
+    return (
+        home.runtime_root / ".tinysoul" / "home_overlay.json"
+    ).read_bytes()

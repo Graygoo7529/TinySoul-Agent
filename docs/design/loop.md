@@ -56,7 +56,7 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 `loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session 和 Workspace 不自行调用系统日期。Home overlay 不再以 Business Day 作为身份或清理边界。
 
-这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。现有代码只实现旧版 rollover，并仍把 Home 当作第三个每日参与者；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
+这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容和按 Business Day 定位 Session archive；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
 
 日切顺序固定为：
 
@@ -73,6 +73,8 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 Program 运行期间由内置 scheduler 在配置日界投递 rollover 触发；若程序未运行，启动或任一新 work 前恢复并补做日切。跨午夜 User Turn 先完成旧日 Session 提交，再在下一 Program work 边界归档。日切失败阻止新日 work，Home/Memory Maintenance 失败则只结束对应维护 work。
 
 Home Maintenance 不保存 plan、review result、apply journal 或 status；是否存在实际待处理内容由 active overlay 中的 created/modified/deleted record 与 `SKILL_MEMORY.md` 判断，单纯 copied record 可在 Maintenance 中直接清理。Memory 的启动提醒只检查昨日 Session archive 与同日 MEMORY 是否存在，不扫描更早日期，也不保存 skipped 状态。人工 Memory 命令可以显式指定日期。人工 Home 逐项确认是 Maintenance 内的专用 decision 输入，不是 User Turn append；Program 暂停普通 work dispatch，其他输入继续留在队列。两个 Maintenance work 各自产生明确 outcome，一个失败不回滚或掩盖另一个；后台 scheduler、启动提示和人工命令必须调用同一 runner/service，不复制业务流程。
+
+`DailyLifecycleCoordinator.session_archive_for(day)` 只解释跨模块 transition 并返回 `archive/.../session` 根；Session 再通过只读 `archive_snapshot(day, root)` 校验自己的 manifest/graph。Loop 不读取 Session records，Session 不解析 `transition.json`。
 
 ## 输入边界
 

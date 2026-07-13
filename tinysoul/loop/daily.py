@@ -23,7 +23,6 @@ from .errors import LoopContractError, LoopInvariantError
 class DailyTransitionStep(StrEnum):
     SESSION_ARCHIVED = "session_archived"
     WORKSPACE_ARCHIVED = "workspace_archived"
-    HOME_ARCHIVED = "home_archived"
     ACTIVE_INITIALIZED = "active_initialized"
 
 
@@ -66,7 +65,6 @@ class DailyTransitionJournal:
             "archive_name": self.archive_name,
             "started_at": self.started_at,
             "completed_steps": [step.value for step in self.completed_steps],
-            "settlement_status": "pending",
         }
 
     @classmethod
@@ -75,7 +73,11 @@ class DailyTransitionJournal:
         if not isinstance(steps_value, list):
             raise LoopContractError("Daily journal completed_steps must be a list")
         try:
-            steps = tuple(DailyTransitionStep(item) for item in steps_value)
+            steps = tuple(
+                DailyTransitionStep(item)
+                for item in steps_value
+                if item != "home_archived"
+            )
         except (TypeError, ValueError) as exc:
             raise LoopContractError("Daily journal contains an unknown step") from exc
         return cls(
@@ -137,31 +139,8 @@ class WorkspaceDailyLifecycle(Protocol):
         ...
 
 
-class HomeDailyLifecycle(Protocol):
-    @property
-    def original_root(self) -> Path:
-        ...
-
-    @property
-    def runtime_root(self) -> Path:
-        ...
-
-    @property
-    def active_day(self) -> BusinessDay | None:
-        ...
-
-    def initialize_day(self, day: BusinessDay) -> None:
-        ...
-
-    def archive_day(self, day: BusinessDay, *, target: Path) -> None:
-        ...
-
-    def reconcile(self) -> None:
-        ...
-
-
 class DailyLifecycleCoordinator:
-    """Archive one complete old day before opening the next active day."""
+    """Archive Session and Workspace facts before opening the next day."""
 
     def __init__(
         self,
@@ -169,12 +148,10 @@ class DailyLifecycleCoordinator:
         archive_root: Path,
         session: SessionDailyLifecycle,
         workspace: WorkspaceDailyLifecycle,
-        home: HomeDailyLifecycle,
     ) -> None:
         self._archive_root = archive_root
         self._session = session
         self._workspace = workspace
-        self._home = home
         self._lock = RLock()
 
     def ensure_active_day(
@@ -226,12 +203,47 @@ class DailyLifecycleCoordinator:
             except Exception as exc:
                 raise LoopInvariantError(f"Daily rollover failed: {exc}") from exc
 
+    def session_archive_for(self, day: BusinessDay) -> Path | None:
+        """Resolve one finalized Session archive without reading Session internals."""
+
+        with self._lock:
+            if not isinstance(day, BusinessDay):
+                raise LoopContractError("Session archive day must be a BusinessDay")
+            if not self._archive_root.exists():
+                return None
+            matches: list[Path] = []
+            for directory in sorted(
+                self._archive_root.iterdir(),
+                key=lambda path: path.name,
+            ):
+                if not directory.is_dir() or directory.name.startswith(".pending-"):
+                    continue
+                journal_path = directory / "transition.json"
+                if not journal_path.is_file():
+                    continue
+                journal = self._load_journal(directory)
+                if journal.archive_name != directory.name:
+                    raise LoopInvariantError(
+                        "Daily archive directory identity does not match its journal"
+                    )
+                if journal.from_day != str(day):
+                    continue
+                session_root = directory / "session"
+                if not session_root.is_dir():
+                    raise LoopInvariantError(
+                        f"Daily archive is missing Session facts: {directory}"
+                    )
+                matches.append(session_root)
+            if len(matches) > 1:
+                raise LoopInvariantError(
+                    f"Multiple Session archives exist for Business Day {day}"
+                )
+            return matches[0] if matches else None
+
     def _validate_layout(self) -> None:
         roots = {
             "Session": self._session.root.resolve(),
             "Workspace": self._workspace.root.resolve(),
-            "runtime Home": self._home.runtime_root.resolve(),
-            "original Home": self._home.original_root.resolve(),
         }
         archive = self._archive_root.resolve()
         for name, root in roots.items():
@@ -254,14 +266,11 @@ class DailyLifecycleCoordinator:
             for day in (
                 session_day,
                 self._workspace.active_day,
-                self._home.active_day,
             )
             if day is not None
         }
         if len(tagged) > 1:
-            raise LoopInvariantError(
-                "Session, Workspace, and Home active days disagree"
-            )
+            raise LoopInvariantError("Session and Workspace active days disagree")
         inherited = session_day or (next(iter(tagged)) if tagged else target_day)
         self._initialize_all(inherited)
         return inherited
@@ -269,11 +278,9 @@ class DailyLifecycleCoordinator:
     def _initialize_all(self, day: BusinessDay) -> None:
         self._session.initialize_day(day)
         self._workspace.initialize_day(day)
-        self._home.initialize_day(day)
         days = {
             self._session.active_day,
             self._workspace.active_day,
-            self._home.active_day,
         }
         if days != {day}:
             raise LoopInvariantError(
@@ -317,6 +324,11 @@ class DailyLifecycleCoordinator:
     ) -> Path:
         from_day = BusinessDay.parse(journal.from_day)
         to_day = BusinessDay.parse(journal.to_day)
+        if (pending / "home").exists():
+            raise LoopInvariantError(
+                "Legacy pending Daily transition already contains Home; "
+                "manual recovery is required"
+            )
 
         if not journal.completed(DailyTransitionStep.SESSION_ARCHIVED):
             if (pending / "session").exists() and self._session.active_day is None:
@@ -341,15 +353,6 @@ class DailyLifecycleCoordinator:
                     trash_target=pending / "trash",
                 )
             journal = journal.with_step(DailyTransitionStep.WORKSPACE_ARCHIVED)
-            self._save_journal(pending, journal)
-
-        if not journal.completed(DailyTransitionStep.HOME_ARCHIVED):
-            if (pending / "home").exists() and self._home.active_day is None:
-                pass
-            else:
-                self._home.reconcile()
-                self._home.archive_day(from_day, target=pending / "home")
-            journal = journal.with_step(DailyTransitionStep.HOME_ARCHIVED)
             self._save_journal(pending, journal)
 
         if not journal.completed(DailyTransitionStep.ACTIVE_INITIALIZED):

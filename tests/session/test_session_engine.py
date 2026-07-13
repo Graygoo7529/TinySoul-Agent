@@ -355,6 +355,17 @@ def test_session_reconciles_orphans_before_explicit_archive(tmp_path: Path) -> N
     assert tuple(item.ref for item in archived.items) == (
         "session:turn/turn_before_midnight",
     )
+    snapshot = active.archive_snapshot(old_day, root=archive_target)
+    assert snapshot.day == old_day
+    assert snapshot.root == archive_target.resolve()
+    assert snapshot.revision == 1
+    assert snapshot.has_facts is True
+    assert tuple(item.ref for item in snapshot.items) == (
+        "session:turn/turn_before_midnight",
+    )
+
+    with pytest.raises(SessionInvariantError, match="day mismatch"):
+        active.archive_snapshot(DAY, root=archive_target)
 
 
 def test_session_reports_persisted_manifest_shape_as_invariant_failure(

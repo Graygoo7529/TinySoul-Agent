@@ -52,7 +52,7 @@ SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、
 
 归档后的 Session 还是同一组不可变 Turn/summary 事实。Memory Maintenance 通过 Session 所有的只读归档入口按明确 Business Day 定位 records，并把它们交给 Agent Home consolidator；Session 不解释 MEMORY 文档格式、不读取或写入 Agent Home，也不参与 Home runtime diff。目标 MEMORY 不存在时，consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新读取同一归档 Session 即可，不建立 memory candidate store。
 
-启动自动提示只查询配置业务时区中的昨日 Session archive 是否存在，不扫描更早日期。Session 应提供按 Business Day 查询归档的门面，不要求 App/Loop 直接遍历 `transition.json` 或理解 Session store；“目录存在”不应替代“存在可供提炼的已提交 Session 事实”的模块判断。
+启动自动提示只查询配置业务时区中的昨日 Session archive 是否存在，不扫描更早日期。Loop 当前通过 `DailyLifecycleCoordinator.session_archive_for(day)` 解释 transition 并定位 Session 根；Session 通过 `archive_snapshot(day, root)` 只读校验 manifest/graph 并返回有界 history head。App 不遍历 `transition.json`，Loop 不理解 Session store；“目录存在”不替代“存在可供提炼的已提交 Session 事实”的模块判断。
 
 ## 失败边界
 

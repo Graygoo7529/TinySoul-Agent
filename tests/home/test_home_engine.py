@@ -39,7 +39,6 @@ from tinysoul.context import ContextEngineBuilder
 from tinysoul.context.background import BackgroundPatch
 from tinysoul.context.signals import build_background_patch_signal
 from tinysoul.loop.context_signals import ContextSignalConsumer
-from tinysoul.loop.day import BusinessDay
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
@@ -58,7 +57,6 @@ from tinysoul.runtime import (
 
 
 T = TypeVar("T")
-DAY = BusinessDay.parse("2026-07-12")
 
 
 def test_home_settings_reject_overlapping_original_and_runtime_roots(
@@ -83,7 +81,6 @@ def test_home_background_is_copied_only_when_context_loads_it(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     link = "home:what@project"
     context = (
         ContextEngineBuilder(system_text="sys")
@@ -173,7 +170,6 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
 
     home.ensure_runtime_copy(HomeTopLink("how", "refactor"))
 
@@ -194,7 +190,6 @@ def test_home_background_provider_catalog_does_not_materialize_core(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     provider = HomeBackgroundEntryProvider(home)
 
     catalog = provider.catalog()
@@ -223,7 +218,6 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -268,7 +262,6 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     link = HomeTopLink("agent", "core")
     home.ensure_runtime_copy(link)
     runtime = tmp_path / "runtime" / "home" / "agent" / "AGENT.md"
@@ -469,7 +462,6 @@ def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
         )
     ).build()
 
-    home.initialize_day(DAY)
 
     assert HomeDomainHowProvider(home).guidance_for(("workspace",)) == ()
     assert HomeActionHowProvider(home).guidance_for(
@@ -488,7 +480,6 @@ def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> 
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     home.ensure_runtime_copy(home.parse_link("home:how_domain:workspace"))
 
     with pytest.raises(RuntimeException) as raised:
@@ -535,7 +526,6 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -565,7 +555,6 @@ def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> No
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     executor = HomeResourceReadExecutor(home)
 
     try:
@@ -633,8 +622,6 @@ def _run_copy_trap_after_runtime_exception(
     *,
     home: AgentHomeEngine,
 ) -> T:
-    if home.active_day is None:
-        home.initialize_day(DAY)
     scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")

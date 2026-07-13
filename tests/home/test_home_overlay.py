@@ -15,10 +15,6 @@ from tinysoul.home import (
     HomeOverlayState,
 )
 from tinysoul.home.overlay import HomeOverlayManager
-from tinysoul.loop import BusinessDay
-
-
-DAY = BusinessDay.parse("2026-07-12")
 
 
 def test_historical_memory_reads_original_without_runtime_copy(tmp_path: Path) -> None:
@@ -94,6 +90,42 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
     assert records["how/refactor/references/new.md"]["mtime_ns"] > 0
 
 
+def test_home_builder_migrates_day_bound_manifest_to_cross_day_schema(
+    tmp_path: Path,
+) -> None:
+    original = tmp_path / "home"
+    original.mkdir()
+    manifest_path = (
+        tmp_path / "runtime" / "home" / ".tinysoul" / "home_overlay.json"
+    )
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "day": "2026-07-12",
+                "revision": 4,
+                "records": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=original,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    migrated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert migrated == {
+        "records": [],
+        "revision": 4,
+        "schema_version": 2,
+    }
+
+
 @pytest.mark.parametrize(
     "link",
     (
@@ -121,7 +153,7 @@ def test_home_operation_recovers_file_replaced_before_manifest_commit(
     original.mkdir()
     runtime = tmp_path / "runtime" / "home"
     manager = HomeOverlayManager(original_root=original, runtime_root=runtime)
-    manager.initialize_day(DAY)
+    manager.initialize()
     original_save = manager._store.save
     failed = False
 
@@ -147,7 +179,7 @@ def test_home_operation_recovers_file_replaced_before_manifest_commit(
     assert tuple((runtime / ".tinysoul" / "operations").iterdir())
 
     recovered = HomeOverlayManager(original_root=original, runtime_root=runtime)
-    manifest = recovered.initialize_day(DAY)
+    manifest = recovered.initialize()
     effective = recovered.effective("how/refactor/references/recovered.md")
 
     assert effective is not None
@@ -166,7 +198,6 @@ def test_home_patch_enforces_complete_resource_write_limit(tmp_path: Path) -> No
             max_write_chars=8,
         )
     ).build()
-    home.initialize_day(DAY)
     link = "home:how/refactor/references/limited.md"
     home.write_resource(link, "before")
 
@@ -189,5 +220,4 @@ def _home(root: Path) -> AgentHomeEngine:
             runtime_root=root / "runtime" / "home",
         )
     ).build()
-    home.initialize_day(DAY)
     return home

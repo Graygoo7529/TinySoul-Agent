@@ -1,8 +1,9 @@
-"""Persistent effective overlay for the current Agent Home business day."""
+"""Persistent effective overlay for the mutable Agent Home working copy."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import date
 from enum import StrEnum
 import json
 import os
@@ -18,8 +19,6 @@ from tinysoul.infra.filesystem import (
     resolve_under_root,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.loop.day import BusinessDay
-
 from .errors import AgentHomeContractError, AgentHomeIOError, AgentHomeInvariantError
 
 
@@ -108,15 +107,13 @@ class HomeOverlayRecord:
 
 @dataclass(frozen=True)
 class HomeOverlayManifest:
-    day: str
     revision: int = 0
     records: tuple[HomeOverlayRecord, ...] = field(default_factory=tuple)
-    schema_version: int = 1
+    schema_version: int = 2
 
     def __post_init__(self) -> None:
-        BusinessDay.parse(self.day)
-        if self.schema_version != 1:
-            raise AgentHomeContractError("Home overlay schema_version must be 1")
+        if self.schema_version != 2:
+            raise AgentHomeContractError("Home overlay schema_version must be 2")
         if (
             isinstance(self.revision, bool)
             or not isinstance(self.revision, int)
@@ -136,13 +133,23 @@ class HomeOverlayManifest:
     def to_json(self) -> JsonObject:
         return {
             "schema_version": self.schema_version,
-            "day": self.day,
             "revision": self.revision,
             "records": [record.to_json() for record in self.records],
         }
 
     @classmethod
     def from_json(cls, value: JsonObject) -> "HomeOverlayManifest":
+        schema_version = _non_negative_int(value, "schema_version")
+        if schema_version not in {1, 2}:
+            raise AgentHomeContractError("Home overlay schema_version must be 1 or 2")
+        if schema_version == 1:
+            legacy_day = _required_str(value, "day")
+            try:
+                date.fromisoformat(legacy_day)
+            except ValueError as exc:
+                raise AgentHomeContractError(
+                    "Legacy Home overlay day must be an ISO date"
+                ) from exc
         records_value = value.get("records", [])
         if not isinstance(records_value, list):
             raise AgentHomeContractError("Home overlay records must be a list")
@@ -152,8 +159,6 @@ class HomeOverlayManifest:
                 raise AgentHomeContractError("Home overlay records must be objects")
             records.append(HomeOverlayRecord.from_json(to_json_object(item)))
         return cls(
-            schema_version=_non_negative_int(value, "schema_version"),
-            day=_required_str(value, "day"),
             revision=_non_negative_int(value, "revision"),
             records=tuple(records),
         )
@@ -261,11 +266,14 @@ class HomeOverlayStore:
             return None
         value = _read_object(self.manifest_path, label="overlay manifest")
         try:
-            return HomeOverlayManifest.from_json(value)
+            manifest = HomeOverlayManifest.from_json(value)
         except AgentHomeContractError as exc:
             raise AgentHomeInvariantError(
                 f"Persisted Home overlay manifest is invalid: {exc}"
             ) from exc
+        if value.get("schema_version") == 1:
+            self.save(manifest)
+        return manifest
 
     def save(self, manifest: HomeOverlayManifest) -> None:
         _write_object(self.manifest_path, manifest.to_json())
@@ -324,7 +332,7 @@ class HomeOverlayStore:
 
 
 class HomeOverlayManager:
-    """Serialize current-day Home mirror reads, writes, and recovery."""
+    """Serialize cross-day Home mirror reads, writes, and recovery."""
 
     def __init__(self, *, original_root: Path, runtime_root: Path) -> None:
         self._original_root = original_root
@@ -332,35 +340,15 @@ class HomeOverlayManager:
         self._store = HomeOverlayStore(runtime_root)
         self._lock = RLock()
 
-    @property
-    def active_day(self) -> BusinessDay | None:
+    def initialize(self) -> HomeOverlayManifest:
         with self._lock:
-            manifest = self._store.load()
-            return BusinessDay.parse(manifest.day) if manifest is not None else None
-
-    def initialize_day(self, day: BusinessDay) -> HomeOverlayManifest:
-        with self._lock:
-            if not isinstance(day, BusinessDay):
-                raise AgentHomeContractError("Home day must be a BusinessDay")
             manifest = self._store.load()
             if manifest is not None:
-                if manifest.day != str(day):
-                    raise AgentHomeInvariantError(
-                        f"Home active day mismatch: expected {day}, found {manifest.day}"
-                    )
                 return self._reconcile(manifest)
             records = self._legacy_records()
-            manifest = HomeOverlayManifest(day=str(day), records=records)
+            manifest = HomeOverlayManifest(records=records)
             self._store.save(manifest)
             return self._reconcile(manifest)
-
-    def require_day(self, day: BusinessDay) -> None:
-        with self._lock:
-            manifest = self._require_manifest()
-            if not isinstance(day, BusinessDay) or manifest.day != str(day):
-                raise AgentHomeInvariantError(
-                    "Home is not initialized for the requested business day"
-                )
 
     def reconcile(self) -> HomeOverlayManifest:
         with self._lock:
@@ -550,22 +538,6 @@ class HomeOverlayManager:
                 after=after,
                 content=None,
             )
-
-    def archive_day(self, day: BusinessDay, *, target: Path) -> None:
-        with self._lock:
-            self.require_day(day)
-            self._reconcile(self._require_manifest())
-            if target.exists() and self._runtime_root.exists():
-                raise AgentHomeIOError(
-                    "Home archive has both active and archived runtime roots"
-                )
-            if target.exists():
-                return
-            target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.replace(self._runtime_root, target)
-            except OSError as exc:
-                raise AgentHomeIOError(f"Failed to archive runtime Home: {exc}") from exc
 
     def _reconcile(self, manifest: HomeOverlayManifest) -> HomeOverlayManifest:
         manifest = self._recover_operations(manifest)
@@ -790,7 +762,7 @@ class HomeOverlayManager:
     def _require_manifest(self) -> HomeOverlayManifest:
         manifest = self._store.load()
         if manifest is None:
-            raise AgentHomeInvariantError("Home has no active business day")
+            raise AgentHomeInvariantError("Home overlay is not initialized")
         return manifest
 
 

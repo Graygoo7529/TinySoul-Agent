@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
-from tinysoul.loop.day import BusinessDay
 
 from .config import AgentHomeSettings
 from .errors import (
@@ -70,10 +69,6 @@ class AgentHomeEngine:
         return self._layout
 
     @property
-    def active_day(self) -> BusinessDay | None:
-        return self._overlay.active_day
-
-    @property
     def original_root(self) -> Path:
         return self._layout.settings.original_root
 
@@ -81,17 +76,8 @@ class AgentHomeEngine:
     def runtime_root(self) -> Path:
         return self._layout.settings.runtime_root
 
-    def initialize_day(self, day: BusinessDay) -> None:
-        self._overlay.initialize_day(day)
-
-    def require_day(self, day: BusinessDay) -> None:
-        self._overlay.require_day(day)
-
     def reconcile(self) -> None:
         self._overlay.reconcile()
-
-    def archive_day(self, day: BusinessDay, *, target: Path) -> None:
-        self._overlay.archive_day(day, target=target)
 
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
@@ -304,12 +290,14 @@ class AgentHomeEngineBuilder:
             raise AgentHomeIOError("Agent Home root does not exist")
         if not self._settings.original_root.is_dir():
             raise AgentHomeIOError("Agent Home root must be a directory")
+        overlay = HomeOverlayManager(
+            original_root=self._settings.original_root,
+            runtime_root=self._settings.runtime_root,
+        )
+        overlay.initialize()
         return AgentHomeEngine(
             layout=AgentHomeLayout(self._settings),
-            overlay=HomeOverlayManager(
-                original_root=self._settings.original_root,
-                runtime_root=self._settings.runtime_root,
-            ),
+            overlay=overlay,
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
         )

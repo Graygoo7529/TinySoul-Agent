@@ -372,7 +372,6 @@ class TinySoulAppBuilder:
                     archive_root=loop_settings.daily.archive_root,
                     session=session,
                     workspace=workspace,
-                    home=home,
                 ),
                 retained_outcomes=app_settings.retained_turn_outcomes,
                 business_clock=IanaBusinessClock(loop_settings.daily.timezone),

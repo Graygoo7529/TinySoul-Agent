@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态顶层目录、`home:agent@core`、domain/action HOW、MEMORY actual-read 旁路、带 operation recovery 的 overlay、渐进资源 read/write/patch/delete、Runtime copy Trap，以及目前仍与 Business Day 耦合的旧版 Home 日生命周期。
+本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态顶层目录、`home:agent@core`、domain/action HOW、MEMORY actual-read 旁路、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源 read/write/patch/delete 和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-目标语义中，非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home 不再参与每日归档，Home Maintenance 直接 review active overlay 并写回 actual Home。Memory Maintenance 独立读取指定日期 Session archive 和可选同日期旧 MEMORY。跨日 overlay、top/prompt mount mutation、SKILL_MEMORY 协作、Home Maintenance 和 Memory Maintenance 仍未实现。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance 直接 review active overlay 并写回 actual Home；Memory Maintenance 独立读取指定日期 Session archive 和可选同日期旧 MEMORY。effective top catalog、top/prompt mount mutation、SKILL_MEMORY 协作、Home Maintenance 和 Memory Maintenance 仍未实现。
 
 ## 定位
 
@@ -148,9 +148,9 @@ runtime mutation 按链接类别拆分：
 
 后一种入口用于保持与 Runtime 的 OS 风格陷入设计一致，尤其适合在 Phase 或 action 执行边界处理缺页式副本准备。
 
-当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete、reconciliation 和旧版 archive。Manifest 每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime；所有持久 schema 带版本。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation。若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚；Manifest 已提交但 operation 未清理也可幂等收尾。未由 operation 记录的 runtime 文件在初始化或 reconciliation 时收养为 overlay record，symlink 和丢失的 modified/created 内容显式失败。
+当前实现由 `HomeOverlayManager` 统一承担 copy、write、patch、delete 和 reconciliation。Manifest schema v2 不含 Business Day；每条记录包含 relative path、`copied/created/modified/deleted` state、actual baseline digest、runtime digest、size 与 mtime。Builder 在构建 Home 时恢复 operation、迁移 schema v1 并初始化或收养现有 runtime 文件。修改先写入 `.tinysoul/operations/<operation-id>` intent 和 staged bytes，再替换目标、提交 Manifest、清理 operation；若在替换后、Manifest 前退出，下次 initialization/reconciliation 按 digest 前滚。
 
-目标实现保留上述 operation recovery，但移除 Manifest 的 Business Day 身份、`active_day` 强一致性和 Home archive。Home overlay 的存在本身就是尚未提交的事实，不建立第二份 pending/workset/store。每日 Session/Workspace rollover 不能移动、清空或重新初始化 `runtime/home`。
+Home overlay 的存在本身就是尚未提交的事实，不建立第二份 pending/workset/store。每日 Session/Workspace rollover 已保证不移动、清空或重新初始化 `runtime/home`。
 
 Overlay manager 使用进程内 `RLock` 串行化同一 Engine 的读写。纯 `copied` 文件丢失且 actual 仍等于 baseline 时可以确定性重建；modified/created 文件丢失、tombstone 路径重现或 Manifest/operation 状态歧义均属于不变量失败。actual baseline 后续变化不是自动覆盖理由，Home Maintenance 应基于 baseline、runtime 和当前 actual 内容形成明确 review 输入。runtime copy handler 只有在调用前 runtime 文件确实缺失、调用后完成物化时才返回一次 RETRY；文件已经存在却再次请求缺页时直接结束最近 Turn，避免无上限重试。
 

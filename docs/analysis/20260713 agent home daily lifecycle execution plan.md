@@ -57,20 +57,17 @@ Memory 生命周期
 | LLM | done | provider-neutral Task、模型链、输出解释 | 增加 Home reviewer 与 Memory consolidator 的明确 prompt/profile。 |
 | Action | done for framework | 域选择、调用归一化、批次/backend/result | 增加 top/prompt mount action catalog 与 executor。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
-| Session | done for active lifecycle | 不可变 Turn record、summary、orphan reconciliation、日归档 | 增加按 Business Day 只读查询 archive 的门面。 |
+| Session | done for lifecycle boundary | 不可变 Turn record、summary、orphan reconciliation、日归档、按 Business Day 校验 archive snapshot | Memory Maintenance 尚未消费该只读边界。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | in_progress | User Turn、显式 BusinessDay、三模块可恢复 rollover | 移除 Home 参与者，增加两个独立 Maintenance work。 |
-| Agent Home | in_progress | Link、动态 Background、HOW、MEMORY actual-read、day-bound overlay、渐进资源 action、旧版日归档 | 改为跨日 overlay，增加 effective top、top/prompt mount mutation、SKILL_MEMORY、Home/Memory Maintenance。 |
+| Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
+| Agent Home | in_progress | Link、动态 Background、HOW、MEMORY actual-read、schema v2 跨日 overlay、schema v1 迁移、渐进资源 action | 增加统一 effective top、top/prompt mount mutation、SKILL_MEMORY、Home/Memory Maintenance。 |
 | App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
-当前代码中的以下事实必须明确标记为旧实现，而不能发展为兼容层：
+阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
 
-- `DailyLifecycleCoordinator` 同时 claim/initialize/archive Session、Workspace、Home；
-- `DailyTransitionStep.HOME_ARCHIVED`；
-- `transition.json.settlement_status = pending`；
-- `HomeOverlayManifest.business_day` 和 `AgentHomeEngine.active_day`；
-- `HomeOverlayManager.archive_day`；
+当前仍须清理而不能发展为兼容层的旧实现只有：
+
 - top catalog/read 的 source-first 行为；
 - mutation 错误文案仍引用 settlement。
 
@@ -399,7 +396,7 @@ outcome 只存在于当次运行结果与 Observation，不持久化。
 
 ### 阶段 1：Daily Rollover 与 Home 生命周期解耦
 
-status: pending
+status: done
 
 优先级：P0
 
@@ -415,6 +412,8 @@ status: pending
 8. 更新 daily/home/session/app 测试，删除三者同日的旧断言。
 
 验收：连续跨日、启动补做和 crash recovery 只改变 Session/Workspace/Trash；Home runtime diff 原样跨日、跨重启可见。
+
+实施结果：`tinysoul/loop/daily.py` 已收敛为 Session/Workspace/Trash journal，并提供只解释 transition 的 `session_archive_for(day)`；`tinysoul/session/engine.py` 通过 `archive_snapshot(day, root)` 校验 Session 自有 manifest/graph；Home overlay 已迁移为无日期的 schema v2，builder 在启动时恢复 operation、迁移 schema v1 并 reconcile，AppBuilder 不再向 daily coordinator 注入 Home。定向测试覆盖正常 rollover、失败恢复、Home 字节不变、legacy manifest 迁移和 archive snapshot 边界。
 
 ### 阶段 2：Effective Home 与 Mutation
 

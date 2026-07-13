@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from .actions import register_session_actions
     from .projection import SessionTurnCompletionHandler, SessionTurnPreparationHandler
 from .config import SessionSettings, parse_session_settings
-from .engine import SessionEngine
+from .engine import SessionArchiveSnapshot, SessionEngine
 from .errors import (
     SessionContractError,
     SessionError,
@@ -18,6 +18,7 @@ from .reconcile import SessionReconcileResult
 
 __all__ = [
     "SessionContractError",
+    "SessionArchiveSnapshot",
     "SessionEngine",
     "SessionError",
     "SessionFailureKind",
