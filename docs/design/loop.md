@@ -22,7 +22,7 @@ Loop 模块按运行职责拆分：
 tinysoul/loop/
   config.py          # LoopSettings 与配置解析
   day.py             # BusinessDay 与可注入 IANA 业务时钟
-  daily.py           # 跨 Session/Workspace/Home 的可恢复日切 journal
+  daily.py           # 跨 Session/Workspace/Trash 的可恢复日切 journal
   outcomes.py        # 稳定 TurnOutcomeStatus 与有界 TurnFailure
   errors.py          # loop 契约与不变量错误
   failures.py        # loop Runtime bridge 失败枚举
@@ -42,7 +42,7 @@ Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身�
 
 ## 运行层级与运行器
 
-ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 `exit_program` 事件转换为 Runtime Program end。每个 work item 在进程锁内从配置的 IANA 时钟捕获一次 aware `now` 和 `BusinessDay`；先调用 `DailyLifecycleCoordinator.ensure_active_day`，成功后才开始 Turn。同一 Turn 内不再次读取日期，因而跨午夜 Turn 仍归属开始日；并发 `run_once` 被串行化，符合 active Session/Workspace/Home 的单写者模型。
+ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 Home/Memory Maintenance 事件派发为对应维护 work，把 `exit_program` 事件转换为 Runtime Program end。每个 work item 在进程锁内从配置的 IANA 时钟捕获一次 aware `now` 和 `BusinessDay`；先调用 `DailyLifecycleCoordinator.ensure_active_day`，成功后才开始该项 work。同一 User Turn 内不再次读取日期，因而跨午夜 Turn 仍归属开始日；所有 work 被串行化，符合 Session、Workspace 与 Home 的单进程单写者模型。
 
 TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。Cycle/Turn 从 Runtime exception chain 提取 reason/module/kind 和有界安全 message，但把 turn output、用户 stop/exit 等控制异常排除在失败之外。最终 `TurnOutcomeStatus` 稳定区分 `answered/exhausted/stopped/failed`；失败、耗尽和停止发布 normal Observation，只有 completion pipeline 全部成功后才发布 `turn.output`。默认首个 completion handler 是幂等 Session 提交；后续 handler 必须自行以 Turn id/业务 operation id 实现幂等，因为 pipeline 保证确定顺序和失败停止，不提供跨 handler 原子事务或自动回滚。
 
@@ -54,30 +54,31 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 ## 业务日与确定性归档
 
-`loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session、Workspace、Home 不自行调用系统日期。
+`loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session 和 Workspace 不自行调用系统日期。Home overlay 不再以 Business Day 作为身份或清理边界。
 
-这里必须区分两个不同流程：`daily rollover` 是确定性的 active-root 冻结与换日，不调用 LLM；`settlement` 是消费已冻结归档的语义维护任务，可以调用 LLM 并修改 original Home。新日 User Turn 只依赖 rollover 完成，不等待 settlement。现有代码只实现 rollover，并在每次 `ProgramRunner.run_once` 开始、创建 Turn 之前检查日期；程序空闲启动时不会主动换日或扫描 settlement，后台定时和人工维护入口尚未实现。
+这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。现有代码只实现旧版 rollover，并仍把 Home 当作第三个每日参与者；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
 
 日切顺序固定为：
 
 1. 恢复或创建 `archive/.pending-<operation-id>/transition.json`；
 2. Session 完成 orphan reconciliation 并移动到 pending `session/`；
 3. Workspace 完整 reconcile，把 active Workspace 和 active Trash 分别移动到 `workspace/`、`trash/`；
-4. Home 完成 overlay operation recovery/reconciliation 并移动到 `home/`；
-5. 为三者初始化相同的新 business day；
-6. 原子把 pending 目录改名为 `archive/<timezone-timestamp>/`。
+4. 为 Session 与 Workspace 初始化相同的新 business day；
+5. 原子把 pending 目录改名为 `archive/<timezone-timestamp>/`。
 
-每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、Manifest 已初始化但最终 rename 未完成等窗口都可在重启时前滚；多个 pending、day 分歧、时钟倒退、archive 与任何 active/original root 重叠均显式失败。该协议是可恢复的跨模块 partial completion，不宣称跨目录原子事务。
+每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、Manifest 已初始化但最终 rename 未完成等窗口都可在重启时前滚；多个 pending、Session/Workspace day 分歧、时钟倒退、archive 与任何 active root 重叠均显式失败。该协议是可恢复的跨模块 partial completion，不宣称跨目录原子事务。`runtime/home` 不参与 claim、move、initialize 或 rollback。
 
-归档完成后的稳定结构是 `archive/<timezone-timestamp>/{transition.json,session,workspace,home,trash}`。`runtime/` 中只重新建立当前日的 `session/`、`workspace/`、`home/` active roots；coordinator 不删除 runtime 下不属于这三个参与者的其它目录。旧日 Trash 已退出 active Workspace API，只保留物理归档事实。
+归档完成后的稳定结构是 `archive/<timezone-timestamp>/{transition.json,session,workspace,trash}`。`runtime/` 中只重新建立当前日的 `session/`、`workspace/` active roots；coordinator 保留跨日 `runtime/home` 以及 runtime 下不属于每日参与者的其它目录。旧日 Trash 已退出 active Workspace API，只保留物理归档事实。`transition.json` 只描述物理日切，不写 `settlement_status`、Home pending 或 Maintenance 状态。
 
-归档完成只表示旧日事实已冻结。`transition.json` 的 `settlement_status` 当前是写出时固定的 `pending` 标记，不是已经实现的 settlement 状态机；当前没有 pending archive 索引、claim、plan、review、apply、abort 或重试协议。后续后台 Agent、启动检测或用户命令应调度独立 Daily maintenance work。该工作不能重新打开或修改归档，应以归档为只读输入，通过 Home 所有的 apply/journal 能力更新 original Home，并把冲突作为可审阅结果保存。
+Program 运行期间由内置 scheduler 在配置日界投递 rollover 触发；若程序未运行，启动或任一新 work 前恢复并补做日切。跨午夜 User Turn 先完成旧日 Session 提交，再在下一 Program work 边界归档。日切失败阻止新日 work，Home/Memory Maintenance 失败则只结束对应维护 work。
+
+Home Maintenance 不保存 plan、review result、apply journal 或 status；是否存在实际待处理内容由 active overlay 中的 created/modified/deleted record 与 `SKILL_MEMORY.md` 判断，单纯 copied record 可在 Maintenance 中直接清理。Memory 的启动提醒只检查昨日 Session archive 与同日 MEMORY 是否存在，不扫描更早日期，也不保存 skipped 状态。人工 Memory 命令可以显式指定日期。人工 Home 逐项确认是 Maintenance 内的专用 decision 输入，不是 User Turn append；Program 暂停普通 work dispatch，其他输入继续留在队列。两个 Maintenance work 各自产生明确 outcome，一个失败不回滚或掩盖另一个；后台 scheduler、启动提示和人工命令必须调用同一 runner/service，不复制业务流程。
 
 ## 输入边界
 
 外部输入源、输入命令解析和输入分发由 app 模块负责。Loop 只消费两类已经进入内部边界的输入结果：
 
-- Program 级 `ProgramInputEvent`：进入 ProgramRunner 的输入队列，用于启动 Turn 或结束 Program；
+- Program 级 `ProgramInputEvent`：进入 ProgramRunner 的输入队列，用于启动 User Turn、Home Maintenance、指定日期 Memory Maintenance 或结束 Program；
 - Turn 执行中的内部信号：`loop.control.request` 表示结束 Turn 或结束 Program 的控制请求，`context.input.append` 表示追加用户输入。
 
 控制请求信号本身不改变控制流；运行器在 Phase 或 Cycle 边界只接受 Turn frame 与当前 Turn 完全相同的请求，再构造对应 Runtime 语义异常进入 Trap。无 Turn scope 或旧 Turn 请求会被拒绝，不能中断后续 Turn。普通追加输入同样携带 active Turn scope，由 ContextEngine 校验后在明确边界合并。

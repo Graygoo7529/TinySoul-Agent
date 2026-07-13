@@ -12,9 +12,9 @@ Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖�
 
 TinySoul 的运行层级从外到内分为 Program、Turn、Cycle、Phase 和 Module。
 
-Program 是程序顶层，当前负责等待用户输入、执行退出指令和调度 User Turn。User Turn 开始前的确定性 daily rollover 是 Program work 边界的前置条件，不是一个调用 LLM 的 Daily Turn；它只恢复 journal、冻结旧日 active roots 并打开新日。运行层级允许未来调度与用户轮同级的 Daily maintenance Turn，用于 settlement plan/review/apply，但该调度尚未实现；Program 不直接介入 Phase 或具体模块细节。
+Program 是程序顶层，当前负责等待用户输入、执行退出指令和调度 User Turn。每项新日 work 开始前的确定性 daily rollover 是 Program 边界的前置条件，不是调用 LLM 的 Maintenance Turn；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不能移动或初始化跨日 Home overlay。运行层级允许未来调度与用户轮同级、可独立触发的 Home Maintenance 和 Memory Maintenance，但该调度尚未实现；Program 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Program 下的一次顶层任务。当前实现由用户输入形成 User Turn；运行模型允许每日沉淀或维护任务形成与 User Turn 同级的 Daily Turn，但对应调度尚未落地。不同类型 Turn 的调度策略可以不同，例如 User Turn 可以接收用户追加输入，Daily Turn 执行期间不接收用户输入；但它们在运行控制层级上同属 Turn。
+Turn 是 Program 下的一次顶层任务。当前实现由用户输入形成 User Turn；运行模型允许 Home/Memory Maintenance 形成与 User Turn 同级的 Maintenance Turn，但对应调度尚未落地。不同类型 Turn 的调度策略可以不同，例如 User Turn 可以接收用户追加输入，Maintenance Turn 执行期间不接收用户输入；但它们在运行控制层级上同属 Turn。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 active overlay 与 actual Home，Memory 重试重新读取指定日期 Session archive 与同日期 MEMORY。
 
 Cycle 是 User Turn 内的一次执行轮。User Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 

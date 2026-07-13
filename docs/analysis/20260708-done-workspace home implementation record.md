@@ -4,7 +4,7 @@
 
 status: done
 
-本文由原 `20260708 workspace home implementation plan.md` 拆分而来，记录截至 2026-07-12 已经落地的设计与实现事实。原计划中尚未完成的 Agent Home 检索与写入、Memory/HOW feedback、Workspace 日终归档和每日沉淀，已迁移到 `20260712 agent home daily lifecycle followup plan.md`，不在本文中以完成状态保留。
+本文由原 `20260708 workspace home implementation plan.md` 拆分而来，记录截至 2026-07-12 已经落地的设计与实现事实。原计划中尚未完成的 Agent Home 检索与写入、Memory/HOW feedback、Workspace 日终归档和每日沉淀，已统一迁移到 `20260713 agent home daily lifecycle execution plan.md`，不在本文中以完成状态保留。
 
 本文的 `done` 表示下列记录项均可在当前代码、设计文档和测试中找到对应实现，不表示 Workspace 与 Agent Home 的全部目标已经完成。
 
@@ -164,8 +164,10 @@ status: done
 - Agent Home effective overlay manifest、runtime-only 资源和 tombstone；
 - `home.top.search` 及语义 top-k；
 - `home.resource.write` / `home.resource.patch`；
-- `home.memory.append`、HOW 使用事实和 feedback；
-- runtime Home 的日标识、归档、diff、合并计划和冲突处理；
+- Home 从 daily rollover 解耦后的跨日 active overlay；
+- 通用 HOW 的 runtime `SKILL_MEMORY.md` 及其 Home Maintenance review/清理；
+- runtime Home 的即时 review/apply/discard 与已处理 active diff 清理；
+- 基于指定日期 Session archive 与可选同日旧 MEMORY 的 Memory Maintenance；
 - Workspace 日标识和日终归档；
 - Program 同级 Daily Turn/maintenance 调度；
 - 文档资源转换 action；

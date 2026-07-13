@@ -19,7 +19,7 @@ runtime/session/
 
 `turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态和用于恢复排序的 `recorded_at_ns`。Record schema 当前为 v2；v1 record 读取时以文件 mtime 补足排序时间。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态和 trace digest；action 调用与结果由 Session 配置的 `background_action_names` allowlist 选择，默认只投影最多三个 `core.reason`，避免把所有工具结果复制进跨 Turn 背景。每个被投影 action 的参数与结果分别有界，完整内容仍只存在于 Turn record。summary record 保存被合并节点的完整头部和子引用，不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
 
-Session 不读取 `date.today()`，也不拥有 archive root 配置。Program 在 work 边界传入唯一 `BusinessDay`；日切时 Loop coordinator 先要求 Session 完成 reconciliation，再把 active root 移到统一 pending archive 的 `session/`，最后与 Workspace/Home 一起打开新日。Manifest 和 record 使用稳定 JSON 与原子写入；day 不匹配、损坏或归档目标冲突显式失败，不静默重建。
+Session 不读取 `date.today()`，也不拥有 archive root 配置。Program 在 work 边界传入唯一 `BusinessDay`；日切时 Loop coordinator 先要求 Session 完成 reconciliation，再把 active root 移到统一 pending archive 的 `session/`，最后与 Workspace 一起打开新日。Home 不参与这一 Business Day 事务。Manifest 和 record 使用稳定 JSON 与原子写入；day 不匹配、损坏或归档目标冲突显式失败，不静默重建。
 
 ## 摘要与渐进恢复
 
@@ -49,6 +49,10 @@ Turn completion 使用“不可变 record 先行、Manifest 后提交”的顺�
 summary id 由 day、schema 和有序 child refs 的 digest 确定。若生成 summary record 后 Manifest 提交失败，重试会复用同一 summary，而不会产生重复摘要。不可达 summary 不独立接入可见头部，因为它是派生索引而不是新的 Turn 事实；reconciliation 会报告这些 refs，并在后续确定性汇总需要时复用。`record_turn` 必须显式携带 Turn 开始日；同 ref、同 completion/output/exhausted 是幂等成功，同 ref 不同事实是 invariant conflict。跨日时必须先完成旧日 reconciliation，再把完整旧日目录归档。
 
 SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、completion、recall 和 reconciliation。当前不提供跨进程锁；active Session 的支持运行模型是单进程写入，多进程同时提交同一 active 根不属于一致性保证范围。
+
+归档后的 Session 还是同一组不可变 Turn/summary 事实。Memory Maintenance 通过 Session 所有的只读归档入口按明确 Business Day 定位 records，并把它们交给 Agent Home consolidator；Session 不解释 MEMORY 文档格式、不读取或写入 Agent Home，也不参与 Home runtime diff。目标 MEMORY 不存在时，consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新读取同一归档 Session 即可，不建立 memory candidate store。
+
+启动自动提示只查询配置业务时区中的昨日 Session archive 是否存在，不扫描更早日期。Session 应提供按 Business Day 查询归档的门面，不要求 App/Loop 直接遍历 `transition.json` 或理解 Session store；“目录存在”不应替代“存在可供提炼的已提交 Session 事实”的模块判断。
 
 ## 失败边界
 

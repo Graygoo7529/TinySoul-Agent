@@ -31,7 +31,7 @@ App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app �
 输入处理分为两层：
 
 - `InputCommandParser` 是纯解析器，无副作用；它根据当前是否存在活跃 Turn，把 InputEvent 分类为启动 Turn、追加输入、停止 Turn、退出 Program 或忽略。
-- `InputDispatcher` 承担副作用；它将 Program 级输入投递到 ProgramRunner 的输入队列，将 Turn 内追加输入转换为 `context.input.append` 信号，将 Turn 内控制请求转换为 `loop.control.request` 信号。
+- `InputDispatcher` 承担副作用；它将 User Turn、Home Maintenance、指定日期 Memory Maintenance 和 Program 退出等 Program 级输入投递到 ProgramRunner 队列，将 Turn 内追加输入转换为 `context.input.append` 信号，将 Turn 内控制请求转换为 `loop.control.request` 信号。
 
 这个拆分保证输入命令策略可以单独测试，也保证终端、API、HTTP、WebSocket 或 IPC 输入源都只依赖同一个 InputEvent 协议。
 
@@ -39,7 +39,7 @@ App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app �
 
 ProgramRunner 等待的是已分类的 `ProgramInputEvent`，而不是原始字符串。
 
-空闲状态下的普通输入变成 `start_turn` 事件；空闲状态下的退出命令变成 `exit_program` 事件。这样 ProgramRunner 阻塞等待时总能被 Program 级事件唤醒，不依赖 SignalBus 唤醒外部输入。
+空闲状态下的普通输入变成 `start_turn` 事件；维护指令变成 Home 或 Memory Maintenance event；退出命令变成 `exit_program` 事件。这样 ProgramRunner 阻塞等待时总能被 Program 级事件唤醒，不依赖 SignalBus 唤醒外部输入。
 
 Turn 活跃期间的普通输入和控制命令不进入 Program 队列，而是由 InputDispatcher 转换为内部信号，由 loop 在 Phase/Cycle 边界消费。
 
@@ -48,6 +48,7 @@ Turn 活跃期间的普通输入和控制命令不进入 Program 队列，而是
 输入源实现 `InputSource` 协议，只负责生产 InputEvent：
 
 - `TerminalInputSource` 从 stdin 读取行输入；stdin 到 EOF 时，它提交配置中的首个 Program 退出命令，使阻塞中的 ProgramRunner 通过正常输入/Trap 流程结束；
+- 内置 scheduler 是时间驱动的 InputSource，只向 Program 投递 daily rollover/Home Maintenance/Memory Maintenance event，不在 scheduler 线程直接调用业务模块；
 - 测试或嵌入式调用可以直接调用 `TinySoulApp.submit_input()` 或 `InputDispatcher.submit()`；
 - 后续 HTTP、WebSocket、IPC 或文件监听输入源应作为 app source adapter 接入。
 
@@ -81,7 +82,7 @@ TinySoulAppBuilder 负责：
 - 调用各模块 registrar 装配模块 executor；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入 IANA business clock 与 DailyLifecycleCoordinator；
 - preparation 顺序固定为 Context 动态 Home 默认项、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
-- 构建 InputCommandParser、InputDispatcher 和输入源；
+- 构建 InputCommandParser、InputDispatcher、终端输入源和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime 和各级 Loop runner；
 - 返回 TinySoulApp。
 
@@ -89,11 +90,15 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 也在装配期注入到 action 层共享 LLM action backend 服务，让 `core.reason`、`core.answer` 等通用动作可以使用 `reference_links`，让带内部 LLM task 的 action 自动获得 domain/action HOW。
 
-当前 App 只把 `DailyLifecycleCoordinator` 注入 ProgramRunner；日切在 `run_once` 接受 User Turn 前发生。App 尚未定义 settlement 命令、后台 scheduler、程序空闲启动时的 pending archive 扫描或 Daily maintenance 输入类型。后续这些入口仍应由 App 负责外部触发与装配，但 archive claim、plan/apply 状态和 Home 写入语义必须分别归 Loop maintenance coordinator 与 Agent Home settlement 门面，不能实现为 CLI 内的文件操作。
+当前 App 只把旧版 `DailyLifecycleCoordinator` 注入 ProgramRunner；日切在 `run_once` 接受 User Turn 前发生。App 尚未定义启动期主动 rollover、Maintenance 输入类型、内置 scheduler 或启动提醒。
+
+目标启动流程只有一个 Program 入口：先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 是否含实际修改，并检查是否存在“昨日 Session archive 且昨日 MEMORY 不存在”，向交互终端提示可独立触发的 Home/Memory Maintenance，然后进入正常输入等待。Home 提示可以跳过，overlay 继续保留；Memory 不持久化 skipped 状态，只在目标日期仍是昨日时自动提示。人工 Home Maintenance 通过 App-owned decision provider 在终端逐项确认，不能由 Home 服务直接读取 stdin；确认期间普通输入继续排队。scheduler 触发的 Home Maintenance 允许后台 Agent 全自动 apply/discard。
+
+这些入口仍由 App 负责外部触发与装配，但 Home diff、review/apply、Session archive 读取和 MEMORY 重写语义归 Agent Home，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接 diff 或修改 Home。App 不建立 settlement root，也不持久化 review/apply 状态。
 
 ## 与其他模块的关系
 
-- 对 loop：app 创建各级 runner，注入 daily settings/coordinator，并向 ProgramRunner 投递 ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
+- 对 loop：app 创建各级 runner，注入 daily settings/coordinator、Maintenance runner 与 scheduler，并向 ProgramRunner 投递 typed ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
 - 对 context：app 注入 `HomeBackgroundEntryProvider`，不物化 core、不读取 Agent Home 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
