@@ -45,6 +45,26 @@ def register_home_actions(
         "home.resource.delete",
         HomeResourceDeleteExecutor(home, runtime_bridge),
     )
+    builder.register_executor(
+        "home.top.write",
+        HomeTopWriteExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.top.patch",
+        HomeTopPatchExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.top.delete",
+        HomeTopDeleteExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.prompt_mount.write",
+        HomePromptMountWriteExecutor(home, runtime_bridge),
+    )
+    builder.register_executor(
+        "home.prompt_mount.patch",
+        HomePromptMountPatchExecutor(home, runtime_bridge),
+    )
     return builder
 
 
@@ -133,7 +153,7 @@ class HomeResourceReadExecutor(ActionExecutor):
 
 
 class HomeResourceWriteExecutor(ActionExecutor):
-    """Create or replace a progressive resource in today's Home overlay."""
+    """Create or replace a progressive resource in the active Home overlay."""
 
     def __init__(
         self,
@@ -183,7 +203,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
 
 
 class HomeResourcePatchExecutor(ActionExecutor):
-    """Apply one deterministic exact replacement to today's Home overlay."""
+    """Apply one deterministic exact replacement to the active Home overlay."""
 
     def __init__(
         self,
@@ -234,7 +254,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
 
 
 class HomeResourceDeleteExecutor(ActionExecutor):
-    """Tombstone a progressive resource in today's Home overlay."""
+    """Tombstone a progressive resource in the active Home overlay."""
 
     def __init__(
         self,
@@ -268,6 +288,251 @@ class HomeResourceDeleteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home resource delete failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomeTopWriteExecutor(ActionExecutor):
+    """Create or replace a non-MEMORY top entry in the active overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        text = execution.call.params.get("text")
+        overwrite = execution.call.params.get("overwrite", False)
+        expected_digest = execution.call.params.get("expected_digest", "")
+        what_kind = execution.call.params.get("what_kind")
+        if not isinstance(link, str) or not link or not isinstance(text, str):
+            return _failed(
+                execution,
+                "home.top.write requires non-empty 'link' and string 'text'.",
+                {"reason": "invalid_parameters"},
+            )
+        if (
+            not isinstance(overwrite, bool)
+            or not isinstance(expected_digest, str)
+            or (what_kind is not None and not isinstance(what_kind, str))
+        ):
+            return _failed(
+                execution,
+                "home.top.write precondition/classification parameters are invalid.",
+                {"reason": "invalid_precondition"},
+            )
+        try:
+            result = self._home.write_top(
+                link,
+                text,
+                overwrite=overwrite,
+                expected_digest=expected_digest,
+                what_kind=what_kind,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home top write failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomeTopPatchExecutor(ActionExecutor):
+    """Patch one non-MEMORY top entry in the active overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        old_text = execution.call.params.get("old_text")
+        new_text = execution.call.params.get("new_text")
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if (
+            not isinstance(link, str)
+            or not link
+            or not isinstance(old_text, str)
+            or not old_text
+            or not isinstance(new_text, str)
+            or not isinstance(expected_digest, str)
+        ):
+            return _failed(
+                execution,
+                "home.top.patch parameters are invalid.",
+                {"reason": "invalid_parameters"},
+            )
+        try:
+            result = self._home.patch_top(
+                link,
+                old_text=old_text,
+                new_text=new_text,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home top patch failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomeTopDeleteExecutor(ActionExecutor):
+    """Tombstone one non-MEMORY top entry in the active overlay."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(link, str) or not link or not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "home.top.delete parameters are invalid.",
+                {"reason": "invalid_parameters"},
+            )
+        try:
+            result = self._home.delete_top(link, expected_digest=expected_digest)
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home top delete failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomePromptMountWriteExecutor(ActionExecutor):
+    """Create or replace one catalog-defined prompt mount."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        text = execution.call.params.get("text")
+        overwrite = execution.call.params.get("overwrite", False)
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(link, str) or not link or not isinstance(text, str):
+            return _failed(
+                execution,
+                "home.prompt_mount.write requires non-empty 'link' and string 'text'.",
+                {"reason": "invalid_parameters"},
+            )
+        if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "home.prompt_mount.write precondition parameters are invalid.",
+                {"reason": "invalid_precondition"},
+            )
+        try:
+            result = self._home.write_prompt_mount(
+                link,
+                text,
+                overwrite=overwrite,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home prompt mount write failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return _mutation_success(execution, result)
+
+
+class HomePromptMountPatchExecutor(ActionExecutor):
+    """Patch one catalog-defined prompt mount."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = execution.call.params.get("link")
+        old_text = execution.call.params.get("old_text")
+        new_text = execution.call.params.get("new_text")
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if (
+            not isinstance(link, str)
+            or not link
+            or not isinstance(old_text, str)
+            or not old_text
+            or not isinstance(new_text, str)
+            or not isinstance(expected_digest, str)
+        ):
+            return _failed(
+                execution,
+                "home.prompt_mount.patch parameters are invalid.",
+                {"reason": "invalid_parameters"},
+            )
+        try:
+            result = self._home.patch_prompt_mount(
+                link,
+                old_text=old_text,
+                new_text=new_text,
+                expected_digest=expected_digest,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home prompt mount patch failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)

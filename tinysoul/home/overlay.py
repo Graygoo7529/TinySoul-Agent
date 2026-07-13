@@ -354,6 +354,15 @@ class HomeOverlayManager:
         with self._lock:
             return self._reconcile(self._require_manifest())
 
+    def records(self) -> tuple[HomeOverlayRecord, ...]:
+        with self._lock:
+            return self._reconcile(self._require_manifest()).records
+
+    def record_for(self, relative_path: str) -> HomeOverlayRecord | None:
+        with self._lock:
+            _validate_relative_path(relative_path)
+            return self._reconcile(self._require_manifest()).record_for(relative_path)
+
     def effective(self, relative_path: str) -> EffectiveHomeResource | None:
         with self._lock:
             _validate_relative_path(relative_path)
@@ -387,7 +396,7 @@ class HomeOverlayManager:
             deleted = manifest.record_for(relative_path)
             if deleted is not None and deleted.state is HomeOverlayState.DELETED:
                 raise AgentHomeContractError(
-                    f"Home resource was deleted in the active day: {relative_path}"
+                    f"Home resource was deleted in the active overlay: {relative_path}"
                 )
             source = self._source_path(relative_path)
             if not source.is_file() or source.is_symlink():
@@ -406,6 +415,31 @@ class HomeOverlayManager:
             if result is None:
                 raise AgentHomeInvariantError("Home copy did not become effective")
             return result
+
+    def reset_to_actual_copy(self, relative_path: str) -> HomeOverlayRecord:
+        """Replace any overlay state with a fresh copy of current actual content."""
+
+        with self._lock:
+            _validate_relative_path(relative_path)
+            manifest = self._reconcile(self._require_manifest())
+            source = self._source_path(relative_path)
+            if not source.is_file() or source.is_symlink():
+                raise AgentHomeContractError(
+                    f"Home source is not a regular file: {source}"
+                )
+            content = _read_bytes(source)
+            digest = _digest_bytes(content)
+            after = _record_from_content(
+                relative_path,
+                content,
+                baseline_digest=digest,
+            )
+            return self._commit(
+                manifest,
+                before=manifest.record_for(relative_path),
+                after=after,
+                content=content,
+            )
 
     def write(
         self,

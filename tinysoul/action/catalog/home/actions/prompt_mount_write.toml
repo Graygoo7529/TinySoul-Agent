@@ -1,0 +1,23 @@
+name = "home.prompt_mount.write"
+domain = "home"
+
+[tool]
+description = "Create or replace one Action Catalog-defined domain/action HOW prompt mount."
+schema = { type = "object", properties = { link = { type = "string", description = "home:how_domain:<domain> or home:how_action:<domain>/<action>." }, text = { type = "string" }, overwrite = { type = "boolean" }, expected_digest = { type = "string" } }, required = ["link", "text"], additionalProperties = false }
+
+[semantic]
+use_when = ["A framework-defined domain or action HOW mount should be created or fully replaced"]
+avoid_when = ["The model would need to create or delete a logical mount", "A general HOW skill should change"]
+effects = ["modifying"]
+examples = ["Write guidance to home:how_domain:workspace"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.prompt_mount.write"

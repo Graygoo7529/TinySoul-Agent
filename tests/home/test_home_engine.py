@@ -33,6 +33,8 @@ from tinysoul.home import (
     HomeBackgroundEntryProvider,
     HomeDomainHowProvider,
     HomeResourceReadExecutor,
+    HomePromptMountWriteExecutor,
+    HomeTopWriteExecutor,
     HomeTopLink,
 )
 from tinysoul.context import ContextEngineBuilder
@@ -141,6 +143,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
 
     defaults = _run_copy_trap_after_runtime_exception(
         home.default_background_entries,
@@ -359,6 +362,56 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     assert result.frame_data["reason"] == "invalid_max_chars"
 
 
+def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
+    tmp_path: Path,
+) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=home_root,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    _bind_workspace_mounts(home)
+
+    missing_kind = HomeTopWriteExecutor(home).execute(
+        _execution(
+            "home.top.write",
+            {"link": "home:what@project", "text": "project"},
+        ),
+        ActionExecutionContext(),
+    )
+    created = HomeTopWriteExecutor(home).execute(
+        _execution(
+            "home.top.write",
+            {
+                "link": "home:what@project",
+                "text": "project",
+                "what_kind": "concept",
+            },
+        ),
+        ActionExecutionContext(),
+    )
+    prompt = HomePromptMountWriteExecutor(home).execute(
+        _execution(
+            "home.prompt_mount.write",
+            {
+                "link": "home:how_domain:workspace",
+                "text": "workspace guidance",
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert missing_kind.status is ActionResultStatus.FAILED
+    assert created.status is ActionResultStatus.SUCCESS
+    assert created.payload["state"] == "created"
+    assert prompt.status is ActionResultStatus.SUCCESS
+    assert home.read_top("home:what@project") == "project"
+    assert home.guidance_for_domain("workspace") == "workspace guidance"
+
+
 def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "how" / "refactor" / "references"
     ref.mkdir(parents=True)
@@ -384,6 +437,7 @@ def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
     provider = HomeDomainHowProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
@@ -404,6 +458,7 @@ def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
     provider = HomeActionHowProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
@@ -438,6 +493,7 @@ def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
     provider = HomeActionHowProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
@@ -461,6 +517,7 @@ def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
 
 
     assert HomeDomainHowProvider(home).guidance_for(("workspace",)) == ()
@@ -480,6 +537,7 @@ def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> 
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
+    _bind_workspace_mounts(home)
     home.ensure_runtime_copy(home.parse_link("home:how_domain:workspace"))
 
     with pytest.raises(RuntimeException) as raised:
@@ -664,3 +722,10 @@ def _handle_copy_trap(
         )
     )
     assert trap_result.transfer.action is RuntimeTransferAction.RETRY
+
+
+def _bind_workspace_mounts(home: AgentHomeEngine) -> None:
+    home.reconcile_prompt_mounts(
+        domains=("workspace",),
+        actions=(("workspace", "workspace.rewrite"),),
+    )

@@ -10,6 +10,7 @@ from tinysoul.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
     AgentHomeIOError,
+    AgentHomeInvariantError,
     AgentHomeRuntimeCopyRequired,
     AgentHomeSettings,
     HomeOverlayState,
@@ -18,19 +19,20 @@ from tinysoul.home.overlay import HomeOverlayManager
 
 
 def test_historical_memory_reads_original_without_runtime_copy(tmp_path: Path) -> None:
-    memory = tmp_path / "home" / "memory" / "old.md"
+    memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
     memory.parent.mkdir(parents=True)
     memory.write_text("old memory", encoding="utf-8")
     home = _home(tmp_path)
 
-    resource = home.read_resource("home:memory/old.md")
-    top = home.read_top("home:memory@old")
-    prepared = home.ensure_runtime_copy(home.parse_link("home:memory/old.md"))
+    top_link = "home:memory@2026-07-11"
+    top = home.read_top(top_link)
+    prepared = home.ensure_runtime_copy(home.parse_link(top_link))
 
-    assert resource.text == "old memory"
     assert top == "old memory"
     assert prepared is False
-    assert not (tmp_path / "runtime" / "home" / "memory" / "old.md").exists()
+    with pytest.raises(AgentHomeContractError, match="stable top-level date"):
+        home.read_resource("home:memory/2026/07/2026-07-11.md")
+    assert not (tmp_path / "runtime" / "home" / "memory").exists()
 
 
 def test_home_overlay_mutations_survive_restart_without_touching_original(
@@ -88,6 +90,218 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
     records = {item["relative_path"]: item for item in manifest["records"]}
     assert records["how/refactor/references/check.md"]["state"] == "deleted"
     assert records["how/refactor/references/new.md"]["mtime_ns"] > 0
+
+
+def test_runtime_only_top_is_catalogued_across_restart_and_tombstone_hides_it(
+    tmp_path: Path,
+) -> None:
+    home = _home(tmp_path)
+
+    created = home.write_top(
+        "home:what@tiny_soul",
+        "runtime entity",
+        what_kind="entity",
+    )
+
+    assert created.state is HomeOverlayState.CREATED
+    assert "home:what@tiny_soul" in home.loadable_background_links()
+    assert home.read_top("home:what@tiny_soul") == "runtime entity"
+    assert not (
+        tmp_path / "home" / "what" / "entity" / "tiny_soul.md"
+    ).exists()
+
+    restarted = _home(tmp_path)
+    assert "home:what@tiny_soul" in restarted.loadable_background_links()
+    deleted = restarted.delete_top("home:what@tiny_soul")
+
+    assert deleted.state is HomeOverlayState.DELETED
+    assert "home:what@tiny_soul" not in restarted.loadable_background_links()
+    with pytest.raises(AgentHomeContractError, match="does not exist"):
+        restarted.read_top("home:what@tiny_soul")
+
+
+def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None:
+    source = tmp_path / "home" / "why" / "obsolete.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("actual reason", encoding="utf-8")
+    home = _home(tmp_path)
+
+    deleted = home.delete_top("home:why@obsolete")
+
+    assert deleted.state is HomeOverlayState.DELETED
+    assert source.read_text(encoding="utf-8") == "actual reason"
+    assert "home:why@obsolete" not in home.loadable_background_links()
+
+
+def test_materialized_top_remains_effective_when_actual_changes_externally(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "home" / "why" / "stable.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("baseline", encoding="utf-8")
+    home = _home(tmp_path)
+    link = home.parse_link("home:why@stable")
+    assert home.ensure_runtime_copy(link) is True
+
+    source.write_text("external change", encoding="utf-8")
+
+    assert home.read_top("home:why@stable") == "baseline"
+    assert "home:why@stable" in home.loadable_background_links()
+
+
+def test_top_mutation_enforces_what_classification_core_and_memory_rules(
+    tmp_path: Path,
+) -> None:
+    core = tmp_path / "home" / "agent" / "AGENT.md"
+    core.parent.mkdir(parents=True)
+    core.write_text("core before", encoding="utf-8")
+    memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text("memory", encoding="utf-8")
+    home = _home(tmp_path)
+
+    with pytest.raises(AgentHomeContractError, match="requires entity or concept"):
+        home.write_top("home:what@missing_kind", "value")
+    with pytest.raises(AgentHomeContractError, match="entity or concept"):
+        home.write_top(
+            "home:what@invalid_kind",
+            "value",
+            what_kind="event",
+        )
+
+    patched = home.patch_top(
+        "home:agent@core",
+        old_text="core before",
+        new_text="core after",
+    )
+    assert patched.state is HomeOverlayState.MODIFIED
+    assert home.read_top("home:agent@core") == "core after"
+    assert core.read_text(encoding="utf-8") == "core before"
+    with pytest.raises(AgentHomeContractError, match="cannot be deleted"):
+        home.delete_top("home:agent@core")
+    with pytest.raises(AgentHomeContractError, match="Memory Maintenance"):
+        home.write_top("home:memory@2026-07-11", "changed", overwrite=True)
+
+
+def test_duplicate_effective_what_classifications_are_rejected(tmp_path: Path) -> None:
+    entity = tmp_path / "home" / "what" / "entity" / "duplicate.md"
+    concept = tmp_path / "home" / "what" / "concept" / "duplicate.md"
+    entity.parent.mkdir(parents=True)
+    concept.parent.mkdir(parents=True)
+    entity.write_text("entity", encoding="utf-8")
+    concept.write_text("concept", encoding="utf-8")
+    home = _home(tmp_path)
+
+    with pytest.raises(AgentHomeInvariantError, match="multiple effective files"):
+        home.loadable_background_links()
+
+
+def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+    actual.parent.mkdir(parents=True)
+    actual.write_text("actual guidance", encoding="utf-8")
+    home = _home(tmp_path)
+    home.reconcile_prompt_mounts(
+        domains=("workspace",),
+        actions=(("workspace", "workspace.rewrite"),),
+    )
+    assert home.ensure_runtime_copy(
+        home.parse_link("home:how_domain:workspace")
+    ) is True
+
+    assert home.guidance_for_action("workspace", "workspace.rewrite") is None
+    written = home.write_prompt_mount(
+        "home:how_action:workspace/rewrite",
+        "runtime action guidance",
+    )
+    patched = home.patch_prompt_mount(
+        "home:how_action:workspace/rewrite",
+        old_text="runtime action",
+        new_text="updated action",
+    )
+
+    assert written.state is HomeOverlayState.CREATED
+    assert patched.state is HomeOverlayState.CREATED
+    assert home.guidance_for_action("workspace", "workspace.rewrite") == (
+        "updated action guidance"
+    )
+    assert home.guidance_for_domain("workspace") == "actual guidance"
+    assert actual.read_text(encoding="utf-8") == "actual guidance"
+    with pytest.raises(AgentHomeContractError, match="not defined"):
+        home.write_prompt_mount("home:how_domain:session", "invalid")
+
+    home.reconcile_prompt_mounts(domains=(), actions=())
+    assert actual.read_text(encoding="utf-8") == "actual guidance"
+    with pytest.raises(AgentHomeContractError, match="not defined"):
+        home.guidance_for_domain("workspace")
+
+    home.reconcile_prompt_mounts(
+        domains=("workspace",),
+        actions=(("workspace", "workspace.rewrite"),),
+    )
+    assert home.guidance_for_domain("workspace") == "actual guidance"
+
+
+def test_skill_memory_exists_only_in_general_how_runtime_package(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / "home" / "how" / "refactor" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("skill", encoding="utf-8")
+    home = _home(tmp_path)
+
+    created = home.write_resource(
+        "home:how/refactor/SKILL_MEMORY.md",
+        "temporary feedback",
+    )
+
+    assert created.state is HomeOverlayState.CREATED
+    assert home.read_resource("home:how/refactor/SKILL_MEMORY.md").text == (
+        "temporary feedback"
+    )
+    assert not (skill.parent / "SKILL_MEMORY.md").exists()
+    restarted = _home(tmp_path)
+    assert restarted.read_resource("home:how/refactor/SKILL_MEMORY.md").text == (
+        "temporary feedback"
+    )
+
+    for link in (
+        "home:how/missing/SKILL_MEMORY.md",
+        "home:how/refactor/DOMAIN_MEMORY.md",
+        "home:why/SKILL_MEMORY.md",
+    ):
+        with pytest.raises(AgentHomeContractError):
+            home.write_resource(link, "invalid")
+
+
+def test_actual_home_rejects_runtime_only_skill_memory(tmp_path: Path) -> None:
+    invalid = tmp_path / "home" / "how" / "refactor" / "SKILL_MEMORY.md"
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("invalid actual memory", encoding="utf-8")
+
+    with pytest.raises(AgentHomeInvariantError, match="actual Home"):
+        _home(tmp_path)
+
+
+def test_runtime_home_rejects_memory_overlay_content(tmp_path: Path) -> None:
+    original = tmp_path / "home"
+    original.mkdir()
+    invalid = (
+        tmp_path
+        / "runtime"
+        / "home"
+        / "memory"
+        / "2026"
+        / "07"
+        / "2026-07-11.md"
+    )
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("invalid runtime memory", encoding="utf-8")
+
+    with pytest.raises(AgentHomeInvariantError, match="runtime overlay"):
+        _home(tmp_path)
 
 
 def test_home_builder_migrates_day_bound_manifest_to_cross_day_schema(

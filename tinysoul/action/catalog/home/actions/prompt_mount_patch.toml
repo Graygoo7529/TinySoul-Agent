@@ -1,0 +1,23 @@
+name = "home.prompt_mount.patch"
+domain = "home"
+
+[tool]
+description = "Replace one unique text fragment in an Action Catalog-defined prompt mount."
+schema = { type = "object", properties = { link = { type = "string", description = "home:how_domain:<domain> or home:how_action:<domain>/<action>." }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["link", "old_text", "new_text"], additionalProperties = false }
+
+[semantic]
+use_when = ["A small exact change is needed in a framework-defined domain or action HOW mount"]
+avoid_when = ["The logical mount does not exist in the Action Catalog", "The old text is ambiguous"]
+effects = ["modifying"]
+examples = ["Patch one constraint in home:how_action:workspace/rewrite"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.prompt_mount.patch"

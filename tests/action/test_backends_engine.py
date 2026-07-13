@@ -313,6 +313,11 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("home.resource.patch", lambda execution, context: {"patched": True})
         .register_native("home.resource.read", lambda execution, context: {"read": True})
         .register_native("home.resource.write", lambda execution, context: {"written": True})
+        .register_native("home.top.delete", lambda execution, context: {"deleted": True})
+        .register_native("home.top.patch", lambda execution, context: {"patched": True})
+        .register_native("home.top.write", lambda execution, context: {"written": True})
+        .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
+        .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
@@ -326,6 +331,8 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .build()
     )
 
+    assert "home" in engine.domain_names()
+    assert ("home", "home.top.write") in engine.action_identifiers()
     scope_preparation = engine.phase2_scope(("core",))
     normalization = engine.normalize(
         (

@@ -285,6 +285,16 @@ class TinySoulAppBuilder:
                 llm_action=llm_action,
                 observations=observations,
             )
+            try:
+                home.reconcile_prompt_mounts(
+                    domains=action.domain_names(),
+                    actions=action.action_identifiers(),
+                )
+            except AgentHomeError as exc:
+                raise home_bridge.startup_failure(
+                    message=str(exc),
+                    payload={"error_type": type(exc).__name__},
+                ) from exc
             trap = self._build_trap(context, home, workspace)
             module_runner = RuntimeModuleRunner(
                 trap=trap,

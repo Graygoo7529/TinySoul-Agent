@@ -1,6 +1,14 @@
 """TinySoul Agent Home resource module."""
 
-from .actions import HomeResourceReadExecutor, register_home_actions
+from .actions import (
+    HomePromptMountPatchExecutor,
+    HomePromptMountWriteExecutor,
+    HomeResourceReadExecutor,
+    HomeTopDeleteExecutor,
+    HomeTopPatchExecutor,
+    HomeTopWriteExecutor,
+    register_home_actions,
+)
 from .background import HomeBackgroundContentLoader, HomeBackgroundEntryProvider
 from .config import AgentHomeSettings, parse_agent_home_settings
 from .engine import (
@@ -23,6 +31,7 @@ from .links import (
     HomePromptMountLink,
     HomeResourceLink,
     HomeTopLink,
+    HomeWhatKind,
     parse_home_link,
 )
 from .runtime_copy import (
@@ -48,12 +57,18 @@ __all__ = [
     "HomeDomainHowProvider",
     "HomeLink",
     "HomePromptMountLink",
+    "HomePromptMountPatchExecutor",
+    "HomePromptMountWriteExecutor",
     "HomeResourceLink",
     "HomeResourceReadExecutor",
     "HomeResourceMutation",
     "HomeOverlayRecord",
     "HomeOverlayState",
     "HomeTopLink",
+    "HomeTopDeleteExecutor",
+    "HomeTopPatchExecutor",
+    "HomeTopWriteExecutor",
+    "HomeWhatKind",
     "parse_agent_home_settings",
     "parse_home_link",
     "register_home_actions",

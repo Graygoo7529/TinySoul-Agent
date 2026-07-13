@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态顶层目录、`home:agent@core`、domain/action HOW、MEMORY actual-read 旁路、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源 read/write/patch/delete 和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
+本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、domain/action HOW、年月 MEMORY actual-read、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance 直接 review active overlay 并写回 actual Home；Memory Maintenance 独立读取指定日期 Session archive 和可选同日期旧 MEMORY。effective top catalog、top/prompt mount mutation、SKILL_MEMORY 协作、Home Maintenance 和 Memory Maintenance 仍未实现。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance 直接 review active overlay 并写回 actual Home；Memory Maintenance 独立读取指定日期 Session archive 和可选同日期旧 MEMORY。Home top search、Home Maintenance 和 Memory Maintenance 仍未实现。
 
 ## 定位
 
@@ -53,11 +53,12 @@ home:how_action:<domain>/<action>
 - `home:how_action:workspace/rewrite`
 链接规则:
 
-- `space` 是稳定命名空间，例如 `agent`、`what`、`why`、`how`、`memory`；`how_domain` 与 `how_action` 只用于自动 prompt mount 链接；
-- `@` 后的顶层名称可以包含安全的 `/` 分段，但不能包含扩展出的越界路径；
+- 顶层 `space` 只能是 `agent`、`what`、`why`、`how`、`memory`；`how_domain` 与 `how_action` 只用于自动 prompt mount 链接；
+- `@` 后的普通顶层名称可以包含安全的 `/` 分段，但通用 HOW skill 使用单段名称，MEMORY 使用严格 `yyyy-mm-dd`；
 - `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；
 - 所有路径使用 POSIX `/` 分隔；
 - 不允许空路径、绝对路径、盘符、反斜杠、`.` 或 `..` 段。
+- MEMORY 只接受 `home:memory@yyyy-mm-dd` 顶层 Link；不提供 `home:memory/...` resource Link，年月物理目录不会泄漏到模型协议。
 
 Agent Home 应提供 `HomeTopLink`、`HomeResourceLink` 与 `HomePromptMountLink` 或等价值对象，避免模块内部使用裸字符串判断链接类别。
 
@@ -139,7 +140,7 @@ runtime mutation 按链接类别拆分：
 - 通用 HOW 的 `SKILL_MEMORY.md` 是允许直接在 runtime 创建的特殊渐进资源；
 - MEMORY 不接受上述普通 mutation action。
 
-当前代码只实现渐进资源 mutation，仍需补齐 effective top catalog/read、top mutation 和 prompt mount mutation。
+当前实现已将上述 mutation 全部注册到 Home action catalog。Action executor 只解析参数并映射局部结果/Runtime failure，链接映射、effective resolution 和实际 overlay mutation 仍由 `AgentHomeEngine` 统一负责。
 
 运行时副本准备有两种入口：
 
@@ -188,13 +189,13 @@ Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部�
 - `home.resource.write`：在 active overlay 创建 runtime-only 文本，或在显式 `overwrite` 和可选 `expected_digest` 前置条件下替换 effective 内容；
 - `home.resource.patch`：对 effective UTF-8 文本执行唯一 `old_text` 精确替换，校验 digest 与完整结果的 `max_write_chars`；
 - `home.resource.delete`：写入 tombstone 隐藏资源，不删除 actual Home。
+- `home.top.write/patch/delete`：修改非 MEMORY 顶层 runtime 内容；新 WHAT create 强制 `entity`/`concept` 分类，`home:agent@core` 可 write/patch 但拒绝 delete；
+- `home.prompt_mount.write/patch`：只修改由 Action Catalog 定义的合法 domain/action mount；逻辑 create/delete 仍由框架 reconciliation 负责；
+- 通用 HOW 的 `SKILL_MEMORY.md` 通过 resource action 读写，只允许 `runtime/home/how/<skill>/SKILL_MEMORY.md` 且对应 effective HOW skill 必须存在；actual Home 和其它空间的平行 memory 文件在装配/reconciliation 时被拒绝。
 
 后续需要的能力：
 
 - `home.top.search`：按 WHAT、WHY、HOW、MEMORY 检索候选顶层链接；
-- `home.top.write/patch/delete`：修改非 MEMORY 顶层 runtime 内容，并实施 WHAT 分类与 core delete 不变量；
-- `home.prompt_mount.write/patch`：修改由框架自动维护的 domain/action HOW mount；
-- 通用 HOW 的 runtime `SKILL_MEMORY.md` 使用约定：skill 使用流程通过既有渐进资源 action 读取或更新，不建立 MEMORY append action；
 - Home Maintenance 与 Memory Maintenance，它们不是普通 User Turn action。
 
 普通 mutation 冲突和 patch 不适用收敛为局部 ActionResult；overlay 图损坏等不变量经 Home bridge 进入 Runtime，不降级为普通模型反馈。成功修改只返回 link、state、digest、baseline digest 和 size，不返回完整新正文。非 MEMORY actual 内容只允许由 Home Maintenance 修改；MEMORY 只允许由 Memory Maintenance 写入，不能伪装为普通 Home mutation。
@@ -308,4 +309,4 @@ AppBuilder 的目标职责是：
 - Memory Maintenance 从指定日期 Session 和可选同日旧 MEMORY 原子重写固定日期文件；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点包括：跨日 Home overlay、top/prompt mount mutation、top search、SKILL_MEMORY runtime 协作、Home Maintenance、Memory Maintenance 和 scheduler/启动/人工调度。
+仍需补充的验收点包括：top search、Home Maintenance、Memory Maintenance 和 scheduler/启动/人工调度。

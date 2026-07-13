@@ -55,21 +55,18 @@ Memory 生命周期
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
 | LLM | done | provider-neutral Task、模型链、输出解释 | 增加 Home reviewer 与 Memory consolidator 的明确 prompt/profile。 |
-| Action | done for framework | 域选择、调用归一化、批次/backend/result | 增加 top/prompt mount action catalog 与 executor。 |
+| Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
 | Session | done for lifecycle boundary | 不可变 Turn record、summary、orphan reconciliation、日归档、按 Business Day 校验 archive snapshot | Memory Maintenance 尚未消费该只读边界。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
 | Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
-| Agent Home | in_progress | Link、动态 Background、HOW、MEMORY actual-read、schema v2 跨日 overlay、schema v1 迁移、渐进资源 action | 增加统一 effective top、top/prompt mount mutation、SKILL_MEMORY、Home/Memory Maintenance。 |
+| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、年月 MEMORY actual-read、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY 约束 | 增加 Home/Memory Maintenance 与 top search。 |
 | App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
 
-当前仍须清理而不能发展为兼容层的旧实现只有：
-
-- top catalog/read 的 source-first 行为；
-- mutation 错误文案仍引用 settlement。
+阶段 2 已清理 top catalog/read 的 source-first 行为和 mutation 中的 settlement/当日镜像旧语义；普通 User Turn Home 读写现在统一遵守 active cross-day overlay。
 
 ## 目标存储结构
 
@@ -417,7 +414,7 @@ status: done
 
 ### 阶段 2：Effective Home 与 Mutation
 
-status: pending
+status: done
 
 优先级：P0
 
@@ -436,6 +433,8 @@ status: pending
 9. 增加跨日 overlay、runtime-only top、tombstone、actual 外部变化和 prompt mount 测试。
 
 验收：Agent 跨 Turn/跨日透明读写同一 Home；MEMORY 不产生 runtime copy；所有普通 mutation 对 actual Home 零写入。
+
+实施结果：`AgentHomeLayout` 只负责稳定 Link 与 relative path 的双向映射，`AgentHomeEngine` 根据 overlay record 与 actual fallback 统一解析 effective top/resource/prompt mount。top catalog 已包含 runtime-only entry 并排除 tombstone；MEMORY 只接受稳定日期 top Link 并映射年月目录。Action Catalog 增加 top 与 prompt mount mutation，`ActionEngine` 只暴露只读 domain/action identities，App 将其交给 Home reconcile 逻辑 mount。WHAT create、core delete、prompt mount create/delete 所有权和 `SKILL_MEMORY.md` 路径/actual 禁止规则均已在 Home 边界实施。测试覆盖跨重启 runtime-only top、actual tombstone、actual 外部变化、WHAT 分类、core/MEMORY 保护、Catalog mount 删除/恢复、SKILL_MEMORY 和普通 mutation 对 actual 零写入。
 
 ### 阶段 3：Home Maintenance
 

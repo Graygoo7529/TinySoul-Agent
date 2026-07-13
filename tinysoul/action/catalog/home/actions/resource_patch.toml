@@ -2,7 +2,7 @@ name = "home.resource.patch"
 domain = "home"
 
 [tool]
-description = "Replace one unique text fragment in a progressive Agent Home resource in today's runtime mirror."
+description = "Replace one unique text fragment in a progressive Agent Home resource in the active runtime overlay."
 schema = { type = "object", properties = { link = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["link", "old_text", "new_text"], additionalProperties = false }
 
 [semantic]

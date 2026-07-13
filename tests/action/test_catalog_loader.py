@@ -49,10 +49,15 @@ def test_catalog_view_by_domain() -> None:
 
     home_view = catalog.with_domains(("home",))
     assert [action.name for action in home_view.actions()] == [
+        "home.prompt_mount.patch",
+        "home.prompt_mount.write",
         "home.resource.delete",
         "home.resource.patch",
         "home.resource.read",
         "home.resource.write",
+        "home.top.delete",
+        "home.top.patch",
+        "home.top.write",
     ]
 
 

@@ -1,0 +1,23 @@
+name = "home.top.patch"
+domain = "home"
+
+[tool]
+description = "Replace one unique text fragment in a non-MEMORY top-level Agent Home entry."
+schema = { type = "object", properties = { link = { type = "string", description = "Stable home:*@ top-level link." }, old_text = { type = "string" }, new_text = { type = "string" }, expected_digest = { type = "string" } }, required = ["link", "old_text", "new_text"], additionalProperties = false }
+
+[semantic]
+use_when = ["A small exact change is needed in a top-level AGENT, WHAT, WHY, or HOW entry"]
+avoid_when = ["Historical MEMORY should change", "The old text is ambiguous"]
+effects = ["modifying"]
+examples = ["Patch one rule in home:agent@core"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "home.top.patch"

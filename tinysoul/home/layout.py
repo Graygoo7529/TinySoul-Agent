@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
+from datetime import date
+from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_root
 
 from .config import AgentHomeSettings
 from .errors import AgentHomeContractError, AgentHomeInvariantError
-from .links import HomePromptMountLink, HomeResourceLink, HomeTopLink
+from .links import (
+    HomePromptMountLink,
+    HomeResourceLink,
+    HomeTopLink,
+    HomeWhatKind,
+)
 
 
 class AgentHomeLayout:
-    """Map Agent Home links to source and runtime paths."""
+    """Map stable Home links to actual/runtime relative paths."""
 
     def __init__(self, settings: AgentHomeSettings) -> None:
         self._settings = settings
@@ -26,34 +33,74 @@ class AgentHomeLayout:
     def content_root(self) -> Path:
         return self._content_root
 
-    def source_for_top(self, link: HomeTopLink) -> Path:
-        candidates = self._top_candidates(link)
-        existing = tuple(path for path in candidates if path.is_file())
-        if len(existing) > 1:
-            raise AgentHomeInvariantError(
-                f"Home top-level link has multiple source files: {link}"
+    def relative_candidates_for_top(self, link: HomeTopLink) -> tuple[str, ...]:
+        if link.space == "agent" and link.name == "core":
+            return ("agent/AGENT.md",)
+        if link.space == "agent":
+            return (f"agent/{link.name}.md",)
+        if link.space == "how":
+            _require_single_segment(link.name, label="Home HOW skill name")
+            return (f"how/{link.name}/SKILL.md",)
+        if link.space == "what":
+            return (
+                f"what/{link.name}.md",
+                f"what/entity/{link.name}.md",
+                f"what/concept/{link.name}.md",
             )
-        if existing:
-            return existing[0]
-        return candidates[0]
+        if link.space == "why":
+            return (f"why/{link.name}.md",)
+        if link.space == "memory":
+            memory_day = date.fromisoformat(link.name)
+            return (
+                f"memory/{memory_day:%Y}/{memory_day:%m}/{memory_day.isoformat()}.md",
+            )
+        raise AgentHomeInvariantError(f"Unsupported Home top space: {link.space}")
+
+    def relative_for_new_top(
+        self,
+        link: HomeTopLink,
+        *,
+        what_kind: HomeWhatKind | None,
+    ) -> str:
+        if link.space == "memory":
+            raise AgentHomeContractError("Historical Home MEMORY is read-only")
+        if link.space == "what":
+            if not isinstance(what_kind, HomeWhatKind):
+                raise AgentHomeContractError(
+                    "Creating a Home WHAT entry requires entity or concept"
+                )
+            return f"what/{what_kind.value}/{link.name}.md"
+        if what_kind is not None:
+            raise AgentHomeContractError(
+                "Home WHAT classification is valid only for WHAT entries"
+            )
+        return self.relative_candidates_for_top(link)[0]
+
+    def relative_for_resource(self, link: HomeResourceLink) -> str:
+        return f"{link.space}/{link.relative_path}"
+
+    def relative_for_prompt_mount(self, link: HomePromptMountLink) -> str:
+        if link.space == "how_domain":
+            return f"how_domain/{link.name}/DOMAIN.md"
+        return f"how_action/{link.name}.md"
+
+    def source_for_relative(self, relative_path: str) -> Path:
+        return self._under_content_root(relative_path)
 
     def source_for_resource(self, link: HomeResourceLink) -> Path:
-        return self._under_content_root(link.space, link.relative_path)
+        return self.source_for_relative(self.relative_for_resource(link))
 
     def source_for_prompt_mount(self, link: HomePromptMountLink) -> Path:
-        if link.space == "how_domain":
-            return self._under_content_root("how_domain", link.name, "DOMAIN.md")
-        return self._under_content_root("how_action", f"{link.name}.md")
+        return self.source_for_relative(self.relative_for_prompt_mount(link))
 
-    def runtime_for_source(self, source: Path) -> Path:
-        relative = self.relative_for_source(source)
+    def runtime_for_relative(self, relative_path: str) -> Path:
         try:
-            return resolve_under_root(
-                self._settings.runtime_root,
-                relative,
-            )
+            return resolve_under_root(self._settings.runtime_root, relative_path)
         except FilesystemBoundaryError as exc:
             raise AgentHomeContractError(str(exc)) from exc
+
+    def runtime_for_source(self, source: Path) -> Path:
+        return self.runtime_for_relative(self.relative_for_source(source))
 
     def relative_for_source(self, source: Path) -> str:
         source_resolved = source.resolve()
@@ -63,43 +110,90 @@ class AgentHomeLayout:
             raise AgentHomeContractError("Home source path is outside content root")
         return relative.as_posix()
 
-    def is_top_source(self, source: Path) -> bool:
-        relative = self.relative_for_source(source)
-        return any(
-            self.relative_for_source(self.source_for_top(link)) == relative
-            for link in self.top_links()
-        )
+    def actual_top_relatives(self) -> tuple[str, ...]:
+        return self._actual_relatives(self.top_link_for_relative)
 
-    def top_links(self) -> tuple[HomeTopLink, ...]:
-        links: list[HomeTopLink] = []
-        core = HomeTopLink("agent", "core")
-        if self.source_for_top(core).is_file():
-            links.append(core)
-        links.extend(self._agent_links())
-        links.extend(self._what_links())
-        links.extend(self._simple_space_links("why"))
-        links.extend(self._package_links("how", "SKILL.md"))
-        links.extend(self._simple_space_links("memory"))
-        return _dedupe_links(tuple(links))
+    def actual_prompt_mount_relatives(self) -> tuple[str, ...]:
+        return self._actual_relatives(self.prompt_mount_link_for_relative)
 
-    def _top_candidates(self, link: HomeTopLink) -> tuple[Path, ...]:
-        if link.space == "agent" and link.name == "core":
-            return (self._content_root / "agent" / "AGENT.md",)
-        if link.space == "agent":
-            return (self._under_content_root("agent", f"{link.name}.md"),)
-        if link.space == "how":
-            return (self._under_content_root("how", link.name, "SKILL.md"),)
-        if link.space == "what":
-            return (
-                self._under_content_root("what", f"{link.name}.md"),
-                self._under_content_root("what", "entity", f"{link.name}.md"),
-                self._under_content_root("what", "concept", f"{link.name}.md"),
+    def top_link_for_relative(self, relative_path: str) -> HomeTopLink | None:
+        path = PurePosixPath(relative_path)
+        parts = path.parts
+        if path.suffix.lower() != ".md" or not parts:
+            return None
+        if parts == ("agent", "AGENT.md"):
+            return HomeTopLink("agent", "core")
+        if len(parts) >= 2 and parts[0] == "agent":
+            name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
+            if name == "core":
+                raise AgentHomeInvariantError(
+                    "home:agent@core must map to agent/AGENT.md"
+                )
+            return HomeTopLink("agent", name)
+        if len(parts) >= 2 and parts[0] == "what":
+            name_parts = parts[1:]
+            if len(name_parts) >= 2 and name_parts[0] in {
+                HomeWhatKind.ENTITY.value,
+                HomeWhatKind.CONCEPT.value,
+            }:
+                name_parts = name_parts[1:]
+            name = PurePosixPath(*name_parts).with_suffix("").as_posix()
+            return HomeTopLink("what", name)
+        if len(parts) >= 2 and parts[0] == "why":
+            name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
+            return HomeTopLink("why", name)
+        if len(parts) == 3 and parts[0] == "how" and parts[2] == "SKILL.md":
+            return HomeTopLink("how", parts[1])
+        if len(parts) == 4 and parts[0] == "memory":
+            memory_name = PurePosixPath(parts[3]).stem
+            try:
+                memory_day = date.fromisoformat(memory_name)
+            except ValueError:
+                return None
+            if parts[1] != f"{memory_day:%Y}" or parts[2] != f"{memory_day:%m}":
+                return None
+            return HomeTopLink("memory", memory_day.isoformat())
+        return None
+
+    def prompt_mount_link_for_relative(
+        self,
+        relative_path: str,
+    ) -> HomePromptMountLink | None:
+        parts = PurePosixPath(relative_path).parts
+        if len(parts) == 3 and parts[0] == "how_domain" and parts[2] == "DOMAIN.md":
+            return HomePromptMountLink("how_domain", parts[1])
+        if len(parts) == 3 and parts[0] == "how_action" and parts[2].endswith(".md"):
+            return HomePromptMountLink(
+                "how_action",
+                f"{parts[1]}/{PurePosixPath(parts[2]).stem}",
             )
-        if link.space == "why":
-            return (self._under_content_root("why", f"{link.name}.md"),)
-        if link.space == "memory":
-            return (self._under_content_root("memory", f"{link.name}.md"),)
-        return (self._under_content_root(link.space, f"{link.name}.md"),)
+        return None
+
+    def _actual_relatives(
+        self,
+        mapper: Callable[
+            [str],
+            HomeTopLink | HomePromptMountLink | None,
+        ],
+    ) -> tuple[str, ...]:
+        if not self._content_root.is_dir():
+            return ()
+        result: list[str] = []
+        for path in sorted(
+            self._content_root.rglob("*.md"),
+            key=lambda item: item.as_posix(),
+        ):
+            relative = path.relative_to(self._content_root).as_posix()
+            if path.is_symlink():
+                raise AgentHomeInvariantError(
+                    f"Actual Home cannot contain symlink content: {relative}"
+                )
+            if not path.is_file():
+                continue
+            link = mapper(relative)
+            if link is not None:
+                result.append(relative)
+        return tuple(result)
 
     def _under_content_root(self, *parts: str) -> Path:
         relative = "/".join(parts)
@@ -108,63 +202,7 @@ class AgentHomeLayout:
         except FilesystemBoundaryError as exc:
             raise AgentHomeContractError(str(exc)) from exc
 
-    def _agent_links(self) -> tuple[HomeTopLink, ...]:
-        root = self._content_root / "agent"
-        if not root.is_dir():
-            return ()
-        result: list[HomeTopLink] = []
-        for path in sorted(root.rglob("*.md"), key=lambda item: item.as_posix()):
-            if path.name == "AGENT.md":
-                continue
-            relative = path.relative_to(root).with_suffix("").as_posix()
-            result.append(HomeTopLink("agent", relative))
-        return tuple(result)
 
-    def _what_links(self) -> tuple[HomeTopLink, ...]:
-        root = self._content_root / "what"
-        if not root.is_dir():
-            return ()
-        result: list[HomeTopLink] = []
-        for path in sorted(root.rglob("*.md"), key=lambda item: item.as_posix()):
-            relative = path.relative_to(root).with_suffix("")
-            parts = relative.parts
-            if len(parts) > 1 and parts[0] in {"entity", "concept"}:
-                relative = Path(*parts[1:])
-            result.append(HomeTopLink("what", relative.as_posix()))
-        return tuple(result)
-
-    def _simple_space_links(self, space: str) -> tuple[HomeTopLink, ...]:
-        root = self._content_root / space
-        if not root.is_dir():
-            return ()
-        result: list[HomeTopLink] = []
-        for path in sorted(root.rglob("*.md"), key=lambda item: item.as_posix()):
-            relative = path.relative_to(root).with_suffix("").as_posix()
-            result.append(HomeTopLink(space, relative))
-        return tuple(result)
-
-    def _package_links(self, space: str, entry_name: str) -> tuple[HomeTopLink, ...]:
-        root = self._content_root / space
-        if not root.is_dir():
-            return ()
-        result: list[HomeTopLink] = []
-        for package in sorted(root.iterdir(), key=lambda item: item.name):
-            if not package.is_dir():
-                continue
-            if (package / entry_name).is_file():
-                result.append(HomeTopLink(space, package.name))
-        return tuple(result)
-
-
-def _dedupe_links(links: tuple[HomeTopLink, ...]) -> tuple[HomeTopLink, ...]:
-    seen: set[str] = set()
-    result: list[HomeTopLink] = []
-    for link in links:
-        text = str(link)
-        if text in seen:
-            raise AgentHomeInvariantError(
-                f"Agent Home contains duplicate top-level link: {text}"
-            )
-        seen.add(text)
-        result.append(link)
-    return tuple(result)
+def _require_single_segment(value: str, *, label: str) -> None:
+    if len(PurePosixPath(value).parts) != 1:
+        raise AgentHomeContractError(f"{label} must use one path segment")

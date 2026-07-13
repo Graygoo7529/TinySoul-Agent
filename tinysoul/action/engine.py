@@ -73,6 +73,16 @@ class ActionEngine:
         self._phase2_scope_builder = phase2_scope_builder
         self._domain_prompt_renderer = domain_prompt_renderer
 
+    def domain_names(self) -> tuple[str, ...]:
+        """Expose stable catalog domain identities for framework integration."""
+
+        return tuple(domain.name for domain in self._catalog.domains())
+
+    def action_identifiers(self) -> tuple[tuple[str, str], ...]:
+        """Expose catalog action identities without leaking mutable catalog state."""
+
+        return tuple((action.domain, action.name) for action in self._catalog.actions())
+
     def phase1_scope(self) -> ToolScope:
         return self._phase1_scope_builder.build(self._catalog)
 
