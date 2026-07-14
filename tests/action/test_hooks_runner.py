@@ -327,6 +327,8 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "home.top.patch",
         "home.top.search",
         "home.top.write",
+        "memory.recall",
+        "memory.search",
         "session.history.inspect",
         "session.history.recall",
         "workspace.delete",

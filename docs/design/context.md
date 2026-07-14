@@ -8,7 +8,7 @@ Context 不调用 LLM，不执行 action，不驱动运行控制流。它依赖 
 
 Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态模型，并在每次 LLM Task 前把状态"构造"为完整的 MessageStack。状态是持续维护的语境；MessageStack 是按需生成的投影。
 
-已确认的 Stage 6.1 将把当前 Home-specific Background 实现提升为 Context-owned 多 provider Background，并接入可逐出的昨日 Memory entry。本文以该目标边界描述语义；当前代码尚未完成 provider 聚合和 Memory source，具体实施顺序见统一执行计划。
+Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provider Background，并接入可逐出的昨日 Memory entry。Catalog/entry 显式携带 owner、source 和 evictable 语义，Context 在同一 Turn Business Day 下聚合 provider 并校验 Link 唯一性。
 
 ## 设计目标
 

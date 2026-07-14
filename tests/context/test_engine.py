@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import cast
 
 import pytest
@@ -69,7 +70,7 @@ def test_turn_lifecycle_and_compose() -> None:
     assert turn_id
     with pytest.raises(ContextContractError):
         engine.begin_turn("again")
-    engine.prepare_default_background()
+    engine.prepare_default_background(date(2026, 7, 14))
 
     stack = engine.compose(_prompt("Phase one."))
     labels = [message.label for message in stack.messages]
@@ -340,7 +341,7 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
 def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     engine = _engine()
     first_turn = engine.begin_turn("first")
-    engine.prepare_default_background()
+    engine.prepare_default_background(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -362,7 +363,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
 
     engine.begin_turn("second")
     assert engine.background_links() == ()
-    engine.prepare_default_background()
+    engine.prepare_default_background(date(2026, 7, 14))
     assert engine.background_links() == ("home:agent@core",)
 
 

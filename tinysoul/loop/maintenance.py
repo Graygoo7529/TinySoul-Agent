@@ -10,13 +10,17 @@ from tinysoul.home import (
     HomeMaintenanceMode,
     HomeMaintenanceReviewer,
     HomeMaintenanceStatus,
-    MemoryConsolidator,
-    MemoryMaintenanceSkipReason,
-    MemoryMaintenanceStatus,
 )
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import RunLevel, RunScope, RuntimeException
+from tinysoul.memory import (
+    MemoryConsolidator,
+    MemoryEngine,
+    MemoryMaintenanceSkipReason,
+    MemoryMaintenanceStatus,
+)
+from tinysoul.memory.errors import MemoryError
 from tinysoul.session import SessionEngine, SessionMemoryFactsProjection
 from tinysoul.session.errors import SessionError
 
@@ -76,6 +80,7 @@ class ProgramMaintenanceRunner:
         self,
         *,
         home: AgentHomeEngine,
+        memory: MemoryEngine,
         session: SessionEngine,
         daily_lifecycle: DailyLifecycleCoordinator,
         timezone: str,
@@ -84,6 +89,7 @@ class ProgramMaintenanceRunner:
         manual_home_decisions: HomeMaintenanceDecisionProvider,
     ) -> None:
         self._home = home
+        self._memory = memory
         self._session = session
         self._daily_lifecycle = daily_lifecycle
         self._timezone = timezone
@@ -96,10 +102,10 @@ class ProgramMaintenanceRunner:
         try:
             home_pending = self._home.maintenance_pending()
             memory_pending = False
-            if not self._home.memory_exists(target_day):
+            if not self._memory.exists(target_day):
                 projection = self._memory_projection(target_day)
-                memory_pending = self._home.memory_maintenance_eligible(projection)
-        except (AgentHomeError, SessionError, LoopError, RuntimeException) as exc:
+                memory_pending = self._memory.maintenance_eligible(projection)
+        except (AgentHomeError, MemoryError, SessionError, LoopError, RuntimeException) as exc:
             raise LoopInvariantError(
                 f"Maintenance availability check failed: {exc}"
             ) from exc
@@ -187,7 +193,7 @@ class ProgramMaintenanceRunner:
         try:
             if (
                 mode is ProgramWorkMode.AUTOMATIC
-                and self._home.memory_exists(target_day)
+                and self._memory.exists(target_day)
             ):
                 return ProgramWorkOutcome(
                     kind=ProgramWorkKind.MEMORY_MAINTENANCE,
@@ -197,12 +203,12 @@ class ProgramMaintenanceRunner:
                     target_day=target_day,
                     source=source,
                     details={
-                        "link": f"home:memory@{target_day}",
+                        "link": f"memory:{target_day}",
                         "skip_reason": MemoryMaintenanceSkipReason.MEMORY_EXISTS.value,
                     },
                 )
             projection = self._memory_projection(target_day)
-            outcome = self._home.run_memory_maintenance(
+            outcome = self._memory.run_maintenance(
                 projection=projection,
                 consolidator=self._memory_consolidator,
                 timezone=self._timezone,
@@ -210,7 +216,7 @@ class ProgramMaintenanceRunner:
                 rewrite_existing=mode is ProgramWorkMode.MANUAL,
                 scope=work_scope,
             )
-        except (AgentHomeError, SessionError, LoopError, RuntimeException) as exc:
+        except (MemoryError, SessionError, LoopError, RuntimeException) as exc:
             return _failed(
                 kind=ProgramWorkKind.MEMORY_MAINTENANCE,
                 mode=mode,

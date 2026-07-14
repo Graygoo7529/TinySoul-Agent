@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import FilesystemBoundaryError, resolve_under_root
@@ -50,11 +49,6 @@ class AgentHomeLayout:
             )
         if link.space == "why":
             return (f"why/{link.name}.md",)
-        if link.space == "memory":
-            memory_day = date.fromisoformat(link.name)
-            return (
-                f"memory/{memory_day:%Y}/{memory_day:%m}/{memory_day.isoformat()}.md",
-            )
         raise AgentHomeInvariantError(f"Unsupported Home top space: {link.space}")
 
     def relative_for_new_top(
@@ -63,8 +57,6 @@ class AgentHomeLayout:
         *,
         what_kind: HomeWhatKind | None,
     ) -> str:
-        if link.space == "memory":
-            raise AgentHomeContractError("Historical Home MEMORY is read-only")
         if link.space == "what":
             if not isinstance(what_kind, HomeWhatKind):
                 raise AgentHomeContractError(
@@ -145,15 +137,6 @@ class AgentHomeLayout:
             return HomeTopLink("why", name)
         if len(parts) == 3 and parts[0] == "how" and parts[2] == "SKILL.md":
             return HomeTopLink("how", parts[1])
-        if len(parts) == 4 and parts[0] == "memory":
-            memory_name = PurePosixPath(parts[3]).stem
-            try:
-                memory_day = date.fromisoformat(memory_name)
-            except ValueError:
-                return None
-            if parts[1] != f"{memory_day:%Y}" or parts[2] != f"{memory_day:%m}":
-                return None
-            return HomeTopLink("memory", memory_day.isoformat())
         return None
 
     def prompt_mount_link_for_relative(
@@ -180,7 +163,6 @@ class AgentHomeLayout:
         parts = PurePosixPath(relative_path).parts
         if len(parts) < 2 or parts[0] in {
             ".tinysoul",
-            "memory",
             "how_domain",
             "how_action",
         }:

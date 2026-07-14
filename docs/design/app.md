@@ -98,7 +98,7 @@ AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `Pr
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 
-这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Stage 6 的最小 normal 输出只固定 `program.maintenance.available`、`program.work.completed` 与 `program.work.failed`；模块级细粒度 Maintenance Observation 留待后续确认。Stage 6.1 完成前，当前 AppBuilder 仍将 Memory 服务从 HomeEngine 取出，尚未符合目标装配图。
+这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Stage 6 的最小 normal 输出只固定 `program.maintenance.available`、`program.work.completed` 与 `program.work.failed`；模块级细粒度 Maintenance Observation 留待后续确认。AppBuilder 已独立构建 MemoryEngine，并注入 Memory actions、Background provider、reranker、Runtime bridge 与 ProgramMaintenanceRunner。
 
 ## 与其他模块的关系
 

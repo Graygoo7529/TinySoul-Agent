@@ -11,10 +11,6 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_MAX_READ_CHARS = 4000
 DEFAULT_MAX_WRITE_CHARS = 16000
-DEFAULT_MEMORY_CHUNK_MAX_CHARS = 12000
-DEFAULT_MEMORY_SOURCE_MAX_CHARS = 240000
-DEFAULT_MEMORY_MAX_CALLS = 48
-DEFAULT_MEMORY_VALIDATION_RETRIES = 2
 DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
 DEFAULT_SEARCH_TOP_K = 5
 DEFAULT_SEARCH_MAX_TOP_K = 10
@@ -79,59 +75,6 @@ class HomeSearchSettings:
 
 
 @dataclass(frozen=True)
-class MemoryMaintenanceSettings:
-    """Bounded Memory consolidation settings owned by Agent Home."""
-
-    chunk_max_chars: int = DEFAULT_MEMORY_CHUNK_MAX_CHARS
-    source_max_chars: int = DEFAULT_MEMORY_SOURCE_MAX_CHARS
-    max_calls: int = DEFAULT_MEMORY_MAX_CALLS
-    validation_retries: int = DEFAULT_MEMORY_VALIDATION_RETRIES
-
-    def __post_init__(self) -> None:
-        for name in ("chunk_max_chars", "source_max_chars", "max_calls"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise ConfigError(
-                    "Agent Home Memory setting must be positive",
-                    key=f"home.memory.{name}",
-                    value=value,
-                    expected="positive int",
-                )
-        if self.chunk_max_chars < 512:
-            raise ConfigError(
-                "Agent Home Memory chunk budget is too small",
-                key="home.memory.chunk_max_chars",
-                value=self.chunk_max_chars,
-                expected="int >= 512",
-            )
-        if self.source_max_chars < self.chunk_max_chars:
-            raise ConfigError(
-                "Agent Home Memory source budget must cover one chunk",
-                key="home.memory.source_max_chars",
-                value=self.source_max_chars,
-                expected="int >= chunk_max_chars",
-            )
-        if self.max_calls < 2:
-            raise ConfigError(
-                "Agent Home Memory call budget must allow reduce and final calls",
-                key="home.memory.max_calls",
-                value=self.max_calls,
-                expected="int >= 2",
-            )
-        if (
-            isinstance(self.validation_retries, bool)
-            or not isinstance(self.validation_retries, int)
-            or self.validation_retries < 0
-        ):
-            raise ConfigError(
-                "Agent Home Memory validation retries cannot be negative",
-                key="home.memory.validation_retries",
-                value=self.validation_retries,
-                expected="non-negative int",
-            )
-
-
-@dataclass(frozen=True)
 class AgentHomeSettings:
     """Agent Home module settings."""
 
@@ -139,9 +82,6 @@ class AgentHomeSettings:
     runtime_root: Path
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
     max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
-    memory: MemoryMaintenanceSettings = field(
-        default_factory=MemoryMaintenanceSettings
-    )
     search: HomeSearchSettings = field(default_factory=HomeSearchSettings)
 
     def __post_init__(self) -> None:
@@ -183,13 +123,6 @@ class AgentHomeSettings:
                 value=self.max_read_chars,
                 expected="positive int",
             )
-        if not isinstance(self.memory, MemoryMaintenanceSettings):
-            raise ConfigError(
-                "Agent Home memory settings are invalid",
-                key="home.memory",
-                value=type(self.memory).__name__,
-                expected="MemoryMaintenanceSettings",
-            )
         if not isinstance(self.search, HomeSearchSettings):
             raise ConfigError(
                 "Agent Home search settings are invalid",
@@ -222,7 +155,6 @@ def parse_agent_home_settings(
             "runtime_root",
             "max_read_chars",
             "max_write_chars",
-            "memory",
             "search",
         },
         key="home",
@@ -251,49 +183,7 @@ def parse_agent_home_settings(
             "max_write_chars",
             default=DEFAULT_MAX_WRITE_CHARS,
         ),
-        memory=_parse_memory_settings(tree.get("memory")),
         search=_parse_search_settings(tree.get("search")),
-    )
-
-
-def _parse_memory_settings(value: object) -> MemoryMaintenanceSettings:
-    if value is None:
-        return MemoryMaintenanceSettings()
-    if not isinstance(value, Mapping):
-        raise ConfigError(
-            "Agent Home memory configuration must be a table",
-            key="home.memory",
-            value=value,
-            expected="table",
-        )
-    tree = cast(Mapping[str, object], value)
-    reject_unknown_keys(
-        tree,
-        {
-            "chunk_max_chars",
-            "source_max_chars",
-            "max_calls",
-            "validation_retries",
-        },
-        key="home.memory",
-    )
-    return MemoryMaintenanceSettings(
-        chunk_max_chars=_memory_int(
-            tree,
-            "chunk_max_chars",
-            DEFAULT_MEMORY_CHUNK_MAX_CHARS,
-        ),
-        source_max_chars=_memory_int(
-            tree,
-            "source_max_chars",
-            DEFAULT_MEMORY_SOURCE_MAX_CHARS,
-        ),
-        max_calls=_memory_int(tree, "max_calls", DEFAULT_MEMORY_MAX_CALLS),
-        validation_retries=_memory_int(
-            tree,
-            "validation_retries",
-            DEFAULT_MEMORY_VALIDATION_RETRIES,
-        ),
     )
 
 
@@ -374,22 +264,6 @@ def _optional_int(
         raise ConfigError(
             "Agent Home configuration value must be an integer",
             key=f"home.{name}",
-            value=value,
-            expected="int",
-        )
-    return value
-
-
-def _memory_int(
-    tree: Mapping[str, object],
-    name: str,
-    default: int,
-) -> int:
-    value = tree.get(name, default)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError(
-            "Agent Home Memory configuration value must be an integer",
-            key=f"home.memory.{name}",
             value=value,
             expected="int",
         )

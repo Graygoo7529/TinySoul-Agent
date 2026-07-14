@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 import json
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
         .build()
     )
     turn_id = context.begin_turn("current question")
-    context.prepare_default_background()
+    context.prepare_default_background(date(2026, 7, 14))
     scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
     request = TurnPreparationRequest(
         turn_id=turn_id,

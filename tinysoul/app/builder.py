@@ -29,11 +29,19 @@ from tinysoul.home import (
     HomeDomainHowProvider,
     LLMHomeMaintenanceReviewer,
     LLMHomeSearchReranker,
-    LLMMemoryConsolidator,
     parse_agent_home_settings,
     register_home_actions,
 )
 from tinysoul.home.errors import AgentHomeError
+from tinysoul.memory import (
+    LLMMemoryConsolidator,
+    LLMMemorySearchReranker,
+    MemoryBackgroundEntryProvider,
+    MemoryEngine,
+    parse_memory_settings,
+    register_memory_actions,
+)
+from tinysoul.memory.errors import MemoryError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
@@ -84,6 +92,7 @@ from tinysoul.runtime.bridge import (
     RuntimeInfraBridge,
     RuntimeLLMBridge,
     RuntimeLoopBridge,
+    RuntimeMemoryBridge,
     RuntimeSessionBridge,
     RuntimeWorkspaceBridge,
 )
@@ -125,6 +134,7 @@ class TinySoulAppBuilder:
         self._action: ActionEngine | None = None
         self._context: ContextEngine | None = None
         self._session: SessionEngine | None = None
+        self._memory: MemoryEngine | None = None
         self._bus: SignalBus | None = None
         self._domain_how: DomainHowProvider | None = None
         self._input_parser: InputCommandParser | None = None
@@ -161,6 +171,10 @@ class TinySoulAppBuilder:
 
     def with_session_engine(self, session: SessionEngine) -> "TinySoulAppBuilder":
         self._session = session
+        return self
+
+    def with_memory_engine(self, memory: MemoryEngine) -> "TinySoulAppBuilder":
+        self._memory = memory
         return self
 
     def with_signal_bus(self, bus: SignalBus) -> "TinySoulAppBuilder":
@@ -203,6 +217,7 @@ class TinySoulAppBuilder:
         session_bridge = RuntimeSessionBridge()
         workspace_bridge = RuntimeWorkspaceBridge()
         home_bridge = RuntimeAgentHomeBridge()
+        memory_bridge = RuntimeMemoryBridge()
         try:
             config = (
                 self._config_env
@@ -218,6 +233,7 @@ class TinySoulAppBuilder:
                     "action",
                     "context",
                     "home",
+                    "memory",
                     "session",
                     "workspace",
                 }
@@ -248,6 +264,11 @@ class TinySoulAppBuilder:
                 else self._build_llm(config, llm_bridge, observations)
             )
             home = self._build_home(config, home_bridge)
+            memory = (
+                self._memory
+                if self._memory is not None
+                else self._build_memory(config, memory_bridge, home)
+            )
             workspace = self._build_workspace(config, workspace_bridge)
             session = (
                 self._session
@@ -260,8 +281,10 @@ class TinySoulAppBuilder:
                 else self._build_context(
                     config,
                     home,
+                    memory,
                     context_bridge,
                     home_bridge,
+                    memory_bridge,
                 )
             )
             domain_how = self._domain_how or HomeDomainHowProvider(
@@ -284,7 +307,9 @@ class TinySoulAppBuilder:
                 context=context,
                 session=session,
                 home=home,
+                memory=memory,
                 home_bridge=home_bridge,
+                memory_bridge=memory_bridge,
                 workspace_bridge=workspace_bridge,
                 action_bridge=action_bridge,
                 llm_action=llm_action,
@@ -390,6 +415,7 @@ class TinySoulAppBuilder:
             )
             maintenance_runner = ProgramMaintenanceRunner(
                 home=home,
+                memory=memory,
                 session=session,
                 daily_lifecycle=daily_lifecycle,
                 timezone=loop_settings.daily.timezone,
@@ -545,12 +571,34 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
+    def _build_memory(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeMemoryBridge,
+        home: AgentHomeEngine,
+    ) -> MemoryEngine:
+        try:
+            settings = config.parse_section(
+                "memory",
+                lambda tree: parse_memory_settings(tree, project_root=self._root),
+            )
+            return MemoryEngine(settings=settings, home_catalog=home)
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+        except MemoryError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+
     def _build_context(
         self,
         config: ConfigEnvironment,
         home: AgentHomeEngine,
+        memory: MemoryEngine,
         bridge: RuntimeContextBridge,
         home_bridge: RuntimeAgentHomeBridge,
+        memory_bridge: RuntimeMemoryBridge,
     ) -> ContextEngine:
         try:
             settings = config.parse_section("context", parse_context_settings)
@@ -566,10 +614,16 @@ class TinySoulAppBuilder:
                 )
                 .with_trace_recall_max_chars(settings.trace_recall_max_chars)
                 .with_compression_target_ratio(settings.compression_target_ratio)
-                .with_background_provider(
+                .add_background_provider(
                     HomeBackgroundEntryProvider(
                         home=home,
                         runtime_bridge=home_bridge,
+                    )
+                )
+                .add_background_provider(
+                    MemoryBackgroundEntryProvider(
+                        memory=memory,
+                        runtime_bridge=memory_bridge,
                     )
                 )
             )
@@ -618,7 +672,9 @@ class TinySoulAppBuilder:
         context: ContextEngine,
         session: SessionEngine,
         home: AgentHomeEngine,
+        memory: MemoryEngine,
         home_bridge: RuntimeAgentHomeBridge,
+        memory_bridge: RuntimeMemoryBridge,
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
@@ -649,6 +705,12 @@ class TinySoulAppBuilder:
                 home=home,
                 runtime_bridge=home_bridge,
                 search_reranker=LLMHomeSearchReranker(llm),
+            )
+            register_memory_actions(
+                builder,
+                memory=memory,
+                runtime_bridge=memory_bridge,
+                search_reranker=LLMMemorySearchReranker(llm),
             )
             register_core_actions(
                 builder,

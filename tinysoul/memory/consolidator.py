@@ -20,7 +20,7 @@ from tinysoul.llm import (
 )
 from tinysoul.runtime import RunScope
 
-from .memory import (
+from .maintenance import (
     MemoryConsolidationError,
     MemoryConsolidationRequest,
     MemoryConsolidationResult,
@@ -82,7 +82,8 @@ class LLMMemoryConsolidator:
                 _validate_sections(
                     request.day,
                     sections,
-                    allowed_links=frozenset(request.allowed_links),
+                    allowed_home_links=frozenset(request.allowed_home_links),
+                    allowed_memory_links=frozenset(request.allowed_memory_links),
                     max_document_chars=request.max_document_chars,
                 )
                 return MemoryConsolidationResult(
@@ -123,7 +124,8 @@ class LLMMemoryConsolidator:
                             "Consolidate only durable facts for one period of one "
                             "Business Day MEMORY. Preserve useful existing facts, "
                             "deduplicate repeated facts, do not invent facts, and "
-                            "keep Home top links in <home:space@name> form.",
+                            "keep Home top links in <home:space@name> form and "
+                            "Memory links in <memory:YYYY-MM-DD> form.",
                             label="memory_maintenance_reduce_role",
                         ),
                         UserMessage.from_json(
@@ -178,8 +180,9 @@ class LLMMemoryConsolidator:
             SystemMessage.from_text(
                 "Produce the complete replacement for one Business Day MEMORY. "
                 "Keep facts in their supplied period, deduplicate, do not invent "
-                "facts, and use only existing Home top links in "
-                "<home:space@name> form. Section headings are rendered by the "
+                "facts, use only supplied existing Home top links in "
+                "<home:space@name> form, and use only supplied other-date Memory "
+                "links in <memory:YYYY-MM-DD> form. Section headings are rendered by the "
                 "framework and must not appear in section bodies.",
                 label="memory_maintenance_role",
             ),
@@ -189,6 +192,8 @@ class LLMMemoryConsolidator:
                     "period_candidates": {
                         period.value: candidates[period] for period in MemoryPeriod
                     },
+                    "allowed_home_links": list(request.allowed_home_links),
+                    "allowed_memory_links": list(request.allowed_memory_links),
                 },
                 label="memory_maintenance_candidates",
             ),

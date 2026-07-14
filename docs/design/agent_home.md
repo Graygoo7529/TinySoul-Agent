@@ -6,7 +6,7 @@
 
 Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供默认 core 与可加载顶层目录，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home。
 
-当前代码仍在 `tinysoul.home` 中保留旧 `home:memory@...`、`home/memory/`、Memory search 条目和 Memory Maintenance 服务。Stage 6.1 将把它们整体移交给独立 `tinysoul.memory`；Home 不保留兼容 Link、双读或迁移 API。独立 Memory 设计见 `docs/design/memory.md`。
+Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`tinysoul.home` 不再包含 Memory search、Maintenance、配置或 Link/path 映射，也不保留兼容 Link、双读或迁移 API。独立 Memory 设计见 `docs/design/memory.md`。
 
 ## 定位
 
@@ -269,7 +269,7 @@ tinysoul/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、动态顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action HOW 和 Home reviewer。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不再提供 Business Day/archive 业务语义，也不承载 LLM review policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。Home search/reviewer 是 Home-owned 独立服务；不建立 Settlement store，也不把业务逻辑放进普通 action executor。`memory.py` 与 `memory_consolidator.py` 只是 Stage 6.1 实施前的当前文件，不属于目标 Home 目录。
+`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、动态顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action HOW、actual top-link catalog 和 Home reviewer。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不再提供 Business Day/archive 业务语义，也不承载 LLM review policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。Home search/reviewer 是 Home-owned 独立服务；不建立 Settlement store，也不把业务逻辑放进普通 action executor。
 
 AppBuilder 的目标职责是：
 
@@ -303,4 +303,4 @@ AppBuilder 的目标职责是：
 - Home Maintenance 对顶层 `memory/` 零读写，Memory Maintenance 验收归独立 Memory 模块；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-Stage 6 已覆盖现有 Home/Memory 的 scheduler、启动提示和人工 Home apply 路径。Stage 6.1 必须先移除 Home 的 Memory 所有权并重连现有 Program work；之后 Stage 7 再补 Home 原子写/部分清理 crash window、细粒度 Observation 和跨 daily/Home/Memory 的完整无网络 E2E。
+Stage 6 已覆盖 Home/Memory scheduler、启动提示和人工 Home apply 路径；Stage 6.1 已移除 Home 的 Memory 所有权并重连现有 Program work。Stage 7 再补 Home 原子写/部分清理 crash window、细粒度 Observation 和跨 daily/Home/Memory 的完整无网络 E2E。

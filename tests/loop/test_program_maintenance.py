@@ -10,8 +10,8 @@ from tinysoul.home import (
     HomeMaintenanceDecisionProvider,
     HomeMaintenancePending,
     HomeMaintenanceReviewer,
-    MemoryConsolidator,
 )
+from tinysoul.memory import MemoryConsolidator, MemoryEngine
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopInvariantError
 from tinysoul.loop.maintenance import ProgramMaintenanceRunner
 from tinysoul.loop.work import ProgramWorkMode, ProgramWorkStatus
@@ -30,11 +30,17 @@ class _AvailabilityHome:
     def maintenance_pending(self) -> HomeMaintenancePending:
         return HomeMaintenancePending(change_count=2, skill_memory_count=1)
 
-    def memory_exists(self, day: BusinessDay) -> bool:
+
+
+@dataclass
+class _AvailabilityMemory:
+    projection: SessionMemoryFactsProjection
+
+    def exists(self, day: BusinessDay) -> bool:
         assert day == YESTERDAY
         return False
 
-    def memory_maintenance_eligible(
+    def maintenance_eligible(
         self,
         projection: SessionMemoryFactsProjection | None,
     ) -> bool:
@@ -66,8 +72,8 @@ class _AvailabilityDaily:
         return self.archive
 
 
-class _ExistingMemoryHome:
-    def memory_exists(self, day: BusinessDay) -> bool:
+class _ExistingMemory:
+    def exists(self, day: BusinessDay) -> bool:
         assert day == YESTERDAY
         return True
 
@@ -87,7 +93,12 @@ def test_maintenance_availability_uses_yesterday_session_projection() -> None:
     home = _AvailabilityHome(projection)
     session = _AvailabilitySession(projection)
     daily = _AvailabilityDaily(Path("archive/session"))
-    runner = _runner(home=home, session=session, daily=daily)
+    runner = _runner(
+        home=home,
+        memory=_AvailabilityMemory(projection),
+        session=session,
+        daily=daily,
+    )
 
     availability = runner.availability(TODAY)
 
@@ -102,7 +113,8 @@ def test_maintenance_availability_uses_yesterday_session_projection() -> None:
 
 def test_automatic_existing_memory_skips_before_session_loading() -> None:
     runner = _runner(
-        home=_ExistingMemoryHome(),
+        home=_AvailabilityHome(_projection()),
+        memory=_ExistingMemory(),
         session=object(),
         daily=_UnexpectedDaily(),
     )
@@ -122,6 +134,7 @@ def test_automatic_existing_memory_skips_before_session_loading() -> None:
 def test_memory_archive_failure_is_a_failed_work_outcome() -> None:
     runner = _runner(
         home=_AvailabilityHome(_projection()),
+        memory=_AvailabilityMemory(_projection()),
         session=object(),
         daily=_BrokenDaily(),
     )
@@ -138,10 +151,17 @@ def test_memory_archive_failure_is_a_failed_work_outcome() -> None:
     assert outcome.details["error_type"] == "LoopInvariantError"
 
 
-def _runner(*, home: object, session: object, daily: object) -> ProgramMaintenanceRunner:
+def _runner(
+    *,
+    home: object,
+    memory: object,
+    session: object,
+    daily: object,
+) -> ProgramMaintenanceRunner:
     unused = object()
     return ProgramMaintenanceRunner(
         home=cast(AgentHomeEngine, home),
+        memory=cast(MemoryEngine, memory),
         session=cast(SessionEngine, session),
         daily_lifecycle=cast(DailyLifecycleCoordinator, daily),
         timezone="Asia/Shanghai",

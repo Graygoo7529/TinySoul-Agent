@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import TypeVar
 
@@ -195,13 +196,13 @@ def test_home_background_provider_catalog_does_not_materialize_core(
     ).build()
     provider = HomeBackgroundEntryProvider(home)
 
-    catalog = provider.catalog()
+    catalog = provider.catalog(date(2026, 7, 14))
 
     assert catalog.default_links == ("home:agent@core",)
     assert not (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").exists()
 
     content = _run_copy_trap_after_runtime_exception(
-        lambda: provider.load("home:agent@core"),
+        lambda: provider.load("home:agent@core", date(2026, 7, 14)),
         home=home,
     )
 

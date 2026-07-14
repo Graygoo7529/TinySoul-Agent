@@ -61,6 +61,7 @@ def test_background_patch_sequence_validates_projected_loaded_links() -> None:
             BackgroundPatch(evict_links=("home:what@x",)),
         ),
         loadable_links=("home:what@x",),
+        evictable_links=("home:what@x",),
     )
 
     assert problems[0] == ""
@@ -76,6 +77,7 @@ def test_background_patch_rejects_load_evict_conflict() -> None:
             evict_links=("home:what@x",),
         ),
         loadable_links=("home:what@x",),
+        evictable_links=("home:what@x",),
     )
 
     assert "cannot load and evict" in problem
@@ -86,6 +88,7 @@ def test_background_patch_rejects_duplicate_links() -> None:
     problem = background.check_patch(
         BackgroundPatch(load_links=("home:what@x", "home:what@x")),
         loadable_links=("home:what@x",),
+        evictable_links=("home:what@x",),
     )
 
     assert "duplicate load link" in problem

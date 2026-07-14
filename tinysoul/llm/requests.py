@@ -22,6 +22,7 @@ class TaskProfile(StrEnum):
     LLM_ACTION = "llm_action"
     HOME_SEARCH = "home_search"
     HOME_MAINTENANCE = "home_maintenance"
+    MEMORY_SEARCH = "memory_search"
     MEMORY_MAINTENANCE = "memory_maintenance"
 
 

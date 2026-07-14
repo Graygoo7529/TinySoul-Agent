@@ -413,6 +413,7 @@ def _test_config(
         "app.interactive": False,
         "home.root": str(home_root),
         "home.runtime_root": str(tmp_path / "runtime" / "home"),
+        "memory.root": str(tmp_path / "memory"),
         "session.root": str(tmp_path / "runtime" / "session"),
         "workspace.root": str(tmp_path / "runtime" / "workspace"),
         "loop.daily.archive_root": str(tmp_path / "archive"),

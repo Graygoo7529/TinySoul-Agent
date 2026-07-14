@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Protocol
 from uuid import uuid4
 
@@ -40,7 +41,6 @@ from .prompts import TaskPrompt
 from .providers import (
     BackgroundCatalog,
     BackgroundEntryProvider,
-    EmptyBackgroundEntryProvider,
 )
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
@@ -169,7 +169,7 @@ class ContextEngine:
         background: BackgroundContext,
         default_entries: tuple[BackgroundEntry, ...],
         loadable_entries: dict[str, BackgroundContentLoader],
-        background_provider: BackgroundEntryProvider,
+        background_providers: tuple[BackgroundEntryProvider, ...],
         trace_recall_max_chars: int,
         compression_target_ratio: float,
     ) -> None:
@@ -178,7 +178,11 @@ class ContextEngine:
         self._background = background
         self._default_entries = tuple(default_entries)
         self._loadable_entries = dict(loadable_entries)
-        self._background_provider = background_provider
+        self._background_providers = tuple(background_providers)
+        self._provider_by_link: dict[str, BackgroundEntryProvider] = {}
+        self._provider_by_owner: dict[str, BackgroundEntryProvider] = {}
+        self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
+        self._business_day: date | None = None
         self._trace_recall_max_chars = trace_recall_max_chars
         self._compression_target_ratio = compression_target_ratio
         self._scope_builder = ContextControlScopeBuilder()
@@ -230,37 +234,53 @@ class ContextEngine:
         self._trace = self._compressor.new_trace(self._turn_id)
         self._inputs = PendingInputs()
         self._inputs.add(user_input, merged=True)
-        self._background.reset_home()
+        self._background.reset_entries()
         self._background.reset_session()
+        self._provider_by_link = {}
+        self._provider_by_owner = {}
+        self._catalog_by_owner = {}
+        self._business_day = None
         self._preparing_turn = True
         return self._turn_id
 
-    def prepare_default_background(self) -> None:
-        """Load a complete default Home snapshot before the first Cycle."""
+    def prepare_default_background(self, business_day: date) -> None:
+        """Load all provider defaults for one captured Business Day."""
 
         self._require_turn()
-        catalog = self._background_catalog()
+        if not isinstance(business_day, date):
+            raise ContextContractError("Background preparation requires a date")
+        self._business_day = business_day
+        catalogs = self._collect_background_catalogs(business_day)
         entries = list(self._default_entries)
         seen = {entry.link for entry in entries}
-        for link in catalog.default_links:
-            if link in seen:
-                raise ContextInvariantError(
-                    f"Duplicate static and dynamic default Background link: {link}"
+        for catalog in catalogs:
+            provider = self._provider_for_owner(catalog.owner)
+            for link in catalog.default_links:
+                if link in seen:
+                    raise ContextInvariantError(
+                        f"Duplicate default Background link: {link}"
+                    )
+                content = provider.load(link, business_day)
+                if not content:
+                    raise ContextInvariantError(
+                        f"Background provider returned empty content: {link}"
+                    )
+                evictable = link in catalog.evictable_default_links
+                entries.append(
+                    BackgroundEntry(
+                        link=link,
+                        content=content,
+                        source=(
+                            BackgroundSource.AUTOMATIC
+                            if evictable
+                            else BackgroundSource.DEFAULT
+                        ),
+                        owner=catalog.owner,
+                        evictable=evictable,
+                    )
                 )
-            content = self._background_provider.load(link)
-            if not content:
-                raise ContextInvariantError(
-                    f"Background provider returned empty content: {link}"
-                )
-            entries.append(
-                BackgroundEntry(
-                    link=link,
-                    content=content,
-                    source=BackgroundSource.DEFAULT,
-                )
-            )
-            seen.add(link)
-        self._background.reset_home(tuple(entries))
+                seen.add(link)
+        self._background.reset_entries(tuple(entries))
 
     def complete_preparation(self) -> None:
         self._require_turn()
@@ -282,11 +302,7 @@ class ContextEngine:
         loadable = tuple(
             link for link in loadable_links if not self._background.has(link)
         )
-        evictable = tuple(
-            link
-            for link in self._background.links()
-            if link in loadable_links
-        )
+        evictable = self._background.evictable_links()
         return self._scope_builder.build(
             loadable_links=loadable,
             loaded_links=evictable,
@@ -451,7 +467,7 @@ class ContextEngine:
             required_chars=max(0, required_chars),
         )
         remaining = max(0, required_chars - trace_report.reclaimed_chars)
-        background_report = self._background.evict_phase1_for_budget(
+        background_report = self._background.evict_for_budget(
             required_chars=remaining
         )
         return ContextPressureReport(
@@ -564,9 +580,24 @@ class ContextEngine:
         results: list[ControlResult],
     ) -> tuple[BackgroundPatch, ...]:
         patches = tuple(patch for _, _, _, patch in candidates)
+        non_evictable_loaded = set(self._background.links()).difference(
+            self._background.evictable_links()
+        )
+        protected_defaults = {
+            link
+            for catalog in self._catalog_by_owner.values()
+            for link in catalog.default_links
+            if link not in catalog.evictable_default_links
+        }
+        evictable_links = tuple(
+            link
+            for link in self._all_loadable_links()
+            if link not in non_evictable_loaded and link not in protected_defaults
+        )
         problems = self._background.check_patch_sequence(
             patches,
             loadable_links=self._all_loadable_links(),
+            evictable_links=evictable_links,
         )
         valid: list[BackgroundPatch] = []
         for (sequence, signal, call_id, patch), problem in zip(candidates, problems):
@@ -644,31 +675,59 @@ class ContextEngine:
                 loaded.discard(link)
         return prepared
 
-    def _background_catalog(self) -> BackgroundCatalog:
-        catalog = self._background_provider.catalog()
-        if not isinstance(catalog, BackgroundCatalog):
-            raise ContextInvariantError(
-                "Background provider returned an invalid catalog"
-            )
-        duplicates = set(self._loadable_entries) & set(catalog.loadable_links)
-        if duplicates:
-            raise ContextInvariantError(
-                f"Duplicate static and dynamic Background link: {sorted(duplicates)[0]}"
-            )
-        return catalog
+    def _collect_background_catalogs(
+        self,
+        business_day: date,
+    ) -> tuple[BackgroundCatalog, ...]:
+        catalogs: list[BackgroundCatalog] = []
+        links = set(self._loadable_entries)
+        owners: set[str] = set()
+        self._provider_by_link = {}
+        self._provider_by_owner = {}
+        self._catalog_by_owner = {}
+        for provider in self._background_providers:
+            catalog = provider.catalog(business_day)
+            if not isinstance(catalog, BackgroundCatalog):
+                raise ContextInvariantError(
+                    "Background provider returned an invalid catalog"
+                )
+            if catalog.owner in owners:
+                raise ContextInvariantError(
+                    f"Duplicate Background provider owner: {catalog.owner}"
+                )
+            duplicates = links.intersection(catalog.loadable_links)
+            if duplicates:
+                raise ContextInvariantError(
+                    f"Duplicate Background link: {sorted(duplicates)[0]}"
+                )
+            owners.add(catalog.owner)
+            links.update(catalog.loadable_links)
+            self._catalog_by_owner[catalog.owner] = catalog
+            self._provider_by_owner[catalog.owner] = provider
+            for link in catalog.loadable_links:
+                self._provider_by_link[link] = provider
+            catalogs.append(catalog)
+        return tuple(catalogs)
+
+    def _provider_for_owner(self, owner: str) -> BackgroundEntryProvider:
+        provider = self._provider_by_owner.get(owner)
+        if provider is None:
+            raise ContextInvariantError(f"Unknown Background provider owner: {owner}")
+        return provider
 
     def _all_loadable_links(self) -> tuple[str, ...]:
-        catalog = self._background_catalog()
-        return (*self._loadable_entries, *catalog.loadable_links)
+        return (*self._loadable_entries, *self._provider_by_link)
 
     def _load_background(self, link: str) -> str:
         loader = self._loadable_entries.get(link)
         if loader is not None:
             return loader.load()
-        catalog = self._background_catalog()
-        if link not in catalog.loadable_links:
+        provider = self._provider_by_link.get(link)
+        if provider is None:
             raise ContextInvariantError(f"Unknown Background link: {link}")
-        return self._background_provider.load(link)
+        if self._business_day is None:
+            raise ContextInvariantError("Background providers are not prepared")
+        return provider.load(link, self._business_day)
 
     def _apply_background_patch(
         self,
@@ -684,10 +743,20 @@ class ContextEngine:
                     link=link,
                     content=prepared[link],
                     source=BackgroundSource.PHASE1,
+                    owner=self._owner_for_link(link),
+                    evictable=True,
                 )
             )
         for link in patch.evict_links:
             self._background.evict(link)
+
+    def _owner_for_link(self, link: str) -> str:
+        if link in self._loadable_entries:
+            return "context"
+        for owner, catalog in self._catalog_by_owner.items():
+            if link in catalog.loadable_links:
+                return owner
+        raise ContextInvariantError(f"Unknown Background link owner: {link}")
 
     def _apply_trace_append(self, append: TraceAppend) -> None:
         if append.decision is not None:
@@ -759,9 +828,7 @@ class ContextEngineBuilder:
         self._compression_target_ratio = 0.80
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
-        self._background_provider: BackgroundEntryProvider = (
-            EmptyBackgroundEntryProvider()
-        )
+        self._background_providers: list[BackgroundEntryProvider] = []
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
         self._journal = journal
@@ -831,7 +898,12 @@ class ContextEngineBuilder:
             if entry.link == link:
                 raise ContextContractError(f"Duplicate default background link: {link}")
         self._default_entries.append(
-            BackgroundEntry(link=link, content=content, source=BackgroundSource.DEFAULT)
+            BackgroundEntry(
+                link=link,
+                content=content,
+                source=BackgroundSource.DEFAULT,
+                evictable=True,
+            )
         )
         return self
 
@@ -859,7 +931,7 @@ class ContextEngineBuilder:
         self._loadable_entries[link] = loader
         return self
 
-    def with_background_provider(
+    def add_background_provider(
         self,
         provider: BackgroundEntryProvider,
     ) -> "ContextEngineBuilder":
@@ -867,7 +939,7 @@ class ContextEngineBuilder:
             raise ContextContractError(
                 "Background provider must provide catalog() and load()"
             )
-        self._background_provider = provider
+        self._background_providers.append(provider)
         return self
 
     def build(self) -> ContextEngine:
@@ -895,7 +967,7 @@ class ContextEngineBuilder:
             background=background,
             default_entries=tuple(self._default_entries),
             loadable_entries=loadable,
-            background_provider=self._background_provider,
+            background_providers=tuple(self._background_providers),
             trace_recall_max_chars=self._trace_recall_max_chars,
             compression_target_ratio=self._compression_target_ratio,
         )

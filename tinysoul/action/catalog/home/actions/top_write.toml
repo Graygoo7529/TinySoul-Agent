@@ -2,12 +2,12 @@ name = "home.top.write"
 domain = "home"
 
 [tool]
-description = "Create or replace one non-MEMORY top-level entry in the active Agent Home overlay."
+description = "Create or replace one top-level entry in the active Agent Home overlay."
 schema = { type = "object", properties = { link = { type = "string", description = "Stable home:*@ top-level link." }, text = { type = "string", description = "Complete UTF-8 text content." }, overwrite = { type = "boolean", description = "Whether an existing effective entry may be replaced." }, expected_digest = { type = "string", description = "Optional current effective digest precondition." }, what_kind = { type = "string", enum = ["entity", "concept"], description = "Required only when creating a new WHAT entry." } }, required = ["link", "text"], additionalProperties = false }
 
 [semantic]
 use_when = ["A top-level AGENT, WHAT, WHY, or HOW entry should be created or fully replaced"]
-avoid_when = ["Historical MEMORY should change", "A progressive resource or automatic prompt mount should change"]
+avoid_when = ["A progressive resource or automatic prompt mount should change", "A long-term Memory should change"]
 effects = ["modifying"]
 examples = ["Create home:what@tiny_soul with what_kind entity"]
 

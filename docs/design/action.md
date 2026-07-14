@@ -8,7 +8,7 @@ Action 不负责构造基础语境，不负责模型供应商适配，不负责�
 
 Action 的核心职责是把“可选择的域”和“可执行的动作”组织成稳定的 catalog，并把 Phase1 / Phase2 / Phase3 的行为切成清晰的边界。
 
-Stage 6.1 已确认新增 Memory-owned `memory.search`/`memory.recall` native action 与 Memory domain。本文按目标 Action 边界记录该协作；当前 catalog/registrar 尚未实施，不应将文中的 Memory 目录视为已落地文件。
+Stage 6.1 已实现 Memory-owned `memory.search`/`memory.recall` native action、Memory domain catalog 与 `register_memory_actions` registrar。
 
 ## 设计目标
 

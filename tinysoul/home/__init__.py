@@ -14,7 +14,6 @@ from .background import HomeBackgroundContentLoader, HomeBackgroundEntryProvider
 from .config import (
     AgentHomeSettings,
     HomeSearchSettings,
-    MemoryMaintenanceSettings,
     parse_agent_home_settings,
 )
 from .engine import (
@@ -28,7 +27,6 @@ from .errors import (
     AgentHomeError,
     AgentHomeIOError,
     AgentHomeInvariantError,
-    AgentHomeMemoryError,
     AgentHomeReviewError,
     AgentHomeRuntimeCopyRequired,
 )
@@ -59,21 +57,6 @@ from .maintenance import (
     HomeSkillMemoryContext,
     LLMHomeMaintenanceReviewer,
 )
-from .memory import (
-    MemoryConsolidationRequest,
-    MemoryConsolidationResult,
-    MemoryConsolidator,
-    MemoryMaintenanceFailure,
-    MemoryMaintenanceOutcome,
-    MemoryMaintenanceSkipReason,
-    MemoryMaintenanceStatus,
-    MemoryPeriod,
-    MemoryPeriodSources,
-    MemorySections,
-    parse_memory_document,
-    render_memory_document,
-)
-from .memory_consolidator import LLMMemoryConsolidator
 from .overlay import HomeOverlayRecord, HomeOverlayState
 from .search import (
     HomeSearchCandidate,
@@ -95,7 +78,6 @@ __all__ = [
     "AgentHomeFailureKind",
     "AgentHomeIOError",
     "AgentHomeInvariantError",
-    "AgentHomeMemoryError",
     "AgentHomeReviewError",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
@@ -142,21 +124,7 @@ __all__ = [
     "HomeSkillMemoryContext",
     "LLMHomeMaintenanceReviewer",
     "LLMHomeSearchReranker",
-    "LLMMemoryConsolidator",
-    "MemoryConsolidationRequest",
-    "MemoryConsolidationResult",
-    "MemoryConsolidator",
-    "MemoryMaintenanceFailure",
-    "MemoryMaintenanceOutcome",
-    "MemoryMaintenanceSettings",
-    "MemoryMaintenanceSkipReason",
-    "MemoryMaintenanceStatus",
-    "MemoryPeriod",
-    "MemoryPeriodSources",
-    "MemorySections",
     "parse_agent_home_settings",
     "parse_home_link",
-    "parse_memory_document",
     "register_home_actions",
-    "render_memory_document",
 ]

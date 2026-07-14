@@ -2,9 +2,7 @@
 
 ## 状态
 
-本文描述已确认的独立 Memory 模块目标。当前代码仍由 `tinysoul.home` 承载旧 `home/memory` 路径、旧 Link 和 Memory Maintenance；这是待 Stage 6.1 替换的实施现状，不是继续保留的兼容边界。
-
-Stage 6.1 完成后，Memory 将正式位于 `tinysoul.memory`，持久根为项目顶层 `memory/`，配置为顶层 `[memory]`。项目不保留 `home:memory@...` 别名、`home/memory/` 双读、迁移命令或自动迁移逻辑；旧 Link 按非法 Home Link 处理，旧路径不是 Memory 数据源。
+Stage 6.1 已实施。Memory 正式位于 `tinysoul.memory`，持久根为项目顶层 `memory/`，配置为顶层 `[memory]`。项目不保留 `home:memory@...` 别名、`home/memory/` 双读、迁移命令或自动迁移逻辑；旧 Link 按非法 Home Link 处理，旧路径不是 Memory 数据源。
 
 ## 定位
 

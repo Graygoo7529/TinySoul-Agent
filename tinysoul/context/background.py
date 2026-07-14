@@ -15,6 +15,7 @@ class BackgroundSource(StrEnum):
     """How a background entry entered the context."""
 
     DEFAULT = "default"
+    AUTOMATIC = "automatic"
     PHASE1 = "phase1"
 
 
@@ -25,6 +26,8 @@ class BackgroundEntry:
     link: str
     content: str
     source: BackgroundSource = BackgroundSource.DEFAULT
+    owner: str = "context"
+    evictable: bool = False
 
     def __post_init__(self) -> None:
         if not self.link:
@@ -33,6 +36,10 @@ class BackgroundEntry:
             raise ContextInvariantError("BackgroundEntry.content must be non-empty")
         if not isinstance(self.source, BackgroundSource):
             raise ContextInvariantError("BackgroundEntry.source must be a BackgroundSource")
+        if not isinstance(self.owner, str) or not self.owner:
+            raise ContextInvariantError("BackgroundEntry.owner must be non-empty")
+        if not isinstance(self.evictable, bool):
+            raise ContextInvariantError("BackgroundEntry.evictable must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -105,7 +112,7 @@ class BackgroundContext:
     def reset_session(self) -> None:
         self._session = SessionBackgroundSnapshot(revision=0)
 
-    def reset_home(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
+    def reset_entries(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
         self._entries = {entry.link: entry for entry in entries}
 
     def check_session_snapshot(self, snapshot: SessionBackgroundSnapshot) -> str:
@@ -146,13 +153,25 @@ class BackgroundContext:
     def links(self) -> tuple[str, ...]:
         return tuple(self._entries)
 
-    def check_patch(self, patch: BackgroundPatch, *, loadable_links: tuple[str, ...]) -> str:
+    def evictable_links(self) -> tuple[str, ...]:
+        return tuple(
+            entry.link for entry in self._entries.values() if entry.evictable
+        )
+
+    def check_patch(
+        self,
+        patch: BackgroundPatch,
+        *,
+        loadable_links: tuple[str, ...],
+        evictable_links: tuple[str, ...],
+    ) -> str:
         """Return a model-facing patch problem, or empty when applicable."""
 
         return self._check_patch_against_loaded(
             patch,
             loaded=set(self.links()),
             loadable_links=loadable_links,
+            evictable_links=evictable_links,
         )
 
     def check_patch_sequence(
@@ -160,6 +179,7 @@ class BackgroundContext:
         patches: tuple[BackgroundPatch, ...],
         *,
         loadable_links: tuple[str, ...],
+        evictable_links: tuple[str, ...],
     ) -> tuple[str, ...]:
         """Validate patches against a projected loaded-link state."""
 
@@ -171,6 +191,7 @@ class BackgroundContext:
                 patch,
                 loaded=next_loaded,
                 loadable_links=loadable_links,
+                evictable_links=evictable_links,
             )
             problems.append(problem)
             if not problem:
@@ -178,7 +199,7 @@ class BackgroundContext:
         return tuple(problems)
 
     def render_messages(self) -> tuple[Message, ...]:
-        return (*self.render_session_messages(), *self.render_home_messages())
+        return (*self.render_session_messages(), *self.render_background_messages())
 
     def render_session_messages(self) -> tuple[Message, ...]:
         return tuple(
@@ -189,7 +210,7 @@ class BackgroundContext:
             for item in self._session.items
         )
 
-    def render_home_messages(self) -> tuple[Message, ...]:
+    def render_background_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []
         if self._journal:
             messages.append(
@@ -201,17 +222,20 @@ class BackgroundContext:
             )
         return tuple(messages)
 
-    def evict_phase1_for_budget(self, *, required_chars: int) -> BackgroundEvictionReport:
+    def evict_for_budget(self, *, required_chars: int) -> BackgroundEvictionReport:
         if required_chars <= 0:
             return BackgroundEvictionReport(changed=False, reclaimed_chars=0)
         reclaimed = 0
         evicted: list[str] = []
-        for entry in tuple(self._entries.values()):
-            if entry.source is not BackgroundSource.PHASE1:
-                continue
-            del self._entries[entry.link]
-            evicted.append(entry.link)
-            reclaimed += len(entry.link) + len(entry.content) + 24
+        for source in (BackgroundSource.PHASE1, BackgroundSource.AUTOMATIC):
+            for entry in tuple(self._entries.values()):
+                if entry.source is not source or not entry.evictable:
+                    continue
+                del self._entries[entry.link]
+                evicted.append(entry.link)
+                reclaimed += len(entry.link) + len(entry.content) + 24
+                if reclaimed >= required_chars:
+                    break
             if reclaimed >= required_chars:
                 break
         return BackgroundEvictionReport(
@@ -226,6 +250,7 @@ class BackgroundContext:
         *,
         loaded: set[str],
         loadable_links: tuple[str, ...],
+        evictable_links: tuple[str, ...],
     ) -> str:
         duplicate = _first_duplicate(patch.load_links)
         if duplicate:
@@ -239,12 +264,15 @@ class BackgroundContext:
         if patch.is_empty():
             return "Background patch contains no links"
         loadable = set(loadable_links)
+        evictable = set(evictable_links)
         for link in patch.load_links:
             if link not in loadable:
                 return f"Unknown loadable background link: {link}"
         for link in patch.evict_links:
             if link not in loaded:
                 return f"Background link is not loaded: {link}"
+            if link not in evictable:
+                return f"Background link is not evictable: {link}"
             loaded.remove(link)
         for link in patch.load_links:
             loaded.add(link)

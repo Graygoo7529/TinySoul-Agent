@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from enum import StrEnum
 from pathlib import PurePosixPath
 
 from .errors import AgentHomeContractError, AgentHomeInvariantError
 
 HOME_LINK_PREFIX = "home:"
-HOME_TOP_SPACES = frozenset({"agent", "what", "why", "how", "memory"})
+HOME_TOP_SPACES = frozenset({"agent", "what", "why", "how"})
 
 
 class HomeWhatKind(StrEnum):
@@ -38,17 +37,6 @@ class HomeTopLink:
                 f"Unsupported Home top-level space: {self.space}"
             )
         _validate_relative_name(self.name, label="top name")
-        if self.space == "memory":
-            try:
-                parsed = date.fromisoformat(self.name)
-            except ValueError as exc:
-                raise AgentHomeInvariantError(
-                    "Home MEMORY top name must be an ISO date"
-                ) from exc
-            if parsed.isoformat() != self.name:
-                raise AgentHomeInvariantError(
-                    "Home MEMORY top name must use yyyy-mm-dd"
-                )
 
     @classmethod
     def parse(cls, value: str) -> "HomeTopLink":
@@ -78,9 +66,9 @@ class HomeResourceLink:
             raise AgentHomeInvariantError(
                 "Automatic HOW links cannot be progressive resources"
             )
-        if self.space == "memory":
+        if self.space not in HOME_TOP_SPACES:
             raise AgentHomeInvariantError(
-                "Home MEMORY is addressed only by stable top-level date links"
+                f"Unsupported Home resource space: {self.space}"
             )
         _validate_relative_name(self.relative_path, label="resource path")
 

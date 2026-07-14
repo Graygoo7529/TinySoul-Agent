@@ -18,21 +18,19 @@ from tinysoul.home import (
 from tinysoul.home.overlay import HomeOverlayManager
 
 
-def test_historical_memory_reads_original_without_runtime_copy(tmp_path: Path) -> None:
+def test_legacy_home_memory_path_and_link_are_rejected(tmp_path: Path) -> None:
     memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
     memory.parent.mkdir(parents=True)
     memory.write_text("old memory", encoding="utf-8")
+    with pytest.raises(AgentHomeInvariantError, match="cannot exist inside Agent Home"):
+        _home(tmp_path)
+
+    memory.unlink()
     home = _home(tmp_path)
-
-    top_link = "home:memory@2026-07-11"
-    top = home.read_top(top_link)
-    prepared = home.ensure_runtime_copy(home.parse_link(top_link))
-
-    assert top == "old memory"
-    assert prepared is False
-    with pytest.raises(AgentHomeContractError, match="stable top-level date"):
+    with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
+        home.parse_link("home:memory@2026-07-11")
+    with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
         home.read_resource("home:memory/2026/07/2026-07-11.md")
-    assert not (tmp_path / "runtime" / "home" / "memory").exists()
 
 
 def test_home_overlay_mutations_survive_restart_without_touching_original(
@@ -149,15 +147,12 @@ def test_materialized_top_remains_effective_when_actual_changes_externally(
     assert "home:why@stable" in home.loadable_background_links()
 
 
-def test_top_mutation_enforces_what_classification_core_and_memory_rules(
+def test_top_mutation_enforces_what_classification_core_and_link_rules(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "home" / "agent" / "AGENT.md"
     core.parent.mkdir(parents=True)
     core.write_text("core before", encoding="utf-8")
-    memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
-    memory.parent.mkdir(parents=True)
-    memory.write_text("memory", encoding="utf-8")
     home = _home(tmp_path)
 
     with pytest.raises(AgentHomeContractError, match="requires entity or concept"):
@@ -179,7 +174,7 @@ def test_top_mutation_enforces_what_classification_core_and_memory_rules(
     assert core.read_text(encoding="utf-8") == "core before"
     with pytest.raises(AgentHomeContractError, match="cannot be deleted"):
         home.delete_top("home:agent@core")
-    with pytest.raises(AgentHomeContractError, match="Memory Maintenance"):
+    with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
         home.write_top("home:memory@2026-07-11", "changed", overwrite=True)
 
 

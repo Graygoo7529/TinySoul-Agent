@@ -6,11 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
-from tinysoul.loop.day import BusinessDay
 from tinysoul.runtime import RunScope
-from tinysoul.session.memory import SessionMemoryFactsProjection
 
-from .config import AgentHomeSettings, HomeSearchSettings, MemoryMaintenanceSettings
+from .config import AgentHomeSettings, HomeSearchSettings
 from .errors import (
     AgentHomeContractError,
     AgentHomeIOError,
@@ -33,11 +31,6 @@ from .maintenance import (
     HomeMaintenancePending,
     HomeMaintenanceReviewer,
     HomeMaintenanceService,
-)
-from .memory import (
-    MemoryConsolidator,
-    MemoryMaintenanceOutcome,
-    MemoryMaintenanceService,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .search import (
@@ -88,7 +81,6 @@ class AgentHomeEngine:
         overlay: HomeOverlayManager,
         max_read_chars: int,
         max_write_chars: int,
-        memory_settings: MemoryMaintenanceSettings,
         search_settings: HomeSearchSettings,
     ) -> None:
         self._layout = layout
@@ -101,13 +93,6 @@ class AgentHomeEngine:
             overlay=overlay,
             max_preview_chars=max_read_chars,
             max_write_chars=max_write_chars,
-        )
-        if not isinstance(memory_settings, MemoryMaintenanceSettings):
-            raise AgentHomeContractError("Home memory settings are invalid")
-        self._memory_maintenance = MemoryMaintenanceService(
-            layout=layout,
-            settings=memory_settings,
-            max_document_chars=max_write_chars,
         )
         self._search = HomeTopSearchService(search_settings)
 
@@ -151,36 +136,6 @@ class AgentHomeEngine:
         self._validate_overlay_semantics()
         return self._maintenance.pending()
 
-    def run_memory_maintenance(
-        self,
-        *,
-        projection: SessionMemoryFactsProjection | None,
-        consolidator: MemoryConsolidator | None,
-        timezone: str,
-        target_day: BusinessDay | None = None,
-        rewrite_existing: bool = True,
-        scope: RunScope | None = None,
-    ) -> MemoryMaintenanceOutcome:
-        """Rewrite one date MEMORY from a Session-owned facts projection."""
-
-        return self._memory_maintenance.run(
-            projection=projection,
-            consolidator=consolidator,
-            timezone=timezone,
-            target_day=target_day,
-            rewrite_existing=rewrite_existing,
-            scope=scope,
-        )
-
-    def memory_maintenance_eligible(
-        self,
-        projection: SessionMemoryFactsProjection | None,
-    ) -> bool:
-        return self._memory_maintenance.eligible(projection)
-
-    def memory_exists(self, day: BusinessDay) -> bool:
-        return self._memory_maintenance.memory_exists(day)
-
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
 
@@ -202,6 +157,23 @@ class AgentHomeEngine:
         }
         return tuple(str(link) for link in sorted(links, key=str))
 
+    def actual_top_links(self) -> tuple[str, ...]:
+        """Return canonical top links backed by current actual Home files."""
+
+        result: dict[str, str] = {}
+        for relative in self._layout.actual_top_relatives():
+            link = self._layout.top_link_for_relative(relative)
+            if link is None:
+                continue
+            value = str(link)
+            previous = result.get(value)
+            if previous is not None and previous != relative:
+                raise AgentHomeInvariantError(
+                    f"Actual Home top link has multiple paths: {value}"
+                )
+            result[value] = relative
+        return tuple(sorted(result))
+
     def search_top(
         self,
         query: str,
@@ -210,7 +182,7 @@ class AgentHomeEngine:
         reranker: HomeSearchReranker | None = None,
         scope: RunScope | None = None,
     ) -> HomeSearchResult:
-        """Search effective WHAT/WHY/HOW/MEMORY metadata without runtime copying."""
+        """Search effective WHAT/WHY/HOW metadata without runtime copying."""
 
         self._validate_overlay_semantics()
         documents: list[HomeSearchDocument] = []
@@ -235,14 +207,12 @@ class AgentHomeEngine:
                 f"Home top-level entry does not exist: {parsed}"
             )
         source = self._layout.source_for_relative(relative)
-        if parsed.space == "memory":
-            return _read_text(source)
         return _read_text(self._runtime_read_path(str(parsed), relative))
 
     def _search_document(self, link: HomeTopLink) -> HomeSearchDocument:
         relative = self._require_top_relative(link)
         record = self._overlay.record_for(relative)
-        if link.space == "memory" or record is None:
+        if record is None:
             path = self._layout.source_for_relative(relative)
             digest = _file_digest(path)
         else:
@@ -382,8 +352,6 @@ class AgentHomeEngine:
         """Materialize one missing runtime file and report whether disk changed."""
 
         if isinstance(link, HomeTopLink):
-            if link.space == "memory":
-                return False
             runtime_before = {
                 relative: self._layout.runtime_for_relative(relative).is_file()
                 for relative in self._layout.relative_candidates_for_top(link)
@@ -600,18 +568,6 @@ class AgentHomeEngine:
         for relative in self._layout.relative_candidates_for_top(link):
             record = records.get(relative)
             source = self._layout.source_for_relative(relative)
-            if link.space == "memory":
-                if record is not None:
-                    raise AgentHomeInvariantError(
-                        f"Home MEMORY cannot exist in runtime overlay: {relative}"
-                    )
-                if source.is_symlink():
-                    raise AgentHomeInvariantError(
-                        f"Actual Home MEMORY cannot be a symlink: {relative}"
-                    )
-                if source.is_file():
-                    effective.append(relative)
-                continue
             if record is not None:
                 if record.state is not HomeOverlayState.DELETED:
                     effective.append(relative)
@@ -639,12 +595,7 @@ class AgentHomeEngine:
         return relative
 
     def _mutable_top_link(self, link: HomeTopLink | str) -> HomeTopLink:
-        parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
-        if parsed.space == "memory":
-            raise AgentHomeContractError(
-                "Historical Home MEMORY is read-only outside Memory Maintenance"
-            )
-        return parsed
+        return HomeTopLink.parse(link) if isinstance(link, str) else link
 
     def _resource_link(
         self,
@@ -707,6 +658,7 @@ class AgentHomeEngine:
 
     def _validate_overlay_semantics(self) -> None:
         self._validate_actual_special_files()
+        self._validate_runtime_special_files()
         for record in self._overlay.records():
             relative = record.relative_path
             parts = PurePosixPath(relative).parts
@@ -716,10 +668,6 @@ class AgentHomeEngine:
             ):
                 raise AgentHomeInvariantError(
                     "home:agent@core cannot be deleted in the runtime overlay"
-                )
-            if parts and parts[0] == "memory":
-                raise AgentHomeInvariantError(
-                    f"Home MEMORY cannot exist in runtime overlay: {relative}"
                 )
             name = PurePosixPath(relative).name
             if name.upper().endswith("_MEMORY.MD"):
@@ -751,17 +699,26 @@ class AgentHomeEngine:
                 continue
             relative = path.relative_to(self.original_root).as_posix()
             parts = PurePosixPath(relative).parts
-            if (
-                parts
-                and parts[0] == "memory"
-                and self._layout.top_link_for_relative(relative) is None
-            ):
+            if parts and parts[0] == "memory":
                 raise AgentHomeInvariantError(
-                    f"Actual Home MEMORY path is invalid: {relative}"
+                    f"Memory content cannot exist inside Agent Home: {relative}"
                 )
             if path.name.upper().endswith("_MEMORY.MD"):
                 raise AgentHomeInvariantError(
                     f"Runtime-only Home memory cannot exist in actual Home: {relative}"
+                )
+
+    def _validate_runtime_special_files(self) -> None:
+        if not self.runtime_root.is_dir():
+            return
+        for path in self.runtime_root.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(self.runtime_root).as_posix()
+            parts = PurePosixPath(relative).parts
+            if parts and parts[0] == "memory":
+                raise AgentHomeInvariantError(
+                    f"Memory content cannot exist in the Home runtime overlay: {relative}"
                 )
 
 
@@ -786,7 +743,6 @@ class AgentHomeEngineBuilder:
             overlay=overlay,
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
-            memory_settings=self._settings.memory,
             search_settings=self._settings.search,
         )
         engine.reconcile()

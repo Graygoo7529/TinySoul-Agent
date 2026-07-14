@@ -104,10 +104,6 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
         home_root / "how" / "review" / "SKILL.md",
         "# Review Home\n\nReview runtime changes against actual Home.\n",
     )
-    _write(
-        home_root / "memory" / "2026" / "07" / "2026-07-13.md",
-        "# 2026-07-13\n\n## Morning\n\nReviewed the daily lifecycle.\n",
-    )
     home = _build_home(tmp_path)
     home.write_top(
         "home:why@runtime-only",
@@ -121,13 +117,11 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     assert links[0] == "home:why@runtime-only"
     assert "home:what@daily-lifecycle" in links
     assert "home:how@review" in links
-    assert "home:memory@2026-07-13" in links
     assert "home:why@hidden" not in links
     assert "home:agent@core" not in links
     runtime_root = tmp_path / "runtime" / "home"
     assert not (runtime_root / "what" / "concept" / "daily-lifecycle.md").exists()
     assert not (runtime_root / "how" / "review" / "SKILL.md").exists()
-    assert not (runtime_root / "memory").exists()
     first = result.items[0]
     assert first.title == "Runtime Only"
     assert first.summary == "A newly created runtime reason."
@@ -176,7 +170,7 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     invalid = service.search(
         query="shared knowledge",
         documents=documents,
-        reranker=_StubReranker(("home:memory@2099-01-01",)),
+        reranker=_StubReranker(("home:what@missing",)),
         scope=scope,
     )
     empty = service.search(

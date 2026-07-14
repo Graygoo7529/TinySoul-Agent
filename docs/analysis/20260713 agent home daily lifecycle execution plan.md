@@ -4,7 +4,7 @@
 
 status: in_progress
 
-本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-6 已实施；新确认的独立 Memory 边界将作为 Stage 6.1 先于 Stage 7 实施。
+本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-6.1 已实施；下一阶段为 Stage 7。
 
 状态统一使用：
 
@@ -57,15 +57,15 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done for current tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 6.1 新增 Memory-owned `memory_search` profile，不新增持久状态。 |
-| Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Stage 6.1 新增 Memory domain 的 search/recall native action；Maintenance 不作为普通 Action。 |
-| Context | done for current User Turn | MessageStack、Home/Session Background、Working/Trace、信号批次和压力恢复 | Stage 6.1 将 Home Background 提升为 Context-owned 多 provider Background，增加可逐出的昨日 Memory source。 |
+| LLM | done for current tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`memory_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 7 再确认细粒度 Observation，不新增持久状态。 |
+| Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、Home/Memory catalog 与 executor、只读 catalog identities | Memory search/recall 已是独立 native action；Maintenance 不作为普通 Action。 |
+| Context | done for current User Turn | MessageStack、Context-owned 多 provider Background、Working/Trace、信号批次和压力恢复 | Home core 不可逐出，昨日 Memory 与 Phase1 动态项按 source 回收。 |
 | Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Stage 6 已通过 Loop Maintenance runner 按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | done for Stage 6 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder 编排 | Stage 6.1 将 BusinessDay 交给 Memory Background provider 并把 runner 从 Home Memory service 重连到 MemoryEngine；Stage 7 再补 Observation/crash window。 |
-| Agent Home | done for current lifecycle scope | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance；当前还承载旧 Memory 实现 | Stage 6.1 删除 Memory space/path/search/consolidator 所有权；Stage 7 再补 Home crash window。 |
-| Memory | pending extraction | 已有三段式 consolidation、eligibility 和 Program work 的可复用实现，但仍位于 `tinysoul.home` | Stage 6.1 建立 `tinysoul.memory`、顶层 root/config/Link、search/recall、Background provider 和专用 bridge。 |
-| App | done for Stage 6 scope | Builder、CLI、输入分发、输出路由、Maintenance command/decision channel、启动提示与内置 scheduler | Stage 6.1 重连 MemoryEngine/provider/registrar；Stage 7 再补完整无网络 E2E。 |
+| Loop | done for Stage 6.1 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder，以及 MemoryEngine/Background provider 协作 | Stage 7 再补 Observation/crash window。 |
+| Agent Home | done for current lifecycle scope | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、只读 actual top-link catalog | Stage 7 再补 Home crash window；Home 对日期 Memory 零所有权。 |
+| Memory | done for Stage 6.1 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，顶层 `memory/`，三段式 consolidation 与 Program work | Stage 7 再补 Memory 原子写 crash window 和无网络 E2E。 |
+| App | done for Stage 6.1 scope | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler，以及独立 MemoryEngine/provider/registrar/bridge 装配 | Stage 7 再补完整无网络 E2E。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
@@ -503,7 +503,7 @@ status: done
 
 status: done
 
-说明：本阶段记录已完成的功能基线，当时 Memory 由 Home 承载。consolidation、Session projection 和 Program outcome 语义继续有效；路径、Link、配置、renderer/validator 所有权将在 Stage 6.1 替换，不保留旧兼容层。
+说明：本阶段记录已完成的功能基线，当时 Memory 由 Home 承载。consolidation、Session projection 和 Program outcome 语义继续有效；路径、Link、配置、renderer/validator 所有权已由 Stage 6.1 替换，未保留旧兼容层。
 
 优先级：P0
 
@@ -537,7 +537,7 @@ Stage 5/6 开始前，App 集成测试必须同时把 actual Home、Home runtime
 
 status: done
 
-说明：Home 的 WHAT/WHY/HOW 搜索继续有效；当时纳入 Home top search 的 MEMORY 条目将在 Stage 6.1 删除，由 `memory.search` 替代。
+说明：Home 的 WHAT/WHY/HOW 搜索继续有效；当时纳入 Home top search 的 MEMORY 条目已由 Stage 6.1 删除，并由 `memory.search` 替代。
 
 优先级：P1
 
@@ -604,7 +604,7 @@ status: done
 
 ### 阶段 6.1：Memory 模块拆分与 Context Background 提升
 
-status: pending
+status: done
 
 优先级：P0
 
@@ -658,6 +658,10 @@ status: pending
 - recall 的精确 Link、完整文档、not-found、超限与 TurnTrace-only 语义均有测试；
 - Memory Maintenance 的原 Stage 4/6 行为在新 root/Link/module 上全部回归，并新增 Home/Memory 交叉 Link 校验；
 - App 启动提示、scheduler 和人工 Memory 命令继续共享同一 runner，无网络 fake-provider 流程可产生 Memory 并在后续 Turn 通过昨日 Background 或 search/recall 可见。
+
+实施结果：新增 `tinysoul.memory` 单一门面及严格 `MemoryLink`、无只读副作用的 bounded store、独立 `[memory]` 配置、三时间段 Maintenance/consolidator、日期去重 search、完整 recall、昨日 Background provider、Memory Action domain、`memory_search` LLM profile、failure kind 与 Runtime bridge。Memory Maintenance 输出与 Program outcome 已切换为 `memory:YYYY-MM-DD` 和顶层 `memory/yyyy/mm/yyyy-mm-dd.md`，同时校验 actual Home top Link、其它日期 Memory Link、缺失引用与自引用。Home parser/layout/search/config/Engine 已删除日期 Memory space、旧路径和 Maintenance service，只通过窄 `actual_top_links()` catalog 协作。
+
+Context 已改为按 Turn Business Day 聚合多 provider 的通用 Background，catalog/entry 显式携带 owner/source/evictable；精确昨日存在时自动加载完整有界正文，缺失不回退，损坏/超限经 Memory bridge 结束当前 Turn。压力恢复先回收 Phase1 动态项，再回收自动昨日 Memory，Home core 保持不可逐出。AppBuilder 独立装配 MemoryEngine、actions、reranker、provider、bridge 和 ProgramMaintenanceRunner；测试 root 同时隔离 Home、Memory、Session、Workspace 与 archive。单元/集成测试覆盖 Link/path、无副作用空 store、recall、损坏/超限、period search/date 去重、rerank fallback、昨日重建/缺失/压力、交叉 Link validation、原有 Maintenance/Program 行为和旧 Home Link/path 拒绝；全量 pytest 与 ty 均通过。
 
 ### 阶段 7：恢复、观察与端到端加固
 

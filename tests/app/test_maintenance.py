@@ -190,6 +190,7 @@ def _test_config(tmp_path: Path) -> ConfigEnvironment:
             "app.interactive": False,
             "home.root": str(tmp_path / "home"),
             "home.runtime_root": str(tmp_path / "runtime" / "home"),
+            "memory.root": str(tmp_path / "memory"),
             "session.root": str(tmp_path / "runtime" / "session"),
             "workspace.root": str(tmp_path / "runtime" / "workspace"),
             "loop.daily.archive_root": str(tmp_path / "archive"),

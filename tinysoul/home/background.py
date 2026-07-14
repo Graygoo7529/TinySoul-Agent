@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from tinysoul.context import BackgroundCatalog
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
@@ -46,7 +47,7 @@ class HomeBackgroundEntryProvider:
     home: AgentHomeEngine
     runtime_bridge: RuntimeAgentHomeBridge = RuntimeAgentHomeBridge()
 
-    def catalog(self) -> BackgroundCatalog:
+    def catalog(self, business_day: date) -> BackgroundCatalog:
         try:
             links = self.home.loadable_background_links()
         except AgentHomeError as exc:
@@ -57,11 +58,12 @@ class HomeBackgroundEntryProvider:
                 AgentHomeContractError("Agent Home core background is missing")
             )
         return BackgroundCatalog(
+            owner="home",
             default_links=(core,),
             loadable_links=links,
         )
 
-    def load(self, link: str) -> str:
+    def load(self, link: str, business_day: date) -> str:
         return HomeBackgroundContentLoader(
             home=self.home,
             link=link,

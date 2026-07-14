@@ -7,7 +7,7 @@ schema = { type = "object", properties = { link = { type = "string" }, expected_
 
 [semantic]
 use_when = ["A progressive Home resource should be removed from the effective view"]
-avoid_when = ["A top-level or historical memory entry should be deleted"]
+avoid_when = ["A top-level or long-term Memory entry should be deleted"]
 effects = ["modifying"]
 examples = ["Delete an obsolete generated reference from the active Home overlay"]
 

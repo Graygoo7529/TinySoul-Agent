@@ -18,6 +18,7 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("core")
     assert catalog.has_domain("workspace")
     assert catalog.has_domain("home")
+    assert catalog.has_domain("memory")
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"
@@ -59,6 +60,11 @@ def test_catalog_view_by_domain() -> None:
         "home.top.patch",
         "home.top.search",
         "home.top.write",
+    ]
+    memory_view = catalog.with_domains(("memory",))
+    assert [action.name for action in memory_view.actions()] == [
+        "memory.recall",
+        "memory.search",
     ]
 
 

@@ -1,5 +1,5 @@
 name = "home"
-description = "Agent Home knowledge, memory, and skill resource actions."
+description = "Agent Home identity, knowledge, and skill resource actions."
 selection_hint = "Use to discover top knowledge, read progressive resources, or edit the active Agent Home overlay."
 
 [runtime]

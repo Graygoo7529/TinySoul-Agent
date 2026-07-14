@@ -28,7 +28,7 @@ Infra 当前负责配置环境、JSON 动态边界和受控文件系统读写。
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/memory/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中。Memory 模块的 `[memory]` 配置将在 Stage 6.1 接入，当前代码仍使用待删除的 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/memory/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中；Memory 使用独立 `configs/memory.toml` 的 `[memory]` section，Home parser 不接受旧 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
 
 ## 可写配置
 

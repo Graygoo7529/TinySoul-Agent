@@ -19,7 +19,7 @@ class ContextTurnPreparationHandler:
 
     def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         try:
-            self.context.prepare_default_background()
+            self.context.prepare_default_background(request.business_day.value)
         except ContextError as exc:
             raise self.runtime_bridge.from_context_error(exc) from exc
         return ()

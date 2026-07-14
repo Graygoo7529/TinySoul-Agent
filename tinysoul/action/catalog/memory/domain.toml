@@ -1,0 +1,7 @@
+name = "memory"
+description = "Long-term date Memory search and recall actions."
+selection_hint = "Use to find or recall durable facts from prior Business Days."
+
+[runtime]
+timeout_seconds = 30
+parallel_policy = "serial"

@@ -11,6 +11,7 @@ from tinysoul.home.failures import AgentHomeFailureKind
 from tinysoul.infra.failures import InfraFailureKind
 from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.loop.failures import LoopFailureKind
+from tinysoul.memory.failures import MemoryFailureKind
 from tinysoul.session.failures import SessionFailureKind
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
@@ -25,6 +26,7 @@ from tinysoul.workspace.failures import WorkspaceFailureKind
         ("infra", InfraFailureKind),
         ("llm", LLMFailureKind),
         ("loop", LoopFailureKind),
+        ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
         ("workspace", WorkspaceFailureKind),
     ),

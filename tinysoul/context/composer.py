@@ -46,7 +46,7 @@ class ContextSection(StrEnum):
     IDENTITY = "identity"
     USER_INPUTS = "user_inputs"
     SESSION_BACKGROUND = "session_background"
-    HOME_BACKGROUND = "home_background"
+    BACKGROUND = "background"
     WORKING = "working"
     TRACE = "trace"
     TASK_PROMPT = "task_prompt"
@@ -119,7 +119,7 @@ class MessageStackComposer:
             ),
             ContextSection.USER_INPUTS: inputs.render_messages(),
             ContextSection.SESSION_BACKGROUND: background.render_session_messages(),
-            ContextSection.HOME_BACKGROUND: background.render_home_messages(),
+            ContextSection.BACKGROUND: background.render_background_messages(),
             ContextSection.WORKING: working.render_messages(),
             ContextSection.TRACE: trace.render_messages(),
             ContextSection.TASK_PROMPT: task_prompt.render_messages(),

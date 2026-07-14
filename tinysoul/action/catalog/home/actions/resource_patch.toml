@@ -7,7 +7,7 @@ schema = { type = "object", properties = { link = { type = "string" }, old_text 
 
 [semantic]
 use_when = ["A small exact change is needed in a progressive Home resource"]
-avoid_when = ["The old text is ambiguous", "A top-level or memory entry should change"]
+avoid_when = ["The old text is ambiguous", "A top-level or long-term Memory entry should change"]
 effects = ["modifying"]
 examples = ["Patch one command in home:how/refactor/references/checklist.md"]
 

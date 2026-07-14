@@ -10,9 +10,3 @@ default_top_k = 5
 max_top_k = 10
 prefix_max_chars = 1200
 summary_max_chars = 320
-
-[home.memory]
-chunk_max_chars = 12000
-source_max_chars = 240000
-max_calls = 48
-validation_retries = 2

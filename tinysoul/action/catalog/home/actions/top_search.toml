@@ -2,11 +2,11 @@ name = "home.top.search"
 domain = "home"
 
 [tool]
-description = "Search bounded metadata for effective WHAT, WHY, HOW, and MEMORY top entries."
-schema = { type = "object", properties = { query = { type = "string", description = "The knowledge, reason, skill, or memory to find." }, top_k = { type = "integer", description = "Optional result count from 1 to the configured maximum." } }, required = ["query"], additionalProperties = false }
+description = "Search bounded metadata for effective WHAT, WHY, and HOW top entries."
+schema = { type = "object", properties = { query = { type = "string", description = "The knowledge, reason, or skill to find." }, top_k = { type = "integer", description = "Optional result count from 1 to the configured maximum." } }, required = ["query"], additionalProperties = false }
 
 [semantic]
-use_when = ["A relevant Agent Home top link is not already known", "Past MEMORY or reusable HOW should be discovered"]
+use_when = ["A relevant Agent Home top link is not already known", "Reusable WHAT, WHY, or HOW should be discovered"]
 avoid_when = ["The exact top link is already present in Context", "A progressive resource link is already known"]
 effects = ["read_only"]
 examples = ["Search for daily lifecycle knowledge before loading the selected top link"]
