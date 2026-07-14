@@ -92,7 +92,7 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 当前 App 只把旧版 `DailyLifecycleCoordinator` 注入 ProgramRunner；日切在 `run_once` 接受 User Turn 前发生。App 尚未定义启动期主动 rollover、Maintenance 输入类型、内置 scheduler 或启动提醒。
 
-目标启动流程只有一个 Program 入口：先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 是否含实际修改，并检查是否存在“昨日 Session archive 且昨日 MEMORY 不存在”，向交互终端提示可独立触发的 Home/Memory Maintenance，然后进入正常输入等待。Home 提示可以跳过，overlay 继续保留；Memory 不持久化 skipped 状态，只在目标日期仍是昨日时自动提示。人工 Home Maintenance 通过 App-owned decision provider 在终端逐项确认，不能由 Home 服务直接读取 stdin；确认期间普通输入继续排队。scheduler 触发的 Home Maintenance 允许后台 Agent 全自动 apply/discard。
+目标启动流程只有一个 Program 入口：先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 是否含实际修改，并检查是否存在“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，向交互终端提示可独立触发的 Home/Memory Maintenance，然后进入正常输入等待。Home 提示可以跳过，overlay 继续保留；Memory 不持久化 skipped 状态，只在目标日期仍是昨日时自动提示。人工 Home Maintenance 通过 App-owned decision provider 在终端逐项确认，不能由 Home 服务直接读取 stdin；确认期间普通输入继续排队。scheduler 触发的 Home Maintenance 允许后台 Agent 全自动 apply/discard。
 
 这些入口仍由 App 负责外部触发与装配，但 Home diff、review/apply、Session archive 读取和 MEMORY 重写语义归 Agent Home，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接 diff 或修改 Home。App 不建立 settlement root，也不持久化 review/apply 状态。
 

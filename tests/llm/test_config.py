@@ -127,6 +127,11 @@ def test_llm_config_parses_project_config_files() -> None:
     assert home_maintenance.settings.tool_use is ToolUse.DISABLED
     assert home_maintenance.settings.temperature == pytest.approx(0.2)
     assert home_maintenance.settings.max_output_tokens == 256
+    memory_maintenance = config.tasks.get(TaskProfile.MEMORY_MAINTENANCE)
+    assert memory_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert memory_maintenance.settings.tool_use is ToolUse.DISABLED
+    assert memory_maintenance.settings.temperature == pytest.approx(0.2)
+    assert memory_maintenance.settings.max_output_tokens == 4096
 
 
 def test_llm_config_rejects_model_with_unknown_provider() -> None:

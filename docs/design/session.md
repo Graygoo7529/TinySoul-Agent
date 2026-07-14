@@ -50,9 +50,11 @@ summary id 由 day、schema 和有序 child refs 的 digest 确定。若生成 s
 
 SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、completion、recall 和 reconciliation。当前不提供跨进程锁；active Session 的支持运行模型是单进程写入，多进程同时提交同一 active 根不属于一致性保证范围。
 
-归档后的 Session 还是同一组不可变 Turn/summary 事实。Memory Maintenance 通过 Session 所有的只读归档入口按明确 Business Day 定位 records，并把它们交给 Agent Home consolidator；Session 不解释 MEMORY 文档格式、不读取或写入 Agent Home，也不参与 Home runtime diff。目标 MEMORY 不存在时，consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新读取同一归档 Session 即可，不建立 memory candidate store。
+归档后的 Session 还是同一组不可变 Turn/summary 事实。`SessionEngine.memory_facts(day, root)` 先复用 `archive_snapshot` 校验 manifest/graph，再按需递归可达 Summary 节点，只输出唯一叶子 Turn 的 `SessionMemoryFactsProjection`。每个 fact 使用首个 UserInput `received_at` 作为 Turn 开始时间，缺失时回退 record `recorded_at_ns`，并投影全部 UserInput 文本、最终 Working、Background 顶层 Links、最终 answer/references、已有有界 action 摘要、exhausted 和 trace digest；不输出 raw trace、trace heap、reasoning 或 provider payload。Projection 按开始时间和 ref 稳定排序，不同时交付 Summary 与其子 Turn。
 
-启动自动提示只查询配置业务时区中的昨日 Session archive 是否存在，不扫描更早日期。Loop 当前通过 `DailyLifecycleCoordinator.session_archive_for(day)` 解释 transition 并定位 Session 根；Session 通过 `archive_snapshot(day, root)` 只读校验 manifest/graph 并返回有界 history head。App 不遍历 `transition.json`，Loop 不理解 Session store；“目录存在”不替代“存在可供提炼的已提交 Session 事实”的模块判断。
+Memory Maintenance 只消费上述 typed projection；Session 不解释 MEMORY 文档格式、不读取或写入 Agent Home，也不参与 Home runtime diff。目标 MEMORY 不存在时，consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新构造同一 projection 即可，不建立 memory candidate store。
+
+启动自动提示只查询配置业务时区中的昨日，不扫描更早日期。Loop 通过 `DailyLifecycleCoordinator.session_archive_for(day)` 解释 transition 并定位 Session 根；Session 通过 `memory_facts(day, root)` 判断 projection 是否含事实。只有 archive 存在且 projection 非空才满足 Session 一侧 eligibility；App 不遍历 `transition.json`，Loop 不理解 Session store，“目录存在”不替代“存在可供提炼的已提交 Session 事实”的模块判断。
 
 ## 失败边界
 

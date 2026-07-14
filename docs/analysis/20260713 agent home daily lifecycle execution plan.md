@@ -54,13 +54,13 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done for Home review | provider-neutral Task、模型链、输出解释、JSON-only `home_maintenance` profile | 增加 Memory consolidator 的明确 profile。 |
+| LLM | done for Maintenance tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_maintenance` 与 `memory_maintenance` profile | Stage 5 search profile 在搜索语义确认后定义。 |
 | Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
-| Session | done for lifecycle boundary | 不可变 Turn record、summary、orphan reconciliation、日归档、按 Business Day 校验 archive snapshot | Memory Maintenance 尚未消费该只读边界。 |
+| Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Program 尚未按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
 | Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
-| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、年月 MEMORY actual-read、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、无持久状态 Home Maintenance | 增加 Memory Maintenance 与 top search。 |
+| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、无持久状态 Home Maintenance、三段式 Memory Maintenance | 增加 top search，并由 Stage 6 接入两个 Maintenance Program work。 |
 | App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
@@ -278,10 +278,15 @@ Session archive for yyyy-mm-dd
 
 规则：
 
-- Session 通过自己的只读 archive query 门面提供已提交事实；
+- Session 通过自己的只读 archive query 门面提供专用 Memory facts projection；该 projection 按需递归解析已提交 Summary 图，交付可达 Turn 的有界事实，不向 Home 暴露 Session store 或 archive 文件结构，也不把 Summary 与其子 Turn 重复作为事实；
+- Turn 以配置业务时区中的开始时间归入固定时间段：上午 `[00:00, 12:00)`、下午 `[12:00, 18:00)`、晚上 `[18:00, 24:00)`；跨时间段 Turn 整体归入开始时所在段；
+- Session archive 不存在或 projection 不含 Turn facts 时返回 `skipped`，不创建、不覆盖也不删除同日 MEMORY；
 - 目标不存在时，只使用同日 Session；
 - 目标存在时，只额外读取同日期旧 MEMORY；
 - 不读取其它日期 MEMORY、Workspace、active Home diff 或 `SKILL_MEMORY.md`；
+- Session facts 与同日旧 MEMORY 按时间段执行有界、分层 consolidation，不静默截断；超过总事实、总字符或最大调用次数硬上限时失败并保持旧文件不变；
+- consolidator 使用严格 JSON object 输出上午、下午、晚上三个 Markdown body；Home renderer 负责固定日期标题、三个中文时间段标题和最终 Markdown；
+- MEMORY 中只允许指向当前 actual Home 中既存顶层内容的稳定 `HomeTopLink`；不存在、非顶层或语法非法的 Link 必须作为有界模型反馈进入重新生成，重试耗尽后失败；
 - 输出是完整重写，不 append；
 - 目标使用单文件原子替换，失败保持旧文件不变；
 - stable Link 始终是 `home:memory@yyyy-mm-dd`。
@@ -291,7 +296,7 @@ Session archive for yyyy-mm-dd
 启动时只检查配置业务时区中的昨日：
 
 ```text
-昨日 Session archive 存在
+昨日 Session archive 存在且 projection 含 Turn facts
 AND 昨日 MEMORY 不存在
 -> 提示 Memory Maintenance
 ```
@@ -311,13 +316,15 @@ memory_maintenance(target_day)
 
 ```text
 HomeMaintenanceOutcome
-  completed | skipped | failed | needs_confirmation
+  completed | stopped | failed
 
 MemoryMaintenanceOutcome
   completed | skipped | failed
 ```
 
 outcome 只存在于当次运行结果与 Observation，不持久化。
+
+Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所有当次可 review change 已处理完成，无 diff 也属于完成；`stopped` 表示人工 decision provider 在某个未确认项前终止，已确认项保持结果、剩余 diff 留在 overlay；`failed` 表示 review 或模块边界失败，已完成项不回滚。`needs_confirmation` 是 App decision channel 等待输入时的瞬时交互状态，不是最终 outcome；未触发 Home Maintenance 也不由 Home service 构造 `skipped` outcome。
 
 入口规则：
 
@@ -461,7 +468,7 @@ status: done
 
 ### 阶段 4：Memory Maintenance
 
-status: pending
+status: done
 
 优先级：P0
 
@@ -469,15 +476,19 @@ status: pending
 
 实施项：
 
-1. 使用 Session archive query 获取指定日期有界事实；
-2. 定义 consolidator prompt/output 文档结构与上限；
-3. 目标缺失时使用 Session，目标存在时额外读取同日期旧 MEMORY；
-4. 原子完整写入年月分层日期路径；
-5. 拒绝其它日期 MEMORY、Workspace、runtime Home 输入；
-6. 实现昨日 eligibility 查询但不保存 skip；
-7. 增加空/长 Session、旧 MEMORY 重写、非法输出、原子失败和显式旧日期测试。
+1. Session 提供专用 Memory facts projection，按需递归 Summary 图并按 Turn 开始时间输出可达叶子事实；
+2. Home consolidator 按上午、下午、晚上分组并执行有界分层 consolidation；
+3. 使用严格 JSON object 承载三个时间段 Markdown body，由 Home 确定性渲染完整日期文档；
+4. 目标缺失时使用 Session，目标存在时额外读取同日期旧 MEMORY；
+5. 对模型输出中的顶层 Link 做 actual Home 存在性校验，以有界反馈重试非法输出；
+6. Session 缺失或为空时 `skipped` 且对目标文件零写入；
+7. 原子完整写入年月分层日期路径，拒绝其它日期 MEMORY、Workspace、runtime Home 输入；
+8. 提供昨日 eligibility 所需的模块查询但不保存 skip，跨模块提示编排仍归阶段 6；
+9. 增加递归 Summary、三个时间段、空/缺失/长 Session、旧 MEMORY 重写、非法输出与 Link、原子失败和显式旧日期测试。
 
-验收：指定日期 Session 稳定映射唯一 MEMORY；失败不改变旧文件；自动提示不扫描更早日期。
+验收：指定日期非空 Session 稳定映射唯一三段式 MEMORY；空或缺失 Session 不写文件；失败不改变旧文件；自动提示不扫描更早日期。
+
+实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。Home 新增 `MemoryMaintenanceService` 与独立 `LLMMemoryConsolidator`，按业务时区把 facts 和同日旧 MEMORY 分入上午、下午、晚上，以配置字符/调用预算执行分层 reduce，再严格接收三个 Markdown body 并确定性渲染日期文档。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，非法 Link 进入有界最终生成反馈；空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换 `home/memory/yyyy/mm/yyyy-mm-dd.md`。新增 `memory_maintenance` JSON-only profile、嵌套 Home Memory 配置、eligibility 查询和定向测试；Program event、昨日启动提示和 scheduler 装配仍归阶段 6。
 
 ### 阶段 5：Home Top Search 与真实 Home 内容
 
@@ -486,6 +497,8 @@ status: pending
 优先级：P1
 
 依赖：阶段 2
+
+实施前必须向用户确认：search 是否包含 `agent` space；标题与短摘要的权威来源；确定性候选评分、候选上限与 `top_k`；LLM rerank 失败时的回退结果；首批实际 WHAT/WHY/HOW 文件清单与内容验收。未确认前不得在实现中自行选择。
 
 实施项：
 
@@ -504,6 +517,8 @@ status: pending
 优先级：P1
 
 依赖：阶段 3、阶段 4
+
+实施前必须向用户确认：daily rollover 是否使用独立 typed wake-up event；scheduler 的日界/维护时点、Memory 目标日期、同刻事件顺序与漏调度行为；Maintenance 指令在活跃 User Turn 中排队还是 append；人工 apply/discard/stop/EOF 与普通终端输入的 decision channel 分流；启动提示是非阻塞提示还是显式选择流程。未确认前不得在实现中自行选择。
 
 实施项：
 
@@ -527,6 +542,8 @@ status: pending
 优先级：P1
 
 依赖：阶段 5、阶段 6
+
+实施前必须向用户确认：Observation 的精确事件名、level、触发点和 payload schema；E2E 中“后续 Turn 可见 MEMORY”是指通过 search/read 可发现，还是默认自动进入 Background。未确认前不得在实现中自行选择。
 
 实施项：
 

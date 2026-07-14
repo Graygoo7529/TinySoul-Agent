@@ -4,7 +4,7 @@
 
 本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、domain/action HOW、年月 MEMORY actual-read、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance service 已直接 review active overlay 并写回 actual Home；Memory Maintenance 将独立读取指定日期 Session archive 和可选同日期旧 MEMORY。Home top search、Memory Maintenance 和 Program/App 调度入口仍未实现。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home Maintenance service 已直接 review active overlay 并写回 actual Home；Memory Maintenance 已消费指定日期 Session facts projection 和可选同日期旧 MEMORY，生成三段式日期文档。Home top search 和 Program/App 调度入口仍未实现。
 
 ## 定位
 
@@ -225,15 +225,21 @@ overlay cleanup 不保存 review decision。copied record 若遇到 actual 外�
 
 ### Memory Maintenance
 
-Memory Maintenance 接受明确的目标 Business Day，并读取该日期不可变 Session archive 中已经提交的 Turn/summary 事实。输出固定为：
+Memory Maintenance 接受明确的目标 Business Day，并只消费 Session 为该日期构造的 `SessionMemoryFactsProjection`。Session 负责校验 archive、按需递归 Summary 图、去重可达 Turn 并投影 Turn 开始时间、UserInputs、最终 Working 事实、回答/引用和有界 action 摘要；Home 不读取 Session store、Summary record 或 archive 路径。输出固定为：
 
 ```text
 home/memory/yyyy/mm/yyyy-mm-dd.md
 ```
 
-目标文件不存在时，只根据该日期 Session 生成完整 MEMORY；目标文件已经存在时，同时读取同日期旧 MEMORY 与同日期 Session，重新生成完整文档并原子覆盖。它不读取其它日期 MEMORY、active Home diff、Workspace 或 `SKILL_MEMORY.md`，不创建 runtime MEMORY，也不执行 append。
+Turn 以首个 UserInput 的时间为开始时间，并按业务时区确定性分为上午 `[00:00, 12:00)`、下午 `[12:00, 18:00)`、晚上 `[18:00, 24:00)`；跨区间 Turn 不拆分。Session facts 和同日期旧 MEMORY 的对应区段先按字符预算分块，再通过 `memory_maintenance` JSON-only LLM profile 分层 reduce；超过配置总源字符或最大调用次数时失败，不静默截断。最终模型输出严格为 `morning`、`afternoon`、`evening` 三个 Markdown body，Home renderer 固定生成日期标题和三个中文区段标题。
 
-启动自动检测只检查配置业务时区中的昨日：存在昨日 Session archive 且昨日 MEMORY 不存在时提示 Memory Maintenance；不扫描更早日期，也不持久化 skipped 状态。因此同一业务日内再次启动仍可能再次提示，日期变成更早历史后不再自动提示。人工命令可以显式指定任意仍有 Session archive 的日期，包括对已有同日 MEMORY 的重写。
+`home.memory.chunk_max_chars` 限制单个 reduce 输入块，`source_max_chars` 限制本次 Session facts 与旧 MEMORY 的总源字符，`max_calls` 限制完整分层 consolidation 的模型调用数，`validation_retries` 限制最终文档业务校验反馈次数；完整渲染结果继续受 Home `max_write_chars` 限制。所有限制在模块边界转成明确整数配置，未知键或无效组合在启动期失败。
+
+目标文件不存在时，只根据该日期 Session 生成完整 MEMORY；目标文件已经存在时，同时读取同日期旧 MEMORY 与同日期 Session，重新生成完整文档并原子覆盖。正文中的 Home Link 必须使用 `<home:space@name>`，只允许引用当前 actual Home 中已经存在的顶层内容；非法、非顶层或不存在的 Link 由 Home validator 形成有界模型反馈，重试耗尽后本次失败。它不读取其它日期 MEMORY、active Home diff、Workspace 或 `SKILL_MEMORY.md`，不创建 runtime MEMORY，也不执行 append。
+
+Session archive 不存在时 outcome 为 `skipped/session_not_found`；projection 不含 Turn facts 时为 `skipped/session_empty`。两者都不创建、不覆盖也不删除目标文件。其它 consolidation/validator 失败同样在原子写之前结束；实际文件 I/O 失败属于 Home 模块边界异常。成功 outcome 只携带 day、稳定 Link、fact/model-call 计数和文档 digest，不携带正文或 reasoning。
+
+启动自动检测只检查配置业务时区中的昨日：存在昨日 Session archive、projection 含 Turn facts 且昨日 MEMORY 不存在时提示 Memory Maintenance；不扫描更早日期，也不持久化 skipped 状态。因此同一业务日内再次启动仍可能再次提示，日期变成更早历史后不再自动提示。人工命令可以显式指定任意仍有非空 Session projection 的日期，包括对已有同日 MEMORY 的重写。跨模块 eligibility、Program event 和提示仍归 Program/App 阶段。
 
 Home Maintenance 与 Memory Maintenance 的触发、输入、结果和失败边界相互独立；任一任务失败不回滚或伪装另一项任务的结果。
 
@@ -313,4 +319,4 @@ AppBuilder 的目标职责是：
 - Memory Maintenance 从指定日期 Session 和可选同日旧 MEMORY 原子重写固定日期文件；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点包括：top search、Memory Maintenance 和 Home/Memory 的 scheduler/启动/人工调度。
+仍需补充的验收点包括：top search，以及 Home/Memory 的 scheduler、启动和人工调度。

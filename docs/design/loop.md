@@ -56,7 +56,7 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 `loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session 和 Workspace 不自行调用系统日期。Home overlay 不再以 Business Day 作为身份或清理边界。
 
-这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容和按 Business Day 定位 Session archive；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
+这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容、按 Business Day 定位 Session archive、Session Memory facts projection 和 Home-owned Memory consolidator；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
 
 日切顺序固定为：
 

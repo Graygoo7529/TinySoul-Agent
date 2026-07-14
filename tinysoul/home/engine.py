@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
+from tinysoul.loop.day import BusinessDay
 from tinysoul.runtime import RunScope
+from tinysoul.session.memory import SessionMemoryFactsProjection
 
-from .config import AgentHomeSettings
+from .config import AgentHomeSettings, MemoryMaintenanceSettings
 from .errors import (
     AgentHomeContractError,
     AgentHomeIOError,
@@ -30,6 +32,11 @@ from .maintenance import (
     HomeMaintenanceOutcome,
     HomeMaintenanceReviewer,
     HomeMaintenanceService,
+)
+from .memory import (
+    MemoryConsolidator,
+    MemoryMaintenanceOutcome,
+    MemoryMaintenanceService,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 
@@ -73,6 +80,7 @@ class AgentHomeEngine:
         overlay: HomeOverlayManager,
         max_read_chars: int,
         max_write_chars: int,
+        memory_settings: MemoryMaintenanceSettings,
     ) -> None:
         self._layout = layout
         self._overlay = overlay
@@ -84,6 +92,13 @@ class AgentHomeEngine:
             overlay=overlay,
             max_preview_chars=max_read_chars,
             max_write_chars=max_write_chars,
+        )
+        if not isinstance(memory_settings, MemoryMaintenanceSettings):
+            raise AgentHomeContractError("Home memory settings are invalid")
+        self._memory_maintenance = MemoryMaintenanceService(
+            layout=layout,
+            settings=memory_settings,
+            max_document_chars=max_write_chars,
         )
 
     @property
@@ -119,6 +134,34 @@ class AgentHomeEngine:
             manual_decisions=manual_decisions,
             scope=scope,
         )
+
+    def run_memory_maintenance(
+        self,
+        *,
+        projection: SessionMemoryFactsProjection | None,
+        consolidator: MemoryConsolidator | None,
+        timezone: str,
+        target_day: BusinessDay | None = None,
+        scope: RunScope | None = None,
+    ) -> MemoryMaintenanceOutcome:
+        """Rewrite one date MEMORY from a Session-owned facts projection."""
+
+        return self._memory_maintenance.run(
+            projection=projection,
+            consolidator=consolidator,
+            timezone=timezone,
+            target_day=target_day,
+            scope=scope,
+        )
+
+    def memory_maintenance_eligible(
+        self,
+        projection: SessionMemoryFactsProjection | None,
+    ) -> bool:
+        return self._memory_maintenance.eligible(projection)
+
+    def memory_exists(self, day: BusinessDay) -> bool:
+        return self._memory_maintenance.memory_exists(day)
 
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
@@ -679,6 +722,7 @@ class AgentHomeEngineBuilder:
             overlay=overlay,
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
+            memory_settings=self._settings.memory,
         )
         engine.reconcile()
         return engine

@@ -13,6 +13,10 @@ from tinysoul.loop.day import BusinessDay
 
 from .config import SessionSettings
 from .errors import SessionContractError, SessionInvariantError
+from .memory import (
+    SessionMemoryFactsProjection,
+    project_session_memory_facts,
+)
 from .models import (
     SessionHistoryItem,
     SessionHistoryKind,
@@ -170,6 +174,22 @@ class SessionEngine:
                 revision=manifest.revision,
                 items=manifest.items,
             )
+
+    def memory_facts(
+        self,
+        day: BusinessDay,
+        *,
+        root: Path,
+    ) -> SessionMemoryFactsProjection:
+        """Project all committed Turn facts from one validated archive."""
+
+        snapshot = self.archive_snapshot(day, root=root)
+        return project_session_memory_facts(
+            day=snapshot.day,
+            root=snapshot.root,
+            revision=snapshot.revision,
+            items=snapshot.items,
+        )
 
     def background_snapshot(
         self,

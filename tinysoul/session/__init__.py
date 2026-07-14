@@ -14,6 +14,7 @@ from .errors import (
     SessionInvariantError,
 )
 from .failures import SessionFailureKind
+from .memory import SessionMemoryFact, SessionMemoryFactsProjection
 from .reconcile import SessionReconcileResult
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "SessionFailureKind",
     "SessionIOError",
     "SessionInvariantError",
+    "SessionMemoryFact",
+    "SessionMemoryFactsProjection",
     "SessionReconcileResult",
     "SessionSettings",
     "SessionTurnCompletionHandler",
