@@ -151,10 +151,18 @@ def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
 
 
 def _test_config(tmp_path: Path) -> ConfigEnvironment:
+    home_root = tmp_path / "home"
+    agent_path = home_root / "agent" / "AGENT.md"
+    agent_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_path.write_text("# Test Agent\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(
         root=Path.cwd(),
         overrides={
             "app.interactive": False,
-            "home.runtime_root": str(tmp_path / "runtime_home"),
+            "home.root": str(home_root),
+            "home.runtime_root": str(tmp_path / "runtime" / "home"),
+            "session.root": str(tmp_path / "runtime" / "session"),
+            "workspace.root": str(tmp_path / "runtime" / "workspace"),
+            "loop.daily.archive_root": str(tmp_path / "archive"),
         },
     )

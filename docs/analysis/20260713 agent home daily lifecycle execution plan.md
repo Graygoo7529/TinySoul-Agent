@@ -324,7 +324,7 @@ MemoryMaintenanceOutcome
 
 outcome 只存在于当次运行结果与 Observation，不持久化。
 
-Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所有当次可 review change 已处理完成，无 diff 也属于完成；`stopped` 表示人工 decision provider 在某个未确认项前终止，已确认项保持结果、剩余 diff 留在 overlay；`failed` 表示 review 或模块边界失败，已完成项不回滚。`needs_confirmation` 是 App decision channel 等待输入时的瞬时交互状态，不是最终 outcome；未触发 Home Maintenance 也不由 Home service 构造 `skipped` outcome。
+Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所有当次可 review change 已处理完成，无 diff 也属于完成；`stopped` 表示人工 decision provider 在某个未确认项前终止，已确认项保持结果、剩余 diff 留在 overlay；`failed` 表示 review 或模块边界失败，已完成项不回滚。`needs_confirmation` 是 App decision channel 等待输入时的瞬时交互状态，不是最终 outcome；未触发 Home Maintenance 也不由 Home service 构造 `skipped` outcome。以上 outcome 已是稳定语义，不再是待选建议。
 
 入口规则：
 
@@ -490,6 +490,14 @@ status: done
 
 实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。Home 新增 `MemoryMaintenanceService` 与独立 `LLMMemoryConsolidator`，按业务时区把 facts 和同日旧 MEMORY 分入上午、下午、晚上，以配置字符/调用预算执行分层 reduce，再严格接收三个 Markdown body 并确定性渲染日期文档。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，非法 Link 进入有界最终生成反馈；空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换 `home/memory/yyyy/mm/yyyy-mm-dd.md`。新增 `memory_maintenance` JSON-only profile、嵌套 Home Memory 配置、eligibility 查询和定向测试；Program event、昨日启动提示和 scheduler 装配仍归阶段 6。
 
+### 阶段 4.1：App 集成测试隔离基线
+
+status: done
+
+优先级：P0
+
+Stage 5/6 开始前，App 集成测试必须同时把 actual Home、Home runtime、Session、Workspace 和 daily archive 指向同一 `tmp_path` 下互不冲突的绝对路径。测试 actual Home 使用最小 `home/agent/AGENT.md` fixture；缺失 core 等失败测试显式覆盖自己的空 Home root。不得只隔离 `home.runtime_root`，也不得依赖 `.gitignore` 隐藏测试产生的真实 runtime/archive。现有 Builder/Runtime 测试 helper 已完成五个可变 root 隔离，并以配置回归用例锁定该边界。
+
 ### 阶段 5：Home Top Search 与真实 Home 内容
 
 status: pending
@@ -498,7 +506,14 @@ status: pending
 
 依赖：阶段 2
 
-实施前必须向用户确认：search 是否包含 `agent` space；标题与短摘要的权威来源；确定性候选评分、候选上限与 `top_k`；LLM rerank 失败时的回退结果；首批实际 WHAT/WHY/HOW 文件清单与内容验收。未确认前不得在实现中自行选择。
+已确认语义：
+
+1. search 只包含 WHAT、WHY、通用 HOW 与 MEMORY，不包含 `agent`、`how_domain` 或 `how_action`；
+2. 标题以 Markdown 首个 H1 为权威来源，短摘要取首个有效正文段；缺失时分别回退 Link name 与有界正文前缀，不建立独立 metadata 索引；
+3. 确定性候选使用 link/name/title/summary/searchable prefix，候选上限为 20，默认 `top_k=5`、最大为 10；目录不超过候选上限时不因词法零分丢弃条目；
+4. LLM rerank 失败时返回稳定排序的确定性候选，validator 始终只接受候选内 Link；
+5. 首批 actual Home 分别增加一个简单 WHAT、WHY、HOW 示例；示例只说明 TinySoul 自身公开设计，不虚构用户事实；
+6. MEMORY 业务继续由 Home 下独立 `memory.py` 负责；search 新增 Home-owned `search.py`，只消费 Home effective catalog。Infra 只保留真正领域无关的文本/排序原语，不解释 Home Link、space、runtime overlay 或 MEMORY。
 
 实施项：
 
@@ -518,7 +533,15 @@ status: pending
 
 依赖：阶段 3、阶段 4
 
-实施前必须向用户确认：daily rollover 是否使用独立 typed wake-up event；scheduler 的日界/维护时点、Memory 目标日期、同刻事件顺序与漏调度行为；Maintenance 指令在活跃 User Turn 中排队还是 append；人工 apply/discard/stop/EOF 与普通终端输入的 decision channel 分流；启动提示是非阻塞提示还是显式选择流程。未确认前不得在实现中自行选择。
+已确认语义：
+
+1. daily rollover 使用独立 typed wake-up event；每项 Program work 仍在统一单写者边界内执行日界 preflight；
+2. 自动顺序固定为 `Daily Rollover -> Home Maintenance -> Memory Maintenance(昨日)`；Home/Memory 结果独立，前一 Maintenance 失败不阻止后一任务执行；
+3. 显式命令使用 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`；在活跃 User Turn 中进入 Program queue，不形成 append；
+4. 人工 decision channel 仅在存在关联确认请求时消费精确 `apply`、`discard`、`stop`；其它输入留在 Program queue。EOF 先停止当前人工 Home Maintenance，再请求 Program 退出；
+5. 启动先补做 daily rollover，再非阻塞检查并提示 active Home diff，以及昨日存在非空 Session facts 但缺少 MEMORY；普通 User 输入等同于暂不执行提示任务，不保存 skip 状态；
+6. 日界由业务时区午夜决定；漏掉的 daily rollover 在启动补做。Maintenance 不自动追补更早日期，Home overlay 原样保留，Memory 自动提示只看昨日；
+7. scheduler 的 Home/Memory 具体默认时刻仍需在 Stage 6 scheduler 实现前确认，不能在代码中写入未经确认的隐藏默认值。
 
 实施项：
 

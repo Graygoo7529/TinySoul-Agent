@@ -45,6 +45,21 @@ class _CompletionRecorder:
         self.completions.append(completion)
 
 
+def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
+    config = _test_config(tmp_path)
+
+    home = config.section_tree("home")
+    session = config.section_tree("session")
+    workspace = config.section_tree("workspace")
+    daily = config.section_tree("loop.daily")
+
+    assert home["root"] == str(tmp_path / "home")
+    assert home["runtime_root"] == str(tmp_path / "runtime" / "home")
+    assert session["root"] == str(tmp_path / "runtime" / "session")
+    assert workspace["root"] == str(tmp_path / "runtime" / "workspace")
+    assert daily["archive_root"] == str(tmp_path / "archive")
+
+
 def test_app_builder_run_once_answers_with_real_action_and_context(
     tmp_path: Path,
 ) -> None:
@@ -205,7 +220,10 @@ def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> 
 
 
 def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:
-    config = _test_config(tmp_path)
+    config = _test_config(
+        tmp_path,
+        {"home.root": str(tmp_path / "missing_home")},
+    )
 
     with pytest.raises(RuntimeException) as raised:
         (
@@ -387,9 +405,17 @@ def _test_config(
     tmp_path: Path,
     overrides: dict[str, object] | None = None,
 ) -> ConfigEnvironment:
+    home_root = tmp_path / "home"
+    agent_path = home_root / "agent" / "AGENT.md"
+    agent_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_path.write_text("# Test Agent\n", encoding="utf-8")
     values: dict[str, object] = {
         "app.interactive": False,
-        "home.runtime_root": str(tmp_path / "runtime_home"),
+        "home.root": str(home_root),
+        "home.runtime_root": str(tmp_path / "runtime" / "home"),
+        "session.root": str(tmp_path / "runtime" / "session"),
+        "workspace.root": str(tmp_path / "runtime" / "workspace"),
+        "loop.daily.archive_root": str(tmp_path / "archive"),
     }
     if overrides is not None:
         values.update(overrides)
