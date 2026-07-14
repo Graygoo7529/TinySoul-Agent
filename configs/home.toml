@@ -4,6 +4,13 @@ runtime_root = "runtime/home"
 max_read_chars = 4000
 max_write_chars = 16000
 
+[home.search]
+candidate_limit = 20
+default_top_k = 5
+max_top_k = 10
+prefix_max_chars = 1200
+summary_max_chars = 320
+
 [home.memory]
 chunk_max_chars = 12000
 source_max_chars = 240000

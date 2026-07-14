@@ -127,6 +127,11 @@ def test_llm_config_parses_project_config_files() -> None:
     assert home_maintenance.settings.tool_use is ToolUse.DISABLED
     assert home_maintenance.settings.temperature == pytest.approx(0.2)
     assert home_maintenance.settings.max_output_tokens == 256
+    home_search = config.tasks.get(TaskProfile.HOME_SEARCH)
+    assert home_search.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert home_search.settings.tool_use is ToolUse.DISABLED
+    assert home_search.settings.temperature == pytest.approx(0.1)
+    assert home_search.settings.max_output_tokens == 512
     memory_maintenance = config.tasks.get(TaskProfile.MEMORY_MAINTENANCE)
     assert memory_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert memory_maintenance.settings.tool_use is ToolUse.DISABLED

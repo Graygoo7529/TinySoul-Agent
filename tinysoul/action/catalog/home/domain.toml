@@ -1,6 +1,6 @@
 name = "home"
 description = "Agent Home knowledge, memory, and skill resource actions."
-selection_hint = "Use to read progressive resources or edit the active Agent Home overlay."
+selection_hint = "Use to discover top knowledge, read progressive resources, or edit the active Agent Home overlay."
 
 [runtime]
 timeout_seconds = 30

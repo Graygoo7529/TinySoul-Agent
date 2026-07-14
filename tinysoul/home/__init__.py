@@ -4,6 +4,7 @@ from .actions import (
     HomePromptMountPatchExecutor,
     HomePromptMountWriteExecutor,
     HomeResourceReadExecutor,
+    HomeTopSearchExecutor,
     HomeTopDeleteExecutor,
     HomeTopPatchExecutor,
     HomeTopWriteExecutor,
@@ -12,6 +13,7 @@ from .actions import (
 from .background import HomeBackgroundContentLoader, HomeBackgroundEntryProvider
 from .config import (
     AgentHomeSettings,
+    HomeSearchSettings,
     MemoryMaintenanceSettings,
     parse_agent_home_settings,
 )
@@ -72,6 +74,17 @@ from .memory import (
 )
 from .memory_consolidator import LLMMemoryConsolidator
 from .overlay import HomeOverlayRecord, HomeOverlayState
+from .search import (
+    HomeSearchCandidate,
+    HomeSearchDocument,
+    HomeSearchEntry,
+    HomeSearchItem,
+    HomeSearchRequest,
+    HomeSearchReranker,
+    HomeSearchResult,
+    HomeTopSearchService,
+    LLMHomeSearchReranker,
+)
 
 __all__ = [
     "AgentHomeContractError",
@@ -110,12 +123,23 @@ __all__ = [
     "HomeOverlayRecord",
     "HomeOverlayState",
     "HomeTopLink",
+    "HomeTopSearchExecutor",
     "HomeTopDeleteExecutor",
     "HomeTopPatchExecutor",
     "HomeTopWriteExecutor",
     "HomeWhatKind",
+    "HomeSearchCandidate",
+    "HomeSearchDocument",
+    "HomeSearchEntry",
+    "HomeSearchItem",
+    "HomeSearchRequest",
+    "HomeSearchReranker",
+    "HomeSearchResult",
+    "HomeSearchSettings",
+    "HomeTopSearchService",
     "HomeSkillMemoryContext",
     "LLMHomeMaintenanceReviewer",
+    "LLMHomeSearchReranker",
     "LLMMemoryConsolidator",
     "MemoryConsolidationRequest",
     "MemoryConsolidationResult",

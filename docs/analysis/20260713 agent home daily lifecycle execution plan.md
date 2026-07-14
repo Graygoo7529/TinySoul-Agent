@@ -54,13 +54,13 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done for Maintenance tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_maintenance` 与 `memory_maintenance` profile | Stage 5 search profile 在搜索语义确认后定义。 |
+| LLM | done for current Home tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 6 只复用现有 Home task，不新增持久状态。 |
 | Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
 | Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Program 尚未按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
 | Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
-| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、无持久状态 Home Maintenance、三段式 Memory Maintenance | 增加 top search，并由 Stage 6 接入两个 Maintenance Program work。 |
+| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance、三段式 Memory Maintenance | 由 Stage 6 接入两个 Maintenance Program work。 |
 | App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
@@ -500,7 +500,7 @@ Stage 5/6 开始前，App 集成测试必须同时把 actual Home、Home runtime
 
 ### 阶段 5：Home Top Search 与真实 Home 内容
 
-status: pending
+status: done
 
 优先级：P1
 
@@ -524,6 +524,8 @@ status: pending
 5. MEMORY 使用稳定日期 Link，不暴露年月路径；
 6. 补实际 WHAT/WHY/HOW 内容与 SKILL_MEMORY 使用规约；
 7. 测试 runtime-only top、tombstone、Home Maintenance 后内容和预算。
+
+实施结果：新增 Home-owned `search.py`，由 `AgentHomeEngine` 只负责把统一 effective catalog 解析成 bounded document，search service 负责 H1/首正文段 metadata、link/name/title/summary/prefix 确定性评分、20 个候选上限和稳定排序；actual WHAT/WHY/HOW 搜索不创建 runtime copy，runtime-only/modified 使用当前 overlay，tombstone 被排除，MEMORY 始终读取 actual。新增 `home_search` JSON-only profile 与 candidate-only `LLMHomeSearchReranker`；Task failure、非法结构、重复或候选外 Link 回退确定性候选，合法空列表表达无匹配。`home.top.search` action 只返回 metadata/digest/score，不返回完整正文或自动加载 Background。配置新增 `home.search` 预算并拒绝未知/非法组合；AppBuilder 只注入 reranker。actual Home 新增 `home:what@daily-lifecycle`、`home:why@separate-rollover-maintenance`、`home:how@daily-home-review` 三个相互链接的简单示例。定向测试覆盖 effective runtime、tombstone、actual 不物化、Maintenance 后 actual、候选限制、rerank validator/fallback/no-match、action profile、配置和默认示例。
 
 ### 阶段 6：Program、App 与 Scheduler
 

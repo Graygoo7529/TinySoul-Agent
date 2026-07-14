@@ -27,6 +27,7 @@ from tinysoul.home import (
     HomeActionHowProvider,
     HomeBackgroundEntryProvider,
     HomeDomainHowProvider,
+    LLMHomeSearchReranker,
     parse_agent_home_settings,
     register_home_actions,
 )
@@ -283,6 +284,7 @@ class TinySoulAppBuilder:
                 workspace_bridge=workspace_bridge,
                 action_bridge=action_bridge,
                 llm_action=llm_action,
+                llm=llm,
                 observations=observations,
             )
             try:
@@ -588,6 +590,7 @@ class TinySoulAppBuilder:
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         llm_action: LLMActionTaskRunner,
+        llm: LLMRunner,
         observations: ObservationEmitter,
     ) -> ActionEngine:
         try:
@@ -613,6 +616,7 @@ class TinySoulAppBuilder:
                 builder,
                 home=home,
                 runtime_bridge=home_bridge,
+                search_reranker=LLMHomeSearchReranker(llm),
             )
             register_core_actions(
                 builder,

@@ -57,6 +57,7 @@ def test_catalog_view_by_domain() -> None:
         "home.resource.write",
         "home.top.delete",
         "home.top.patch",
+        "home.top.search",
         "home.top.write",
     ]
 

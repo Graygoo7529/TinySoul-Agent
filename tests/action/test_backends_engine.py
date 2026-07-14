@@ -315,6 +315,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("home.resource.write", lambda execution, context: {"written": True})
         .register_native("home.top.delete", lambda execution, context: {"deleted": True})
         .register_native("home.top.patch", lambda execution, context: {"patched": True})
+        .register_native("home.top.search", lambda execution, context: {"items": []})
         .register_native("home.top.write", lambda execution, context: {"written": True})
         .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})

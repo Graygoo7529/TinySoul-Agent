@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from tinysoul.infra.filesystem import TextPrefixRead, read_text_prefix
+from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
 from tinysoul.loop.day import BusinessDay
 from tinysoul.runtime import RunScope
 from tinysoul.session.memory import SessionMemoryFactsProjection
 
-from .config import AgentHomeSettings, MemoryMaintenanceSettings
+from .config import AgentHomeSettings, HomeSearchSettings, MemoryMaintenanceSettings
 from .errors import (
     AgentHomeContractError,
     AgentHomeIOError,
@@ -39,6 +39,13 @@ from .memory import (
     MemoryMaintenanceService,
 )
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
+from .search import (
+    SEARCHABLE_HOME_SPACES,
+    HomeSearchDocument,
+    HomeSearchReranker,
+    HomeSearchResult,
+    HomeTopSearchService,
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,7 @@ class AgentHomeEngine:
         max_read_chars: int,
         max_write_chars: int,
         memory_settings: MemoryMaintenanceSettings,
+        search_settings: HomeSearchSettings,
     ) -> None:
         self._layout = layout
         self._overlay = overlay
@@ -100,6 +108,7 @@ class AgentHomeEngine:
             settings=memory_settings,
             max_document_chars=max_write_chars,
         )
+        self._search = HomeTopSearchService(search_settings)
 
     @property
     def layout(self) -> AgentHomeLayout:
@@ -184,6 +193,31 @@ class AgentHomeEngine:
         }
         return tuple(str(link) for link in sorted(links, key=str))
 
+    def search_top(
+        self,
+        query: str,
+        *,
+        top_k: int | None = None,
+        reranker: HomeSearchReranker | None = None,
+        scope: RunScope | None = None,
+    ) -> HomeSearchResult:
+        """Search effective WHAT/WHY/HOW/MEMORY metadata without runtime copying."""
+
+        self._validate_overlay_semantics()
+        documents: list[HomeSearchDocument] = []
+        for value in self.loadable_background_links():
+            link = HomeTopLink.parse(value)
+            if link.space not in SEARCHABLE_HOME_SPACES:
+                continue
+            documents.append(self._search_document(link))
+        return self._search.search(
+            query=query,
+            documents=tuple(documents),
+            top_k=top_k,
+            reranker=reranker,
+            scope=scope,
+        )
+
     def read_top(self, link: HomeTopLink | str) -> str:
         parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
         relative = self._resolve_top_relative(parsed)
@@ -195,6 +229,27 @@ class AgentHomeEngine:
         if parsed.space == "memory":
             return _read_text(source)
         return _read_text(self._runtime_read_path(str(parsed), relative))
+
+    def _search_document(self, link: HomeTopLink) -> HomeSearchDocument:
+        relative = self._require_top_relative(link)
+        record = self._overlay.record_for(relative)
+        if link.space == "memory" or record is None:
+            path = self._layout.source_for_relative(relative)
+            digest = _file_digest(path)
+        else:
+            if record.state is HomeOverlayState.DELETED:
+                raise AgentHomeInvariantError(
+                    f"Deleted Home top entry entered search catalog: {link}"
+                )
+            path = self._layout.runtime_for_relative(relative)
+            digest = record.runtime_digest
+        prefix = _read_text_prefix(path, self._search.prefix_max_chars)
+        return HomeSearchDocument(
+            link=link,
+            text_prefix=prefix.text,
+            truncated=prefix.truncated,
+            digest=digest,
+        )
 
     def read_prompt_mount(self, link: HomePromptMountLink | str) -> str:
         parsed = HomePromptMountLink.parse(link) if isinstance(link, str) else link
@@ -723,6 +778,7 @@ class AgentHomeEngineBuilder:
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
             memory_settings=self._settings.memory,
+            search_settings=self._settings.search,
         )
         engine.reconcile()
         return engine
@@ -748,6 +804,13 @@ def _read_text_prefix(path: Path, max_chars: int) -> TextPrefixRead:
         ) from exc
     except OSError as exc:
         raise AgentHomeIOError(f"Failed to read Agent Home file: {exc}") from exc
+
+
+def _file_digest(path: Path) -> str:
+    try:
+        return file_digest(path)
+    except OSError as exc:
+        raise AgentHomeIOError(f"Failed to digest Agent Home file: {exc}") from exc
 
 
 def _mutation(link: str, record: HomeOverlayRecord) -> HomeResourceMutation:

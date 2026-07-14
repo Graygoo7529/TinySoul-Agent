@@ -20,6 +20,7 @@ class TaskProfile(StrEnum):
 
     FRAMEWORK = "framework"
     LLM_ACTION = "llm_action"
+    HOME_SEARCH = "home_search"
     HOME_MAINTENANCE = "home_maintenance"
     MEMORY_MAINTENANCE = "memory_maintenance"
 

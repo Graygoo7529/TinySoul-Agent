@@ -19,6 +19,7 @@ from .errors import (
     AgentHomeInvariantError,
     AgentHomeRuntimeCopyRequired,
 )
+from .search import HomeSearchReranker
 
 
 def register_home_actions(
@@ -26,9 +27,18 @@ def register_home_actions(
     *,
     home: AgentHomeEngine,
     runtime_bridge: RuntimeAgentHomeBridge,
+    search_reranker: HomeSearchReranker | None = None,
 ) -> ActionEngineBuilder:
     """Register Agent Home action executors on an action builder."""
 
+    builder.register_executor(
+        "home.top.search",
+        HomeTopSearchExecutor(
+            home,
+            reranker=search_reranker,
+            runtime_bridge=runtime_bridge,
+        ),
+    )
     builder.register_executor(
         "home.resource.read",
         HomeResourceReadExecutor(home, runtime_bridge=runtime_bridge),
@@ -66,6 +76,73 @@ def register_home_actions(
         HomePromptMountPatchExecutor(home, runtime_bridge),
     )
     return builder
+
+
+class HomeTopSearchExecutor(ActionExecutor):
+    """Search bounded effective Home top metadata."""
+
+    def __init__(
+        self,
+        home: AgentHomeEngine,
+        *,
+        reranker: HomeSearchReranker | None = None,
+        runtime_bridge: RuntimeAgentHomeBridge | None = None,
+    ) -> None:
+        self._home = home
+        self._reranker = reranker
+        self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        query = execution.call.params.get("query")
+        top_k = execution.call.params.get("top_k")
+        if not isinstance(query, str) or not query.strip():
+            return _failed(
+                execution,
+                "home.top.search requires a non-empty 'query' parameter.",
+                {"reason": "invalid_query"},
+            )
+        if top_k is not None and (
+            isinstance(top_k, bool) or not isinstance(top_k, int)
+        ):
+            return _failed(
+                execution,
+                "home.top.search top_k must be an integer.",
+                {"reason": "invalid_top_k"},
+            )
+        try:
+            result = self._home.search_top(
+                query,
+                top_k=top_k if isinstance(top_k, int) else None,
+                reranker=self._reranker,
+                scope=execution.framework.scope,
+            )
+        except AgentHomeInvariantError as exc:
+            raise self._runtime_bridge.from_home_error(exc) from exc
+        except AgentHomeError as exc:
+            return _failed(
+                execution,
+                f"Agent Home top search failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        return ActionResult.success(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            payload={
+                "query": result.query,
+                "top_k": result.top_k,
+                "candidate_count": result.candidate_count,
+                "reranked": result.reranked,
+                "items": [item.to_json() for item in result.items],
+            },
+        )
 
 
 class HomeResourceReadExecutor(ActionExecutor):

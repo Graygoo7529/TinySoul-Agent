@@ -15,6 +15,67 @@ DEFAULT_MEMORY_CHUNK_MAX_CHARS = 12000
 DEFAULT_MEMORY_SOURCE_MAX_CHARS = 240000
 DEFAULT_MEMORY_MAX_CALLS = 48
 DEFAULT_MEMORY_VALIDATION_RETRIES = 2
+DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
+DEFAULT_SEARCH_TOP_K = 5
+DEFAULT_SEARCH_MAX_TOP_K = 10
+DEFAULT_SEARCH_PREFIX_MAX_CHARS = 1200
+DEFAULT_SEARCH_SUMMARY_MAX_CHARS = 320
+
+
+@dataclass(frozen=True)
+class HomeSearchSettings:
+    """Bounded effective Home top search settings."""
+
+    candidate_limit: int = DEFAULT_SEARCH_CANDIDATE_LIMIT
+    default_top_k: int = DEFAULT_SEARCH_TOP_K
+    max_top_k: int = DEFAULT_SEARCH_MAX_TOP_K
+    prefix_max_chars: int = DEFAULT_SEARCH_PREFIX_MAX_CHARS
+    summary_max_chars: int = DEFAULT_SEARCH_SUMMARY_MAX_CHARS
+
+    def __post_init__(self) -> None:
+        for name in (
+            "candidate_limit",
+            "default_top_k",
+            "max_top_k",
+            "prefix_max_chars",
+            "summary_max_chars",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ConfigError(
+                    "Agent Home search setting must be positive",
+                    key=f"home.search.{name}",
+                    value=value,
+                    expected="positive int",
+                )
+        if self.default_top_k > self.max_top_k:
+            raise ConfigError(
+                "Agent Home search default_top_k cannot exceed max_top_k",
+                key="home.search.default_top_k",
+                value=self.default_top_k,
+                expected="int <= max_top_k",
+            )
+        if self.max_top_k > self.candidate_limit:
+            raise ConfigError(
+                "Agent Home search max_top_k cannot exceed candidate_limit",
+                key="home.search.max_top_k",
+                value=self.max_top_k,
+                expected="int <= candidate_limit",
+            )
+        if self.prefix_max_chars < 128:
+            raise ConfigError(
+                "Agent Home search prefix budget is too small",
+                key="home.search.prefix_max_chars",
+                value=self.prefix_max_chars,
+                expected="int >= 128",
+            )
+        if self.summary_max_chars > self.prefix_max_chars:
+            raise ConfigError(
+                "Agent Home search summary budget cannot exceed prefix budget",
+                key="home.search.summary_max_chars",
+                value=self.summary_max_chars,
+                expected="int <= prefix_max_chars",
+            )
 
 
 @dataclass(frozen=True)
@@ -81,6 +142,7 @@ class AgentHomeSettings:
     memory: MemoryMaintenanceSettings = field(
         default_factory=MemoryMaintenanceSettings
     )
+    search: HomeSearchSettings = field(default_factory=HomeSearchSettings)
 
     def __post_init__(self) -> None:
         if not isinstance(self.original_root, Path):
@@ -128,6 +190,13 @@ class AgentHomeSettings:
                 value=type(self.memory).__name__,
                 expected="MemoryMaintenanceSettings",
             )
+        if not isinstance(self.search, HomeSearchSettings):
+            raise ConfigError(
+                "Agent Home search settings are invalid",
+                key="home.search",
+                value=type(self.search).__name__,
+                expected="HomeSearchSettings",
+            )
         if (
             isinstance(self.max_write_chars, bool)
             or not isinstance(self.max_write_chars, int)
@@ -148,7 +217,14 @@ def parse_agent_home_settings(
 ) -> AgentHomeSettings:
     reject_unknown_keys(
         tree,
-        {"root", "runtime_root", "max_read_chars", "max_write_chars", "memory"},
+        {
+            "root",
+            "runtime_root",
+            "max_read_chars",
+            "max_write_chars",
+            "memory",
+            "search",
+        },
         key="home",
     )
     original_root = _optional_path(
@@ -176,6 +252,7 @@ def parse_agent_home_settings(
             default=DEFAULT_MAX_WRITE_CHARS,
         ),
         memory=_parse_memory_settings(tree.get("memory")),
+        search=_parse_search_settings(tree.get("search")),
     )
 
 
@@ -216,6 +293,49 @@ def _parse_memory_settings(value: object) -> MemoryMaintenanceSettings:
             tree,
             "validation_retries",
             DEFAULT_MEMORY_VALIDATION_RETRIES,
+        ),
+    )
+
+
+def _parse_search_settings(value: object) -> HomeSearchSettings:
+    if value is None:
+        return HomeSearchSettings()
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Agent Home search configuration must be a table",
+            key="home.search",
+            value=value,
+            expected="table",
+        )
+    tree = cast(Mapping[str, object], value)
+    reject_unknown_keys(
+        tree,
+        {
+            "candidate_limit",
+            "default_top_k",
+            "max_top_k",
+            "prefix_max_chars",
+            "summary_max_chars",
+        },
+        key="home.search",
+    )
+    return HomeSearchSettings(
+        candidate_limit=_search_int(
+            tree,
+            "candidate_limit",
+            DEFAULT_SEARCH_CANDIDATE_LIMIT,
+        ),
+        default_top_k=_search_int(tree, "default_top_k", DEFAULT_SEARCH_TOP_K),
+        max_top_k=_search_int(tree, "max_top_k", DEFAULT_SEARCH_MAX_TOP_K),
+        prefix_max_chars=_search_int(
+            tree,
+            "prefix_max_chars",
+            DEFAULT_SEARCH_PREFIX_MAX_CHARS,
+        ),
+        summary_max_chars=_search_int(
+            tree,
+            "summary_max_chars",
+            DEFAULT_SEARCH_SUMMARY_MAX_CHARS,
         ),
     )
 
@@ -270,6 +390,22 @@ def _memory_int(
         raise ConfigError(
             "Agent Home Memory configuration value must be an integer",
             key=f"home.memory.{name}",
+            value=value,
+            expected="int",
+        )
+    return value
+
+
+def _search_int(
+    tree: Mapping[str, object],
+    name: str,
+    default: int,
+) -> int:
+    value = tree.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(
+            "Agent Home search configuration value must be an integer",
+            key=f"home.search.{name}",
             value=value,
             expected="int",
         )
