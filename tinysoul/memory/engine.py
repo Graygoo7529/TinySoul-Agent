@@ -17,7 +17,6 @@ from .maintenance import (
     MemoryConsolidator,
     MemoryMaintenanceOutcome,
     MemoryMaintenanceService,
-    parse_memory_document,
 )
 from .search import MemorySearchReranker, MemorySearchResult, MemorySearchService
 from .store import MemoryDocument, MemoryStore
@@ -69,16 +68,13 @@ class MemoryEngine:
         link = MemoryLink(day.value)
         if not self._store.exists(link):
             return None
-        document = self._store.read(link)
-        parse_memory_document(day, document.text)
-        return document
+        return self._store.read(link)
 
     def recall(self, memory_link: MemoryLink | str) -> MemoryRecallResult:
         link = MemoryLink.parse(memory_link) if isinstance(memory_link, str) else memory_link
         if not isinstance(link, MemoryLink):
             raise MemoryContractError("Memory recall requires a MemoryLink")
         document = self._store.read(link)
-        parse_memory_document(BusinessDay(link.day), document.text)
         return MemoryRecallResult(
             link=str(link),
             day=link.day.isoformat(),

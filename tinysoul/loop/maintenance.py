@@ -102,7 +102,7 @@ class ProgramMaintenanceRunner:
         try:
             home_pending = self._home.maintenance_pending()
             memory_pending = False
-            if not self._memory.exists(target_day):
+            if self._memory.read_day(target_day) is None:
                 projection = self._memory_projection(target_day)
                 memory_pending = self._memory.maintenance_eligible(projection)
         except (AgentHomeError, MemoryError, SessionError, LoopError, RuntimeException) as exc:
@@ -193,7 +193,7 @@ class ProgramMaintenanceRunner:
         try:
             if (
                 mode is ProgramWorkMode.AUTOMATIC
-                and self._memory.exists(target_day)
+                and self._memory.read_day(target_day) is not None
             ):
                 return ProgramWorkOutcome(
                     kind=ProgramWorkKind.MEMORY_MAINTENANCE,

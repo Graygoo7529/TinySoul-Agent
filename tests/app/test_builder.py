@@ -49,12 +49,14 @@ def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     config = _test_config(tmp_path)
 
     home = config.section_tree("home")
+    memory = config.section_tree("memory")
     session = config.section_tree("session")
     workspace = config.section_tree("workspace")
     daily = config.section_tree("loop.daily")
 
     assert home["root"] == str(tmp_path / "home")
     assert home["runtime_root"] == str(tmp_path / "runtime" / "home")
+    assert memory["root"] == str(tmp_path / "memory")
     assert session["root"] == str(tmp_path / "runtime" / "session")
     assert workspace["root"] == str(tmp_path / "runtime" / "workspace")
     assert daily["archive_root"] == str(tmp_path / "archive")

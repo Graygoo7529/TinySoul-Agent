@@ -11,5 +11,6 @@ summary_max_chars = 320
 [memory.maintenance]
 chunk_max_chars = 12000
 source_max_chars = 240000
+link_hints_max_chars = 4096
 max_calls = 48
 validation_retries = 2

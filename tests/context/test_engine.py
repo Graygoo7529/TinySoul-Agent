@@ -594,11 +594,14 @@ def test_compress_via_engine() -> None:
 def test_abort_turn_discards_active_state() -> None:
     engine = _engine()
     engine.begin_turn("hi")
+    engine.prepare_default_background(date(2026, 7, 14))
     assert engine.turn_active is True
+    assert engine.background_links() == ("home:agent@core",)
 
     engine.abort_turn()
 
     assert engine.turn_active is False
+    assert engine.background_links() == ()
     with pytest.raises(ContextContractError):
         engine.working_snapshot()
     engine.begin_turn("new turn")

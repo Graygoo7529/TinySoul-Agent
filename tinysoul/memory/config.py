@@ -17,6 +17,7 @@ DEFAULT_SEARCH_MAX_TOP_K = 10
 DEFAULT_SEARCH_SUMMARY_MAX_CHARS = 320
 DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS = 12000
 DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS = 240000
+DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS = 4096
 DEFAULT_MAINTENANCE_MAX_CALLS = 48
 DEFAULT_MAINTENANCE_VALIDATION_RETRIES = 2
 
@@ -56,11 +57,17 @@ class MemorySearchSettings:
 class MemoryMaintenanceSettings:
     chunk_max_chars: int = DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS
     source_max_chars: int = DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS
+    link_hints_max_chars: int = DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS
     max_calls: int = DEFAULT_MAINTENANCE_MAX_CALLS
     validation_retries: int = DEFAULT_MAINTENANCE_VALIDATION_RETRIES
 
     def __post_init__(self) -> None:
-        for name in ("chunk_max_chars", "source_max_chars", "max_calls"):
+        for name in (
+            "chunk_max_chars",
+            "source_max_chars",
+            "link_hints_max_chars",
+            "max_calls",
+        ):
             _positive_setting(
                 getattr(self, name),
                 key=f"memory.maintenance.{name}",
@@ -179,12 +186,19 @@ def _parse_maintenance(value: object) -> MemoryMaintenanceSettings:
     tree = _table(value, key="memory.maintenance")
     reject_unknown_keys(
         tree,
-        {"chunk_max_chars", "source_max_chars", "max_calls", "validation_retries"},
+        {
+            "chunk_max_chars",
+            "source_max_chars",
+            "link_hints_max_chars",
+            "max_calls",
+            "validation_retries",
+        },
         key="memory.maintenance",
     )
     return MemoryMaintenanceSettings(
         chunk_max_chars=_int(tree, "chunk_max_chars", DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS, prefix="memory.maintenance"),
         source_max_chars=_int(tree, "source_max_chars", DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS, prefix="memory.maintenance"),
+        link_hints_max_chars=_int(tree, "link_hints_max_chars", DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS, prefix="memory.maintenance"),
         max_calls=_int(tree, "max_calls", DEFAULT_MAINTENANCE_MAX_CALLS, prefix="memory.maintenance"),
         validation_retries=_int(tree, "validation_retries", DEFAULT_MAINTENANCE_VALIDATION_RETRIES, prefix="memory.maintenance"),
     )

@@ -2,7 +2,7 @@ name = "memory.search"
 domain = "memory"
 
 [tool]
-description = "Search bounded long-term Memory metadata by query."
+description = "Search bounded single-day long-term Memory metadata by query."
 schema = { type = "object", properties = { query = { type = "string" }, top_k = { type = "integer" } }, required = ["query"], additionalProperties = false }
 
 [semantic]

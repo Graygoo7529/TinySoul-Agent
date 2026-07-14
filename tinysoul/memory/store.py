@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -54,33 +55,35 @@ class MemoryStore:
         return path.is_file()
 
     def links(self) -> tuple[MemoryLink, ...]:
+        return tuple(sorted(self.iter_links()))
+
+    def iter_links(self) -> Iterator[MemoryLink]:
+        """Scan the complete store without materializing every link."""
+
         self._validate_root()
         if not self._root.exists():
-            return ()
-        links: list[MemoryLink] = []
+            return
         try:
-            paths = tuple(self._root.rglob("*"))
+            for path in self._root.rglob("*"):
+                if path.is_symlink():
+                    raise MemoryInvariantError(
+                        f"Memory store cannot contain symlinks: {path}"
+                    )
+                if path.is_dir():
+                    continue
+                if not path.is_file():
+                    raise MemoryInvariantError(
+                        f"Memory store entry is not a regular file: {path}"
+                    )
+                relative = path.relative_to(self._root).as_posix()
+                try:
+                    yield MemoryLink.from_relative(relative)
+                except MemoryContractError as exc:
+                    raise MemoryInvariantError(
+                        f"Memory store contains an invalid path: {relative}"
+                    ) from exc
         except OSError as exc:
             raise MemoryIOError(f"Failed to scan Memory root: {exc}") from exc
-        for path in paths:
-            if path.is_symlink():
-                raise MemoryInvariantError(f"Memory store cannot contain symlinks: {path}")
-            if path.is_dir():
-                continue
-            if not path.is_file():
-                raise MemoryInvariantError(
-                    f"Memory store entry is not a regular file: {path}"
-                )
-            relative = path.relative_to(self._root).as_posix()
-            try:
-                links.append(MemoryLink.from_relative(relative))
-            except MemoryContractError as exc:
-                raise MemoryInvariantError(
-                    f"Memory store contains an invalid path: {relative}"
-                ) from exc
-        if len(links) != len(set(links)):
-            raise MemoryInvariantError("Memory store contains duplicate date documents")
-        return tuple(sorted(links))
 
     def read(self, link: MemoryLink) -> MemoryDocument:
         path = self.path_for(link)
@@ -96,6 +99,8 @@ class MemoryStore:
             raise MemoryInvariantError(
                 f"Memory exceeds {self._max_document_chars} characters: {link}"
             )
+        if not read.text.strip():
+            raise MemoryInvariantError(f"Memory document is empty: {link}")
         return MemoryDocument(
             link=link,
             text=read.text,
@@ -103,7 +108,7 @@ class MemoryStore:
         )
 
     def write(self, link: MemoryLink, text: str) -> MemoryDocument:
-        if not isinstance(text, str) or not text:
+        if not isinstance(text, str) or not text.strip():
             raise MemoryContractError("Memory document must be non-empty text")
         if len(text) > self._max_document_chars:
             raise MemoryContractError(

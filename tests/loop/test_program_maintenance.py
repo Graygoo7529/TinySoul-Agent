@@ -11,7 +11,7 @@ from tinysoul.home import (
     HomeMaintenancePending,
     HomeMaintenanceReviewer,
 )
-from tinysoul.memory import MemoryConsolidator, MemoryEngine
+from tinysoul.memory import MemoryConsolidator, MemoryEngine, MemoryInvariantError
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopInvariantError
 from tinysoul.loop.maintenance import ProgramMaintenanceRunner
 from tinysoul.loop.work import ProgramWorkMode, ProgramWorkStatus
@@ -36,9 +36,9 @@ class _AvailabilityHome:
 class _AvailabilityMemory:
     projection: SessionMemoryFactsProjection
 
-    def exists(self, day: BusinessDay) -> bool:
+    def read_day(self, day: BusinessDay) -> None:
         assert day == YESTERDAY
-        return False
+        return None
 
     def maintenance_eligible(
         self,
@@ -73,9 +73,15 @@ class _AvailabilityDaily:
 
 
 class _ExistingMemory:
-    def exists(self, day: BusinessDay) -> bool:
+    def read_day(self, day: BusinessDay) -> object:
         assert day == YESTERDAY
-        return True
+        return object()
+
+
+class _UnreadableMemory:
+    def read_day(self, day: BusinessDay) -> object:
+        assert day == YESTERDAY
+        raise MemoryInvariantError("existing Memory is empty")
 
 
 class _UnexpectedDaily:
@@ -129,6 +135,26 @@ def test_automatic_existing_memory_skips_before_session_loading() -> None:
 
     assert outcome.status is ProgramWorkStatus.SKIPPED
     assert outcome.details["skip_reason"] == "memory_exists"
+
+
+def test_automatic_unreadable_memory_fails_before_session_loading() -> None:
+    runner = _runner(
+        home=_AvailabilityHome(_projection()),
+        memory=_UnreadableMemory(),
+        session=object(),
+        daily=_UnexpectedDaily(),
+    )
+
+    outcome = runner.run_memory(
+        business_day=TODAY,
+        target_day=YESTERDAY,
+        mode=ProgramWorkMode.AUTOMATIC,
+        source="scheduler",
+        scope=RunScope().push(RunLevel.PROGRAM, "program"),
+    )
+
+    assert outcome.status is ProgramWorkStatus.FAILED
+    assert outcome.details["error_type"] == "MemoryInvariantError"
 
 
 def test_memory_archive_failure_is_a_failed_work_outcome() -> None:

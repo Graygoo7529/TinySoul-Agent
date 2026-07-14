@@ -94,7 +94,7 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
 
-人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`TerminalHomeDecisionBroker` 为 Home Maintenance 在终端逐项确认，只在存在 pending change 时消费精确 `apply/discard/stop`；其它输入继续走正常解析并在 Program queue 等待。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。scheduler 触发 Home 时使用 Home-owned LLM reviewer；scheduler 触发 Memory 时若昨日 MEMORY 已存在则 skipped，人工指令仍可基于旧 MEMORY 和 Session 重写。
+人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`TerminalHomeDecisionBroker` 为 Home Maintenance 在终端逐项确认，只在存在 pending change 时消费精确 `apply/discard/stop`；其它输入继续走正常解析并在 Program queue 等待。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。scheduler 触发 Home 时使用 Home-owned LLM reviewer；scheduler 触发 Memory 时若昨日 MEMORY 已存在且非空、可读、未超限则 skipped，人工指令仍可基于任意既有 Markdown 格式的旧 MEMORY 和 Session 重写。
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 

@@ -17,6 +17,13 @@ from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.memory import (
+    MemoryEngine,
+    MemoryLink,
+    MemorySettings,
+    register_memory_actions,
+)
+from tinysoul.memory.store import MemoryStore
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
     RUNTIME_TURN_OUTPUT,
@@ -26,6 +33,7 @@ from tinysoul.runtime import (
     RuntimeException,
     SignalBus,
 )
+from tinysoul.runtime.bridge import RuntimeMemoryBridge
 
 
 class FakeLLM:
@@ -110,6 +118,75 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         TraceKind.ACTION_RESULT,
     )
     assert all(call.settings.tool_use is ToolUse.REQUIRED for call in llm.calls)
+
+
+def test_real_memory_actions_record_turn_trace_without_background_mutation(
+    tmp_path: Path,
+) -> None:
+    memory_root = tmp_path / "memory"
+    MemoryStore(root=memory_root, max_document_chars=16000).write(
+        MemoryLink.parse("memory:2026-07-13"),
+        "free-form remembered fact",
+    )
+
+    class HomeCatalog:
+        def actual_top_links(self) -> tuple[str, ...]:
+            return ()
+
+    memory = MemoryEngine(
+        settings=MemorySettings(root=memory_root),
+        home_catalog=HomeCatalog(),
+    )
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("recall yesterday")
+    action = _action_engine(memory=memory)
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="recall_1",
+                name="memory.recall",
+                arguments={"memory_link": "memory:2026-07-13"},
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="search_1",
+                name="memory.search",
+                arguments={"query": "remembered"},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = Phase3Unit(
+        context=context,
+        action=action,
+        bus=SignalBus(),
+    ).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.results[0].payload["text"] == "free-form remembered fact"
+    items = outcome.results[1].payload["items"]
+    assert isinstance(items, list)
+    first_item = items[0]
+    assert isinstance(first_item, dict)
+    assert first_item["link"] == "memory:2026-07-13"
+    assert "period" not in first_item
+    assert context.trace_kinds() == (
+        TraceKind.ACTION_RESULT,
+        TraceKind.ACTION_RESULT,
+    )
+    assert context.background_links() == ()
 
 
 def test_phase1_retries_invalid_domain_selection() -> None:
@@ -405,8 +482,8 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     assert raised.value.payload["kind"] == "loop.contract_violation"
 
 
-def _action_engine():
-    return (
+def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
+    builder = (
         ActionEngineBuilder(Path("tinysoul/action/catalog"))
         .register_native("context.trace.fold", lambda execution, context: {})
         .register_native("context.trace.inspect", lambda execution, context: {})
@@ -421,8 +498,6 @@ def _action_engine():
         .register_native("home.top.patch", lambda execution, context: {"patched": True})
         .register_native("home.top.write", lambda execution, context: {"written": True})
         .register_native("home.top.search", lambda execution, context: {"items": []})
-        .register_native("memory.recall", lambda execution, context: {"text": ""})
-        .register_native("memory.search", lambda execution, context: {"items": []})
         .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
@@ -435,8 +510,22 @@ def _action_engine():
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
-        .build()
     )
+    if memory is None:
+        builder.register_native(
+            "memory.recall",
+            lambda execution, context: {"text": ""},
+        ).register_native(
+            "memory.search",
+            lambda execution, context: {"items": []},
+        )
+    else:
+        register_memory_actions(
+            builder,
+            memory=memory,
+            runtime_bridge=RuntimeMemoryBridge(),
+        )
+    return builder.build()
 
 
 def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:

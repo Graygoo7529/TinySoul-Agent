@@ -555,6 +555,12 @@ class ContextEngine:
         self._working = WorkingContext()
         self._trace = self._compressor.new_trace("detached")
         self._inputs = PendingInputs()
+        self._background.reset_entries()
+        self._background.reset_session()
+        self._provider_by_link = {}
+        self._provider_by_owner = {}
+        self._catalog_by_owner = {}
+        self._business_day = None
         self._preparing_turn = False
 
     def _validated_working_patches(

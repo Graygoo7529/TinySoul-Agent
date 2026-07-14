@@ -1,4 +1,4 @@
-"""Bounded search over Memory period bodies."""
+"""Bounded search over complete date-scoped Memory documents."""
 
 from __future__ import annotations
 
@@ -21,13 +21,11 @@ from tinysoul.llm import (
     ToolUse,
     UserMessage,
 )
-from tinysoul.loop.day import BusinessDay
 from tinysoul.runtime import RunScope
 
 from .config import MemorySearchSettings
 from .errors import MemoryContractError
 from .links import MemoryLink
-from .maintenance import MemoryPeriod, parse_memory_document
 from .store import MemoryStore
 
 
@@ -38,14 +36,13 @@ _WORD_PATTERN = re.compile(r"[\w-]+", re.UNICODE)
 class MemorySearchCandidate:
     link: str
     day: str
-    period: MemoryPeriod
     summary: str
     digest: str
     score: int
 
     @property
     def candidate_id(self) -> str:
-        return f"{self.link}#{self.period.value}"
+        return self.link
 
 
 @dataclass(frozen=True)
@@ -68,7 +65,6 @@ class MemorySearchReranker(Protocol):
 class MemorySearchItem:
     link: str
     day: str
-    period: MemoryPeriod
     summary: str
     digest: str
     score: int
@@ -77,7 +73,6 @@ class MemorySearchItem:
         return {
             "link": self.link,
             "date": self.day,
-            "period": self.period.value,
             "summary": self.summary,
             "digest": self.digest,
             "score": self.score,
@@ -125,22 +120,25 @@ class MemorySearchService:
             raise MemoryContractError(
                 f"Memory search top_k must be between 1 and {self._settings.max_top_k}"
             )
-        candidates = tuple(
-            sorted(
-                self._candidates(normalized_query),
-                key=lambda item: (-item.score, item.link, item.period.value),
-            )[: self._settings.candidate_limit]
-        )
-        selected = _unique_days(candidates, limit=limit)
+        candidates = self._candidates(normalized_query)
+        selected = candidates[:limit]
         reranked = False
         if candidates and reranker is not None:
             if scope is None:
                 raise MemoryContractError("Memory search reranking requires a scope")
             ids = reranker.rerank(
-                MemorySearchRequest(query=query.strip(), top_k=limit, candidates=candidates),
+                MemorySearchRequest(
+                    query=query.strip(),
+                    top_k=limit,
+                    candidates=candidates,
+                ),
                 scope=scope,
             )
-            validated = _validated_rerank(ids, candidates=candidates, top_k=limit)
+            validated = _validated_rerank(
+                ids,
+                candidates=candidates,
+                top_k=limit,
+            )
             if validated is not None:
                 by_id = {item.candidate_id: item for item in candidates}
                 selected = tuple(by_id[item_id] for item_id in validated)
@@ -154,7 +152,6 @@ class MemorySearchService:
                 MemorySearchItem(
                     link=item.link,
                     day=item.day,
-                    period=item.period,
                     summary=item.summary,
                     digest=item.digest,
                     score=item.score,
@@ -164,26 +161,26 @@ class MemorySearchService:
         )
 
     def _candidates(self, query: str) -> tuple[MemorySearchCandidate, ...]:
-        result: list[MemorySearchCandidate] = []
-        for link in self._store.links():
+        best: list[MemorySearchCandidate] = []
+        for link in self._store.iter_links():
             document = self._store.read(link)
-            sections = parse_memory_document(BusinessDay(link.day), document.text)
-            for period in MemoryPeriod:
-                body = sections.for_period(period).strip()
-                if not body:
-                    continue
-                summary = _summary(body, self._settings.summary_max_chars)
-                result.append(
-                    MemorySearchCandidate(
-                        link=str(link),
+            best.append(
+                MemorySearchCandidate(
+                    link=str(link),
+                    day=link.day.isoformat(),
+                    summary=_summary(
+                        document.text,
                         day=link.day.isoformat(),
-                        period=period,
-                        summary=summary,
-                        digest=document.digest,
-                        score=_score(query, link, period, body),
-                    )
+                        max_chars=self._settings.summary_max_chars,
+                    ),
+                    digest=document.digest,
+                    score=_score(query, link, document.text),
                 )
-        return tuple(result)
+            )
+            best.sort(key=lambda item: (-item.score, item.link))
+            if len(best) > self._settings.candidate_limit:
+                del best[self._settings.candidate_limit :]
+        return tuple(best)
 
 
 class MemorySearchModelRunner(Protocol):
@@ -205,8 +202,8 @@ class LLMMemorySearchReranker:
                 profile=TaskProfile.MEMORY_SEARCH,
                 messages=MessageStack.of(
                     SystemMessage.from_text(
-                        "Rank only the supplied Memory period candidates. Return at most "
-                        "one period per date and do not invent candidate ids.",
+                        "Rank only the supplied single-day Memory candidates. "
+                        "Do not invent candidate ids.",
                         label="memory_search_role",
                     ),
                     UserMessage.from_json(
@@ -218,7 +215,6 @@ class LLMMemorySearchReranker:
                                     "candidate_id": item.candidate_id,
                                     "link": item.link,
                                     "date": item.day,
-                                    "period": item.period.value,
                                     "summary": item.summary,
                                 }
                                 for item in request.candidates
@@ -227,7 +223,7 @@ class LLMMemorySearchReranker:
                         label="memory_search_candidates",
                     ),
                     UserMessage.from_text(
-                        'Return exactly {"candidate_ids":["memory:YYYY-MM-DD#period"]}.',
+                        'Return exactly {"candidate_ids":["memory:YYYY-MM-DD"]}.',
                         label="memory_search_output",
                     ),
                 ),
@@ -238,13 +234,18 @@ class LLMMemorySearchReranker:
                 scope=scope,
             )
         )
-        if result.status is TaskResultStatus.FAILURE or not isinstance(result.answer, JsonAnswer):
+        if result.status is TaskResultStatus.FAILURE or not isinstance(
+            result.answer,
+            JsonAnswer,
+        ):
             return None
         value = result.answer.value
         if set(value) != {"candidate_ids"}:
             return None
         ids = value.get("candidate_ids")
-        if not isinstance(ids, list) or any(not isinstance(item, str) for item in ids):
+        if not isinstance(ids, list) or any(
+            not isinstance(item, str) for item in ids
+        ):
             return None
         return tuple(item for item in ids if isinstance(item, str))
 
@@ -257,49 +258,31 @@ def _validated_rerank(
 ) -> tuple[str, ...] | None:
     if ids is None or len(ids) > top_k or len(ids) != len(set(ids)):
         return None
-    by_id = {item.candidate_id: item for item in candidates}
-    if any(item_id not in by_id for item_id in ids):
-        return None
-    links = tuple(by_id[item_id].link for item_id in ids)
-    if len(links) != len(set(links)):
+    candidate_ids = {item.candidate_id for item in candidates}
+    if any(item_id not in candidate_ids for item_id in ids):
         return None
     return ids
 
 
-def _unique_days(
-    candidates: tuple[MemorySearchCandidate, ...],
-    *,
-    limit: int,
-) -> tuple[MemorySearchCandidate, ...]:
-    result: list[MemorySearchCandidate] = []
-    seen: set[str] = set()
-    for item in candidates:
-        if item.link in seen:
-            continue
-        result.append(item)
-        seen.add(item.link)
-        if len(result) >= limit:
-            break
-    return tuple(result)
-
-
-def _score(query: str, link: MemoryLink, period: MemoryPeriod, body: str) -> int:
+def _score(query: str, link: MemoryLink, body: str) -> int:
     day = link.day.isoformat()
-    normalized = _normalize(f"{day} {period.value} {body}")
+    normalized = _normalize(f"{day} {body}")
     score = 5000 if query == day or query == str(link) else 0
     if query in normalized:
         score += 1000
     query_units = _units(query)
     if query_units:
-        score += 500 * len(query_units.intersection(_units(normalized))) // len(query_units)
+        score += 500 * len(query_units.intersection(_units(normalized))) // len(
+            query_units
+        )
     return score
 
 
-def _summary(value: str, max_chars: int) -> str:
-    normalized = " ".join(
-        line.strip() for line in value.splitlines() if line.strip()
-    )
-    return normalized[:max_chars]
+def _summary(value: str, *, day: str, max_chars: int) -> str:
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if lines and lines[0] == f"# {day}":
+        lines = lines[1:]
+    return " ".join(lines)[:max_chars]
 
 
 def _normalize(value: str) -> str:

@@ -64,7 +64,7 @@ Memory 生命周期
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
 | Loop | done for Stage 6.1 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder，以及 MemoryEngine/Background provider 协作 | Stage 7 再补 Observation/crash window。 |
 | Agent Home | done for current lifecycle scope | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、只读 actual top-link catalog | Stage 7 再补 Home crash window；Home 对日期 Memory 零所有权。 |
-| Memory | done for Stage 6.1 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，顶层 `memory/`，三段式 consolidation 与 Program work | Stage 7 再补 Memory 原子写 crash window 和无网络 E2E。 |
+| Memory | done for Stage 6.2 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，默认顶层 `memory/`，自由结构单日 consolidation、按日 search 与有界 Link hints | Stage 7 再补 Memory 原子写 crash window 和无网络 E2E。 |
 | App | done for Stage 6.1 scope | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler，以及独立 MemoryEngine/provider/registrar/bridge 装配 | Stage 7 再补完整无网络 E2E。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
@@ -285,14 +285,15 @@ Session archive for yyyy-mm-dd
 
 规则：
 
-- Session 通过自己的只读 archive query 门面提供专用 Memory facts projection；该 projection 按需递归解析已提交 Summary 图，交付可达 Turn 的有界事实，不向 Memory 暴露 Session store 或 archive 文件结构，也不把 Summary 与其子 Turn 重复作为事实；
-- Turn 以配置业务时区中的开始时间归入固定时间段：上午 `[00:00, 12:00)`、下午 `[12:00, 18:00)`、晚上 `[18:00, 24:00)`；跨时间段 Turn 整体归入开始时所在段；
+- Session 通过自己的只读 archive query 门面提供专用 Memory facts projection；该 projection 按需递归解析已提交 Summary 图，交付按 Turn 开始时间稳定排序的可达有界事实，不向 Memory 暴露 Session store 或 archive 文件结构，也不把 Summary 与其子 Turn 重复作为事实；
+- Memory 校验每个 fact 的开始时间属于目标 Business Day，但不把 Turn 或最终文档强制划分为时间段；
 - Session archive 不存在或 projection 不含 Turn facts 时返回 `skipped`，不创建、不覆盖也不删除同日 MEMORY；
 - 目标不存在时，只使用同日 Session；
 - 目标存在时，只额外读取同日期旧 MEMORY；
 - 不读取其它日期 MEMORY、Workspace、active Home diff 或 `SKILL_MEMORY.md`；
-- Session facts 与同日旧 MEMORY 按时间段执行有界、分层 consolidation，不静默截断；超过总事实、总字符或最大调用次数硬上限时失败并保持旧文件不变；
-- consolidator 使用严格 JSON object 输出上午、下午、晚上三个 Markdown body；Memory renderer 负责固定日期标题、三个中文时间段标题和最终 Markdown；
+- Session facts 与同日旧 MEMORY 作为统一有序 source 序列执行有界、分层 consolidation，不静默截断；超过总字符或最大调用次数硬上限时失败并保持旧文件不变；
+- consolidator 使用严格 JSON object 输出单个自由结构 Markdown body；Memory renderer 只负责固定日期 H1。既有同日 MEMORY 无需满足该 renderer 格式，只要是非空、可读、上限内的 UTF-8 文本就可在人工重写时作为 source；
+- 完整 Home/Memory Link catalog 只用于本地 validation，模型只接收从本次 sources 提取且受字符预算约束的有效 Link hints；
 - MEMORY 中的 `<home:space@name>` 只允许指向当前 actual Home 中已存在的顶层内容；`<memory:YYYY-MM-DD>` 只允许指向已存在的其它日期 MEMORY，用于提示 Agent 通过 recall 召回；非法、不存在或目标日自引用必须作为有界模型反馈进入重新生成，重试耗尽后失败；
 - 输出是完整重写，不 append；
 - 目标使用单文件原子替换，失败保持旧文件不变；
@@ -316,13 +317,13 @@ Background 提升为 Context-owned 通用 Phase1 Background，通过 Link 命名
 
 - 每个 User Turn 都重建昨日 entry，不依赖上一 Turn 的 Context 内存；
 - 昨日文件存在时加载完整但受文档上限约束的 Markdown；不存在时正常省略，不回退更早日期；
-- 已存在文件不可读、格式无法解释或超限是 Memory 模块失败，不伪装为缺失；
+- 已存在文件不可读、为空、非 UTF-8 或超限是 Memory 模块失败，不伪装为缺失；任意 Markdown 章节结构本身不是错误；
 - 昨日 entry 可在压力回收中于 Phase1 动态项之后被逐出；Home core 继续不可逐出；
 - 更早日期不进入 `load_background` catalog，Context 中的 `<memory:YYYY-MM-DD>` 提示 Agent 调用 `memory.recall`。
 
-`memory.search(query, top_k)` 的候选单元是 MEMORY 的三个时间段，结果按日期 Link 去重；每日只返回 Link、日期、最相关时间段、有界摘要和必要检索元数据。确定性候选、候选上限、稳定排序和 candidate-only validator 归 Memory；专用 `memory_search` LLM rerank 失败时回退确定性结果。
+`memory.search(query, top_k)` 的候选单元是完整单日 MEMORY，每个日期最多产生一个候选；只返回 Link、日期、有界摘要和必要检索元数据。完整 store 以流式方式参与确定性评分，只保留固定数量的最佳日期候选，使工作内存、模型输入和输出有界；专用 `memory_search` LLM rerank 失败时回退确定性结果，当前不引入持久索引或向量数据库。
 
-`memory.recall(memory_link)` 只接受精确 `memory:YYYY-MM-DD`，返回完整但受上限约束的单日 Markdown，不增加时间段过滤或分页。外部改动造成超限时明确失败，不截断后伪称完整。Search/recall 都是 Memory-owned native action，ActionResult 只进入 TurnTrace，不修改 Background。
+`memory.recall(memory_link)` 只接受精确 `memory:YYYY-MM-DD`，返回完整但受上限约束的非空单日 Markdown，不增加章节过滤或分页。外部改动造成空文件、非 UTF-8 或超限时明确失败，不截断后伪称完整。Search/recall 都是 Memory-owned native action，ActionResult 只进入 TurnTrace，不修改 Background。
 
 ## Program、Scheduler 与输入边界
 
@@ -371,7 +372,7 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
 ### Memory
 
 - `memory:YYYY-MM-DD` 与 `memory/yyyy/mm/yyyy-mm-dd.md` 双向映射；
-- 完整有界日期文档读取、三段式解析与 store catalog；
+- 完整有界非空日期文档读取与 store catalog，不要求既有 Markdown 章节结构；
 - 昨日 Background provider；
 - `memory.search` / `memory.recall` 及其 Action executor；
 - Memory eligibility、consolidator、Home/Memory Link 校验与原子替换；
@@ -512,18 +513,18 @@ status: done
 实施项：
 
 1. Session 提供专用 Memory facts projection，按需递归 Summary 图并按 Turn 开始时间输出可达叶子事实；
-2. Home consolidator 按上午、下午、晚上分组并执行有界分层 consolidation；
-3. 使用严格 JSON object 承载三个时间段 Markdown body，由 Home 确定性渲染完整日期文档；
+2. consolidator 对有序 Session facts 和可选同日旧 MEMORY 执行有界分层 consolidation；
+3. 使用严格 JSON object 承载单个自由结构 Markdown body，由 Memory 确定性渲染日期 H1；
 4. 目标缺失时使用 Session，目标存在时额外读取同日期旧 MEMORY；
 5. 对模型输出中的顶层 Link 做 actual Home 存在性校验，以有界反馈重试非法输出；
 6. Session 缺失或为空时 `skipped` 且对目标文件零写入；
 7. 原子完整写入年月分层日期路径，拒绝其它日期 MEMORY、Workspace、runtime Home 输入；
 8. 提供昨日 eligibility 所需的模块查询但不保存 skip，跨模块提示编排仍归阶段 6；
-9. 增加递归 Summary、三个时间段、空/缺失/长 Session、旧 MEMORY 重写、非法输出与 Link、原子失败和显式旧日期测试。
+9. 增加递归 Summary、有序单日 facts、空/缺失/长 Session、任意格式旧 MEMORY 重写、非法输出与 Link、原子失败和显式旧日期测试。
 
-验收：指定日期非空 Session 稳定映射唯一三段式 MEMORY；空或缺失 Session 不写文件；失败不改变旧文件；自动提示不扫描更早日期。
+验收：指定日期非空 Session 稳定映射唯一自由结构单日 MEMORY；空或缺失 Session 不写文件；失败不改变旧文件；自动提示不扫描更早日期。
 
-实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。当前 Home 内实现 `MemoryMaintenanceService` 与 `LLMMemoryConsolidator`，按业务时区把 facts 和同日旧 MEMORY 分入上午、下午、晚上，以配置字符/调用预算执行分层 reduce，再严格接收三个 Markdown body 并确定性渲染日期文档。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换旧 `home/memory/yyyy/mm/yyyy-mm-dd.md`。这些是 Stage 6.1 要移交到 `tinysoul.memory` 与顶层 `memory/` 的已实现基线。
+实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。Memory 以配置字符/调用预算对有序 facts 和可选同日旧 MEMORY 执行分层 reduce，严格接收单个 Markdown body 并确定性渲染日期 H1。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换顶层 `memory/yyyy/mm/yyyy-mm-dd.md`。
 
 ### 阶段 4.1：App 集成测试隔离基线
 
@@ -619,19 +620,19 @@ status: done
 5. Background 是 Context-owned 的通用 Phase1 容器；Home 与 Memory 只是 Link 命名空间不同的 provider，任一模块都不拥有整个 Background；
 6. 每个 User Turn 使用该 Turn 的 Business Day 自动加载精确昨日 MEMORY（如有），正文完整但受 Memory 文档上限约束，不回退更早日期；
 7. 昨日 entry 每 Turn 重建，在 Context 压力回收中可逐出；Home core 仍不可逐出；
-8. `memory.search(query, top_k)` 返回去重的日期 Link、日期、最相关时间段和有界摘要；`memory.recall(memory_link)` 返回完整但受上限约束的单日 Markdown；
+8. `memory.search(query, top_k)` 以单日文档为候选并返回日期 Link、日期和有界摘要；`memory.recall(memory_link)` 返回完整但受上限约束的单日 Markdown；
 9. Search/recall 结果通过 ActionResult 进入当前 TurnTrace，不修改 Background；全部历史 Memory 不进入 `load_background` catalog；
 10. Memory Maintenance 仍只消费指定日期 Session facts projection 与可选同日旧 MEMORY，与 Home Maintenance 的触发、outcome 和失败独立。
 
 代码与配置实施顺序：
 
 1. 建立 `tinysoul/memory/` 门面与边界类型：`MemoryEngine`、严格 `MemoryLink`、store/layout、config/errors/failures 和 Runtime Memory bridge；
-2. 将现有 `tinysoul/home/memory.py` 与 `memory_consolidator.py` 的有效业务逻辑迁入 Memory 内部，保留三时间段、分层 consolidation、skip/rewrite 和原子替换语义；
+2. 将原有 Memory consolidation 的有效业务逻辑迁入 Memory 内部，保留分层 consolidation、skip/rewrite 和原子替换语义；
 3. 把目标路径切换到 `memory/yyyy/mm/yyyy-mm-dd.md`，outcome 中的稳定 Link 切换到 `memory:YYYY-MM-DD`；
 4. 将现有 `[home.memory]` 的 consolidation 预算移到独立 `[memory]`，增加 Memory root、完整文档上限与 search 预算；删除 Home 对 Memory 配置和 Home `max_write_chars` 的依赖；
 5. 从 Home Link parser/layout/catalog/effective top search/mutation guard 中删除 `memory` space 与全部 MEMORY 特判；Home 只暴露一个只读 actual top-link catalog 协议供 Memory validator 使用；
 6. Memory validator 同时校验 actual Home 顶层 Link 与已存在跨日 Memory Link；拒绝目标日自引用、不存在 Link 和非法语法，继续用有界模型反馈重生成；
-7. 实现 Memory 文档解析与 `MemorySearchService`：以时间段为候选，按日期去重并选最相关段，复用现有 LLM task 边界建立 `memory_search` rerank/fallback；
+7. 实现 `MemorySearchService`：以单日文档为唯一候选粒度，复用现有 LLM task 边界建立 `memory_search` rerank/fallback；
 8. 实现精确 recall；为保证“完整但受限”，已存文档超限时显式失败，不分页或静默截断；
 9. 新增 `tinysoul/action/catalog/memory/` 与 `register_memory_actions`，实现 search/recall native executor；Action 层只负责参数边界和 ActionResult 映射；
 10. 将 Context 现有 Home-specific Background state/rendering/builder 提升为通用 provider 聚合，为 entry 保留 owner/source/evictable 语义，以 Link 唯一性保证多 provider 不冲突；
@@ -654,14 +655,50 @@ status: done
 - `tinysoul.home` 对 Memory Link/path/config/search/maintenance 零所有权，`tinysoul.memory` 成为唯一门面；
 - 代码、catalog、配置、文档和 tests 中不存在可执行的 `home:memory@...`、`home/memory` 或 `[home.memory]` 兼容路径；
 - 每 Turn 的昨日 Background 重建、缺失、损坏、上限与压力逐出均有测试；
-- search 按日期去重、时间段命中、候选限制、rerank validator/fallback 与有界 ActionResult 均有测试；
+- search 的按日候选、候选限制、rerank validator/fallback 与有界 ActionResult 均有测试；
 - recall 的精确 Link、完整文档、not-found、超限与 TurnTrace-only 语义均有测试；
 - Memory Maintenance 的原 Stage 4/6 行为在新 root/Link/module 上全部回归，并新增 Home/Memory 交叉 Link 校验；
 - App 启动提示、scheduler 和人工 Memory 命令继续共享同一 runner，无网络 fake-provider 流程可产生 Memory 并在后续 Turn 通过昨日 Background 或 search/recall 可见。
 
-实施结果：新增 `tinysoul.memory` 单一门面及严格 `MemoryLink`、无只读副作用的 bounded store、独立 `[memory]` 配置、三时间段 Maintenance/consolidator、日期去重 search、完整 recall、昨日 Background provider、Memory Action domain、`memory_search` LLM profile、failure kind 与 Runtime bridge。Memory Maintenance 输出与 Program outcome 已切换为 `memory:YYYY-MM-DD` 和顶层 `memory/yyyy/mm/yyyy-mm-dd.md`，同时校验 actual Home top Link、其它日期 Memory Link、缺失引用与自引用。Home parser/layout/search/config/Engine 已删除日期 Memory space、旧路径和 Maintenance service，只通过窄 `actual_top_links()` catalog 协作。
+实施结果：新增 `tinysoul.memory` 单一门面及严格 `MemoryLink`、无只读副作用的 bounded store、独立 `[memory]` 配置、自由结构单日 Maintenance/consolidator、按日 search、完整 recall、昨日 Background provider、Memory Action domain、`memory_search` LLM profile、failure kind 与 Runtime bridge。Memory Maintenance 输出与 Program outcome 使用 `memory:YYYY-MM-DD` 和默认顶层 `memory/yyyy/mm/yyyy-mm-dd.md`，同时校验 actual Home top Link、其它日期 Memory Link、缺失引用与自引用。Home parser/layout/search/config/Engine 已删除日期 Memory space、旧路径和 Maintenance service，只通过窄 `actual_top_links()` catalog 协作。
 
-Context 已改为按 Turn Business Day 聚合多 provider 的通用 Background，catalog/entry 显式携带 owner/source/evictable；精确昨日存在时自动加载完整有界正文，缺失不回退，损坏/超限经 Memory bridge 结束当前 Turn。压力恢复先回收 Phase1 动态项，再回收自动昨日 Memory，Home core 保持不可逐出。AppBuilder 独立装配 MemoryEngine、actions、reranker、provider、bridge 和 ProgramMaintenanceRunner；测试 root 同时隔离 Home、Memory、Session、Workspace 与 archive。单元/集成测试覆盖 Link/path、无副作用空 store、recall、损坏/超限、period search/date 去重、rerank fallback、昨日重建/缺失/压力、交叉 Link validation、原有 Maintenance/Program 行为和旧 Home Link/path 拒绝；全量 pytest 与 ty 均通过。
+Context 已改为按 Turn Business Day 聚合多 provider 的通用 Background，catalog/entry 显式携带 owner/source/evictable；精确昨日存在时自动加载完整有界非空正文，缺失不回退，空文件/非 UTF-8/超限经 Memory bridge 结束当前 Turn。压力恢复先回收 Phase1 动态项，再回收自动昨日 Memory，Home core 保持不可逐出。AppBuilder 独立装配 MemoryEngine、actions、reranker、provider、bridge 和 ProgramMaintenanceRunner；测试 root 同时隔离 Home、Memory、Session、Workspace 与 archive。单元/集成测试覆盖 Link/path、无副作用空 store、recall、任意 Markdown 结构、空文件/非 UTF-8/超限、按日 search、rerank fallback、昨日重建/缺失/压力、交叉 Link validation、Maintenance/Program 行为和旧 Home Link/path 拒绝。
+
+### 阶段 6.2：自由结构单日 Memory 与边界收口
+
+status: done
+
+优先级：P0
+
+依赖：阶段 6.1
+
+本阶段以 2026-07-14 的最新确认替换 Stage 4/6.1 中“三时间段文档与 period search”实现基线，不改变 Memory 独立 root/Link、昨日 Background、其它日期 TurnTrace、Maintenance 独立性或自动已有目标 skip 语义。
+
+已确认语义：
+
+1. MEMORY 是自由结构的单日 Markdown，不要求上午、下午、晚上或其它固定章节；旧文件只要非空、可读、未超限且是 UTF-8，即可直接读取并在人工重写时作为同日 source；
+2. 新 MEMORY 由 LLM 返回单个 Markdown body，框架只确定性增加日期 H1；正文可使用 H2 及以下结构但不得生成第二个 H1；
+3. `memory.search` 以日期文档为唯一候选粒度，item 不再携带 period；完整 store 参与流式确定性评分，内存中只保留 `candidate_limit` 个日期候选；
+4. Session facts 保持按 Turn 开始时间的稳定顺序并校验属于目标 Business Day，但 Memory 不再对 facts 分段；
+5. 自动目标已存在时先验证文件非空、可读、未超限，再于 Session/LLM 前 skipped；人工 Maintenance 将任意既有同日 Markdown 与 Session facts 重新整理并完整覆盖；
+6. 完整 actual Home 与其它日期 Memory Link catalog 只用于本地验证；模型只看到从本次 sources 提取、实际存在且受总字符预算限制的 Link hints；
+7. 顶层 `memory/` 是默认项目布局；显式绝对 root 是受信任部署/测试覆盖，所有 Link 映射仍严格受配置 root 约束。
+
+实施项：
+
+1. 删除 `MemoryPeriod`、`MemorySections`、固定章节 parser/renderer 和 period search contract；
+2. 将 consolidation request/result 改为统一 sources 与单个 body，保留分层 reduce、调用预算、Link validation 和原子替换；
+3. 增加 Link hints 总字符预算，禁止完整 catalog 进入模型 message；
+4. 将 search candidate/id/item/reranker 改为唯一日期，并以固定候选集合流式扫描完整 store；
+5. 让 Background、recall、search 接受任意结构的有界非空 UTF-8 Markdown；
+6. 补自由格式旧 Memory 重写、自动可读性 skip、单日 search、真实 ActionResult/TurnTrace 与配置 root 隔离测试；
+7. 同步 AGENT、Memory/LLM 设计文档、Action 描述和当前进度。
+
+验收：项目可执行代码与当前设计文档中不再把 period 作为 MEMORY 文档、search 或 LLM 输出契约；模型 message 中 Link hints 有明确硬上限，完整 catalog 仅在进程内用于验证。
+
+实施结果：删除 `MemoryPeriod`、`MemorySections`、固定章节 parser 和 period candidate，Memory store 现将任意结构但非空、可读、上限内的 UTF-8 Markdown 作为合法旧文档。Maintenance 以按时间稳定的 Session facts 和可选同日旧正文构造统一 sources，分层 reduce 后只接收 `content`，框架确定性增加日期 H1；新输出继续校验 H1 所有权、Home/Memory Link、长度和非空。配置新增 `memory.maintenance.link_hints_max_chars`，完整 Link catalog 只保留给本地 validator，模型只接收 source-derived 有效 hints 和有界 feedback。
+
+Search 改为完整 store 流式扫描、每日期一个 candidate，并只在内存保留 `candidate_limit` 个最佳日期；reranker candidate id 直接使用 `memory:YYYY-MM-DD`，ActionResult 不再包含 period。自动 Program work 通过 `MemoryEngine.read_day` 验证已有目标后才在 Session 前 skipped；人工重写接受任意旧 Markdown。真实 search/recall executor 已通过 Phase3/TurnTrace 集成测试，App root 隔离增加 Memory 断言；Context abort 同时清理 Background/provider catalog/session，未使用的 empty provider 已删除。全量 pytest 与 ty 均通过。
 
 ### 阶段 7：恢复、观察与端到端加固
 
@@ -669,7 +706,7 @@ status: pending
 
 优先级：P1
 
-依赖：阶段 6.1
+依赖：阶段 6.2
 
 实施前仍必须向用户确认：Stage 6 已确定三个 Program 级 normal 事件，但 Stage 7 的 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` 是否需要、各自精确事件名、level、触发点和 payload schema 仍未确认。“后续 Turn 可见 MEMORY”已确认为两条路径：精确昨日 MEMORY 在每 Turn preparation 自动进入可逐出 Background；其它日期通过 `memory.search`/`memory.recall` 结果进入 TurnTrace。这一项不再是 Stage 7 待确认项。
 
@@ -754,7 +791,7 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 - Home apply/discard/部分中断通过 active diff 重算；
 - Home 不再接受 `memory` space，Memory 独立 root/config/Link/module 不存在旧路径别名；
 - Context-owned Background 可聚合 Home core 与可逐出昨日 Memory，每 Turn 重建且不回退更早日期；
-- `memory.search` 只返回日期 Link/时间段/有界摘要，`memory.recall` 返回完整有界单日 Markdown，两者只进入 TurnTrace；
+- `memory.search` 只返回日期 Link/有界摘要，`memory.recall` 返回完整有界非空单日 Markdown，两者只进入 TurnTrace；
 - `<memory:YYYY-MM-DD>` 可提示跨日 recall，Memory Maintenance 验证所有引用的 Home/Memory Link 存在性；
 - Memory 只读取指定日期 Session 与可选同日旧 MEMORY；
 - 昨日提示不扫描更早日期；

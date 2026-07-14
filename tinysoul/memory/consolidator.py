@@ -25,20 +25,16 @@ from .maintenance import (
     MemoryConsolidationRequest,
     MemoryConsolidationResult,
     MemoryMaintenanceFailure,
-    MemoryPeriod,
-    MemoryPeriodSources,
-    MemorySections,
-    _validate_sections,
+    validate_memory_body,
 )
 
 
 class MemoryMaintenanceModelRunner(Protocol):
-    def run(self, call: TaskCall) -> TaskResult:
-        ...
+    def run(self, call: TaskCall) -> TaskResult: ...
 
 
 class LLMMemoryConsolidator:
-    """Hierarchically reduce period facts through the dedicated LLM profile."""
+    """Hierarchically reduce ordered daily sources through one LLM profile."""
 
     def __init__(self, runner: MemoryMaintenanceModelRunner) -> None:
         self._runner = runner
@@ -50,44 +46,40 @@ class LLMMemoryConsolidator:
         scope: RunScope,
     ) -> MemoryConsolidationResult:
         budget = _CallBudget(request.max_calls)
-        target_chars = max(
-            256,
-            min(
-                4000,
-                request.chunk_max_chars // 3,
-                request.max_document_chars // 3,
-            ),
+        body_max_chars = max(
+            1,
+            request.max_document_chars - len(f"# {request.day}\n\n\n"),
         )
-        candidates = {
-            item.period: self._reduce_period(
-                request,
-                item,
-                target_chars=target_chars,
-                budget=budget,
-                scope=scope,
-            )
-            for item in request.periods
-        }
+        target_chars = max(
+            1,
+            min(8000, request.chunk_max_chars // 3, body_max_chars),
+        )
+        candidate = self._reduce_sources(
+            request,
+            target_chars=target_chars,
+            budget=budget,
+            scope=scope,
+        )
         feedback: tuple[str, ...] = ()
         last_error: MemoryConsolidationError | None = None
         for _ in range(request.validation_retries + 1):
             try:
-                sections = self._final_sections(
+                body = self._final_body(
                     request,
-                    candidates=candidates,
+                    candidate=candidate,
                     feedback=feedback,
                     budget=budget,
                     scope=scope,
                 )
-                _validate_sections(
+                validate_memory_body(
                     request.day,
-                    sections,
+                    body,
                     allowed_home_links=frozenset(request.allowed_home_links),
                     allowed_memory_links=frozenset(request.allowed_memory_links),
                     max_document_chars=request.max_document_chars,
                 )
                 return MemoryConsolidationResult(
-                    sections=sections,
+                    body=body,
                     model_calls=budget.used,
                 )
             except MemoryConsolidationError as exc:
@@ -100,19 +92,16 @@ class LLMMemoryConsolidator:
             )
         raise last_error
 
-    def _reduce_period(
+    def _reduce_sources(
         self,
         request: MemoryConsolidationRequest,
-        period_sources: MemoryPeriodSources,
         *,
         target_chars: int,
         budget: "_CallBudget",
         scope: RunScope,
     ) -> str:
-        if not period_sources.sources:
-            return ""
         level = _fragment_sources(
-            period_sources.sources,
+            request.sources,
             max_chars=request.chunk_max_chars,
         )
         while True:
@@ -121,17 +110,16 @@ class LLMMemoryConsolidator:
                 value = self._run_json(
                     MessageStack.of(
                         SystemMessage.from_text(
-                            "Consolidate only durable facts for one period of one "
-                            "Business Day MEMORY. Preserve useful existing facts, "
-                            "deduplicate repeated facts, do not invent facts, and "
-                            "keep Home top links in <home:space@name> form and "
-                            "Memory links in <memory:YYYY-MM-DD> form.",
+                            "Consolidate only durable facts for one Business Day "
+                            "MEMORY. Preserve useful existing facts, keep Session "
+                            "facts in their supplied chronological order, deduplicate "
+                            "repeated facts, do not invent facts, and preserve useful "
+                            "Home and Memory links in angle-bracket form.",
                             label="memory_maintenance_reduce_role",
                         ),
                         UserMessage.from_json(
                             {
                                 "day": str(request.day),
-                                "period": period_sources.period.value,
                                 "sources": chunk,
                                 "target_max_chars": target_chars,
                             },
@@ -139,63 +127,52 @@ class LLMMemoryConsolidator:
                         ),
                         UserMessage.from_text(
                             'Return exactly {"content":"Markdown body"}. Do not '
-                            "include level-1 or level-2 headings.",
+                            "include a level-1 heading.",
                             label="memory_maintenance_reduce_output",
                         ),
                     ),
                     budget=budget,
                     scope=scope,
                 )
-                if set(value) != {"content"}:
-                    raise MemoryConsolidationError(
-                        MemoryMaintenanceFailure.INVALID_OUTPUT,
-                        "Memory reduce output must contain only content",
-                    )
-                content = _required_text(value, "content").strip()
+                content = _content(value)
                 if len(content) > target_chars:
                     raise MemoryConsolidationError(
                         MemoryMaintenanceFailure.INVALID_OUTPUT,
                         "Memory reduce output exceeds its target size",
-                    )
-                if not content:
-                    raise MemoryConsolidationError(
-                        MemoryMaintenanceFailure.INVALID_OUTPUT,
-                        "Memory reduce output cannot be empty for non-empty sources",
                     )
                 reduced.append(content)
             if len(reduced) == 1:
                 return reduced[0]
             level = tuple(reduced)
 
-    def _final_sections(
+    def _final_body(
         self,
         request: MemoryConsolidationRequest,
         *,
-        candidates: dict[MemoryPeriod, str],
+        candidate: str,
         feedback: tuple[str, ...],
         budget: "_CallBudget",
         scope: RunScope,
-    ) -> MemorySections:
+    ) -> str:
         messages = [
             SystemMessage.from_text(
-                "Produce the complete replacement for one Business Day MEMORY. "
-                "Keep facts in their supplied period, deduplicate, do not invent "
-                "facts, use only supplied existing Home top links in "
-                "<home:space@name> form, and use only supplied other-date Memory "
-                "links in <memory:YYYY-MM-DD> form. Section headings are rendered by the "
-                "framework and must not appear in section bodies.",
+                "Produce the complete replacement body for one Business Day "
+                "MEMORY. Use a clear free-form Markdown structure suited to the "
+                "facts, deduplicate without inventing, and preserve chronology "
+                "where it matters. The framework renders the date heading, so do "
+                "not include a level-1 heading. Home links use <home:space@name> "
+                "and Memory links use <memory:YYYY-MM-DD>. Link hints are useful "
+                "known references, not an exhaustive catalog.",
                 label="memory_maintenance_role",
             ),
             UserMessage.from_json(
                 {
                     "day": str(request.day),
-                    "period_candidates": {
-                        period.value: candidates[period] for period in MemoryPeriod
-                    },
-                    "allowed_home_links": list(request.allowed_home_links),
-                    "allowed_memory_links": list(request.allowed_memory_links),
+                    "consolidated_source": candidate,
+                    "home_link_hints": list(request.home_link_hints),
+                    "memory_link_hints": list(request.memory_link_hints),
                 },
-                label="memory_maintenance_candidates",
+                label="memory_maintenance_candidate",
             ),
         ]
         if feedback:
@@ -207,18 +184,18 @@ class LLMMemoryConsolidator:
             )
         messages.append(
             UserMessage.from_text(
-                "Return exactly one JSON object with string fields morning, "
-                "afternoon, and evening. Values are Markdown bodies without "
-                "level-1 or level-2 headings.",
+                'Return exactly {"content":"Markdown body"}. The body must be '
+                "non-empty and must not contain a level-1 heading.",
                 label="memory_maintenance_output",
             )
         )
-        value = self._run_json(
-            MessageStack(tuple(messages)),
-            budget=budget,
-            scope=scope,
+        return _content(
+            self._run_json(
+                MessageStack(tuple(messages)),
+                budget=budget,
+                scope=scope,
+            )
         )
-        return MemorySections.from_json(value)
 
     def _run_json(
         self,
@@ -266,7 +243,11 @@ class _CallBudget:
         self.used += 1
 
 
-def _fragment_sources(sources: tuple[str, ...], *, max_chars: int) -> tuple[str, ...]:
+def _fragment_sources(
+    sources: tuple[str, ...],
+    *,
+    max_chars: int,
+) -> tuple[str, ...]:
     fragment_limit = max(1, max_chars - 96)
     fragments: list[str] = []
     for source_index, source in enumerate(sources, start=1):
@@ -307,11 +288,16 @@ def _pack_sources(
     return tuple(chunks)
 
 
-def _required_text(value: JsonObject, name: str) -> str:
-    item = value.get(name)
-    if not isinstance(item, str):
+def _content(value: JsonObject) -> str:
+    if set(value) != {"content"}:
         raise MemoryConsolidationError(
             MemoryMaintenanceFailure.INVALID_OUTPUT,
-            f"Memory output field must be a string: {name}",
+            "Memory output must contain only content",
         )
-    return item
+    item = value.get("content")
+    if not isinstance(item, str) or not item.strip():
+        raise MemoryConsolidationError(
+            MemoryMaintenanceFailure.INVALID_OUTPUT,
+            "Memory output content must be non-empty text",
+        )
+    return item.strip()

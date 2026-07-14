@@ -51,12 +51,3 @@ class BackgroundEntryProvider(Protocol):
 
     def load(self, link: str, business_day: date) -> str:
         ...
-
-
-@dataclass(frozen=True)
-class EmptyBackgroundEntryProvider:
-    def catalog(self, business_day: date) -> BackgroundCatalog:
-        return BackgroundCatalog(owner="empty")
-
-    def load(self, link: str, business_day: date) -> str:
-        raise ContextInvariantError(f"Unknown dynamic Background link: {link}")
