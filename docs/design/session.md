@@ -4,7 +4,7 @@
 
 Session 是当日跨 Turn 会话历史的唯一持久化归属模块。它不维护当前 Turn 的可变执行状态，不参与 Phase 决策，也不直接调用 LLM。Context 负责当前 Turn 语境，Session 在 Turn 完成后接收不可变 `TurnCompletion`，在下一 Turn preparation 期间把有界历史头部投影为 `SessionBackground`。
 
-Session 与 Workspace 一样具有日级生命周期，但二者保存不同事实：Workspace 保存 Agent 可操作资源；Session 保存用户 ask、Turn 内 reason/action/result 轨迹、最终 answer 和结束状态。Agent Home 仍负责经过沉淀的长期知识与记忆，Session 不是 Agent Home 的替代品。
+Session 与 Workspace 一样具有日级生命周期，但二者保存不同事实：Workspace 保存 Agent 可操作资源；Session 保存用户 ask、Turn 内 reason/action/result 轨迹、最终 answer 和结束状态。Agent Home 负责经过沉淀的当前知识与技能，独立 Memory 模块负责按日期提炼长期记忆；Session 不替代二者。
 
 ## 持久模型
 
@@ -52,9 +52,9 @@ SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、
 
 归档后的 Session 还是同一组不可变 Turn/summary 事实。`SessionEngine.memory_facts(day, root)` 先复用 `archive_snapshot` 校验 manifest/graph，再按需递归可达 Summary 节点，只输出唯一叶子 Turn 的 `SessionMemoryFactsProjection`。每个 fact 使用首个 UserInput `received_at` 作为 Turn 开始时间，缺失时回退 record `recorded_at_ns`，并投影全部 UserInput 文本、最终 Working、Background 顶层 Links、最终 answer/references、已有有界 action 摘要、exhausted 和 trace digest；不输出 raw trace、trace heap、reasoning 或 provider payload。Projection 按开始时间和 ref 稳定排序，不同时交付 Summary 与其子 Turn。
 
-Memory Maintenance 只消费上述 typed projection；Session 不解释 MEMORY 文档格式、不读取或写入 Agent Home，也不参与 Home runtime diff。目标 MEMORY 不存在时，consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新构造同一 projection 即可，不建立 memory candidate store。
+Memory Maintenance 只消费上述 typed projection；Session 不解释 MEMORY 文档格式，不读取或写入 Agent Home/Memory，也不参与 Home runtime diff。目标 `memory/yyyy/mm/yyyy-mm-dd.md` 不存在时，Memory consolidator 只使用同日期 Session；目标已存在时，同时使用同日期旧 MEMORY 完整重写。任务中断后重新构造同一 projection 即可，不建立 memory candidate store。
 
-启动自动提示只查询配置业务时区中的昨日，不扫描更早日期。Loop 通过 `DailyLifecycleCoordinator.session_archive_for(day)` 解释 transition 并定位 Session 根；Session 通过 `memory_facts(day, root)` 判断 projection 是否含事实。只有 archive 存在且 projection 非空才满足 Session 一侧 eligibility；App 不遍历 `transition.json`，Loop 不理解 Session store，“目录存在”不替代“存在可供提炼的已提交 Session 事实”的模块判断。
+启动自动提示只查询配置业务时区中的昨日，不扫描更早日期。Loop 通过 `DailyLifecycleCoordinator.session_archive_for(day)` 解释 transition 并定位 Session 根；Session 通过 `memory_facts(day, root)` 判断 projection 是否含事实，Memory 模块判断同日期目标是否存在。只有 archive 存在且 projection 非空才满足 Session 一侧 eligibility；App 不遍历 `transition.json`，Loop 不理解 Session store，“目录存在”不替代“存在可供提炼的已提交 Session 事实”的模块判断。
 
 ## 失败边界
 

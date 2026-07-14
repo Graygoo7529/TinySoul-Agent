@@ -4,7 +4,7 @@
 
 Runtime 是 TinySoul 的顶层运行控制模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
 
-Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境状态，不读写 Workspace 或 Agent Home，也不解释 LLM、Action、Context 的业务结果。具体模块负责完成自身局部处理，并在模块边界通过异常或信号向 Runtime 和其他模块表达需要上层协调的运行事实。
+Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境状态，不读写 Workspace、Agent Home 或 Memory，也不解释 LLM、Action、Context 的业务结果。具体模块负责完成自身局部处理，并在模块边界通过异常或信号向 Runtime 和其他模块表达需要上层协调的运行事实。
 
 Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖全局控制器；当模块局部处理失败、运行环境需要全局恢复、用户请求中断或程序需要退出时，执行流程陷入 Runtime，由 Runtime 根据当前运行位置和异常语义给出恢复或中断决策。内部信号作为可消费的软事件，用于在模块之间表达状态变更请求、动作结果和用户追加输入；只供外部观察、没有业务消费者的事件使用独立 Observation 协议。
 
@@ -12,15 +12,15 @@ Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖�
 
 TinySoul 的运行层级从外到内分为 Program、Turn、Cycle、Phase 和 Module。
 
-Program 是程序顶层，当前负责等待用户输入、执行退出指令和调度 User Turn。每项新日 work 开始前的确定性 daily rollover 是 Program 边界的前置条件，不是调用 LLM 的 Maintenance Turn；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不能移动或初始化跨日 Home overlay。运行层级允许未来调度与用户轮同级、可独立触发的 Home Maintenance 和 Memory Maintenance，但该调度尚未实现；Program 不直接介入 Phase 或具体模块细节。
+Program 是程序顶层，当前负责等待用户输入、执行退出指令、调度 User Turn 和独立 Home/Memory Maintenance work。每项新日 work 开始前的确定性 daily rollover 是 Program 边界的前置条件，不是调用 LLM 的 Maintenance Turn；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不能移动或初始化跨日 Home overlay，也不读写顶层 Memory。Program 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Program 下的一次顶层任务。当前实现由用户输入形成 User Turn；运行模型允许 Home/Memory Maintenance 形成与 User Turn 同级的 Maintenance Turn，但对应调度尚未落地。不同类型 Turn 的调度策略可以不同，例如 User Turn 可以接收用户追加输入，Maintenance Turn 执行期间不接收用户输入；但它们在运行控制层级上同属 Turn。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 active overlay 与 actual Home，Memory 重试重新读取指定日期 Session archive 与同日期 MEMORY。
+Turn 是 Program 下的一次顶层任务。当前 User Turn 由用户输入形成，Home/Memory Maintenance 是与 User Turn 同级的 Program work。不同类型 Turn/work 的调度策略可以不同，例如 User Turn 可以接收用户追加输入，Maintenance 执行期间不接收用户输入。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 active overlay 与 actual Home，Memory 重试重新读取指定日期 Session projection 与同日期 MEMORY。
 
 Cycle 是 User Turn 内的一次执行轮。User Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 
 Phase 是执行轮内的执行单元。Phase1 负责更新语境与决策行动域，Phase2 负责生成行动参数，Phase3 负责采取行动。每个 Phase 都可以包含一次或多次模块级任务。Phase 的稳定标识由 Runtime 以 CyclePhase 提供，供业务模块在结果与轨迹元数据中引用同一语义。
 
-Module 是具体模块执行边界，包括 LLM Task、Action 执行、Context 操作、Workspace 或 Agent Home 相关操作。模块优先在自身边界内完成局部恢复和错误映射；只有局部策略耗尽或需要全局协调时，才向 Runtime 上抛异常或发出信号。
+Module 是具体模块执行边界，包括 LLM Task、Action 执行、Context 操作、Workspace、Agent Home 或 Memory 相关操作。模块优先在自身边界内完成局部恢复和错误映射；只有局部策略耗尽或需要全局协调时，才向 Runtime 上抛异常或发出信号。
 
 Runtime 使用运行位置记录当前执行栈。运行位置应能表达 Program、Turn、Cycle、Phase 和 Module 的嵌套关系，从而定位异常发生处和恢复目标。运行位置只描述控制流位置，不承载业务参数。Action 输入、LLM profile、Context patch 等业务内容应存在模块异常详情或信号载荷中。
 

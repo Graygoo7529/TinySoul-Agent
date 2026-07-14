@@ -8,6 +8,8 @@ Context 不调用 LLM，不执行 action，不驱动运行控制流。它依赖 
 
 Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态模型，并在每次 LLM Task 前把状态"构造"为完整的 MessageStack。状态是持续维护的语境；MessageStack 是按需生成的投影。
 
+已确认的 Stage 6.1 将把当前 Home-specific Background 实现提升为 Context-owned 多 provider Background，并接入可逐出的昨日 Memory entry。本文以该目标边界描述语义；当前代码尚未完成 provider 聚合和 Memory source，具体实施顺序见统一执行计划。
+
 ## 设计目标
 
 1. 三段语境（BackgroundContext、TurnTraceHeap、WorkingContext）各自职责清晰，状态变更入口收敛。
@@ -22,7 +24,9 @@ Context 的核心职责是把"Agent 此刻知道什么"组织成稳定的状态�
 
 ### BackgroundContext
 
-用户轮开始前的背景。它由两类所有权不同的内容组成：Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；Agent Home 通过 `BackgroundEntryProvider` 提供当前默认目录、可加载顶层目录和按链接正文。`begin_turn` 同时清空上一 Turn 的 Session/Home Background；preparation 先原子重建 Home 默认项，再提交 Session snapshot。Phase1 动态加载项只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session 或 Home 持久事实。SessionBackground 始终渲染在 Agent Home 顶层内容之前；预算恢复只允许自动逐出 Phase1 来源，不删除默认顶层规约。
+用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、可加载目录和按 Link 正文。Home provider 提供 core 与 Home 顶层目录；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。
+
+`begin_turn` 清空上一 Turn 的 Session 与通用 Background；preparation 先从所有 provider 原子重建默认/自动条目，再提交 Session snapshot。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除 `home:agent@core` 等不可逐出的默认规约。
 
 ### WorkingContext
 
@@ -45,7 +49,7 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 1. system 段：Agent 身份与规约；
 2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
 3. SessionBackground 段：Turn preparation 后固定；
-4. Agent Home Background 段：每 Turn 从 provider 重建默认内容，Phase1 可调整本 Turn 动态条目；
+4. 通用 Phase1 Background 段：每 Turn 从 Home、Memory 等 provider 重建，Phase1 可调整本 Turn 动态条目；
 5. WorkingContext 段：低频变化；
 6. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
 7. task prompt overlay：每次 LLM Task 不同。
@@ -60,7 +64,7 @@ composer 在构造时执行语境预算检查。文本预算覆盖消息可见�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载顶层内容、逐出顶层内容。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 
@@ -85,11 +89,11 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. `ContextPressureRecovery` 依据预算 payload 与目标比例计算带滞回的回收量；字符预算和图片预算分开处理，图片单独超限不会触发 Workspace 文件删除；
-3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次只逐出 Phase1 加载的 Background；
+3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；
 4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn`、且未被当前 action `target_link`/`reference_links` 保护的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；批次中途失败回滚已移动项，同步失败也尝试 restore；
 5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
-Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、默认 Agent Home 内容和 WorkingContext 业务状态不会被无条件裁剪。
+Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、不可逐出的 Home core 和 WorkingContext 业务状态不会被无条件裁剪；自动昨日 Memory 属于可回收 Background。
 
 ## 失败与异常边界
 
@@ -103,7 +107,7 @@ Context 失败处理分三层：
 
 Context 维护 Turn 内内存态语境。Turn 结束时产出可 JSON 化的 TurnSummary，包含输入全量记录、工作台终态、Background 链接、轨迹摘要、provider-neutral 完整 JSON trace 和 heap 元数据。Context 不执行持久化；Loop 的 TurnCompletionPipeline 把 summary 与最终 output 交给 Session 持久化。
 
-持久化读写不属于 Context 职责：workspace 与 Agent Home 的链接读写、运行时副本机制由对应资源模块承担；Context 在这些机制接入后通过既有的条目与摘要模型消费其内容。
+持久化读写不属于 Context 职责：workspace、Agent Home 与 Memory 的 Link、文件和运行机制由对应资源模块承担；Context 只通过注入的 provider、ActionResult 和已有投影模型消费内容。
 
 ## 组装入口
 
@@ -113,4 +117,4 @@ ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、
 
 Context 的核心范围是语境状态模型、MessageStack 构造、语境控制工具语义、语境信号消费和压缩服务。
 
-Context 不承担 LLM 调用、行动执行、运行控制流、workspace 与 Agent Home 的文件读写、终端渲染。这些能力在对应模块中设计，通过 llm 公共类型、信号与 Runtime 协议与 Context 协作。
+Context 不承担 LLM 调用、行动执行、运行控制流、workspace/Agent Home/Memory 文件读写或终端渲染。这些能力在对应模块中设计，通过 llm 公共类型、信号与 Runtime 协议与 Context 协作。

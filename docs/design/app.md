@@ -79,32 +79,32 @@ MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需
 TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
-- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/loop/session/workspace/llm 各自解析所属 settings；
-- 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、ActionEngine、SignalBus 和 RuntimeTrap；
+- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；
+- 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块 registrar 装配模块 executor；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入 IANA business clock 与 DailyLifecycleCoordinator；
-- preparation 顺序固定为 Context 动态 Home 默认项、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
+- preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher、终端输入源和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime 和各级 Loop runner；
 - 返回 TinySoulApp。
 
-AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Action、Context、LLM、Loop、App、Session、Workspace、Agent Home 在各自 parser 中解释 section tree。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Action、Context、LLM、Loop、App、Session、Workspace、Agent Home 和 Memory 在各自 parser 中解释 section tree。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
-`core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Agent Home 背景加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 也在装配期注入到 action 层共享 LLM action backend 服务，让 `core.reason`、`core.answer` 等通用动作可以使用 `reference_links`，让带内部 LLM task 的 action 自动获得 domain/action HOW；Home-owned `LLMHomeSearchReranker` 同样由 AppBuilder 注入 search executor，但候选构造、校验和 fallback 仍归 Home。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
+`core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 
-AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
+AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
 
 人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`TerminalHomeDecisionBroker` 为 Home Maintenance 在终端逐项确认，只在存在 pending change 时消费精确 `apply/discard/stop`；其它输入继续走正常解析并在 Program queue 等待。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。scheduler 触发 Home 时使用 Home-owned LLM reviewer；scheduler 触发 Memory 时若昨日 MEMORY 已存在则 skipped，人工指令仍可基于旧 MEMORY 和 Session 重写。
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 
-这些入口由 App 负责外部触发与装配，但 Home diff、review/apply、Session archive 读取和 MEMORY 重写语义归 Agent Home，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接 diff 或修改 Home。App 不建立 settlement root，也不持久化 review/apply 状态。Stage 6 的最小 normal 输出只固定 `program.maintenance.available`、`program.work.completed` 与 `program.work.failed`；模块级细粒度 Maintenance Observation 留待后续确认。
+这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Stage 6 的最小 normal 输出只固定 `program.maintenance.available`、`program.work.completed` 与 `program.work.failed`；模块级细粒度 Maintenance Observation 留待后续确认。Stage 6.1 完成前，当前 AppBuilder 仍将 Memory 服务从 HomeEngine 取出，尚未符合目标装配图。
 
 ## 与其他模块的关系
 
 - 对 loop：app 创建各级 runner，注入 daily settings/coordinator、Maintenance runner 与 scheduler，并向 ProgramRunner 投递 typed ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
-- 对 context：app 注入 `HomeBackgroundEntryProvider`，不物化 core、不读取 Agent Home 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
+- 对 context：app 注入 Home/Memory 的 `BackgroundEntryProvider`，不物化 core、不读取 Agent Home 或 Memory 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。
 - 对 session：app 只构建门面、注册 history actions 和安装 Turn preparation/completion adapters，不读取 Session 持久文件。
-- 对 workspace / Agent Home：app 只装配模块门面和 executor，不解释 `workspace:` 或 `home:` 链接。
+- 对 workspace / Agent Home / Memory：app 只装配模块门面、provider 和 executor，不解释 `workspace:`、`home:` 或 `memory:` 链接。

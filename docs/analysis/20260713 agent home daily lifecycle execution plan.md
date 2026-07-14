@@ -1,10 +1,10 @@
-# 20260713 Agent Home / Daily Lifecycle Execution Plan
+# 20260713 Agent Home / Memory / Daily Lifecycle Execution Plan
 
 ## 状态
 
 status: in_progress
 
-本文是 Agent Home、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate 和 HOW usage Session provenance 均不属于目标设计。
+本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-6 已实施；新确认的独立 Memory 边界将作为 Stage 6.1 先于 Stage 7 实施。
 
 状态统一使用：
 
@@ -34,19 +34,22 @@ Home 工作副本生命周期
 Memory 生命周期
   指定日期 Session archive
   + 可选同日期旧 MEMORY
-  -> Memory Maintenance 完整重写日期 MEMORY
+  -> Memory Maintenance 完整重写 memory/yyyy/mm/yyyy-mm-dd.md
+  -> 昨日在每 Turn 自动进入可逐出 Background
+  -> 其它日期通过 memory.search/recall 进入 TurnTrace
 ```
 
 核心原则：
 
 1. Session、Workspace 和 Trash 按 Business Day 强制物理归档；Home 不参与日切或 archive；
 2. `runtime/home` 跨 Turn、跨日、跨重启保留，是唯一尚未提交的 Home 事实，不建立第二份 workset/store；
-3. Agent 只看 `home:` Link 与 effective 内容，不感知 actual/runtime 分层；
-4. 普通 User Turn 只修改 runtime Home；actual 非 MEMORY 内容只由 Home Maintenance 修改；
-5. MEMORY 在 User Turn 中只读 actual Home，不复制到 runtime；actual MEMORY 只由 Memory Maintenance 写入；
+3. Agent 通过 `home:` Link 透明读写 effective Home，不感知 actual/runtime 分层；通过 `memory:YYYY-MM-DD` 访问独立日期记忆；
+4. 普通 User Turn 只修改 runtime Home；actual Home 只由 Home Maintenance 修改；
+5. MEMORY 在 User Turn 中只读顶层 `memory/`，不建立 runtime；MEMORY 只由 Memory Maintenance 写入；
 6. Home Maintenance 与 Memory Maintenance 是可独立触发的 Program work，没有共同 plan 或共同提交边界；
 7. Runtime 只提供运行位置、Trap、Signal 与 Observation，不保存 Maintenance 业务状态；
-8. App/scheduler/terminal 只产生 typed Program event，不直接 diff、review 或写 Home。
+8. Background 由 Context 拥有并聚合 Home/Memory provider，不由 Home 拥有；
+9. App/scheduler/terminal 只产生 typed Program event，不直接 diff、review 或读写 Home/Memory。
 
 ## 当前架构与代码进度
 
@@ -54,14 +57,15 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done for current Home tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 6 只复用现有 Home task，不新增持久状态。 |
-| Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
-| Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
+| LLM | done for current tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 6.1 新增 Memory-owned `memory_search` profile，不新增持久状态。 |
+| Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Stage 6.1 新增 Memory domain 的 search/recall native action；Maintenance 不作为普通 Action。 |
+| Context | done for current User Turn | MessageStack、Home/Session Background、Working/Trace、信号批次和压力恢复 | Stage 6.1 将 Home Background 提升为 Context-owned 多 provider Background，增加可逐出的昨日 Memory source。 |
 | Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Stage 6 已通过 Loop Maintenance runner 按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | done for Stage 6 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder 编排 | Stage 7 再补已确认后的细粒度 Observation 与 crash-window 加固。 |
-| Agent Home | done for lifecycle scope | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance、三段式 Memory Maintenance、pending facts | Stage 7 再补原子写和部分清理中断覆盖。 |
-| App | done for Stage 6 scope | Builder、CLI、输入分发、输出路由、Maintenance command/decision channel、启动提示与内置 scheduler | Stage 7 再补确认后的完整无网络 E2E。 |
+| Loop | done for Stage 6 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder 编排 | Stage 6.1 将 BusinessDay 交给 Memory Background provider 并把 runner 从 Home Memory service 重连到 MemoryEngine；Stage 7 再补 Observation/crash window。 |
+| Agent Home | done for current lifecycle scope | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance；当前还承载旧 Memory 实现 | Stage 6.1 删除 Memory space/path/search/consolidator 所有权；Stage 7 再补 Home crash window。 |
+| Memory | pending extraction | 已有三段式 consolidation、eligibility 和 Program work 的可复用实现，但仍位于 `tinysoul.home` | Stage 6.1 建立 `tinysoul.memory`、顶层 root/config/Link、search/recall、Background provider 和专用 bridge。 |
+| App | done for Stage 6 scope | Builder、CLI、输入分发、输出路由、Maintenance command/decision channel、启动提示与内置 scheduler | Stage 6.1 重连 MemoryEngine/provider/registrar；Stage 7 再补完整无网络 E2E。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
@@ -84,10 +88,11 @@ home/                                  # actual Home
       scripts/
   how_domain/
   how_action/
-  memory/
-    yyyy/
-      mm/
-        yyyy-mm-dd.md
+
+memory/                                # Memory-owned, read-only in User Turn
+  yyyy/
+    mm/
+      yyyy-mm-dd.md
 
 runtime/
   session/                             # current Business Day only
@@ -112,22 +117,24 @@ archive/
 - 顶层 `settlement/` 或 `SettlementManifest`；
 - Home pending archive、review plan、decision log、apply journal 或 completed status；
 - `runtime/home/memory`；
+- `home/memory`、`home:memory@...` 或任何旧 Link/path 兼容别名；
+- Memory runtime overlay、双读、自动/人工迁移操作；
 - `DOMAIN_MEMORY.md`、`ACTION_MEMORY.md` 或其它平行 skill memory；
-- memory candidate store 或 `home.memory.append` action。
+- memory candidate store、`home.memory.append` 或 `memory.append` mutation action。
 
 ## User Turn 处理流程
 
 1. Program 在 work lock 内捕获唯一 aware time 与 `BusinessDay`；
 2. `DailyLifecycleCoordinator.ensure_active_day` 只校验/归档 Session 与 Workspace/Trash；
-3. Context `begin_turn` 清空上一 Turn 的 Home/Session Background 与 Turn 内状态；
-4. Home provider 从 current effective Home 重建默认 core/catalog；
+3. Context `begin_turn` 清空上一 Turn 的通用 Background、Session Background 与 Turn 内状态；
+4. Context 从 Home provider 重建默认 core/catalog，并从 Memory provider 加载精确昨日的完整有界正文（如有）；不回退更早日期；
 5. Session 投影当前 Business Day 历史，Workspace reconcile 并投影 Manifest；
 6. Phase1/2/3 完成语境、行动选择和行动执行；
 7. `core.answer` 经 TurnOutput Trap 收束；
 8. Session 幂等提交不可变 Turn record；
 9. 只有 completion pipeline 成功才发布 answered output。
 
-Home Background 与 Phase1 加载项是 Turn 内状态；runtime Home 文件与 overlay record 是跨 Turn 持久事实。二者不能混为同一层。
+Context-owned Background、昨日 Memory entry 与 Phase1 加载项是 Turn 内状态；runtime Home 文件与 overlay record 是跨 Turn 持久事实，顶层 Memory 文件是长期只读事实。三者不能混为同一层。
 
 ## Daily Rollover 设计
 
@@ -150,13 +157,13 @@ Home 不提供 active day 给 coordinator，也不参与 claim、move、initiali
 5. pending 原子改名为 `archive/<timestamp>/`；
 6. coordinator 返回后才允许新日 Program work。
 
-日切是确定性物理过程，不调用 LLM，不检查 MEMORY，不触发 Home commit。程序运行时由内置 scheduler 在日界投递触发；程序未运行时由启动或下一项 work 前的 preflight 恢复并补做。跨午夜 User Turn 归属开始日，完成旧日 Session 提交后再在下一 work 边界日切。
+日切是确定性物理过程，不调用 LLM，不检查或读写 MEMORY，不触发 Home commit。程序运行时由内置 scheduler 在日界投递触发；程序未运行时由启动或下一项 work 前的 preflight 恢复并补做。跨午夜 User Turn 归属开始日，完成旧日 Session 提交后再在下一 work 边界日切。
 
 ## Effective Home 设计
 
 ### 读取规则
 
-所有非 MEMORY Home Link 使用同一 effective 规则：
+所有 Home Link 使用同一 effective 规则：
 
 ```text
 runtime override
@@ -166,7 +173,7 @@ runtime override
 
 top catalog、top read、Background loader、progressive resource read、domain/action prompt mount 和 top search 都必须复用同一 Home-owned lookup，不能各自做 source-first 判断。
 
-MEMORY 是唯一旁路：只读 actual `home/memory/yyyy/mm/yyyy-mm-dd.md`，不建立 overlay record。
+Memory 不是 Home effective view 的旁路或例外；`memory:YYYY-MM-DD` 由独立 Memory 模块映射到顶层 `memory/`。
 
 ### Overlay 生命周期
 
@@ -204,7 +211,7 @@ home.top.delete
 
 规则：
 
-- 只接受非 MEMORY `HomeTopLink`；
+- 只接受 `agent/what/why/how` 空间的 `HomeTopLink`，`memory:` 不是 Home action 参数；
 - 允许在 runtime 创建不存在的顶层内容；
 - 新 WHAT 必须显式指定 `entity` 或 `concept`，分类决定物理路径但不泄漏到稳定 Link；
 - `home:agent@core` 允许 write/patch，禁止 delete；
@@ -272,24 +279,24 @@ Program work lock 串行化 Home Maintenance 与 User Turn。Maintenance 期间�
 
 ```text
 Session archive for yyyy-mm-dd
-+ optional existing home/memory/yyyy/mm/yyyy-mm-dd.md
--> complete replacement home/memory/yyyy/mm/yyyy-mm-dd.md
++ optional existing memory/yyyy/mm/yyyy-mm-dd.md
+-> complete replacement memory/yyyy/mm/yyyy-mm-dd.md
 ```
 
 规则：
 
-- Session 通过自己的只读 archive query 门面提供专用 Memory facts projection；该 projection 按需递归解析已提交 Summary 图，交付可达 Turn 的有界事实，不向 Home 暴露 Session store 或 archive 文件结构，也不把 Summary 与其子 Turn 重复作为事实；
+- Session 通过自己的只读 archive query 门面提供专用 Memory facts projection；该 projection 按需递归解析已提交 Summary 图，交付可达 Turn 的有界事实，不向 Memory 暴露 Session store 或 archive 文件结构，也不把 Summary 与其子 Turn 重复作为事实；
 - Turn 以配置业务时区中的开始时间归入固定时间段：上午 `[00:00, 12:00)`、下午 `[12:00, 18:00)`、晚上 `[18:00, 24:00)`；跨时间段 Turn 整体归入开始时所在段；
 - Session archive 不存在或 projection 不含 Turn facts 时返回 `skipped`，不创建、不覆盖也不删除同日 MEMORY；
 - 目标不存在时，只使用同日 Session；
 - 目标存在时，只额外读取同日期旧 MEMORY；
 - 不读取其它日期 MEMORY、Workspace、active Home diff 或 `SKILL_MEMORY.md`；
 - Session facts 与同日旧 MEMORY 按时间段执行有界、分层 consolidation，不静默截断；超过总事实、总字符或最大调用次数硬上限时失败并保持旧文件不变；
-- consolidator 使用严格 JSON object 输出上午、下午、晚上三个 Markdown body；Home renderer 负责固定日期标题、三个中文时间段标题和最终 Markdown；
-- MEMORY 中只允许指向当前 actual Home 中既存顶层内容的稳定 `HomeTopLink`；不存在、非顶层或语法非法的 Link 必须作为有界模型反馈进入重新生成，重试耗尽后失败；
+- consolidator 使用严格 JSON object 输出上午、下午、晚上三个 Markdown body；Memory renderer 负责固定日期标题、三个中文时间段标题和最终 Markdown；
+- MEMORY 中的 `<home:space@name>` 只允许指向当前 actual Home 中已存在的顶层内容；`<memory:YYYY-MM-DD>` 只允许指向已存在的其它日期 MEMORY，用于提示 Agent 通过 recall 召回；非法、不存在或目标日自引用必须作为有界模型反馈进入重新生成，重试耗尽后失败；
 - 输出是完整重写，不 append；
 - 目标使用单文件原子替换，失败保持旧文件不变；
-- stable Link 始终是 `home:memory@yyyy-mm-dd`。
+- stable Link 始终是 `memory:YYYY-MM-DD`，不提供旧 Home Link 别名。
 
 ### 自动提示
 
@@ -303,6 +310,20 @@ AND 昨日 MEMORY 不存在
 
 不扫描更早日期，不持久化 skipped 状态。因此同一业务日内重启仍可能再次提示；该日期不再是昨日后，不再自动提示。人工命令仍可指定任意存在 Session archive 的日期，也可显式重写已有同日 MEMORY。
 
+## Memory User Turn 访问设计
+
+Background 提升为 Context-owned 通用 Phase1 Background，通过 Link 命名空间分离的 provider 聚合内容。Home provider 继续提供不可逐出 core 与可由 Phase1 加载的 Home top catalog；Memory provider 只提供当前 Business Day 精确昨日的自动 entry。
+
+- 每个 User Turn 都重建昨日 entry，不依赖上一 Turn 的 Context 内存；
+- 昨日文件存在时加载完整但受文档上限约束的 Markdown；不存在时正常省略，不回退更早日期；
+- 已存在文件不可读、格式无法解释或超限是 Memory 模块失败，不伪装为缺失；
+- 昨日 entry 可在压力回收中于 Phase1 动态项之后被逐出；Home core 继续不可逐出；
+- 更早日期不进入 `load_background` catalog，Context 中的 `<memory:YYYY-MM-DD>` 提示 Agent 调用 `memory.recall`。
+
+`memory.search(query, top_k)` 的候选单元是 MEMORY 的三个时间段，结果按日期 Link 去重；每日只返回 Link、日期、最相关时间段、有界摘要和必要检索元数据。确定性候选、候选上限、稳定排序和 candidate-only validator 归 Memory；专用 `memory_search` LLM rerank 失败时回退确定性结果。
+
+`memory.recall(memory_link)` 只接受精确 `memory:YYYY-MM-DD`，返回完整但受上限约束的单日 Markdown，不增加时间段过滤或分页。外部改动造成超限时明确失败，不截断后伪称完整。Search/recall 都是 Memory-owned native action，ActionResult 只进入 TurnTrace，不修改 Background。
+
 ## Program、Scheduler 与输入边界
 
 Program 增加两个独立 work kind：
@@ -312,7 +333,7 @@ home_maintenance
 memory_maintenance(target_day)
 ```
 
-二者拥有独立 outcome，不组成共同事务。建议稳定 outcome：
+二者拥有独立 outcome，不组成共同事务。稳定 outcome：
 
 ```text
 HomeMaintenanceOutcome
@@ -333,7 +354,7 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
 - 启动先补做 daily rollover，再提示 active Home diff 与昨日缺失 MEMORY；
 - Home 与 Memory 可以由独立人工指令触发；
 - 人工 Home 使用专用 decision channel 逐项确认，自动 Home 使用 Agent 全自动 decision；普通输入继续留在 Program queue；
-- CLI/terminal 不直接遍历 archive、解析 overlay 或写 Home；
+- CLI/terminal 不直接遍历 archive、解析 overlay 或读写 Home/Memory；
 - Maintenance 执行期间不接受 append input，新输入留在 Program queue。
 
 ## 模块所有权
@@ -345,14 +366,23 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
 - prompt mount catalog reconciliation；
 - SKILL_MEMORY lifecycle；
 - Home reviewer/apply/cleanup；
-- MEMORY 日期映射与 Memory consolidator。
+- 提供 actual Home 顶层 Link 的只读 catalog 协议，不解析 Memory store。
+
+### Memory
+
+- `memory:YYYY-MM-DD` 与 `memory/yyyy/mm/yyyy-mm-dd.md` 双向映射；
+- 完整有界日期文档读取、三段式解析与 store catalog；
+- 昨日 Background provider；
+- `memory.search` / `memory.recall` 及其 Action executor；
+- Memory eligibility、consolidator、Home/Memory Link 校验与原子替换；
+- 不读取 Home overlay、Session store 或 Workspace。
 
 ### Session
 
 - active Turn/summary 不可变事实；
 - daily archive；
 - 按 Business Day 只读查询 archive；
-- 不解释 MEMORY 文档，也不写 Agent Home。
+- 不解释 MEMORY 文档，也不写 Agent Home 或 Memory。
 
 ### Workspace
 
@@ -364,19 +394,19 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
 - daily rollover 只编排 Session/Workspace/Trash；
 - Program work lock 和 Maintenance runner；
 - typed work/outcome 与 Observation；
-- 不解析 Home overlay、Session store 或 MEMORY 正文。
+- 不解析 Home overlay、Session store、Memory Link/store 或 MEMORY 正文。
 
 ### App
 
 - startup lifecycle、terminal command、scheduler 和 event dispatch；
-- 注入 Home/Session/Loop 门面；
+- 注入 Home/Memory/Session/Loop 门面、Background provider 与 Action registrar；
 - 不实现 diff、review、consolidation 或文件操作。
 
 ### Runtime、Context、Action、LLM
 
 - Runtime 只提供控制边界；
-- Context 每 User Turn 重建 Background，不持有 Maintenance 状态；
-- Action 暴露普通 User Turn mutation tools，不执行 Maintenance；
+- Context 每 User Turn 从多 provider 重建 Background，不读文件或持有 Maintenance 状态；
+- Action 暴露普通 User Turn mutation/search/recall tools，不执行 Maintenance；
 - LLM 执行 reviewer/consolidator task，不决定持久状态。
 
 ## 依赖顺序
@@ -392,8 +422,9 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
 
 阶段 3 + 阶段 4
   -> 阶段 6 Program/App/Scheduler
-       -> 阶段 7 恢复、观察与 E2E
-            -> 阶段 8 实际能力与发布
+       -> 阶段 6.1 Memory 模块拆分 + Context Background 提升
+            -> 阶段 7 恢复、观察与 E2E
+                 -> 阶段 8 实际能力与发布
 ```
 
 ## 执行阶段
@@ -422,6 +453,8 @@ status: done
 ### 阶段 2：Effective Home 与 Mutation
 
 status: done
+
+说明：本阶段对 Home overlay、mutation、prompt mount 和 `SKILL_MEMORY.md` 的实现继续有效；第 3 项及实施结果中的 MEMORY Link/路径特判是当前旧实现，将由 Stage 6.1 从 Home 完全删除。
 
 优先级：P0
 
@@ -470,6 +503,8 @@ status: done
 
 status: done
 
+说明：本阶段记录已完成的功能基线，当时 Memory 由 Home 承载。consolidation、Session projection 和 Program outcome 语义继续有效；路径、Link、配置、renderer/validator 所有权将在 Stage 6.1 替换，不保留旧兼容层。
+
 优先级：P0
 
 依赖：阶段 1
@@ -488,7 +523,7 @@ status: done
 
 验收：指定日期非空 Session 稳定映射唯一三段式 MEMORY；空或缺失 Session 不写文件；失败不改变旧文件；自动提示不扫描更早日期。
 
-实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。Home 新增 `MemoryMaintenanceService` 与独立 `LLMMemoryConsolidator`，按业务时区把 facts 和同日旧 MEMORY 分入上午、下午、晚上，以配置字符/调用预算执行分层 reduce，再严格接收三个 Markdown body 并确定性渲染日期文档。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，非法 Link 进入有界最终生成反馈；空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换 `home/memory/yyyy/mm/yyyy-mm-dd.md`。新增 `memory_maintenance` JSON-only profile、嵌套 Home Memory 配置、eligibility 查询和定向测试；Program event、昨日启动提示和 scheduler 装配仍归阶段 6。
+实施结果：Session 新增 `SessionMemoryFactsProjection`，在只读 archive snapshot 校验后按需递归 Summary 图，去重并按 Turn 开始时间交付叶子事实；projection 不包含 raw trace/reasoning 或 store 路径。当前 Home 内实现 `MemoryMaintenanceService` 与 `LLMMemoryConsolidator`，按业务时区把 facts 和同日旧 MEMORY 分入上午、下午、晚上，以配置字符/调用预算执行分层 reduce，再严格接收三个 Markdown body 并确定性渲染日期文档。输出中的 `<home:space@name>` 只允许指向 actual Home 既存顶层 Link，空/缺失 Session 分别返回非持久 skip reason，超限/非法输出在原子写前失败，成功只原子替换旧 `home/memory/yyyy/mm/yyyy-mm-dd.md`。这些是 Stage 6.1 要移交到 `tinysoul.memory` 与顶层 `memory/` 的已实现基线。
 
 ### 阶段 4.1：App 集成测试隔离基线
 
@@ -502,11 +537,13 @@ Stage 5/6 开始前，App 集成测试必须同时把 actual Home、Home runtime
 
 status: done
 
+说明：Home 的 WHAT/WHY/HOW 搜索继续有效；当时纳入 Home top search 的 MEMORY 条目将在 Stage 6.1 删除，由 `memory.search` 替代。
+
 优先级：P1
 
 依赖：阶段 2
 
-已确认语义：
+Stage 5 实施时的已确认语义（其中 MEMORY 部分已由 Stage 6.1 覆盖）：
 
 1. search 只包含 WHAT、WHY、通用 HOW 与 MEMORY，不包含 `agent`、`how_domain` 或 `how_action`；
 2. 标题以 Markdown 首个 H1 为权威来源，短摘要取首个有效正文段；缺失时分别回退 Link name 与有界正文前缀，不建立独立 metadata 索引；
@@ -565,25 +602,82 @@ status: done
 
 实施结果：新增 `ProgramWorkKind/Mode/Status/Outcome` 与独立 `ProgramMaintenanceRunner`，Home 和 Memory work 在 Program 单写者锁内分别执行 Daily preflight、保留有界 outcome，失败只形成对应 `FAILED` work 并继续处理后续队列。Program 启动先补做 rollover，再发布 active Home pending 与昨日 Session/MEMORY eligibility 提示；Home pending 由 Home service 根据真实 diff 和 `SKILL_MEMORY.md` 计算，Memory eligibility 由 Loop 定位昨日 archive、Session 递归投影 facts、Home 判断目标文件。Input parser/dispatcher 已支持 `/maintenance home`、`/maintenance memory [YYYY-MM-DD]`，Maintenance 指令在 active Turn 中仍进入 Program queue；App-owned `TerminalHomeDecisionBroker` 只在待确认时消费 `apply/discard/stop`，EOF 或 Program exit 会停止 pending review。App scheduler 使用进程内游标，以 `daily -> Home -> Memory` 顺序只投递当前日 typed event，不补跑停机期间更早 Maintenance；`TinySoulApp.run_once()` 不启动 source。自动已有 MEMORY 在 Session/LLM 前 skipped，人工命令保留同日重写能力。配置、纯调度时序、Program 独立失败、启动 eligibility、decision channel 和真实人工 Home apply 路径均有测试覆盖。
 
+### 阶段 6.1：Memory 模块拆分与 Context Background 提升
+
+status: pending
+
+优先级：P0
+
+依赖：阶段 2、阶段 4、阶段 5、阶段 6
+
+已确认语义：
+
+1. Memory 与 Home 平级，持久根固定为顶层 `memory/yyyy/mm/yyyy-mm-dd.md`；不建立 runtime copy、overlay 或 archive copy；
+2. Memory-owned Link 固定为 `memory:YYYY-MM-DD`；`<memory:YYYY-MM-DD>` 可出现在 Context 和 MEMORY 正文中，提示 Agent 通过 recall 召回，不内联正文；
+3. 不保留 `home:memory@...`、`home/memory/`、`[home.memory]` 或 Home search 中 MEMORY 条目的双读/别名；不实现自动或显式迁移操作；
+4. `tinysoul.memory` 独立拥有 Link/store、配置、search/recall、Background provider、Maintenance、consolidator、failure 与 Runtime bridge；
+5. Background 是 Context-owned 的通用 Phase1 容器；Home 与 Memory 只是 Link 命名空间不同的 provider，任一模块都不拥有整个 Background；
+6. 每个 User Turn 使用该 Turn 的 Business Day 自动加载精确昨日 MEMORY（如有），正文完整但受 Memory 文档上限约束，不回退更早日期；
+7. 昨日 entry 每 Turn 重建，在 Context 压力回收中可逐出；Home core 仍不可逐出；
+8. `memory.search(query, top_k)` 返回去重的日期 Link、日期、最相关时间段和有界摘要；`memory.recall(memory_link)` 返回完整但受上限约束的单日 Markdown；
+9. Search/recall 结果通过 ActionResult 进入当前 TurnTrace，不修改 Background；全部历史 Memory 不进入 `load_background` catalog；
+10. Memory Maintenance 仍只消费指定日期 Session facts projection 与可选同日旧 MEMORY，与 Home Maintenance 的触发、outcome 和失败独立。
+
+代码与配置实施顺序：
+
+1. 建立 `tinysoul/memory/` 门面与边界类型：`MemoryEngine`、严格 `MemoryLink`、store/layout、config/errors/failures 和 Runtime Memory bridge；
+2. 将现有 `tinysoul/home/memory.py` 与 `memory_consolidator.py` 的有效业务逻辑迁入 Memory 内部，保留三时间段、分层 consolidation、skip/rewrite 和原子替换语义；
+3. 把目标路径切换到 `memory/yyyy/mm/yyyy-mm-dd.md`，outcome 中的稳定 Link 切换到 `memory:YYYY-MM-DD`；
+4. 将现有 `[home.memory]` 的 consolidation 预算移到独立 `[memory]`，增加 Memory root、完整文档上限与 search 预算；删除 Home 对 Memory 配置和 Home `max_write_chars` 的依赖；
+5. 从 Home Link parser/layout/catalog/effective top search/mutation guard 中删除 `memory` space 与全部 MEMORY 特判；Home 只暴露一个只读 actual top-link catalog 协议供 Memory validator 使用；
+6. Memory validator 同时校验 actual Home 顶层 Link 与已存在跨日 Memory Link；拒绝目标日自引用、不存在 Link 和非法语法，继续用有界模型反馈重生成；
+7. 实现 Memory 文档解析与 `MemorySearchService`：以时间段为候选，按日期去重并选最相关段，复用现有 LLM task 边界建立 `memory_search` rerank/fallback；
+8. 实现精确 recall；为保证“完整但受限”，已存文档超限时显式失败，不分页或静默截断；
+9. 新增 `tinysoul/action/catalog/memory/` 与 `register_memory_actions`，实现 search/recall native executor；Action 层只负责参数边界和 ActionResult 映射；
+10. 将 Context 现有 Home-specific Background state/rendering/builder 提升为通用 provider 聚合，为 entry 保留 owner/source/evictable 语义，以 Link 唯一性保证多 provider 不冲突；
+11. 实现 `MemoryBackgroundEntryProvider`，将 Business Day 传入 preparation；缺失昨日正常省略，已存却损坏/超限经 Memory bridge 结束当前 Turn；
+12. 扩展 Context pressure recovery：先回收 Phase1 动态项，再回收自动昨日 Memory，不回收 Home core；
+13. AppBuilder 独立构建 MemoryEngine，注册 Memory actions/provider/bridge/reranker，并将 MemoryEngine 注入现有 `ProgramMaintenanceRunner`；Loop/App 不复制 eligibility 或 consolidation 流程；
+14. 删除 HomeEngine 中 Memory service/property、Home action catalog 中 MEMORY 搜索条目、旧配置、旧 tests/fixtures 假设和旧文件；不留 alias/adapter/deprecation branch；
+15. 更新 App 集成测试 root 隔离，必须同时隔离 actual Home、Home runtime、Memory、Session、Workspace 和 archive；
+16. 更新项目配置 include 与发布/初始化资产规划；空 Memory root 缺失是空 store，只有 Memory Maintenance 成功写入时创建 `memory/` 与年/月父目录，模块 import、builder、search/recall 不得隐式创建目录。
+
+失败语义：
+
+- 昨日文件缺失是正常 preparation 结果；存在却不可读/超限是 Memory 模块边界失败；
+- search 无匹配与 recall 目标不存在是局部 ActionResult；已发现 Memory 文档损坏时 search 整体失败，不返回不完整结果；
+- Maintenance 的 Session 缺失/为空、自动目标已存在和模型输出不合规仍用结构化 outcome；原子写、配置、store 或不变量失败经 Memory bridge 进入 Runtime；
+- 任何失败不创建半写文件，不改变旧目标，不回滚 Home 或其它 Program work。
+
+验收：
+
+- `tinysoul.home` 对 Memory Link/path/config/search/maintenance 零所有权，`tinysoul.memory` 成为唯一门面；
+- 代码、catalog、配置、文档和 tests 中不存在可执行的 `home:memory@...`、`home/memory` 或 `[home.memory]` 兼容路径；
+- 每 Turn 的昨日 Background 重建、缺失、损坏、上限与压力逐出均有测试；
+- search 按日期去重、时间段命中、候选限制、rerank validator/fallback 与有界 ActionResult 均有测试；
+- recall 的精确 Link、完整文档、not-found、超限与 TurnTrace-only 语义均有测试；
+- Memory Maintenance 的原 Stage 4/6 行为在新 root/Link/module 上全部回归，并新增 Home/Memory 交叉 Link 校验；
+- App 启动提示、scheduler 和人工 Memory 命令继续共享同一 runner，无网络 fake-provider 流程可产生 Memory 并在后续 Turn 通过昨日 Background 或 search/recall 可见。
+
 ### 阶段 7：恢复、观察与端到端加固
 
 status: pending
 
 优先级：P1
 
-依赖：阶段 5、阶段 6
+依赖：阶段 6.1
 
-实施前必须向用户确认：Stage 6 已确定三个 Program 级 normal 事件，但 Stage 7 的 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` 是否需要、各自精确事件名、level、触发点和 payload schema 仍未确认；E2E 中“后续 Turn 可见 MEMORY”是指通过 search/read 可发现，还是默认自动进入 Background 也未确认。未确认前不得在实现中自行选择。
+实施前仍必须向用户确认：Stage 6 已确定三个 Program 级 normal 事件，但 Stage 7 的 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` 是否需要、各自精确事件名、level、触发点和 payload schema 仍未确认。“后续 Turn 可见 MEMORY”已确认为两条路径：精确昨日 MEMORY 在每 Turn preparation 自动进入可逐出 Background；其它日期通过 `memory.search`/`memory.recall` 结果进入 TurnTrace。这一项不再是 Stage 7 待确认项。
 
 实施项：
 
 1. 补 Session move 后、Trash move、active init 后、journal 写失败、final rename 失败和连续跨日恢复；
 2. 断言所有 daily crash window 都不移动 Home；
 3. 补 Home actual write 后清理前、部分 apply/discard、SKILL_MEMORY 清理失败；
-4. 补 Memory 原子写前后中断；
+4. 补顶层 Memory 原子写前后中断，并断言 Home 不参与恢复；
 5. 发布 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` Observation；
 6. payload 只含 day、计数、link/digest 摘要和 outcome，不含正文/reasoning；
-7. 建立无网络 E2E：旧日 Turn -> daily archive -> 新日继续使用旧 Home overlay -> Home commit -> Memory 生成 -> 后续 Turn 可见。
+7. 建立无网络 E2E：旧日 Turn -> daily archive -> 新日继续使用旧 Home overlay -> Home commit -> Memory 生成 -> 后续 Turn 自动获得昨日 MEMORY -> 更早日期可经 search/recall 召回。
 
 ### 阶段 8：实际能力与发布闭环
 
@@ -591,7 +685,7 @@ status: pending
 
 优先级：P2
 
-依赖：核心生命周期完成
+依赖：阶段 7
 
 实施项：
 
@@ -606,21 +700,21 @@ status: pending
 
 继续遵守三层失败模型：
 
-1. 局部结果：无 Home diff、非法 reviewer decision、人工未确认、discard、Memory 输出不合规、目标 Session 不存在、search 无匹配；
-2. 模块边界异常：Home overlay/Session archive 损坏、路径不变量破坏、actual/MEMORY 无法原子写、effective catalog 无法解释；
+1. 局部结果：无 Home diff、非法 reviewer decision、人工未确认、discard、Memory 输出不合规、目标 Session 不存在、Home/Memory search 无匹配、Memory recall 目标不存在；
+2. 模块边界异常：Home overlay/Session archive/Memory 文档损坏、路径不变量破坏、actual Home/MEMORY 无法原子写、effective catalog 或 Memory store 无法解释；
 3. Runtime 语义异常：启动失败、结束 User/Maintenance Turn、结束 Program，以及已有 runtime copy/context pressure/workspace restore 恢复原因。
 
 Daily rollover failure 阻止新日 Program work。Home/Memory Maintenance failure 只结束对应 Maintenance work，不新增普通步骤 Runtime reason，不伪装为 User Turn answer，也不回滚另一项任务。
 
 ## 代码组织约束
 
-- `AgentHomeEngine` 是 Home 单一门面；reviewer/consolidator 是 Home-owned 服务；
+- `AgentHomeEngine` 是 Home 单一门面，只拥有 Home reviewer；`MemoryEngine` 是 Memory 单一门面，拥有 store/search/recall/consolidator；
 - `HomeOverlayManager` 只管理 active overlay 与 operation recovery；
-- `actions.py` 只适配普通 User Turn mutation，不执行 Maintenance；
+- 各模块 `actions.py` 只适配普通 User Turn mutation/search/recall，不执行 Maintenance；
 - Loop runner 只调用门面，不解析 overlay/Session JSON；
 - AppBuilder 只装配，terminal/scheduler 只发送 event；
 - 所有 LLM output、TOML/JSON、日期和外部输入在边界转成明确类型；
-- 不引入 Home archive、Settlement alias、空 registry、双写或第二套 apply 流程；
+- 不引入 Home archive、Settlement alias、空 registry、Memory 旧路径兼容/双读、双写或第二套 apply 流程；
 - 文本、diff、Observation、failure 和输出必须有界；
 - 仅在职责和生命周期真实独立时新增模块，不因文件行数机械拆分。
 
@@ -630,7 +724,7 @@ Daily rollover failure 阻止新日 Program work。Home/Memory Maintenance failu
 - Daily rollover 使用 journal 前滚；Home/Memory Maintenance 不持久化执行过程；
 - Home 不保留决策审计历史，已处理 diff 从 active overlay 消失；
 - archive 的 Session/Workspace/Trash 是历史事实，Home 没有 archive；
-- Memory 自动提示只看昨日，跳过不保存状态；
+- Memory 自动提示与自动 Background 都只看精确昨日，跳过/缺失不保存状态，不回退更早日期；
 - 首个 semantic search 不引入向量数据库；
 - 不实现多用户、HTTP/WebSocket、企业调度、流式输出或跨设备同步；
 - Background Agent 必须通过 Program Maintenance work，不是绕过 Loop 的独立脚本。
@@ -654,6 +748,10 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 - prompt mount catalog 自动生命周期；
 - SKILL_MEMORY 仅通用 HOW 存在，并在 Home Maintenance 后清空；
 - Home apply/discard/部分中断通过 active diff 重算；
+- Home 不再接受 `memory` space，Memory 独立 root/config/Link/module 不存在旧路径别名；
+- Context-owned Background 可聚合 Home core 与可逐出昨日 Memory，每 Turn 重建且不回退更早日期；
+- `memory.search` 只返回日期 Link/时间段/有界摘要，`memory.recall` 返回完整有界单日 Markdown，两者只进入 TurnTrace；
+- `<memory:YYYY-MM-DD>` 可提示跨日 recall，Memory Maintenance 验证所有引用的 Home/Memory Link 存在性；
 - Memory 只读取指定日期 Session 与可选同日旧 MEMORY；
 - 昨日提示不扫描更早日期；
 - Home/Memory Maintenance 独立失败；

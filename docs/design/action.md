@@ -8,6 +8,8 @@ Action 不负责构造基础语境，不负责模型供应商适配，不负责�
 
 Action 的核心职责是把“可选择的域”和“可执行的动作”组织成稳定的 catalog，并把 Phase1 / Phase2 / Phase3 的行为切成清晰的边界。
 
+Stage 6.1 已确认新增 Memory-owned `memory.search`/`memory.recall` native action 与 Memory domain。本文按目标 Action 边界记录该协作；当前 catalog/registrar 尚未实施，不应将文中的 Memory 目录视为已落地文件。
+
 ## 设计目标
 
 1. Phase1 只选择域，不暴露全部 action 细节。
@@ -210,6 +212,8 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
+`memory.search` 与 `memory.recall` 是 Memory-owned native action。Search executor 调用 Memory 的确定性候选/专用 reranker 服务，recall executor 只通过 `MemoryEngine` 解析精确 `memory:YYYY-MM-DD` 并有界读取完整单日 Markdown。两者的 `ActionResult` 都由 Context 写入当前 TurnTraceHeap，不修改 Background。`<memory:YYYY-MM-DD>` 是提示模型调用 recall 的资源引用，Action 模块本身不解析其日期或文件路径。
+
 Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
 嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，不是通用推理 action；它们使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文，并生成完整写入文本。
@@ -222,7 +226,7 @@ Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide 
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 
-Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home 与 Loop 只从顶层包引用这些协作类型；`action.core` 散件继续只服务于 Action 内部实现与底层单元测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
+Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home、Memory 与 Loop 只从顶层包引用这些协作类型；`action.core` 散件继续只服务于 Action 内部实现与底层单元测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
@@ -289,6 +293,9 @@ tinysoul/action/
     home/
       domain.toml
       actions/*.toml
+    memory/
+      domain.toml
+      actions/*.toml
     script/
       domain.toml
     shell/
@@ -298,6 +305,9 @@ tinysoul/workspace/
   actions.py
 
 tinysoul/home/
+  actions.py
+
+tinysoul/memory/
   actions.py
 
 tinysoul/capabilities/
@@ -323,9 +333,9 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 
 ### Python executor 与业务归属
 
-`tinysoul/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
+`tinysoul/action/backends` 只放通用执行机制，不放具体业务动作。`tinysoul/action/builtins` 只放 Action 模块自己拥有的内置动作实现，例如 `core.reason` 与 `core.answer`。Workspace、Agent Home、Memory 等有独立业务模型、链接语义、持久化或 runtime/trap 生命周期的模块，Action 集成保留在所属模块的 `actions.py` 中，并通过 registrar 注册到 `ActionEngineBuilder`。
 
-`actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
+`actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
 轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力放在 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。
 

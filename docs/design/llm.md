@@ -178,7 +178,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 
-内置 `memory_maintenance` profile 服务于 Home-owned Memory consolidator：禁用工具、要求 JSON object、使用较低 temperature，并为分层 reduce 和最终三段式 Markdown body 保留明确输出预算。中间 reduce 只接受精确 `content` 字段，最终输出只接受 `morning`、`afternoon`、`evening`；Home validator 负责文档大小、结构和 actual 顶层 Link 存在性。业务校验失败可以作为有界 feedback 重新执行最终生成，但不会持久化模型输出、reasoning 或候选状态。
+内置 `memory_maintenance` profile 服务于 Memory-owned consolidator：禁用工具、要求 JSON object、使用较低 temperature，并为分层 reduce 和最终三段式 Markdown body 保留明确输出预算。中间 reduce 只接受精确 `content` 字段，最终输出只接受 `morning`、`afternoon`、`evening`；Memory validator 负责文档大小、结构和 Home/Memory Link 存在性。业务校验失败可以作为有界 feedback 重新执行最终生成，但不会持久化模型输出、reasoning 或候选状态。独立 `memory_search` profile 可仅对 Memory 模块交付的有界候选重排；非法结果由 Memory 回退确定性候选，LLM 模块不解析 `memory:` Link。
 
 单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型对通用参数存在固定要求时，该要求可以放入模型额外选项中的通用请求覆盖，并在最终请求阶段解释和覆盖。
 
