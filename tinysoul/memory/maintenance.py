@@ -246,11 +246,13 @@ class MemoryMaintenanceService:
         return self._store.exists(_link_for_day(day))
 
     def eligible(self, projection: SessionMemoryFactsProjection | None) -> bool:
-        return (
-            projection is not None
-            and projection.has_facts
-            and not self.memory_exists(projection.day)
-        )
+        if projection is None or not projection.has_facts:
+            return False
+        link = _link_for_day(projection.day)
+        if not self._store.exists(link):
+            return True
+        self._store.read(link)
+        return False
 
     def run(
         self,
@@ -413,6 +415,8 @@ class MemoryMaintenanceService:
 
 _HOME_AUTOLINK = re.compile(r"<(home:[^<>\r\n]+)>")
 _MEMORY_AUTOLINK = re.compile(r"<(memory:[^<>\r\n]+)>")
+_ATX_LEVEL_ONE = re.compile(r"^ {0,3}#(?:[ \t]+|$)")
+_SETEXT_LEVEL_ONE = re.compile(r"^ {0,3}=+[ \t]*$")
 
 
 def render_memory_document(day: BusinessDay, body: str) -> str:
@@ -437,7 +441,7 @@ def validate_memory_body(
             "Memory output cannot discard all non-empty Session facts",
         )
     errors: list[str] = []
-    if any(line.startswith("# ") for line in body.splitlines()):
+    if _contains_level_one_heading(body):
         errors.append("Memory body contains a framework-owned level-1 heading")
     remaining = _MEMORY_AUTOLINK.sub("", _HOME_AUTOLINK.sub("", body))
     if "home:" in remaining:
@@ -509,6 +513,20 @@ def _source_link_hints(
             used += added
             (home if owner == "home" else memory).append(value)
     return tuple(home), tuple(memory)
+
+
+def _contains_level_one_heading(body: str) -> bool:
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if _ATX_LEVEL_ONE.match(line):
+            return True
+        if (
+            index > 0
+            and lines[index - 1].strip()
+            and _SETEXT_LEVEL_ONE.match(line)
+        ):
+            return True
+    return False
 
 
 def _validate_fact_day(

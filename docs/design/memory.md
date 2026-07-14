@@ -68,7 +68,7 @@ Memory 通过 Home 注入的只读顶层 Link catalog 校验 Home Link，通过�
 自由结构的单日记忆正文
 ```
 
-正文可以按主题、时间顺序、事项或自然段组织，可以使用 H2 及以下标题，但不得再生成 H1。新正文必须非空，最终文档必须在 Memory 配置的总长度上限内；超限不以静默截断伪装成完整记忆。
+正文可以按主题、时间顺序、事项或自然段组织，可以使用 H2 及以下标题，但不得再生成普通或带 Markdown 合法前导空格的 ATX H1，也不得生成 Setext H1。新正文必须非空，最终文档必须在 Memory 配置的总长度上限内；超限不以静默截断伪装成完整记忆。
 
 Memory 文档是日期事实的长期提炼，不保存 raw trace、reasoning、provider payload、Session store 路径或 Maintenance 中间候选。
 

@@ -698,7 +698,7 @@ status: done
 
 实施结果：删除 `MemoryPeriod`、`MemorySections`、固定章节 parser 和 period candidate，Memory store 现将任意结构但非空、可读、上限内的 UTF-8 Markdown 作为合法旧文档。Maintenance 以按时间稳定的 Session facts 和可选同日旧正文构造统一 sources，分层 reduce 后只接收 `content`，框架确定性增加日期 H1；新输出继续校验 H1 所有权、Home/Memory Link、长度和非空。配置新增 `memory.maintenance.link_hints_max_chars`，完整 Link catalog 只保留给本地 validator，模型只接收 source-derived 有效 hints 和有界 feedback。
 
-Search 改为完整 store 流式扫描、每日期一个 candidate，并只在内存保留 `candidate_limit` 个最佳日期；reranker candidate id 直接使用 `memory:YYYY-MM-DD`，ActionResult 不再包含 period。自动 Program work 通过 `MemoryEngine.read_day` 验证已有目标后才在 Session 前 skipped；人工重写接受任意旧 Markdown。真实 search/recall executor 已通过 Phase3/TurnTrace 集成测试，App root 隔离增加 Memory 断言；Context abort 同时清理 Background/provider catalog/session，未使用的 empty provider 已删除。全量 pytest 与 ty 均通过。
+Search 改为完整 store 流式扫描、每日期一个 candidate，并只在内存保留 `candidate_limit` 个最佳日期；reranker candidate id 直接使用 `memory:YYYY-MM-DD`，ActionResult 不再包含 period。自动 Program work 通过 `MemoryEngine.read_day` 验证已有目标后才在 Session 前 skipped；模块自身的 `maintenance_eligible()` 也会读取验证已存在目标，不能把空文件、非 UTF-8 或超限误判为“无需处理”。人工重写接受任意旧 Markdown。新正文 validator 同时拒绝普通或最多三个前导空格的 ATX H1，以及 Setext H1，保持日期 H1 只由框架拥有。真实 search/recall executor 已通过 Phase3/TurnTrace 集成测试，App root 隔离增加 Memory 断言；Context abort 同时清理 Background/provider catalog/session，未使用的 empty provider 已删除。全量 pytest 与 ty 均通过。
 
 ### 阶段 7：恢复、观察与端到端加固
 

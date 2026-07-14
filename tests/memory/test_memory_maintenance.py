@@ -154,6 +154,8 @@ def test_automatic_memory_maintenance_validates_then_skips_existing_target(
 
     target.write_text("   \n", encoding="utf-8")
     with pytest.raises(MemoryInvariantError, match="empty"):
+        memory.maintenance_eligible(_projection(_fact("new session fact", 9)))
+    with pytest.raises(MemoryInvariantError, match="empty"):
         memory.run_maintenance(
             projection=_projection(_fact("new session fact", 9)),
             consolidator=consolidator,
@@ -249,6 +251,8 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
 
     invalid_bodies = (
         "# duplicate date heading\n\n- invalid",
+        "   # indented duplicate heading\n\n- invalid",
+        "Setext duplicate heading\n===\n\n- invalid",
         "- invalid <memory:2026-07-12>",
         "- invalid <memory:2026-07-10>",
     )
