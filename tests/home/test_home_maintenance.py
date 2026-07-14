@@ -119,6 +119,48 @@ def test_copied_record_cleanup_follows_external_actual_deletion(tmp_path: Path) 
     assert _overlay_records(tmp_path) == []
 
 
+def test_home_maintenance_pending_only_counts_real_diffs_and_skill_memory(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "home" / "why" / "copied.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("unchanged", encoding="utf-8")
+    skill = tmp_path / "home" / "how" / "refactor" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Refactor\n", encoding="utf-8")
+    home = _home(tmp_path)
+    home.ensure_runtime_copy(home.parse_link("home:why@copied"))
+
+    assert home.maintenance_pending().pending is False
+
+    home.write_top("home:why@changed", "runtime only")
+    home.write_resource(
+        "home:how/refactor/SKILL_MEMORY.md",
+        "temporary review context",
+    )
+
+    pending = home.maintenance_pending()
+
+    assert pending.pending is True
+    assert pending.change_count == 1
+    assert pending.skill_memory_count == 1
+
+
+def test_home_maintenance_pending_ignores_consistent_residual_record(
+    tmp_path: Path,
+) -> None:
+    home = _home(tmp_path)
+    home.write_top("home:why@recover", "same bytes")
+    actual = tmp_path / "home" / "why" / "recover.md"
+    actual.parent.mkdir(parents=True, exist_ok=True)
+    actual.write_text("same bytes", encoding="utf-8")
+
+    pending = home.maintenance_pending()
+
+    assert pending.pending is False
+    assert pending.change_count == 0
+
+
 def test_skill_memory_is_review_context_and_clears_after_skill_review(
     tmp_path: Path,
 ) -> None:

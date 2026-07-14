@@ -4,7 +4,7 @@
 
 本文描述 Agent Home 模块的当前设计。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、domain/action HOW、年月 MEMORY actual-read、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home；Memory Maintenance 已消费指定日期 Session facts projection 和可选同日期旧 MEMORY，生成三段式日期文档。Program/App 调度入口仍未实现。
+非 MEMORY 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`；MEMORY 始终读取 actual Home，不进入 overlay。Context 在每个 User Turn 开始时清空 Home Background，再由动态 provider 从 effective Home 重建默认项，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home；Memory Maintenance 已消费指定日期 Session facts projection 和可选同日期旧 MEMORY，生成三段式日期文档。Program/App 已接入启动提示、人工命令/decision channel 和内置 scheduler，所有入口共享同一 Home service。
 
 ## 定位
 
@@ -224,7 +224,7 @@ Home Maintenance 的输入只包括当前 active `runtime/home`、actual Home，
 
 Home Maintenance 与 User Turn 由 Program 单写者边界串行化，因而 review/apply 期间不会出现新的 runtime mutation。未触发或人工跳过 Home Maintenance 时，active overlay 原样跨 Turn、跨日、跨重启保留，Agent 继续透明读取和修改同一 effective Home。`SKILL_MEMORY.md` 同样保留到下一次 Home Maintenance。
 
-当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。Home 服务返回有界 outcome；Program work、Observation、终端逐项输入与 scheduler 尚未装配。
+当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。`maintenance_pending()` 只报告 current actual 与 runtime 仍有真实差异的 created/modified/deleted 和有效 `SKILL_MEMORY.md`，不把纯 copied 或 actual 已一致的恢复残留作为启动提示。Program work、最小 normal Observation、终端逐项输入与 scheduler 已装配；Home 仍不拥有 stdin、时钟或触发策略。
 
 overlay cleanup 不保存 review decision。copied record 若遇到 actual 外部变化，先把 runtime 对齐 current actual 或形成 current deletion，再清除 record，旧副本永不写回。created/modified 的 runtime digest 已等于 current actual、或 deleted 对应 actual 已不存在时，Maintenance 直接清理，覆盖“actual 原子写完成但 runtime 清理中断”的恢复窗口。discard 清理若中断，未清除的 runtime diff 可以在下一次重新 review。
 
@@ -240,7 +240,7 @@ Turn 以首个 UserInput 的时间为开始时间，并按业务时区确定性�
 
 `home.memory.chunk_max_chars` 限制单个 reduce 输入块，`source_max_chars` 限制本次 Session facts 与旧 MEMORY 的总源字符，`max_calls` 限制完整分层 consolidation 的模型调用数，`validation_retries` 限制最终文档业务校验反馈次数；完整渲染结果继续受 Home `max_write_chars` 限制。所有限制在模块边界转成明确整数配置，未知键或无效组合在启动期失败。
 
-目标文件不存在时，只根据该日期 Session 生成完整 MEMORY；目标文件已经存在时，同时读取同日期旧 MEMORY 与同日期 Session，重新生成完整文档并原子覆盖。正文中的 Home Link 必须使用 `<home:space@name>`，只允许引用当前 actual Home 中已经存在的顶层内容；非法、非顶层或不存在的 Link 由 Home validator 形成有界模型反馈，重试耗尽后本次失败。它不读取其它日期 MEMORY、active Home diff、Workspace 或 `SKILL_MEMORY.md`，不创建 runtime MEMORY，也不执行 append。
+目标文件不存在时，只根据该日期 Session 生成完整 MEMORY；人工重写允许目标文件已经存在，此时同时读取同日期旧 MEMORY 与同日期 Session，重新生成完整文档并原子覆盖。自动 Program work 若目标 MEMORY 已存在则在 Session projection 和模型调用前 skipped；Home service 以明确的 `rewrite_existing` 边界表达两种调用意图，不根据调用来源猜测。正文中的 Home Link 必须使用 `<home:space@name>`，只允许引用当前 actual Home 中已经存在的顶层内容；非法、非顶层或不存在的 Link 由 Home validator 形成有界模型反馈，重试耗尽后本次失败。它不读取其它日期 MEMORY、active Home diff、Workspace 或 `SKILL_MEMORY.md`，不创建 runtime MEMORY，也不执行 append。
 
 Session archive 不存在时 outcome 为 `skipped/session_not_found`；projection 不含 Turn facts 时为 `skipped/session_empty`。两者都不创建、不覆盖也不删除目标文件。其它 consolidation/validator 失败同样在原子写之前结束；实际文件 I/O 失败属于 Home 模块边界异常。成功 outcome 只携带 day、稳定 Link、fact/model-call 计数和文档 digest，不携带正文或 reasoning。
 
@@ -329,4 +329,4 @@ AppBuilder 的目标职责是：
 - Memory Maintenance 从指定日期 Session 和可选同日旧 MEMORY 原子重写固定日期文件；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-仍需补充的验收点是 Home/Memory 的 scheduler、启动和人工调度。
+Stage 6 已覆盖 Home/Memory 的 scheduler、启动提示和人工 Home apply 路径。后续验收只补 Home/Memory 原子写与部分清理 crash window、确认后的细粒度 Observation，以及跨 daily/Home/Memory 的完整无网络 E2E。

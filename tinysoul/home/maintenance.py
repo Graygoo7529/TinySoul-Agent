@@ -216,6 +216,25 @@ class HomeMaintenanceItemOutcome:
 
 
 @dataclass(frozen=True)
+class HomeMaintenancePending:
+    """Non-persisted startup eligibility for active Home maintenance work."""
+
+    change_count: int = 0
+    skill_memory_count: int = 0
+
+    def __post_init__(self) -> None:
+        for value in (self.change_count, self.skill_memory_count):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise AgentHomeContractError(
+                    "Home maintenance pending counts must be non-negative integers"
+                )
+
+    @property
+    def pending(self) -> bool:
+        return self.change_count > 0 or self.skill_memory_count > 0
+
+
+@dataclass(frozen=True)
 class HomeMaintenanceOutcome:
     """Bounded, non-persisted result of one Home Maintenance run."""
 
@@ -461,6 +480,19 @@ class HomeMaintenanceService:
                 consistent_cleaned=consistent_cleaned,
                 skill_memories_cleared=cleared_memories,
                 remaining_changes=len(self._reviewable_records()),
+            )
+
+    def pending(self) -> HomeMaintenancePending:
+        """Report actual review work without cleaning or mutating the overlay."""
+
+        with self._lock:
+            changes = len(self._reviewable_records())
+            return HomeMaintenancePending(
+                change_count=changes,
+                skill_memory_count=sum(
+                    record.state is not HomeOverlayState.DELETED
+                    for record in self._skill_memories().values()
+                ),
             )
 
     def _clean_deterministic_records(self) -> tuple[int, int]:

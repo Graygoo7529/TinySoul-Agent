@@ -126,7 +126,7 @@ def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
         .build()
     )
 
-    with pytest.raises(AppInvariantError, match="Failed to stop input sources"):
+    with pytest.raises(AppInvariantError, match="Failed to stop app sources"):
         app.run()
 
     assert failing.stopped == 1

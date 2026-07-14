@@ -27,7 +27,9 @@ from tinysoul.home import (
     HomeActionHowProvider,
     HomeBackgroundEntryProvider,
     HomeDomainHowProvider,
+    LLMHomeMaintenanceReviewer,
     LLMHomeSearchReranker,
+    LLMMemoryConsolidator,
     parse_agent_home_settings,
     register_home_actions,
 )
@@ -47,6 +49,7 @@ from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.loop.program import ProgramRunner
+from tinysoul.loop.maintenance import ProgramMaintenanceRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
@@ -104,9 +107,10 @@ from tinysoul.workspace.errors import WorkspaceError
 from .config import AppSettings, parse_app_settings
 from .errors import AppError
 from .inputs import InputCommandParser, InputDispatcher, InputSource
+from .maintenance import TerminalHomeDecisionBroker
 from .outputs import ConsoleOutputSink, ObservationRouter, OutputSink
 from .runtime import TinySoulApp
-from .sources import TerminalInputSource
+from .sources import MaintenanceScheduler, TerminalInputSource
 
 
 class TinySoulAppBuilder:
@@ -376,15 +380,29 @@ class TinySoulAppBuilder:
                 ),
                 observations=observations,
             )
+            daily_lifecycle = DailyLifecycleCoordinator(
+                archive_root=loop_settings.daily.archive_root,
+                session=session,
+                workspace=workspace,
+            )
+            decision_broker = TerminalHomeDecisionBroker(
+                observations=observations,
+            )
+            maintenance_runner = ProgramMaintenanceRunner(
+                home=home,
+                session=session,
+                daily_lifecycle=daily_lifecycle,
+                timezone=loop_settings.daily.timezone,
+                automatic_home_reviewer=LLMHomeMaintenanceReviewer(llm),
+                memory_consolidator=LLMMemoryConsolidator(llm),
+                manual_home_decisions=decision_broker,
+            )
             program_runner = ProgramRunner(
                 turn_runner=turn_runner,
                 bus=bus,
                 trap=trap,
-                daily_lifecycle=DailyLifecycleCoordinator(
-                    archive_root=loop_settings.daily.archive_root,
-                    session=session,
-                    workspace=workspace,
-                ),
+                daily_lifecycle=daily_lifecycle,
+                maintenance_runner=maintenance_runner,
                 retained_outcomes=app_settings.retained_turn_outcomes,
                 business_clock=IanaBusinessClock(loop_settings.daily.timezone),
                 loop_bridge=loop_bridge,
@@ -396,6 +414,9 @@ class TinySoulAppBuilder:
                 bus=bus,
                 program_inputs=program_runner.input_queue,
                 active_turn_scope=lambda: turn_runner.active_scope,
+                decision_router=decision_broker,
+                observations=observations,
+                program_scope=program_runner.scope,
             )
             input_sources = tuple(self._input_sources)
             if not input_sources and app_settings.interactive:
@@ -404,10 +425,21 @@ class TinySoulAppBuilder:
                         eof_command=app_settings.input_commands.exit_commands[0],
                     ),
                 )
+            program_event_sources = (
+                (
+                    MaintenanceScheduler(
+                        app_settings.scheduler,
+                        timezone=loop_settings.daily.timezone,
+                    ),
+                )
+                if app_settings.scheduler.enabled
+                else ()
+            )
             return TinySoulApp(
                 program_runner=program_runner,
                 input_dispatcher=dispatcher,
                 input_sources=input_sources,
+                program_event_sources=program_event_sources,
                 observations=observations,
             )
         except ConfigError as exc:

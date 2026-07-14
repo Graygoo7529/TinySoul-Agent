@@ -1,7 +1,13 @@
 """TinySoul application assembly layer."""
 
 from .builder import TinySoulAppBuilder
-from .config import AppSettings, InputCommandSettings, OutputSettings, parse_app_settings
+from .config import (
+    AppSettings,
+    InputCommandSettings,
+    OutputSettings,
+    SchedulerSettings,
+    parse_app_settings,
+)
 from .errors import AppContractError, AppError, AppInvariantError, AppOutputError
 from .failures import AppFailureKind
 from .inputs import (
@@ -14,8 +20,9 @@ from .inputs import (
     InputSource,
 )
 from .outputs import ConsoleOutputSink, ObservationRouter, OutputSink
+from .maintenance import TerminalHomeDecisionBroker
 from .runtime import TinySoulApp
-from .sources import TerminalInputSource
+from .sources import MaintenanceSchedule, MaintenanceScheduler, TerminalInputSource
 
 __all__ = [
     "AppContractError",
@@ -37,6 +44,10 @@ __all__ = [
     "OutputSettings",
     "OutputSink",
     "TerminalInputSource",
+    "TerminalHomeDecisionBroker",
+    "MaintenanceSchedule",
+    "MaintenanceScheduler",
+    "SchedulerSettings",
     "TinySoulApp",
     "TinySoulAppBuilder",
     "parse_app_settings",

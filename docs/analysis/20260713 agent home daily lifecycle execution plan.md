@@ -57,11 +57,11 @@ Memory 生命周期
 | LLM | done for current Home tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 6 只复用现有 Home task，不新增持久状态。 |
 | Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、top/prompt mount catalog 与 executor、只读 catalog identities | Maintenance 不作为普通 Action。 |
 | Context | done for User Turn | MessageStack、Background/Working/Trace、信号批次和压力恢复 | 保持每 Turn 重建 Home Background；不持有 Maintenance 状态。 |
-| Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Program 尚未按日期定位并调用 projection。 |
+| Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Stage 6 已通过 Loop Maintenance runner 按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | in_progress | User Turn、显式 BusinessDay、只含 Session/Workspace/Trash 的可恢复 rollover、Session archive 定位 | 增加两个独立 Maintenance work、scheduler 与启动提醒。 |
-| Agent Home | in_progress | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance、三段式 Memory Maintenance | 由 Stage 6 接入两个 Maintenance Program work。 |
-| App | in_progress | Builder、CLI、输入分发、输出路由 | 增加启动 rollover/reminder、typed Maintenance command 和内置 scheduler。 |
+| Loop | done for Stage 6 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder 编排 | Stage 7 再补已确认后的细粒度 Observation 与 crash-window 加固。 |
+| Agent Home | done for lifecycle scope | Link、动态 effective Background、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、effective top search、无持久状态 Home Maintenance、三段式 Memory Maintenance、pending facts | Stage 7 再补原子写和部分清理中断覆盖。 |
+| App | done for Stage 6 scope | Builder、CLI、输入分发、输出路由、Maintenance command/decision channel、启动提示与内置 scheduler | Stage 7 再补确认后的完整无网络 E2E。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
@@ -529,7 +529,7 @@ status: done
 
 ### 阶段 6：Program、App 与 Scheduler
 
-status: pending
+status: done
 
 优先级：P1
 
@@ -543,7 +543,10 @@ status: pending
 4. 人工 decision channel 仅在存在关联确认请求时消费精确 `apply`、`discard`、`stop`；其它输入留在 Program queue。EOF 先停止当前人工 Home Maintenance，再请求 Program 退出；
 5. 启动先补做 daily rollover，再非阻塞检查并提示 active Home diff，以及昨日存在非空 Session facts 但缺少 MEMORY；普通 User 输入等同于暂不执行提示任务，不保存 skip 状态；
 6. 日界由业务时区午夜决定；漏掉的 daily rollover 在启动补做。Maintenance 不自动追补更早日期，Home overlay 原样保留，Memory 自动提示只看昨日；
-7. scheduler 的 Home/Memory 具体默认时刻仍需在 Stage 6 scheduler 实现前确认，不能在代码中写入未经确认的隐藏默认值。
+7. scheduler 随长运行 `TinySoulApp.run()` 启用，不随 `run_once` 启用；业务时区午夜投递 daily rollover，默认 `00:05` 投递 Home Maintenance，默认 `00:15` 投递目标为昨日的 Memory Maintenance；时刻由 `app.scheduler` 显式配置；
+8. Home 启动 pending 只统计 current actual 与 runtime 仍有真实差异的 created/modified/deleted 和尚存在的通用 HOW `SKILL_MEMORY.md`，不统计纯 copied 或 actual 已一致的恢复残留；
+9. 自动 Memory Maintenance 在目标 MEMORY 已存在时直接 skipped，不读取 Session、不调用模型；人工 Memory Maintenance 允许结合同日期旧 MEMORY 与 Session 重写；无日期人工命令默认昨日；
+10. Stage 6 最小 normal 事件固定为 `program.maintenance.available`、`program.work.completed`、`program.work.failed`。
 
 实施项：
 
@@ -560,6 +563,8 @@ status: pending
 
 验收：启动、日界、后台和人工触发都不复制业务流程；Home/Memory 任一失败不影响另一项或 User Turn 历史。
 
+实施结果：新增 `ProgramWorkKind/Mode/Status/Outcome` 与独立 `ProgramMaintenanceRunner`，Home 和 Memory work 在 Program 单写者锁内分别执行 Daily preflight、保留有界 outcome，失败只形成对应 `FAILED` work 并继续处理后续队列。Program 启动先补做 rollover，再发布 active Home pending 与昨日 Session/MEMORY eligibility 提示；Home pending 由 Home service 根据真实 diff 和 `SKILL_MEMORY.md` 计算，Memory eligibility 由 Loop 定位昨日 archive、Session 递归投影 facts、Home 判断目标文件。Input parser/dispatcher 已支持 `/maintenance home`、`/maintenance memory [YYYY-MM-DD]`，Maintenance 指令在 active Turn 中仍进入 Program queue；App-owned `TerminalHomeDecisionBroker` 只在待确认时消费 `apply/discard/stop`，EOF 或 Program exit 会停止 pending review。App scheduler 使用进程内游标，以 `daily -> Home -> Memory` 顺序只投递当前日 typed event，不补跑停机期间更早 Maintenance；`TinySoulApp.run_once()` 不启动 source。自动已有 MEMORY 在 Session/LLM 前 skipped，人工命令保留同日重写能力。配置、纯调度时序、Program 独立失败、启动 eligibility、decision channel 和真实人工 Home apply 路径均有测试覆盖。
+
 ### 阶段 7：恢复、观察与端到端加固
 
 status: pending
@@ -568,7 +573,7 @@ status: pending
 
 依赖：阶段 5、阶段 6
 
-实施前必须向用户确认：Observation 的精确事件名、level、触发点和 payload schema；E2E 中“后续 Turn 可见 MEMORY”是指通过 search/read 可发现，还是默认自动进入 Background。未确认前不得在实现中自行选择。
+实施前必须向用户确认：Stage 6 已确定三个 Program 级 normal 事件，但 Stage 7 的 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` 是否需要、各自精确事件名、level、触发点和 payload schema 仍未确认；E2E 中“后续 Turn 可见 MEMORY”是指通过 search/read 可发现，还是默认自动进入 Background 也未确认。未确认前不得在实现中自行选择。
 
 实施项：
 

@@ -145,6 +145,34 @@ def test_existing_same_day_memory_is_a_period_source_and_is_rewritten(
     )
 
 
+def test_automatic_memory_maintenance_skips_existing_target_without_model_call(
+    tmp_path: Path,
+) -> None:
+    home = _home(tmp_path)
+    target = _target(tmp_path)
+    target.parent.mkdir(parents=True)
+    existing = render_memory_document(
+        DAY,
+        MemorySections(morning="- existing memory"),
+    )
+    target.write_text(existing, encoding="utf-8")
+    consolidator = _CapturingConsolidator(
+        MemorySections(morning="- must not replace")
+    )
+
+    outcome = home.run_memory_maintenance(
+        projection=_projection(_fact("new session fact", 9)),
+        consolidator=consolidator,
+        timezone="Asia/Shanghai",
+        rewrite_existing=False,
+    )
+
+    assert outcome.status is MemoryMaintenanceStatus.SKIPPED
+    assert outcome.skip_reason is MemoryMaintenanceSkipReason.MEMORY_EXISTS
+    assert consolidator.requests == []
+    assert target.read_text(encoding="utf-8") == existing
+
+
 def test_llm_consolidator_hierarchically_reduces_and_retries_missing_home_link(
     tmp_path: Path,
 ) -> None:

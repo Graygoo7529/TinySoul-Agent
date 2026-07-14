@@ -41,6 +41,12 @@ from .preparation import (
     TurnPreparationPipeline,
     TurnPreparationRequest,
 )
+from .work import (
+    ProgramWorkKind,
+    ProgramWorkMode,
+    ProgramWorkOutcome,
+    ProgramWorkStatus,
+)
 
 if TYPE_CHECKING:
     from .cycle import CycleOutcome, CycleRunner
@@ -84,6 +90,10 @@ __all__ = [
     "ProgramInputKind",
     "ProgramOutcome",
     "ProgramRunner",
+    "ProgramWorkKind",
+    "ProgramWorkMode",
+    "ProgramWorkOutcome",
+    "ProgramWorkStatus",
     "SIGNAL_CONTROL_REQUEST",
     "SIGNAL_TURN_OUTPUT",
     "SIGNAL_NAMESPACE",

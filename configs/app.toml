@@ -7,3 +7,8 @@ retained_turn_outcomes = 32
 [app.output]
 mode = "normal"
 model_max_chars = 20000
+
+[app.scheduler]
+enabled = true
+home_maintenance_time = "00:05"
+memory_maintenance_time = "00:15"

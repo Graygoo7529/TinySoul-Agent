@@ -49,6 +49,7 @@ class MemoryMaintenanceSkipReason(StrEnum):
 
     SESSION_NOT_FOUND = "session_not_found"
     SESSION_EMPTY = "session_empty"
+    MEMORY_EXISTS = "memory_exists"
 
 
 class MemoryMaintenanceFailure(StrEnum):
@@ -304,6 +305,7 @@ class MemoryMaintenanceService:
         consolidator: MemoryConsolidator | None,
         timezone: str,
         target_day: BusinessDay | None = None,
+        rewrite_existing: bool = True,
         scope: RunScope | None = None,
     ) -> MemoryMaintenanceOutcome:
         with self._lock:
@@ -324,6 +326,12 @@ class MemoryMaintenanceService:
             day = projection.day
             if not projection.has_facts:
                 return _skipped(day, MemoryMaintenanceSkipReason.SESSION_EMPTY)
+            if not isinstance(rewrite_existing, bool):
+                raise AgentHomeContractError(
+                    "Memory rewrite_existing must be a boolean"
+                )
+            if not rewrite_existing and self.memory_exists(day):
+                return _skipped(day, MemoryMaintenanceSkipReason.MEMORY_EXISTS)
             if consolidator is None:
                 raise AgentHomeContractError(
                     "Non-empty Memory Maintenance requires a consolidator"

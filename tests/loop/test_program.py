@@ -11,11 +11,16 @@ from tinysoul.loop import (
     DailyLifecycleCoordinator,
     ProgramInputEvent,
     ProgramRunner,
+    ProgramWorkKind,
+    ProgramWorkMode,
+    ProgramWorkOutcome,
+    ProgramWorkStatus,
     TurnOutcome,
     TurnOutput,
     TurnOutcomeStatus,
     TurnRunner,
 )
+from tinysoul.loop.maintenance import MaintenanceAvailability, ProgramMaintenanceRunner
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RunLevel,
@@ -63,6 +68,63 @@ class _FakeDailyLifecycle:
         now: datetime,
     ) -> None:
         self.days.append(day)
+
+
+@dataclass
+class _FakeMaintenanceRunner:
+    home_status: ProgramWorkStatus = ProgramWorkStatus.COMPLETED
+    memory_status: ProgramWorkStatus = ProgramWorkStatus.COMPLETED
+    home_calls: list[tuple[BusinessDay, ProgramWorkMode, str]] = field(
+        default_factory=list
+    )
+    memory_calls: list[
+        tuple[BusinessDay, BusinessDay, ProgramWorkMode, str]
+    ] = field(default_factory=list)
+
+    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability:
+        return MaintenanceAvailability(
+            home_pending=False,
+            home_change_count=0,
+            home_skill_memory_count=0,
+            memory_pending=False,
+            memory_day=BusinessDay.parse("2026-07-11"),
+        )
+
+    def run_home(
+        self,
+        *,
+        business_day: BusinessDay,
+        mode: ProgramWorkMode,
+        source: str,
+        scope: RunScope,
+    ) -> ProgramWorkOutcome:
+        self.home_calls.append((business_day, mode, source))
+        return ProgramWorkOutcome(
+            kind=ProgramWorkKind.HOME_MAINTENANCE,
+            mode=mode,
+            status=self.home_status,
+            business_day=business_day,
+            source=source,
+        )
+
+    def run_memory(
+        self,
+        *,
+        business_day: BusinessDay,
+        target_day: BusinessDay,
+        mode: ProgramWorkMode,
+        source: str,
+        scope: RunScope,
+    ) -> ProgramWorkOutcome:
+        self.memory_calls.append((business_day, target_day, mode, source))
+        return ProgramWorkOutcome(
+            kind=ProgramWorkKind.MEMORY_MAINTENANCE,
+            mode=mode,
+            status=self.memory_status,
+            business_day=business_day,
+            target_day=target_day,
+            source=source,
+        )
 
 
 class _FixedClock:
@@ -167,6 +229,54 @@ def test_program_runner_bounds_retained_outcomes_but_counts_all_turns() -> None:
     assert fake_turn_runner.inputs == ["one", "two", "three"]
     assert outcome.turn_count == 3
     assert len(outcome.turns) == 2
+
+
+def test_program_runner_executes_typed_maintenance_independently_from_turns() -> None:
+    fake_turn_runner = _FakeTurnRunner()
+    lifecycle = _FakeDailyLifecycle()
+    maintenance = _FakeMaintenanceRunner(
+        home_status=ProgramWorkStatus.FAILED,
+    )
+    handler = _ProgramEndHandler()
+    runner = ProgramRunner(
+        turn_runner=cast(TurnRunner, fake_turn_runner),
+        bus=SignalBus(),
+        trap=_trap(handler),
+        daily_lifecycle=cast(DailyLifecycleCoordinator, lifecycle),
+        maintenance_runner=cast(ProgramMaintenanceRunner, maintenance),
+        business_clock=cast(BusinessClock, _FixedClock()),
+        retained_outcomes=1,
+    )
+
+    runner.submit_event(
+        ProgramInputEvent.home_maintenance(
+            mode=ProgramWorkMode.AUTOMATIC,
+            source="scheduler",
+        )
+    )
+    runner.submit_event(
+        ProgramInputEvent.memory_maintenance(
+            mode=ProgramWorkMode.MANUAL,
+            source="terminal",
+        )
+    )
+    runner.submit_event(ProgramInputEvent.start_turn("continue after work failure"))
+    runner.submit_event(ProgramInputEvent.exit_program(text="exit"))
+
+    outcome = runner.run()
+
+    day = BusinessDay.parse("2026-07-12")
+    yesterday = BusinessDay.parse("2026-07-11")
+    assert maintenance.home_calls == [(day, ProgramWorkMode.AUTOMATIC, "scheduler")]
+    assert maintenance.memory_calls == [
+        (day, yesterday, ProgramWorkMode.MANUAL, "terminal")
+    ]
+    assert fake_turn_runner.inputs == ["continue after work failure"]
+    assert outcome.work_count == 2
+    assert len(outcome.works) == 1
+    assert outcome.works[0].kind is ProgramWorkKind.MEMORY_MAINTENANCE
+    assert outcome.turn_count == 1
+    assert lifecycle.days == [day, day, day, day]
 
 
 def test_program_switches_business_day_only_between_turns() -> None:

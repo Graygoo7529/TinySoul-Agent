@@ -34,7 +34,9 @@ tinysoul/loop/
   phases.py          # Phase1/Phase2/Phase3 执行单元
   cycle.py           # CycleRunner
   turn.py            # TurnRunner
-  program.py         # ProgramRunner
+  work.py            # typed Program work 与有界 outcome
+  maintenance.py     # Home/Memory Maintenance 跨模块编排
+  program.py         # ProgramRunner 与 typed input queue
   trap_handlers.py   # 通用结束与语境压缩 Trap handler
 ```
 
@@ -56,7 +58,7 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 
 `loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session 和 Workspace 不自行调用系统日期。Home overlay 不再以 Business Day 作为身份或清理边界。
 
-这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容、按 Business Day 定位 Session archive、Session Memory facts projection 和 Home-owned Memory consolidator；程序空闲启动、内置 scheduler、Maintenance event 和人工入口尚未实现。
+这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容、按 Business Day 定位 Session archive、Session Memory facts projection、Home-owned Maintenance service，以及 Program/App 的 typed Maintenance event、启动提醒、人工入口和内置 scheduler 装配。
 
 日切顺序固定为：
 
@@ -73,6 +75,10 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 Program 运行期间由内置 scheduler 在配置日界投递 rollover 触发；若程序未运行，启动或任一新 work 前恢复并补做日切。跨午夜 User Turn 先完成旧日 Session 提交，再在下一 Program work 边界归档。日切失败阻止新日 work，Home/Memory Maintenance 失败则只结束对应维护 work。
 
 Home Maintenance 不保存 plan、review result、apply journal 或 status；是否存在实际待处理内容由 active overlay 中的 created/modified/deleted record 与 `SKILL_MEMORY.md` 判断，单纯 copied record 可在 Maintenance 中直接清理。Memory 的启动提醒只检查昨日 Session archive 与同日 MEMORY 是否存在，不扫描更早日期，也不保存 skipped 状态。人工 Memory 命令可以显式指定日期。人工 Home 逐项确认是 Maintenance 内的专用 decision 输入，不是 User Turn append；Program 暂停普通 work dispatch，其他输入继续留在队列。两个 Maintenance work 各自产生明确 outcome，一个失败不回滚或掩盖另一个；后台 scheduler、启动提示和人工命令必须调用同一 runner/service，不复制业务流程。
+
+`ProgramMaintenanceRunner` 只负责跨模块编排，不解释 Home overlay manifest、Session store 或 MEMORY Markdown：Home pending 和 review/apply 由 Agent Home 提供；指定日期 Session archive 由 Daily coordinator 定位，facts projection 由 Session 提供，Memory eligibility/consolidation 由 Agent Home 提供。`ProgramWorkOutcome` 只在当前 Program 内有界保留，不落盘；Home/Memory 的 completed/stopped/skipped/failed 相互独立，失败不会结束 Program 或阻止队列中的另一 Maintenance/User Turn。自动 Memory 若目标文件已经存在，在读取 Session 之前 skipped；人工 Memory 可以重写同日期文件，未指定日期时 Program 取当前 Business Day 的昨日。
+
+长运行 Program 启动时先 `ensure_active_day`，随后只提示 active Home 真实 diff/`SKILL_MEMORY.md` 和昨日非空 Session facts 但缺少 MEMORY。Program work 和 `run_once` 在执行前仍各自 preflight，因此离线期间缺失的 daily rollover 会在下次入口补做。App scheduler 以独立 typed wake-up event 在业务时区午夜触发 rollover，并按配置在 `00:05`、`00:15` 默认投递自动 Home 和昨日 Memory；scheduler 不在自己的线程内调用模块，也不追补进程未运行期间更早的 Maintenance。Loop 只发布已确认的最小 normal 事件 `program.maintenance.available`、`program.work.completed` 和 `program.work.failed`；更细的 daily/Home/Memory Observation schema 留待后续确认。
 
 `DailyLifecycleCoordinator.session_archive_for(day)` 只解释跨模块 transition 并返回 `archive/.../session` 根；Session 再通过只读 `archive_snapshot(day, root)` 校验自己的 manifest/graph。Loop 不读取 Session records，Session 不解析 `transition.json`。
 

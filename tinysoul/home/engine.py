@@ -30,6 +30,7 @@ from .maintenance import (
     HomeMaintenanceDecisionProvider,
     HomeMaintenanceMode,
     HomeMaintenanceOutcome,
+    HomeMaintenancePending,
     HomeMaintenanceReviewer,
     HomeMaintenanceService,
 )
@@ -144,6 +145,12 @@ class AgentHomeEngine:
             scope=scope,
         )
 
+    def maintenance_pending(self) -> HomeMaintenancePending:
+        """Return reviewable Home work without cleaning active records."""
+
+        self._validate_overlay_semantics()
+        return self._maintenance.pending()
+
     def run_memory_maintenance(
         self,
         *,
@@ -151,6 +158,7 @@ class AgentHomeEngine:
         consolidator: MemoryConsolidator | None,
         timezone: str,
         target_day: BusinessDay | None = None,
+        rewrite_existing: bool = True,
         scope: RunScope | None = None,
     ) -> MemoryMaintenanceOutcome:
         """Rewrite one date MEMORY from a Session-owned facts projection."""
@@ -160,6 +168,7 @@ class AgentHomeEngine:
             consolidator=consolidator,
             timezone=timezone,
             target_day=target_day,
+            rewrite_existing=rewrite_existing,
             scope=scope,
         )
 
