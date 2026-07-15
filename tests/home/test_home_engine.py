@@ -60,6 +60,13 @@ from tinysoul.runtime import (
 
 
 T = TypeVar("T")
+_SKILL_TEXT = (
+    "---\n"
+    "title: Refactor\n"
+    "description: Apply the refactoring workflow.\n"
+    "---\n\n"
+    "# Refactor\n"
+)
 
 
 def test_home_settings_reject_overlapping_original_and_runtime_roots(
@@ -167,7 +174,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
 def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
     skill = tmp_path / "home" / "how" / "refactor"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill text", encoding="utf-8")
+    (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -179,7 +186,7 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
 
     assert (tmp_path / "runtime" / "home" / "how" / "refactor" / "SKILL.md").read_text(
         encoding="utf-8"
-    ) == "skill text"
+    ) == _SKILL_TEXT
 
 
 def test_home_background_provider_catalog_does_not_materialize_core(
@@ -215,7 +222,7 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
 ) -> None:
     skill = tmp_path / "home" / "how" / "refactor"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill text", encoding="utf-8")
+    (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",

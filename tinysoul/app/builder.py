@@ -8,7 +8,7 @@ from tinysoul.action import (
     ActionEngine,
     ActionEngineBuilder,
     ActionError,
-    parse_action_settings,
+    builtin_action_catalog_root,
 )
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
@@ -238,7 +238,6 @@ class TinySoulAppBuilder:
                     "app",
                     "loop",
                     "llm",
-                    "action",
                     "context",
                     "home",
                     "memory",
@@ -314,7 +313,6 @@ class TinySoulAppBuilder:
                 action_how=action_how,
             )
             action = self._action if self._action is not None else self._build_action(
-                config=config,
                 bus=bus,
                 workspace=workspace,
                 context=context,
@@ -692,7 +690,6 @@ class TinySoulAppBuilder:
     def _build_action(
         self,
         *,
-        config: ConfigEnvironment,
         bus: SignalBus,
         workspace: WorkspaceEngine,
         context: ContextEngine,
@@ -708,47 +705,41 @@ class TinySoulAppBuilder:
         observations: ObservationEmitter,
     ) -> ActionEngine:
         try:
-            settings = config.parse_section(
-                "action",
-                lambda tree: parse_action_settings(
-                    tree,
-                    project_root=self._root,
-                ),
-            )
-            builder = ActionEngineBuilder(settings.catalog_root)
-            builder.with_observations(observations)
-            register_context_actions(builder, context=context)
-            register_session_actions(builder, session=session)
-            register_workspace_actions(
-                builder,
-                workspace=workspace,
-                bus=bus,
-                llm_action=llm_action,
-                runtime_bridge=workspace_bridge,
-            )
-            register_home_actions(
-                builder,
-                home=home,
-                runtime_bridge=home_bridge,
-                search_reranker=LLMHomeSearchReranker(llm),
-            )
-            register_memory_actions(
-                builder,
-                memory=memory,
-                runtime_bridge=memory_bridge,
-                search_reranker=LLMMemorySearchReranker(llm),
-            )
-            register_core_actions(
-                builder,
-                reference_resolvers=(
-                    WorkspacePromptReferenceResolver(
-                        workspace,
-                        runtime_bridge=workspace_bridge,
+            with builtin_action_catalog_root() as catalog_root:
+                builder = ActionEngineBuilder(catalog_root)
+                builder.with_observations(observations)
+                register_context_actions(builder, context=context)
+                register_session_actions(builder, session=session)
+                register_workspace_actions(
+                    builder,
+                    workspace=workspace,
+                    bus=bus,
+                    llm_action=llm_action,
+                    runtime_bridge=workspace_bridge,
+                )
+                register_home_actions(
+                    builder,
+                    home=home,
+                    runtime_bridge=home_bridge,
+                    search_reranker=LLMHomeSearchReranker(llm),
+                )
+                register_memory_actions(
+                    builder,
+                    memory=memory,
+                    runtime_bridge=memory_bridge,
+                    search_reranker=LLMMemorySearchReranker(llm),
+                )
+                register_core_actions(
+                    builder,
+                    reference_resolvers=(
+                        WorkspacePromptReferenceResolver(
+                            workspace,
+                            runtime_bridge=workspace_bridge,
+                        ),
                     ),
-                ),
-                llm_action=llm_action,
-            )
-            return builder.build()
+                    llm_action=llm_action,
+                )
+                return builder.build()
         except ConfigError as exc:
             raise action_bridge.from_config_error(exc) from exc
         except ActionError as exc:

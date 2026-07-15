@@ -1,0 +1,12 @@
+# Local secrets and generated state
+.env
+runtime/
+archive/
+
+# Python and editor state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.idea/
+.vscode/

@@ -116,6 +116,70 @@ def test_interpreter_rejects_tool_calls_when_disabled() -> None:
         )
 
 
+def test_interpreter_assigns_tool_kind_from_visible_scope() -> None:
+    response = RawResponse(
+        answer_text="",
+        model_id="model-a",
+        provider_id="provider-a",
+        tool_calls=(
+            ToolCallRecord(
+                id="call_1",
+                name="read_file",
+                arguments={"path": "a.md"},
+            ),
+        ),
+    )
+    scope = ToolScope(
+        tools=(
+            ToolSpec(
+                name="read_file",
+                description="Read a file.",
+                parameters={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+
+    result = ResponseInterpreter().interpret(
+        response,
+        AnswerFormat.TEXT,
+        ToolUse.REQUIRED,
+        tool_scope=scope,
+    )
+
+    assert result.tool_calls[0].kind is ToolKind.ACTION
+
+
+def test_interpreter_rejects_tool_kind_that_conflicts_with_scope() -> None:
+    response = RawResponse(
+        answer_text="",
+        model_id="model-a",
+        provider_id="provider-a",
+        tool_calls=(
+            ToolCallRecord(
+                id="call_1",
+                name="read_file",
+                arguments={},
+                kind=ToolKind.CONTROL,
+            ),
+        ),
+    )
+    scope = ToolScope(tools=(_tool("read_file"),))
+
+    with pytest.raises(ResponseInterpretError, match="kind does not match"):
+        ResponseInterpreter().interpret(
+            response,
+            AnswerFormat.NONE,
+            ToolUse.REQUIRED,
+            tool_scope=scope,
+        )
+
+
 def test_interpreter_requires_tool_calls_when_required() -> None:
     response = RawResponse(
         answer_text="",
@@ -160,7 +224,11 @@ def test_interpreter_accepts_forced_tool_among_other_tool_calls() -> None:
         tool_scope=tool_scope,
     )
 
-    assert result.tool_calls == (write_call, read_call)
+    assert tuple(call.name for call in result.tool_calls) == (
+        "write_file",
+        "read_file",
+    )
+    assert all(call.kind is ToolKind.ACTION for call in result.tool_calls)
 
 
 def test_interpreter_rejects_missing_forced_tool_call() -> None:

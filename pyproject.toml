@@ -5,12 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tinysoul"
 version = "0.1.0"
-description = "A lightweight LLM Agent framework prototype"
-# readme = "README.md"
+description = "A local provider-neutral LLM agent runtime"
+readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.13"
 dependencies = [
     "openai>=1.0",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -24,6 +25,23 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["tinysoul*"]
+
+[tool.setuptools.package-data]
+"tinysoul.action" = [
+    "catalog/*/*.toml",
+    "catalog/*/actions/*.toml",
+]
+"tinysoul.assets" = [
+    "project/*",
+    "project/.env.example",
+    "project/.gitignore",
+    "project/configs/*.toml",
+    "project/configs/llm.models/*.toml",
+    "project/home/agent/*.md",
+    "project/home/how/*/*.md",
+    "project/home/what/*/*.md",
+    "project/home/why/*.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

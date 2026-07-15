@@ -102,7 +102,11 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     )
     _write(
         home_root / "how" / "review" / "SKILL.md",
-        "# Review Home\n\nReview runtime changes against actual Home.\n",
+        "---\n"
+        "title: Review Home\n"
+        "description: Review runtime changes against actual Home.\n"
+        "---\n\n"
+        "# Review Home\n",
     )
     home = _build_home(tmp_path)
     home.write_top(

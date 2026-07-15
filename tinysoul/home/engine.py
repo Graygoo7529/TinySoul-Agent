@@ -32,6 +32,11 @@ from .maintenance import (
     HomeMaintenanceReviewer,
     HomeMaintenanceService,
 )
+from .metadata import (
+    SKILL_FRONTMATTER_MAX_CHARS,
+    HomeSkillMetadata,
+    parse_home_skill_metadata,
+)
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 from .search import (
     SEARCHABLE_HOME_SPACES,
@@ -81,6 +86,7 @@ class AgentHomeEngine:
         overlay: HomeOverlayManager,
         max_read_chars: int,
         max_write_chars: int,
+        skill_catalog_max_chars: int,
         search_settings: HomeSearchSettings,
         observations: ObservationEmitter | None = None,
     ) -> None:
@@ -88,6 +94,7 @@ class AgentHomeEngine:
         self._overlay = overlay
         self._max_read_chars = max_read_chars
         self._max_write_chars = max_write_chars
+        self._skill_catalog_max_chars = skill_catalog_max_chars
         self._prompt_mount_links: frozenset[HomePromptMountLink] | None = None
         self._maintenance = HomeMaintenanceService(
             layout=layout,
@@ -149,6 +156,14 @@ class AgentHomeEngine:
         """Return the effective top catalog without materializing runtime copies."""
 
         self._validate_overlay_semantics()
+        return tuple(str(link) for link in self._effective_top_links())
+
+    def skill_metadata(self) -> tuple[HomeSkillMetadata, ...]:
+        """Return bounded discovery metadata for all effective general HOW skills."""
+
+        return self._skill_metadata_catalog()
+
+    def _effective_top_links(self) -> tuple[HomeTopLink, ...]:
         relatives = set(self._layout.actual_top_relatives())
         relatives.update(record.relative_path for record in self._overlay.records())
         links = {
@@ -157,7 +172,7 @@ class AgentHomeEngine:
             if (link := self._layout.top_link_for_relative(relative)) is not None
             and self._resolve_top_relative(link) is not None
         }
-        return tuple(str(link) for link in sorted(links, key=str))
+        return tuple(sorted(links, key=str))
 
     def actual_top_links(self) -> tuple[str, ...]:
         """Return canonical top links backed by current actual Home files."""
@@ -188,8 +203,7 @@ class AgentHomeEngine:
 
         self._validate_overlay_semantics()
         documents: list[HomeSearchDocument] = []
-        for value in self.loadable_background_links():
-            link = HomeTopLink.parse(value)
+        for link in self._effective_top_links():
             if link.space not in SEARCHABLE_HOME_SPACES:
                 continue
             documents.append(self._search_document(link))
@@ -225,11 +239,14 @@ class AgentHomeEngine:
             path = self._layout.runtime_for_relative(relative)
             digest = record.runtime_digest
         prefix = _read_text_prefix(path, self._search.prefix_max_chars)
+        metadata = self._skill_metadata_for_link(link) if link.space == "how" else None
         return HomeSearchDocument(
             link=link,
             text_prefix=prefix.text,
             truncated=prefix.truncated,
             digest=digest,
+            title=metadata.title if metadata is not None else "",
+            summary=metadata.description if metadata is not None else "",
         )
 
     def read_prompt_mount(self, link: HomePromptMountLink | str) -> str:
@@ -440,6 +457,11 @@ class AgentHomeEngine:
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
         self._validate_write_text(text)
+        if parsed.space == "how":
+            self._validate_projected_skill_catalog(
+                parsed,
+                parse_home_skill_metadata(text, link=parsed),
+            )
         parsed_kind = _parse_what_kind(what_kind)
         existing = self._resolve_top_relative(parsed)
         if existing is None:
@@ -477,6 +499,23 @@ class AgentHomeEngine:
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
         relative = self._require_top_relative(parsed)
+        if parsed.space == "how":
+            current = _read_text(self._effective_top_path(parsed, relative))
+            if not isinstance(old_text, str) or not old_text:
+                raise AgentHomeContractError("Home patch old_text must be non-empty")
+            if not isinstance(new_text, str):
+                raise AgentHomeContractError("Home patch new_text must be a string")
+            count = current.count(old_text)
+            if count != 1:
+                detail = "not found" if count == 0 else "not unique"
+                raise AgentHomeContractError(
+                    f"Home patch old_text is {detail}: {relative}"
+                )
+            updated = current.replace(old_text, new_text, 1)
+            self._validate_projected_skill_catalog(
+                parsed,
+                parse_home_skill_metadata(updated, link=parsed),
+            )
         record = self._overlay.patch(
             relative,
             old_text=old_text,
@@ -694,6 +733,71 @@ class AgentHomeEngine:
                     raise AgentHomeInvariantError(
                         f"Invalid runtime Home prompt mount path: {relative}"
                     )
+        self._skill_metadata_catalog()
+
+    def _skill_metadata_catalog(
+        self,
+        *,
+        exclude: frozenset[HomeTopLink] = frozenset(),
+    ) -> tuple[HomeSkillMetadata, ...]:
+        items = tuple(
+            self._skill_metadata_for_link(link)
+            for link in self._effective_how_links()
+            if link not in exclude
+        )
+        self._validate_skill_catalog_budget(items)
+        return items
+
+    def _effective_how_links(self) -> tuple[HomeTopLink, ...]:
+        relatives = set(self._layout.actual_top_relatives())
+        relatives.update(record.relative_path for record in self._overlay.records())
+        links = {
+            link
+            for relative in relatives
+            if (link := self._layout.top_link_for_relative(relative)) is not None
+            and link.space == "how"
+            and self._resolve_top_relative(link) is not None
+        }
+        return tuple(sorted(links, key=str))
+
+    def _skill_metadata_for_link(self, link: HomeTopLink) -> HomeSkillMetadata:
+        relative = self._require_top_relative(link)
+        prefix = _read_text_prefix(
+            self._effective_top_path(link, relative),
+            SKILL_FRONTMATTER_MAX_CHARS + 1,
+        )
+        return parse_home_skill_metadata(prefix.text, link=link)
+
+    def _effective_top_path(self, link: HomeTopLink, relative: str) -> Path:
+        record = self._overlay.record_for(relative)
+        if record is None:
+            return self._layout.source_for_relative(relative)
+        if record.state is HomeOverlayState.DELETED:
+            raise AgentHomeInvariantError(
+                f"Deleted Home top entry entered effective catalog: {link}"
+            )
+        return self._layout.runtime_for_relative(relative)
+
+    def _validate_projected_skill_catalog(
+        self,
+        link: HomeTopLink,
+        metadata: HomeSkillMetadata,
+    ) -> None:
+        items = (*self._skill_metadata_catalog(exclude=frozenset({link})), metadata)
+        self._validate_skill_catalog_budget(
+            tuple(sorted(items, key=lambda item: str(item.link)))
+        )
+
+    def _validate_skill_catalog_budget(
+        self,
+        items: tuple[HomeSkillMetadata, ...],
+    ) -> None:
+        total = sum(item.catalog_chars for item in items)
+        if total > self._skill_catalog_max_chars:
+            raise AgentHomeContractError(
+                "General HOW metadata catalog exceeds "
+                f"{self._skill_catalog_max_chars} characters"
+            )
 
     def _validate_actual_special_files(self) -> None:
         for path in self.original_root.rglob("*"):
@@ -751,6 +855,7 @@ class AgentHomeEngineBuilder:
             overlay=overlay,
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
+            skill_catalog_max_chars=self._settings.skill_catalog_max_chars,
             search_settings=self._settings.search,
             observations=self._observations,
         )

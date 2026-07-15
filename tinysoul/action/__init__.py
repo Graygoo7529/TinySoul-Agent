@@ -40,7 +40,7 @@ from .core.specs import (
     ActionToolSpec,
 )
 from .engine import ActionEngine, ActionEngineBuilder
-from .config import ActionSettings, parse_action_settings
+from .resources import builtin_action_catalog_root
 
 __all__ = [
     "ActionBackendKind",
@@ -75,10 +75,9 @@ __all__ = [
     "ActionSemanticSpec",
     "ActionScopePreparation",
     "ActionSpec",
-    "ActionSettings",
     "ActionToolSpec",
     "ActionContractError",
     "ActionInvariantError",
     "DOMAIN_SELECTION_TOOL",
-    "parse_action_settings",
+    "builtin_action_catalog_root",
 ]

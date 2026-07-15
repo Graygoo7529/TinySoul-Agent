@@ -1,0 +1,14 @@
+[llm.models.deepseek_v4]
+provider = "deepseek"
+provider_model = "deepseek-v4-pro"
+capabilities = [
+  "text_input",
+  "json_object_output",
+  "reasoning_output",
+  "tool_calling",
+]
+
+[llm.models.deepseek_v4.provider_options]
+thinking = "enabled"
+reasoning_effort = "high"
+reasoning_keep = "content"

@@ -236,6 +236,7 @@ class ContextEngine:
         self._inputs.add(user_input, merged=True)
         self._background.reset_entries()
         self._background.reset_session()
+        self._background.reset_catalogs()
         self._provider_by_link = {}
         self._provider_by_owner = {}
         self._catalog_by_owner = {}
@@ -251,6 +252,7 @@ class ContextEngine:
             raise ContextContractError("Background preparation requires a date")
         self._business_day = business_day
         catalogs = self._collect_background_catalogs(business_day)
+        self._background.reset_catalogs(catalogs)
         entries = list(self._default_entries)
         seen = {entry.link for entry in entries}
         for catalog in catalogs:
@@ -557,6 +559,7 @@ class ContextEngine:
         self._inputs = PendingInputs()
         self._background.reset_entries()
         self._background.reset_session()
+        self._background.reset_catalogs()
         self._provider_by_link = {}
         self._provider_by_owner = {}
         self._catalog_by_owner = {}

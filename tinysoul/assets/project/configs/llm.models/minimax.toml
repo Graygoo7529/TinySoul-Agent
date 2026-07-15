@@ -1,0 +1,15 @@
+[llm.models.minimax_m3]
+provider = "minimax"
+provider_model = "MiniMax-M3"
+capabilities = [
+  "text_input",
+  "image_input",
+  "image_remote_url",
+  "tool_calling",
+  "reasoning_output",
+]
+
+[llm.models.minimax_m3.provider_options]
+reasoning_keep = "content"
+thinking = "adaptive"
+reasoning_split = true

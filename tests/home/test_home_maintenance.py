@@ -32,6 +32,15 @@ from tinysoul.runtime import (
 )
 
 
+_SKILL_TEXT = (
+    "---\n"
+    "title: Refactor\n"
+    "description: Apply the refactoring workflow.\n"
+    "---\n\n"
+    "# Refactor\n"
+)
+
+
 def test_automatic_home_maintenance_applies_and_discards_without_writing_state(
     tmp_path: Path,
 ) -> None:
@@ -134,7 +143,7 @@ def test_home_maintenance_pending_only_counts_real_diffs_and_skill_memory(
     source.write_text("unchanged", encoding="utf-8")
     skill = tmp_path / "home" / "how" / "refactor" / "SKILL.md"
     skill.parent.mkdir(parents=True)
-    skill.write_text("# Refactor\n", encoding="utf-8")
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
     home.ensure_runtime_copy(home.parse_link("home:why@copied"))
 
@@ -174,7 +183,7 @@ def test_skill_memory_is_review_context_and_clears_after_skill_review(
     skill = tmp_path / "home" / "how" / "refactor"
     reference = skill / "references" / "check.md"
     reference.parent.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill", encoding="utf-8")
+    (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     reference.write_text("old check", encoding="utf-8")
     home = _home(tmp_path)
     home.write_resource(
@@ -244,7 +253,7 @@ def test_manual_stop_keeps_skill_memory_until_skill_review_completes(
     skill = tmp_path / "home" / "how" / "refactor"
     reference = skill / "references" / "check.md"
     reference.parent.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill", encoding="utf-8")
+    (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     reference.write_text("old", encoding="utf-8")
     home = _home(tmp_path)
     home.write_resource(
@@ -404,7 +413,7 @@ def test_skill_memory_cleanup_failure_retries_without_reviewing_change_again(
     skill = tmp_path / "home" / "how" / "refactor"
     reference = skill / "references" / "retry.md"
     reference.parent.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill", encoding="utf-8")
+    (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     reference.write_text("old", encoding="utf-8")
     home = _home(tmp_path)
     home.write_resource(

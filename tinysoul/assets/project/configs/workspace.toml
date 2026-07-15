@@ -1,0 +1,15 @@
+[workspace]
+root = "runtime/workspace"
+max_files = 100
+max_read_chars = 4000
+max_image_bytes = 5242880
+ignore_dirs = [
+  ".agents",
+  ".codex",
+  ".git",
+  ".pytest-local-tmp",
+  ".pytest_cache",
+  ".test-tmp",
+  ".tinysoul",
+  "__pycache__",
+]

@@ -31,7 +31,11 @@ from .errors import (
 )
 from .prompts import PromptBlock, TaskPrompt
 from .preparation import ContextTurnPreparationHandler
-from .providers import BackgroundCatalog, BackgroundEntryProvider
+from .providers import (
+    BackgroundCatalog,
+    BackgroundCatalogItem,
+    BackgroundEntryProvider,
+)
 from .references import PromptReferenceError, PromptReferenceResolver
 from .signals import (
     SIGNAL_BACKGROUND_PATCH,
@@ -57,6 +61,7 @@ __all__ = [
     "ContextBudgetReport",
     "BackgroundContentLoader",
     "BackgroundCatalog",
+    "BackgroundCatalogItem",
     "BackgroundEntryProvider",
     "CONTROL_EVICT_BACKGROUND",
     "CONTROL_LOAD_BACKGROUND",

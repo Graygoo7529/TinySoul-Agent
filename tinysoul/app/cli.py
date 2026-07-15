@@ -15,13 +15,18 @@ from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
 from .outputs import ConsoleOutputSink
+from .initializer import ProjectInitializer
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run TinySoul interactively or execute exactly one user turn."""
 
+    arguments = tuple(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "init":
+        return _initialize(arguments[1:])
+
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     root = args.root.resolve()
     overrides: dict[str, object] = {
         "app.interactive": args.once is None,
@@ -53,6 +58,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (ConfigError, RuntimeException, AppError) as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
+
+
+def _initialize(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tinysoul init",
+        description="Initialize an editable TinySoul project.",
+    )
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        type=Path,
+        default=Path.cwd(),
+        help="new or empty project directory (default: current directory)",
+    )
+    args = parser.parse_args(argv)
+    try:
+        outcome = ProjectInitializer().initialize(args.directory)
+    except AppError as exc:
+        print(f"tinysoul: {exc}", file=sys.stderr)
+        return 1
+    print(f"Initialized TinySoul project at {outcome.root}")
+    return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:

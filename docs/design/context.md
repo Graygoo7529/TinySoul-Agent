@@ -24,9 +24,9 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### BackgroundContext
 
-用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、可加载目录和按 Link 正文。Home provider 提供 core 与 Home 顶层目录；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。
+用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、可加载目录、可选的目录发现 metadata 和按 Link 正文。Home provider 提供 core、Home 顶层目录，以及全部 effective 通用 HOW 的 Link/title/description；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。
 
-`begin_turn` 清空上一 Turn 的 Session 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建默认/自动条目，再提交 Session snapshot。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除 `home:agent@core` 等不可逐出的默认规约。
+`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata 或 `home:agent@core` 等不可逐出的默认规约。
 
 ### WorkingContext
 
@@ -49,7 +49,7 @@ MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
 1. system 段：Agent 身份与规约；
 2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
 3. SessionBackground 段：Turn preparation 后固定；
-4. 通用 Phase1 Background 段：每 Turn 从 Home、Memory 等 provider 重建，Phase1 可调整本 Turn 动态条目；
+4. 通用 Phase1 Background 段：每 Turn 从 Home、Memory 等 provider 重建，先渲染 provider 目录 metadata，再渲染默认/自动正文；Phase1 可调整本 Turn 动态正文条目；
 5. WorkingContext 段：低频变化；
 6. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
 7. task prompt overlay：每次 LLM Task 不同。

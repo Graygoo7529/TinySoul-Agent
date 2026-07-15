@@ -15,6 +15,7 @@ tinysoul/app/
   failures.py        # app Runtime bridge 失败枚举
   inputs.py          # InputEvent、InputCommandParser、InputDispatcher
   maintenance.py     # 人工 Home review decision broker
+  initializer.py     # package project template 初始化
   outputs.py         # OutputSink、ObservationRouter 与终端渲染
   cli.py             # console script 入口
   runtime.py         # TinySoulApp 生命周期入口
@@ -23,6 +24,8 @@ tinysoul/app/
     terminal.py      # 终端输入源
     scheduler.py     # typed Program event scheduler
 ```
+
+可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；只读 Action Catalog 位于 `tinysoul/action/catalog/`。App 初始化前者，但不复制或改写后者。
 
 App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app 装配或输入边界失败映射为 Runtime 可理解的启动失败或控制流失败。
 
@@ -72,14 +75,16 @@ MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需
 
 `OutputSink.write` 属于外部 I/O 边界。单个 sink 失败后由 router 禁用并记录，不能反向打断 Turn、修改 Session/Workspace 提交或伪装成 Runtime 控制异常；`TinySoulApp.run()` / `run_once()` 在业务边界结束后把累计失败报告为 `AppOutputError`。`ConsoleOutputSink` 只把已完成 completion 提交的最终回答写到 stdout；failed/exhausted/stopped 和 verbose/model 诊断写到 stderr，便于脚本分别消费结果和诊断。
 
-在包含 `tinysoul.toml`、`configs`、Home 与 Action Catalog 的 TinySoul 项目根中，`tinysoul` console script 是当前正式交互入口。默认从当前目录加载配置并启动终端输入源和已启用 scheduler；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入、不开启 scheduler 并只执行一个 User Turn。`--once` 只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1；启动/配置失败也返回 1，键盘中断返回 130。CLI 使用同一 AppBuilder/Console sink，不建立第二套流程。当前仓库尚未提供独立安装后的默认资产打包或项目初始化流程。
+`tinysoul` console script 是正式 App 入口。无子命令时默认从当前目录加载项目配置并启动终端输入源和已启用 scheduler；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入、不开启 scheduler 并只执行一个 User Turn。`--once` 只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1；启动/配置失败也返回 1，键盘中断返回 130。CLI 使用同一 AppBuilder/Console sink，不建立第二套运行流程。
+
+`tinysoul init [DIRECTORY]` 是唯一新增子命令。`ProjectInitializer` 从已安装包读取可编辑项目模板，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。命令不接收 `--provider`，模板内全部 provider 默认 disabled；用户通过 TOML 与 `.env`/进程环境启用 provider，未配置时 LLM parser 以“task 没有 enabled provider model”的清晰配置错误阻止 App 启动。模板包含 `tinysoul.toml`、configs、默认 Home、`.env.example`、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。
 
 ## 装配入口
 
 TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
-- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；
+- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
 - 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块 registrar 装配模块 executor；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
@@ -88,7 +93,7 @@ TinySoulAppBuilder 负责：
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
 - 返回 TinySoulApp。
 
-AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Action、Context、LLM、Loop、App、Session、Workspace、Agent Home 和 Memory 在各自 parser 中解释 section tree。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home 和 Memory 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 
@@ -101,6 +106,8 @@ AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `Pr
 这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Program normal 输出固定 `program.maintenance.available` 和每项 work 的唯一 `program.work.completed/failed`；Daily normal terminal 由 Loop owner 发布，Home/Memory 只发布 verbose Maintenance 细节。AppBuilder 已独立构建 MemoryEngine，并注入 Memory actions、Background provider、reranker、Runtime bridge、Observation emitter 与 ProgramMaintenanceRunner。
 
 Stage 7 的无网络 App E2E 关闭 scheduler，以注入的受控 BusinessClock 和直接投递的 typed Program event 验证同一正式装配链：旧日 Turn 写 Home overlay，Program 启动补做 Daily archive，再独立执行 Home/Memory Maintenance，后续 Turn 自动获得昨日 MEMORY，并通过真实 Memory action search/recall 较早日期。fake LLM 只替换 provider runner，不替换 App/Loop/Home/Memory/Session/Action/Context 业务门面。
+
+发布验收另外构建 wheel、检查 package catalog/template 条目、隔离安装 wheel 并从安装包执行 `tinysoul init`。fake-provider CLI E2E 从生成项目启动本地 OpenAI-compatible HTTP provider，实际经过 ConfigEnvironment、provider adapter、Phase1、Phase2、Phase3 和 `core.answer`，不以注入 FakeLLM 代替供应商边界。真实 provider App/CLI smoke 默认 skip，只有显式设置测试开关和已配置项目根时运行。
 
 ## 与其他模块的关系
 

@@ -8,6 +8,8 @@ from typing import cast
 import pytest
 
 from tinysoul.context import (
+    BackgroundCatalog,
+    BackgroundCatalogItem,
     CONTROL_LOAD_BACKGROUND,
     CONTROL_UPDATE_WORKING,
     SIGNAL_BACKGROUND_PATCH,
@@ -606,6 +608,51 @@ def test_abort_turn_discards_active_state() -> None:
         engine.working_snapshot()
     engine.begin_turn("new turn")
     assert engine.turn_active is True
+
+
+def test_provider_catalog_metadata_is_automatic_background() -> None:
+    class _Provider:
+        def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(
+                owner="home",
+                loadable_links=("home:how@review",),
+                items=(
+                    BackgroundCatalogItem(
+                        link="home:how@review",
+                        title="Review Home",
+                        description="Review pending Home changes.",
+                    ),
+                ),
+            )
+
+        def load(self, link: str, business_day: date) -> str:
+            return "skill body"
+
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .add_background_provider(_Provider())
+        .build()
+    )
+    engine.begin_turn("review changes")
+    engine.prepare_default_background(date(2026, 7, 14))
+
+    stack = engine.compose(_prompt())
+
+    message = next(
+        item for item in stack.messages if item.label == "background:catalog:home"
+    )
+    assert isinstance(message.parts[0], JsonPart)
+    assert message.parts[0].value == {
+        "owner": "home",
+        "items": [
+            {
+                "link": "home:how@review",
+                "title": "Review Home",
+                "description": "Review pending Home changes.",
+            }
+        ],
+    }
+    assert engine.background_links() == ()
 
 
 def test_engine_exposes_snapshots_not_mutable_context_holders() -> None:

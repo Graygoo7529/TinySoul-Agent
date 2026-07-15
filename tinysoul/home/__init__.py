@@ -58,6 +58,7 @@ from .maintenance import (
     LLMHomeMaintenanceReviewer,
 )
 from .overlay import HomeOverlayRecord, HomeOverlayState
+from .metadata import HomeSkillMetadata, parse_home_skill_metadata
 from .search import (
     HomeSearchCandidate,
     HomeSearchDocument,
@@ -122,9 +123,11 @@ __all__ = [
     "HomeSearchSettings",
     "HomeTopSearchService",
     "HomeSkillMemoryContext",
+    "HomeSkillMetadata",
     "LLMHomeMaintenanceReviewer",
     "LLMHomeSearchReranker",
     "parse_agent_home_settings",
     "parse_home_link",
+    "parse_home_skill_metadata",
     "register_home_actions",
 ]

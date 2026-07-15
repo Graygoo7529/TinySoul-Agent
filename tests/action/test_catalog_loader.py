@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from tinysoul.action import builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import ActionSchemaDefinitionError
 from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
@@ -11,14 +12,15 @@ from tinysoul.infra.config import ConfigError
 
 
 def test_load_builtin_catalog() -> None:
-    root = Path("tinysoul/action/catalog")
-
-    catalog = ActionCatalogLoader().load(root)
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
 
     assert catalog.has_domain("core")
     assert catalog.has_domain("workspace")
     assert catalog.has_domain("home")
     assert catalog.has_domain("memory")
+    assert not catalog.has_domain("shell")
+    assert not catalog.has_domain("script")
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"

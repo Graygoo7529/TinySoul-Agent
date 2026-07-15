@@ -9,6 +9,7 @@ from tinysoul.llm.messages import Message, UserMessage
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .errors import ContextContractError, ContextInvariantError
+from .providers import BackgroundCatalog
 
 
 class BackgroundSource(StrEnum):
@@ -101,6 +102,7 @@ class BackgroundContext:
         self._entries: dict[str, BackgroundEntry] = {}
         self._journal = journal
         self._session = SessionBackgroundSnapshot(revision=0)
+        self._catalogs: tuple[BackgroundCatalog, ...] = ()
 
     @property
     def journal(self) -> str:
@@ -111,6 +113,9 @@ class BackgroundContext:
 
     def reset_session(self) -> None:
         self._session = SessionBackgroundSnapshot(revision=0)
+
+    def reset_catalogs(self, catalogs: tuple[BackgroundCatalog, ...] = ()) -> None:
+        self._catalogs = tuple(catalogs)
 
     def reset_entries(self, entries: tuple[BackgroundEntry, ...] = ()) -> None:
         self._entries = {entry.link: entry for entry in entries}
@@ -215,6 +220,25 @@ class BackgroundContext:
         if self._journal:
             messages.append(
                 UserMessage.from_text(self._journal, label="background:journal")
+            )
+        for catalog in self._catalogs:
+            if not catalog.items:
+                continue
+            messages.append(
+                UserMessage.from_json(
+                    {
+                        "owner": catalog.owner,
+                        "items": [
+                            {
+                                "link": item.link,
+                                "title": item.title,
+                                "description": item.description,
+                            }
+                            for item in catalog.items
+                        ],
+                    },
+                    label=f"background:catalog:{catalog.owner}",
+                )
             )
         for entry in self._entries.values():
             messages.append(

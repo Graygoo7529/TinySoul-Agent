@@ -18,6 +18,7 @@ Stage 6.2 已将 Memory-owned `memory.search` 收敛为单日候选，并与 `me
 4. 所有 LLM 调用都基于语境模块构造的 `MessageStack`，Action 只追加临时任务提示。
 5. Action 定义使用 TOML 存放，入口动态校验后尽早转换为内部类型。
 6. 去掉旧设计中的冗余字段，保持模型侧可见描述和框架内运行配置分离。
+7. 内置 Action Catalog 随 TinySoul 包版本发布，项目只配置业务运行参数，不以路径替换框架 catalog。
 
 ## 分层模型
 
@@ -278,6 +279,7 @@ Action 目录按四类职责组织：TOML catalog、通用 backend、Action 自�
 ```text
 tinysoul/action/
   engine.py
+  resources.py
   core/
   backends/
   builtins/
@@ -296,10 +298,6 @@ tinysoul/action/
     memory/
       domain.toml
       actions/*.toml
-    script/
-      domain.toml
-    shell/
-      domain.toml
 
 tinysoul/workspace/
   actions.py
@@ -310,13 +308,13 @@ tinysoul/home/
 tinysoul/memory/
   actions.py
 
-tinysoul/capabilities/
+tinysoul/capabilities/       # 只有存在真实轻量能力时才建立
   <capability>/
     actions.py
     service.py
 ```
 
-`tinysoul/action/catalog` 是 `configs/action.toml` 中的默认 action catalog root，由 Action 模块的 `parse_action_settings` 解析。第一层目录就是 domain 目录，因此不再额外套 `catalog/builtin`。未来如果需要组合多个 catalog，应扩展 ActionSettings/loader，而不是让 AppBuilder硬编码目录或在当前 catalog 内预留未使用层级。
+`tinysoul/action/catalog` 是框架版本化的只读 package resource，由 `builtin_action_catalog_root()` 在 App 装配期物化，并在同一资源上下文内完成解析。构建后的 `ActionEngine` 只持有已经校验的内部 catalog，不依赖资源路径继续存在。项目模板不复制 catalog，不提供 `[action].catalog_root` 或其它替换入口；修改内置 action 定义必须随 TinySoul 包版本发布。未来只有在多 catalog 组合具有明确所有权、冲突与安全语义后才能重新设计，不能用任意项目路径覆盖当前内置 catalog。
 
 ### TOML catalog
 
@@ -337,7 +335,7 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 
 `actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
-轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力放在 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 domain；subprocess/script backend 作为执行机制存在，不意味着向模型提供通用 shell 或任意脚本 action。
 
 ### 继承规则
 

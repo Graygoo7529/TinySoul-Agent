@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
+本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、严格通用 HOW frontmatter 与自动 metadata 目录、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供默认 core 与可加载顶层目录，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home。
+Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 HOW metadata 目录、默认 core 与可加载顶层目录，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home。
 
 Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`tinysoul.home` 不再包含 Memory search、Maintenance、配置或 Link/path 映射，也不保留兼容 Link、双读或迁移 API。独立 Memory 设计见 `docs/design/memory.md`。
 
@@ -116,7 +116,7 @@ runtime/
 - `home:how_domain:domain_name` 作为 prompt mount 映射到 `how_domain/domain_name/DOMAIN.md`；
 - `home:how_action:domain_name/action_name` 作为 prompt mount 映射到 `how_action/domain_name/action_name.md`。
 
-HOW 采用包目录形式。通用 HOW 使用 `how/<skill>/SKILL.md` 作为顶层入口，references、scripts 等是渐进式资源；skill 使用期间可以在 runtime 包内创建并读写 `SKILL_MEMORY.md`，记录自上次 Home Maintenance 以来的临时工作记忆、使用反馈和待 review 变化。它不进入 actual Home，也不作为长期 HOW 文件直接合并。与 action domain 绑定的 domain HOW 使用 `how_domain/<domain>/DOMAIN.md`，由 Phase2 prompt 自动注入，并可在 Phase3 action-internal LLM task 中继续作为 domain 约束；domain 内 action HOW 使用 `how_action/<domain>/<action>.md`，由 Phase3 中带内部 LLM task 的 action 自动注入。`how_domain` 与 `how_action` 是框架局部自动加载机制，不属于模型通过 `home.resource.read` 按需渐进式加载的普通资源，也不拥有 `SKILL_MEMORY.md`。
+HOW 采用包目录形式。通用 HOW 使用 `how/<skill>/SKILL.md` 作为顶层入口，references、scripts 等是渐进式资源。每个 `SKILL.md` 必须以 YAML `---` frontmatter 开头，并且 frontmatter 只包含非空、单行、有界的 `title` 与 `description`；正文仍是 Phase1 按需加载的完整顶层内容。Home 使用 `PyYAML.safe_load` 在启动/reconcile、runtime 恢复和 top write/patch 边界统一解析，拒绝缺失 delimiter、未知字段、错误类型、超长或多行 metadata。skill 使用期间可以在 runtime 包内创建并读写 `SKILL_MEMORY.md`，记录自上次 Home Maintenance 以来的临时工作记忆、使用反馈和待 review 变化。它不进入 actual Home，也不作为长期 HOW 文件直接合并。与 action domain 绑定的 domain HOW 使用 `how_domain/<domain>/DOMAIN.md`，由 Phase2 prompt 自动注入，并可在 Phase3 action-internal LLM task 中继续作为 domain 约束；domain 内 action HOW 使用 `how_action/<domain>/<action>.md`，由 Phase3 中带内部 LLM task 的 action 自动注入。`how_domain` 与 `how_action` 是框架局部自动加载机制，不属于模型通过 `home.resource.read` 按需渐进式加载的普通资源，不进入通用 HOW metadata 目录，也不拥有 `SKILL_MEMORY.md`。
 
 ## Actual Home 与 Runtime Home
 
@@ -159,9 +159,10 @@ BackgroundContext 是 Context-owned 的通用 Phase1 Background，不是 Home Ba
 
 - 默认加载条目；
 - 可由 Phase1 加载的顶层条目；
+- 全部 effective 通用 HOW 的 Link、frontmatter title 与 description；
 - 每个条目的 `home:*@` 链接和渲染文本。
 
-`ContextEngine.begin_turn` 会清空上一 Turn 的通用 Background；Turn preparation 在首个 Cycle 前重新读取全部 provider，原子组装 Home 默认 core 与其它模块的自动条目。Home provider 不解释 Memory 日期，也不决定非 Home entry 的逐出政策。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须进入 Session、actual/runtime Home 或 Memory 持久事实。静态 `link + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
+`ContextEngine.begin_turn` 会清空上一 Turn 的通用 Background；Turn preparation 在首个 Cycle 前重新读取全部 provider，原子组装 Home HOW metadata 目录、默认 core 与其它模块的自动条目。HOW metadata 目录自动且不可逐出，使 Phase1 能先判断应加载哪个 `home:how@skill`；它不是 skill 正文、不是一个伪造的 Home top Link，也不把 HOW body 物化到 runtime。`home.skill_catalog_max_chars` 限制完整目录，超过上限显式失败，不截断 description、不丢弃条目。runtime 中创建、修改或 tombstone 的 HOW 在下一个 Turn 的 effective 目录中反映。Home provider 不解释 Memory 日期，也不决定非 Home entry 的逐出政策。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须进入 Session、actual/runtime Home 或 Memory 持久事实。静态 `link + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
 
 Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。模型选择顶层链接后，Context 通过已注入的 Home loader 获取文本，不解释 Home 路径；loader 触发的 runtime copy 对模型、ControlResult 和最终 Context 状态透明。
 
@@ -193,7 +194,7 @@ Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部�
 
 `home.top.search` 只检索 WHAT、WHY 与通用 HOW，不检索默认注入的 `agent` core，也不检索局部自动挂载的 `how_domain`/`how_action` 或任何 MEMORY。Engine 先按统一 effective view 解析每个 Home 顶层 Link：未物化 actual 条目直接有界读取 actual prefix，runtime-only 或 modified 条目读取现有 runtime 文件，tombstone 不进入目录。这个过程不创建 runtime copy、overlay record 或 Background entry。
 
-Home-owned `search.py` 从有界 Markdown prefix 提取 metadata：首个 H1 是 title，首个有效正文段是 summary，缺失时回退到 Link name 和有界 prefix；digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、summary 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
+Home-owned `search.py` 从有界 effective 文档构造 metadata：WHAT/WHY 的首个 H1 是 title、首个有效正文段是 summary，缺失时回退到 Link name 和有界 prefix；通用 HOW 必须复用已经严格校验的 frontmatter title/description，不能从正文 H1 产生第二套 skill 描述。digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、summary 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
 
 候选通过 JSON-only `home_search` profile 交给受控 LLM task，模型只返回候选内唯一 Link，也可以用空列表明确表示无匹配。Task failure、非 JSON、额外字段、重复 Link、超出 `top_k` 或候选外 Link 都不形成搜索失败，而是回退确定性顺序并标记 `reranked=false`；合法空列表返回空 items 且 `reranked=true`。action result 只返回 query、候选计数、rerank 标记和每项 link/space/title/summary/digest/score，不返回 searchable prefix 或完整正文，也不自动加载结果到 Background。模型后续仍须显式加载选中的顶层 Link。
 

@@ -1,0 +1,19 @@
+[llm.models.gpt_5_5]
+provider = "openai"
+provider_model = "gpt-5.5"
+capabilities = [
+  "text_input",
+  "image_input",
+  "image_remote_url",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+
+[llm.models.gpt_5_5.provider_options]
+reasoning_keep = "encrypted"
+prompt_cache_retention = "24h"
+verbosity = "medium"
+reasoning_effort = "high"
+reasoning_summary = "auto"

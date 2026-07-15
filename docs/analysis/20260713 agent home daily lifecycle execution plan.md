@@ -2,9 +2,9 @@
 
 ## 状态
 
-status: in_progress
+status: done
 
-本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-6.1 已实施；下一阶段为 Stage 7。
+本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-8 已全部实施；默认 Agent Home 内容扩写与真实 Action capability 扩充分别进入独立后续计划。
 
 状态统一使用：
 
@@ -66,7 +66,8 @@ Memory 生命周期
 | Agent Home | done through Stage 7 | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、crash recovery 与 verbose Observation | Home 对日期 Memory 零所有权。 |
 | Memory | done through Stage 7 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，默认顶层 `memory/`，自由结构单日 consolidation、按日 search、有界 Link hints、原子写恢复与 verbose Observation | 生命周期核心闭环已完成。 |
 | App | done through Stage 7 | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler、共享 Observation 装配、受控 BusinessClock seam，以及独立 MemoryEngine/provider/registrar/bridge 装配 | 无网络正式装配 E2E 已覆盖；发布资产留待 Stage 8。 |
-| Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
+| 发布与初始化 | done | package-owned catalog、HOW 发现目录、可编辑项目模板、init CLI、README、wheel 与 fake-provider E2E | Stage 8 已闭合。 |
+| Capabilities | separate follow-up | subprocess/script/LLM action backend mechanism 已有 | 真实能力按独立后续规划扩充，不属于本执行计划。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
 
@@ -425,7 +426,7 @@ Home outcome 与当前 Home-owned service 语义一致：`completed` 表示所�
   -> 阶段 6 Program/App/Scheduler
        -> 阶段 6.1 Memory 模块拆分 + Context Background 提升
             -> 阶段 7 恢复、观察与 E2E
-                 -> 阶段 8 实际能力与发布
+                 -> 阶段 8 HOW 发现、项目初始化与发布
 ```
 
 ## 执行阶段
@@ -728,22 +729,42 @@ Observation 由各业务所有者发布并共享 App 注入的 emitter：Loop Da
 
 新增无网络 App E2E，以 AppBuilder 注入受控 BusinessClock、关闭 scheduler 并直接投递 typed Home/Memory/Turn/Exit event，贯通旧日 Home mutation Turn、启动 Daily preflight、Session/Workspace/Trash archive、Home commit、Memory consolidation、新日昨日 Background、较早日期 Memory search/recall 和后续回答。测试使用 fake LLM，不访问供应商或网络；Context UserInput 墙钟在测试内绑定同一受控时间源，Memory 的 facts 日期校验保持严格。模块恢复/事件测试、App/Loop/Home/Memory 集成测试与全量 `pytest tests -q` 均通过（仅保留 10 个环境/真实供应商显式 skip），`ty check` 无诊断。
 
-### 阶段 8：实际能力与发布闭环
+### 阶段 8：HOW 发现、项目初始化与发布闭环
 
-status: pending
+status: done
 
 优先级：P2
 
 依赖：阶段 7
 
+已确认语义：
+
+1. Action Catalog 是框架版本化的只读 package resource，App 直接从已安装的 `tinysoul.action` 包加载；项目配置不暴露 catalog path override，也不把 catalog 复制到新项目；
+2. 配置、默认 Home、`.env.example`、`.gitignore` 和项目说明是可编辑项目模板，随 wheel 发布，并由 `tinysoul init [DIRECTORY]` 复制到不存在或为空的目标目录；目标非空时失败，不覆盖现有项目；
+3. `init` 不接收 `--provider`。模板中的 provider 全部默认 disabled，用户通过 TOML 与环境变量启用；未配置时 App 启动必须返回清晰配置错误；
+4. CLI 保持“无子命令即运行 App”的兼容入口，只新增显式 `init` 命令；
+5. Phase1 继续通过 Context-owned `load_background` control tool 按需把选定顶层正文加载到 Background；全部 effective 通用 HOW 的 Link、title、description 在每个 User Turn 自动形成不可逐出的有界 Background catalog，使 Phase1 知道可加载哪些 skill；
+6. 通用 `how/<skill>/SKILL.md` 使用 YAML `---` frontmatter 严格保存且只保存非空单行 `title`、`description`。Home 在 actual/runtime effective view、mutation 和启动 reconcile 边界统一校验；单项及总 catalog 都有界，总量超限时显式失败，不静默截断或丢弃 skill；
+7. HOW 的 `home.top.search` 复用相同 frontmatter metadata；WHAT/WHY 继续使用 Markdown H1 与首个正文段；`how_domain`/`how_action` 不进入此自动目录；
+8. 当前没有真实 shell/script capability，因此删除空 domain 和空 `tinysoul.capabilities` 包。受控 backend mechanism 保留，真实能力和 document conversion 由独立后续计划推进；
+9. 完整默认 Home 的业务内容不在本阶段扩写，由独立后续计划统一说明 AGENT、Link、WHAT/WHY/HOW 与示例内容。
+
 实施项：
 
-1. 增加受控 subprocess/script action；
-2. 增加 document conversion capability；
-3. 只在存在真实 action 时保留 shell/script domain；
-4. 将 catalog、默认 Home 和配置模板作为 package data；
-5. 增加项目初始化入口；
-6. 补 README、wheel、初始化、fake-provider CLI E2E 和真实 provider smoke。
+1. 将内置 Action Catalog 改为 package resource，删除 project catalog path 配置和空 shell/script domain；
+2. 为通用 HOW 增加 YAML frontmatter 类型、解析、effective catalog 校验、search 复用与 Context Background metadata projection；
+3. 建立 package-owned 可编辑项目模板，默认 provider 全部 disabled；
+4. 增加无 provider 参数、拒绝覆盖非空目录的 `tinysoul init [DIRECTORY]`；
+5. 补项目 README、package metadata、wheel 内容校验、初始化/未配置失败测试和 fake-provider CLI E2E；
+6. 保留真实 provider smoke 为显式 opt-in，并补 App/CLI 装配层 smoke，不能只测试 provider adapter。
+
+实施结果：Action Catalog 已改为 `tinysoul.action` 的只读 package resource，App 在资源上下文内加载并构建不可变 catalog；项目级 `configs/action.toml`、`ActionSettings/catalog_root`、空 shell/script domain 和空 capabilities 包均已删除。subprocess/script backend mechanism 继续保留，但没有对应真实 action 时不进入 Phase1 domain。wheel 测试会检查 catalog 资源存在且空域、旧配置 parser 不进入安装包。
+
+Home 新增严格的 `HomeSkillMetadata` 与 YAML frontmatter parser，使用 PyYAML safe loader，只接受精确 `title`/`description`。启动/reconcile、runtime 恢复、top write/patch、自动 HOW 目录与 Home search 共享该语义；单项和总 catalog 有界，总量溢出在写入前或启动时显式失败。`BackgroundCatalogItem` 允许 provider 投影目录 metadata，Context 每 Turn 自动渲染 `background:catalog:home`，同时保留 `load_background` 对具体顶层正文的按需加载。runtime-only create/modify/tombstone 会进入后续 Turn 的 effective 目录，搜索 HOW 时复用 frontmatter 而非正文 H1。
+
+新增 `tinysoul.assets` 可编辑项目模板与 `ProjectInitializer`。`tinysoul init [DIRECTORY]` 使用同级 staging 安装到不存在或空目标，拒绝文件、symlink 与非空目录；它复制 `tinysoul.toml`、configs、Home、README、`.env.example`、`.gitignore`，并创建空顶层 `memory/`，但不复制 Action Catalog。模板 provider 全部 disabled，且不接收 `--provider`；未配置启动会给出 task 没有 enabled provider model 的清晰错误。CLI 仍保持无子命令即运行 App。
+
+发布验收覆盖 wheel 构建、资源条目、隔离 `--target` 安装和从安装包执行 init；fake-provider E2E 从生成项目启动本地 OpenAI-compatible HTTP server，贯通真实配置、adapter、Phase1、Phase2、Phase3 与 `core.answer`。该测试同时发现并修复供应商 tool call 缺少 TinySoul kind 的问题：`ResponseInterpreter` 现在按当前 `ToolScope` 回填 Control/Action 分类并拒绝冲突。真实 provider App/CLI smoke 已作为显式 opt-in 测试保留。全量 577 项测试通过，其中 11 项真实环境/供应商测试默认 skip；`ty check` 无诊断。
 
 ## 失败语义
 
@@ -795,6 +816,8 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 - effective top/resource/prompt mount 一致；
 - top create/modify/delete、WHAT 分类和 core delete 禁止；
 - prompt mount catalog 自动生命周期；
+- 所有 effective 通用 HOW 都有合法 YAML frontmatter，其 Link/title/description 每 Turn 自动进入 Background catalog，runtime create/modify/delete 会在后续 Turn 反映；
+- HOW metadata 总预算溢出显式失败，不能截断或遗漏 skill；
 - SKILL_MEMORY 仅通用 HOW 存在，并在 Home Maintenance 后清空；
 - Home apply/discard/部分中断通过 active diff 重算；
 - Home 不再接受 `memory` space，Memory 独立 root/config/Link/module 不存在旧路径别名；
@@ -806,4 +829,6 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 - Home/Memory Maintenance 独立失败；
 - normal failure 可见且 MODEL/敏感数据不泄漏；
 - scheduler、启动和人工入口共享同一 Program 流程；
-- wheel/project init/fake-provider E2E 和真实 provider smoke。
+- wheel 内含内置 Action Catalog 与可编辑项目模板，不含空 shell/script domain；
+- project init 不覆盖非空目录、不要求 provider 参数，未配置 provider 时给出清晰配置错误；
+- fake-provider CLI E2E 和显式 opt-in 的真实 provider App/CLI smoke。

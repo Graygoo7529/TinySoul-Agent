@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from tinysoul.context import BackgroundCatalog
+from tinysoul.context import BackgroundCatalog, BackgroundCatalogItem
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
@@ -50,6 +50,7 @@ class HomeBackgroundEntryProvider:
     def catalog(self, business_day: date) -> BackgroundCatalog:
         try:
             links = self.home.loadable_background_links()
+            skills = self.home.skill_metadata()
         except AgentHomeError as exc:
             raise self.runtime_bridge.from_home_error(exc) from exc
         core = "home:agent@core"
@@ -61,6 +62,14 @@ class HomeBackgroundEntryProvider:
             owner="home",
             default_links=(core,),
             loadable_links=links,
+            items=tuple(
+                BackgroundCatalogItem(
+                    link=str(skill.link),
+                    title=skill.title,
+                    description=skill.description,
+                )
+                for skill in skills
+            ),
         )
 
     def load(self, link: str, business_day: date) -> str:

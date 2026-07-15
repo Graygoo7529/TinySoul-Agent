@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 import json
 from collections.abc import Mapping
@@ -238,18 +238,25 @@ class ResponseInterpreter:
     ) -> tuple[ToolCallRecord, ...]:
         if not tool_calls or tool_scope is None:
             return tool_calls
-        visible_names = {tool.name for tool in tool_scope.visible_tools()}
+        visible = {tool.name: tool for tool in tool_scope.visible_tools()}
+        normalized: list[ToolCallRecord] = []
         for tool_call in tool_calls:
-            if tool_call.name not in visible_names:
+            tool = visible.get(tool_call.name)
+            if tool is None:
                 raise ResponseInterpretError(
                     f"Unexpected tool call: {tool_call.name}"
                 )
+            if tool_call.kind is not None and tool_call.kind is not tool.kind:
+                raise ResponseInterpretError(
+                    f"Tool call kind does not match its scope: {tool_call.name}"
+                )
+            normalized.append(replace(tool_call, kind=tool.kind))
         forced_name = tool_scope.selection.forced_name
         if forced_name is not None and not any(
             tool_call.name == forced_name for tool_call in tool_calls
         ):
             raise ResponseInterpretError(f"Expected forced tool call: {forced_name}")
-        return tool_calls
+        return tuple(normalized)
 
     def _parse_json_object(self, text: str) -> JsonObject:
         cleaned = _normalize_json_text(text)

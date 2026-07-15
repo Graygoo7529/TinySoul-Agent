@@ -8,7 +8,14 @@ from .config import (
     SchedulerSettings,
     parse_app_settings,
 )
-from .errors import AppContractError, AppError, AppInvariantError, AppOutputError
+from .errors import (
+    AppContractError,
+    AppError,
+    AppInitializationError,
+    AppInvariantError,
+    AppOutputError,
+)
+from .initializer import ProjectInitializationOutcome, ProjectInitializer
 from .failures import AppFailureKind
 from .inputs import (
     InputCommandParser,
@@ -28,6 +35,7 @@ __all__ = [
     "AppContractError",
     "AppError",
     "AppFailureKind",
+    "AppInitializationError",
     "AppInvariantError",
     "AppOutputError",
     "AppSettings",
@@ -43,6 +51,8 @@ __all__ = [
     "ObservationRouter",
     "OutputSettings",
     "OutputSink",
+    "ProjectInitializationOutcome",
+    "ProjectInitializer",
     "TerminalInputSource",
     "TerminalHomeDecisionBroker",
     "MaintenanceSchedule",

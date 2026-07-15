@@ -7,12 +7,14 @@ from typing import cast
 import pytest
 
 from tinysoul.action.core.errors import ActionContractError
+from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.scope import (
     ActionDomainPromptRenderer,
     Phase1DomainScopeBuilder,
     Phase2ActionScopeBuilder,
 )
+from tinysoul.action.core.specs import ActionDomainSpec
 from tinysoul.infra.json import JsonValue
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 
@@ -71,7 +73,7 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
 
 
 def test_phase2_scope_rejects_domain_without_actions() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
+    catalog = _empty_domain_catalog()
 
     with pytest.raises(ActionContractError, match="at least one action"):
         Phase2ActionScopeBuilder().build(
@@ -81,7 +83,7 @@ def test_phase2_scope_rejects_domain_without_actions() -> None:
 
 
 def test_phase2_scope_prepare_returns_phase_result_for_domain_without_actions() -> None:
-    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
+    catalog = _empty_domain_catalog()
 
     preparation = Phase2ActionScopeBuilder().prepare(
         catalog,
@@ -102,3 +104,10 @@ def test_domain_prompt_renderer_lists_actionable_domains() -> None:
     assert "home:" in text
     assert "script:" not in text
     assert "Selection hint:" in text
+
+
+def _empty_domain_catalog() -> ActionCatalog:
+    return ActionCatalog(
+        domains=(ActionDomainSpec(name="script", description="No actions."),),
+        actions=(),
+    )

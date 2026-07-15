@@ -41,6 +41,8 @@ class HomeSearchDocument:
     text_prefix: str
     truncated: bool
     digest: str
+    title: str = ""
+    summary: str = ""
 
     def __post_init__(self) -> None:
         if self.link.space not in SEARCHABLE_HOME_SPACES:
@@ -53,6 +55,12 @@ class HomeSearchDocument:
             raise AgentHomeContractError("Home search truncated flag must be boolean")
         if not isinstance(self.digest, str) or not self.digest:
             raise AgentHomeContractError("Home search document digest must be non-empty")
+        if not isinstance(self.title, str) or not isinstance(self.summary, str):
+            raise AgentHomeContractError("Home search metadata hints must be text")
+        if bool(self.title) != bool(self.summary):
+            raise AgentHomeContractError(
+                "Home search title and summary hints must be supplied together"
+            )
 
 
 @dataclass(frozen=True)
@@ -207,11 +215,18 @@ class HomeTopSearchService:
         )
 
     def _entry(self, document: HomeSearchDocument) -> HomeSearchEntry:
-        title, summary = _markdown_metadata(
-            document.text_prefix,
-            fallback_title=document.link.name,
-            summary_max_chars=self._settings.summary_max_chars,
-        )
+        if document.title:
+            title = _bounded_normalized(document.title, _TITLE_MAX_CHARS)
+            summary = _bounded_normalized(
+                document.summary,
+                self._settings.summary_max_chars,
+            )
+        else:
+            title, summary = _markdown_metadata(
+                document.text_prefix,
+                fallback_title=document.link.name,
+                summary_max_chars=self._settings.summary_max_chars,
+            )
         return HomeSearchEntry(
             link=str(document.link),
             space=document.link.space,

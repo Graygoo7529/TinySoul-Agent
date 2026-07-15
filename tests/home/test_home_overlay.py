@@ -18,6 +18,15 @@ from tinysoul.home import (
 from tinysoul.home.overlay import HomeOverlayManager
 
 
+_SKILL_TEXT = (
+    "---\n"
+    "title: Refactor\n"
+    "description: Apply the refactoring workflow.\n"
+    "---\n\n"
+    "# Refactor\n"
+)
+
+
 def test_legacy_home_memory_path_and_link_are_rejected(tmp_path: Path) -> None:
     memory = tmp_path / "home" / "memory" / "2026" / "07" / "2026-07-11.md"
     memory.parent.mkdir(parents=True)
@@ -244,7 +253,7 @@ def test_skill_memory_exists_only_in_general_how_runtime_package(
 ) -> None:
     skill = tmp_path / "home" / "how" / "refactor" / "SKILL.md"
     skill.parent.mkdir(parents=True)
-    skill.write_text("skill", encoding="utf-8")
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
 
     created = home.write_resource(

@@ -11,6 +11,7 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 DEFAULT_MAX_READ_CHARS = 4000
 DEFAULT_MAX_WRITE_CHARS = 16000
+DEFAULT_SKILL_CATALOG_MAX_CHARS = 8000
 DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
 DEFAULT_SEARCH_TOP_K = 5
 DEFAULT_SEARCH_MAX_TOP_K = 10
@@ -82,6 +83,7 @@ class AgentHomeSettings:
     runtime_root: Path
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
     max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
+    skill_catalog_max_chars: int = DEFAULT_SKILL_CATALOG_MAX_CHARS
     search: HomeSearchSettings = field(default_factory=HomeSearchSettings)
 
     def __post_init__(self) -> None:
@@ -141,6 +143,17 @@ class AgentHomeSettings:
                 value=self.max_write_chars,
                 expected="positive int",
             )
+        if (
+            isinstance(self.skill_catalog_max_chars, bool)
+            or not isinstance(self.skill_catalog_max_chars, int)
+            or self.skill_catalog_max_chars <= 0
+        ):
+            raise ConfigError(
+                "Agent Home skill_catalog_max_chars must be positive",
+                key="home.skill_catalog_max_chars",
+                value=self.skill_catalog_max_chars,
+                expected="positive int",
+            )
 
 
 def parse_agent_home_settings(
@@ -155,6 +168,7 @@ def parse_agent_home_settings(
             "runtime_root",
             "max_read_chars",
             "max_write_chars",
+            "skill_catalog_max_chars",
             "search",
         },
         key="home",
@@ -182,6 +196,11 @@ def parse_agent_home_settings(
             tree,
             "max_write_chars",
             default=DEFAULT_MAX_WRITE_CHARS,
+        ),
+        skill_catalog_max_chars=_optional_int(
+            tree,
+            "skill_catalog_max_chars",
+            default=DEFAULT_SKILL_CATALOG_MAX_CHARS,
         ),
         search=_parse_search_settings(tree.get("search")),
     )

@@ -1,0 +1,6 @@
+[config]
+include = [
+  "configs/*.toml",
+  "configs/llm.models/*.toml",
+]
+env_file = ".env"
