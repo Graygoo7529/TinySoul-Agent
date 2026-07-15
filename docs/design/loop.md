@@ -68,7 +68,7 @@ CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个
 4. 为 Session 与 Workspace 初始化相同的新 business day；
 5. 原子把 pending 目录改名为 `archive/<timezone-timestamp>/`。
 
-每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、Manifest 已初始化但最终 rename 未完成等窗口都可在重启时前滚；多个 pending、Session/Workspace day 分歧、时钟倒退、archive 与任何 active root 重叠均显式失败。该协议是可恢复的跨模块 partial completion，不宣称跨目录原子事务。`runtime/home` 不参与 claim、move、initialize 或 rollback。
+每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、active roots 已初始化但 step 尚未提交、final rename 未完成等窗口都可在重启时根据 participant/manifest/journal 的 persisted facts 前滚；恢复 pending 后若目标 Business Day 更晚，coordinator 再开始下一次 transition。首次 journal 写失败只清理尚无 participant data 的空 pending；已有 participant data 却缺 journal、多个 pending、Session/Workspace day 分歧、时钟倒退、archive 与任何 active root 重叠均显式失败。该协议覆盖 Python 进程异常与文件操作失败，是可恢复的跨模块 partial completion，不宣称 power-loss/fsync durability 或跨目录原子事务。`runtime/home` 与顶层 `memory/` 不参与 claim、move、initialize 或 rollback。
 
 归档完成后的稳定结构是 `archive/<timezone-timestamp>/{transition.json,session,workspace,trash}`。`runtime/` 中只重新建立当前日的 `session/`、`workspace/` active roots；coordinator 保留跨日 `runtime/home` 以及 runtime 下不属于每日参与者的其它目录。旧日 Trash 已退出 active Workspace API，只保留物理归档事实。`transition.json` 只描述物理日切，不写 `settlement_status`、Home pending 或 Maintenance 状态。
 
@@ -78,7 +78,9 @@ Home Maintenance 不保存 plan、review result、apply journal 或 status；是
 
 `ProgramMaintenanceRunner` 只负责跨模块编排，不解释 Home overlay manifest、Session store 或 MEMORY Markdown：Home pending 和 review/apply 由 Agent Home 提供；指定日期 Session archive 由 Daily coordinator 定位，facts projection 由 Session 提供，Memory eligibility/consolidation 由 MemoryEngine 提供。`ProgramWorkOutcome` 只在当前 Program 内有界保留，不落盘；Home/Memory 的 completed/stopped/skipped/failed 相互独立，失败不会结束 Program 或阻止队列中的另一 Maintenance/User Turn。自动 Memory 若目标文件已经存在，会先通过 Memory 门面验证其非空、可读、未超限，再于读取 Session 之前 skipped；人工 Memory 可以用任意既有 Markdown 格式的同日期文件结合 Session 重写，未指定日期时 Program 取当前 Business Day 的昨日。
 
-长运行 Program 启动时先 `ensure_active_day`，随后只提示 active Home 真实 diff/`SKILL_MEMORY.md` 和昨日非空 Session facts 但缺少 MEMORY。Program work 和 `run_once` 在执行前仍各自 preflight，因此离线期间缺失的 daily rollover 会在下次入口补做。App scheduler 以独立 typed wake-up event 在业务时区午夜触发 rollover，并按配置在 `00:05`、`00:15` 默认投递自动 Home 和昨日 Memory；scheduler 不在自己的线程内调用模块，也不追补进程未运行期间更早的 Maintenance。Loop 只发布已确认的最小 normal 事件 `program.maintenance.available`、`program.work.completed` 和 `program.work.failed`；更细的 daily/Home/Memory Observation schema 留待后续确认。
+长运行 Program 启动时先 `ensure_active_day`，随后只提示 active Home 真实 diff/`SKILL_MEMORY.md` 和昨日非空 Session facts 但缺少 MEMORY。Program work 和 `run_once` 在执行前仍各自 preflight，因此离线期间缺失的 daily rollover 会在下次入口补做。App scheduler 以独立 typed wake-up event 在业务时区午夜触发 rollover，并按配置在 `00:05`、`00:15` 默认投递自动 Home 和昨日 Memory；scheduler 不在自己的线程内调用模块，也不追补进程未运行期间更早的 Maintenance。
+
+Observation 保持业务所有权与用户终态分离。Daily coordinator 发布 verbose `daily.transition.started`，以及 normal `daily.transition.completed/recovered/failed`；payload 只含 operation id、from/to day、archive timestamp name、是否恢复和稳定错误类型，不含 participant 正文或绝对路径。Home/Memory service 发布各自 verbose Maintenance 细节，Program 仍只以 `program.maintenance.available` 和每个 work 的唯一 `program.work.completed/failed` 表达 normal 用户结果。所有 emitter 失败都由 Runtime observation helper 隔离，不能改变 journal、archive、Maintenance outcome 或 Program 控制流。
 
 `DailyLifecycleCoordinator.session_archive_for(day)` 只解释跨模块 transition 并返回 `archive/.../session` 根；Session 再通过只读 `archive_snapshot(day, root)` 校验自己的 manifest/graph。Loop 不读取 Session records，Session 不解析 `transition.json`。
 

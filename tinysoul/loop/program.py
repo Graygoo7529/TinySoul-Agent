@@ -316,7 +316,11 @@ class ProgramRunner:
         now = self._business_clock.now()
         business_day = BusinessDay(now.date())
         try:
-            self._daily_lifecycle.ensure_active_day(business_day, now=now)
+            self._daily_lifecycle.ensure_active_day(
+                business_day,
+                now=now,
+                scope=self._scope.push(RunLevel.MODULE, "daily_lifecycle"),
+            )
         except LoopError as exc:
             raise self._loop_bridge.startup_failure(
                 message=str(exc),

@@ -11,6 +11,7 @@ from tinysoul.home import (
     AgentHomeEngineBuilder,
     AgentHomeIOError,
     AgentHomeInvariantError,
+    AgentHomeReviewError,
     AgentHomeSettings,
     HomeMaintenanceChange,
     HomeMaintenanceDecision,
@@ -22,7 +23,13 @@ from tinysoul.home import (
 from tinysoul.home.overlay import HomeOverlayManager
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm import JsonAnswer, RawResponse, TaskCall, TaskProfile, TaskResult
-from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime import (
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+)
 
 
 def test_automatic_home_maintenance_applies_and_discards_without_writing_state(
@@ -310,6 +317,172 @@ def test_actual_write_then_cleanup_interruption_recovers_without_reviewing_again
     assert _overlay_records(tmp_path) == []
 
 
+def test_actual_delete_then_cleanup_interruption_recovers_without_reviewing_again(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "home" / "why" / "delete_recover.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("remove", encoding="utf-8")
+    home = _home(tmp_path)
+    home.delete_top("home:why@delete_recover")
+    original_clear = HomeOverlayManager.clear_record
+    failed = False
+
+    def fail_once(manager: HomeOverlayManager, relative_path: str) -> bool:
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise AgentHomeIOError("injected tombstone cleanup failure")
+        return original_clear(manager, relative_path)
+
+    monkeypatch.setattr(HomeOverlayManager, "clear_record", fail_once)
+    with pytest.raises(AgentHomeIOError, match="tombstone cleanup"):
+        home.run_maintenance(
+            mode=HomeMaintenanceMode.AUTOMATIC,
+            automatic_reviewer=_MappingReviewer(
+                {"home:why@delete_recover": HomeMaintenanceDecision.APPLY}
+            ),
+        )
+
+    assert not source.exists()
+    assert _overlay_records(tmp_path)
+    monkeypatch.setattr(HomeOverlayManager, "clear_record", original_clear)
+
+    recovered = home.run_maintenance(
+        mode=HomeMaintenanceMode.AUTOMATIC,
+        automatic_reviewer=_UnexpectedReviewer(),
+    )
+
+    assert recovered.consistent_cleaned == 1
+    assert recovered.items == ()
+    assert _overlay_records(tmp_path) == []
+
+
+def test_partial_home_review_failure_keeps_only_unresolved_changes(
+    tmp_path: Path,
+) -> None:
+    observations = _RecordingObservations()
+    home = _home(tmp_path, observations=observations)
+    home.write_top("home:why@a", "apply first")
+    home.write_top("home:why@b", "leave pending")
+
+    failed = home.run_maintenance(
+        mode=HomeMaintenanceMode.AUTOMATIC,
+        automatic_reviewer=_FailAfterFirstReviewer(),
+    )
+
+    assert failed.status is HomeMaintenanceStatus.FAILED
+    assert failed.failure is HomeMaintenanceFailure.REVIEW_FAILED
+    assert failed.applied == 1
+    assert failed.remaining_changes == 1
+    assert (tmp_path / "home" / "why" / "a.md").read_text(
+        encoding="utf-8"
+    ) == "apply first"
+    assert not (tmp_path / "home" / "why" / "b.md").exists()
+    assert [event.name for event in observations.events] == [
+        "home.maintenance.started",
+        "home.maintenance.item.resolved",
+        "home.maintenance.failed",
+    ]
+    assert observations.events[-1].payload["failure"] == "review_failed"
+
+    completed = home.run_maintenance(
+        mode=HomeMaintenanceMode.AUTOMATIC,
+        automatic_reviewer=_MappingReviewer(
+            {"home:why@b": HomeMaintenanceDecision.DISCARD}
+        ),
+    )
+    assert completed.discarded == 1
+    assert completed.remaining_changes == 0
+
+
+def test_skill_memory_cleanup_failure_retries_without_reviewing_change_again(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skill = tmp_path / "home" / "how" / "refactor"
+    reference = skill / "references" / "retry.md"
+    reference.parent.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("skill", encoding="utf-8")
+    reference.write_text("old", encoding="utf-8")
+    home = _home(tmp_path)
+    home.write_resource(
+        "home:how/refactor/references/retry.md",
+        "new",
+        overwrite=True,
+    )
+    memory_link = "home:how/refactor/SKILL_MEMORY.md"
+    home.write_resource(memory_link, "clear after apply")
+    original_clear = HomeOverlayManager.clear_record
+    failed = False
+
+    def fail_skill_memory(
+        manager: HomeOverlayManager,
+        relative_path: str,
+    ) -> bool:
+        nonlocal failed
+        if not failed and relative_path.endswith("/SKILL_MEMORY.md"):
+            failed = True
+            raise AgentHomeIOError("injected SKILL_MEMORY cleanup failure")
+        return original_clear(manager, relative_path)
+
+    monkeypatch.setattr(HomeOverlayManager, "clear_record", fail_skill_memory)
+    with pytest.raises(AgentHomeIOError, match="SKILL_MEMORY cleanup"):
+        home.run_maintenance(
+            mode=HomeMaintenanceMode.AUTOMATIC,
+            automatic_reviewer=_MappingReviewer(
+                {
+                    "home:how/refactor/references/retry.md": HomeMaintenanceDecision.APPLY,
+                }
+            ),
+        )
+
+    assert reference.read_text(encoding="utf-8") == "new"
+    assert home.read_resource(memory_link).text == "clear after apply"
+    monkeypatch.setattr(HomeOverlayManager, "clear_record", original_clear)
+
+    recovered = home.run_maintenance(
+        mode=HomeMaintenanceMode.AUTOMATIC,
+        automatic_reviewer=_UnexpectedReviewer(),
+    )
+    assert recovered.items == ()
+    assert recovered.skill_memories_cleared == 1
+    assert recovered.remaining_changes == 0
+
+
+def test_home_maintenance_observations_are_verbose_and_content_free(
+    tmp_path: Path,
+) -> None:
+    observations = _RecordingObservations()
+    home = _home(tmp_path, observations=observations)
+    home.write_top("home:why@observed", "private Home review body")
+    scope = RunScope().push(RunLevel.MODULE, "home_maintenance")
+
+    outcome = home.run_maintenance(
+        mode=HomeMaintenanceMode.AUTOMATIC,
+        automatic_reviewer=_MappingReviewer(
+            {"home:why@observed": HomeMaintenanceDecision.APPLY}
+        ),
+        scope=scope,
+    )
+
+    assert outcome.status is HomeMaintenanceStatus.COMPLETED
+    assert [event.name for event in observations.events] == [
+        "home.maintenance.started",
+        "home.maintenance.item.resolved",
+        "home.maintenance.completed",
+    ]
+    assert all(
+        event.level is ObservationLevel.VERBOSE
+        for event in observations.events
+    )
+    assert all(event.scope == scope for event in observations.events)
+    assert observations.events[-1].payload["applied"] == 1
+    assert "private Home review body" not in repr(observations.events)
+    assert str(tmp_path) not in repr(observations.events)
+
+
 def test_atomic_apply_failure_keeps_actual_and_runtime_diff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -417,6 +590,22 @@ class _UnexpectedReviewer:
         raise AssertionError(f"Unexpected Home review: {change.link}")
 
 
+class _FailAfterFirstReviewer:
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def review(
+        self,
+        change: HomeMaintenanceChange,
+        *,
+        scope: RunScope,
+    ) -> HomeMaintenanceDecision:
+        self._calls += 1
+        if self._calls == 1:
+            return HomeMaintenanceDecision.APPLY
+        raise AgentHomeReviewError("injected second review failure")
+
+
 class _SequenceDecisionProvider:
     def __init__(
         self,
@@ -449,14 +638,19 @@ class _TaskRunner:
         )
 
 
-def _home(root: Path) -> AgentHomeEngine:
+def _home(
+    root: Path,
+    *,
+    observations: ObservationEmitter | None = None,
+) -> AgentHomeEngine:
     original = root / "home"
     original.mkdir(parents=True, exist_ok=True)
     return AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=original,
             runtime_root=root / "runtime" / "home",
-        )
+        ),
+        observations=observations,
     ).build()
 
 
@@ -473,3 +667,14 @@ def _overlay_records(root: Path) -> list[object]:
     records = manifest["records"]
     assert isinstance(records, list)
     return records
+
+
+class _RecordingObservations:
+    def __init__(self) -> None:
+        self.events: list[ObservationEvent] = []
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)

@@ -57,15 +57,15 @@ Memory 生命周期
 | --- | --- | --- | --- |
 | Infra | done | 配置、JSON、原子文件、digest、有界读、路径约束 | 复用现有能力。 |
 | Runtime | done | Program/Turn/Cycle/Phase/Module frame、Trap、Signal、Observation | Maintenance 复用同级 Turn/Module frame，不新增状态系统。 |
-| LLM | done for current tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`memory_search`、`home_maintenance` 与 `memory_maintenance` profile | Stage 7 再确认细粒度 Observation，不新增持久状态。 |
+| LLM | done for current tasks | provider-neutral Task、模型链、输出解释、JSON-only `home_search`、`memory_search`、`home_maintenance` 与 `memory_maintenance` profile | Maintenance Observation 不包含 prompt/reasoning，不新增持久状态。 |
 | Action | done for current User Turn scope | 域选择、调用归一化、批次/backend/result、Home/Memory catalog 与 executor、只读 catalog identities | Memory search/recall 已是独立 native action；Maintenance 不作为普通 Action。 |
 | Context | done for current User Turn | MessageStack、Context-owned 多 provider Background、Working/Trace、信号批次和压力恢复 | Home core 不可逐出，昨日 Memory 与 Phase1 动态项按 source 回收。 |
 | Session | done for lifecycle and Memory projection | 不可变 Turn record、summary、orphan reconciliation、日归档、archive snapshot、递归 Summary 的 Memory facts projection | Stage 6 已通过 Loop Maintenance runner 按日期定位并调用 projection。 |
 | Workspace | done for active lifecycle | 当日资源、Manifest、Trash、日归档 | 从目标日切看已基本闭合，不参与 Maintenance。 |
-| Loop | done for Stage 6.1 scope | User Turn、显式 BusinessDay、可恢复 rollover、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder，以及 MemoryEngine/Background provider 协作 | Stage 7 再补 Observation/crash window。 |
-| Agent Home | done for current lifecycle scope | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、只读 actual top-link catalog | Stage 7 再补 Home crash window；Home 对日期 Memory 零所有权。 |
-| Memory | done for Stage 6.2 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，默认顶层 `memory/`，自由结构单日 consolidation、按日 search 与有界 Link hints | Stage 7 再补 Memory 原子写 crash window 和无网络 E2E。 |
-| App | done for Stage 6.1 scope | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler，以及独立 MemoryEngine/provider/registrar/bridge 装配 | Stage 7 再补完整无网络 E2E。 |
+| Loop | done through Stage 7 | User Turn、显式 BusinessDay、可恢复 rollover 与 crash matrix、Session archive 定位、typed Maintenance work/outcome、启动 preflight/reminder、分层 Observation，以及 MemoryEngine/Background provider 协作 | 生命周期核心闭环已完成。 |
+| Agent Home | done through Stage 7 | Link、动态 effective Background provider、schema v2 跨日 overlay、resource/top/prompt mount mutation、Catalog mount reconcile、SKILL_MEMORY、WHAT/WHY/HOW top search、无持久状态 Home Maintenance、crash recovery 与 verbose Observation | Home 对日期 Memory 零所有权。 |
+| Memory | done through Stage 7 | 独立 Link/store/config/search/recall/Background/Maintenance/consolidator/action/failure/bridge，默认顶层 `memory/`，自由结构单日 consolidation、按日 search、有界 Link hints、原子写恢复与 verbose Observation | 生命周期核心闭环已完成。 |
+| App | done through Stage 7 | Builder、CLI、输入分发、输出路由、Maintenance channel、启动提示、scheduler、共享 Observation 装配、受控 BusinessClock seam，以及独立 MemoryEngine/provider/registrar/bridge 装配 | 无网络正式装配 E2E 已覆盖；发布资产留待 Stage 8。 |
 | Capabilities/发布 | pending | backend mechanism 已有，真实 capability 和项目模板不足 | 在核心生命周期闭环后补齐。 |
 
 阶段 1 已删除 Home 日归档实现：`DailyLifecycleCoordinator` 不再接收 Home，新的 transition 不含 `HOME_ARCHIVED` 或 `settlement_status`，Home overlay schema v2 不含 Business Day，Engine/Manager 不再暴露 Home `active_day`、`initialize_day` 或 `archive_day`。读取旧 schema v1 manifest 时原地迁移；读取旧 finalized transition 时只忽略历史 `home_archived` step，不恢复旧业务语义。若未完成的 legacy pending transition 已包含 Home，coordinator 明确要求人工恢复，不能静默丢弃目录。
@@ -702,13 +702,13 @@ Search 改为完整 store 流式扫描、每日期一个 candidate，并只在�
 
 ### 阶段 7：恢复、观察与端到端加固
 
-status: pending
+status: done
 
 优先级：P1
 
 依赖：阶段 6.2
 
-实施前仍必须向用户确认：Stage 6 已确定三个 Program 级 normal 事件，但 Stage 7 的 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` 是否需要、各自精确事件名、level、触发点和 payload schema 仍未确认。“后续 Turn 可见 MEMORY”已确认为两条路径：精确昨日 MEMORY 在每 Turn preparation 自动进入可逐出 Background；其它日期通过 `memory.search`/`memory.recall` 结果进入 TurnTrace。这一项不再是 Stage 7 待确认项。
+已确认语义：恢复范围限定为 Python 进程异常和文件操作失败，不承诺 power-loss/fsync durability。Daily started 为 verbose，completed/recovered/failed 为 normal；Home/Memory 的 started、item（仅 Home）与 terminal 为 verbose，Program 继续为每项 Maintenance 保留唯一 normal outcome。“后续 Turn 可见 MEMORY”走两条路径：精确昨日 MEMORY 在每 Turn preparation 自动进入可逐出 Background；其它日期通过 `memory.search`/`memory.recall` 结果进入 TurnTrace。无网络 E2E 使用受控时钟和 typed Program event，不启动真实 scheduler 线程。
 
 实施项：
 
@@ -719,6 +719,14 @@ status: pending
 5. 发布 `daily.transition.*`、`home.maintenance.*`、`memory.maintenance.*` Observation；
 6. payload 只含 day、计数、link/digest 摘要和 outcome，不含正文/reasoning；
 7. 建立无网络 E2E：旧日 Turn -> daily archive -> 新日继续使用旧 Home overlay -> Home commit -> Memory 生成 -> 后续 Turn 自动获得昨日 MEMORY -> 更早日期可经 search/recall 召回。
+
+实施结果：Daily 恢复矩阵覆盖初始 journal 写失败、Session move 后 step journal 失败、Trash/Workspace move 中断、active init 后 step journal 失败、final archive rename 失败与恢复后继续下一次跨日；每个窗口都断言 `runtime/home` manifest 与顶层 `memory/` 标记不变。journal 持有的 persisted facts 允许 participant 已移动或 active roots 已初始化但 step 未提交时前滚；空且无 journal 的 pending 可丢弃，已有 participant data 却缺 journal 仍显式失败。该实现保持单进程单写者和跨目录 partial completion 边界，不新增 fsync 或断电事务承诺。
+
+Home 恢复矩阵覆盖 actual apply 后 overlay 清理前中断、部分 review/apply 后失败，以及 `SKILL_MEMORY.md` 清理失败；已处理项通过 runtime/actual 一致性确定性清理，未处理项仍由 active diff 重新 review，不保存 decision。Memory 覆盖原子替换前失败保留旧文件，以及替换完成后调用方观察异常的场景；后者重试时按已存在目标自动 skipped，不重复 consolidation。两项恢复均断言不读写另一所有者的持久根。
+
+Observation 由各业务所有者发布并共享 App 注入的 emitter：Loop Daily 发布 `daily.transition.started/completed/recovered/failed`，Home 发布 `home.maintenance.started/item.resolved/completed/stopped/failed`，Memory 发布 `memory.maintenance.started/skipped/completed/failed`。载荷只含 operation/day/mode/status/link/digest/计数和稳定错误类型，不含正文、diff、reasoning 或绝对路径；emit/enabled 失败继续由 Runtime observation helper 隔离。Program 的 `program.work.completed/failed` 仍是用户 normal 层唯一 Maintenance 结果。
+
+新增无网络 App E2E，以 AppBuilder 注入受控 BusinessClock、关闭 scheduler 并直接投递 typed Home/Memory/Turn/Exit event，贯通旧日 Home mutation Turn、启动 Daily preflight、Session/Workspace/Trash archive、Home commit、Memory consolidation、新日昨日 Background、较早日期 Memory search/recall 和后续回答。测试使用 fake LLM，不访问供应商或网络；Context UserInput 墙钟在测试内绑定同一受控时间源，Memory 的 facts 日期校验保持严格。模块恢复/事件测试、App/Loop/Home/Memory 集成测试与全量 `pytest tests -q` 均通过（仅保留 10 个环境/真实供应商显式 skip），`ty check` 无诊断。
 
 ### 阶段 8：实际能力与发布闭环
 

@@ -116,7 +116,9 @@ Session 负责归档图校验、按需递归 Summary、去重可达 Turn 事实�
 
 完整 actual Home Link catalog 和其它日期 Memory Link catalog 只用于本地验证，不完整进入模型输入。模型只接收从本次 Session/旧 Memory source 中提取、实际存在且受总字符预算约束的 Link hints；模型仍可生成未列入 hints 但实际存在的 Link，本地 validator 负责接受或以有界错误反馈要求重试。
 
-目标 Session archive 缺失或 projection 无 Turn facts 时返回非持久 `skipped`，对目标 Memory 零写入。自动 work 在目标已存在时于 Session/LLM 之前 `skipped`；人工 work 可结合同日期旧 MEMORY 与 Session 重写。成功时只原子替换单个目标文件，不 append，不保存 candidate、plan、review result 或中间状态。
+目标 Session archive 缺失或 projection 无 Turn facts 时返回非持久 `skipped`，对目标 Memory 零写入。自动 work 在目标已存在时于 Session/LLM 之前 `skipped`；人工 work 可结合同日期旧 MEMORY 与 Session 重写。成功时只原子替换单个目标文件，不 append，不保存 candidate、plan、review result 或中间状态。原子替换前的写失败保留旧文件；若替换已经完成但调用方随后观察到进程异常，目标文件就是新的 persisted fact，下一次自动 work 按“目标已存在” skipped，不重复 consolidation。该保证覆盖进程异常和文件操作失败，不扩展为断电/fsync 承诺。
+
+Memory service 只发布 verbose `memory.maintenance.started` 与 `completed/skipped/failed` Observation。事件只含目标日期、rewrite mode、Memory Link、fact/model-call 计数、成功 digest、skip/failure kind 或稳定异常类型，不含 Session facts、旧/新 MEMORY 正文、模型 prompt/reasoning 或绝对路径。Program 在 normal 层另行发布该 work 的唯一结果；Observation emitter 失败不能改变原子写、outcome 或后续 Program work。
 
 启动 eligibility 只检查昨日：昨日 Session projection 非空且昨日 Memory 不存在时提示。不扫描更早日期，不保存 skip 状态，不影响人工指定日期。
 
@@ -179,7 +181,7 @@ Memory 遵守三层失败语义：
 2. 模块边界异常：配置无法解释、Memory root 不可用、已存文档为空/非 UTF-8/超限、路径不变量破坏或原子写失败；既有 Markdown 不采用当前日期 H1 或章节结构本身不是损坏；
 3. Runtime 语义异常：通过 `MemoryFailureKind` 与专用 Runtime bridge 映射为启动失败、结束当前 User Turn 或结束当前 Maintenance work。
 
-昨日文件缺失是正常状态；文件存在却不可读不得降级为缺失。Search 遇到无法解释的已发现 Memory 文档时整个 action 失败，不返回无法声明完整性的部分结果。Maintenance 任何原子写前失败都保留旧目标不变。
+昨日文件缺失是正常状态；文件存在却不可读不得降级为缺失。Search 遇到无法解释的已发现 Memory 文档时整个 action 失败，不返回无法声明完整性的部分结果。Maintenance 任何原子写前失败都保留旧目标不变；原子替换完成后不再把旧目标视为事实，也不建立额外事务日志回滚新文件。
 
 ## 验收要点
 
@@ -191,5 +193,5 @@ Memory 遵守三层失败语义：
 - search/recall 结果只进入 TurnTrace，不修改 Background；
 - Memory 正文中的 Home/Memory Link 都做所有者存在性校验；
 - Memory Maintenance 只读取指定日有序 Session projection 和人工重写时的可选同日任意格式旧 Memory，成功时只增加日期 H1 并原子完整重写；
-- 空/缺失 Session 不创建文件，任何失败不改变旧文件；
+- 空/缺失 Session 不创建文件；原子替换前失败不改变旧文件，替换后异常通过目标存在性幂等收束；
 - Home Maintenance、Daily Rollover 和普通 Home mutation 对 `memory/` 零写入。

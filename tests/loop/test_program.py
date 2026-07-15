@@ -66,6 +66,7 @@ class _FakeDailyLifecycle:
         day: BusinessDay,
         *,
         now: datetime,
+        scope: RunScope | None = None,
     ) -> None:
         self.days.append(day)
 

@@ -48,7 +48,7 @@ from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
 from tinysoul.loop.config import LoopSettings, parse_loop_settings
-from tinysoul.loop.day import IanaBusinessClock
+from tinysoul.loop.day import BusinessClock, IanaBusinessClock
 from tinysoul.loop.daily import DailyLifecycleCoordinator
 from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
 from tinysoul.loop.context_signals import ContextSignalConsumer
@@ -135,6 +135,7 @@ class TinySoulAppBuilder:
         self._context: ContextEngine | None = None
         self._session: SessionEngine | None = None
         self._memory: MemoryEngine | None = None
+        self._business_clock: BusinessClock | None = None
         self._bus: SignalBus | None = None
         self._domain_how: DomainHowProvider | None = None
         self._input_parser: InputCommandParser | None = None
@@ -175,6 +176,13 @@ class TinySoulAppBuilder:
 
     def with_memory_engine(self, memory: MemoryEngine) -> "TinySoulAppBuilder":
         self._memory = memory
+        return self
+
+    def with_business_clock(
+        self,
+        clock: BusinessClock,
+    ) -> "TinySoulAppBuilder":
+        self._business_clock = clock
         return self
 
     def with_signal_bus(self, bus: SignalBus) -> "TinySoulAppBuilder":
@@ -263,11 +271,16 @@ class TinySoulAppBuilder:
                 if self._llm is not None
                 else self._build_llm(config, llm_bridge, observations)
             )
-            home = self._build_home(config, home_bridge)
+            home = self._build_home(config, home_bridge, observations)
             memory = (
                 self._memory
                 if self._memory is not None
-                else self._build_memory(config, memory_bridge, home)
+                else self._build_memory(
+                    config,
+                    memory_bridge,
+                    home,
+                    observations,
+                )
             )
             workspace = self._build_workspace(config, workspace_bridge)
             session = (
@@ -409,6 +422,7 @@ class TinySoulAppBuilder:
                 archive_root=loop_settings.daily.archive_root,
                 session=session,
                 workspace=workspace,
+                observations=observations,
             )
             decision_broker = TerminalHomeDecisionBroker(
                 observations=observations,
@@ -430,7 +444,10 @@ class TinySoulAppBuilder:
                 daily_lifecycle=daily_lifecycle,
                 maintenance_runner=maintenance_runner,
                 retained_outcomes=app_settings.retained_turn_outcomes,
-                business_clock=IanaBusinessClock(loop_settings.daily.timezone),
+                business_clock=(
+                    self._business_clock
+                    or IanaBusinessClock(loop_settings.daily.timezone)
+                ),
                 loop_bridge=loop_bridge,
                 observations=observations,
             )
@@ -530,6 +547,7 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         bridge: RuntimeAgentHomeBridge,
+        observations: ObservationEmitter,
     ) -> AgentHomeEngine:
         try:
             settings = config.parse_section(
@@ -539,7 +557,10 @@ class TinySoulAppBuilder:
                     project_root=self._root,
                 ),
             )
-            home = AgentHomeEngineBuilder(settings).build()
+            home = AgentHomeEngineBuilder(
+                settings,
+                observations=observations,
+            ).build()
             return home
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
@@ -576,13 +597,18 @@ class TinySoulAppBuilder:
         config: ConfigEnvironment,
         bridge: RuntimeMemoryBridge,
         home: AgentHomeEngine,
+        observations: ObservationEmitter,
     ) -> MemoryEngine:
         try:
             settings = config.parse_section(
                 "memory",
                 lambda tree: parse_memory_settings(tree, project_root=self._root),
             )
-            return MemoryEngine(settings=settings, home_catalog=home)
+            return MemoryEngine(
+                settings=settings,
+                home_catalog=home,
+                observations=observations,
+            )
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
         except MemoryError as exc:

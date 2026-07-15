@@ -9,9 +9,17 @@ from threading import RLock
 from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from tinysoul.infra.json import dumps_json
+from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.loop.day import BusinessDay
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunScope,
+    emit_observation,
+    observation_enabled,
+)
 from tinysoul.session.memory import SessionMemoryFact, SessionMemoryFactsProjection
 
 from .config import MemoryMaintenanceSettings
@@ -230,6 +238,7 @@ class MemoryMaintenanceService:
         store: MemoryStore,
         home_catalog: HomeTopLinkCatalog,
         settings: MemoryMaintenanceSettings,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         if not isinstance(settings, MemoryMaintenanceSettings):
             raise MemoryContractError("Memory maintenance settings are invalid")
@@ -240,6 +249,7 @@ class MemoryMaintenanceService:
         self._store = store
         self._home_catalog = home_catalog
         self._settings = settings
+        self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
 
     def memory_exists(self, day: BusinessDay) -> bool:
@@ -255,6 +265,77 @@ class MemoryMaintenanceService:
         return False
 
     def run(
+        self,
+        *,
+        projection: SessionMemoryFactsProjection | None,
+        consolidator: MemoryConsolidator | None,
+        timezone: str,
+        target_day: BusinessDay | None = None,
+        rewrite_existing: bool = True,
+        scope: RunScope | None = None,
+    ) -> MemoryMaintenanceOutcome:
+        run_scope = scope or RunScope()
+        day = projection.day if projection is not None else target_day
+        started_payload: JsonObject = {
+            "target_day": str(day) if day is not None else "unknown",
+            "rewrite_existing": (
+                rewrite_existing
+                if isinstance(rewrite_existing, bool)
+                else "invalid"
+            ),
+        }
+        self._emit(
+            "memory.maintenance.started",
+            "Memory Maintenance started.",
+            scope=run_scope,
+            payload=started_payload,
+        )
+        try:
+            outcome = self._run(
+                projection=projection,
+                consolidator=consolidator,
+                timezone=timezone,
+                target_day=target_day,
+                rewrite_existing=rewrite_existing,
+                scope=run_scope,
+            )
+        except Exception as exc:
+            self._emit(
+                "memory.maintenance.failed",
+                "Memory Maintenance failed.",
+                scope=run_scope,
+                payload={
+                    **started_payload,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
+        terminal = {
+            MemoryMaintenanceStatus.COMPLETED: "completed",
+            MemoryMaintenanceStatus.SKIPPED: "skipped",
+            MemoryMaintenanceStatus.FAILED: "failed",
+        }[outcome.status]
+        payload: JsonObject = {
+            "target_day": str(outcome.day),
+            "link": outcome.link,
+            "fact_count": outcome.fact_count,
+            "model_calls": outcome.model_calls,
+        }
+        if outcome.skip_reason is not None:
+            payload["skip_reason"] = outcome.skip_reason.value
+        if outcome.failure is not None:
+            payload["failure"] = outcome.failure.value
+        if outcome.document_digest:
+            payload["document_digest"] = outcome.document_digest
+        self._emit(
+            f"memory.maintenance.{terminal}",
+            f"Memory Maintenance {terminal}.",
+            scope=run_scope,
+            payload=payload,
+        )
+        return outcome
+
+    def _run(
         self,
         *,
         projection: SessionMemoryFactsProjection | None,
@@ -365,6 +446,31 @@ class MemoryMaintenanceService:
                 model_calls=result.model_calls,
                 document_digest=saved.digest,
             )
+
+    def _emit(
+        self,
+        name: str,
+        message: str,
+        *,
+        scope: RunScope,
+        payload: JsonObject,
+    ) -> None:
+        if not observation_enabled(
+            self._observations,
+            ObservationLevel.VERBOSE,
+        ):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.VERBOSE,
+                source="memory.maintenance",
+                scope=scope,
+                message=message,
+                payload=payload,
+            ),
+        )
 
     def _read_existing(self, day: BusinessDay) -> str | None:
         link = _link_for_day(day)

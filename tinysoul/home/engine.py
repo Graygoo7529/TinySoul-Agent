@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import ObservationEmitter, RunScope
 
 from .config import AgentHomeSettings, HomeSearchSettings
 from .errors import (
@@ -82,6 +82,7 @@ class AgentHomeEngine:
         max_read_chars: int,
         max_write_chars: int,
         search_settings: HomeSearchSettings,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._layout = layout
         self._overlay = overlay
@@ -93,6 +94,7 @@ class AgentHomeEngine:
             overlay=overlay,
             max_preview_chars=max_read_chars,
             max_write_chars=max_write_chars,
+            observations=observations,
         )
         self._search = HomeTopSearchService(search_settings)
 
@@ -725,8 +727,14 @@ class AgentHomeEngine:
 class AgentHomeEngineBuilder:
     """Build an AgentHomeEngine from parsed settings."""
 
-    def __init__(self, settings: AgentHomeSettings) -> None:
+    def __init__(
+        self,
+        settings: AgentHomeSettings,
+        *,
+        observations: ObservationEmitter | None = None,
+    ) -> None:
         self._settings = settings
+        self._observations = observations
 
     def build(self) -> AgentHomeEngine:
         if not self._settings.original_root.exists():
@@ -744,6 +752,7 @@ class AgentHomeEngineBuilder:
             max_read_chars=self._settings.max_read_chars,
             max_write_chars=self._settings.max_write_chars,
             search_settings=self._settings.search,
+            observations=self._observations,
         )
         engine.reconcile()
         return engine

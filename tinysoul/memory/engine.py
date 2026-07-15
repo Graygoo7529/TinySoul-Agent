@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tinysoul.loop.day import BusinessDay
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import ObservationEmitter, RunScope
 from tinysoul.session import SessionMemoryFactsProjection
 
 from .config import MemorySettings
@@ -38,6 +38,7 @@ class MemoryEngine:
         *,
         settings: MemorySettings,
         home_catalog: HomeTopLinkCatalog,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         if not isinstance(settings, MemorySettings):
             raise MemoryContractError("Memory settings are invalid")
@@ -50,6 +51,7 @@ class MemoryEngine:
             store=self._store,
             home_catalog=home_catalog,
             settings=settings.maintenance,
+            observations=observations,
         )
 
     @property

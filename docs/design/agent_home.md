@@ -220,9 +220,11 @@ Home Maintenance 的输入只包括当前 active `runtime/home`、actual Home，
 
 Home Maintenance 与 User Turn 由 Program 单写者边界串行化，因而 review/apply 期间不会出现新的 runtime mutation。未触发或人工跳过 Home Maintenance 时，active overlay 原样跨 Turn、跨日、跨重启保留，Agent 继续透明读取和修改同一 effective Home。`SKILL_MEMORY.md` 同样保留到下一次 Home Maintenance。
 
-当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。`maintenance_pending()` 只报告 current actual 与 runtime 仍有真实差异的 created/modified/deleted 和有效 `SKILL_MEMORY.md`，不把纯 copied 或 actual 已一致的恢复残留作为启动提示。Program work、最小 normal Observation、终端逐项输入与 scheduler 已装配；Home 仍不拥有 stdin、时钟或触发策略。
+当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。`maintenance_pending()` 只报告 current actual 与 runtime 仍有真实差异的 created/modified/deleted 和有效 `SKILL_MEMORY.md`，不把纯 copied 或 actual 已一致的恢复残留作为启动提示。Program work、终端逐项输入与 scheduler 已装配；Home 仍不拥有 stdin、时钟或触发策略。
 
-overlay cleanup 不保存 review decision。copied record 若遇到 actual 外部变化，先把 runtime 对齐 current actual 或形成 current deletion，再清除 record，旧副本永不写回。created/modified 的 runtime digest 已等于 current actual、或 deleted 对应 actual 已不存在时，Maintenance 直接清理，覆盖“actual 原子写完成但 runtime 清理中断”的恢复窗口。discard 清理若中断，未清除的 runtime diff 可以在下一次重新 review。
+Home service 只发布 verbose `home.maintenance.started`、`home.maintenance.item.resolved` 与 `completed/stopped/failed` Observation。item 事件只含 Link、overlay state 和 apply/discard decision；terminal 事件只含 mode、处理/清理/剩余计数和稳定 failure kind，不包含 runtime/actual 正文、diff、review prompt、模型 reasoning 或路径。Program 在 normal 层另行发布该 work 的唯一结果，因此 Home 事件只服务于详细诊断，且 emitter 失败不得影响 review/apply/cleanup。
+
+overlay cleanup 不保存 review decision。copied record 若遇到 actual 外部变化，先把 runtime 对齐 current actual 或形成 current deletion，再清除 record，旧副本永不写回。created/modified 的 runtime digest 已等于 current actual、或 deleted 对应 actual 已不存在时，Maintenance 直接清理，覆盖“actual 原子写完成但 runtime 清理中断”的恢复窗口。部分 apply/discard 后 reviewer 失败时，已处理项保持已提交，只有仍有真实 diff 的未处理项下次重新 review；`SKILL_MEMORY.md` 清理失败时，已处理 Home change 不会被重新 review，下一次 Maintenance 只重试剩余 memory cleanup。恢复范围是进程异常和文件操作失败，不保存或恢复内存中的 review decision。
 
 ## 与 Workspace 的关系
 
@@ -303,4 +305,4 @@ AppBuilder 的目标职责是：
 - Home Maintenance 对顶层 `memory/` 零读写，Memory Maintenance 验收归独立 Memory 模块；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-Stage 6 已覆盖 Home/Memory scheduler、启动提示和人工 Home apply 路径；Stage 6.1 已移除 Home 的 Memory 所有权并重连现有 Program work。Stage 7 再补 Home 原子写/部分清理 crash window、细粒度 Observation 和跨 daily/Home/Memory 的完整无网络 E2E。
+Stage 6 已覆盖 Home/Memory scheduler、启动提示和人工 Home apply 路径；Stage 6.1 已移除 Home 的 Memory 所有权并重连现有 Program work。Stage 7 已覆盖 Home actual write/overlay cleanup、部分 apply/review failure、`SKILL_MEMORY.md` cleanup failure，补充 verbose Observation，并通过完整无网络 App E2E 验证 Daily 后 overlay 保留与 Home commit。

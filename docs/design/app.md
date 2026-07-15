@@ -64,8 +64,8 @@ Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，
 
 输出详细度是包含关系：
 
-- `normal` 输出已完成并通过 Turn completion pipeline 提交的最终回答、可行动的 Maintenance 提示、Program work 结果，以及 failed/exhausted/stopped 等需要用户感知的边界；
-- `verbose` 在 normal 之上增加 Program、Turn、Phase、模型尝试、Action batch 和 Runtime trap 等边界事件；
+- `normal` 输出已完成并通过 Turn completion pipeline 提交的最终回答、可行动的 Maintenance 提示、Program work 唯一结果、Daily transition completed/recovered/failed，以及 failed/exhausted/stopped 等需要用户感知的边界；
+- `verbose` 在 normal 之上增加 Program、Turn、Phase、模型尝试、Action batch、Runtime trap、Daily transition started 和 Home/Memory Maintenance 细节事件；
 - `model` 在 verbose 之上增加 provider-neutral 的模型请求与归一化响应。
 
 MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需要诊断时开启。图片字节只记录长度、MIME 与 digest，远程图片 URL 去掉 query/fragment，data URL 被替换为 redacted 标记；推理只保留 summary 和 encrypted item digest，不输出 reasoning content、加密项原文或 provider 原始 payload。Console 渲染再按 `app.output.model_max_chars` 限制单条诊断文本。
@@ -82,10 +82,10 @@ TinySoulAppBuilder 负责：
 - 从统一 ConfigEnvironment 读取各模块 section tree，由 app/action/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；
 - 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块 registrar 装配模块 executor；
-- 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入 IANA business clock 与 DailyLifecycleCoordinator；
+- 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
 - preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher、终端输入源和内置 scheduler；
-- 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime 和各级 Loop runner；
+- 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
 - 返回 TinySoulApp。
 
 AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Action、Context、LLM、Loop、App、Session、Workspace、Agent Home 和 Memory 在各自 parser 中解释 section tree。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
@@ -98,7 +98,9 @@ AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `Pr
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 
-这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Stage 6 的最小 normal 输出只固定 `program.maintenance.available`、`program.work.completed` 与 `program.work.failed`；模块级细粒度 Maintenance Observation 留待后续确认。AppBuilder 已独立构建 MemoryEngine，并注入 Memory actions、Background provider、reranker、Runtime bridge 与 ProgramMaintenanceRunner。
+这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Program normal 输出固定 `program.maintenance.available` 和每项 work 的唯一 `program.work.completed/failed`；Daily normal terminal 由 Loop owner 发布，Home/Memory 只发布 verbose Maintenance 细节。AppBuilder 已独立构建 MemoryEngine，并注入 Memory actions、Background provider、reranker、Runtime bridge、Observation emitter 与 ProgramMaintenanceRunner。
+
+Stage 7 的无网络 App E2E 关闭 scheduler，以注入的受控 BusinessClock 和直接投递的 typed Program event 验证同一正式装配链：旧日 Turn 写 Home overlay，Program 启动补做 Daily archive，再独立执行 Home/Memory Maintenance，后续 Turn 自动获得昨日 MEMORY，并通过真实 Memory action search/recall 较早日期。fake LLM 只替换 provider runner，不替换 App/Loop/Home/Memory/Session/Action/Context 业务门面。
 
 ## 与其他模块的关系
 

@@ -15,6 +15,15 @@ from uuid import uuid4
 
 from tinysoul.infra.filesystem import atomic_write_text
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunScope,
+    emit_observation,
+    observation_enabled,
+)
 
 from .day import BusinessDay
 from .errors import LoopContractError, LoopInvariantError
@@ -148,10 +157,12 @@ class DailyLifecycleCoordinator:
         archive_root: Path,
         session: SessionDailyLifecycle,
         workspace: WorkspaceDailyLifecycle,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._archive_root = archive_root
         self._session = session
         self._workspace = workspace
+        self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
 
     def ensure_active_day(
@@ -159,6 +170,7 @@ class DailyLifecycleCoordinator:
         target_day: BusinessDay,
         *,
         now: datetime,
+        scope: RunScope | None = None,
     ) -> DailyTransitionOutcome:
         with self._lock:
             if not isinstance(target_day, BusinessDay):
@@ -167,41 +179,158 @@ class DailyLifecycleCoordinator:
                 raise LoopContractError(
                     "Daily rollover timestamp must be timezone-aware"
                 )
+            run_scope = scope or RunScope()
             try:
-                self._validate_layout()
-                pending = self._pending_directory()
-                if pending is not None:
-                    journal = self._load_journal(pending)
-                    archive = self._resume(pending, journal)
-                    active = BusinessDay.parse(journal.to_day)
-                    if active != target_day:
-                        return self.ensure_active_day(target_day, now=now)
-                    return DailyTransitionOutcome(
-                        active_day=target_day,
-                        archive_path=archive,
-                        resumed=True,
-                    )
-
-                active = self._claim_active_day(target_day)
-                if active == target_day:
-                    self._initialize_all(target_day)
-                    return DailyTransitionOutcome(active_day=target_day)
-                if active > target_day:
-                    raise LoopInvariantError(
-                        f"Business clock moved behind active day {active}: {target_day}"
-                    )
-                pending, journal = self._start(active, target_day, now=now)
-                archive = self._resume(pending, journal)
-                return DailyTransitionOutcome(
-                    active_day=target_day,
-                    archive_path=archive,
+                return self._ensure_active_day_locked(
+                    target_day,
+                    now=now,
+                    scope=run_scope,
                 )
-            except LoopContractError:
+            except LoopContractError as exc:
+                self._emit_failed(run_scope, target_day, exc)
                 raise
-            except LoopInvariantError:
+            except LoopInvariantError as exc:
+                self._emit_failed(run_scope, target_day, exc)
                 raise
             except Exception as exc:
+                self._emit_failed(run_scope, target_day, exc)
                 raise LoopInvariantError(f"Daily rollover failed: {exc}") from exc
+
+    def _ensure_active_day_locked(
+        self,
+        target_day: BusinessDay,
+        *,
+        now: datetime,
+        scope: RunScope,
+    ) -> DailyTransitionOutcome:
+        self._validate_layout()
+        pending = self._pending_directory()
+        if pending is not None:
+            journal = self._load_journal(pending)
+            self._emit_transition(
+                "daily.transition.started",
+                ObservationLevel.VERBOSE,
+                "Daily transition recovery started.",
+                journal,
+                scope=scope,
+                resumed=True,
+            )
+            archive = self._resume(pending, journal)
+            self._emit_transition(
+                "daily.transition.recovered",
+                ObservationLevel.NORMAL,
+                "Daily transition recovered.",
+                journal,
+                scope=scope,
+                resumed=True,
+            )
+            active = BusinessDay.parse(journal.to_day)
+            if active != target_day:
+                return self._ensure_active_day_locked(
+                    target_day,
+                    now=now,
+                    scope=scope,
+                )
+            return DailyTransitionOutcome(
+                active_day=target_day,
+                archive_path=archive,
+                resumed=True,
+            )
+
+        active = self._claim_active_day(target_day)
+        if active == target_day:
+            self._initialize_all(target_day)
+            return DailyTransitionOutcome(active_day=target_day)
+        if active > target_day:
+            raise LoopInvariantError(
+                f"Business clock moved behind active day {active}: {target_day}"
+            )
+        pending, journal = self._start(active, target_day, now=now)
+        self._emit_transition(
+            "daily.transition.started",
+            ObservationLevel.VERBOSE,
+            "Daily transition started.",
+            journal,
+            scope=scope,
+            resumed=False,
+        )
+        archive = self._resume(pending, journal)
+        self._emit_transition(
+            "daily.transition.completed",
+            ObservationLevel.NORMAL,
+            "Daily transition completed.",
+            journal,
+            scope=scope,
+            resumed=False,
+        )
+        return DailyTransitionOutcome(
+            active_day=target_day,
+            archive_path=archive,
+        )
+
+    def _emit_transition(
+        self,
+        name: str,
+        level: ObservationLevel,
+        message: str,
+        journal: DailyTransitionJournal,
+        *,
+        scope: RunScope,
+        resumed: bool,
+    ) -> None:
+        self._emit(
+            name,
+            level,
+            message,
+            scope=scope,
+            payload={
+                "operation_id": journal.operation_id,
+                "from_day": journal.from_day,
+                "to_day": journal.to_day,
+                "archive_name": journal.archive_name,
+                "resumed": resumed,
+            },
+        )
+
+    def _emit_failed(
+        self,
+        scope: RunScope,
+        target_day: BusinessDay,
+        error: Exception,
+    ) -> None:
+        self._emit(
+            "daily.transition.failed",
+            ObservationLevel.NORMAL,
+            "Daily transition failed.",
+            scope=scope,
+            payload={
+                "target_day": str(target_day),
+                "error_type": type(error).__name__,
+            },
+        )
+
+    def _emit(
+        self,
+        name: str,
+        level: ObservationLevel,
+        message: str,
+        *,
+        scope: RunScope,
+        payload: JsonObject,
+    ) -> None:
+        if not observation_enabled(self._observations, level):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=level,
+                source="loop.daily",
+                scope=scope,
+                message=message,
+                payload=payload,
+            ),
+        )
 
     def session_archive_for(self, day: BusinessDay) -> Path | None:
         """Resolve one finalized Session archive without reading Session internals."""

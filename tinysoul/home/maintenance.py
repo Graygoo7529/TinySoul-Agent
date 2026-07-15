@@ -28,7 +28,15 @@ from tinysoul.llm import (
     ToolUse,
     UserMessage,
 )
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunScope,
+    emit_observation,
+    observation_enabled,
+)
 
 from .errors import (
     AgentHomeContractError,
@@ -385,6 +393,7 @@ class HomeMaintenanceService:
         overlay: HomeOverlayManager,
         max_preview_chars: int,
         max_write_chars: int,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         if (
             isinstance(max_preview_chars, bool)
@@ -401,9 +410,77 @@ class HomeMaintenanceService:
         self._overlay = overlay
         self._max_preview_chars = max_preview_chars
         self._max_write_chars = max_write_chars
+        self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
 
     def run(
+        self,
+        *,
+        mode: HomeMaintenanceMode,
+        automatic_reviewer: HomeMaintenanceReviewer | None = None,
+        manual_decisions: HomeMaintenanceDecisionProvider | None = None,
+        scope: RunScope | None = None,
+    ) -> HomeMaintenanceOutcome:
+        run_scope = scope or RunScope()
+        self._emit(
+            "home.maintenance.started",
+            "Home Maintenance started.",
+            scope=run_scope,
+            payload={
+                "mode": (
+                    mode.value
+                    if isinstance(mode, HomeMaintenanceMode)
+                    else "invalid"
+                )
+            },
+        )
+        try:
+            outcome = self._run(
+                mode=mode,
+                automatic_reviewer=automatic_reviewer,
+                manual_decisions=manual_decisions,
+                scope=run_scope,
+            )
+        except Exception as exc:
+            self._emit(
+                "home.maintenance.failed",
+                "Home Maintenance failed.",
+                scope=run_scope,
+                payload={
+                    "mode": (
+                        mode.value
+                        if isinstance(mode, HomeMaintenanceMode)
+                        else "invalid"
+                    ),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
+        terminal = {
+            HomeMaintenanceStatus.COMPLETED: "completed",
+            HomeMaintenanceStatus.STOPPED: "stopped",
+            HomeMaintenanceStatus.FAILED: "failed",
+        }[outcome.status]
+        payload: JsonObject = {
+            "mode": mode.value,
+            "applied": outcome.applied,
+            "discarded": outcome.discarded,
+            "copied_cleaned": outcome.copied_cleaned,
+            "consistent_cleaned": outcome.consistent_cleaned,
+            "skill_memories_cleared": outcome.skill_memories_cleared,
+            "remaining_changes": outcome.remaining_changes,
+        }
+        if outcome.failure is not None:
+            payload["failure"] = outcome.failure.value
+        self._emit(
+            f"home.maintenance.{terminal}",
+            f"Home Maintenance {terminal}.",
+            scope=run_scope,
+            payload=payload,
+        )
+        return outcome
+
+    def _run(
         self,
         *,
         mode: HomeMaintenanceMode,
@@ -460,6 +537,16 @@ class HomeMaintenanceService:
                         decision=decision,
                     )
                 )
+                self._emit(
+                    "home.maintenance.item.resolved",
+                    "Home Maintenance item resolved.",
+                    scope=run_scope,
+                    payload={
+                        "link": change.link,
+                        "state": change.state.value,
+                        "decision": decision.value,
+                    },
+                )
                 skill = _skill_for_relative(change.relative_path)
                 if skill is not None and skill in pending_by_skill:
                     pending_by_skill[skill] -= 1
@@ -481,6 +568,31 @@ class HomeMaintenanceService:
                 skill_memories_cleared=cleared_memories,
                 remaining_changes=len(self._reviewable_records()),
             )
+
+    def _emit(
+        self,
+        name: str,
+        message: str,
+        *,
+        scope: RunScope,
+        payload: JsonObject,
+    ) -> None:
+        if not observation_enabled(
+            self._observations,
+            ObservationLevel.VERBOSE,
+        ):
+            return
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.VERBOSE,
+                source="home.maintenance",
+                scope=scope,
+                message=message,
+                payload=payload,
+            ),
+        )
 
     def pending(self) -> HomeMaintenancePending:
         """Report actual review work without cleaning or mutating the overlay."""

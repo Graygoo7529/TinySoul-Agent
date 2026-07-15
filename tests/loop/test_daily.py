@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 from pathlib import Path
@@ -8,10 +8,19 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import tinysoul.loop.daily as daily_module
+import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.context import TurnSummary
 from tinysoul.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator
 from tinysoul.loop.errors import LoopContractError, LoopInvariantError
+from tinysoul.runtime import (
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+)
 from tinysoul.session import SessionEngine, SessionSettings
 from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.workspace.errors import WorkspaceIOError
@@ -19,10 +28,21 @@ from tinysoul.workspace.errors import WorkspaceIOError
 
 OLD_DAY = BusinessDay.parse("2026-07-11")
 NEW_DAY = BusinessDay.parse("2026-07-12")
+THIRD_DAY = BusinessDay.parse("2026-07-13")
 ROLLOVER_TIME = datetime(
     2026,
     7,
     12,
+    0,
+    0,
+    1,
+    123456,
+    tzinfo=ZoneInfo("Asia/Shanghai"),
+)
+SECOND_ROLLOVER_TIME = datetime(
+    2026,
+    7,
+    13,
     0,
     0,
     1,
@@ -107,6 +127,36 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     assert not tuple((tmp_path / "archive").glob(".pending-*"))
 
 
+def test_daily_transition_observations_report_bounded_terminal_facts(
+    tmp_path: Path,
+) -> None:
+    observations = _RecordingObservations()
+    _, workspace, _, coordinator = _daily_system(
+        tmp_path,
+        observations=observations,
+    )
+    scope = RunScope().push(RunLevel.MODULE, "daily_lifecycle")
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME, scope=scope)
+    workspace.write_text("workspace:private.md", "private workspace body")
+
+    coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME, scope=scope)
+
+    assert [event.name for event in observations.events] == [
+        "daily.transition.started",
+        "daily.transition.completed",
+    ]
+    assert [event.level for event in observations.events] == [
+        ObservationLevel.VERBOSE,
+        ObservationLevel.NORMAL,
+    ]
+    completed = observations.events[-1]
+    assert completed.scope == scope
+    assert completed.payload["from_day"] == str(OLD_DAY)
+    assert completed.payload["to_day"] == str(NEW_DAY)
+    assert "private workspace body" not in repr(observations.events)
+    assert str(tmp_path) not in repr(observations.events)
+
+
 def test_daily_rollover_resume_does_not_touch_home(
     tmp_path: Path,
 ) -> None:
@@ -146,6 +196,238 @@ def test_daily_rollover_resume_does_not_touch_home(
     assert workspace.active_day == NEW_DAY
     assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
     assert _home_manifest_bytes(home) == home_manifest_before
+
+
+def test_daily_initial_journal_failure_discards_empty_pending_and_keeps_old_day(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, workspace, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_write = daily_module.atomic_write_text
+
+    def fail_initial_journal(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+        raise OSError("injected initial journal failure")
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", fail_initial_journal)
+    with pytest.raises(LoopInvariantError, match="journal"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    assert session.active_day == OLD_DAY
+    assert workspace.active_day == OLD_DAY
+    assert not tuple((tmp_path / "archive").glob(".pending-*"))
+    _assert_protected_state(home, marker, protected_before)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
+    assert coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME).archive_path
+
+
+def test_daily_resumes_session_move_when_step_journal_write_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, workspace, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    session.record_turn(
+        summary=TurnSummary(turn_id="turn_session_window"),
+        output={"text": "saved"},
+        exhausted=False,
+        day=OLD_DAY,
+    )
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_write = daily_module.atomic_write_text
+    writes = 0
+
+    def fail_second_journal(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise OSError("injected session step journal failure")
+        original_write(path, text, encoding=encoding)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", fail_second_journal)
+    with pytest.raises(LoopInvariantError, match="journal"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    pending = _only_pending(tmp_path)
+    assert (pending / "session" / "turns" / "turn_session_window.json").is_file()
+    assert session.active_day is None
+    assert workspace.active_day == OLD_DAY
+    _assert_protected_state(home, marker, protected_before)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
+    resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+    assert resumed.resumed is True
+    assert resumed.archive_path is not None
+    assert session.active_day == NEW_DAY
+    assert workspace.active_day == NEW_DAY
+    _assert_protected_state(home, marker, protected_before)
+
+
+def test_daily_resumes_after_trash_move_before_workspace_move(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, workspace, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    workspace.write_text("workspace:trash-window.md", "trash me")
+    workspace.trash_resource(
+        "workspace:trash-window.md",
+        reason="explicit_delete",
+        source_turn_id="turn_trash_window",
+    )
+    workspace.write_text("workspace:keep-window.md", "keep me")
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_replace = workspace_engine_module.os.replace
+    failed = False
+
+    def fail_workspace_move(source: Path, target: Path) -> None:
+        nonlocal failed
+        if not failed and Path(source).resolve() == workspace.root.resolve():
+            failed = True
+            raise OSError("injected workspace move failure")
+        original_replace(source, target)
+
+    monkeypatch.setattr(workspace_engine_module.os, "replace", fail_workspace_move)
+    with pytest.raises(LoopInvariantError, match="Workspace"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    pending = _only_pending(tmp_path)
+    assert (pending / "trash").is_dir()
+    assert not (workspace.root / ".tinysoul" / "trash").exists()
+    assert (workspace.root / "keep-window.md").is_file()
+    _assert_protected_state(home, marker, protected_before)
+
+    monkeypatch.setattr(workspace_engine_module.os, "replace", original_replace)
+    resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+    assert resumed.resumed is True
+    assert resumed.archive_path is not None
+    assert (resumed.archive_path / "workspace" / "keep-window.md").is_file()
+    assert (resumed.archive_path / "trash").is_dir()
+    _assert_protected_state(home, marker, protected_before)
+
+
+def test_daily_resumes_after_active_init_before_step_journal_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, workspace, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_write = daily_module.atomic_write_text
+    writes = 0
+
+    def fail_active_step(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 4:
+            raise OSError("injected active init journal failure")
+        original_write(path, text, encoding=encoding)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", fail_active_step)
+    with pytest.raises(LoopInvariantError, match="journal"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    assert session.active_day == NEW_DAY
+    assert workspace.active_day == NEW_DAY
+    assert _only_pending(tmp_path).is_dir()
+    _assert_protected_state(home, marker, protected_before)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
+    resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+    assert resumed.resumed is True
+    assert resumed.archive_path is not None
+    _assert_protected_state(home, marker, protected_before)
+
+
+def test_daily_resumes_final_archive_rename_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations = _RecordingObservations()
+    session, workspace, home, coordinator = _daily_system(
+        tmp_path,
+        observations=observations,
+    )
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_replace = daily_module.os.replace
+    failed = False
+
+    def fail_final_replace(source: Path, target: Path) -> None:
+        nonlocal failed
+        if not failed and Path(source).name.startswith(".pending-"):
+            failed = True
+            raise OSError("injected final archive rename failure")
+        original_replace(source, target)
+
+    monkeypatch.setattr(daily_module.os, "replace", fail_final_replace)
+    with pytest.raises(LoopInvariantError, match="finalize"):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    pending = _only_pending(tmp_path)
+    transition = json.loads((pending / "transition.json").read_text(encoding="utf-8"))
+    assert transition["completed_steps"] == [
+        "session_archived",
+        "workspace_archived",
+        "active_initialized",
+    ]
+    assert session.active_day == NEW_DAY
+    assert workspace.active_day == NEW_DAY
+    _assert_protected_state(home, marker, protected_before)
+    assert [event.name for event in observations.events] == [
+        "daily.transition.started",
+        "daily.transition.failed",
+    ]
+
+    monkeypatch.setattr(daily_module.os, "replace", original_replace)
+    resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+    assert resumed.resumed is True
+    assert resumed.archive_path is not None
+    assert [event.name for event in observations.events[-2:]] == [
+        "daily.transition.started",
+        "daily.transition.recovered",
+    ]
+    assert observations.events[-1].level is ObservationLevel.NORMAL
+    _assert_protected_state(home, marker, protected_before)
+
+
+def test_daily_recovers_pending_then_rolls_forward_again_for_current_day(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, workspace, home, coordinator = _daily_system(tmp_path)
+    coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
+    marker, protected_before = _protected_state(tmp_path, home)
+    original_write = daily_module.atomic_write_text
+    writes = 0
+
+    def fail_session_step(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise OSError("injected old pending transition")
+        original_write(path, text, encoding=encoding)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", fail_session_step)
+    with pytest.raises(LoopInvariantError):
+        coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
+
+    monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
+    outcome = coordinator.ensure_active_day(THIRD_DAY, now=SECOND_ROLLOVER_TIME)
+
+    archives = tuple(
+        path
+        for path in (tmp_path / "archive").iterdir()
+        if path.is_dir() and not path.name.startswith(".pending-")
+    )
+    assert len(archives) == 2
+    assert outcome.active_day == THIRD_DAY
+    assert session.active_day == THIRD_DAY
+    assert workspace.active_day == THIRD_DAY
+    assert not tuple((tmp_path / "archive").glob(".pending-*"))
+    _assert_protected_state(home, marker, protected_before)
 
 
 def test_finalized_legacy_transition_still_resolves_session_archive(
@@ -286,6 +568,8 @@ class _FailAfterArchiveWorkspace:
 
 def _daily_system(
     root: Path,
+    *,
+    observations: ObservationEmitter | None = None,
 ) -> tuple[
     SessionEngine,
     WorkspaceEngine,
@@ -310,6 +594,7 @@ def _daily_system(
         archive_root=root / "archive",
         session=session,
         workspace=workspace,
+        observations=observations,
     )
     return session, workspace, home, coordinator
 
@@ -318,3 +603,38 @@ def _home_manifest_bytes(home: AgentHomeEngine) -> bytes:
     return (
         home.runtime_root / ".tinysoul" / "home_overlay.json"
     ).read_bytes()
+
+
+def _protected_state(
+    root: Path,
+    home: AgentHomeEngine,
+) -> tuple[Path, tuple[bytes, bytes]]:
+    marker = root / "memory" / "2026" / "07" / "2026-07-10.md"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("memory must stay unchanged", encoding="utf-8")
+    return marker, (_home_manifest_bytes(home), marker.read_bytes())
+
+
+def _assert_protected_state(
+    home: AgentHomeEngine,
+    marker: Path,
+    expected: tuple[bytes, bytes],
+) -> None:
+    assert (_home_manifest_bytes(home), marker.read_bytes()) == expected
+
+
+def _only_pending(root: Path) -> Path:
+    pending = tuple((root / "archive").glob(".pending-*"))
+    assert len(pending) == 1
+    return pending[0]
+
+
+@dataclass
+class _RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
