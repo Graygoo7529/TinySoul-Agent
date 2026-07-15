@@ -55,7 +55,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                     "old_home_write",
                     "home.top.write",
                     {
-                        "link": "home:why@daily_preference.md",
+                        "link": "home:why@daily_preference",
                         "text": "# Daily preference\n\nKeep the durable preference.",
                     },
                 )
@@ -81,7 +81,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                 {
                     "content": (
                         "- durable old-day fact\n"
-                        "- preference <home:why@daily_preference.md>"
+                        "- preference <home:why@daily_preference>"
                     )
                 }
             ),
@@ -257,7 +257,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
     ).read_text(encoding="utf-8") == (
         "# 2026-07-14\n\n"
         "- durable old-day fact\n"
-        "- preference <home:why@daily_preference.md>\n"
+        "- preference <home:why@daily_preference>\n"
     )
 
     names = [event.name for event in observations.events]

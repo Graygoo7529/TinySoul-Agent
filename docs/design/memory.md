@@ -82,7 +82,7 @@ Turn preparation 使用 Program 已捕获的 `BusinessDay` 与 `loop.daily.timez
 - 文件存在时返回 Link 和完整、受上限约束的非空 Markdown，不要求固定章节；
 - 文件无法读取、为空、不是 UTF-8 或超过完整文档上限时，preparation 以 Memory 模块失败结束，不伪装为“昨日无记忆”。
 
-该 entry 属于每 Turn 重建的自动 Background source，不跨 Turn 保留在 Context 内存中。它不是身份规约，因此可在 Context 压力回收中被逐出；`home:agent@AGENT.md` 仍不可逐出。Memory provider 不向 Phase1 目录暴露全部历史日期。
+该 entry 属于每 Turn 重建的自动 Background source，不跨 Turn 保留在 Context 内存中。它不是身份规约，因此可在 Context 压力回收中被逐出；`home:agent@AGENT` 仍不可逐出。Memory provider 不向 Phase1 目录暴露全部历史日期。
 
 ### Search
 

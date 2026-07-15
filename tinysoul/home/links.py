@@ -38,6 +38,10 @@ class HomeTopLink:
             )
         _validate_relative_name(self.name, label="top name")
         path = PurePosixPath(self.name)
+        if path.suffix:
+            raise AgentHomeInvariantError(
+                "Home top link must use a logical name without a file suffix"
+            )
         if self.space == "how":
             if len(path.parts) != 1:
                 raise AgentHomeInvariantError(
@@ -46,8 +50,7 @@ class HomeTopLink:
             return
         if self.space == "what":
             if (
-                path.suffix != ".md"
-                or len(path.parts) < 2
+                len(path.parts) < 2
                 or path.parts[0]
                 not in {
                     HomeWhatKind.ENTITY.value,
@@ -55,14 +58,9 @@ class HomeTopLink:
                 }
             ):
                 raise AgentHomeInvariantError(
-                    "Home WHAT top link must use entity/<name>.md or "
-                    "concept/<name>.md"
+                    "Home WHAT top link must use entity/<name> or concept/<name>"
                 )
             return
-        if path.suffix != ".md":
-            raise AgentHomeInvariantError(
-                f"Home {self.space} top link must name a .md file"
-            )
 
     @classmethod
     def parse(cls, value: str) -> "HomeTopLink":

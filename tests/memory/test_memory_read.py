@@ -198,7 +198,7 @@ def test_context_loads_only_exact_yesterday_and_pressure_evicts_memory(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.ensure_runtime_copy(home.parse_link("home:agent@AGENT.md"))
+    home.ensure_runtime_copy(home.parse_link("home:agent@AGENT"))
     memory_root = tmp_path / "memory"
     _write_memory(memory_root, "2026-07-12", "older")
     _write_memory(memory_root, "2026-07-13", "yesterday free-form")
@@ -213,12 +213,12 @@ def test_context_loads_only_exact_yesterday_and_pressure_evicts_memory(
     context.begin_turn("first")
     context.prepare_default_background(date(2026, 7, 14))
     assert context.background_links() == (
-        "home:agent@AGENT.md",
+        "home:agent@AGENT",
         "memory:2026-07-13.md",
     )
     report = context.reclaim_pressure(required_chars=1)
     assert report.evicted_background_links == ("memory:2026-07-13.md",)
-    assert context.background_links() == ("home:agent@AGENT.md",)
+    assert context.background_links() == ("home:agent@AGENT",)
     context.end_turn()
 
     context.begin_turn("second")

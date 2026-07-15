@@ -51,12 +51,12 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
     known.write_text("known", encoding="utf-8")
     memory = _memory(tmp_path)
     projection = _projection(
-        _fact("first <home:what@concept/known.md>", 9),
+        _fact("first <home:what@concept/known>", 9),
         _fact("second", 14),
         _fact("third", 20),
     )
     consolidator = _CapturingConsolidator(
-        "## Durable facts\n\n- retained <home:what@concept/known.md>"
+        "## Durable facts\n\n- retained <home:what@concept/known>"
     )
     assert memory.maintenance_eligible(projection)
 
@@ -72,12 +72,12 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
     request = consolidator.requests[0]
     joined = "\n".join(request.sources)
     assert joined.index("first") < joined.index("second") < joined.index("third")
-    assert request.home_link_hints == ("home:what@concept/known.md",)
-    assert "home:what@concept/known.md" in request.allowed_home_links
+    assert request.home_link_hints == ("home:what@concept/known",)
+    assert "home:what@concept/known" in request.allowed_home_links
     assert _target(tmp_path).read_text(encoding="utf-8") == (
         "# 2026-07-12\n\n"
         "## Durable facts\n\n"
-        "- retained <home:what@concept/known.md>\n"
+        "- retained <home:what@concept/known>\n"
     )
     assert not (tmp_path / "runtime" / "home" / "memory").exists()
     assert not memory.maintenance_eligible(projection)
@@ -234,7 +234,7 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
 
     outcome = memory.run_maintenance(
         projection=_projection(
-            _fact("x" * 1800 + " <home:what@concept/known.md>", 9)
+            _fact("x" * 1800 + " <home:what@concept/known>", 9)
         ),
         consolidator=LLMMemoryConsolidator(runner),
         timezone="Asia/Shanghai",
@@ -261,9 +261,9 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     ]
     assert final_prompts
     assert all(
-        "home:what@concept/unused.md" not in prompt for prompt in final_prompts
+        "home:what@concept/unused" not in prompt for prompt in final_prompts
     )
-    assert "<home:what@concept/known.md>" in _target(tmp_path).read_text(
+    assert "<home:what@concept/known>" in _target(tmp_path).read_text(
         encoding="utf-8"
     )
 
@@ -501,14 +501,14 @@ class _MemoryTaskRunner:
         if final:
             self._final_calls += 1
             link = (
-                "home:what@concept/known.md"
+                "home:what@concept/known"
                 if self._repair_link and self._final_calls > 1
-                else "home:what@concept/missing.md"
+                else "home:what@concept/missing"
             )
             value = {"content": f"- retained fact <{link}>"}
         else:
             value = {
-                "content": "- condensed fact <home:what@concept/known.md>"
+                "content": "- condensed fact <home:what@concept/known>"
             }
         return TaskResult.success(
             raw_response=RawResponse(

@@ -148,9 +148,9 @@ class AgentHomeEngine:
         return parse_home_link(value)
 
     def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
-        core = HomeTopLink("agent", "AGENT.md")
+        core = HomeTopLink("agent", "AGENT")
         links = [core]
-        user = HomeTopLink("agent", "user/user.md")
+        user = HomeTopLink("agent", "user/user")
         if self._resolve_top_relative(user) is not None:
             links.append(user)
         return tuple(
@@ -518,8 +518,8 @@ class AgentHomeEngine:
         expected_digest: str = "",
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
-        if parsed == HomeTopLink("agent", "AGENT.md"):
-            raise AgentHomeContractError("home:agent@AGENT.md cannot be deleted")
+        if parsed == HomeTopLink("agent", "AGENT"):
+            raise AgentHomeContractError("home:agent@AGENT cannot be deleted")
         relative = self._require_top_relative(parsed)
         record = self._overlay.delete(relative, expected_digest=expected_digest)
         return _mutation(str(parsed), record)
@@ -628,18 +628,17 @@ class AgentHomeEngine:
                 "Home resource operation requires a progressive resource link"
             )
         self._validate_resource_semantics(parsed_link)
+        if _is_top_entry_resource(parsed_link):
+            raise AgentHomeContractError(
+                "Home resource operation cannot address a top-level Home file"
+            )
         return parsed_link
 
     def _mutable_resource_link(
         self,
         link: HomeResourceLink | str,
     ) -> HomeResourceLink:
-        parsed = self._resource_link(link)
-        if _is_top_entry_resource(parsed):
-            raise AgentHomeContractError(
-                "Top-level Home entries require home.top mutation actions"
-            )
-        return parsed
+        return self._resource_link(link)
 
     def _validate_resource_semantics(self, link: HomeResourceLink) -> None:
         path = PurePosixPath(link.relative_path)
@@ -688,7 +687,7 @@ class AgentHomeEngine:
                 and record.state is HomeOverlayState.DELETED
             ):
                 raise AgentHomeInvariantError(
-                    "home:agent@AGENT.md cannot be deleted in the runtime overlay"
+                    "home:agent@AGENT cannot be deleted in the runtime overlay"
                 )
             name = PurePosixPath(relative).name
             if name.upper().endswith("_MEMORY.MD"):

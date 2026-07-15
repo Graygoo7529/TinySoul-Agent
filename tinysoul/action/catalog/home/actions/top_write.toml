@@ -9,7 +9,7 @@ schema = { type = "object", properties = { link = { type = "string", description
 use_when = ["A top-level AGENT, WHAT, WHY, or HOW entry should be created or fully replaced"]
 avoid_when = ["A progressive resource or automatic prompt mount should change", "A long-term Memory should change"]
 effects = ["modifying"]
-examples = ["Create home:what@entity/tiny_soul.md"]
+examples = ["Create home:what@entity/tiny_soul"]
 
 [runtime]
 parallel_policy = "serial"

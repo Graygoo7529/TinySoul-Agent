@@ -6,4 +6,4 @@ A Link identifies content or a resource without automatically embedding its body
 
 Top Link syntax indicates Background eligibility, not automatic loading. The Agent core and an existing user profile are automatic; other Top Links are loaded when they have been exposed in the current Context and are relevant to the task. All general HOW metadata is exposed automatically so Phase1 can decide which skill body to load.
 
-Related entity: <home:what@entity/tiny-soul.md>. Usage guidance: <home:how@tinysoul-docs>.
+Related entity: <home:what@entity/tiny-soul>. Usage guidance: <home:how@tinysoul-docs>.

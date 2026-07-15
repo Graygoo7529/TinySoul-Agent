@@ -105,25 +105,25 @@ def test_runtime_only_top_is_catalogued_across_restart_and_tombstone_hides_it(
     home = _home(tmp_path)
 
     created = home.write_top(
-        "home:what@entity/tiny_soul.md",
+        "home:what@entity/tiny_soul",
         "runtime entity",
     )
 
     assert created.state is HomeOverlayState.CREATED
-    assert "home:what@entity/tiny_soul.md" in home.loadable_background_links()
-    assert home.read_top("home:what@entity/tiny_soul.md") == "runtime entity"
+    assert "home:what@entity/tiny_soul" in home.loadable_background_links()
+    assert home.read_top("home:what@entity/tiny_soul") == "runtime entity"
     assert not (
         tmp_path / "home" / "what" / "entity" / "tiny_soul.md"
     ).exists()
 
     restarted = _home(tmp_path)
-    assert "home:what@entity/tiny_soul.md" in restarted.loadable_background_links()
-    deleted = restarted.delete_top("home:what@entity/tiny_soul.md")
+    assert "home:what@entity/tiny_soul" in restarted.loadable_background_links()
+    deleted = restarted.delete_top("home:what@entity/tiny_soul")
 
     assert deleted.state is HomeOverlayState.DELETED
-    assert "home:what@entity/tiny_soul.md" not in restarted.loadable_background_links()
+    assert "home:what@entity/tiny_soul" not in restarted.loadable_background_links()
     with pytest.raises(AgentHomeContractError, match="does not exist"):
-        restarted.read_top("home:what@entity/tiny_soul.md")
+        restarted.read_top("home:what@entity/tiny_soul")
 
 
 def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None:
@@ -132,11 +132,11 @@ def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None
     source.write_text("actual reason", encoding="utf-8")
     home = _home(tmp_path)
 
-    deleted = home.delete_top("home:why@obsolete.md")
+    deleted = home.delete_top("home:why@obsolete")
 
     assert deleted.state is HomeOverlayState.DELETED
     assert source.read_text(encoding="utf-8") == "actual reason"
-    assert "home:why@obsolete.md" not in home.loadable_background_links()
+    assert "home:why@obsolete" not in home.loadable_background_links()
 
 
 def test_materialized_top_remains_effective_when_actual_changes_externally(
@@ -146,13 +146,13 @@ def test_materialized_top_remains_effective_when_actual_changes_externally(
     source.parent.mkdir(parents=True)
     source.write_text("baseline", encoding="utf-8")
     home = _home(tmp_path)
-    link = home.parse_link("home:why@stable.md")
+    link = home.parse_link("home:why@stable")
     assert home.ensure_runtime_copy(link) is True
 
     source.write_text("external change", encoding="utf-8")
 
-    assert home.read_top("home:why@stable.md") == "baseline"
-    assert "home:why@stable.md" in home.loadable_background_links()
+    assert home.read_top("home:why@stable") == "baseline"
+    assert "home:why@stable" in home.loadable_background_links()
 
 
 def test_top_mutation_enforces_what_classification_core_and_link_rules(
@@ -163,21 +163,21 @@ def test_top_mutation_enforces_what_classification_core_and_link_rules(
     core.write_text("core before", encoding="utf-8")
     home = _home(tmp_path)
 
-    with pytest.raises(AgentHomeContractError, match="entity/<name>.md"):
+    with pytest.raises(AgentHomeContractError, match="entity/<name>"):
         home.write_top("home:what@missing_kind", "value")
-    with pytest.raises(AgentHomeContractError, match="entity/<name>.md"):
-        home.write_top("home:what@event/invalid_kind.md", "value")
+    with pytest.raises(AgentHomeContractError, match="entity/<name>"):
+        home.write_top("home:what@event/invalid_kind", "value")
 
     patched = home.patch_top(
-        "home:agent@AGENT.md",
+        "home:agent@AGENT",
         old_text="core before",
         new_text="core after",
     )
     assert patched.state is HomeOverlayState.MODIFIED
-    assert home.read_top("home:agent@AGENT.md") == "core after"
+    assert home.read_top("home:agent@AGENT") == "core after"
     assert core.read_text(encoding="utf-8") == "core before"
     with pytest.raises(AgentHomeContractError, match="cannot be deleted"):
-        home.delete_top("home:agent@AGENT.md")
+        home.delete_top("home:agent@AGENT")
     with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
         home.write_top("home:memory@2026-07-11", "changed", overwrite=True)
 
@@ -192,8 +192,8 @@ def test_what_classification_is_part_of_the_canonical_link(tmp_path: Path) -> No
     home = _home(tmp_path)
 
     assert home.loadable_background_links() == (
-        "home:what@concept/duplicate.md",
-        "home:what@entity/duplicate.md",
+        "home:what@concept/duplicate",
+        "home:what@entity/duplicate",
     )
 
 

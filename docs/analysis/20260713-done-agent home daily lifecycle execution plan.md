@@ -6,6 +6,8 @@ status: done
 
 本文是 Agent Home、Memory、Daily Lifecycle 和 Maintenance 的唯一执行规划，统一取代此前 followup plan 与 semantic audit。规划以当前 `AGENT.md` 和 `docs/design/` 为约束，只保留已经确认的核心语义；旧的 Home daily archive、archived Home workset、Settlement root、持久 review/plan/apply 状态机、MEMORY runtime candidate、Home-owned Memory 边界和 HOW usage Session provenance 均不属于目标设计。Stage 1-8.1 已全部实施；默认 Agent Home 内容扩写与真实 Action capability 扩充分别进入独立后续计划。
 
+后续说明：Stage 8.1 中 Agent/WHAT/WHY Top Link 携带 `.md` 的选择已由 `20260715-done-home top link identity refactor plan.md` 替代；当前 canonical 语义以 `AGENT.md`、`docs/design/agent_home.md` 与该后续计划为准。
+
 状态统一使用：
 
 - `done`：代码、测试和设计文档均已同步；

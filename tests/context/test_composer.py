@@ -31,7 +31,7 @@ def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnT
     inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
     background.load(
-        BackgroundEntry(link="home:what@concept/x.md", content="entry text")
+        BackgroundEntry(link="home:what@concept/x", content="entry text")
     )
     working = WorkingContext()
     trace = TurnTraceHeap()
@@ -81,7 +81,7 @@ def test_compose_section_order_and_labels() -> None:
         "identity",
         "user_input",
         "background:journal",
-        "background:home:what@concept/x.md",
+        "background:home:what@concept/x",
         "working",
         "phase_note",
         "task_prompt:guide:phase",

@@ -29,9 +29,9 @@ Session and Workspace follow the Business Day lifecycle. Runtime Home changes re
 
 ## Home Index
 
-- <home:agent@user/user.md> contains stable user facts and preferences and is automatically loaded when present.
-- <home:what@entity/tiny-soul.md> defines TinySoul as an entity.
-- <home:what@concept/context-and-links.md> defines Context ownership and Link destinations.
-- <home:what@concept/daily-lifecycle.md> defines daily rollover and independent Maintenance work.
-- <home:why@why-is-updating-home-important.md> explains why durable Home content must remain current and reviewed.
+- <home:agent@user/user> contains stable user facts and preferences and is automatically loaded when present.
+- <home:what@entity/tiny-soul> defines TinySoul as an entity.
+- <home:what@concept/context-and-links> defines Context ownership and Link destinations.
+- <home:what@concept/daily-lifecycle> defines daily rollover and independent Maintenance work.
+- <home:why@why-is-updating-home-important> explains why durable Home content must remain current and reviewed.
 - <home:how@tinysoul-docs> is the general documentation navigation skill.

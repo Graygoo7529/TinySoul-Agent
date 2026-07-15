@@ -34,14 +34,14 @@ class AgentHomeLayout:
 
     def relative_for_top(self, link: HomeTopLink) -> str:
         if link.space == "agent":
-            return f"agent/{link.name}"
+            return f"agent/{link.name}.md"
         if link.space == "how":
             _require_single_segment(link.name, label="Home HOW skill name")
             return f"how/{link.name}/SKILL.md"
         if link.space == "what":
-            return f"what/{link.name}"
+            return f"what/{link.name}.md"
         if link.space == "why":
-            return f"why/{link.name}"
+            return f"why/{link.name}.md"
         raise AgentHomeInvariantError(f"Unsupported Home top space: {link.space}")
 
     def relative_for_resource(self, link: HomeResourceLink) -> str:
@@ -87,20 +87,20 @@ class AgentHomeLayout:
     def top_link_for_relative(self, relative_path: str) -> HomeTopLink | None:
         path = PurePosixPath(relative_path)
         parts = path.parts
-        if path.suffix.lower() != ".md" or not parts:
+        if path.suffix != ".md" or not parts:
             return None
         if len(parts) >= 2 and parts[0] == "agent":
-            name = PurePosixPath(*parts[1:]).as_posix()
+            name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
             return HomeTopLink("agent", name)
         if (
             len(parts) >= 3
             and parts[0] == "what"
             and parts[1] in {"entity", "concept"}
         ):
-            name = PurePosixPath(*parts[1:]).as_posix()
+            name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
             return HomeTopLink("what", name)
         if len(parts) >= 2 and parts[0] == "why":
-            name = PurePosixPath(*parts[1:]).as_posix()
+            name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
             return HomeTopLink("why", name)
         if len(parts) == 3 and parts[0] == "how" and parts[2] == "SKILL.md":
             return HomeTopLink("how", parts[1])
@@ -173,3 +173,9 @@ class AgentHomeLayout:
 def _require_single_segment(value: str, *, label: str) -> None:
     if len(PurePosixPath(value).parts) != 1:
         raise AgentHomeContractError(f"{label} must use one path segment")
+
+
+def _without_markdown_suffix(value: PurePosixPath) -> str:
+    if value.suffix != ".md":
+        raise AgentHomeInvariantError("Home top file must use the .md suffix")
+    return value.with_suffix("").as_posix()

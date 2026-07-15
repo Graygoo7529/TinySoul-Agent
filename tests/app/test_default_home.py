@@ -25,13 +25,13 @@ from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 
 _HOME_REFERENCE = re.compile(r"<(home:[^>\s]+)>")
 _EXPECTED_TOP_LINKS = {
-    "home:agent@AGENT.md",
-    "home:agent@user/user.md",
+    "home:agent@AGENT",
+    "home:agent@user/user",
     "home:how@tinysoul-docs",
-    "home:what@concept/context-and-links.md",
-    "home:what@concept/daily-lifecycle.md",
-    "home:what@entity/tiny-soul.md",
-    "home:why@why-is-updating-home-important.md",
+    "home:what@concept/context-and-links",
+    "home:what@concept/daily-lifecycle",
+    "home:what@entity/tiny-soul",
+    "home:why@why-is-updating-home-important",
 }
 
 
@@ -61,10 +61,10 @@ def test_packaged_default_home_is_valid_in_an_isolated_project(
 
     assert {
         "home:how@tinysoul-docs",
-        "home:what@concept/context-and-links.md",
-        "home:what@concept/daily-lifecycle.md",
-        "home:what@entity/tiny-soul.md",
-        "home:why@why-is-updating-home-important.md",
+        "home:what@concept/context-and-links",
+        "home:what@concept/daily-lifecycle",
+        "home:what@entity/tiny-soul",
+        "home:why@why-is-updating-home-important",
     }.issubset({item.link for item in result.items})
 
 
@@ -76,8 +76,8 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     catalog = provider.catalog(date(2026, 7, 15))
 
     assert catalog.default_links == (
-        "home:agent@AGENT.md",
-        "home:agent@user/user.md",
+        "home:agent@AGENT",
+        "home:agent@user/user",
     )
     assert catalog.evictable_default_links == ()
     assert [(item.link, item.title) for item in catalog.items] == [
@@ -85,8 +85,8 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     ]
 
     targets = (
-        "home:what@entity/tiny-soul.md",
-        "home:why@why-is-updating-home-important.md",
+        "home:what@entity/tiny-soul",
+        "home:why@why-is-updating-home-important",
     )
     for link in (*catalog.default_links, *targets):
         home.ensure_runtime_copy(HomeTopLink.parse(link))
@@ -109,10 +109,10 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
         ).messages
     }
     assert "background:catalog:home" in initial_labels
-    assert "background:home:agent@AGENT.md" in initial_labels
-    assert "background:home:agent@user/user.md" in initial_labels
-    assert "background:home:what@entity/tiny-soul.md" not in initial_labels
-    assert "background:home:why@why-is-updating-home-important.md" not in initial_labels
+    assert "background:home:agent@AGENT" in initial_labels
+    assert "background:home:agent@user/user" in initial_labels
+    assert "background:home:what@entity/tiny-soul" not in initial_labels
+    assert "background:home:why@why-is-updating-home-important" not in initial_labels
     assert CONTROL_EVICT_BACKGROUND not in {
         tool.name for tool in context.control_scope().tools
     }

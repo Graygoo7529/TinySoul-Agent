@@ -53,12 +53,12 @@ class HomeBackgroundEntryProvider:
             skills = self.home.skill_metadata()
         except AgentHomeError as exc:
             raise self.runtime_bridge.from_home_error(exc) from exc
-        core = "home:agent@AGENT.md"
+        core = "home:agent@AGENT"
         if core not in links:
             raise self.runtime_bridge.from_home_error(
                 AgentHomeContractError("Agent Home core background is missing")
             )
-        user = "home:agent@user/user.md"
+        user = "home:agent@user/user"
         defaults = (core, user) if user in links else (core,)
         return BackgroundCatalog(
             owner="home",

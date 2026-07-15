@@ -39,8 +39,8 @@ def test_control_result_validates_protocol_fields() -> None:
 def test_control_scope_reflects_loadable_and_loaded_links() -> None:
     builder = ContextControlScopeBuilder()
     scope = builder.build(
-        loadable_links=("home:what@concept/a.md",),
-        loaded_links=("home:what@concept/b.md",),
+        loadable_links=("home:what@concept/a",),
+        loaded_links=("home:what@concept/b",),
     )
     names = [tool.name for tool in scope.tools]
     assert names == [
@@ -109,8 +109,8 @@ def test_normalize_background_calls_produce_signals() -> None:
                 name=CONTROL_LOAD_BACKGROUND,
                 arguments={
                     "links": [
-                        "home:what@concept/a.md",
-                        "home:why@question.md",
+                        "home:what@concept/a",
+                        "home:why@question",
                     ]
                 },
                 kind=ToolKind.CONTROL,
@@ -118,7 +118,7 @@ def test_normalize_background_calls_produce_signals() -> None:
             ToolCallRecord(
                 id="call_2",
                 name=CONTROL_EVICT_BACKGROUND,
-                arguments={"links": ["home:what@concept/b.md"]},
+                arguments={"links": ["home:what@concept/b"]},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -130,11 +130,11 @@ def test_normalize_background_calls_produce_signals() -> None:
         SIGNAL_BACKGROUND_PATCH,
     ]
     assert normalization.signals[0].payload["load_links"] == [
-        "home:what@concept/a.md",
-        "home:why@question.md",
+        "home:what@concept/a",
+        "home:why@question",
     ]
     assert normalization.signals[1].payload["evict_links"] == [
-        "home:what@concept/b.md"
+        "home:what@concept/b"
     ]
 
 

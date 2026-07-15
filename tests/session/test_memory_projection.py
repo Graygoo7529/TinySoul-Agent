@@ -37,12 +37,12 @@ def test_memory_projection_recursively_expands_summary_to_unique_turn_facts(
                     },
                 ),
                 working={"milestone": f"milestone {index}"},
-                background_links=("home:agent@AGENT.md",),
+                background_links=("home:agent@AGENT",),
                 trace_digest={"entry_count": index + 1},
             ),
             output={
                 "text": f"complete answer {index} " + "x" * 700,
-                "references": ["home:agent@AGENT.md"],
+                "references": ["home:agent@AGENT"],
             },
             exhausted=False,
             day=DAY,
@@ -70,7 +70,7 @@ def test_memory_projection_recursively_expands_summary_to_unique_turn_facts(
     assert first.user_inputs == ("complete question 1",)
     assert first.working == {"milestone": "milestone 1"}
     assert first.answer.endswith("x" * 700)
-    assert first.references == ("home:agent@AGENT.md",)
+    assert first.references == ("home:agent@AGENT",)
     assert first.trace_digest == {"entry_count": 2}
     assert "trace" not in first.to_json()
 

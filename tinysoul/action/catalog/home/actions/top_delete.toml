@@ -7,9 +7,9 @@ schema = { type = "object", properties = { link = { type = "string", description
 
 [semantic]
 use_when = ["An obsolete top-level WHAT, WHY, HOW, or non-core AGENT entry should leave the effective view"]
-avoid_when = ["home:agent@AGENT.md should be deleted", "A long-term Memory should change"]
+avoid_when = ["home:agent@AGENT should be deleted", "A long-term Memory should change"]
 effects = ["modifying"]
-examples = ["Delete an obsolete home:why@old_rule.md entry"]
+examples = ["Delete an obsolete home:why@old_rule entry"]
 
 [runtime]
 parallel_policy = "serial"

@@ -79,7 +79,7 @@ def test_home_settings_reject_overlapping_original_and_runtime_roots(
         )
 
 
-def test_home_top_links_use_real_markdown_paths_except_framework_how(
+def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
     tmp_path: Path,
 ) -> None:
     home_root = tmp_path / "home"
@@ -91,27 +91,62 @@ def test_home_top_links_use_real_markdown_paths_except_framework_how(
         )
     ).build()
     cases = {
-        "home:agent@AGENT.md": "agent/AGENT.md",
-        "home:agent@user/user.md": "agent/user/user.md",
-        "home:what@entity/tiny-soul.md": "what/entity/tiny-soul.md",
-        "home:what@concept/daily-lifecycle.md": (
+        "home:agent@AGENT": "agent/AGENT.md",
+        "home:agent@user/user": "agent/user/user.md",
+        "home:what@entity/tiny-soul": "what/entity/tiny-soul.md",
+        "home:what@concept/daily-lifecycle": (
             "what/concept/daily-lifecycle.md"
         ),
-        "home:why@context-budget.md": "why/context-budget.md",
+        "home:why@context-budget": "why/context-budget.md",
         "home:how@python-refactor": "how/python-refactor/SKILL.md",
     }
 
     for value, expected in cases.items():
         link = HomeTopLink.parse(value)
         assert home.layout.relative_for_top(link) == expected
+        assert home.layout.top_link_for_relative(expected) == link
 
     for legacy in (
-        "home:agent@core",
+        "home:agent@AGENT.md",
+        "home:what@entity/tiny-soul.md",
         "home:what@daily-lifecycle",
-        "home:why@context-budget",
+        "home:why@context-budget.md",
     ):
         with pytest.raises(AgentHomeContractError):
             HomeTopLink.parse(legacy)
+
+
+def test_top_files_cannot_be_addressed_as_progressive_resources(
+    tmp_path: Path,
+) -> None:
+    files = {
+        "agent/AGENT.md": "core",
+        "what/entity/tiny-soul.md": "entity",
+        "why/question.md": "reason",
+        "how/refactor/SKILL.md": _SKILL_TEXT,
+    }
+    for relative, text in files.items():
+        path = tmp_path / "home" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+
+    aliases = (
+        "home:agent/AGENT.md",
+        "home:what/entity/tiny-soul.md",
+        "home:why/question.md",
+        "home:how/refactor/SKILL.md",
+    )
+    for alias in aliases:
+        with pytest.raises(AgentHomeContractError, match="top-level Home file"):
+            home.read_resource(alias)
+        with pytest.raises(AgentHomeContractError, match="top-level Home file"):
+            home.write_resource(alias, "replacement", overwrite=True)
 
 
 def test_home_background_is_copied_only_when_context_loads_it(
@@ -126,7 +161,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = "home:what@concept/project.md"
+    link = "home:what@concept/project"
     context = (
         ContextEngineBuilder(system_text="sys")
         .add_lazy_background(
@@ -200,7 +235,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
         home=home,
     )
 
-    assert defaults[0].link == "home:agent@AGENT.md"
+    assert defaults[0].link == "home:agent@AGENT"
     assert defaults[0].content == "core rules"
     assert "home:how_domain:workspace" not in loadable
     assert guidance == ("workspace guidance",)
@@ -242,11 +277,11 @@ def test_home_background_provider_catalog_does_not_materialize_core(
 
     catalog = provider.catalog(date(2026, 7, 14))
 
-    assert catalog.default_links == ("home:agent@AGENT.md",)
+    assert catalog.default_links == ("home:agent@AGENT",)
     assert not (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").exists()
 
     content = _run_copy_trap_after_runtime_exception(
-        lambda: provider.load("home:agent@AGENT.md", date(2026, 7, 14)),
+        lambda: provider.load("home:agent@AGENT", date(2026, 7, 14)),
         home=home,
     )
 
@@ -273,16 +308,16 @@ def test_home_background_provider_automatically_loads_effective_user(
     catalog = provider.catalog(date(2026, 7, 14))
 
     assert catalog.default_links == (
-        "home:agent@AGENT.md",
-        "home:agent@user/user.md",
+        "home:agent@AGENT",
+        "home:agent@user/user",
     )
     assert catalog.evictable_default_links == ()
     assert not (tmp_path / "runtime" / "home" / "agent").exists()
 
-    home.delete_top("home:agent@user/user.md")
+    home.delete_top("home:agent@user/user")
 
     assert provider.catalog(date(2026, 7, 15)).default_links == (
-        "home:agent@AGENT.md",
+        "home:agent@AGENT",
     )
 
 
@@ -342,7 +377,7 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = HomeTopLink("agent", "AGENT.md")
+    link = HomeTopLink("agent", "AGENT")
     home.ensure_runtime_copy(link)
     runtime = tmp_path / "runtime" / "home" / "agent" / "AGENT.md"
     runtime.unlink()
@@ -463,7 +498,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
         _execution(
             "home.top.write",
             {
-                "link": "home:what@concept/project.md",
+                "link": "home:what@concept/project",
                 "text": "project",
             },
         ),
@@ -484,7 +519,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     assert created.status is ActionResultStatus.SUCCESS
     assert created.payload["state"] == "created"
     assert prompt.status is ActionResultStatus.SUCCESS
-    assert home.read_top("home:what@concept/project.md") == "project"
+    assert home.read_top("home:what@concept/project") == "project"
     assert home.guidance_for_domain("workspace") == "workspace guidance"
 
 

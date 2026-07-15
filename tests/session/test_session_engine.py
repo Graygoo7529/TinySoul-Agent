@@ -84,7 +84,7 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
     )
     context = (
         ContextEngineBuilder(system_text="system")
-        .add_default_background("home:agent@AGENT.md", "agent home")
+        .add_default_background("home:agent@AGENT", "agent home")
         .build()
     )
     turn_id = context.begin_turn("current question")
@@ -109,7 +109,7 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
     )
     labels = tuple(message.label for message in stack.messages)
     assert labels.index("background:session:turn_previous") < labels.index(
-        "background:home:agent@AGENT.md"
+        "background:home:agent@AGENT"
     )
     late_results = context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=signals)

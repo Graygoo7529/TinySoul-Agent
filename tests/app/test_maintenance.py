@@ -100,7 +100,7 @@ def test_app_manual_home_maintenance_reviews_and_applies_runtime_diff(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.write_top("home:why@manual.md", "committed after review")
+    home.write_top("home:why@manual", "committed after review")
     sink = _DecisionSink()
     app = (
         TinySoulAppBuilder()
@@ -146,7 +146,7 @@ def test_app_manual_home_maintenance_reviews_and_applies_runtime_diff(
 
 def _change() -> HomeMaintenanceChange:
     return HomeMaintenanceChange(
-        link="home:why@changed.md",
+        link="home:why@changed",
         relative_path="why/changed.md",
         state=HomeOverlayState.CREATED,
         baseline_digest="",

@@ -4,4 +4,4 @@ TinySoul is the agent represented by this project. It coordinates provider-neutr
 
 TinySoul keeps ownership boundaries explicit: Context owns the model-facing projection, domain modules own their persistent facts, Loop owns execution order, and App owns process assembly and external input.
 
-Related concepts: <home:what@concept/context-and-links.md> and <home:what@concept/daily-lifecycle.md>. Related guidance: <home:how@tinysoul-docs>.
+Related concepts: <home:what@concept/context-and-links> and <home:what@concept/daily-lifecycle>. Related guidance: <home:how@tinysoul-docs>.

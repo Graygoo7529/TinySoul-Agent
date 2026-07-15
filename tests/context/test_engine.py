@@ -49,8 +49,8 @@ def _engine():
     return (
         ContextEngineBuilder(system_text="You are TinySoul.")
         .with_journal("day journal")
-        .add_default_background("home:agent@AGENT.md", "core rules")
-        .add_loadable_background("home:what@concept/x.md", "entity x")
+        .add_default_background("home:agent@AGENT", "core rules")
+        .add_loadable_background("home:what@concept/x", "entity x")
         .build()
     )
 
@@ -83,7 +83,7 @@ def test_turn_lifecycle_and_compose() -> None:
     summary = engine.end_turn()
     assert summary.turn_id == turn_id
     assert summary.inputs[0]["text"] == "please help"
-    assert summary.background_links == ("home:agent@AGENT.md",)
+    assert summary.background_links == ("home:agent@AGENT",)
     assert not engine.turn_active
 
 
@@ -98,7 +98,7 @@ def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
     with pytest.raises(ContextContractError, match="background_links"):
         TurnSummary(
             turn_id="turn_1",
-            background_links=("home:agent@AGENT.md", "home:agent@AGENT.md"),
+            background_links=("home:agent@AGENT", "home:agent@AGENT"),
         )
 
 
@@ -119,7 +119,7 @@ def test_control_scope_tracks_background_state() -> None:
             ToolCallRecord(
                 id="c1",
                 name=CONTROL_LOAD_BACKGROUND,
-                arguments={"links": ["home:what@concept/x.md"]},
+                arguments={"links": ["home:what@concept/x"]},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -129,7 +129,7 @@ def test_control_scope_tracks_background_state() -> None:
         bus.emit(signal)
     results = engine.consume_signals(bus)
     assert results == ()
-    assert "home:what@concept/x.md" in engine.background_links()
+    assert "home:what@concept/x" in engine.background_links()
 
 
 def test_consume_signals_commits_feasible_valid_changes() -> None:
@@ -256,7 +256,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             scope=scope,
             payload={
                 "call_id": "load",
-                "load_links": ["home:what@concept/x.md"],
+                "load_links": ["home:what@concept/x"],
                 "evict_links": [],
             },
         )
@@ -269,7 +269,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             payload={
                 "call_id": "evict",
                 "load_links": [],
-                "evict_links": ["home:what@concept/x.md"],
+                "evict_links": ["home:what@concept/x"],
             },
         )
     )
@@ -281,7 +281,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             payload={
                 "call_id": "evict_again",
                 "load_links": [],
-                "evict_links": ["home:what@concept/x.md"],
+                "evict_links": ["home:what@concept/x"],
             },
         )
     )
@@ -290,7 +290,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
     assert len(results) == 1
     assert results[0].call_id == "evict_again"
     assert "not loaded" in results[0].model_feedback
-    assert "home:what@concept/x.md" not in engine.background_links()
+    assert "home:what@concept/x" not in engine.background_links()
 
 
 def test_background_signal_rejects_load_evict_conflict() -> None:
@@ -304,8 +304,8 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
             scope=scope,
             payload={
                 "call_id": "conflict",
-                "load_links": ["home:what@concept/x.md"],
-                "evict_links": ["home:what@concept/x.md"],
+                "load_links": ["home:what@concept/x"],
+                "evict_links": ["home:what@concept/x"],
             },
         )
     )
@@ -314,7 +314,7 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
     assert len(results) == 1
     assert results[0].call_id == "conflict"
     assert "cannot load and evict" in results[0].model_feedback
-    assert "home:what@concept/x.md" not in engine.background_links()
+    assert "home:what@concept/x" not in engine.background_links()
 
 
 def test_background_signal_treats_loaded_link_load_as_noop() -> None:
@@ -328,7 +328,7 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
             scope=scope,
             payload={
                 "call_id": "reload_default",
-                "load_links": ["home:agent@AGENT.md"],
+                "load_links": ["home:agent@AGENT"],
                 "evict_links": [],
             },
         )
@@ -337,7 +337,7 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     results = engine.consume_signals(bus)
 
     assert results == ()
-    assert engine.background_links() == ("home:agent@AGENT.md",)
+    assert engine.background_links() == ("home:agent@AGENT",)
 
 
 def test_home_background_is_rebuilt_for_each_user_turn() -> None:
@@ -352,7 +352,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
             scope=_scope(first_turn),
             payload={
                 "call_id": "load_x",
-                "load_links": ["home:what@concept/x.md"],
+                "load_links": ["home:what@concept/x"],
                 "evict_links": [],
             },
         )
@@ -360,8 +360,8 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
 
     assert engine.consume_signals(bus) == ()
     assert engine.background_links() == (
-        "home:agent@AGENT.md",
-        "home:what@concept/x.md",
+        "home:agent@AGENT",
+        "home:what@concept/x",
     )
     engine.complete_preparation()
     engine.end_turn()
@@ -369,7 +369,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     engine.begin_turn("second")
     assert engine.background_links() == ()
     engine.prepare_default_background(date(2026, 7, 14))
-    assert engine.background_links() == ("home:agent@AGENT.md",)
+    assert engine.background_links() == ("home:agent@AGENT",)
 
 
 def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
@@ -601,7 +601,7 @@ def test_abort_turn_discards_active_state() -> None:
     engine.begin_turn("hi")
     engine.prepare_default_background(date(2026, 7, 14))
     assert engine.turn_active is True
-    assert engine.background_links() == ("home:agent@AGENT.md",)
+    assert engine.background_links() == ("home:agent@AGENT",)
 
     engine.abort_turn()
 
@@ -682,12 +682,12 @@ def test_builder_validates_background_configuration() -> None:
     with pytest.raises(ContextContractError):
         (
             ContextEngineBuilder(system_text="sys")
-            .add_default_background("home:agent@AGENT.md", "a")
-            .add_default_background("home:agent@AGENT.md", "a")
+            .add_default_background("home:agent@AGENT", "a")
+            .add_default_background("home:agent@AGENT", "a")
         )
     with pytest.raises(ContextContractError):
         (
             ContextEngineBuilder(system_text="sys")
-            .add_loadable_background("home:what@concept/x.md", "a")
-            .add_loadable_background("home:what@concept/x.md", "b")
+            .add_loadable_background("home:what@concept/x", "a")
+            .add_loadable_background("home:what@concept/x", "b")
         )

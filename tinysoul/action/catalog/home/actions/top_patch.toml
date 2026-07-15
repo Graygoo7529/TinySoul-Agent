@@ -9,7 +9,7 @@ schema = { type = "object", properties = { link = { type = "string", description
 use_when = ["A small exact change is needed in a top-level AGENT, WHAT, WHY, or HOW entry"]
 avoid_when = ["A long-term Memory should change", "The old text is ambiguous"]
 effects = ["modifying"]
-examples = ["Patch one rule in home:agent@AGENT.md"]
+examples = ["Patch one rule in home:agent@AGENT"]
 
 [runtime]
 parallel_policy = "serial"
