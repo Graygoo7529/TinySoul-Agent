@@ -48,7 +48,7 @@ ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `Pr
 
 TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 TurnSummary。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。Cycle/Turn 从 Runtime exception chain 提取 reason/module/kind 和有界安全 message，但把 turn output、用户 stop/exit 等控制异常排除在失败之外。最终 `TurnOutcomeStatus` 稳定区分 `answered/exhausted/stopped/failed`；失败、耗尽和停止发布 normal Observation，只有 completion pipeline 全部成功后才发布 `turn.output`。默认首个 completion handler 是幂等 Session 提交；后续 handler 必须自行以 Turn id/业务 operation id 实现幂等，因为 pipeline 保证确定顺序和失败停止，不提供跨 handler 原子事务或自动回滚。
 
-Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。Context 先从全部 `BackgroundEntryProvider` 原子重建通用 Background：Home provider 提供默认 core/catalog，Memory provider 使用同一 `BusinessDay` 提供可选昨日正文；Session 再投影显式 business day 的跨 Turn 历史，Workspace 最后校验相同 day、完成 reconciliation 并投影 Manifest。Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
+Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。Context 先从全部 `BackgroundEntryProvider` 原子重建通用 Background：Home provider 提供不可逐出的默认 core、存在时不可逐出的默认 user 和通用 HOW metadata catalog，Memory provider 使用同一 `BusinessDay` 提供可选昨日正文；Session 再投影显式 business day 的跨 Turn 历史，Workspace 最后校验相同 day、完成 reconciliation 并投影 Manifest。Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
 
 CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
 

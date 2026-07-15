@@ -1,3 +1,7 @@
-# Daily Lifecycle
+# TinySoul Daily Lifecycle
 
-Session, Workspace, and active Trash cross a deterministic Business Day boundary and are archived together. Agent Home has a separate cross-day runtime overlay and is committed only by Home Maintenance. Date Memory is produced independently from archived Session facts.
+TinySoul separates deterministic daily rollover from review-driven Home and Memory Maintenance so a new Business Day never depends on model availability or a review decision.
+
+Session, Workspace, and active Trash roll over together at the Business Day boundary. The active Home overlay is not archived or cleared and remains the effective Home until Home Maintenance applies or discards its changes. Memory Maintenance independently derives one date-scoped Memory document from archived Session facts and an optional existing Memory for the same date.
+
+Rollover, Home Maintenance, and Memory Maintenance are separate Program work with independent failure outcomes. Related entity: <home:what@entity/tiny-soul.md>. Related rationale: <home:why@why-is-updating-home-important.md>.

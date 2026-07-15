@@ -49,6 +49,15 @@ def test_control_scope_reflects_loadable_and_loaded_links() -> None:
         CONTROL_EVICT_BACKGROUND,
     ]
     assert all(tool.kind is ToolKind.CONTROL for tool in scope.tools)
+    load = next(tool for tool in scope.tools if tool.name == CONTROL_LOAD_BACKGROUND)
+    properties = load.parameters["properties"]
+    assert isinstance(properties, dict)
+    links = properties["links"]
+    assert isinstance(links, dict)
+    items = links["items"]
+    assert isinstance(items, dict)
+    assert items["type"] == "string"
+    assert "enum" not in items
 
     minimal = builder.build(loadable_links=(), loaded_links=())
     assert [tool.name for tool in minimal.tools] == [CONTROL_UPDATE_WORKING]
@@ -98,7 +107,12 @@ def test_normalize_background_calls_produce_signals() -> None:
             ToolCallRecord(
                 id="call_1",
                 name=CONTROL_LOAD_BACKGROUND,
-                arguments={"links": ["home:what@concept/a.md"]},
+                arguments={
+                    "links": [
+                        "home:what@concept/a.md",
+                        "home:why@question.md",
+                    ]
+                },
                 kind=ToolKind.CONTROL,
             ),
             ToolCallRecord(
@@ -116,7 +130,8 @@ def test_normalize_background_calls_produce_signals() -> None:
         SIGNAL_BACKGROUND_PATCH,
     ]
     assert normalization.signals[0].payload["load_links"] == [
-        "home:what@concept/a.md"
+        "home:what@concept/a.md",
+        "home:why@question.md",
     ]
     assert normalization.signals[1].payload["evict_links"] == [
         "home:what@concept/b.md"

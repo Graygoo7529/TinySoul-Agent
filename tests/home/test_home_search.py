@@ -262,22 +262,6 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
     assert not (tmp_path / "runtime" / "home" / "why" / "review.md").exists()
 
 
-def test_default_home_examples_are_searchable(tmp_path: Path) -> None:
-    home = AgentHomeEngineBuilder(
-        AgentHomeSettings(
-            original_root=Path("home"),
-            runtime_root=tmp_path / "runtime" / "home",
-        )
-    ).build()
-
-    result = home.search_top("daily lifecycle maintenance review", top_k=10)
-
-    links = {item.link for item in result.items}
-    assert "home:what@concept/daily-lifecycle.md" in links
-    assert "home:why@separate-rollover-maintenance.md" in links
-    assert "home:how@daily-home-review" in links
-
-
 def test_home_search_settings_parse_and_validate_bounds(tmp_path: Path) -> None:
     settings = parse_agent_home_settings(
         {

@@ -4,7 +4,7 @@
 
 status: pending
 
-依赖：Stage 8 发布与初始化闭环、默认 Agent Home 内容实施完成。
+依赖（已满足）：Stage 8 发布与初始化闭环、`20260715-done-default agent home content plan.md`。
 
 ## 目标
 

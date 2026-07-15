@@ -124,7 +124,7 @@ class ContextControlScopeBuilder:
     ) -> ToolScope:
         tools: list[ToolSpec] = [self._update_working_spec()]
         if loadable_links:
-            tools.append(self._load_background_spec(loadable_links))
+            tools.append(self._load_background_spec())
         if loaded_links:
             tools.append(self._evict_background_spec(loaded_links))
         return ToolScope(
@@ -175,17 +175,26 @@ class ContextControlScopeBuilder:
             kind=ToolKind.CONTROL,
         )
 
-    def _load_background_spec(self, loadable_links: tuple[str, ...]) -> ToolSpec:
+    def _load_background_spec(self) -> ToolSpec:
         return ToolSpec(
             name=CONTROL_LOAD_BACKGROUND,
-            description="Load top-level content entries into the background context.",
+            description=(
+                "Load one or more top-level content links already exposed in the "
+                "current context into the background context."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "links": {
                         "type": "array",
-                        "items": {"type": "string", "enum": list(loadable_links)},
-                        "description": "Top-level content links to load.",
+                        "items": {
+                            "type": "string",
+                            "description": (
+                                "An effective top-level content link already exposed "
+                                "in the current context."
+                            ),
+                        },
+                        "description": "Top-level content links to load together.",
                     },
                 },
                 "required": ["links"],

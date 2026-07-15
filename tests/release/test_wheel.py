@@ -46,7 +46,13 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/core/actions/answer.toml" in names
     assert "tinysoul/assets/project/configs/home.toml" in names
     assert "tinysoul/assets/project/.env.example" in names
-    assert "tinysoul/assets/project/home/how/daily-home-review/SKILL.md" in names
+    assert "tinysoul/assets/project/home/agent/user/user.md" in names
+    assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
+    assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
+    assert (
+        "tinysoul/assets/project/home/how/tinysoul-docs/references/"
+        "use-tinysoul-context-and-link.md"
+    ) in names
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
     assert not any("/action/catalog/shell/" in name for name in names)
     assert not any("/action/catalog/script/" in name for name in names)
@@ -96,6 +102,6 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
 
     assert (initialized / "tinysoul.toml").is_file()
     assert (
-        initialized / "home" / "how" / "daily-home-review" / "SKILL.md"
+        initialized / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     ).is_file()
     assert (initialized / "memory").is_dir()

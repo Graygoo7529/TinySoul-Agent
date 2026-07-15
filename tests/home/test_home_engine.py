@@ -254,6 +254,38 @@ def test_home_background_provider_catalog_does_not_materialize_core(
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
 
 
+def test_home_background_provider_automatically_loads_effective_user(
+    tmp_path: Path,
+) -> None:
+    agent = tmp_path / "home" / "agent"
+    user = agent / "user" / "user.md"
+    user.parent.mkdir(parents=True)
+    (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
+    user.write_text("user facts", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    provider = HomeBackgroundEntryProvider(home)
+
+    catalog = provider.catalog(date(2026, 7, 14))
+
+    assert catalog.default_links == (
+        "home:agent@AGENT.md",
+        "home:agent@user/user.md",
+    )
+    assert catalog.evictable_default_links == ()
+    assert not (tmp_path / "runtime" / "home" / "agent").exists()
+
+    home.delete_top("home:agent@user/user.md")
+
+    assert provider.catalog(date(2026, 7, 15)).default_links == (
+        "home:agent@AGENT.md",
+    )
+
+
 def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
     tmp_path: Path,
 ) -> None:

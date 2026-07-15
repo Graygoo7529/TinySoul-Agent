@@ -24,9 +24,9 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### BackgroundContext
 
-用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、可加载目录、可选的目录发现 metadata 和按 Link 正文。Home provider 提供 core、Home 顶层目录，以及全部 effective 通用 HOW 的 Link/title/description；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。
+用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、内部可加载目录、可选的目录发现 metadata 和按 Link 正文。Home provider 提供不可逐出的 core、存在时同样不可逐出的 user 正文、Home 顶层目录，以及全部 effective 通用 HOW 的 Link/title/description；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。Top Link 格式表示内容可进入 Background，不表示它必然是自动正文。
 
-`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata 或 `home:agent@AGENT.md` 等不可逐出的默认规约。
+`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata、`home:agent@AGENT.md` 或存在时自动加载的 `home:agent@user/user.md`。
 
 ### WorkingContext
 
@@ -64,7 +64,7 @@ composer 在构造时执行语境预算检查。文本预算覆盖消息可见�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD.md>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的 core/user 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD.md>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 
@@ -89,11 +89,11 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
 2. `ContextPressureRecovery` 依据预算 payload 与目标比例计算带滞回的回收量；字符预算和图片预算分开处理，图片单独超限不会触发 Workspace 文件删除；
-3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；
+3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；Home core 与存在时的自动 user 正文都不逐出；
 4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn`、且未被当前 action `target_link`/`reference_links` 保护的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；批次中途失败回滚已移动项，同步失败也尝试 restore；
 5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
-Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、不可逐出的 Home core 和 WorkingContext 业务状态不会被无条件裁剪；自动昨日 Memory 属于可回收 Background。
+Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、不可逐出的 Home core/user 和 WorkingContext 业务状态不会被无条件裁剪；自动昨日 Memory 属于可回收 Background。
 
 ## 失败与异常边界
 

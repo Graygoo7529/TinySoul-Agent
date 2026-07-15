@@ -149,7 +149,14 @@ class AgentHomeEngine:
 
     def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
         core = HomeTopLink("agent", "AGENT.md")
-        return (HomeBackgroundEntry(link=str(core), content=self.read_top(core)),)
+        links = [core]
+        user = HomeTopLink("agent", "user/user.md")
+        if self._resolve_top_relative(user) is not None:
+            links.append(user)
+        return tuple(
+            HomeBackgroundEntry(link=str(link), content=self.read_top(link))
+            for link in links
+        )
 
     def loadable_background_links(self) -> tuple[str, ...]:
         """Return the effective top catalog without materializing runtime copies."""

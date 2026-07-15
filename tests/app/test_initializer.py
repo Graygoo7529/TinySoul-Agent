@@ -23,8 +23,18 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
     assert (root / "memory").is_dir()
-    skill = root / "home" / "how" / "daily-home-review" / "SKILL.md"
+    skill = root / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
+    assert (root / "home" / "agent" / "user" / "user.md").is_file()
+    assert (root / "home" / "what" / "entity" / "tiny-soul.md").is_file()
+    assert (
+        root
+        / "home"
+        / "how"
+        / "tinysoul-docs"
+        / "references"
+        / "use-tinysoul-context-and-link.md"
+    ).is_file()
 
     providers = tomllib.loads(
         (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")

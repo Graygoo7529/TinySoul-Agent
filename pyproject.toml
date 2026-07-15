@@ -38,7 +38,10 @@ include = ["tinysoul*"]
     "project/configs/*.toml",
     "project/configs/llm.models/*.toml",
     "project/home/agent/*.md",
+    "project/home/agent/*/*.md",
     "project/home/how/*/*.md",
+    "project/home/how/*/references/*.md",
+    "project/home/how/*/scripts/*.py",
     "project/home/what/*/*.md",
     "project/home/why/*.md",
 ]

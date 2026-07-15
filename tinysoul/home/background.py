@@ -58,9 +58,11 @@ class HomeBackgroundEntryProvider:
             raise self.runtime_bridge.from_home_error(
                 AgentHomeContractError("Agent Home core background is missing")
             )
+        user = "home:agent@user/user.md"
+        defaults = (core, user) if user in links else (core,)
         return BackgroundCatalog(
             owner="home",
-            default_links=(core,),
+            default_links=defaults,
             loadable_links=links,
             items=tuple(
                 BackgroundCatalogItem(
