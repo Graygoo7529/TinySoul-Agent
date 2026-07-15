@@ -14,7 +14,6 @@ from .links import (
     HomePromptMountLink,
     HomeResourceLink,
     HomeTopLink,
-    HomeWhatKind,
 )
 
 
@@ -33,41 +32,17 @@ class AgentHomeLayout:
     def content_root(self) -> Path:
         return self._content_root
 
-    def relative_candidates_for_top(self, link: HomeTopLink) -> tuple[str, ...]:
-        if link.space == "agent" and link.name == "core":
-            return ("agent/AGENT.md",)
+    def relative_for_top(self, link: HomeTopLink) -> str:
         if link.space == "agent":
-            return (f"agent/{link.name}.md",)
+            return f"agent/{link.name}"
         if link.space == "how":
             _require_single_segment(link.name, label="Home HOW skill name")
-            return (f"how/{link.name}/SKILL.md",)
+            return f"how/{link.name}/SKILL.md"
         if link.space == "what":
-            return (
-                f"what/{link.name}.md",
-                f"what/entity/{link.name}.md",
-                f"what/concept/{link.name}.md",
-            )
+            return f"what/{link.name}"
         if link.space == "why":
-            return (f"why/{link.name}.md",)
+            return f"why/{link.name}"
         raise AgentHomeInvariantError(f"Unsupported Home top space: {link.space}")
-
-    def relative_for_new_top(
-        self,
-        link: HomeTopLink,
-        *,
-        what_kind: HomeWhatKind | None,
-    ) -> str:
-        if link.space == "what":
-            if not isinstance(what_kind, HomeWhatKind):
-                raise AgentHomeContractError(
-                    "Creating a Home WHAT entry requires entity or concept"
-                )
-            return f"what/{what_kind.value}/{link.name}.md"
-        if what_kind is not None:
-            raise AgentHomeContractError(
-                "Home WHAT classification is valid only for WHAT entries"
-            )
-        return self.relative_candidates_for_top(link)[0]
 
     def relative_for_resource(self, link: HomeResourceLink) -> str:
         return f"{link.space}/{link.relative_path}"
@@ -114,26 +89,18 @@ class AgentHomeLayout:
         parts = path.parts
         if path.suffix.lower() != ".md" or not parts:
             return None
-        if parts == ("agent", "AGENT.md"):
-            return HomeTopLink("agent", "core")
         if len(parts) >= 2 and parts[0] == "agent":
-            name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
-            if name == "core":
-                raise AgentHomeInvariantError(
-                    "home:agent@core must map to agent/AGENT.md"
-                )
+            name = PurePosixPath(*parts[1:]).as_posix()
             return HomeTopLink("agent", name)
-        if len(parts) >= 2 and parts[0] == "what":
-            name_parts = parts[1:]
-            if len(name_parts) >= 2 and name_parts[0] in {
-                HomeWhatKind.ENTITY.value,
-                HomeWhatKind.CONCEPT.value,
-            }:
-                name_parts = name_parts[1:]
-            name = PurePosixPath(*name_parts).with_suffix("").as_posix()
+        if (
+            len(parts) >= 3
+            and parts[0] == "what"
+            and parts[1] in {"entity", "concept"}
+        ):
+            name = PurePosixPath(*parts[1:]).as_posix()
             return HomeTopLink("what", name)
         if len(parts) >= 2 and parts[0] == "why":
-            name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
+            name = PurePosixPath(*parts[1:]).as_posix()
             return HomeTopLink("why", name)
         if len(parts) == 3 and parts[0] == "how" and parts[2] == "SKILL.md":
             return HomeTopLink("how", parts[1])

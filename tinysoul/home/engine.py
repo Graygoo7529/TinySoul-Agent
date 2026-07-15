@@ -21,7 +21,6 @@ from .links import (
     HomePromptMountLink,
     HomeResourceLink,
     HomeTopLink,
-    HomeWhatKind,
     parse_home_link,
 )
 from .maintenance import (
@@ -149,7 +148,7 @@ class AgentHomeEngine:
         return parse_home_link(value)
 
     def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
-        core = HomeTopLink("agent", "core")
+        core = HomeTopLink("agent", "AGENT.md")
         return (HomeBackgroundEntry(link=str(core), content=self.read_top(core)),)
 
     def loadable_background_links(self) -> tuple[str, ...]:
@@ -371,14 +370,9 @@ class AgentHomeEngine:
         """Materialize one missing runtime file and report whether disk changed."""
 
         if isinstance(link, HomeTopLink):
-            runtime_before = {
-                relative: self._layout.runtime_for_relative(relative).is_file()
-                for relative in self._layout.relative_candidates_for_top(link)
-            }
-            relative = self._resolve_top_relative(link)
-            if relative is None:
-                raise AgentHomeContractError(f"Home top-level entry does not exist: {link}")
-            materialized = not runtime_before[relative]
+            relative = self._layout.relative_for_top(link)
+            materialized = not self._layout.runtime_for_relative(relative).is_file()
+            relative = self._require_top_relative(link)
         elif isinstance(link, HomeResourceLink):
             parsed = self._resource_link(link)
             relative = self._layout.relative_for_resource(parsed)
@@ -453,7 +447,6 @@ class AgentHomeEngine:
         *,
         overwrite: bool = False,
         expected_digest: str = "",
-        what_kind: HomeWhatKind | str | None = None,
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
         self._validate_write_text(text)
@@ -462,24 +455,10 @@ class AgentHomeEngine:
                 parsed,
                 parse_home_skill_metadata(text, link=parsed),
             )
-        parsed_kind = _parse_what_kind(what_kind)
         existing = self._resolve_top_relative(parsed)
         if existing is None:
-            relative = self._layout.relative_for_new_top(
-                parsed,
-                what_kind=parsed_kind,
-            )
+            relative = self._layout.relative_for_top(parsed)
         else:
-            if parsed.space != "what" and parsed_kind is not None:
-                raise AgentHomeContractError(
-                    "Home WHAT classification is valid only for WHAT entries"
-                )
-            if parsed.space == "what" and parsed_kind is not None:
-                current_kind = _what_kind_for_relative(existing)
-                if current_kind is not parsed_kind:
-                    raise AgentHomeContractError(
-                        "Home WHAT classification cannot relocate an existing entry"
-                    )
             relative = existing
         record = self._overlay.write(
             relative,
@@ -532,8 +511,8 @@ class AgentHomeEngine:
         expected_digest: str = "",
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
-        if parsed == HomeTopLink("agent", "core"):
-            raise AgentHomeContractError("home:agent@core cannot be deleted")
+        if parsed == HomeTopLink("agent", "AGENT.md"):
+            raise AgentHomeContractError("home:agent@AGENT.md cannot be deleted")
         relative = self._require_top_relative(parsed)
         record = self._overlay.delete(relative, expected_digest=expected_digest)
         return _mutation(str(parsed), record)
@@ -604,30 +583,24 @@ class AgentHomeEngine:
         return content if content else None
 
     def _resolve_top_relative(self, link: HomeTopLink) -> str | None:
-        records = {record.relative_path: record for record in self._overlay.records()}
-        effective: list[str] = []
-        for relative in self._layout.relative_candidates_for_top(link):
-            record = records.get(relative)
-            source = self._layout.source_for_relative(relative)
-            if record is not None:
-                if record.state is not HomeOverlayState.DELETED:
-                    effective.append(relative)
-                continue
-            if source.is_symlink():
-                raise AgentHomeInvariantError(
-                    f"Actual Home top content cannot be a symlink: {relative}"
-                )
-            if source.is_file():
-                effective.append(relative)
-            elif source.exists():
-                raise AgentHomeInvariantError(
-                    f"Home top candidate is not a regular file: {relative}"
-                )
-        if len(effective) > 1:
+        relative = self._layout.relative_for_top(link)
+        record = self._overlay.record_for(relative)
+        if record is not None:
+            if record.state is HomeOverlayState.DELETED:
+                return None
+            return relative
+        source = self._layout.source_for_relative(relative)
+        if source.is_symlink():
             raise AgentHomeInvariantError(
-                f"Home top-level link has multiple effective files: {link}"
+                f"Actual Home top content cannot be a symlink: {relative}"
             )
-        return effective[0] if effective else None
+        if source.is_file():
+            return relative
+        if source.exists():
+            raise AgentHomeInvariantError(
+                f"Home top path is not a regular file: {relative}"
+            )
+        return None
 
     def _require_top_relative(self, link: HomeTopLink) -> str:
         relative = self._resolve_top_relative(link)
@@ -708,7 +681,7 @@ class AgentHomeEngine:
                 and record.state is HomeOverlayState.DELETED
             ):
                 raise AgentHomeInvariantError(
-                    "home:agent@core cannot be deleted in the runtime overlay"
+                    "home:agent@AGENT.md cannot be deleted in the runtime overlay"
                 )
             name = PurePosixPath(relative).name
             if name.upper().endswith("_MEMORY.MD"):
@@ -907,29 +880,6 @@ def _is_top_entry_resource(link: HomeResourceLink) -> bool:
     if link.space in {"agent", "what", "why"} and path.suffix.lower() == ".md":
         return True
     return link.space == "how" and path.name == "SKILL.md"
-
-
-def _parse_what_kind(value: HomeWhatKind | str | None) -> HomeWhatKind | None:
-    if value is None or isinstance(value, HomeWhatKind):
-        return value
-    if not isinstance(value, str):
-        raise AgentHomeContractError("Home WHAT classification must be entity or concept")
-    try:
-        return HomeWhatKind(value)
-    except ValueError as exc:
-        raise AgentHomeContractError(
-            "Home WHAT classification must be entity or concept"
-        ) from exc
-
-
-def _what_kind_for_relative(relative: str) -> HomeWhatKind | None:
-    parts = PurePosixPath(relative).parts
-    if len(parts) >= 3 and parts[0] == "what":
-        try:
-            return HomeWhatKind(parts[1])
-        except ValueError:
-            return None
-    return None
 
 
 def _validated_names(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:

@@ -52,21 +52,20 @@ def test_automatic_home_maintenance_applies_and_discards_without_writing_state(
     delete.write_text("old delete", encoding="utf-8")
     discard.write_text("old discard", encoding="utf-8")
     home = _home(tmp_path)
-    home.write_top("home:why@modify", "new modify", overwrite=True)
-    home.delete_top("home:why@delete")
-    home.write_top("home:why@discard", "new discard", overwrite=True)
+    home.write_top("home:why@modify.md", "new modify", overwrite=True)
+    home.delete_top("home:why@delete.md")
+    home.write_top("home:why@discard.md", "new discard", overwrite=True)
     home.write_top(
-        "home:what@created",
+        "home:what@entity/created.md",
         "new entity",
-        what_kind="entity",
     )
     modify.write_text("external modify", encoding="utf-8")
     reviewer = _MappingReviewer(
         {
-            "home:why@delete": HomeMaintenanceDecision.APPLY,
-            "home:why@discard": HomeMaintenanceDecision.DISCARD,
-            "home:why@modify": HomeMaintenanceDecision.APPLY,
-            "home:what@created": HomeMaintenanceDecision.APPLY,
+            "home:why@delete.md": HomeMaintenanceDecision.APPLY,
+            "home:why@discard.md": HomeMaintenanceDecision.DISCARD,
+            "home:why@modify.md": HomeMaintenanceDecision.APPLY,
+            "home:what@entity/created.md": HomeMaintenanceDecision.APPLY,
         }
     )
 
@@ -80,7 +79,7 @@ def test_automatic_home_maintenance_applies_and_discards_without_writing_state(
     assert outcome.discarded == 1
     assert outcome.remaining_changes == 0
     modified_change = next(
-        change for change in reviewer.changes if change.link == "home:why@modify"
+        change for change in reviewer.changes if change.link == "home:why@modify.md"
     )
     assert modified_change.actual_changed_from_baseline is True
     assert modified_change.actual_text == "external modify"
@@ -102,7 +101,7 @@ def test_copied_record_cleanup_preserves_current_actual_and_never_calls_reviewer
     source.parent.mkdir(parents=True)
     source.write_text("baseline", encoding="utf-8")
     home = _home(tmp_path)
-    home.ensure_runtime_copy(home.parse_link("home:why@external"))
+    home.ensure_runtime_copy(home.parse_link("home:why@external.md"))
     source.write_text("external current", encoding="utf-8")
 
     outcome = home.run_maintenance(
@@ -113,7 +112,7 @@ def test_copied_record_cleanup_preserves_current_actual_and_never_calls_reviewer
     assert outcome.copied_cleaned == 1
     assert outcome.items == ()
     assert source.read_text(encoding="utf-8") == "external current"
-    assert "home:why@external" in home.loadable_background_links()
+    assert "home:why@external.md" in home.loadable_background_links()
     assert _overlay_records(tmp_path) == []
 
 
@@ -122,7 +121,7 @@ def test_copied_record_cleanup_follows_external_actual_deletion(tmp_path: Path) 
     source.parent.mkdir(parents=True)
     source.write_text("baseline", encoding="utf-8")
     home = _home(tmp_path)
-    home.ensure_runtime_copy(home.parse_link("home:why@removed"))
+    home.ensure_runtime_copy(home.parse_link("home:why@removed.md"))
     source.unlink()
 
     outcome = home.run_maintenance(
@@ -131,7 +130,7 @@ def test_copied_record_cleanup_follows_external_actual_deletion(tmp_path: Path) 
     )
 
     assert outcome.copied_cleaned == 1
-    assert "home:why@removed" not in home.loadable_background_links()
+    assert "home:why@removed.md" not in home.loadable_background_links()
     assert _overlay_records(tmp_path) == []
 
 
@@ -145,11 +144,11 @@ def test_home_maintenance_pending_only_counts_real_diffs_and_skill_memory(
     skill.parent.mkdir(parents=True)
     skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
-    home.ensure_runtime_copy(home.parse_link("home:why@copied"))
+    home.ensure_runtime_copy(home.parse_link("home:why@copied.md"))
 
     assert home.maintenance_pending().pending is False
 
-    home.write_top("home:why@changed", "runtime only")
+    home.write_top("home:why@changed.md", "runtime only")
     home.write_resource(
         "home:how/refactor/SKILL_MEMORY.md",
         "temporary review context",
@@ -166,7 +165,7 @@ def test_home_maintenance_pending_ignores_consistent_residual_record(
     tmp_path: Path,
 ) -> None:
     home = _home(tmp_path)
-    home.write_top("home:why@recover", "same bytes")
+    home.write_top("home:why@recover.md", "same bytes")
     actual = tmp_path / "home" / "why" / "recover.md"
     actual.parent.mkdir(parents=True, exist_ok=True)
     actual.write_text("same bytes", encoding="utf-8")
@@ -218,8 +217,8 @@ def test_skill_memory_is_review_context_and_clears_after_skill_review(
 
 def test_manual_home_maintenance_stops_before_unconfirmed_item(tmp_path: Path) -> None:
     home = _home(tmp_path)
-    home.write_top("home:why@a", "first")
-    home.write_top("home:why@b", "second")
+    home.write_top("home:why@a.md", "first")
+    home.write_top("home:why@b.md", "second")
     decisions = _SequenceDecisionProvider(
         (HomeMaintenanceDecision.APPLY, None)
     )
@@ -234,7 +233,7 @@ def test_manual_home_maintenance_stops_before_unconfirmed_item(tmp_path: Path) -
     assert outcome.remaining_changes == 1
     assert (tmp_path / "home" / "why" / "a.md").is_file()
     assert not (tmp_path / "home" / "why" / "b.md").exists()
-    assert home.read_top("home:why@b") == "second"
+    assert home.read_top("home:why@b.md") == "second"
 
     completed = home.run_maintenance(
         mode=HomeMaintenanceMode.MANUAL,
@@ -292,7 +291,7 @@ def test_actual_write_then_cleanup_interruption_recovers_without_reviewing_again
     source.parent.mkdir(parents=True)
     source.write_text("old", encoding="utf-8")
     home = _home(tmp_path)
-    home.write_top("home:why@recover", "new", overwrite=True)
+    home.write_top("home:why@recover.md", "new", overwrite=True)
     original_clear = HomeOverlayManager.clear_record
     failed = False
 
@@ -308,7 +307,7 @@ def test_actual_write_then_cleanup_interruption_recovers_without_reviewing_again
         home.run_maintenance(
             mode=HomeMaintenanceMode.AUTOMATIC,
             automatic_reviewer=_MappingReviewer(
-                {"home:why@recover": HomeMaintenanceDecision.APPLY}
+                {"home:why@recover.md": HomeMaintenanceDecision.APPLY}
             ),
         )
 
@@ -334,7 +333,7 @@ def test_actual_delete_then_cleanup_interruption_recovers_without_reviewing_agai
     source.parent.mkdir(parents=True)
     source.write_text("remove", encoding="utf-8")
     home = _home(tmp_path)
-    home.delete_top("home:why@delete_recover")
+    home.delete_top("home:why@delete_recover.md")
     original_clear = HomeOverlayManager.clear_record
     failed = False
 
@@ -350,7 +349,7 @@ def test_actual_delete_then_cleanup_interruption_recovers_without_reviewing_agai
         home.run_maintenance(
             mode=HomeMaintenanceMode.AUTOMATIC,
             automatic_reviewer=_MappingReviewer(
-                {"home:why@delete_recover": HomeMaintenanceDecision.APPLY}
+                {"home:why@delete_recover.md": HomeMaintenanceDecision.APPLY}
             ),
         )
 
@@ -373,8 +372,8 @@ def test_partial_home_review_failure_keeps_only_unresolved_changes(
 ) -> None:
     observations = _RecordingObservations()
     home = _home(tmp_path, observations=observations)
-    home.write_top("home:why@a", "apply first")
-    home.write_top("home:why@b", "leave pending")
+    home.write_top("home:why@a.md", "apply first")
+    home.write_top("home:why@b.md", "leave pending")
 
     failed = home.run_maintenance(
         mode=HomeMaintenanceMode.AUTOMATIC,
@@ -399,7 +398,7 @@ def test_partial_home_review_failure_keeps_only_unresolved_changes(
     completed = home.run_maintenance(
         mode=HomeMaintenanceMode.AUTOMATIC,
         automatic_reviewer=_MappingReviewer(
-            {"home:why@b": HomeMaintenanceDecision.DISCARD}
+            {"home:why@b.md": HomeMaintenanceDecision.DISCARD}
         ),
     )
     assert completed.discarded == 1
@@ -465,13 +464,13 @@ def test_home_maintenance_observations_are_verbose_and_content_free(
 ) -> None:
     observations = _RecordingObservations()
     home = _home(tmp_path, observations=observations)
-    home.write_top("home:why@observed", "private Home review body")
+    home.write_top("home:why@observed.md", "private Home review body")
     scope = RunScope().push(RunLevel.MODULE, "home_maintenance")
 
     outcome = home.run_maintenance(
         mode=HomeMaintenanceMode.AUTOMATIC,
         automatic_reviewer=_MappingReviewer(
-            {"home:why@observed": HomeMaintenanceDecision.APPLY}
+            {"home:why@observed.md": HomeMaintenanceDecision.APPLY}
         ),
         scope=scope,
     )
@@ -500,7 +499,7 @@ def test_atomic_apply_failure_keeps_actual_and_runtime_diff(
     source.parent.mkdir(parents=True)
     source.write_text("old", encoding="utf-8")
     home = _home(tmp_path)
-    home.write_top("home:why@atomic", "new", overwrite=True)
+    home.write_top("home:why@atomic.md", "new", overwrite=True)
 
     def fail_write(path: Path, data: bytes) -> None:
         raise OSError("injected atomic failure")
@@ -511,12 +510,12 @@ def test_atomic_apply_failure_keeps_actual_and_runtime_diff(
         home.run_maintenance(
             mode=HomeMaintenanceMode.AUTOMATIC,
             automatic_reviewer=_MappingReviewer(
-                {"home:why@atomic": HomeMaintenanceDecision.APPLY}
+                {"home:why@atomic.md": HomeMaintenanceDecision.APPLY}
             ),
         )
 
     assert source.read_text(encoding="utf-8") == "old"
-    assert home.read_top("home:why@atomic") == "new"
+    assert home.read_top("home:why@atomic.md") == "new"
     assert _overlay_records(tmp_path)
 
 
@@ -532,7 +531,7 @@ def test_core_tombstone_is_rejected_before_home_review(tmp_path: Path) -> None:
     manager.initialize()
     manager.delete("agent/AGENT.md", expected_digest="")
 
-    with pytest.raises(AgentHomeInvariantError, match="core cannot be deleted"):
+    with pytest.raises(AgentHomeInvariantError, match="AGENT.md cannot be deleted"):
         home.run_maintenance(
             mode=HomeMaintenanceMode.AUTOMATIC,
             automatic_reviewer=_UnexpectedReviewer(),
@@ -545,7 +544,7 @@ def test_llm_home_reviewer_uses_dedicated_profile_and_rejects_extra_fields(
     tmp_path: Path,
 ) -> None:
     home = _home(tmp_path)
-    home.write_top("home:why@llm", "review me")
+    home.write_top("home:why@llm.md", "review me")
     runner = _TaskRunner({"decision": "discard"})
 
     outcome = home.run_maintenance(
@@ -558,7 +557,7 @@ def test_llm_home_reviewer_uses_dedicated_profile_and_rejects_extra_fields(
     assert runner.calls[0].profile is TaskProfile.HOME_MAINTENANCE
     assert runner.calls[0].scope.current() is not None
 
-    home.write_top("home:why@invalid_llm", "review me")
+    home.write_top("home:why@invalid_llm.md", "review me")
     failed = home.run_maintenance(
         mode=HomeMaintenanceMode.AUTOMATIC,
         automatic_reviewer=LLMHomeMaintenanceReviewer(
@@ -568,7 +567,7 @@ def test_llm_home_reviewer_uses_dedicated_profile_and_rejects_extra_fields(
     assert failed.status is HomeMaintenanceStatus.FAILED
     assert failed.failure is HomeMaintenanceFailure.REVIEW_FAILED
     assert failed.remaining_changes == 1
-    assert home.read_top("home:why@invalid_llm") == "review me"
+    assert home.read_top("home:why@invalid_llm.md") == "review me"
 
 
 class _MappingReviewer:

@@ -390,7 +390,6 @@ class HomeTopWriteExecutor(ActionExecutor):
         text = execution.call.params.get("text")
         overwrite = execution.call.params.get("overwrite", False)
         expected_digest = execution.call.params.get("expected_digest", "")
-        what_kind = execution.call.params.get("what_kind")
         if not isinstance(link, str) or not link or not isinstance(text, str):
             return _failed(
                 execution,
@@ -400,11 +399,10 @@ class HomeTopWriteExecutor(ActionExecutor):
         if (
             not isinstance(overwrite, bool)
             or not isinstance(expected_digest, str)
-            or (what_kind is not None and not isinstance(what_kind, str))
         ):
             return _failed(
                 execution,
-                "home.top.write precondition/classification parameters are invalid.",
+                "home.top.write precondition parameters are invalid.",
                 {"reason": "invalid_precondition"},
             )
         try:
@@ -413,7 +411,6 @@ class HomeTopWriteExecutor(ActionExecutor):
                 text,
                 overwrite=overwrite,
                 expected_digest=expected_digest,
-                what_kind=what_kind,
             )
         except AgentHomeInvariantError as exc:
             raise self._runtime_bridge.from_home_error(exc) from exc

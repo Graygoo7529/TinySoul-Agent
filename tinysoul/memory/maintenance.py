@@ -560,7 +560,7 @@ def validate_memory_body(
             )
     if "memory:" in remaining:
         errors.append(
-            "Memory body contains a Memory link outside <memory:YYYY-MM-DD>"
+            "Memory body contains a Memory link outside <memory:YYYY-MM-DD.md>"
         )
     for match in _MEMORY_AUTOLINK.finditer(body):
         value = match.group(1)

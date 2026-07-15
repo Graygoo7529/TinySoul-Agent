@@ -51,12 +51,12 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
     known.write_text("known", encoding="utf-8")
     memory = _memory(tmp_path)
     projection = _projection(
-        _fact("first <home:what@known>", 9),
+        _fact("first <home:what@concept/known.md>", 9),
         _fact("second", 14),
         _fact("third", 20),
     )
     consolidator = _CapturingConsolidator(
-        "## Durable facts\n\n- retained <home:what@known>"
+        "## Durable facts\n\n- retained <home:what@concept/known.md>"
     )
     assert memory.maintenance_eligible(projection)
 
@@ -72,12 +72,12 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
     request = consolidator.requests[0]
     joined = "\n".join(request.sources)
     assert joined.index("first") < joined.index("second") < joined.index("third")
-    assert request.home_link_hints == ("home:what@known",)
-    assert "home:what@known" in request.allowed_home_links
+    assert request.home_link_hints == ("home:what@concept/known.md",)
+    assert "home:what@concept/known.md" in request.allowed_home_links
     assert _target(tmp_path).read_text(encoding="utf-8") == (
         "# 2026-07-12\n\n"
         "## Durable facts\n\n"
-        "- retained <home:what@known>\n"
+        "- retained <home:what@concept/known.md>\n"
     )
     assert not (tmp_path / "runtime" / "home" / "memory").exists()
     assert not memory.maintenance_eligible(projection)
@@ -233,7 +233,9 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     runner = _MemoryTaskRunner(repair_link=True)
 
     outcome = memory.run_maintenance(
-        projection=_projection(_fact("x" * 1800 + " <home:what@known>", 9)),
+        projection=_projection(
+            _fact("x" * 1800 + " <home:what@concept/known.md>", 9)
+        ),
         consolidator=LLMMemoryConsolidator(runner),
         timezone="Asia/Shanghai",
         scope=RunScope().push(RunLevel.PROGRAM, "program"),
@@ -258,8 +260,12 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
         )
     ]
     assert final_prompts
-    assert all("home:what@unused" not in prompt for prompt in final_prompts)
-    assert "<home:what@known>" in _target(tmp_path).read_text(encoding="utf-8")
+    assert all(
+        "home:what@concept/unused.md" not in prompt for prompt in final_prompts
+    )
+    assert "<home:what@concept/known.md>" in _target(tmp_path).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_invalid_memory_output_fails_without_creating_target(tmp_path: Path) -> None:
@@ -291,7 +297,7 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
     valid = memory.run_maintenance(
         projection=_projection(_fact("fact", 9)),
         consolidator=_CapturingConsolidator(
-            "- linked <memory:2026-07-11>"
+            "- linked <memory:2026-07-11.md>"
         ),
         timezone="Asia/Shanghai",
     )
@@ -301,8 +307,8 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
         "# duplicate date heading\n\n- invalid",
         "   # indented duplicate heading\n\n- invalid",
         "Setext duplicate heading\n===\n\n- invalid",
-        "- invalid <memory:2026-07-12>",
-        "- invalid <memory:2026-07-10>",
+        "- invalid <memory:2026-07-12.md>",
+        "- invalid <memory:2026-07-10.md>",
     )
     for body in invalid_bodies:
         outcome = memory.run_maintenance(
@@ -495,13 +501,15 @@ class _MemoryTaskRunner:
         if final:
             self._final_calls += 1
             link = (
-                "home:what@known"
+                "home:what@concept/known.md"
                 if self._repair_link and self._final_calls > 1
-                else "home:what@missing"
+                else "home:what@concept/missing.md"
             )
             value = {"content": f"- retained fact <{link}>"}
         else:
-            value = {"content": "- condensed fact <home:what@known>"}
+            value = {
+                "content": "- condensed fact <home:what@concept/known.md>"
+            }
         return TaskResult.success(
             raw_response=RawResponse(
                 answer_text=json.dumps(value),

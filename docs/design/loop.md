@@ -80,7 +80,7 @@ Home Maintenance 不保存 plan、review result、apply journal 或 status；是
 
 长运行 Program 启动时先 `ensure_active_day`，随后只提示 active Home 真实 diff/`SKILL_MEMORY.md` 和昨日非空 Session facts 但缺少 MEMORY。Program work 和 `run_once` 在执行前仍各自 preflight，因此离线期间缺失的 daily rollover 会在下次入口补做。App scheduler 以独立 typed wake-up event 在业务时区午夜触发 rollover，并按配置在 `00:05`、`00:15` 默认投递自动 Home 和昨日 Memory；scheduler 不在自己的线程内调用模块，也不追补进程未运行期间更早的 Maintenance。
 
-Observation 保持业务所有权与用户终态分离。Daily coordinator 发布 verbose `daily.transition.started`，以及 normal `daily.transition.completed/recovered/failed`；payload 只含 operation id、from/to day、archive timestamp name、是否恢复和稳定错误类型，不含 participant 正文或绝对路径。Home/Memory service 发布各自 verbose Maintenance 细节，Program 仍只以 `program.maintenance.available` 和每个 work 的唯一 `program.work.completed/failed` 表达 normal 用户结果。所有 emitter 失败都由 Runtime observation helper 隔离，不能改变 journal、archive、Maintenance outcome 或 Program 控制流。
+Observation 保持业务所有权与用户终态分离。Daily coordinator 发布 verbose `daily.transition.started`，以及 normal `daily.transition.completed/recovered/failed`；payload 只含 operation id、from/to day、archive timestamp name、是否恢复和稳定错误类型，不含 participant 正文或绝对路径。Home/Memory service 发布各自 verbose Maintenance 细节，Program 仍只以 `program.maintenance.available` 和每个 work 的唯一 `program.work.completed/failed` 表达 normal 用户结果。Program Maintenance 边界捕获的异常只形成 `error_type`、`<work>.execution_failed` failure kind，以及经过白名单的 Runtime reason/cause kind；不把原始异常 message 复制到 outcome 或 normal Observation。所有 emitter 失败都由 Runtime observation helper 隔离，不能改变 journal、archive、Maintenance outcome 或 Program 控制流。
 
 `DailyLifecycleCoordinator.session_archive_for(day)` 只解释跨模块 transition 并返回 `archive/.../session` 根；Session 再通过只读 `archive_snapshot(day, root)` 校验自己的 manifest/graph。Loop 不读取 Session records，Session 不解析 `transition.json`。
 

@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 from .errors import MemoryContractError
 
 
-_MEMORY_LINK = re.compile(r"memory:(\d{4}-\d{2}-\d{2})\Z")
+_MEMORY_LINK = re.compile(r"memory:(\d{4}-\d{2}-\d{2})\.md\Z")
 _MEMORY_RELATIVE = re.compile(
     r"(\d{4})/(\d{2})/(\d{4}-\d{2}-\d{2})\.md\Z"
 )
@@ -18,7 +18,7 @@ _MEMORY_RELATIVE = re.compile(
 
 @dataclass(frozen=True, order=True)
 class MemoryLink:
-    """One canonical `memory:YYYY-MM-DD` link."""
+    """One canonical `memory:YYYY-MM-DD.md` link."""
 
     day: date
 
@@ -33,7 +33,7 @@ class MemoryLink:
         match = _MEMORY_LINK.fullmatch(value)
         if match is None:
             raise MemoryContractError(
-                "Memory link must use memory:YYYY-MM-DD"
+                "Memory link must use memory:YYYY-MM-DD.md"
             )
         try:
             parsed = date.fromisoformat(match.group(1))
@@ -53,7 +53,7 @@ class MemoryLink:
         match = _MEMORY_RELATIVE.fullmatch(relative)
         if match is None:
             raise MemoryContractError("Memory path must use yyyy/mm/yyyy-mm-dd.md")
-        link = cls.parse(f"memory:{match.group(3)}")
+        link = cls.parse(f"memory:{match.group(3)}.md")
         if match.group(1) != f"{link.day.year:04d}" or match.group(2) != f"{link.day.month:02d}":
             raise MemoryContractError("Memory path date does not match its directories")
         return link
@@ -66,4 +66,4 @@ class MemoryLink:
         )
 
     def __str__(self) -> str:
-        return f"memory:{self.day.isoformat()}"
+        return f"memory:{self.day.isoformat()}.md"

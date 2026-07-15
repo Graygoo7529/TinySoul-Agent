@@ -14,7 +14,7 @@ superseded: 当前 Workspace 同步协议、HOW 命名和已实现 action 清单
 - `workspace.scan`、`workspace.describe`、`workspace.write`、`workspace.patch` 和 `workspace.delete` 由 Workspace 模块 registrar 注册；实现位于 `tinysoul/workspace/actions.py`，并通过 `WorkspaceEngine` 完成扫描、扫描诊断、单资源摘要刷新、manifest 更新、文件变更和 `context.working.patch` 同步。
 - App 层旧的 `workspace.scan` 临时实现和 app-owned `core.answer` 已清除；`core.answer` 由 Action builtins core actions 提供，app native-action 临时层已删除。
 - Phase2 的 domain guidance 通过 `HomeDomainGuidanceProvider` 注入，并从 Agent Home 的 `home:how_action@<domain>` 顶层内容读取。
-- Context 默认背景通过 Agent Home 门面加载 `home:agent@core`，AppBuilder 不再直接读取项目根目录 `AGENT.md`。
+- Context 默认背景通过 Agent Home 门面加载 `home:agent@AGENT.md`，AppBuilder 不再直接读取项目根目录 `AGENT.md`。
 - Agent Home 已接入 `home.resource.read` 渐进式资源读取 action、runtime home 缺页式副本准备和 `HOME_RUNTIME_COPY_REQUIRED` trap handler；顶层背景、domain guidance 与渐进式资源在链接内容进入运行期时读取 runtime 副本，副本缺失时由 Trap 建立后重试。
 
 ## 设计意图

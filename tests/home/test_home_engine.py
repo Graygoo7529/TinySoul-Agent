@@ -79,10 +79,45 @@ def test_home_settings_reject_overlapping_original_and_runtime_roots(
         )
 
 
+def test_home_top_links_use_real_markdown_paths_except_framework_how(
+    tmp_path: Path,
+) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir()
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=home_root,
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    cases = {
+        "home:agent@AGENT.md": "agent/AGENT.md",
+        "home:agent@user/user.md": "agent/user/user.md",
+        "home:what@entity/tiny-soul.md": "what/entity/tiny-soul.md",
+        "home:what@concept/daily-lifecycle.md": (
+            "what/concept/daily-lifecycle.md"
+        ),
+        "home:why@context-budget.md": "why/context-budget.md",
+        "home:how@python-refactor": "how/python-refactor/SKILL.md",
+    }
+
+    for value, expected in cases.items():
+        link = HomeTopLink.parse(value)
+        assert home.layout.relative_for_top(link) == expected
+
+    for legacy in (
+        "home:agent@core",
+        "home:what@daily-lifecycle",
+        "home:why@context-budget",
+    ):
+        with pytest.raises(AgentHomeContractError):
+            HomeTopLink.parse(legacy)
+
+
 def test_home_background_is_copied_only_when_context_loads_it(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "home" / "what" / "project.md"
+    source = tmp_path / "home" / "what" / "concept" / "project.md"
     source.parent.mkdir(parents=True)
     source.write_text("project knowledge", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -91,7 +126,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = "home:what@project"
+    link = "home:what@concept/project.md"
     context = (
         ContextEngineBuilder(system_text="sys")
         .add_lazy_background(
@@ -121,7 +156,9 @@ def test_home_background_is_copied_only_when_context_loads_it(
             bus=bus,
         ),
     )
-    runtime_path = tmp_path / "runtime" / "home" / "what" / "project.md"
+    runtime_path = (
+        tmp_path / "runtime" / "home" / "what" / "concept" / "project.md"
+    )
     assert not runtime_path.exists()
     bus.emit(
         build_background_patch_signal(
@@ -163,7 +200,7 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
         home=home,
     )
 
-    assert defaults[0].link == "home:agent@core"
+    assert defaults[0].link == "home:agent@AGENT.md"
     assert defaults[0].content == "core rules"
     assert "home:how_domain:workspace" not in loadable
     assert guidance == ("workspace guidance",)
@@ -205,11 +242,11 @@ def test_home_background_provider_catalog_does_not_materialize_core(
 
     catalog = provider.catalog(date(2026, 7, 14))
 
-    assert catalog.default_links == ("home:agent@core",)
+    assert catalog.default_links == ("home:agent@AGENT.md",)
     assert not (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").exists()
 
     content = _run_copy_trap_after_runtime_exception(
-        lambda: provider.load("home:agent@core", date(2026, 7, 14)),
+        lambda: provider.load("home:agent@AGENT.md", date(2026, 7, 14)),
         home=home,
     )
 
@@ -273,7 +310,7 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = HomeTopLink("agent", "core")
+    link = HomeTopLink("agent", "AGENT.md")
     home.ensure_runtime_copy(link)
     runtime = tmp_path / "runtime" / "home" / "agent" / "AGENT.md"
     runtime.unlink()
@@ -394,9 +431,8 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
         _execution(
             "home.top.write",
             {
-                "link": "home:what@project",
+                "link": "home:what@concept/project.md",
                 "text": "project",
-                "what_kind": "concept",
             },
         ),
         ActionExecutionContext(),
@@ -416,7 +452,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     assert created.status is ActionResultStatus.SUCCESS
     assert created.payload["state"] == "created"
     assert prompt.status is ActionResultStatus.SUCCESS
-    assert home.read_top("home:what@project") == "project"
+    assert home.read_top("home:what@concept/project.md") == "project"
     assert home.guidance_for_domain("workspace") == "workspace guidance"
 
 

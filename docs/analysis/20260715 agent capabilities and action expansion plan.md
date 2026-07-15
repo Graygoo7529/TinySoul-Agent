@@ -27,6 +27,28 @@ status: pending
 3. deterministic utility：数学、时间或格式转换等能以明确 schema 和纯结果表达的能力；
 4. 受控项目命令：仅在白名单工作流确有需要时建立，不提供任意 shell 字符串接口。
 
+### Home Backlink
+
+Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也不通过普通字符串搜索冒充已实现能力。建议边界：
+
+- 输入为一个规范 Home top Link；
+- 基于 `runtime override/tombstone -> actual fallback` 的 effective Home 查询引用来源；
+- 返回有界 source Link、摘要与结果 digest，不返回整库正文；
+- 扫描不应仅为查询而把未使用的 actual 文件复制到 runtime；
+- 默认只解释 Home 图，不自动跨入 Memory 或 Workspace；
+- 渐进资源是否参与扫描、是否建立持久索引，在实现前单独确认。
+
+### Memory 检索增强
+
+当前 `memory.search` 与 `memory.recall` 已是 Memory-owned native Action，并保持现有行为：
+
+- 精确 `<memory:YYYY-MM-DD.md>` 已知时调用 `memory.recall`，返回完整但受上限约束的单日 Markdown；
+- 精确日期未知时调用 `memory.search(query, top_k)`，流式扫描合法日期文档并以“单日文档”为候选，只返回 Link、日期与有界摘要；
+- search/recall 的 ActionResult 都进入当前 TurnTrace，不修改 Background；Phase1 只自动加载精确昨日记忆；
+- 当前 search 是候选日期发现，不是片段级语义检索。
+
+后续增强应保留上述日粒度入口，并另行设计片段级语义检索：返回有界片段、所属日期 Link 和可验证来源位置，再由 Agent 判断是否 recall 完整单日文档。是否引入持久索引、embedding provider、增量更新和新的 action 名称，应在实现前结合数据规模与真实查询质量确认。
+
 ## 每项能力的实施门槛
 
 - 真实用户场景、domain 归属、`use_when`/`avoid_when` 与 effects 已确认；
@@ -44,3 +66,5 @@ status: pending
 2. 外部网络能力的供应商、凭据配置、来源引用与缓存策略；
 3. 项目命令能力是否需要，以及允许的命令集合和工作目录边界；
 4. 新能力是否需要对应通用 HOW、domain HOW 或 action HOW。
+5. Home Backlink 是否扫描渐进资源，以及是否需要持久索引。
+6. Memory 片段检索的索引方式、结果定位协议和独立 Action 名称。

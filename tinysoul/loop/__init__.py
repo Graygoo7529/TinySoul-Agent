@@ -42,6 +42,7 @@ from .preparation import (
     TurnPreparationRequest,
 )
 from .work import (
+    ProgramWorkFailureKind,
     ProgramWorkKind,
     ProgramWorkMode,
     ProgramWorkOutcome,
@@ -90,6 +91,7 @@ __all__ = [
     "ProgramInputKind",
     "ProgramOutcome",
     "ProgramRunner",
+    "ProgramWorkFailureKind",
     "ProgramWorkKind",
     "ProgramWorkMode",
     "ProgramWorkOutcome",

@@ -26,7 +26,7 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、可加载目录、可选的目录发现 metadata 和按 Link 正文。Home provider 提供 core、Home 顶层目录，以及全部 effective 通用 HOW 的 Link/title/description；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。
 
-`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata 或 `home:agent@core` 等不可逐出的默认规约。
+`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata 或 `home:agent@AGENT.md` 等不可逐出的默认规约。
 
 ### WorkingContext
 
@@ -64,7 +64,7 @@ composer 在构造时执行语境预算检查。文本预算覆盖消息可见�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD.md>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 

@@ -48,14 +48,14 @@ class _Reranker:
     ) -> tuple[str, ...] | None:
         self.requests.append(request)
         if not self.valid:
-            return ("memory:2099-01-01",)
+            return ("memory:2099-01-01.md",)
         return tuple(
             candidate.candidate_id for candidate in reversed(request.candidates)
         )[:1]
 
 
 def test_memory_link_maps_canonical_date_and_rejects_legacy_forms() -> None:
-    link = MemoryLink.parse("memory:2026-07-13")
+    link = MemoryLink.parse("memory:2026-07-13.md")
 
     assert link.day == date(2026, 7, 13)
     assert link.relative_path == "2026/07/2026-07-13.md"
@@ -63,7 +63,8 @@ def test_memory_link_maps_canonical_date_and_rejects_legacy_forms() -> None:
     for value in (
         "home:memory@2026-07-13",
         "memory@2026-07-13",
-        "memory:2026-02-30",
+        "memory:2026-07-13",
+        "memory:2026-02-30.md",
         "memory:2026-7-13",
         "memory:2026-07-13/part",
     ):
@@ -80,12 +81,12 @@ def test_empty_store_has_no_side_effect_and_recall_accepts_free_form_markdown(
     assert memory.links() == ()
     assert not root.exists()
     with pytest.raises(MemoryContractError, match="does not exist"):
-        memory.recall("memory:2026-07-13")
+        memory.recall("memory:2026-07-13.md")
     assert not root.exists()
 
     _write_memory(root, "2026-07-13", "Legacy free-form\n\n## Notes\n\n- complete")
-    recalled = memory.recall("memory:2026-07-13")
-    assert recalled.link == "memory:2026-07-13"
+    recalled = memory.recall("memory:2026-07-13.md")
+    assert recalled.link == "memory:2026-07-13.md"
     assert recalled.day == "2026-07-13"
     assert recalled.text.startswith("Legacy free-form")
     assert recalled.digest
@@ -117,18 +118,18 @@ def test_recall_and_search_reject_empty_non_utf8_or_oversized_documents(
     memory = _memory(root)
 
     with pytest.raises(MemoryInvariantError, match="empty"):
-        memory.recall("memory:2026-07-13")
+        memory.recall("memory:2026-07-13.md")
     with pytest.raises(MemoryInvariantError, match="empty"):
         memory.search("anything")
 
     target.write_bytes(b"\xff\xfe")
     with pytest.raises(MemoryInvariantError, match="UTF-8"):
-        memory.recall("memory:2026-07-13")
+        memory.recall("memory:2026-07-13.md")
 
     target.write_text("x" * 401, encoding="utf-8")
     limited = _memory(root, max_document_chars=400)
     with pytest.raises(MemoryInvariantError, match="exceeds"):
-        limited.recall("memory:2026-07-13")
+        limited.recall("memory:2026-07-13.md")
 
 
 def test_memory_search_uses_one_candidate_per_day_and_bounded_summaries(
@@ -197,7 +198,7 @@ def test_context_loads_only_exact_yesterday_and_pressure_evicts_memory(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    home.ensure_runtime_copy(home.parse_link("home:agent@core"))
+    home.ensure_runtime_copy(home.parse_link("home:agent@AGENT.md"))
     memory_root = tmp_path / "memory"
     _write_memory(memory_root, "2026-07-12", "older")
     _write_memory(memory_root, "2026-07-13", "yesterday free-form")
@@ -212,17 +213,17 @@ def test_context_loads_only_exact_yesterday_and_pressure_evicts_memory(
     context.begin_turn("first")
     context.prepare_default_background(date(2026, 7, 14))
     assert context.background_links() == (
-        "home:agent@core",
-        "memory:2026-07-13",
+        "home:agent@AGENT.md",
+        "memory:2026-07-13.md",
     )
     report = context.reclaim_pressure(required_chars=1)
-    assert report.evicted_background_links == ("memory:2026-07-13",)
-    assert context.background_links() == ("home:agent@core",)
+    assert report.evicted_background_links == ("memory:2026-07-13.md",)
+    assert context.background_links() == ("home:agent@AGENT.md",)
     context.end_turn()
 
     context.begin_turn("second")
     context.prepare_default_background(date(2026, 7, 14))
-    assert "memory:2026-07-13" in context.background_links()
+    assert "memory:2026-07-13.md" in context.background_links()
 
 
 def test_invalid_yesterday_memory_ends_turn_instead_of_looking_older(
@@ -244,7 +245,7 @@ def test_invalid_yesterday_memory_ends_turn_instead_of_looking_older(
         context.prepare_default_background(date(2026, 7, 14))
 
     assert raised.value.payload["kind"] == "memory.internal_failure"
-    assert "memory:2026-07-12" not in context.background_links()
+    assert "memory:2026-07-12.md" not in context.background_links()
 
 
 def _memory(
@@ -271,6 +272,6 @@ def _memory(
 
 def _write_memory(root: Path, value: str, text: str) -> None:
     MemoryStore(root=root, max_document_chars=16000).write(
-        MemoryLink.parse(f"memory:{value}"),
+        MemoryLink.parse(f"memory:{value}.md"),
         text,
     )

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.context import (
+    BackgroundCatalog,
+    BackgroundCatalogItem,
     ContextEngineBuilder,
     WorkspaceSnapshot,
     build_workspace_sync_signal,
 )
 from tinysoul.context.trace import TraceKind
-from tinysoul.llm.messages import MessageStack
+from tinysoul.llm.messages import JsonPart, MessageStack, TextPart
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
@@ -120,12 +123,131 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert all(call.settings.tool_use is ToolUse.REQUIRED for call in llm.calls)
 
 
+def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
+    class _HowProvider:
+        def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(
+                owner="home",
+                loadable_links=("home:how@review",),
+                items=(
+                    BackgroundCatalogItem(
+                        link="home:how@review",
+                        title="Review Home",
+                        description="Review effective Home changes.",
+                    ),
+                ),
+            )
+
+        def load(self, link: str, business_day: date) -> str:
+            assert link == "home:how@review"
+            return "HOW BODY: compare runtime and actual Home."
+
+    context = (
+        ContextEngineBuilder(system_text="sys")
+        .add_background_provider(_HowProvider())
+        .build()
+    )
+    turn_id = context.begin_turn("review Home")
+    context.prepare_default_background(date(2026, 7, 14))
+    action = _action_engine()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="load_review",
+                    name="load_background",
+                    arguments={"links": ["home:how@review"]},
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="reason",
+                    name="core.reason",
+                    arguments={
+                        "guide_blocks": [{"text": "Review the change."}],
+                        "output_blocks": [{"text": "Return JSON."}],
+                    },
+                    kind=ToolKind.ACTION,
+                )
+            ),
+        )
+    )
+    bus = SignalBus()
+    base_scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+    )
+
+    phase1 = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        retry_limit=1,
+    ).run(
+        scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+    Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        retry_limit=1,
+    ).run(
+        selected_domains=phase1.selected_domains,
+        scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    phase1_stack = llm.calls[0].messages
+    catalog = next(
+        message
+        for message in phase1_stack.messages
+        if message.label == "background:catalog:home"
+    )
+    assert isinstance(catalog.parts[0], JsonPart)
+    assert catalog.parts[0].value["items"] == [
+        {
+            "link": "home:how@review",
+            "title": "Review Home",
+            "description": "Review effective Home changes.",
+        }
+    ]
+    assert "HOW BODY" not in _message_stack_text(phase1_stack)
+
+    phase2_stack = llm.calls[1].messages
+    loaded = next(
+        message
+        for message in phase2_stack.messages
+        if message.label == "background:home:how@review"
+    )
+    assert isinstance(loaded.parts[0], TextPart)
+    assert loaded.parts[0].text == "HOW BODY: compare runtime and actual Home."
+
+    context.complete_preparation()
+    context.end_turn()
+    context.begin_turn("next turn")
+    context.prepare_default_background(date(2026, 7, 14))
+    assert "home:how@review" not in context.background_links()
+
+
 def test_real_memory_actions_record_turn_trace_without_background_mutation(
     tmp_path: Path,
 ) -> None:
     memory_root = tmp_path / "memory"
     MemoryStore(root=memory_root, max_document_chars=16000).write(
-        MemoryLink.parse("memory:2026-07-13"),
+        MemoryLink.parse("memory:2026-07-13.md"),
         "free-form remembered fact",
     )
 
@@ -145,7 +267,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
             ToolCallRecord(
                 id="recall_1",
                 name="memory.recall",
-                arguments={"memory_link": "memory:2026-07-13"},
+                arguments={"memory_link": "memory:2026-07-13.md"},
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
@@ -180,7 +302,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
     assert isinstance(items, list)
     first_item = items[0]
     assert isinstance(first_item, dict)
-    assert first_item["link"] == "memory:2026-07-13"
+    assert first_item["link"] == "memory:2026-07-13.md"
     assert "period" not in first_item
     assert context.trace_kinds() == (
         TraceKind.ACTION_RESULT,
@@ -549,6 +671,15 @@ def _task_failure(feedback: str) -> TaskResult:
             provider_id="fake",
         ),
         failure=TaskFailure(model_feedback=feedback),
+    )
+
+
+def _message_stack_text(stack: MessageStack) -> str:
+    return "\n".join(
+        part.text
+        for message in stack.messages
+        for part in message.parts
+        if isinstance(part, TextPart)
     )
 
 

@@ -2,7 +2,7 @@
 
 ## 状态
 
-本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@core`、严格通用 HOW frontmatter 与自动 metadata 目录、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
+本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@AGENT.md`、严格通用 HOW frontmatter 与自动 metadata 目录、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
 Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 HOW metadata 目录、默认 core 与可加载顶层目录，Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home。
 
@@ -29,18 +29,23 @@ Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 wor
 Agent Home 定义三类 `home:` 链接：
 
 ```text
-home:<space>@<name>
+home:<space>@<relative-markdown-path>
 home:<space>/<relative-posix-path>
+home:how@<skill>
 home:how_domain:<domain>
 home:how_action:<domain>/<action>
 ```
 
-`home:<space>@<name>` 表示顶层知识入口。顶层内容可以加载为 BackgroundContext 条目。例如：
+`home:<space>@<relative-markdown-path>` 表示 Agent、WHAT 和 WHY 顶层知识入口，Link 直接包含相对于对应 space 的真实 Markdown 文件路径和 `.md` 扩展名。顶层内容可以加载为 BackgroundContext 条目。例如：
 
-- `home:agent@core`
-- `home:agent@user/preferences`
-- `home:what@tinysoul`
-- `home:why@context_budget`
+- `home:agent@AGENT.md`
+- `home:agent@user/preferences.md`
+- `home:what@entity/tinysoul.md`
+- `home:what@concept/daily-lifecycle.md`
+- `home:why@context-budget.md`
+
+通用 HOW 顶层入口保留框架 skill identity，不把固定入口文件 `SKILL.md` 重复进 Link：
+
 - `home:how@python_refactor`
 
 `home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceHeap。例如：
@@ -55,8 +60,10 @@ home:how_action:<domain>/<action>
 链接规则:
 
 - 顶层 `space` 只能是 `agent`、`what`、`why` 和 `how`；`how_domain` 与 `how_action` 只用于自动 prompt mount 链接；
-- `@` 后的普通顶层名称可以包含安全的 `/` 分段，但通用 HOW skill 使用单段名称；
+- `agent`、`what`、`why` 的 `@` 后内容必须是带 `.md` 的安全相对文件路径；WHAT 路径必须以 `entity/` 或 `concept/` 开头，分类是 Link 身份的一部分；
+- 通用 HOW 的 `@` 后内容是单段 skill name；`how_domain`/`how_action` 是框架 mount identity，二者都不追加固定物理入口文件名；
 - `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；
+- 渐进资源保留真实扩展名，例如 `.md`、`.py`；Workspace Link 同样保留资源的真实扩展名；
 - 所有路径使用 POSIX `/` 分隔；
 - 不允许空路径、绝对路径、盘符、反斜杠、`.` 或 `..` 段。
 - `memory` 不是 Home space；`home:memory@...` 和 `home:memory/...` 都是非法 Home Link，不提供兼容别名。
@@ -106,12 +113,13 @@ runtime/
 
 `runtime/home` 只包含自上次 Home Maintenance 以来实际物化、创建或删除的 Home 内容，不预建完整目录树，也不因 Business Day 变化而清空；上图中的内容目录均为按需出现。`SKILL_MEMORY.md` 只允许位于通用 `runtime/home/how/<skill>/`，`how_domain`/`how_action` 不创建平行 memory 文件。长期 MEMORY 位于与 `home/` 平级的 `memory/`，不是 Home runtime 副本的例外分支。
 
-顶层内容映射建议：
+顶层内容映射：
 
-- `home:agent@core` 映射到 `agent/AGENT.md`；
-- `home:agent@user/preferences` 映射到 `agent/user/preferences.md`；
-- `home:what@name` 映射到 WHAT 索引解析出的实体或概念文档；
-- `home:why@name` 映射到 WHY 问题文档；
+- `home:agent@AGENT.md` 映射到 `agent/AGENT.md`；
+- `home:agent@user/preferences.md` 映射到 `agent/user/preferences.md`；
+- `home:what@entity/name.md` 映射到 `what/entity/name.md`；
+- `home:what@concept/name.md` 映射到 `what/concept/name.md`；
+- `home:why@name.md` 映射到 `why/name.md`；
 - `home:how@skill_name` 映射到 `how/skill_name/SKILL.md`；
 - `home:how_domain:domain_name` 作为 prompt mount 映射到 `how_domain/domain_name/DOMAIN.md`；
 - `home:how_action:domain_name/action_name` 作为 prompt mount 映射到 `how_action/domain_name/action_name.md`。
@@ -131,7 +139,7 @@ Agent Home 分为 actual Home 和跨日 runtime Home：
 runtime mutation 按链接类别拆分：
 
 - 渐进式资源继续使用 `home.resource.read/write/patch/delete`；
-- 顶层内容使用 `home.top.write/patch/delete`，允许在 runtime 创建不存在的顶层内容；新 WHAT 必须显式提供 `entity` 或 `concept`，`home:agent@core` 允许 write/patch 但禁止 delete；
+- 顶层内容使用 `home.top.write/patch/delete`，允许在 runtime 创建不存在的顶层内容；新 WHAT 必须在 Link 中显式包含 `entity/` 或 `concept/`，不再接收重复的 `what_kind` 参数；`home:agent@AGENT.md` 允许 write/patch 但禁止 delete；
 - 自动 HOW 使用 `home.prompt_mount.write/patch`；逻辑 prompt mount 由框架根据 Action Catalog 中定义的 domain/action 自动创建或删除，模型不直接 create/delete；
 - 通用 HOW 的 `SKILL_MEMORY.md` 是允许直接在 runtime 创建的特殊渐进资源；
 - `memory:` 不是 Home mutation action 的合法参数，Home 不供助 Memory 的读写。
@@ -151,7 +159,7 @@ Home overlay 的存在本身就是尚未提交的事实，不建立第二份 pen
 
 Overlay manager 使用进程内 `RLock` 串行化同一 Engine 的读写。纯 `copied` 文件丢失且 actual 仍等于 baseline 时可以确定性重建；modified/created 文件丢失、tombstone 路径重现或 Manifest/operation 状态歧义均属于不变量失败。actual baseline 后续变化不是自动覆盖理由，Home Maintenance 应基于 baseline、runtime 和当前 actual 内容形成明确 review 输入。runtime copy handler 只有在调用前 runtime 文件确实缺失、调用后完成物化时才返回一次 RETRY；文件已经存在却再次请求缺页时直接结束最近 Turn，避免无上限重试。
 
-actual Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@core` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
+actual Home 严格位于 `home/`，runtime Home 严格位于 `runtime/home/`。`home:agent@AGENT.md` 只映射 `home/agent/AGENT.md` 到 `runtime/home/agent/AGENT.md`；项目根 `AGENT.md` 是仓库开发规约，不属于运行时 Agent Home，也不存在 fallback。
 
 ## BackgroundContext 接入
 
@@ -186,7 +194,7 @@ Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部�
 - `home.resource.write`：在 active overlay 创建 runtime-only 文本，或在显式 `overwrite` 和可选 `expected_digest` 前置条件下替换 effective 内容；
 - `home.resource.patch`：对 effective UTF-8 文本执行唯一 `old_text` 精确替换，校验 digest 与完整结果的 `max_write_chars`；
 - `home.resource.delete`：写入 tombstone 隐藏资源，不删除 actual Home。
-- `home.top.write/patch/delete`：修改 Home 顶层 runtime 内容；新 WHAT create 强制 `entity`/`concept` 分类，`home:agent@core` 可 write/patch 但拒绝 delete；
+- `home.top.write/patch/delete`：修改 Home 顶层 runtime 内容；新 WHAT create 的 Link 强制携带 `entity/`/`concept/` 分类和 `.md` 文件名，`home:agent@AGENT.md` 可 write/patch 但拒绝 delete；
 - `home.prompt_mount.write/patch`：只修改由 Action Catalog 定义的合法 domain/action mount；逻辑 create/delete 仍由框架 reconciliation 负责；
 - 通用 HOW 的 `SKILL_MEMORY.md` 通过 resource action 读写，只允许 `runtime/home/how/<skill>/SKILL_MEMORY.md` 且对应 effective HOW skill 必须存在；actual Home 和其它空间的平行 memory 文件在装配/reconciliation 时被拒绝。
 
@@ -293,7 +301,7 @@ AppBuilder 的目标职责是：
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
 - 每个 User Turn 的 preparation 通过动态 provider 重建默认 core；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
-- `home:agent@core` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
+- `home:agent@AGENT.md` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
 - `home.resource.read` 不写入 BackgroundContext，并返回有界文本；write/patch/delete 只修改 active overlay，actual Home 保持零写入；
 - `home.top.write/patch/delete` 只修改 runtime；WHAT create 要求分类，core delete 被拒绝；
 - `home.top.search` 只返回 effective WHAT/WHY/HOW metadata；actual 搜索不物化，runtime-only 可见，tombstone 不可见，非法 rerank 确定性回退；

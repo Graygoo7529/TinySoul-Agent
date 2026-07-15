@@ -4,7 +4,7 @@
 
 status: done
 
-本文由原 `20260708 workspace home implementation plan.md` 拆分而来，记录截至 2026-07-12 已经落地的设计与实现事实。原计划中尚未完成的 Agent Home 检索与写入、Memory/HOW feedback、Workspace 日终归档和每日沉淀，已统一迁移到 `20260713 agent home daily lifecycle execution plan.md`，不在本文中以完成状态保留。
+本文由原 `20260708 workspace home implementation plan.md` 拆分而来，记录截至 2026-07-12 已经落地的设计与实现事实。原计划中尚未完成的 Agent Home 检索与写入、Memory/HOW feedback、Workspace 日终归档和每日沉淀，已统一迁移并完成于 `20260713-done-agent home daily lifecycle execution plan.md`，不在本文中以完成状态保留。
 
 本文的 `done` 表示下列记录项均可在当前代码、设计文档和测试中找到对应实现，不表示 Workspace 与 Agent Home 的全部目标已经完成。
 
@@ -125,7 +125,7 @@ status: done
 
 - `HomeTopLink`、`HomeResourceLink`、`HomePromptMountLink` 明确区分顶层背景、渐进资源和局部 HOW mount；
 - `AgentHomeLayout` 统一解释 original/runtime 路径映射；
-- `home:agent@core` 严格映射 `home/agent/AGENT.md`，项目根 `AGENT.md` 不参与运行时 Home；
+- `home:agent@AGENT.md` 严格映射 `home/agent/AGENT.md`，项目根 `AGENT.md` 不参与运行时 Home；
 - 默认 core 在启动 recovery 中物化，其它顶层背景在 Context Module frame 内按需读取；
 - domain HOW 注入 Phase2，domain/action HOW 注入 action-internal LLM task；
 - `home.resource.read` 有界读取渐进资源，并把普通参数/文件失败收敛为局部 ActionResult；

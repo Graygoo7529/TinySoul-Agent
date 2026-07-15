@@ -4,4 +4,4 @@ TinySoul separates deterministic daily rollover from review-driven Home and Memo
 
 Session, Workspace, and active Trash roll over at the Business Day boundary. The active Home overlay remains effective until Home Maintenance reviews it, while Memory Maintenance derives one date-scoped MEMORY from the archived Session facts.
 
-Related guidance: <home:why@separate-rollover-maintenance> and <home:how@daily-home-review>.
+Related guidance: <home:why@separate-rollover-maintenance.md> and <home:how@daily-home-review>.

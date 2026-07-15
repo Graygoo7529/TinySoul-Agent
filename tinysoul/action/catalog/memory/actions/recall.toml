@@ -3,13 +3,13 @@ domain = "memory"
 
 [tool]
 description = "Recall one complete bounded date Memory by exact Memory link."
-schema = { type = "object", properties = { memory_link = { type = "string", description = "Exact memory:YYYY-MM-DD link." } }, required = ["memory_link"], additionalProperties = false }
+schema = { type = "object", properties = { memory_link = { type = "string", description = "Exact memory:YYYY-MM-DD.md link." } }, required = ["memory_link"], additionalProperties = false }
 
 [semantic]
 use_when = ["An exact Memory link should be read in full"]
 avoid_when = ["The relevant date is unknown", "Only a search summary is needed"]
 effects = ["read_only"]
-examples = ["Recall memory:2026-07-13"]
+examples = ["Recall memory:2026-07-13.md"]
 
 [runtime]
 parallel_policy = "serial"

@@ -110,19 +110,19 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     )
     home = _build_home(tmp_path)
     home.write_top(
-        "home:why@runtime-only",
+        "home:why@runtime-only.md",
         "# Runtime Only\n\nA newly created runtime reason.\n",
     )
-    home.delete_top("home:why@hidden")
+    home.delete_top("home:why@hidden.md")
 
     result = home.search_top("runtime reason", top_k=10)
 
     links = tuple(item.link for item in result.items)
-    assert links[0] == "home:why@runtime-only"
-    assert "home:what@daily-lifecycle" in links
+    assert links[0] == "home:why@runtime-only.md"
+    assert "home:what@concept/daily-lifecycle.md" in links
     assert "home:how@review" in links
-    assert "home:why@hidden" not in links
-    assert "home:agent@core" not in links
+    assert "home:why@hidden.md" not in links
+    assert "home:agent@AGENT.md" not in links
     runtime_root = tmp_path / "runtime" / "home"
     assert not (runtime_root / "what" / "concept" / "daily-lifecycle.md").exists()
     assert not (runtime_root / "how" / "review" / "SKILL.md").exists()
@@ -144,13 +144,13 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     )
     documents = (
         HomeSearchDocument(
-            HomeTopLink("what", "alpha"),
+            HomeTopLink("what", "concept/alpha.md"),
             "# Alpha\n\nShared knowledge.\n",
             False,
             "digest-alpha",
         ),
         HomeSearchDocument(
-            HomeTopLink("why", "beta"),
+            HomeTopLink("why", "beta.md"),
             "# Beta\n\nShared knowledge.\n",
             False,
             "digest-beta",
@@ -163,7 +163,9 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
         ),
     )
     scope = RunScope().push(RunLevel.PHASE, "phase3")
-    valid = _StubReranker(("home:why@beta", "home:what@alpha"))
+    valid = _StubReranker(
+        ("home:why@beta.md", "home:what@concept/alpha.md")
+    )
 
     reranked = service.search(
         query="shared knowledge",
@@ -174,7 +176,7 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     invalid = service.search(
         query="shared knowledge",
         documents=documents,
-        reranker=_StubReranker(("home:what@missing",)),
+        reranker=_StubReranker(("home:what@concept/missing.md",)),
         scope=scope,
     )
     empty = service.search(
@@ -186,15 +188,15 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
 
     assert reranked.reranked is True
     assert tuple(item.link for item in reranked.items) == (
-        "home:why@beta",
-        "home:what@alpha",
+        "home:why@beta.md",
+        "home:what@concept/alpha.md",
     )
     assert reranked.candidate_count == 2
     assert len(valid.requests) == 1
     assert invalid.reranked is False
     assert tuple(item.link for item in invalid.items) == (
-        "home:what@alpha",
-        "home:why@beta",
+        "home:what@concept/alpha.md",
+        "home:why@beta.md",
     )
     assert empty.reranked is True
     assert empty.items == ()
@@ -207,7 +209,7 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     _write(home_root / "what" / "concept" / "alpha.md", "# Alpha\n\nKnowledge.\n")
     _write(home_root / "why" / "beta.md", "# Beta\n\nReason.\n")
     home = _build_home(tmp_path)
-    llm = _FakeLLM((_json_result({"links": ["home:why@beta"]}),))
+    llm = _FakeLLM((_json_result({"links": ["home:why@beta.md"]}),))
     executor = HomeTopSearchExecutor(
         home,
         reranker=LLMHomeSearchReranker(llm),
@@ -225,7 +227,7 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     assert len(items) == 1
     item = items[0]
     assert isinstance(item, dict)
-    assert item["link"] == "home:why@beta"
+    assert item["link"] == "home:why@beta.md"
     assert item["title"] == "Beta"
     assert "searchable_prefix" not in item
     assert llm.calls[0].profile is TaskProfile.HOME_SEARCH
@@ -239,7 +241,7 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
     _write(actual, "# Old Review\n\nOld guidance.\n")
     home = _build_home(tmp_path)
     home.write_top(
-        "home:why@review",
+        "home:why@review.md",
         "# Current Review\n\nCommitted guidance.\n",
         overwrite=True,
     )
@@ -271,8 +273,8 @@ def test_default_home_examples_are_searchable(tmp_path: Path) -> None:
     result = home.search_top("daily lifecycle maintenance review", top_k=10)
 
     links = {item.link for item in result.items}
-    assert "home:what@daily-lifecycle" in links
-    assert "home:why@separate-rollover-maintenance" in links
+    assert "home:what@concept/daily-lifecycle.md" in links
+    assert "home:why@separate-rollover-maintenance.md" in links
     assert "home:how@daily-home-review" in links
 
 

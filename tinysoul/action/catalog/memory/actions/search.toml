@@ -7,7 +7,7 @@ schema = { type = "object", properties = { query = { type = "string" }, top_k = 
 
 [semantic]
 use_when = ["A relevant prior date is not known", "A durable past fact should be located"]
-avoid_when = ["The exact memory:YYYY-MM-DD link is already known"]
+avoid_when = ["The exact memory:YYYY-MM-DD.md link is already known"]
 effects = ["read_only"]
 examples = ["Search prior Memory for a lifecycle design decision"]
 

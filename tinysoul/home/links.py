@@ -13,7 +13,7 @@ HOME_TOP_SPACES = frozenset({"agent", "what", "why", "how"})
 
 
 class HomeWhatKind(StrEnum):
-    """Physical classification required when creating a WHAT entry."""
+    """Classification encoded in every canonical WHAT top link."""
 
     ENTITY = "entity"
     CONCEPT = "concept"
@@ -37,6 +37,32 @@ class HomeTopLink:
                 f"Unsupported Home top-level space: {self.space}"
             )
         _validate_relative_name(self.name, label="top name")
+        path = PurePosixPath(self.name)
+        if self.space == "how":
+            if len(path.parts) != 1:
+                raise AgentHomeInvariantError(
+                    "Home HOW top link must use one skill name segment"
+                )
+            return
+        if self.space == "what":
+            if (
+                path.suffix != ".md"
+                or len(path.parts) < 2
+                or path.parts[0]
+                not in {
+                    HomeWhatKind.ENTITY.value,
+                    HomeWhatKind.CONCEPT.value,
+                }
+            ):
+                raise AgentHomeInvariantError(
+                    "Home WHAT top link must use entity/<name>.md or "
+                    "concept/<name>.md"
+                )
+            return
+        if path.suffix != ".md":
+            raise AgentHomeInvariantError(
+                f"Home {self.space} top link must name a .md file"
+            )
 
     @classmethod
     def parse(cls, value: str) -> "HomeTopLink":

@@ -4,4 +4,4 @@ Daily rollover must remain deterministic because a new Business Day cannot depen
 
 Home Maintenance and Memory Maintenance are independent Program work. They may run later, fail independently, and leave their durable inputs available for a future retry.
 
-Related concept: <home:what@daily-lifecycle>.
+Related concept: <home:what@concept/daily-lifecycle.md>.

@@ -55,7 +55,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                     "old_home_write",
                     "home.top.write",
                     {
-                        "link": "home:why@daily_preference",
+                        "link": "home:why@daily_preference.md",
                         "text": "# Daily preference\n\nKeep the durable preference.",
                     },
                 )
@@ -81,7 +81,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                 {
                     "content": (
                         "- durable old-day fact\n"
-                        "- preference <home:why@daily_preference>"
+                        "- preference <home:why@daily_preference.md>"
                     )
                 }
             ),
@@ -99,7 +99,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                     {"query": "older durable project fact", "top_k": 1},
                 )
             ),
-            _json_result({"candidate_ids": ["memory:2026-07-13"]}),
+            _json_result({"candidate_ids": ["memory:2026-07-13.md"]}),
             _tool_result(
                 _control(
                     "new_select_memory_recall",
@@ -111,7 +111,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                 _action(
                     "new_memory_recall",
                     "memory.recall",
-                    {"memory_link": "memory:2026-07-13"},
+                    {"memory_link": "memory:2026-07-13.md"},
                 )
             ),
             _tool_result(
@@ -257,7 +257,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
     ).read_text(encoding="utf-8") == (
         "# 2026-07-14\n\n"
         "- durable old-day fact\n"
-        "- preference <home:why@daily_preference>\n"
+        "- preference <home:why@daily_preference.md>\n"
     )
 
     names = [event.name for event in observations.events]

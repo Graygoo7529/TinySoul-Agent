@@ -28,6 +28,13 @@ class ProgramWorkStatus(StrEnum):
     FAILED = "failed"
 
 
+class ProgramWorkFailureKind(StrEnum):
+    """Stable Program work failures exposed in bounded outcomes."""
+
+    HOME_MAINTENANCE_EXECUTION_FAILED = "home_maintenance.execution_failed"
+    MEMORY_MAINTENANCE_EXECUTION_FAILED = "memory_maintenance.execution_failed"
+
+
 @dataclass(frozen=True)
 class ProgramWorkOutcome:
     """Bounded outcome retained only by the current Program run."""

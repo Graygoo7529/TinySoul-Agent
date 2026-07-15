@@ -40,19 +40,19 @@ memory/
 稳定 Link 固定为：
 
 ```text
-memory:YYYY-MM-DD
+memory:YYYY-MM-DD.md
 ```
 
-`MemoryLink` 或等价值对象负责严格日期解析和 Link/相对路径双向映射。不接受 `@`、资源子路径、绝对路径、反斜杠、`.`/`..` 或非法日期。每个日期最多对应一份文档。
+`MemoryLink` 或等价值对象负责严格日期与 `.md` 叶文件名解析，并完成 Link/相对路径双向映射。Link 保留真实叶文件名，但不暴露物理 `yyyy/mm/` 目录；不接受缺失 `.md`、`@`、资源子路径、绝对路径、反斜杠、`.`/`..` 或非法日期。每个日期最多对应一份文档。
 
 项目顶层 `memory/` 是默认布局；显式绝对 root 是受信任的部署或测试覆盖，不改变 Memory 的逻辑所有权。配置的 Memory root 在尚无任何记忆时可以不存在；Background/search 将其视为空 store，recall 返回 not-found。只有 Memory Maintenance 成功写入时才可创建 root 与目标年/月父目录；模块 import、builder、search 和 recall 不得为只读请求产生目录副作用。root 已存在但不是目录、Link 映射越出配置 root、路径包含 symlink 或 Maintenance 写入时不可用，属于 Memory 边界失败。
 
-`<memory:YYYY-MM-DD>` 是可出现在 Context 中的引用语法，包括 Home 顶层内容、Session Background、MEMORY 正文和 ActionResult。它只提示 Agent 通过 `memory.recall` 召回指定日期，不内联正文、不自动展开，也不转换为 Home Link。
+`<memory:YYYY-MM-DD.md>` 是可出现在 Context 中的引用语法，包括 Home 顶层内容、Session Background、MEMORY 正文和 ActionResult。它只提示 Agent 通过 `memory.recall` 召回指定日期，不内联正文、不自动展开，也不转换为 Home Link。
 
 Memory Maintenance 生成的正文可以引用：
 
-- 当前 actual Home 中已存在的 `<home:space@name>` 顶层 Link；
-- 已存在的其它日期 `<memory:YYYY-MM-DD>` Link。
+- 当前 actual Home 中已存在的规范 Home 顶层 Link；
+- 已存在的其它日期 `<memory:YYYY-MM-DD.md>` Link。
 
 Memory 通过 Home 注入的只读顶层 Link catalog 校验 Home Link，通过自身 store 校验 Memory Link。不允许目标日期自引用或引用尚不存在的 Memory；非法引用通过有界模型反馈修正，不静默删除。
 
@@ -82,21 +82,21 @@ Turn preparation 使用 Program 已捕获的 `BusinessDay` 与 `loop.daily.timez
 - 文件存在时返回 Link 和完整、受上限约束的非空 Markdown，不要求固定章节；
 - 文件无法读取、为空、不是 UTF-8 或超过完整文档上限时，preparation 以 Memory 模块失败结束，不伪装为“昨日无记忆”。
 
-该 entry 属于每 Turn 重建的自动 Background source，不跨 Turn 保留在 Context 内存中。它不是身份规约，因此可在 Context 压力回收中被逐出；`home:agent@core` 仍不可逐出。Memory provider 不向 Phase1 目录暴露全部历史日期。
+该 entry 属于每 Turn 重建的自动 Background source，不跨 Turn 保留在 Context 内存中。它不是身份规约，因此可在 Context 压力回收中被逐出；`home:agent@AGENT.md` 仍不可逐出。Memory provider 不向 Phase1 目录暴露全部历史日期。
 
 ### Search
 
 `memory.search(query, top_k)` 对 Memory-owned 日期文档执行有界检索。候选语义单元就是单日文档，每个日期最多产生一个 candidate 和一个结果。每个 item 只包含：
 
-- `memory:YYYY-MM-DD` Link；
+- `memory:YYYY-MM-DD.md` Link；
 - 日期；
 - 受配置上限约束的摘要与检索元数据。
 
-Memory 流式扫描完整日期 store，对每份有界文档评分并只保留固定数量的最佳日期 candidate，因此工作内存、模型输入和输出有界；当前不引入持久索引或向量数据库。Memory 负责确定性候选、候选上限、稳定排序和 candidate-only validator；可使用专用 `memory_search` LLM Task 重排候选。Task 失败或返回候选外 Link 时回退确定性结果，不把只读检索变成不可用。Search 不返回完整 MEMORY，也不修改 Background。
+Memory 流式扫描完整日期 store，对每份有界文档评分并只保留固定数量的最佳日期 candidate，因此工作内存、模型输入和输出有界；当前不引入持久索引或向量数据库。Memory 负责确定性候选、候选上限、稳定排序和 candidate-only validator；可使用专用 `memory_search` LLM Task 重排候选。Task 失败或返回候选外 Link 时回退确定性结果，不把只读检索变成不可用。Search 是 Agent 在不知道精确日期时使用的候选日期发现 Action，不返回正文片段或完整 MEMORY，也不修改 Background；找到候选日后，Agent 可继续调用 recall。
 
 ### Recall
 
-`memory.recall(memory_link)` 只接受精确 `MemoryLink`，返回该日期的完整 Markdown 和稳定元数据。Recall 不提供章节过滤或分页；Maintenance 产生的文档已被总长度上限束缚。若外部修改使文档为空、非 UTF-8 或超限，recall 显式失败而不返回不完整正文。
+`memory.recall(memory_link)` 只接受精确 `memory:YYYY-MM-DD.md`，返回该日期的完整 Markdown 和稳定元数据。它用于 Context 已出现精确 Memory Link，或者 search 已发现目标日期的情况。Recall 不提供章节过滤或分页；Maintenance 产生的文档已被总长度上限束缚。若外部修改使文档为空、非 UTF-8 或超限，recall 显式失败而不返回不完整正文。
 
 Search 和 recall 都是 Memory-owned native action。Action executor 只解析参数、调用 Memory 门面并将局部成功/失败映射为 `ActionResult`；Context 将结果记入当前 TurnTraceHeap。
 

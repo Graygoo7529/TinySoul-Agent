@@ -17,6 +17,7 @@ from tinysoul.runtime import RunLevel, RunScope, RuntimeException
 from tinysoul.memory import (
     MemoryConsolidator,
     MemoryEngine,
+    MemoryLink,
     MemoryMaintenanceSkipReason,
     MemoryMaintenanceStatus,
 )
@@ -28,6 +29,7 @@ from .daily import DailyLifecycleCoordinator
 from .day import BusinessDay
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .work import (
+    ProgramWorkFailureKind,
     ProgramWorkKind,
     ProgramWorkMode,
     ProgramWorkOutcome,
@@ -203,7 +205,7 @@ class ProgramMaintenanceRunner:
                     target_day=target_day,
                     source=source,
                     details={
-                        "link": f"memory:{target_day}",
+                        "link": str(MemoryLink(target_day.value)),
                         "skip_reason": MemoryMaintenanceSkipReason.MEMORY_EXISTS.value,
                     },
                 )
@@ -269,6 +271,22 @@ def _failed(
     error: Exception,
     target_day: BusinessDay | None = None,
 ) -> ProgramWorkOutcome:
+    details: JsonObject = {
+        "error_type": type(error).__name__,
+        "failure_kind": {
+            ProgramWorkKind.HOME_MAINTENANCE: (
+                ProgramWorkFailureKind.HOME_MAINTENANCE_EXECUTION_FAILED
+            ),
+            ProgramWorkKind.MEMORY_MAINTENANCE: (
+                ProgramWorkFailureKind.MEMORY_MAINTENANCE_EXECUTION_FAILED
+            ),
+        }[kind].value,
+    }
+    if isinstance(error, RuntimeException):
+        details["runtime_reason"] = error.reason
+        cause_kind = error.payload.get("kind")
+        if isinstance(cause_kind, str) and cause_kind:
+            details["cause_kind"] = cause_kind
     return ProgramWorkOutcome(
         kind=kind,
         mode=mode,
@@ -276,10 +294,7 @@ def _failed(
         business_day=business_day,
         target_day=target_day,
         source=source,
-        details={
-            "error_type": type(error).__name__,
-            "message": str(error)[:1000],
-        },
+        details=details,
     )
 
 

@@ -94,6 +94,14 @@ class _BrokenDaily:
         raise LoopInvariantError("archive index is inconsistent")
 
 
+@dataclass
+class _PathLeakingDaily:
+    path: Path
+
+    def session_archive_for(self, day: BusinessDay) -> Path:
+        raise LoopInvariantError(f"archive index failed at {self.path}")
+
+
 def test_maintenance_availability_uses_yesterday_session_projection() -> None:
     projection = _projection()
     home = _AvailabilityHome(projection)
@@ -175,6 +183,34 @@ def test_memory_archive_failure_is_a_failed_work_outcome() -> None:
 
     assert outcome.status is ProgramWorkStatus.FAILED
     assert outcome.details["error_type"] == "LoopInvariantError"
+    assert outcome.details["failure_kind"] == "memory_maintenance.execution_failed"
+    assert "message" not in outcome.details
+
+
+def test_failed_maintenance_outcome_does_not_expose_exception_paths(
+    tmp_path: Path,
+) -> None:
+    private_path = tmp_path / "archive" / "private-session.json"
+    runner = _runner(
+        home=_AvailabilityHome(_projection()),
+        memory=_AvailabilityMemory(_projection()),
+        session=object(),
+        daily=_PathLeakingDaily(private_path),
+    )
+
+    outcome = runner.run_memory(
+        business_day=TODAY,
+        target_day=YESTERDAY,
+        mode=ProgramWorkMode.MANUAL,
+        source="terminal",
+        scope=RunScope().push(RunLevel.PROGRAM, "program"),
+    )
+
+    assert outcome.details == {
+        "error_type": "LoopInvariantError",
+        "failure_kind": "memory_maintenance.execution_failed",
+    }
+    assert str(private_path) not in repr(outcome.to_json())
 
 
 def _runner(
