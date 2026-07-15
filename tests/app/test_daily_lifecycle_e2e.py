@@ -99,7 +99,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                     {"query": "older durable project fact", "top_k": 1},
                 )
             ),
-            _json_result({"candidate_ids": ["memory:2026-07-13.md"]}),
+            _json_result({"candidate_ids": ["memory:2026-07-13"]}),
             _tool_result(
                 _control(
                     "new_select_memory_recall",
@@ -111,7 +111,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
                 _action(
                     "new_memory_recall",
                     "memory.recall",
-                    {"memory_link": "memory:2026-07-13.md"},
+                    {"memory_link": "memory:2026-07-13"},
                 )
             ),
             _tool_result(

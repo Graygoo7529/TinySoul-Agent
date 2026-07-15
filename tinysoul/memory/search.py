@@ -223,7 +223,7 @@ class LLMMemorySearchReranker:
                         label="memory_search_candidates",
                     ),
                     UserMessage.from_text(
-                        'Return exactly {"candidate_ids":["memory:YYYY-MM-DD.md"]}.',
+                        'Return exactly {"candidate_ids":["memory:YYYY-MM-DD"]}.',
                         label="memory_search_output",
                     ),
                 ),

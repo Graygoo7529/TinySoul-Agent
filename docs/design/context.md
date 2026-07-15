@@ -64,7 +64,7 @@ composer 在构造时执行语境预算检查。文本预算覆盖消息可见�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的 core/user 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD.md>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的 core/user 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 

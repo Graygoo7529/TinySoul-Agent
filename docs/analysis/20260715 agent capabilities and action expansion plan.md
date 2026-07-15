@@ -42,7 +42,7 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 
 当前 `memory.search` 与 `memory.recall` 已是 Memory-owned native Action，并保持现有行为：
 
-- 精确 `<memory:YYYY-MM-DD.md>` 已知时调用 `memory.recall`，返回完整但受上限约束的单日 Markdown；
+- 精确 `<memory:YYYY-MM-DD>` 已知时调用 `memory.recall`，返回完整但受上限约束的单日 Markdown；
 - 精确日期未知时调用 `memory.search(query, top_k)`，流式扫描合法日期文档并以“单日文档”为候选，只返回 Link、日期与有界摘要；
 - search/recall 的 ActionResult 都进入当前 TurnTrace，不修改 Background；Phase1 只自动加载精确昨日记忆；
 - 当前 search 是候选日期发现，不是片段级语义检索。

@@ -297,7 +297,7 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
     valid = memory.run_maintenance(
         projection=_projection(_fact("fact", 9)),
         consolidator=_CapturingConsolidator(
-            "- linked <memory:2026-07-11.md>"
+            "- linked <memory:2026-07-11>"
         ),
         timezone="Asia/Shanghai",
     )
@@ -307,8 +307,8 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
         "# duplicate date heading\n\n- invalid",
         "   # indented duplicate heading\n\n- invalid",
         "Setext duplicate heading\n===\n\n- invalid",
-        "- invalid <memory:2026-07-12.md>",
-        "- invalid <memory:2026-07-10.md>",
+        "- invalid <memory:2026-07-12>",
+        "- invalid <memory:2026-07-10>",
     )
     for body in invalid_bodies:
         outcome = memory.run_maintenance(

@@ -213,7 +213,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
-`memory.search` 与 `memory.recall` 是 Memory-owned native action。Agent 不知道精确日期时使用 search；Search executor 调用 Memory 的按日确定性候选/专用 reranker 服务，只返回 `memory:YYYY-MM-DD.md` Link、日期和有界摘要。Context 已提供精确 Link 或 search 已发现目标日时使用 recall；recall executor 只通过 `MemoryEngine` 解析精确 `memory:YYYY-MM-DD.md` 并有界读取完整非空单日 Markdown。两者的 `ActionResult` 都由 Context 写入当前 TurnTraceHeap，不修改 Background。`<memory:YYYY-MM-DD.md>` 是提示模型调用 recall 的资源引用，Action 模块本身不解析其日期或文件路径。
+`memory.search` 与 `memory.recall` 是 Memory-owned native action。Agent 不知道精确日期时使用 search；Search executor 调用 Memory 的按日确定性候选/专用 reranker 服务，只返回 `memory:YYYY-MM-DD` Link、日期和有界摘要。Context 已提供精确 Link 或 search 已发现目标日时使用 recall；recall executor 只通过 `MemoryEngine` 解析精确 `memory:YYYY-MM-DD` 并有界读取完整非空单日 Markdown。两者的 `ActionResult` 都由 Context 写入当前 TurnTraceHeap，不修改 Background。`<memory:YYYY-MM-DD>` 是提示模型调用 recall 的资源引用，Action 模块本身不解析其日期或文件路径。
 
 Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 

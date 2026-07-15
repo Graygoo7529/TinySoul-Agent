@@ -247,7 +247,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
 ) -> None:
     memory_root = tmp_path / "memory"
     MemoryStore(root=memory_root, max_document_chars=16000).write(
-        MemoryLink.parse("memory:2026-07-13.md"),
+        MemoryLink.parse("memory:2026-07-13"),
         "free-form remembered fact",
     )
 
@@ -267,7 +267,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
             ToolCallRecord(
                 id="recall_1",
                 name="memory.recall",
-                arguments={"memory_link": "memory:2026-07-13.md"},
+                arguments={"memory_link": "memory:2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
@@ -302,7 +302,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
     assert isinstance(items, list)
     first_item = items[0]
     assert isinstance(first_item, dict)
-    assert first_item["link"] == "memory:2026-07-13.md"
+    assert first_item["link"] == "memory:2026-07-13"
     assert "period" not in first_item
     assert context.trace_kinds() == (
         TraceKind.ACTION_RESULT,

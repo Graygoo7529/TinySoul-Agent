@@ -22,7 +22,7 @@ status: done
 默认 Home 应让新项目中的 Agent 从 `home:agent@AGENT` 理解以下稳定语义，并能通过顶层 Link 渐进加载细节：
 
 1. User Turn、Agent Cycle、Phase、Action、Context 与 Maintenance 的职责和关系；
-2. 使用无后缀逻辑路径的 Agent/WHAT/WHY/通用 HOW 顶层 Link、prompt mount Link、`home:space/path` 渐进资源、`memory:YYYY-MM-DD.md` 与 `workspace:` 的差异；
+2. 使用无后缀逻辑路径的 Agent/WHAT/WHY/通用 HOW 顶层 Link、prompt mount Link、`home:space/path` 渐进资源、`memory:YYYY-MM-DD` 与 `workspace:` 的差异；
 3. actual Home、跨日 `runtime/home` effective view、Home Maintenance 和 runtime-only `SKILL_MEMORY.md`；
 4. WHAT 的 entity/concept 分类、WHY 的问题解释、通用 HOW 的使用条件和按需加载方式；
 5. Daily rollover、Home Maintenance、Memory Maintenance 相互独立的生命周期；
@@ -54,11 +54,11 @@ status: done
 | 通用 HOW | `home:how@<skill>` | `home/how/<skill>/SKILL.md` |
 | HOW 渐进文档 | `home:how/<skill>/references/<name>.md` | 同 Link 相对路径 |
 | HOW 渐进脚本 | `home:how/<skill>/scripts/<name>.py` | 同 Link 相对路径 |
-| Memory | `memory:YYYY-MM-DD.md` | `memory/yyyy/mm/yyyy-mm-dd.md` |
+| Memory | `memory:YYYY-MM-DD` | `memory/yyyy/mm/yyyy-mm-dd.md` |
 | Workspace | `workspace:<relative-path.ext>` | 当日 Workspace 中的同名资源 |
 | Domain/action HOW | `home:how_domain:<domain>` / `home:how_action:<domain>/<action>` | 框架固定 mount 文件 |
 
-Agent、WHAT、WHY 与通用 HOW Top Link 使用无后缀逻辑身份；Layout 分别追加 `.md` 或映射固定 `SKILL.md`。Memory 与直接资源 Link 继续保留真实叶文件名或资源扩展名，prompt mount 保留框架 identity。项目根 `AGENT.md` 是 TinySoul 仓库开发规约，不是 `home:agent@AGENT` 的 fallback。
+Agent、WHAT、WHY、通用 HOW 与 Memory 使用无格式后缀的逻辑身份；各自 owner 分别映射 `.md` 或固定 `SKILL.md`。直接资源 Link 继续保留真实叶文件名或资源扩展名，prompt mount 保留框架 identity。项目根 `AGENT.md` 是 TinySoul 仓库开发规约，不是 `home:agent@AGENT` 的 fallback。
 
 WHAT 分类直接属于 Link。`home.top.write` 创建 WHAT 时使用 `entity/` 或 `concept/` 路径，不再额外提供 `what_kind`；entity 与 concept 中的同名文档可并存。
 

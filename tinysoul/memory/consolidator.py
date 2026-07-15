@@ -161,7 +161,7 @@ class LLMMemoryConsolidator:
                 "facts, deduplicate without inventing, and preserve chronology "
                 "where it matters. The framework renders the date heading, so do "
                 "not include a level-1 heading. Home links use <home:space@name> "
-                "and Memory links use <memory:YYYY-MM-DD.md>. Link hints are useful "
+                "and Memory links use <memory:YYYY-MM-DD>. Link hints are useful "
                 "known references, not an exhaustive catalog.",
                 label="memory_maintenance_role",
             ),
