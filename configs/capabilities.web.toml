@@ -7,21 +7,19 @@ max_redirects = 5
 user_agent = "TinySoul-Agent/0.1"
 
 [capabilities.web.search_by_kimi]
-enabled = false
+enabled = true
 base_url = "https://api.moonshot.cn/v1"
 api_key_env = "KIMI_SEARCH_API_KEY"
 model = "kimi-k3"
 max_query_chars = 4000
 max_result_chars = 100000
 max_inline_chars = 12000
-max_results = 10
-max_snippet_chars = 800
 max_tool_rounds = 6
 max_search_tokens = 100000
 max_output_tokens = 8192
 
 [capabilities.web.fetch_with_defuddle]
-enabled = false
+enabled = true
 
 [capabilities.web.fetch_with_trafilatura]
 enabled = true

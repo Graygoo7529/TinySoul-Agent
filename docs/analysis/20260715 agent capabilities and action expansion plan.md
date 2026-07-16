@@ -23,7 +23,7 @@ status: in_progress (Stage 1 and Stage 2A done; Stage 2B pending confirmation)
 本计划将 TinySoul 定位为本地、项目作用域内的知识工作 Agent。推进顺序优先补齐“取得内容、转换内容、受控执行、确定性处理”，再扩展知识图检索、外部连接器和交互界面。以下 Stage 只表示本能力扩展计划内部的顺序，不复用此前 Daily Lifecycle 的 Stage 编号；每个 Stage 都必须在语义确认、实现和验收完成后再进入下一项：
 
 1. **Stage 1 Resource Conversion（done）**：在 Workspace Link 边界内把受支持文档转换为可检查、可作为后续 action reference 的 Markdown 与关联资源；
-2. **Stage 2 Read-only Web Research（2A done）**：提供有界搜索和网页读取，返回来源 Link、摘要与引用信息，不在该阶段引入登录、提交表单或其它写操作；
+2. **Stage 2 Web Search And Fetch（2A done）**：提供有界搜索和网页读取，返回来源 Link、摘要与引用信息，不在该阶段引入登录、提交表单或其它写操作；
 3. **Stage 3 Controlled Project Tasks**：只暴露项目拥有的具名工作流和固定参数，不提供任意 shell 字符串或模型自行拼接命令；
 4. **Stage 4 Deterministic Utilities**：补充数学、时间、编码和结构化格式转换等具有明确 schema、纯输入输出和稳定失败语义的工具；
 5. **Stage 5 Knowledge Retrieval Enhancements**：实现 Home Backlink，并在真实数据规模证明需要后增强 Memory 片段检索；
@@ -58,7 +58,7 @@ Stage 1 已按以下切面完成：
 - bundle 提交只产生一次 manifest revision 和一次 workspace snapshot signal；
 - ActionResult metadata-only，测试与仓库真实 runtime/workspace/Home 隔离。
 
-### Stage 2 Read-only Web Research
+### Stage 2 Web Search And Fetch
 
 Stage 2A 已建立无独立持久状态的 `capabilities.web` 和 `web` domain，确认后的详细语义见 `docs/design/capabilities/web.md`。当前 action 为：
 
@@ -69,11 +69,12 @@ Stage 2A 已建立无独立持久状态的 `capabilities.web` 和 `web` domain�
 已落实边界：
 
 - Kimi Search 使用独立 `[capabilities.web.search_by_kimi]` 与 `KIMI_SEARCH_API_KEY`，不复用 `[llm]` 配置、MessageStack 或内部 LLM task；
-- 短 search answer/results 完整进入 interaction ActionResult；超出 inline 上限时完整规范化结果写入 `workspace:web/search/<invoke-id>-<call-id>.md`，返回 shape-safe 预览与 Link；
+- search 先保留完整 canonical answer/results；未超过 inline 上限时完整进入 interaction ActionResult，超过 inline 上限时完整规范化结果写入 `workspace:web/search/<invoke-id>-<call-id>.md`，返回 shape-safe preview 与 Link；result/snippet 不在 spill 判断前静默裁剪；
 - fetch 只接受公开 HTTPS，逐跳校验 DNS/redirect，限制请求时长、source bytes、redirect 和 output chars，禁用环境代理、cookie 与认证；
 - 两个 fetch action 都由 Web worker 统一下载并规范化相对链接，Defuddle/Trafilatura 仅处理 staged HTML；正文总是提交到显式 Workspace Markdown target；
 - 图片只保留远程绝对 URL，不下载 `.assets/`；ActionResult 只含有界 excerpt 和 artifact metadata，不调用 LLM；
 - 三项 action 分别 enabled/依赖检查/effective Catalog 过滤；Defuddle executable 检测扩展了通用 DependencyChecker；worker 复用 ControlledProcessRunner 并使用最小环境传递专用搜索密钥；
+- Web 与 Resource 中间文件共用 `runtime/.staging/`，App 启动清理遗留子目录，action 作用域结束清理当前唯一子目录；该根不进入 Workspace Manifest 或 Daily archive；
 - Catalog、domain HOW、默认项目配置、`.env.example`、wheel package data 和隔离测试已闭环。
 
 Stage 2B 保留为后续 crawl 能力：只有在确认真实多页场景后再设计 Crawlee adapter、crawl action 名称、robots、队列/去重、页面与站点 budget、缓存和来源集合协议。Stage 2B 不新增通用网络 backend kind，也不放宽 Stage 2A 的单页 fetch 边界。

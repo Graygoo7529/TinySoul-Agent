@@ -38,6 +38,11 @@ from .json import (
     to_json_object,
     to_json_value,
 )
+from .staging import (
+    DEFAULT_STAGING_ROOT,
+    StagingDirectoryManager,
+    StagingError,
+)
 
 __all__ = [
     "ConfigEnvironment",
@@ -52,12 +57,15 @@ __all__ = [
     "DependencyExecutable",
     "DependencyError",
     "DependencyRequirement",
+    "DEFAULT_STAGING_ROOT",
     "FilesystemBoundaryError",
     "JsonObject",
     "JsonScalar",
     "JsonTypeError",
     "JsonValue",
     "ProjectConfig",
+    "StagingDirectoryManager",
+    "StagingError",
     "TextLineSliceRead",
     "TextPrefixRead",
     "atomic_copy_file",

@@ -45,6 +45,7 @@ from tinysoul.memory import (
     register_memory_actions,
 )
 from tinysoul.memory.errors import MemoryError
+from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
@@ -320,23 +321,35 @@ class TinySoulAppBuilder:
                 context=context,
                 action_how=action_how,
             )
-            action = self._action if self._action is not None else self._build_action(
-                bus=bus,
-                workspace=workspace,
-                context=context,
-                session=session,
-                home=home,
-                memory=memory,
-                home_bridge=home_bridge,
-                memory_bridge=memory_bridge,
-                workspace_bridge=workspace_bridge,
-                action_bridge=action_bridge,
-                llm_action=llm_action,
-                llm=llm,
-                observations=observations,
-                capabilities_settings=capabilities_settings,
-                runtime_env=config.runtime_env,
-            )
+            if self._action is not None:
+                action = self._action
+            else:
+                staging = StagingDirectoryManager(self._root)
+                try:
+                    staging.prepare()
+                except StagingError as exc:
+                    raise infra_bridge.startup_failure(
+                        message=str(exc),
+                        payload={"error_type": type(exc).__name__},
+                    ) from exc
+                action = self._build_action(
+                    bus=bus,
+                    workspace=workspace,
+                    context=context,
+                    session=session,
+                    home=home,
+                    memory=memory,
+                    home_bridge=home_bridge,
+                    memory_bridge=memory_bridge,
+                    workspace_bridge=workspace_bridge,
+                    action_bridge=action_bridge,
+                    llm_action=llm_action,
+                    llm=llm,
+                    observations=observations,
+                    capabilities_settings=capabilities_settings,
+                    runtime_env=config.runtime_env,
+                    staging=staging,
+                )
             try:
                 home.reconcile_prompt_mounts(
                     domains=action.domain_names(),
@@ -715,6 +728,7 @@ class TinySoulAppBuilder:
         observations: ObservationEmitter,
         capabilities_settings: CapabilitiesSettings,
         runtime_env: dict[str, str],
+        staging: StagingDirectoryManager,
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
@@ -735,6 +749,7 @@ class TinySoulAppBuilder:
                     workspace=workspace,
                     bus=bus,
                     runtime_bridge=workspace_bridge,
+                    staging=staging,
                 )
                 register_web_actions(
                     builder,
@@ -743,6 +758,7 @@ class TinySoulAppBuilder:
                     workspace=workspace,
                     bus=bus,
                     runtime_bridge=workspace_bridge,
+                    staging=staging,
                 )
                 register_home_actions(
                     builder,

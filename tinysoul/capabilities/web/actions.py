@@ -14,7 +14,12 @@ from tinysoul.action import (
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.infra import DependencyChecker, JsonObject
+from tinysoul.infra import (
+    DependencyChecker,
+    JsonObject,
+    StagingDirectoryManager,
+    StagingError,
+)
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.workspace import (
     WorkspaceError,
@@ -95,6 +100,12 @@ class KimiSearchExecutor(ActionExecutor):
                 "Kimi Web Search returned an invalid bounded result.",
                 {"reason": "worker_protocol_invalid"},
             )
+        except StagingError:
+            return _failed(
+                execution,
+                "Kimi Web Search staging could not be completed.",
+                {"reason": "staging_failed"},
+            )
         except (WebContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
@@ -156,6 +167,12 @@ class WebFetchExecutor(ActionExecutor):
                 "Web fetch returned an invalid staged result.",
                 {"reason": "worker_protocol_invalid"},
             )
+        except StagingError:
+            return _failed(
+                execution,
+                "Web fetch staging could not be completed.",
+                {"reason": "staging_failed"},
+            )
         except (WebContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
@@ -173,6 +190,7 @@ def register_web_actions(
     runtime_env: Mapping[str, str],
     workspace: WorkspaceEngine,
     bus: SignalBus,
+    staging: StagingDirectoryManager,
     runtime_bridge: WebActionRuntimeBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
@@ -194,6 +212,7 @@ def register_web_actions(
         workspace=workspace,
         settings=settings,
         runtime_env=runtime_env,
+        staging=staging,
         kimi_api_key=kimi_search_api_key(settings, runtime_env),
     )
     if search_enabled:

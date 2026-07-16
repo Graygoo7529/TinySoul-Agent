@@ -41,10 +41,15 @@ from tinysoul.capabilities.web.config import (
 from tinysoul.capabilities.web.dependencies import kimi_search_api_key
 from tinysoul.capabilities.web.errors import WebProcessingError, WebProcessTimeout
 from tinysoul.capabilities.web.models import WebExtractor
-from tinysoul.capabilities.web.network import validate_public_https_url
+from tinysoul.capabilities.web.network import FetchedPage, validate_public_https_url
 from tinysoul.capabilities.web.service import WebCapabilityService
+from tinysoul.capabilities.web.worker import (
+    _extract_with_defuddle,
+    _normalize_search_result,
+    _read_bounded_json_file,
+)
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra import JsonValue
+from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json, to_json_object
 from tinysoul.runtime import RunScope, SignalBus
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
@@ -56,7 +61,7 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
                 "search_by_kimi": {
                     "enabled": True,
                     "model": "kimi-k3",
-                    "max_results": 6,
+                    "max_output_tokens": 4_096,
                 },
                 "fetch_with_defuddle": {"enabled": True},
                 "fetch_with_trafilatura": {"enabled": False},
@@ -66,7 +71,7 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
 
     assert settings.search_by_kimi.enabled is True
     assert settings.search_by_kimi.api_key_env == "KIMI_SEARCH_API_KEY"
-    assert settings.search_by_kimi.max_results == 6
+    assert settings.search_by_kimi.max_output_tokens == 4_096
     assert settings.fetch_with_defuddle.enabled is True
     assert settings.fetch_with_trafilatura.enabled is False
 
@@ -87,6 +92,30 @@ def test_enabled_kimi_search_requires_independent_credential() -> None:
         kimi_search_api_key(settings, {})
 
     assert error.value.key == "capabilities.web.search_by_kimi.api_key_env"
+
+
+def test_kimi_worker_normalization_preserves_all_results_and_snippets() -> None:
+    long_snippet = "detail " * 300
+    normalized = _normalize_search_result(
+        to_json_object(
+            {
+                "answer": "Complete answer",
+                "results": [
+                    {
+                        "title": f"Source {index}",
+                        "url": f"https://example.com/{index}",
+                        "snippet": long_snippet,
+                    }
+                    for index in range(12)
+                ],
+            }
+        )
+    )
+
+    results = cast(list[JsonValue], normalized["results"])
+    assert len(results) == 12
+    last = cast(dict[str, JsonValue], results[-1])
+    assert last["snippet"] == long_snippet.strip()
 
 
 def test_public_https_validation_rejects_private_targets() -> None:
@@ -124,6 +153,7 @@ def test_kimi_search_returns_answer_and_results_without_mode(
         workspace=workspace,
         settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
         runtime_env={"PATH": "test-path"},
+        staging=_staging(local_tmp),
         kimi_api_key="search-secret",
         process_runner=_SearchRunner(answer="Current answer", result_count=2),
     )
@@ -152,15 +182,20 @@ def test_oversized_kimi_search_spills_complete_answer_and_results(
         search_by_kimi=KimiSearchSettings(
             enabled=True,
             max_inline_chars=1_000,
-            max_result_chars=10_000,
+            max_result_chars=100_000,
         )
     )
     service = WebCapabilityService(
         workspace=workspace,
         settings=settings,
         runtime_env={},
+        staging=_staging(local_tmp),
         kimi_api_key="search-secret",
-        process_runner=_SearchRunner(answer="A" * 2_000, result_count=4),
+        process_runner=_SearchRunner(
+            answer="A" * 2_000,
+            result_count=12,
+            snippet_chars=1_200,
+        ),
     )
 
     result = service.search_by_kimi(
@@ -172,16 +207,56 @@ def test_oversized_kimi_search_spills_complete_answer_and_results(
     )
 
     assert result.payload["truncated"] is True
+    assert result.payload["result_count"] == 12
     assert result.payload["answer"]
     assert isinstance(result.payload["results"], list)
+    assert len(dumps_json(result.payload)) <= 1_000
     assert result.payload["see_more_at"] == "workspace:web/search/invoke-1-call-1.md"
     markdown = workspace.read_text(
         "workspace:web/search/invoke-1-call-1.md",
-        max_chars=10_000,
+        max_chars=100_000,
     ).text
     assert "A" * 1_000 in markdown
     assert "## Results" in markdown
+    assert "Source 11" in markdown
+    assert "S" * 1_200 in markdown
     assert result.manifest is not None
+
+
+def test_defuddle_staged_json_read_is_bounded(local_tmp: Path) -> None:
+    result = local_tmp / "defuddle.json"
+    result.write_bytes(b"x" * 101)
+
+    with pytest.raises(WebProcessingError) as error:
+        _read_bounded_json_file(result, max_bytes=100)
+
+    assert error.value.reason == "staged_result_bytes_limit_exceeded"
+
+
+def test_local_defuddle_cli_extracts_only_staged_html(local_tmp: Path) -> None:
+    executable = shutil.which("defuddle")
+    if executable is None:
+        pytest.skip("Defuddle CLI is not installed")
+    assert executable is not None
+    manager = _staging(local_tmp)
+    with manager.allocate("defuddle-test") as output_path:
+        title, body = _extract_with_defuddle(
+            FetchedPage(
+                final_url="https://example.com/article",
+                html=(
+                    "<html><head><title>Local</title></head><body><main>"
+                    "<h1>Heading</h1><p>Staged extraction content.</p>"
+                    "</main></body></html>"
+                ),
+                content_type="text/html",
+            ),
+            output_path=output_path,
+            executable=executable,
+            max_output_chars=10_000,
+        )
+
+    assert title == "Local"
+    assert "Staged extraction content" in body
 
 
 def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
@@ -192,6 +267,7 @@ def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
         workspace=workspace,
         settings=WebSettings(),
         runtime_env={},
+        staging=_staging(local_tmp),
         process_runner=_FetchRunner(),
     )
 
@@ -225,6 +301,7 @@ def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
             workspace=workspace,
             settings=WebSettings(),
             runtime_env={},
+            staging=_staging(local_tmp),
             process_runner=_FetchRunner(),
         ),
         bus=bus,
@@ -254,6 +331,7 @@ def test_fetch_cancellation_after_worker_prevents_workspace_commit(
         workspace=workspace,
         settings=WebSettings(),
         runtime_env={},
+        staging=_staging(local_tmp),
         process_runner=_FetchCancellingRunner(),
     )
 
@@ -289,6 +367,7 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
         runtime_env={},
         workspace=_workspace(local_tmp),
         bus=SignalBus(),
+        staging=_staging(local_tmp),
     ).build()
 
     assert "web" not in engine.domain_names()
@@ -296,9 +375,16 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
 
 
 class _SearchRunner(ControlledProcessRunner):
-    def __init__(self, *, answer: str, result_count: int) -> None:
+    def __init__(
+        self,
+        *,
+        answer: str,
+        result_count: int,
+        snippet_chars: int = 0,
+    ) -> None:
         self._answer = answer
         self._result_count = result_count
+        self._snippet_chars = snippet_chars
 
     def run(
         self,
@@ -315,7 +401,11 @@ class _SearchRunner(ControlledProcessRunner):
             {
                 "title": f"Source {index}",
                 "url": f"https://example.com/{index}",
-                "snippet": f"Snippet {index}",
+                "snippet": (
+                    "S" * self._snippet_chars
+                    if self._snippet_chars
+                    else f"Snippet {index}"
+                ),
             }
             for index in range(self._result_count)
         ]
@@ -367,7 +457,7 @@ def _stage_fetch(request: ProcessRequest) -> dict[str, object]:
     assert request.stdin_text is not None
     payload = json.loads(request.stdin_text)
     output = Path(payload["output_path"])
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     markdown = "# Example\n\nReadable page\n"
     (output / "document.md").write_text(markdown, encoding="utf-8")
     return {
@@ -433,3 +523,9 @@ def _workspace(root: Path):
     return WorkspaceEngineBuilder(
         WorkspaceSettings(root=(root / "workspace").resolve(), max_files=100)
     ).build()
+
+
+def _staging(root: Path) -> StagingDirectoryManager:
+    staging = StagingDirectoryManager(root.resolve())
+    staging.prepare()
+    return staging

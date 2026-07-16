@@ -34,8 +34,6 @@ class KimiSearchSettings:
     max_query_chars: int = 4_000
     max_result_chars: int = 100_000
     max_inline_chars: int = 12_000
-    max_results: int = 10
-    max_snippet_chars: int = 800
     max_tool_rounds: int = 6
     max_search_tokens: int = 100_000
     max_output_tokens: int = 8_192
@@ -51,8 +49,6 @@ class KimiSearchSettings:
             "max_query_chars",
             "max_result_chars",
             "max_inline_chars",
-            "max_results",
-            "max_snippet_chars",
             "max_tool_rounds",
             "max_search_tokens",
             "max_output_tokens",
@@ -174,8 +170,6 @@ def _parse_kimi_search(value: object) -> KimiSearchSettings:
             "max_query_chars",
             "max_result_chars",
             "max_inline_chars",
-            "max_results",
-            "max_snippet_chars",
             "max_tool_rounds",
             "max_search_tokens",
             "max_output_tokens",
@@ -199,13 +193,6 @@ def _parse_kimi_search(value: object) -> KimiSearchSettings:
             tree,
             "max_inline_chars",
             defaults.max_inline_chars,
-            key=key,
-        ),
-        max_results=_int(tree, "max_results", defaults.max_results, key=key),
-        max_snippet_chars=_int(
-            tree,
-            "max_snippet_chars",
-            defaults.max_snippet_chars,
             key=key,
         ),
         max_tool_rounds=_int(

@@ -13,7 +13,12 @@ from tinysoul.action import (
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.infra import DependencyChecker, JsonObject
+from tinysoul.infra import (
+    DependencyChecker,
+    JsonObject,
+    StagingDirectoryManager,
+    StagingError,
+)
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.workspace import (
     WorkspaceError,
@@ -117,6 +122,12 @@ class ResourceConversionExecutor(ActionExecutor):
                 "Resource conversion returned an invalid staged result.",
                 {"reason": "worker_protocol_invalid"},
             )
+        except StagingError:
+            return _failed(
+                execution,
+                "Resource conversion staging could not be completed.",
+                {"reason": "staging_failed"},
+            )
         except (ResourceContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
@@ -141,6 +152,7 @@ def register_resource_actions(
     settings: ResourceSettings,
     workspace: WorkspaceEngine,
     bus: SignalBus,
+    staging: StagingDirectoryManager,
     runtime_bridge: ResourceActionRuntimeBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
@@ -155,7 +167,11 @@ def register_resource_actions(
         builder.disable_actions(RESOURCE_PYPDF_ACTION)
     if not markitdown and not pypdf:
         return builder
-    service = ResourceConversionService(workspace=workspace, settings=settings)
+    service = ResourceConversionService(
+        workspace=workspace,
+        settings=settings,
+        staging=staging,
+    )
     if markitdown:
         builder.register_executor(
             RESOURCE_MARKITDOWN_ACTION,

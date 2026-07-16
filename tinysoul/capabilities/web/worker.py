@@ -51,8 +51,6 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
     query = _required_string(request, "query")
     base_url = _required_string(request, "base_url")
     model = _required_string(request, "model")
-    max_results = _required_positive_int(request, "max_results")
-    max_snippet_chars = _required_positive_int(request, "max_snippet_chars")
     max_tool_rounds = _required_positive_int(request, "max_tool_rounds")
     max_search_tokens = _required_positive_int(request, "max_search_tokens")
     max_output_tokens = _required_positive_int(request, "max_output_tokens")
@@ -170,11 +168,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
                 "Kimi Search returned invalid JSON",
                 reason="provider_protocol_invalid",
             ) from exc
-        normalized = _normalize_search_result(
-            provider_result,
-            max_results=max_results,
-            max_snippet_chars=max_snippet_chars,
-        )
+        normalized = _normalize_search_result(provider_result)
         normalized["usage"] = to_json_object(
             {
                 "prompt_tokens": prompt_tokens,
@@ -205,11 +199,13 @@ def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
         max_redirects=_required_positive_int(request, "max_redirects"),
         user_agent=_required_string(request, "user_agent"),
     )
+    max_output_chars = _required_positive_int(request, "max_output_chars")
     if operation == "fetch_with_defuddle":
         title, body = _extract_with_defuddle(
             page,
             output_path=output_path,
             executable=_required_string(request, "defuddle_executable"),
+            max_output_chars=max_output_chars,
         )
         extractor = "defuddle"
     else:
@@ -226,7 +222,6 @@ def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
         extractor=extractor,
         body=body,
     )
-    max_output_chars = _required_positive_int(request, "max_output_chars")
     if len(markdown) > max_output_chars:
         raise WebProcessingError(
             "Extracted Web Markdown exceeds the configured output limit",
@@ -274,6 +269,7 @@ def _extract_with_defuddle(
     *,
     output_path: Path,
     executable: str,
+    max_output_chars: int,
 ) -> tuple[str, str]:
     source = output_path / "source.html"
     result = output_path / "defuddle.json"
@@ -303,13 +299,10 @@ def _extract_with_defuddle(
             "Defuddle could not extract the fetched page",
             reason="extractor_failed",
         )
-    try:
-        value = _json_object(result.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
-        raise WebProcessingError(
-            "Defuddle returned an invalid result",
-            reason="extractor_protocol_invalid",
-        ) from exc
+    value = _read_bounded_json_file(
+        result,
+        max_bytes=max_output_chars * 8 + 64 * 1024,
+    )
     content = value.get("contentMarkdown", value.get("content", ""))
     if not isinstance(content, str):
         raise WebProcessingError(
@@ -324,9 +317,6 @@ def _extract_with_defuddle(
 
 def _normalize_search_result(
     value: JsonObject,
-    *,
-    max_results: int,
-    max_snippet_chars: int,
 ) -> JsonObject:
     answer = _required_string(value, "answer").strip()
     raw_results = value.get("results")
@@ -336,7 +326,7 @@ def _normalize_search_result(
             reason="provider_protocol_invalid",
         )
     results: list[JsonObject] = []
-    for item in raw_results[:max_results]:
+    for item in raw_results:
         if not isinstance(item, dict):
             raise WebProcessingError(
                 "Kimi Search result entry is invalid",
@@ -352,10 +342,31 @@ def _normalize_search_result(
                 reason="provider_protocol_invalid",
             )
         snippet = _required_string(result, "snippet").strip()
-        if len(snippet) > max_snippet_chars:
-            snippet = snippet[:max_snippet_chars].rstrip() + "..."
         results.append({"title": title, "url": url, "snippet": snippet})
     return to_json_object({"answer": answer, "results": results})
+
+
+def _read_bounded_json_file(path: Path, *, max_bytes: int) -> JsonObject:
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
+    except OSError as exc:
+        raise WebProcessingError(
+            "Defuddle result could not be read",
+            reason="extractor_protocol_invalid",
+        ) from exc
+    if len(data) > max_bytes:
+        raise WebProcessingError(
+            "Defuddle staged result exceeds the configured limit",
+            reason="staged_result_bytes_limit_exceeded",
+        )
+    try:
+        return _json_object(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise WebProcessingError(
+            "Defuddle returned an invalid result",
+            reason="extractor_protocol_invalid",
+        ) from exc
 
 
 def _document_markdown(

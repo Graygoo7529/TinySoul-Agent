@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 import shutil
 import sys
-from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
 from tinysoul.action import ActionExecutionControl
@@ -18,7 +17,13 @@ from tinysoul.action.backends import (
     ProcessRequest,
     ProcessStatus,
 )
-from tinysoul.infra import JsonObject, dumps_json, to_json_object
+from tinysoul.infra import (
+    JsonObject,
+    JsonValue,
+    StagingDirectoryManager,
+    dumps_json,
+    to_json_object,
+)
 from tinysoul.workspace import (
     WorkspaceBundleWrite,
     WorkspaceEngine,
@@ -58,12 +63,14 @@ class WebCapabilityService:
         workspace: WorkspaceEngine,
         settings: WebSettings,
         runtime_env: Mapping[str, str],
+        staging: StagingDirectoryManager,
         kimi_api_key: str = "",
         process_runner: ControlledProcessRunner | None = None,
     ) -> None:
         self._workspace = workspace
         self._settings = settings
         self._runtime_env = dict(runtime_env)
+        self._staging = staging
         self._kimi_api_key = kimi_api_key
         self._process_runner = process_runner or ControlledProcessRunner()
         self._defuddle_executable = (
@@ -108,8 +115,6 @@ class WebCapabilityService:
                 "query": query.strip(),
                 "base_url": search.base_url,
                 "model": search.model,
-                "max_results": search.max_results,
-                "max_snippet_chars": search.max_snippet_chars,
                 "max_tool_rounds": search.max_tool_rounds,
                 "max_search_tokens": search.max_search_tokens,
                 "max_output_tokens": search.max_output_tokens,
@@ -120,12 +125,13 @@ class WebCapabilityService:
             include_kimi_key=True,
         )
         answer = _required_string(response, "answer")
-        results = _search_results(
-            response,
-            max_results=search.max_results,
-            max_snippet_chars=search.max_snippet_chars,
-        )
+        results = _search_results(response)
         usage = _optional_object(response, "usage")
+        canonical_payload = to_json_object(
+            {"answer": answer, "results": results, "usage": usage}
+        )
+        if len(dumps_json(canonical_payload)) > search.max_result_chars:
+            raise WebWorkerProtocolError("Kimi search result violates result limits")
         full_payload = to_json_object(
             {
                 "answer": answer,
@@ -141,8 +147,6 @@ class WebCapabilityService:
 
         target_link = _search_workspace_link(invoke_id, call_id)
         markdown = _search_markdown(query=query.strip(), answer=answer, results=results)
-        if len(markdown) > search.max_result_chars:
-            raise WebWorkerProtocolError("Kimi search Markdown violates result limits")
         _require_active(control)
         committed = self._workspace.write_bundle(
             (
@@ -198,22 +202,23 @@ class WebCapabilityService:
         if not isinstance(owner_turn_id, str):
             raise WebContractError("Web fetch owner turn id must be a string")
         _require_active(control)
-        with TemporaryDirectory(prefix="tinysoul_web_") as directory:
-            output_path = Path(directory) / "output"
+        with self._staging.allocate("web") as output_path:
             operation = f"fetch_with_{extractor.value}"
+            worker_request: JsonObject = {
+                "operation": operation,
+                "url": url,
+                "output_path": str(output_path),
+                "max_source_bytes": self._settings.max_source_bytes,
+                "max_output_chars": self._settings.max_output_chars,
+                "max_excerpt_chars": self._settings.max_excerpt_chars,
+                "request_timeout_seconds": self._settings.request_timeout_seconds,
+                "max_redirects": self._settings.max_redirects,
+                "user_agent": self._settings.user_agent,
+            }
+            if extractor is WebExtractor.DEFUDDLE:
+                worker_request["defuddle_executable"] = self._defuddle_executable
             response = self._run_worker(
-                {
-                    "operation": operation,
-                    "url": url,
-                    "output_path": str(output_path),
-                    "max_source_bytes": self._settings.max_source_bytes,
-                    "max_output_chars": self._settings.max_output_chars,
-                    "max_excerpt_chars": self._settings.max_excerpt_chars,
-                    "request_timeout_seconds": self._settings.request_timeout_seconds,
-                    "max_redirects": self._settings.max_redirects,
-                    "user_agent": self._settings.user_agent,
-                    "defuddle_executable": self._defuddle_executable,
-                },
+                worker_request,
                 control=control,
                 stdout_limit=32_000,
             )
@@ -341,15 +346,10 @@ def _worker_response(value: str) -> JsonObject:
 
 def _search_results(
     value: JsonObject,
-    *,
-    max_results: int,
-    max_snippet_chars: int,
 ) -> list[JsonObject]:
     raw = value.get("results")
     if not isinstance(raw, list):
         raise WebWorkerProtocolError("Web search results must be an array")
-    if len(raw) > max_results:
-        raise WebWorkerProtocolError("Web search returned too many result entries")
     results: list[JsonObject] = []
     for item in raw:
         if not isinstance(item, dict):
@@ -360,8 +360,6 @@ def _search_results(
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise WebWorkerProtocolError("Web search source URL is invalid")
         snippet = _required_string(result, "snippet")
-        if len(snippet) > max_snippet_chars + 3:
-            raise WebWorkerProtocolError("Web search snippet violates limits")
         results.append(
             {"title": _required_string(result, "title"), "url": url, "snippet": snippet}
         )
@@ -404,7 +402,7 @@ def _search_preview_payload(
     limit: int,
 ) -> JsonObject:
     preview: JsonObject = {
-        "answer": _truncate(answer, max(200, limit // 2)),
+        "answer": "",
         "results": [],
         "result_count": len(results),
         "truncated": True,
@@ -415,17 +413,44 @@ def _search_preview_payload(
     }
     preview_results = preview["results"]
     assert isinstance(preview_results, list)
+    fixed_chars = len(dumps_json(preview))
+    if fixed_chars + 40 > limit:
+        raise WebWorkerProtocolError("Kimi inline result limit is not usable")
+    answer_budget = min(len(answer), max(40, (limit - fixed_chars) // 2))
+    preview["answer"] = _truncate(answer, answer_budget)
     for result in results:
         preview_results.append(result)
         if len(dumps_json(preview)) > limit:
             preview_results.pop()
+            _append_compact_result(preview, preview_results, result, limit=limit)
             break
-    while len(dumps_json(preview)) > limit:
-        current = str(preview["answer"])
-        if len(current) <= 40:
-            raise WebWorkerProtocolError("Kimi inline result limit is not usable")
-        preview["answer"] = _truncate(current, max(40, len(current) - 100))
+    if len(dumps_json(preview)) > limit:
+        raise WebWorkerProtocolError("Kimi inline result preview violates limits")
     return preview
+
+
+def _append_compact_result(
+    preview: JsonObject,
+    preview_results: list[JsonValue],
+    result: JsonObject,
+    *,
+    limit: int,
+) -> None:
+    compact: JsonObject = {
+        "title": result["title"],
+        "url": result["url"],
+        "snippet": "",
+    }
+    preview_results.append(compact)
+    base_chars = len(dumps_json(preview))
+    if base_chars >= limit:
+        preview_results.pop()
+        return
+    compact["snippet"] = _truncate(str(result["snippet"]), limit - base_chars)
+    if len(dumps_json(preview)) > limit:
+        compact["snippet"] = ""
+    if len(dumps_json(preview)) > limit:
+        preview_results.pop()
 
 
 def _truncate(value: str, limit: int) -> str:

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import json
 from pathlib import Path, PurePosixPath
 import sys
-from tempfile import TemporaryDirectory
 from typing import cast
 
 from tinysoul.action.backends import (
@@ -19,6 +18,7 @@ from tinysoul.action import ActionExecutionControl
 from tinysoul.infra import (
     FilesystemBoundaryError,
     JsonObject,
+    StagingDirectoryManager,
     dumps_json,
     resolve_under_root,
     to_json_object,
@@ -74,10 +74,12 @@ class ResourceConversionService:
         *,
         workspace: WorkspaceEngine,
         settings: ResourceSettings,
+        staging: StagingDirectoryManager,
         process_runner: ControlledProcessRunner | None = None,
     ) -> None:
         self._workspace = workspace
         self._settings = settings
+        self._staging = staging
         self._process_runner = process_runner or ControlledProcessRunner()
 
     def convert(
@@ -134,8 +136,7 @@ class ResourceConversionService:
                 payload={"target_link": target_link},
             )
 
-        with TemporaryDirectory(prefix="tinysoul_resource_") as directory:
-            root = Path(directory)
+        with self._staging.allocate("resource") as root:
             source_path = root / f"source{source.suffix}"
             output_path = root / "output"
             source_path.write_bytes(source.data)

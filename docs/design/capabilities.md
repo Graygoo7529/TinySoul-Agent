@@ -69,6 +69,8 @@ Action 名称由用户可区分的行为决定。通常不应只因实现库不�
 
 Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 subprocess 原语；业务 executor 只负责运行前 staging 和完成后业务提交。
 
+需要产生中间文件的 capability 共用 App 按项目根装配的 `runtime/.staging/`，由 Infra 的 staging manager 提供启动清理、唯一 action 子目录和作用域结束清理。该目录是无业务身份的短期执行设施，不属于 Workspace、Session、Home、Memory 或 archive；capability 不自行创建平行 temp root。原子写同目录临时文件、subprocess 输出捕获和项目 initializer staging 具有不同语义，不纳入此 capability staging 根。
+
 ActionResult 是否包含正文由 action 的交互语义和明确上限决定，而不是 capability 全局固定为 metadata-only。生成长期或可继续处理 artifact 的 action 只返回 Link、状态和有界摘要；本来就属于当前交互的短搜索结果可以直接进入 TurnTrace，但必须先规范化并受 action 专属上限约束，超限正文写入 Workspace 后只返回保持稳定 shape 的预览和 Link。图片字节、base64、原始供应商响应、未规范化网页正文和无界诊断始终不能进入 ActionResult。
 
 当前具体能力设计：

@@ -50,7 +50,12 @@ from tinysoul.capabilities.resource.models import (
     ResourceConverter,
 )
 from tinysoul.capabilities.resource.service import ResourceConversionService
-from tinysoul.infra import DependencyCheck, DependencyChecker, DependencyRequirement
+from tinysoul.infra import (
+    DependencyCheck,
+    DependencyChecker,
+    DependencyRequirement,
+    StagingDirectoryManager,
+)
 from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import RunScope, SignalBus
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
@@ -124,6 +129,7 @@ def test_markitdown_conversion_commits_markdown_and_docx_image(
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(),
+        staging=_staging(local_tmp),
     )
 
     result = service.convert(
@@ -164,6 +170,7 @@ def test_pypdf_conversion_renders_blank_page_as_workspace_image(
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(),
+        staging=_staging(local_tmp),
     )
 
     result = service.convert(
@@ -203,6 +210,7 @@ def test_blank_pdf_without_page_rendering_does_not_commit_placeholder_only_outpu
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(render_pdf_pages=PdfPageRenderMode.DISABLED),
+        staging=_staging(local_tmp),
     )
 
     with pytest.raises(ResourceProcessingError) as error:
@@ -235,6 +243,7 @@ def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(),
+        staging=_staging(local_tmp),
     )
 
     with pytest.raises(ResourceContractError, match="target asset bundle"):
@@ -280,7 +289,11 @@ def test_pypdf_asset_limits_fail_without_committing_partial_output(
     source = workspace.root / "incoming" / "images.pdf"
     _write_image_pdf(source)
     before = workspace.reconcile().manifest
-    service = ResourceConversionService(workspace=workspace, settings=settings)
+    service = ResourceConversionService(
+        workspace=workspace,
+        settings=settings,
+        staging=_staging(local_tmp),
+    )
 
     with pytest.raises(ResourceProcessingError) as error:
         service.convert(
@@ -338,6 +351,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
         settings=settings,
         workspace=_workspace(local_tmp),
         bus=SignalBus(),
+        staging=_staging(local_tmp),
     ).build()
 
     assert "resource" not in engine.domain_names()
@@ -359,6 +373,7 @@ def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(),
+        staging=_staging(local_tmp),
     )
     executor = ResourceConversionExecutor(
         converter=ResourceConverter.PYPDF,
@@ -419,6 +434,7 @@ def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
     service = ResourceConversionService(
         workspace=workspace,
         settings=ResourceSettings(),
+        staging=_staging(local_tmp),
         process_runner=_CompletedCancellingRunner(),
     )
     bus = SignalBus()
@@ -457,6 +473,7 @@ def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
         service=ResourceConversionService(
             workspace=workspace,
             settings=ResourceSettings(),
+            staging=_staging(local_tmp),
             process_runner=_InvalidManifestRunner(),
         ),
         bus=bus,
@@ -557,6 +574,12 @@ def _workspace(root: Path):
     return WorkspaceEngineBuilder(
         WorkspaceSettings(root=(root / "workspace").resolve(), max_files=100)
     ).build()
+
+
+def _staging(root: Path) -> StagingDirectoryManager:
+    staging = StagingDirectoryManager(root.resolve())
+    staging.prepare()
+    return staging
 
 
 def _write_docx(path: Path) -> None:

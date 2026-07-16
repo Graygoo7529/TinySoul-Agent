@@ -63,6 +63,36 @@ def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     assert daily["archive_root"] == str(tmp_path / "archive")
 
 
+def test_app_builder_cleans_project_capability_staging_on_startup(
+    tmp_path: Path,
+) -> None:
+    stale = tmp_path / "runtime" / ".staging" / "web-interrupted" / "source.html"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale", encoding="utf-8")
+    config = _test_config(
+        tmp_path,
+        overrides={
+            "capabilities.resource.convert_with_markitdown.enabled": False,
+            "capabilities.resource.convert_with_pypdf.enabled": False,
+            "capabilities.web.search_by_kimi.enabled": False,
+            "capabilities.web.fetch_with_defuddle.enabled": False,
+            "capabilities.web.fetch_with_trafilatura.enabled": False,
+        },
+    )
+
+    (
+        TinySoulAppBuilder(root=tmp_path)
+        .with_config_environment(config)
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .build()
+    )
+
+    staging = tmp_path / "runtime" / ".staging"
+    assert staging.is_dir()
+    assert tuple(staging.iterdir()) == ()
+
+
 def test_app_builder_run_once_answers_with_real_action_and_context(
     tmp_path: Path,
 ) -> None:
