@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、bounded document read、可回滚 bundle mutation、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
 
 ## 定位
 
@@ -152,6 +152,8 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 reconciliation 达到文件数量上限或出现非内部资源读取失败时状态为 incomplete：保留旧 Manifest，不发布全量 Context snapshot。变更 action 在这种情况下回滚磁盘修改；显式 `workspace.scan` 返回局部失败和诊断。
 
 正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。`WorkspaceEditPromptBuilder` 在同一 prompt 模块内组合 write/rewrite 的 instruction、target、reference 和输出协议，并返回构造 prompt 时观察到的 target digest；executor 只负责参数适配、调用 LLM、调用 WorkspaceEngine 和映射结果。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
+
+本地 Resource conversion 使用两个更窄的 Workspace 门面：`read_document` 只完整读取已登记的 document resource，并同时校验配置字节上限、实际大小和 digest；`write_bundle` 在同一 Engine 锁内预检全部 write/delete Link、覆盖和 digest 条件，再写入文件并只做一次完整 reconciliation。bundle 中任一写入、删除、reconciliation 或最终 Manifest 保存失败时恢复操作前字节与 Manifest；成功返回的所有 record 属于同一个 revision。该语义仍服从单进程单写者边界，不宣称断电事务或跨进程 CAS。
 
 当前已实现的变更类 action：
 

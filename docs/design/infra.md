@@ -4,7 +4,7 @@
 
 Infra 提供项目底层运行设施。它不表达具体业务语义，也不拥有上层模块的领域配置。
 
-Infra 当前负责配置环境、JSON 动态边界和受控文件系统读写。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM 或 Workspace 的业务细节；日志、通用进程运行或能力探测只有出现真实跨模块使用场景后再建立，不作为当前已实现职责。
+Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写和 Python 依赖可用性检查。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Workspace 或具体 capability 的业务细节；日志和通用进程运行不属于 Infra 当前职责。
 
 ## 配置边界
 
@@ -63,6 +63,10 @@ Infra 自身只抛出配置和基础设施语义的错误，不直接表达 Runt
 Infra bridge 只翻译确实需要 Runtime 协调的模块失败，不替业务模块兜底分类。bridge 显式构造稳定、精简、JSON 安全的 payload；原始异常链用于调试，payload 不承载 traceback、文件内容或调用方内部对象。
 
 JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础能力。来自模型输出、配置文件或外部接口的动态 JSON 数据应在进入模块内部边界时转换为明确的 JSON 值结构。具体 JSON 内容表达什么业务含义，仍由使用它的模块解释。
+
+## 依赖检查
+
+`DependencyChecker` 只检查当前 Python 解释器中 distribution metadata 和 import module 是否存在，不导入目标模块、不执行安装，也不了解 action enabled 或 adapter 选择。业务模块根据自身 effective settings 构造 `DependencyRequirement`，并解释 `DependencyCheck`；因此 Resource 等 capability 可以在 App 装配期拒绝“已启用但依赖缺失”，而禁用能力无需检查。依赖需求、可选 feature 和失败归属仍由 capability 自己拥有。
 
 ## 使用方式
 

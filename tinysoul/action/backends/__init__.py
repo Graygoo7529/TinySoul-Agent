@@ -9,7 +9,14 @@ from .llm_action import (
 )
 from .native import NativeFunctionExecutor
 from .script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
-from .subprocess import SubprocessBackendOptionsValidator, SubprocessActionExecutor
+from .subprocess import (
+    ControlledProcessRunner,
+    ProcessOutcome,
+    ProcessRequest,
+    ProcessStatus,
+    SubprocessBackendOptionsValidator,
+    SubprocessActionExecutor,
+)
 
 __all__ = [
     "ActionHow",
@@ -18,6 +25,10 @@ __all__ = [
     "LLMActionModelRunner",
     "LLMActionTaskRunner",
     "NativeFunctionExecutor",
+    "ControlledProcessRunner",
+    "ProcessOutcome",
+    "ProcessRequest",
+    "ProcessStatus",
     "SubprocessActionExecutor",
     "SubprocessBackendOptionsValidator",
     "TemporaryScriptBackendOptionsValidator",

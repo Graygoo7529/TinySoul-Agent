@@ -331,6 +331,10 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
+        .disable_actions(
+            "resource.convert_with_markitdown",
+            "resource.convert_with_pypdf",
+        )
         .build()
     )
 
@@ -375,6 +379,20 @@ def test_action_engine_validates_subprocess_options_at_load_time(tmp_path: Path)
         ActionEngineBuilder(tmp_path).build()
 
     assert error.value.key.endswith("backend.options.argv")
+
+
+def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
+    _write_catalog_action(
+        tmp_path,
+        backend_kind="native",
+        handler="test.action",
+        options="",
+    )
+
+    engine = ActionEngineBuilder(tmp_path).disable_actions("test.action").build()
+
+    assert engine.domain_names() == ()
+    assert engine.action_identifiers() == ()
 
 
 def test_subprocess_stdin_uses_explicit_mode_option(tmp_path: Path) -> None:

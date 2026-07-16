@@ -573,6 +573,10 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("workspace.scan", emit_invalid_sync)
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
+        .disable_actions(
+            "resource.convert_with_markitdown",
+            "resource.convert_with_pypdf",
+        )
         .build()
     )
     scope = (
@@ -632,6 +636,10 @@ def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
         .register_native("workspace.scan", lambda execution, context: {"scanned": True})
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
+        .disable_actions(
+            "resource.convert_with_markitdown",
+            "resource.convert_with_pypdf",
+        )
     )
     if memory is None:
         builder.register_native(

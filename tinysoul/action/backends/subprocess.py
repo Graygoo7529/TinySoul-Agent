@@ -12,7 +12,8 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, dumps_json
 
 from tinysoul.action.core.call import ActionExecution
-from tinysoul.action.core.executor import ActionExecutionContext
+from tinysoul.action.core.errors import ActionContractError
+from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutionControl
 from tinysoul.action.core.specs import ActionBackendSpec
 from tinysoul.action.core.result import ActionResult, ActionResultStage
 
@@ -22,6 +23,166 @@ class SubprocessStdinMode(StrEnum):
 
     JSON_PARAMS = "json_params"
     NONE = "none"
+
+
+class ProcessStatus(StrEnum):
+    """Stable completion status for one controlled process."""
+
+    COMPLETED = "completed"
+    TIMED_OUT = "timed_out"
+    CANCELLED = "cancelled"
+    START_FAILED = "start_failed"
+
+
+@dataclass(frozen=True)
+class ProcessRequest:
+    """Validated host-owned process invocation."""
+
+    argv: tuple[str, ...]
+    cwd: str | None = None
+    env: Mapping[str, str] | None = None
+    stdin_text: str | None = None
+    stdout_limit: int = 8000
+    stderr_limit: int = 4000
+
+    def __post_init__(self) -> None:
+        if not self.argv or any(not isinstance(item, str) or not item for item in self.argv):
+            raise ActionContractError("Process argv must contain non-empty strings")
+        if self.cwd is not None and (not isinstance(self.cwd, str) or not self.cwd):
+            raise ActionContractError("Process cwd must be a non-empty string or None")
+        if self.env is not None and any(
+            not isinstance(key, str)
+            or not key
+            or not isinstance(value, str)
+            for key, value in self.env.items()
+        ):
+            raise ActionContractError("Process env must contain string keys and values")
+        if self.stdin_text is not None and not isinstance(self.stdin_text, str):
+            raise ActionContractError("Process stdin must be text or None")
+        for name in ("stdout_limit", "stderr_limit"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ActionContractError(f"Process {name} must be positive")
+
+
+@dataclass(frozen=True)
+class ProcessOutcome:
+    """Bounded result from one controlled process."""
+
+    status: ProcessStatus
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    error_type: str = ""
+    error_message: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ProcessStatus):
+            raise ActionContractError("Process outcome status is invalid")
+        if self.status is ProcessStatus.START_FAILED:
+            if not self.error_type or not self.error_message:
+                raise ActionContractError(
+                    "Failed process start requires error type and message"
+                )
+        elif self.error_type or self.error_message:
+            raise ActionContractError(
+                "Completed process outcome cannot carry a start error"
+            )
+
+
+class ControlledProcessRunner:
+    """Run a fixed process with Action cancellation and hard termination."""
+
+    def run(
+        self,
+        request: ProcessRequest,
+        control: ActionExecutionControl,
+    ) -> ProcessOutcome:
+        if control.is_cancelled():
+            return ProcessOutcome(status=ProcessStatus.CANCELLED)
+        if control.is_expired():
+            return ProcessOutcome(status=ProcessStatus.TIMED_OUT)
+        process_env = None
+        if request.env is not None:
+            process_env = {**os.environ, **request.env}
+        try:
+            process: subprocess.Popen[str]
+            process_stdin = (
+                subprocess.PIPE
+                if request.stdin_text is not None
+                else subprocess.DEVNULL
+            )
+            if os.name == "nt":
+                process = subprocess.Popen(
+                    list(request.argv),
+                    cwd=request.cwd,
+                    env=process_env,
+                    stdin=process_stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    shell=False,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+            else:
+                process = subprocess.Popen(
+                    list(request.argv),
+                    cwd=request.cwd,
+                    env=process_env,
+                    stdin=process_stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    shell=False,
+                    start_new_session=True,
+                )
+        except OSError as exc:
+            return ProcessOutcome(
+                status=ProcessStatus.START_FAILED,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+
+        def terminate_on_cancel(_reason: str) -> None:
+            _terminate_process_tree(process)
+
+        control.add_cancel_callback(terminate_on_cancel)
+        status = ProcessStatus.COMPLETED
+        try:
+            stdout, stderr = process.communicate(
+                input=request.stdin_text,
+                timeout=control.remaining_seconds(),
+            )
+        except subprocess.TimeoutExpired:
+            control.request_cancel("timeout")
+            _terminate_process_tree(process)
+            stdout, stderr = process.communicate()
+            status = ProcessStatus.TIMED_OUT
+        finally:
+            control.remove_cancel_callback(terminate_on_cancel)
+
+        if status is ProcessStatus.COMPLETED and control.is_cancelled():
+            status = ProcessStatus.CANCELLED
+        stdout_value, stdout_truncated = _truncate(
+            stdout or "", request.stdout_limit
+        )
+        stderr_value, stderr_truncated = _truncate(
+            stderr or "", request.stderr_limit
+        )
+        return ProcessOutcome(
+            status=status,
+            exit_code=process.returncode,
+            stdout=stdout_value,
+            stderr=stderr_value,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
+        )
 
 
 @dataclass(frozen=True)
@@ -45,6 +206,9 @@ class SubprocessBackendOptionsValidator:
 
 class SubprocessActionExecutor:
     """Execute an action by launching a configured subprocess."""
+
+    def __init__(self, runner: ControlledProcessRunner | None = None) -> None:
+        self._runner = runner or ControlledProcessRunner()
 
     def execute(
         self,
@@ -76,6 +240,7 @@ class SubprocessActionExecutor:
             stdin_text=stdin_text,
             stdout_limit=options.stdout_limit,
             stderr_limit=options.stderr_limit,
+            runner=self._runner,
         )
 
 
@@ -107,6 +272,7 @@ def run_process_action(
     stdin_text: str | None = None,
     stdout_limit: int = 8000,
     stderr_limit: int = 4000,
+    runner: ControlledProcessRunner | None = None,
 ) -> ActionResult:
     """Run a subprocess and map its completion into an action result."""
 
@@ -116,74 +282,35 @@ def run_process_action(
             "Action timed out before subprocess started.",
             frame_data={"reason": "deadline_expired"},
         )
-    process_env = None
-    if env is not None:
-        process_env = {**os.environ, **env}
-    try:
-        process: subprocess.Popen[str]
-        if os.name == "nt":
-            process = subprocess.Popen(
-                list(argv),
-                cwd=cwd,
-                env=process_env,
-                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                shell=False,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            )
-        else:
-            process = subprocess.Popen(
-                list(argv),
-                cwd=cwd,
-                env=process_env,
-                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                shell=False,
-                start_new_session=True,
-            )
-    except OSError as exc:
+    outcome = (runner or ControlledProcessRunner()).run(
+        ProcessRequest(
+            argv=argv,
+            cwd=cwd,
+            env=env,
+            stdin_text=stdin_text,
+            stdout_limit=stdout_limit,
+            stderr_limit=stderr_limit,
+        ),
+        context.control,
+    )
+    if outcome.status is ProcessStatus.START_FAILED:
         return _execution_failure(
             execution,
-            f"Subprocess action failed to start: {exc}",
-            frame_data={"reason": "process_start_failed", "error_type": type(exc).__name__},
+            f"Subprocess action failed to start: {outcome.error_message}",
+            frame_data={
+                "reason": "process_start_failed",
+                "error_type": outcome.error_type,
+            },
         )
-
-    def terminate_on_cancel(_reason: str) -> None:
-        _terminate_process_tree(process)
-
-    context.control.add_cancel_callback(terminate_on_cancel)
-    try:
-        stdout, stderr = process.communicate(
-            input=stdin_text,
-            timeout=context.control.remaining_seconds(),
-        )
-    except subprocess.TimeoutExpired:
-        context.control.request_cancel("timeout")
-        _terminate_process_tree(process)
-        stdout, stderr = process.communicate()
-        stdout = stdout or ""
-        stderr = stderr or ""
+    payload = _process_payload(outcome)
+    if outcome.status is ProcessStatus.TIMED_OUT:
         return _timeout_result(
             execution,
             "Subprocess action timed out.",
-            payload=_process_payload(process.returncode, stdout, stderr, stdout_limit, stderr_limit),
+            payload=payload,
             frame_data={"reason": "process_timeout", "executor_leaked": False},
         )
-    finally:
-        context.control.remove_cancel_callback(terminate_on_cancel)
-
-    stdout = stdout or ""
-    stderr = stderr or ""
-    payload = _process_payload(process.returncode, stdout, stderr, stdout_limit, stderr_limit)
-    if context.control.is_cancelled():
+    if outcome.status is ProcessStatus.CANCELLED:
         return _timeout_result(
             execution,
             "Subprocess action stopped after cancellation was requested.",
@@ -193,7 +320,7 @@ def run_process_action(
                 "executor_leaked": False,
             },
         )
-    if process.returncode == 0:
+    if outcome.exit_code == 0:
         return ActionResult.success(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
@@ -205,7 +332,7 @@ def run_process_action(
         )
     return _execution_failure(
         execution,
-        f"Subprocess action exited with code {process.returncode}.",
+        f"Subprocess action exited with code {outcome.exit_code}.",
         payload=payload,
         frame_data={"reason": "process_exit_nonzero"},
     )
@@ -234,21 +361,13 @@ def _stdin_text(execution: ActionExecution, options: SubprocessOptions) -> str |
     return dumps_json(execution.call.params)
 
 
-def _process_payload(
-    return_code: int | None,
-    stdout: str,
-    stderr: str,
-    stdout_limit: int,
-    stderr_limit: int,
-) -> JsonObject:
-    stdout_value, stdout_truncated = _truncate(stdout, stdout_limit)
-    stderr_value, stderr_truncated = _truncate(stderr, stderr_limit)
+def _process_payload(outcome: ProcessOutcome) -> JsonObject:
     return {
-        "exit_code": return_code,
-        "stdout": stdout_value,
-        "stderr": stderr_value,
-        "stdout_truncated": stdout_truncated,
-        "stderr_truncated": stderr_truncated,
+        "exit_code": outcome.exit_code,
+        "stdout": outcome.stdout,
+        "stderr": outcome.stderr,
+        "stdout_truncated": outcome.stdout_truncated,
+        "stderr_truncated": outcome.stderr_truncated,
     }
 
 

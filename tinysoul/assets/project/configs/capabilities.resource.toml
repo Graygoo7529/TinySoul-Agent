@@ -1,0 +1,19 @@
+[capabilities.resource]
+max_source_bytes = 20971520
+max_output_chars = 1000000
+max_assets = 64
+max_total_asset_bytes = 52428800
+max_pdf_pages = 300
+render_pdf_pages = "on_no_text"
+
+[capabilities.resource.convert_with_markitdown]
+enabled = true
+formats = ["pdf", "docx"]
+extract_images = true
+extract_attachments = true
+
+[capabilities.resource.convert_with_pypdf]
+enabled = true
+extract_images = true
+extract_attachments = true
+

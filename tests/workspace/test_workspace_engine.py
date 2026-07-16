@@ -36,12 +36,14 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
     WorkspaceContractError,
+    WorkspaceBundleWrite,
     WorkspaceDiscoverySkipKind,
     WorkspaceEngineBuilder,
     WorkspaceLink,
     WorkspaceManifest,
     WorkspacePromptInput,
     WorkspacePromptReferenceResolver,
+    WorkspaceReconciliationError,
     WorkspaceReconcileStatus,
     WorkspaceRetention,
     WorkspaceResourceKind,
@@ -49,6 +51,57 @@ from tinysoul.workspace import (
     WorkspaceTextSlice,
     WorkspaceTrashRestoreRequired,
 )
+
+
+def test_workspace_document_read_is_bounded_and_digest_checked(local_tmp: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "workspace").resolve())
+    ).build()
+    source = engine.root / "report.pdf"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"%PDF-test")
+    engine.reconcile()
+
+    document = engine.read_document("workspace:report.pdf", max_bytes=100)
+
+    assert document.data == b"%PDF-test"
+    assert document.suffix == ".pdf"
+    with pytest.raises(WorkspaceContractError, match="exceeds the read limit"):
+        engine.read_document("workspace:report.pdf", max_bytes=2)
+
+
+def test_workspace_bundle_commits_one_revision_and_rolls_back_on_limit(
+    local_tmp: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "workspace").resolve(), max_files=3)
+    ).build()
+    before = engine.snapshot().revision
+
+    result = engine.write_bundle(
+        (
+            WorkspaceBundleWrite("workspace:out/report.md", b"report"),
+            WorkspaceBundleWrite(
+                "workspace:out/report.assets/image.png", b"\x89PNG\r\n\x1a\n"
+            ),
+        )
+    )
+
+    assert result.manifest.revision == before + 1
+    assert len(result.records) == 2
+
+    limited = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=(local_tmp / "limited").resolve(), max_files=1)
+    ).build()
+    with pytest.raises(WorkspaceReconciliationError):
+        limited.write_bundle(
+            (
+                WorkspaceBundleWrite("workspace:a.md", b"a"),
+                WorkspaceBundleWrite("workspace:b.md", b"b"),
+            )
+        )
+    assert not (limited.root / "a.md").exists()
+    assert not (limited.root / "b.md").exists()
 from tinysoul.workspace.engine import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceIOError
 from tinysoul.workspace.manifest import WorkspaceManifestStore

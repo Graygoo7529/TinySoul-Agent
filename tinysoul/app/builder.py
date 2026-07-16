@@ -12,6 +12,8 @@ from tinysoul.action import (
 )
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
+from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
+from tinysoul.capabilities.resource import register_resource_actions
 from tinysoul.context import (
     ContextEngine,
     ContextEngineBuilder,
@@ -243,6 +245,7 @@ class TinySoulAppBuilder:
                     "memory",
                     "session",
                     "workspace",
+                    "capabilities",
                 }
             )
             loop_settings = (
@@ -254,6 +257,10 @@ class TinySoulAppBuilder:
                 self._app_settings
                 if self._app_settings is not None
                 else self._build_app_settings(config, app_bridge)
+            )
+            capabilities_settings = config.parse_section(
+                "capabilities",
+                parse_capabilities_settings,
             )
             output_sinks = tuple(self._output_sinks)
             if not output_sinks and app_settings.interactive:
@@ -326,6 +333,7 @@ class TinySoulAppBuilder:
                 llm_action=llm_action,
                 llm=llm,
                 observations=observations,
+                capabilities_settings=capabilities_settings,
             )
             try:
                 home.reconcile_prompt_mounts(
@@ -703,6 +711,7 @@ class TinySoulAppBuilder:
         llm_action: LLMActionTaskRunner,
         llm: LLMRunner,
         observations: ObservationEmitter,
+        capabilities_settings: CapabilitiesSettings,
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
@@ -715,6 +724,13 @@ class TinySoulAppBuilder:
                     workspace=workspace,
                     bus=bus,
                     llm_action=llm_action,
+                    runtime_bridge=workspace_bridge,
+                )
+                register_resource_actions(
+                    builder,
+                    settings=capabilities_settings.resource,
+                    workspace=workspace,
+                    bus=bus,
                     runtime_bridge=workspace_bridge,
                 )
                 register_home_actions(

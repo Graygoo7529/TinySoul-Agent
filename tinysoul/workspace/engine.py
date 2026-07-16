@@ -70,6 +70,61 @@ class WorkspaceImageRead:
 
 
 @dataclass(frozen=True)
+class WorkspaceDocumentRead:
+    """A complete bounded document resource for local conversion."""
+
+    link: str
+    data: bytes
+    media_type: str
+    suffix: str
+    size: int
+    digest: str
+    retention: WorkspaceRetention
+    owner_turn_id: str
+
+
+@dataclass(frozen=True)
+class WorkspaceBundleWrite:
+    """One resource write in an atomic Workspace bundle mutation."""
+
+    link: str
+    data: bytes
+    overwrite: bool = False
+    expected_digest: str = ""
+    retention: WorkspaceRetention | None = None
+    owner_turn_id: str = ""
+
+    def __post_init__(self) -> None:
+        WorkspaceLink.parse(self.link)
+        if not isinstance(self.data, bytes):
+            raise WorkspaceContractError("Workspace bundle data must be bytes")
+        if not isinstance(self.overwrite, bool):
+            raise WorkspaceContractError("Workspace bundle overwrite must be boolean")
+        if not isinstance(self.expected_digest, str):
+            raise WorkspaceContractError(
+                "Workspace bundle expected digest must be a string"
+            )
+        if self.retention is not None and not isinstance(
+            self.retention, WorkspaceRetention
+        ):
+            raise WorkspaceContractError(
+                "Workspace bundle retention must be a WorkspaceRetention or None"
+            )
+        if not isinstance(self.owner_turn_id, str):
+            raise WorkspaceContractError(
+                "Workspace bundle owner turn id must be a string"
+            )
+
+
+@dataclass(frozen=True)
+class WorkspaceBundleResult:
+    """Committed records and manifest for one Workspace bundle mutation."""
+
+    manifest: WorkspaceManifest
+    records: tuple[WorkspaceResourceRecord, ...]
+
+
+@dataclass(frozen=True)
 class WorkspaceTextSlice:
     """A bounded text slice for temporary workspace prompt input."""
 
@@ -444,6 +499,53 @@ class WorkspaceEngine:
             digest=sha256(data).hexdigest(),
         )
 
+    def read_document(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_bytes: int,
+    ) -> WorkspaceDocumentRead:
+        """Read one complete document after bounded type and digest validation."""
+
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise WorkspaceContractError("Workspace document read limit must be positive")
+        with self._lock:
+            record = self._inspect_record(link)
+            if record.kind is not WorkspaceResourceKind.DOCUMENT:
+                raise WorkspaceContractError(
+                    f"Workspace resource is not a document: {record.link}"
+                )
+            if record.size > max_bytes:
+                raise WorkspaceContractError(
+                    f"Workspace document exceeds the read limit: {record.link}"
+                )
+            path = self.path_for(record.link)
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                raise WorkspaceIOError(
+                    f"Failed to read workspace document: {exc}"
+                ) from exc
+            digest = sha256(data).hexdigest()
+            if len(data) > max_bytes:
+                raise WorkspaceContractError(
+                    f"Workspace document exceeds the read limit: {record.link}"
+                )
+            if len(data) != record.size or digest != record.digest:
+                raise WorkspaceContractError(
+                    f"Workspace document changed while being read: {record.link}"
+                )
+            return WorkspaceDocumentRead(
+                link=record.link,
+                data=data,
+                media_type=record.media_type,
+                suffix=record.suffix,
+                size=record.size,
+                digest=digest,
+                retention=record.retention,
+                owner_turn_id=record.owner_turn_id,
+            )
+
     def read_text_slice(
         self,
         link: WorkspaceLink | str,
@@ -622,6 +724,153 @@ class WorkspaceEngine:
             retention=retention or WorkspaceRetention.DAY,
             owner_turn_id=owner_turn_id,
         )
+
+    def write_bundle(
+        self,
+        writes: Sequence[WorkspaceBundleWrite],
+        *,
+        delete_links: Sequence[WorkspaceLink | str] = (),
+    ) -> WorkspaceBundleResult:
+        """Commit a multi-resource mutation with disk and manifest rollback."""
+
+        with self._lock:
+            items = tuple(writes)
+            if not items:
+                raise WorkspaceContractError("Workspace bundle requires writes")
+            if any(not isinstance(item, WorkspaceBundleWrite) for item in items):
+                raise WorkspaceContractError(
+                    "Workspace bundle writes must be WorkspaceBundleWrite values"
+                )
+            write_links = tuple(item.link for item in items)
+            if len(set(write_links)) != len(write_links):
+                raise WorkspaceContractError(
+                    "Workspace bundle write links must be unique"
+                )
+            deletes = tuple(
+                WorkspaceLink.parse(link) if isinstance(link, str) else link
+                for link in delete_links
+            )
+            delete_values = tuple(str(link) for link in deletes)
+            if len(set(delete_values)) != len(delete_values):
+                raise WorkspaceContractError(
+                    "Workspace bundle delete links must be unique"
+                )
+            overlap = set(write_links) & set(delete_values)
+            if overlap:
+                raise WorkspaceContractError(
+                    "Workspace bundle cannot write and delete the same resource: "
+                    + sorted(overlap)[0]
+                )
+
+            reconciliation = self.reconcile()
+            if not reconciliation.complete:
+                raise WorkspaceReconciliationError(
+                    "Workspace bundle requires complete reconciliation"
+                )
+            original_manifest = reconciliation.manifest
+            original_records = {
+                record.link: record for record in original_manifest.resources
+            }
+            paths: dict[str, Path] = {}
+            previous: dict[str, bytes | None] = {}
+            for item in items:
+                path = self.path_for(item.link)
+                self._check_mutable_path(path, link=item.link)
+                current = original_records.get(item.link)
+                if path.exists() and not path.is_file():
+                    raise WorkspaceContractError(
+                        f"Workspace resource is not a file: {item.link}"
+                    )
+                if current is not None and not item.overwrite:
+                    raise WorkspaceContractError(
+                        f"Workspace resource already exists: {item.link}"
+                    )
+                if current is None and item.expected_digest:
+                    raise WorkspaceContractError(
+                        "Workspace resource does not exist for digest check: "
+                        + item.link
+                    )
+                content = self._read_rollback_bytes(path) if path.exists() else None
+                if item.expected_digest and (
+                    content is None
+                    or sha256(content).hexdigest() != item.expected_digest
+                ):
+                    raise WorkspaceContractError(
+                        f"Workspace resource digest mismatch: {item.link}"
+                    )
+                paths[item.link] = path
+                previous[item.link] = content
+
+            for parsed, link in zip(deletes, delete_values, strict=True):
+                path = self.path_for(parsed)
+                self._check_mutable_path(path, link=link)
+                current = original_records.get(link)
+                if current is None or not path.is_file():
+                    raise WorkspaceContractError(
+                        f"Workspace bundle delete resource does not exist: {link}"
+                    )
+                paths[link] = path
+                previous[link] = self._read_rollback_bytes(path)
+
+            try:
+                for item in items:
+                    atomic_write_bytes(paths[item.link], item.data)
+                for link in delete_values:
+                    paths[link].unlink()
+                committed = self.reconcile()
+                if not committed.complete:
+                    raise WorkspaceReconciliationError(
+                        "Workspace bundle could not complete disk reconciliation"
+                    )
+                records = list(committed.manifest.resources)
+                by_link = {record.link: index for index, record in enumerate(records)}
+                written_records: list[WorkspaceResourceRecord] = []
+                for item in items:
+                    index = by_link.get(item.link)
+                    if index is None:
+                        raise WorkspaceInvariantError(
+                            "Workspace bundle record is absent after reconciliation: "
+                            + item.link
+                        )
+                    record = records[index]
+                    original = original_records.get(item.link)
+                    updated = replace(
+                        record,
+                        retention=(
+                            original.retention
+                            if original is not None
+                            else item.retention or WorkspaceRetention.DAY
+                        ),
+                        owner_turn_id=(
+                            original.owner_turn_id
+                            if original is not None
+                            else item.owner_turn_id
+                        ),
+                    )
+                    records[index] = updated
+                    written_records.append(updated)
+                final_manifest = replace(
+                    committed.manifest,
+                    resources=tuple(records),
+                )
+                if final_manifest != committed.manifest:
+                    self._manifest_store.save(final_manifest)
+                return WorkspaceBundleResult(
+                    manifest=final_manifest,
+                    records=tuple(written_records),
+                )
+            except (OSError, WorkspaceError) as exc:
+                self._rollback_bundle(
+                    paths=paths,
+                    previous=previous,
+                    original_manifest=original_manifest,
+                    cause=exc,
+                )
+                if isinstance(exc, WorkspaceError):
+                    raise
+                raise WorkspaceIOError(
+                    f"Workspace bundle mutation failed: {exc}"
+                ) from exc
 
     def patch_text(
         self,
@@ -993,6 +1242,28 @@ class WorkspaceEngine:
         except OSError as rollback_error:
             raise WorkspaceIOError(
                 "Workspace reconciliation failed and file rollback also failed: "
+                f"{rollback_error}"
+            ) from cause
+
+    def _rollback_bundle(
+        self,
+        *,
+        paths: dict[str, Path],
+        previous: dict[str, bytes | None],
+        original_manifest: WorkspaceManifest,
+        cause: Exception,
+    ) -> None:
+        try:
+            for link, path in reversed(tuple(paths.items())):
+                content = previous[link]
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write_bytes(path, content)
+            self._manifest_store.save(original_manifest)
+        except (OSError, WorkspaceError) as rollback_error:
+            raise WorkspaceIOError(
+                "Workspace bundle failed and rollback also failed: "
                 f"{rollback_error}"
             ) from cause
 

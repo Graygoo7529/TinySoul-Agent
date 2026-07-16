@@ -1,0 +1,44 @@
+name = "resource.convert_with_markitdown"
+domain = "resource"
+
+[tool]
+description = "Convert a supported Workspace document to Markdown and a bounded sibling asset bundle using MarkItDown. The result returns links and execution metadata only."
+
+[tool.schema]
+type = "object"
+required = ["source_link", "target_link"]
+additionalProperties = false
+
+[tool.schema.properties.source_link]
+type = "string"
+description = "Existing Workspace PDF or DOCX link."
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target Workspace Markdown link such as workspace:converted/report.md."
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Whether to replace the target and its owned asset bundle. Defaults to false."
+
+[tool.schema.properties.expected_source_digest]
+type = "string"
+description = "Optional source digest guard from Workspace metadata."
+
+[tool.schema.properties.expected_target_digest]
+type = "string"
+description = "Optional target digest guard used only with overwrite=true."
+
+[semantic]
+use_when = ["Need structured Markdown from an ordinary PDF or DOCX", "Need embedded document resources preserved as Workspace links"]
+avoid_when = ["Need PDF-specific page-by-page extraction or low-level PDF fallback", "The source is already a readable Workspace text resource"]
+effects = ["modifying"]
+examples = ["Convert workspace:incoming/report.docx to workspace:converted/report.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "subprocess"
+handler = "resource.convert_with_markitdown"
+

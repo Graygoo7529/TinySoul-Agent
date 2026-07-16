@@ -201,6 +201,8 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 后端以显式 `argv` 启动进程，禁止 `shell=True`。`stdin_mode` 是纯模式配置，只支持 `json_params` 和 `none`；默认把 action params 以 JSON 写入 stdin，不支持把 backend option 中的任意字符串隐式当作 stdin 字面量。stdout/stderr 会按配置截断后进入 payload。进程 exit code 为 0 时返回 success，非 0 返回 failed，deadline 超时时终止进程树并返回 timeout。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。
 
+进程启动、stdin、stdout/stderr 上限、deadline、取消回调和进程树回收由内部 `ControlledProcessRunner` 统一实现。`SubprocessActionExecutor` 负责把 Catalog options 映射为普通 ActionResult；Resource 这类需要在进程前后执行业务 staging/commit 的 executor 可以复用同一 runner，但只能执行固定 worker，不能把模型参数拼成 argv。`subprocess.default` 是通用 executor handler identity，不是配置中的默认命令。
+
 ### script
 
 `script` 后端用于临时 Python 脚本动作。它从 action params 中读取脚本内容，写入临时目录，然后复用 subprocess 运行语义。script 后端只提供执行机制；是否向模型暴露脚本编写动作由具体 action TOML 决定。

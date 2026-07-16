@@ -27,6 +27,7 @@ from .core.call import (
     ActionNormalization,
 )
 from .core.catalog import ActionCatalog
+from .core.errors import ActionContractError
 from .core.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
 from .core.feedback import ActionFeedbackRenderer
 from .core.hooks import (
@@ -211,6 +212,7 @@ class ActionEngineBuilder:
         self._cooperative_cancel_grace_seconds = 0.05
         self._process_cancel_grace_seconds = 1.0
         self._observations: ObservationEmitter = NullObservationEmitter()
+        self._disabled_actions: set[str] = set()
         self.register_executor(
             "subprocess.default",
             SubprocessActionExecutor(),
@@ -244,6 +246,15 @@ class ActionEngineBuilder:
 
     def register_native(self, handler: str, function: NativeActionFunction) -> Self:
         return self.register_executor(handler, NativeFunctionExecutor(function))
+
+    def disable_actions(self, *action_names: str) -> Self:
+        """Remove explicitly disabled package actions from the effective catalog."""
+
+        for action_name in action_names:
+            if not isinstance(action_name, str) or not action_name:
+                raise ActionContractError("Disabled action name must be non-empty")
+            self._disabled_actions.add(action_name)
+        return self
 
     def register_normalize_hook(self, name: str, hook: ActionNormalizeHook) -> Self:
         self._hooks.register_normalize_hook(name, hook)
@@ -297,6 +308,20 @@ class ActionEngineBuilder:
         catalog = ActionCatalogLoader(
             backend_options_validators=self._backend_options_validators,
         ).load(self._catalog_root)
+        unknown_disabled = self._disabled_actions - {
+            action.name for action in catalog.actions()
+        }
+        if unknown_disabled:
+            raise ActionContractError(
+                "Disabled actions are absent from the package catalog: "
+                + ", ".join(sorted(unknown_disabled))
+            )
+        if self._disabled_actions:
+            catalog = catalog.with_actions(
+                action.name
+                for action in catalog.actions()
+                if action.name not in self._disabled_actions
+            )
         self._executors.validate_catalog(catalog)
         normalize_pipeline = ActionNormalizeHookPipeline(self._hooks)
         execution_pipeline = ActionExecutionHookPipeline(self._hooks)

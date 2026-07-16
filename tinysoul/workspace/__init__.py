@@ -6,6 +6,9 @@ if TYPE_CHECKING:
     from .actions import register_workspace_actions
 from .config import WorkspaceSettings, parse_workspace_settings
 from .engine import (
+    WorkspaceBundleResult,
+    WorkspaceBundleWrite,
+    WorkspaceDocumentRead,
     WorkspaceEngine,
     WorkspaceEngineBuilder,
     WorkspaceImageRead,
@@ -35,12 +38,18 @@ from .reconcile import (
     WorkspaceReconcileResult,
     WorkspaceReconcileStatus,
 )
-from .projection import WorkspaceTurnPreparationHandler
+from .projection import (
+    WorkspaceTurnPreparationHandler,
+    workspace_snapshot_signal,
+)
 from .prompts import WorkspacePromptReferenceResolver
 from .trash import WorkspaceTrashItem
 
 __all__ = [
     "WorkspaceContractError",
+    "WorkspaceBundleResult",
+    "WorkspaceBundleWrite",
+    "WorkspaceDocumentRead",
     "WorkspaceEngine",
     "WorkspaceEngineBuilder",
     "WorkspaceError",
@@ -65,6 +74,7 @@ __all__ = [
     "WorkspaceTextRead",
     "WorkspaceTextSlice",
     "WorkspaceTurnPreparationHandler",
+    "workspace_snapshot_signal",
     "WorkspaceTrashItem",
     "parse_workspace_settings",
     "register_workspace_actions",

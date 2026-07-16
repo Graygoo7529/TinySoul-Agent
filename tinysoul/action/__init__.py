@@ -10,7 +10,7 @@ from .core.call import (
 )
 from .core.catalog import ActionCatalog
 from .core.errors import ActionContractError, ActionError, ActionInvariantError
-from .core.executor import ActionExecutionContext, ActionExecutor
+from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor
 from .core.result import (
     ActionPhaseResult,
     ActionPhaseResultStage,
@@ -58,6 +58,7 @@ __all__ = [
     "ActionError",
     "ActionExecution",
     "ActionExecutionContext",
+    "ActionExecutionControl",
     "ActionExecutor",
     "ActionFramework",
     "ActionHookSpec",

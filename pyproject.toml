@@ -10,7 +10,11 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.13"
 dependencies = [
+    "markitdown[pdf,docx]",
     "openai>=1.0",
+    "Pillow",
+    "pypdf",
+    "pypdfium2",
     "PyYAML>=6.0",
 ]
 
@@ -42,6 +46,7 @@ include = ["tinysoul*"]
     "project/home/how/*/*.md",
     "project/home/how/*/references/*.md",
     "project/home/how/*/scripts/*.py",
+    "project/home/how_domain/*.md",
     "project/home/what/*/*.md",
     "project/home/why/*.md",
 ]

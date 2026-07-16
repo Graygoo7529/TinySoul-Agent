@@ -20,6 +20,14 @@ from .filesystem import (
     read_text_prefix,
     resolve_under_root,
 )
+from .dependencies import (
+    DependencyCheck,
+    DependencyChecker,
+    DependencyContractError,
+    DependencyDistribution,
+    DependencyError,
+    DependencyRequirement,
+)
 from .json import (
     JsonObject,
     JsonScalar,
@@ -36,6 +44,12 @@ __all__ = [
     "ConfigFileToml",
     "ConfigSource",
     "DotenvSource",
+    "DependencyCheck",
+    "DependencyChecker",
+    "DependencyContractError",
+    "DependencyDistribution",
+    "DependencyError",
+    "DependencyRequirement",
     "FilesystemBoundaryError",
     "JsonObject",
     "JsonScalar",

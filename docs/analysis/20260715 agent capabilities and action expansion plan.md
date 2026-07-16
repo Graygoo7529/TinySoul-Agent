@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: pending
+status: in_progress (Stage 1 done; Stage 2 pending confirmation)
 
 依赖（已满足）：Stage 8 发布与初始化闭环、`20260715-done-default agent home content plan.md`。
 
@@ -22,7 +22,7 @@ status: pending
 
 本计划将 TinySoul 定位为本地、项目作用域内的知识工作 Agent。推进顺序优先补齐“取得内容、转换内容、受控执行、确定性处理”，再扩展知识图检索、外部连接器和交互界面。以下 Stage 只表示本能力扩展计划内部的顺序，不复用此前 Daily Lifecycle 的 Stage 编号；每个 Stage 都必须在语义确认、实现和验收完成后再进入下一项：
 
-1. **Stage 1 Document Conversion**：在 Workspace Link 边界内把受支持文档转换为可检查、可作为后续 action reference 的 Markdown 资源；
+1. **Stage 1 Resource Conversion（done）**：在 Workspace Link 边界内把受支持文档转换为可检查、可作为后续 action reference 的 Markdown 与关联资源；
 2. **Stage 2 Read-only Web Research**：提供有界搜索和网页读取，返回来源 Link、摘要与引用信息，不在该阶段引入登录、提交表单或其它写操作；
 3. **Stage 3 Controlled Project Tasks**：只暴露项目拥有的具名工作流和固定参数，不提供任意 shell 字符串或模型自行拼接命令；
 4. **Stage 4 Deterministic Utilities**：补充数学、时间、编码和结构化格式转换等具有明确 schema、纯输入输出和稳定失败语义的工具；
@@ -31,67 +31,32 @@ status: pending
 
 该顺序不是要求一次性完成全部能力。Stage 1 至 Stage 4 应各自形成独立、可使用的能力闭环；Stage 5 和 Stage 6 只有在实际使用反馈给出明确查询或连接需求时才进入实施。
 
-### Stage 1 Document Conversion
+### Stage 1 Resource Conversion
 
-#### 目标与建议边界
+Stage 1 解决 Workspace 已识别 `document`、但不能把文档转换为可局部读取 Markdown/图片资源的断点。确认后的实现语义见 `docs/design/capabilities.md` 与 `docs/design/capabilities/resource.md`。
 
-Stage 1 解决 Workspace 已能识别 `document`、但文档不能进入 action 内部 task prompt 的现有断点。推荐建立一个无独立持久状态的 `document` capability，并新增一个具名转换 action；以下是待维护者确认的实施建议，不表示已经实现：
+Stage 1 建立无独立持久状态的 `capabilities.resource` 和 `resource` domain，暴露两个独立 action：
 
-- domain/action 建议使用 `document.convert`，只表达文档到 Workspace 文本资源的确定性转换，不同时承担总结、改写、OCR 校对或 Home/Memory 写入；
-- 输入、输出都使用 Workspace Link。`source_link` 必须指向已存在且受支持的 `document` resource，`target_link` 必须是 Markdown 文本目标；模型不传入绝对路径、临时目录、解析器命令或物理 Workspace root；
-- Workspace 继续拥有 Link 解析、资源读取、原子写入、manifest reconciliation、retention 和 Trash 语义；document capability 只拥有格式识别、解析、规范化及转换结果，不直接维护第二套文件索引；
-- 转换正文写入 `target_link`，ActionResult 只返回有界元数据，例如 source/target Link、输入/输出 digest、页数或段落数、输出字符数和有界 warning，不把完整正文写入 TurnTrace；
-- 转换是确定性本地能力，不需要 LLM Task。转换后的 Markdown 可由现有 `workspace`/`core` action 通过 `reference_links` 在其局部 task prompt 中读取；
-- 不受信任文档的解析必须有文件大小、页数或结构规模、输出字符数和运行时长上限。需要硬停止的解析工作应在受控子进程中执行，并复用 Action 的取消/超时语义；
-- unsupported format、encrypted/password required、scanned content requiring OCR、limit exceeded、empty extraction 和 target conflict 属于局部 ActionResult 失败；依赖未安装、配置非法、Workspace 不变量破坏属于装配或模块边界失败；
-- 默认不得覆盖已存在目标；若允许覆盖，应使用显式 `overwrite`，并确认是否同时要求 source/target digest guard。转换失败不得留下半成品目标或未清理的临时文件。
+1. `resource.convert_with_markitdown`：普通 PDF/DOCX 与结构化 Markdown 优先路径；
+2. `resource.convert_with_pypdf`：PDF 专用页级文本、图片、附件与无文本页面渲染路径。
 
-#### 建议组织结构
+两个 action 都只读 `source_link` 并提交显式 `target_link` Markdown 与 sibling `.assets/` 资源包；不调用 LLM、不做 OCR、不产生 base64，也不自动串行调用另一个 action。图片/附件以真实 Workspace resource 保存，正文用 canonical Workspace Link 引用；后续 action 读取图片 Link 时才由 Workspace resolver 构造 ImagePart。
 
-若上述边界确认，建议建立：
+Stage 1 已按以下切面完成：
 
-```text
-tinysoul/capabilities/document/
-  __init__.py
-  actions.py       # ActionExecutor 与 registrar 适配
-  service.py       # 转换编排、限制和结果模型
-  errors.py        # capability contract/invariant/processing failure
-  parsers/         # 按已确认格式拆分的解析适配器
+- **Stage 1A Capability Foundation**：`[capabilities]` 配置、基础 DependencyChecker、effective Action Catalog 可用性过滤；
+- **Stage 1B Process And Workspace Foundation**：抽取 ControlledProcessRunner；增加 bounded document read 与可回滚 bundle mutation；
+- **Stage 1C Resource Actions**：MarkItDown/pypdf/pypdfium2 worker、两个 executor、Catalog、domain HOW、manifest/context sync；
+- **Stage 1D Release And Verification**：默认配置/项目模板、package data、模块/Action/App/wheel 测试和文档收口。
 
-tinysoul/action/catalog/document/
-  domain.toml
-  actions/convert.toml
-```
+验收要求：
 
-AppBuilder 只解析该能力的配置、构造 service 并调用 registrar；parser 依赖、文档格式细节和 Workspace 写入编排不得进入 AppBuilder。若 worker 需要子进程隔离，应使用固定入口和结构化输入，不把模型参数直接变成 `argv` 或 shell 命令。
-
-结合当前实现，子进程隔离还需要两个受控的基础边界：
-
-1. Workspace 增加有字节上限的 document read/stage API，返回 Link、media type、suffix、bytes/digest 等稳定对象；capability 不直接用 `WorkspaceEngine.path_for()` 绕过资源类型、大小和一致性检查；
-2. Action subprocess backend 将进程终止、超时、stdout/stderr 上限与原始 process outcome 抽成内部可复用执行原语，现有 `SubprocessActionExecutor` 继续负责把该 outcome 映射为普通 subprocess ActionResult；document executor 使用同一原语运行固定 worker，再校验 worker 结果并通过 `WorkspaceEngine.write_text()` 原子提交 Markdown。
-
-worker 应只读取 host 生成的临时输入并写入 host 指定的临时输出；host 在转换前后校验 source digest，在完整输出通过 UTF-8、非空和字符上限校验后才写入 `target_link`。这使解析进程不能直接修改 Workspace manifest，也不会让大段 Markdown 经过 Action stdout 或 TurnTrace。
-
-#### 验收范围
-
-- parser/service 单元测试覆盖正常提取、空内容、损坏/加密/不支持文档和各项限制；
-- action 测试覆盖 Workspace Link 校验、目标冲突、overwrite/digest、metadata-only feedback、超时与失败后无半成品；
-- Action Catalog/registrar 测试保证 handler、domain 和 schema 一致；
-- Phase2/Phase3 集成测试证明模型只传 Link，Phase3 转换后 manifest 出现新的 Markdown resource；
-- App 工作流验收证明“扫描文档 -> 转换 -> 作为 reference 使用”闭环成立；测试使用隔离的项目目录和 fixture，不依赖仓库真实 runtime/workspace。
-
-#### Stage 1 待确认
-
-1. **输入格式**：建议先支持文本型 PDF 与 DOCX；是否同时纳入 PPTX、XLSX、HTML、RTF 或其它格式？
-2. **OCR**：建议 Stage 1 不提供 OCR，扫描型 PDF 返回稳定 `ocr_required`；是否接受该边界？
-3. **Markdown 保真度**：需要保留哪些结构，例如标题、段落、列表、表格、超链接、脚注、分页标记、图片占位和文档元数据？
-4. **嵌入资源**：图片和附件是忽略、生成有界占位，还是提取为独立 Workspace resource？
-5. **依赖交付**：解析依赖作为主安装依赖，还是定义 `document` optional extra，并在依赖缺失时不注册 action 或启动失败？
-6. **资源上限**：需确认单文件字节数、最大页数/结构节点、输出字符数、action timeout 和 warning 数量上限；这些限制是内置常量还是项目 TOML 配置？
-7. **目标写入**：建议目标必须显式传入 `.md` Link、默认拒绝覆盖并支持可选 `overwrite`；是否需要 `expected_source_digest`、`expected_target_digest`，以及输出 retention 是显式参数、继承 source 还是固定为 `day`？
-8. **解析隔离**：是否接受所有第三方文档解析都通过固定 worker 子进程执行，以获得硬超时和进程级隔离？
-9. **格式选择**：action 是否只根据 source media type/suffix 自动选择 parser，还是允许显式 `source_format` 用于处理缺失或错误 MIME？
-10. **HOW 投影**：建议依靠 Catalog 的 tool/semantic 定义和框架自动维护的 `home:how_domain:document`，不新增通用 HOW；`document.convert` 不含内部 LLM Task，因此不需要 action HOW。是否接受该边界？
+- enabled/disabled 与依赖可用性决定 effective Catalog，启用但缺依赖在启动时显式失败；
+- worker 只接受 host 生成的临时路径和结构化请求，超时或 Runtime transfer 复用 Action subprocess 进程树终止；
+- source、target、图片和附件全程使用 Workspace Link，bundle 失败不留下半成品；
+- 无有效文本但成功生成页面图片时返回 `visual_only`/`partial` 摘要和有界 visual Link hint；
+- bundle 提交只产生一次 manifest revision 和一次 workspace snapshot signal；
+- ActionResult metadata-only，测试与仓库真实 runtime/workspace/Home 隔离。
 
 ### 后续 Stage 的确认入口
 
@@ -134,4 +99,4 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 
 ## 待确认
 
-当前只进入 Stage 1 决策，需先确认“Stage 1 待确认”的十项语义。Stage 2 至 Stage 6 的问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开；后续能力不得借 Stage 1 的实现提前引入网络、任意命令、持久索引或新的长期状态。
+Stage 1 已实施并完成配置、依赖、effective Catalog、受控进程、Workspace bundle、双 action、默认模板、wheel 和隔离测试闭环。下一入口为 Stage 2；其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成的 Stage 1 提前引入网络、任意命令、持久索引或新的长期状态。

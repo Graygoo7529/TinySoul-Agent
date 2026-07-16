@@ -84,16 +84,18 @@ MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需
 TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
-- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
+- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/capabilities/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
 - 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
-- 调用各模块 registrar 装配模块 executor；
+- 调用各模块和已启用 capability 的 registrar 装配 executor，并在 ActionEngine build 前移除禁用 action；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
 - preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher、终端输入源和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
 - 返回 TinySoulApp。
 
-AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home 和 Memory 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
+
+Resource capability 在此边界解析 `[capabilities.resource]`，检查 enabled action 推导出的依赖，注册 `resource.convert_with_markitdown`/`resource.convert_with_pypdf` executor，或把禁用 action 从 effective Catalog 移除。AppBuilder 不解析文档、不选择 converter，也不读取转换正文；Home prompt mount reconciliation 只观察 ActionEngine 最终暴露的 domain/action identities。
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 

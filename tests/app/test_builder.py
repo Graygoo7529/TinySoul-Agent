@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from pypdf import PdfWriter
 
 from tinysoul.app import AppSettings, TinySoulAppBuilder
 from tinysoul.infra.config import ConfigEnvironment
@@ -108,6 +109,78 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
     assert len(recorder.completions) == 1
     assert recorder.completions[0].output is not None
     assert recorder.completions[0].output.text == "done"
+
+
+def test_app_builder_runs_resource_conversion_through_real_action_chain(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "runtime" / "workspace"
+    source = workspace_root / "incoming" / "blank.pdf"
+    source.parent.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with source.open("wb") as handle:
+        writer.write(handle)
+    app = (
+        TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_llm_runner(
+            FakeLLM(
+                (
+                    _tool_result(
+                        ToolCallRecord(
+                            id="select_resource",
+                            name="select_action_domains",
+                            arguments={"domains": ["resource"]},
+                            kind=ToolKind.CONTROL,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="convert_1",
+                            name="resource.convert_with_pypdf",
+                            arguments={
+                                "source_link": "workspace:incoming/blank.pdf",
+                                "target_link": "workspace:converted/blank.md",
+                            },
+                            kind=ToolKind.ACTION,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="select_core",
+                            name="select_action_domains",
+                            arguments={"domains": ["core"]},
+                            kind=ToolKind.CONTROL,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="answer_1",
+                            name="core.answer",
+                            arguments={"guide_blocks": [{"text": "answer"}]},
+                            kind=ToolKind.ACTION,
+                        )
+                    ),
+                    _json_result({"text": "converted"}),
+                )
+            )
+        )
+        .build()
+    )
+
+    outcome = app.run_once("convert the PDF")
+
+    assert outcome.answered is True
+    markdown = workspace_root / "converted" / "blank.md"
+    page = workspace_root / "converted" / "blank.assets" / "page-001.png"
+    assert markdown.is_file()
+    assert "workspace:converted/blank.assets/page-001.png" in markdown.read_text(
+        encoding="utf-8"
+    )
+    assert page.is_file()
 
 
 def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:

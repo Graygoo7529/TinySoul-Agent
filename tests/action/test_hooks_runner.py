@@ -329,6 +329,8 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "home.top.write",
         "memory.recall",
         "memory.search",
+        "resource.convert_with_markitdown",
+        "resource.convert_with_pypdf",
         "session.history.inspect",
         "session.history.recall",
         "workspace.delete",
