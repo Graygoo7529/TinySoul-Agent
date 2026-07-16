@@ -14,6 +14,7 @@ from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
 from tinysoul.capabilities.resource import register_resource_actions
+from tinysoul.capabilities.web import register_web_actions
 from tinysoul.context import (
     ContextEngine,
     ContextEngineBuilder,
@@ -334,6 +335,7 @@ class TinySoulAppBuilder:
                 llm=llm,
                 observations=observations,
                 capabilities_settings=capabilities_settings,
+                runtime_env=config.runtime_env,
             )
             try:
                 home.reconcile_prompt_mounts(
@@ -712,6 +714,7 @@ class TinySoulAppBuilder:
         llm: LLMRunner,
         observations: ObservationEmitter,
         capabilities_settings: CapabilitiesSettings,
+        runtime_env: dict[str, str],
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
@@ -729,6 +732,14 @@ class TinySoulAppBuilder:
                 register_resource_actions(
                     builder,
                     settings=capabilities_settings.resource,
+                    workspace=workspace,
+                    bus=bus,
+                    runtime_bridge=workspace_bridge,
+                )
+                register_web_actions(
+                    builder,
+                    settings=capabilities_settings.web,
+                    runtime_env=runtime_env,
                     workspace=workspace,
                     bus=bus,
                     runtime_bridge=workspace_bridge,

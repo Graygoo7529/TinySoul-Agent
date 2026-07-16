@@ -25,6 +25,7 @@ from .dependencies import (
     DependencyChecker,
     DependencyContractError,
     DependencyDistribution,
+    DependencyExecutable,
     DependencyError,
     DependencyRequirement,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "DependencyChecker",
     "DependencyContractError",
     "DependencyDistribution",
+    "DependencyExecutable",
     "DependencyError",
     "DependencyRequirement",
     "FilesystemBoundaryError",

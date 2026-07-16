@@ -1,0 +1,27 @@
+name = "web.search_by_kimi"
+domain = "web"
+
+[tool]
+description = "Search the public Web through the independent Kimi Search provider. Returns both a synthesized answer and structured source results; oversized output is saved to Workspace Markdown."
+
+[tool.schema]
+type = "object"
+required = ["query"]
+additionalProperties = false
+
+[tool.schema.properties.query]
+type = "string"
+description = "Specific Web search question or query."
+
+[semantic]
+use_when = ["Need current public information or source discovery", "Need an answer and a structured source list in the current interaction"]
+avoid_when = ["A known URL should be converted to readable Workspace Markdown", "The task can be answered from current Context without network access"]
+effects = ["additive"]
+examples = ["Search for the current official release notes and return the answer with sources"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "subprocess"
+handler = "web.search_by_kimi"

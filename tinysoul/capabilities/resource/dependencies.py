@@ -55,11 +55,14 @@ def require_resource_dependencies(
     ):
         if result.available:
             continue
-        missing = (*result.missing_distributions, *result.missing_modules)
+        missing = (
+            *result.missing_distributions,
+            *result.missing_modules,
+            *result.missing_executables,
+        )
         raise ConfigError(
             "Enabled Resource capability dependency is unavailable",
             key=f"capabilities.dependencies.{result.requirement_id}",
             value=list(missing),
-            expected="installed distributions and importable modules",
+            expected="installed distributions, importable modules, and executables",
         )
-

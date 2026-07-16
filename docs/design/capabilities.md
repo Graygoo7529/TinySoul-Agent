@@ -43,9 +43,9 @@ Action Catalog 是 wheel 内只读静态定义，不保存项目 `enabled`、格
 
 Infra 提供通用、无业务知识的 DependencyChecker：
 
-- `DependencyRequirement` 描述稳定 requirement id、distribution 和 import module；
-- `DependencyCheck` 描述检测到的版本、module 可导入性和稳定失败原因；
-- checker 使用 `importlib.metadata` 与 `importlib.util` 检查当前解释器，不执行安装、不读取业务配置、不改变进程环境；
+- `DependencyRequirement` 描述稳定 requirement id、distribution、import module 和可选 executable；
+- `DependencyCheck` 描述检测到的版本、module 可导入性、executable 解析路径和稳定失败原因；
+- checker 使用 `importlib.metadata`、`importlib.util` 与 `shutil.which` 检查当前解释器和进程环境，不执行安装、不读取业务配置、不改变进程环境；
 - capability 可以在基础检查后执行 adapter-specific probe，但 probe 仍由 capability 自己拥有。
 
 可用性规则固定为：
@@ -58,7 +58,7 @@ enabled=true + dependencies available
   -> 注册 executor 并暴露 action
 
 enabled=true + dependencies unavailable
-  -> App 启动失败，报告 action、requirement、distribution/module 和原因
+  -> App 启动失败，报告 action、requirement、distribution/module/executable 和原因
 ```
 
 启动检查不能替代执行期防御。环境在启动后被修改、worker 导入失败或外部二进制不可运行时，单次 action 仍返回局部失败；配置形态错误和 capability 装配不变量失败保留模块边界语义。
@@ -67,7 +67,14 @@ enabled=true + dependencies unavailable
 
 Action 名称由用户可区分的行为决定。通常不应只因实现库不同而复制同义 action；但当不同 adapter 具有明确的格式范围、输出结构、失败模式和选择倾向时，可以在同一 domain 暴露多个具名 action，并通过 Catalog semantic 与 domain HOW 说明选择规则。
 
-Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 subprocess 原语；业务 executor 只负责运行前 staging 和完成后业务提交。ActionResult 保持 metadata-only，不把大正文、图片字节、base64 或外部原始响应写入 TurnTrace。
+Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 subprocess 原语；业务 executor 只负责运行前 staging 和完成后业务提交。
+
+ActionResult 是否包含正文由 action 的交互语义和明确上限决定，而不是 capability 全局固定为 metadata-only。生成长期或可继续处理 artifact 的 action 只返回 Link、状态和有界摘要；本来就属于当前交互的短搜索结果可以直接进入 TurnTrace，但必须先规范化并受 action 专属上限约束，超限正文写入 Workspace 后只返回保持稳定 shape 的预览和 Link。图片字节、base64、原始供应商响应、未规范化网页正文和无界诊断始终不能进入 ActionResult。
+
+当前具体能力设计：
+
+- Resource conversion：`docs/design/capabilities/resource.md`；
+- Web search/fetch：`docs/design/capabilities/web.md`。
 
 ## 失败语义
 

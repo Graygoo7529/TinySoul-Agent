@@ -1,0 +1,39 @@
+name = "web.fetch_with_trafilatura"
+domain = "web"
+
+[tool]
+description = "Fetch one public HTTPS page and use Trafilatura to write readable Markdown to Workspace. Use as the page-extraction fallback when Defuddle is unavailable or unsuitable."
+
+[tool.schema]
+type = "object"
+required = ["url", "target_link"]
+additionalProperties = false
+
+[tool.schema.properties.url]
+type = "string"
+description = "Public HTTPS page URL."
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target Workspace Markdown link such as workspace:web/pages/article.md."
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Whether to replace an existing target. Defaults to false."
+
+[tool.schema.properties.expected_target_digest]
+type = "string"
+description = "Optional target digest guard used only with overwrite=true."
+
+[semantic]
+use_when = ["Need a readable copy of a known public Web page", "Defuddle is disabled, unavailable, or did not extract the page successfully"]
+avoid_when = ["Need source discovery instead of reading a known URL", "The preferred Defuddle action is enabled and suitable"]
+effects = ["modifying"]
+examples = ["Fetch an article to workspace:web/pages/article.md with the fallback extractor"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "subprocess"
+handler = "web.fetch_with_trafilatura"

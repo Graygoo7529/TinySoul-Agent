@@ -1,0 +1,39 @@
+name = "web.fetch_with_defuddle"
+domain = "web"
+
+[tool]
+description = "Fetch one public HTTPS page and use the local Defuddle CLI to write readable Markdown to Workspace. The result contains only a bounded excerpt and artifact metadata."
+
+[tool.schema]
+type = "object"
+required = ["url", "target_link"]
+additionalProperties = false
+
+[tool.schema.properties.url]
+type = "string"
+description = "Public HTTPS page URL."
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target Workspace Markdown link such as workspace:web/pages/article.md."
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Whether to replace an existing target. Defaults to false."
+
+[tool.schema.properties.expected_target_digest]
+type = "string"
+description = "Optional target digest guard used only with overwrite=true."
+
+[semantic]
+use_when = ["Need a clean readable copy of a known public Web page", "Defuddle is available and should be the preferred general page extractor"]
+avoid_when = ["Need source discovery instead of reading a known URL", "Defuddle is unavailable or fails for this page"]
+effects = ["modifying"]
+examples = ["Fetch an official guide to workspace:web/pages/official-guide.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "subprocess"
+handler = "web.fetch_with_defuddle"

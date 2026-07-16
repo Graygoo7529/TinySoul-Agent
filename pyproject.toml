@@ -10,12 +10,15 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.13"
 dependencies = [
+    "httpx>=0.27",
+    "lxml>=5.0",
     "markitdown[pdf,docx]",
     "openai>=1.0",
     "Pillow",
     "pypdf",
     "pypdfium2",
     "PyYAML>=6.0",
+    "trafilatura>=2.0",
 ]
 
 [project.scripts]

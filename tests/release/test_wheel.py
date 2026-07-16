@@ -49,13 +49,18 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         in names
     )
     assert "tinysoul/action/catalog/resource/actions/convert_with_pypdf.toml" in names
+    assert "tinysoul/action/catalog/web/actions/search_by_kimi.toml" in names
+    assert "tinysoul/action/catalog/web/actions/fetch_with_defuddle.toml" in names
+    assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
     assert "tinysoul/assets/project/configs/home.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.resource.toml" in names
+    assert "tinysoul/assets/project/configs/capabilities.web.toml" in names
     assert "tinysoul/assets/project/.env.example" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
     assert "tinysoul/assets/project/home/how_domain/resource.md" in names
+    assert "tinysoul/assets/project/home/how_domain/web.md" in names
     assert (
         "tinysoul/assets/project/home/how/tinysoul-docs/references/"
         "use-tinysoul-context-and-link.md"
@@ -112,5 +117,7 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
         initialized / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     ).is_file()
     assert (initialized / "configs" / "capabilities.resource.toml").is_file()
+    assert (initialized / "configs" / "capabilities.web.toml").is_file()
     assert (initialized / "home" / "how_domain" / "resource.md").is_file()
+    assert (initialized / "home" / "how_domain" / "web.md").is_file()
     assert (initialized / "memory").is_dir()

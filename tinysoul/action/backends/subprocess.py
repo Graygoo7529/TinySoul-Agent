@@ -59,6 +59,7 @@ class ProcessRequest:
     argv: tuple[str, ...]
     cwd: str | None = None
     env: Mapping[str, str] | None = None
+    inherit_env: bool = True
     stdin_text: str | None = None
     stdout_limit: int = 8000
     stderr_limit: int = 4000
@@ -75,6 +76,8 @@ class ProcessRequest:
             for key, value in self.env.items()
         ):
             raise ActionContractError("Process env must contain string keys and values")
+        if not isinstance(self.inherit_env, bool):
+            raise ActionContractError("Process inherit_env must be boolean")
         if self.stdin_text is not None and not isinstance(self.stdin_text, str):
             raise ActionContractError("Process stdin must be text or None")
         for name in ("stdout_limit", "stderr_limit"):
@@ -122,8 +125,10 @@ class ControlledProcessRunner:
             return ProcessOutcome(status=ProcessStatus.CANCELLED)
         if control.is_expired():
             return ProcessOutcome(status=ProcessStatus.TIMED_OUT)
-        process_env = None
-        if request.env is not None:
+        process_env: dict[str, str] | None = None
+        if not request.inherit_env:
+            process_env = dict(request.env or {})
+        elif request.env is not None:
             process_env = {**os.environ, **request.env}
         with ExitStack() as stack:
             stdout_capture = stack.enter_context(TemporaryFile(mode="w+b"))
