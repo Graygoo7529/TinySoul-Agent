@@ -211,8 +211,9 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
     )
 
     messages = messages.append(
-        AssistantMessage.from_tool_calls(
-            first_call,
+        AssistantMessage.from_parts(
+            reasoning=first_response.reasoning,
+            tool_calls=(first_call,),
         )
     ).append(
         ToolResultMessage.from_json(

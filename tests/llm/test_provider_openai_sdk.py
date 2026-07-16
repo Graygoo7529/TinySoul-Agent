@@ -866,21 +866,30 @@ def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
     assert exc.value.kind is ProviderErrorKind.PARSE
 
 
-def test_kimi_adapter_maps_tool_result_name() -> None:
+def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
+    )
+    tool_call = ToolCallRecord(
+        id="provider_call_1",
+        name="read_file",
+        arguments={"path": "workspace:doc.md"},
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            model=_model(provider_id="kimi_coding", provider_model="k3"),
             messages=MessageStack.of(
+                AssistantMessage.from_parts(
+                    reasoning="tool reasoning",
+                    tool_calls=(tool_call,),
+                ),
                 ToolResultMessage.from_json(
                     call_id="provider_call_1",
                     tool_name="read_file",
@@ -890,10 +899,29 @@ def test_kimi_adapter_maps_tool_result_name() -> None:
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.OPTIONAL,
+            provider_options={
+                "reasoning_keep": "content",
+                "reasoning_effort": "max",
+            },
         )
     )
 
     assert client.calls[0]["messages"] == [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "tool reasoning",
+            "tool_calls": [
+                {
+                    "id": "provider_call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path":"workspace:doc.md"}',
+                    },
+                }
+            ],
+        },
         {
             "role": "tool",
             "tool_call_id": "provider_call_1",
@@ -901,6 +929,7 @@ def test_kimi_adapter_maps_tool_result_name() -> None:
             "name": "read_file",
         }
     ]
+    assert client.calls[0]["reasoning_effort"] == "max"
 
 
 def test_chat_adapter_maps_forced_tool_choice() -> None:
