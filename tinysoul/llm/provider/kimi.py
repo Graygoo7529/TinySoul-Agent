@@ -51,6 +51,8 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
     ) -> object | None:
         if request.tool_use is ToolUse.DISABLED:
             return None
+        if _uses_k3_protocol(request) and request.tool_use is ToolUse.REQUIRED:
+            return "required"
         return "auto"
 
     def include_chat_tool_result_name(self) -> bool:
@@ -82,19 +84,28 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
         self,
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest,
     ) -> None:
         if not options:
             return
+        uses_k3_protocol = _uses_k3_protocol(request)
         extra_body: dict[str, object] = {}
         thinking: dict[str, object] = {}
         for key, value in options.items():
             if key == "thinking":
+                if uses_k3_protocol:
+                    raise ProviderError(
+                        "Kimi K3 does not accept the K2.x thinking option",
+                        kind=ProviderErrorKind.CONFIG,
+                    )
                 thinking["type"] = _thinking_type(value)
                 continue
             if key == "reasoning_keep":
                 keep = provider_reasoning_keep(options, provider="Kimi")
                 if keep is ReasoningKeep.CONTENT:
-                    thinking["keep"] = "all"
+                    if not uses_k3_protocol:
+                        thinking["keep"] = "all"
                     continue
                 if keep is ReasoningKeep.NONE:
                     continue
@@ -102,6 +113,14 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                     "Kimi does not support encrypted reasoning keep",
                     kind=ProviderErrorKind.CONFIG,
                 )
+                continue
+            if key == "reasoning_effort":
+                if not uses_k3_protocol:
+                    raise ProviderError(
+                        "Kimi reasoning_effort is only supported by K3",
+                        kind=ProviderErrorKind.CONFIG,
+                    )
+                kwargs[key] = _reasoning_effort(value)
                 continue
             if key == "top_p":
                 kwargs[key] = value
@@ -146,3 +165,16 @@ def _thinking_type(value: object) -> str:
             kind=ProviderErrorKind.CONFIG,
         )
     return str(value)
+
+
+def _reasoning_effort(value: object) -> str:
+    if value != "max":
+        raise ProviderError(
+            "Kimi K3 reasoning_effort must be 'max'",
+            kind=ProviderErrorKind.CONFIG,
+        )
+    return str(value)
+
+
+def _uses_k3_protocol(request: ProviderRequest) -> bool:
+    return request.model.provider_model in {"k3", "kimi-k3"}

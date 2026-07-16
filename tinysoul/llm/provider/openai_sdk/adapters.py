@@ -80,7 +80,7 @@ class OpenAIResponsesAdapter:
         )
         if uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
-        self._behavior.apply_options(kwargs, configured_options)
+        self._behavior.apply_options(kwargs, configured_options, request=request)
 
         try:
             response = self._client.create(**kwargs)
@@ -148,7 +148,7 @@ class OpenAICompatibleChatAdapter:
             kwargs["max_completion_tokens"] = max_output_tokens
         if uses_native_json_output(request):
             kwargs["response_format"] = {"type": "json_object"}
-        self._behavior.apply_options(kwargs, configured_options)
+        self._behavior.apply_options(kwargs, configured_options, request=request)
 
         try:
             response = self._client.create(**kwargs)

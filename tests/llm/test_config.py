@@ -22,7 +22,15 @@ def test_llm_config_parses_project_config_files() -> None:
     kimi_provider = config.provider("kimi")
     assert kimi_provider.api_style is ProviderApiStyle.OPENAI_CHAT
     assert kimi_provider.base_url == "https://api.moonshot.cn/v1"
-    assert kimi_provider.api_key_envs == ("KIMI_API_KEY", "MOONSHOT_API_KEY")
+    assert kimi_provider.api_key_envs == ("MOONSHOT_API_KEY",)
+    assert kimi_provider.enabled is False
+
+    kimi_coding_provider = config.provider("kimi_coding")
+    assert kimi_coding_provider.api_style is ProviderApiStyle.OPENAI_CHAT
+    assert kimi_coding_provider.adapter is ProviderAdapterKind.KIMI
+    assert kimi_coding_provider.base_url == "https://api.kimi.com/coding/v1"
+    assert kimi_coding_provider.api_key_envs == ("KIMI_CODING_API_KEY",)
+    assert kimi_coding_provider.enabled is True
 
     proxy_provider = config.provider("sublyx_proxy")
     assert proxy_provider.enabled is True
@@ -46,8 +54,8 @@ def test_llm_config_parses_project_config_files() -> None:
     }
 
     kimi_model = config.models.get("kimi_k2_7")
-    assert kimi_model.provider_id == "kimi"
-    assert kimi_model.provider_model == "kimi-k2.7-code"
+    assert kimi_model.provider_id == "kimi_coding"
+    assert kimi_model.provider_model == "kimi-for-coding-highspeed"
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
@@ -63,6 +71,23 @@ def test_llm_config_parses_project_config_files() -> None:
         1.0
     )
     assert kimi_model.provider_options.request_overrides().max_output_tokens is None
+
+    kimi_k3_model = config.models.get("kimi_k3")
+    assert kimi_k3_model.provider_id == "kimi_coding"
+    assert kimi_k3_model.provider_model == "k3"
+    assert kimi_k3_model.supports(ModelCapability.IMAGE_INPUT)
+    assert kimi_k3_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
+    assert kimi_k3_model.supports(ModelCapability.TOOL_CALLING)
+    assert kimi_k3_model.supports(ModelCapability.REASONING_OUTPUT)
+    assert kimi_k3_model.supports(ModelCapability.PROMPT_CACHE)
+    assert kimi_k3_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert kimi_k3_model.provider_options.values == {
+        "reasoning_keep": "content",
+        "reasoning_effort": "max",
+        "request_overrides": {
+            "temperature": 1.0,
+        },
+    }
 
     deepseek_model = config.models.get("deepseek_v4")
     assert deepseek_model.provider_id == "deepseek"
@@ -106,6 +131,7 @@ def test_llm_config_parses_project_config_files() -> None:
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
         "gpt_5_5",
+        "kimi_k3",
         "kimi_k2_7",
         "deepseek_v4",
         "glm_5_1",

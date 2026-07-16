@@ -369,7 +369,9 @@ _PROVIDER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
             "top_p",
         }
     ),
-    ProviderAdapterKind.KIMI: frozenset({"thinking", "reasoning_keep", "top_p"}),
+    ProviderAdapterKind.KIMI: frozenset(
+        {"thinking", "reasoning_effort", "reasoning_keep", "top_p"}
+    ),
     ProviderAdapterKind.DEEPSEEK: frozenset(
         {"thinking", "reasoning_effort", "reasoning_keep"}
     ),

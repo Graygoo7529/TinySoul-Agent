@@ -54,6 +54,8 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
         self,
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest,
     ) -> None:
         kwargs.pop("tool_choice", None)
         if not options:

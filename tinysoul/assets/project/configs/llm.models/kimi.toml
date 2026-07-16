@@ -1,6 +1,6 @@
 [llm.models.kimi_k2_7]
-provider = "kimi"
-provider_model = "kimi-k2.7-code"
+provider = "kimi_coding"
+provider_model = "kimi-for-coding-highspeed"
 capabilities = [
   "text_input",
   "image_input",
@@ -15,4 +15,23 @@ reasoning_keep = "content"
 thinking = "enabled"
 
 [llm.models.kimi_k2_7.provider_options.request_overrides]
+temperature = 1.0
+
+[llm.models.kimi_k3]
+provider = "kimi_coding"
+provider_model = "k3"
+capabilities = [
+  "text_input",
+  "image_input",
+  "json_object_output",
+  "tool_calling",
+  "reasoning_output",
+  "prompt_cache",
+]
+
+[llm.models.kimi_k3.provider_options]
+reasoning_keep = "content"
+reasoning_effort = "max"
+
+[llm.models.kimi_k3.provider_options.request_overrides]
 temperature = 1.0

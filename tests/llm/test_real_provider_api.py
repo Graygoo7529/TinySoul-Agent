@@ -47,6 +47,7 @@ pytestmark = pytest.mark.skipif(
 
 PRIMARY_MODEL_IDS = (
     "gpt_5_5",
+    "kimi_k3",
     "kimi_k2_7",
     "deepseek_v4",
     "glm_5_1",
@@ -55,6 +56,7 @@ PRIMARY_MODEL_IDS = (
 
 TOOL_MODEL_IDS = (
     "gpt_5_5",
+    "kimi_k3",
     "kimi_k2_7",
     "deepseek_v4",
     "glm_5_1",

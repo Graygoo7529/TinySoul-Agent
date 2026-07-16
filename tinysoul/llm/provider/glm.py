@@ -65,6 +65,8 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
         self,
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest,
     ) -> None:
         _rename_max_tokens(kwargs)
         if not options:

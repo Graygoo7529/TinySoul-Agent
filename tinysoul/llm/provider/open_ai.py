@@ -60,6 +60,8 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
         self,
         kwargs: dict[str, object],
         options: Mapping[str, object] | None,
+        *,
+        request: ProviderRequest,
     ) -> None:
         if not options:
             return

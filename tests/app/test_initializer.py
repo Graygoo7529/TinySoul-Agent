@@ -41,6 +41,21 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     )["llm"]["providers"]
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
+    assert providers["kimi"]["api_key_envs"] == ["MOONSHOT_API_KEY"]
+    assert providers["kimi_coding"] == {
+        "enabled": False,
+        "adapter": "kimi",
+        "api_style": "openai_chat",
+        "base_url": "https://api.kimi.com/coding/v1",
+        "api_key_envs": ["KIMI_CODING_API_KEY"],
+    }
+    models = tomllib.loads(
+        (root / "configs" / "llm.models" / "kimi.toml").read_text(
+            encoding="utf-8"
+        )
+    )["llm"]["models"]
+    assert models["kimi_k2_7"]["provider_model"] == "kimi-for-coding-highspeed"
+    assert models["kimi_k3"]["provider_model"] == "k3"
 
 
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(

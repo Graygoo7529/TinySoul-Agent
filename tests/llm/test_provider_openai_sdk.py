@@ -8,7 +8,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -617,18 +617,18 @@ def test_openai_responses_adapter_maps_only_visible_tools() -> None:
     assert client.calls[0]["tools"] == [_responses_tool_payload()]
 
 
-def test_chat_adapter_maps_kimi_request_payload() -> None:
+def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="thinking")
     client = FakeCreateClient(
         response=SimpleNamespace(
             choices=[SimpleNamespace(message=message)],
             usage={"prompt_tokens": 10, "completion_tokens": 3},
             id="chat_1",
-            model="kimi-k2.7-code",
+            model="kimi-for-coding-highspeed",
         )
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
     )
@@ -636,8 +636,8 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     response = adapter.invoke(
         ProviderRequest(
             model=_model(
-                provider_id="kimi",
-                provider_model="kimi-k2.7-code",
+                provider_id="kimi_coding",
+                provider_model="kimi-for-coding-highspeed",
                 options={"thinking": "enabled"},
             ),
             messages=MessageStack.of(
@@ -659,7 +659,7 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     )
 
     call = client.calls[0]
-    assert call["model"] == "kimi-k2.7-code"
+    assert call["model"] == "kimi-for-coding-highspeed"
     assert call["temperature"] == pytest.approx(1.0)
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
@@ -678,6 +678,89 @@ def test_chat_adapter_maps_kimi_request_payload() -> None:
     assert response.reasoning is not None
     assert response.reasoning.content == "thinking"
     assert response.reasoning.summary == "thinking"
+
+
+def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
+    message = SimpleNamespace(content='{"ok": true}', reasoning_content="thinking")
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={"prompt_tokens": 10, "completion_tokens": 3},
+            id="chat_k3_1",
+            model="k3",
+        )
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model="k3",
+                options={"reasoning_keep": "content", "reasoning_effort": "max"},
+            ),
+            messages=MessageStack.of(
+                UserMessage.from_text("hello"),
+                AssistantMessage.from_text(
+                    '{"draft": true}',
+                    reasoning="thinking trace",
+                ),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            prompt_cache=PromptCache("kimi-k3-prefix"),
+            temperature=0.2,
+            max_output_tokens=128,
+            provider_options={
+                "reasoning_keep": "content",
+                "reasoning_effort": "max",
+                "request_overrides": {"temperature": 1.0},
+            },
+        )
+    )
+
+    call = client.calls[0]
+    assert call["model"] == "k3"
+    assert call["temperature"] == pytest.approx(1.0)
+    assert call["reasoning_effort"] == "max"
+    assert call["messages"] == [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": '{"draft": true}',
+            "reasoning_content": "thinking trace",
+        },
+    ]
+    assert call["max_completion_tokens"] == 128
+    assert call["response_format"] == {"type": "json_object"}
+    assert call["prompt_cache_key"] == "kimi-k3-prefix"
+    assert "extra_body" not in call
+    assert response.answer_text == '{"ok": true}'
+    assert response.reasoning is not None
+    assert response.reasoning.content == "thinking"
+
+
+def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(response=object()),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(provider_id="kimi_coding", provider_model="k3"),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.TEXT,
+                provider_options={"thinking": "enabled"},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
 def test_chat_adapter_maps_tools_and_tool_results() -> None:
@@ -847,7 +930,14 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
     assert client.calls[0]["tool_choice"] == "required"
 
 
-def test_kimi_adapter_maps_required_tool_choice_to_auto() -> None:
+@pytest.mark.parametrize(
+    ("provider_model", "expected_tool_choice"),
+    (("kimi-for-coding-highspeed", "auto"), ("k3", "required")),
+)
+def test_kimi_adapter_maps_model_specific_required_tool_choice(
+    provider_model: str,
+    expected_tool_choice: str,
+) -> None:
     message = SimpleNamespace(
         content=None,
         tool_calls=[
@@ -862,14 +952,17 @@ def test_kimi_adapter_maps_required_tool_choice_to_auto() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model=provider_model,
+            ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(_tool(),)),
@@ -877,7 +970,7 @@ def test_kimi_adapter_maps_required_tool_choice_to_auto() -> None:
         )
     )
 
-    assert client.calls[0]["tool_choice"] == "auto"
+    assert client.calls[0]["tool_choice"] == expected_tool_choice
 
 
 def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
@@ -1922,6 +2015,34 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
     )
 
     assert registry.get("kimi").provider_id == "kimi"
+
+
+def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
+    registry = build_provider_registry(
+        (
+            ProviderSpec(
+                id="kimi",
+                adapter=ProviderAdapterKind.KIMI,
+                api_style=ProviderApiStyle.OPENAI_CHAT,
+                base_url="https://api.moonshot.cn/v1",
+                api_key_envs=("MOONSHOT_API_KEY",),
+            ),
+            ProviderSpec(
+                id="kimi_coding",
+                adapter=ProviderAdapterKind.KIMI,
+                api_style=ProviderApiStyle.OPENAI_CHAT,
+                base_url="https://api.kimi.com/coding/v1",
+                api_key_envs=("KIMI_CODING_API_KEY",),
+            ),
+        ),
+        env={
+            "MOONSHOT_API_KEY": "moonshot",
+            "KIMI_CODING_API_KEY": "coding",
+        },
+    )
+
+    assert registry.get("kimi").provider_id == "kimi"
+    assert registry.get("kimi_coding").provider_id == "kimi_coding"
 
 
 def test_build_provider_registry_uses_deepseek_adapter() -> None:
