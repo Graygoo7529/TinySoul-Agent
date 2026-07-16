@@ -33,9 +33,9 @@ from tinysoul.workspace import (
 from .config import ResourceSettings
 from .errors import (
     ResourceContractError,
-    ResourceInvariantError,
     ResourceProcessingError,
     ResourceProcessTimeout,
+    ResourceWorkerProtocolError,
 )
 from .models import (
     ResourceContentStatus,
@@ -100,6 +100,7 @@ class ResourceConversionService:
             expected_target_digest=expected_target_digest,
             owner_turn_id=owner_turn_id,
         )
+        _require_active(control)
         source = self._workspace.read_document(
             source_link,
             max_bytes=self._settings.max_source_bytes,
@@ -174,6 +175,7 @@ class ResourceConversionService:
                     reason="process_start_failed",
                     payload={"error_type": outcome.error_type},
                 )
+            _require_active(control)
             response = _worker_response(outcome.stdout)
             if outcome.exit_code != 0 or not _required_bool(response, "ok"):
                 reason = _optional_string(response, "reason") or "worker_failed"
@@ -211,6 +213,7 @@ class ResourceConversionService:
                 if overwrite
                 else ()
             )
+            _require_active(control)
             committed = self._workspace.write_bundle(
                 writes,
                 delete_links=stale_assets,
@@ -271,13 +274,17 @@ class ResourceConversionService:
         try:
             markdown = markdown_path.read_bytes()
         except OSError as exc:
-            raise ResourceInvariantError("Worker Markdown output is unreadable") from exc
+            raise ResourceWorkerProtocolError(
+                "Worker Markdown output is unreadable"
+            ) from exc
         try:
             text = markdown.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ResourceInvariantError("Worker Markdown output is not UTF-8") from exc
+            raise ResourceWorkerProtocolError(
+                "Worker Markdown output is not UTF-8"
+            ) from exc
         if not text.strip() or len(text) > self._settings.max_output_chars:
-            raise ResourceInvariantError("Worker Markdown output violates limits")
+            raise ResourceWorkerProtocolError("Worker Markdown output violates limits")
         writes = [
             WorkspaceBundleWrite(
                 link=target_link,
@@ -294,12 +301,16 @@ class ResourceConversionService:
             try:
                 data = path.read_bytes()
             except OSError as exc:
-                raise ResourceInvariantError("Worker asset is unreadable") from exc
+                raise ResourceWorkerProtocolError("Worker asset is unreadable") from exc
             if len(data) != asset.size:
-                raise ResourceInvariantError("Worker asset size does not match manifest")
+                raise ResourceWorkerProtocolError(
+                    "Worker asset size does not match manifest"
+                )
             total_asset_bytes += len(data)
             if total_asset_bytes > self._settings.max_total_asset_bytes:
-                raise ResourceInvariantError("Worker assets exceed configured byte limit")
+                raise ResourceWorkerProtocolError(
+                    "Worker assets exceed configured byte limit"
+                )
             writes.append(
                 WorkspaceBundleWrite(
                     link=asset.link,
@@ -369,20 +380,31 @@ def _asset_prefix(target: WorkspaceLink) -> str:
     return str(WorkspaceLink.from_relative_path(relative.as_posix()))
 
 
+def _require_active(control: ActionExecutionControl) -> None:
+    if control.is_cancelled():
+        raise ResourceProcessTimeout(
+            "Resource conversion was cancelled before Workspace commit",
+            reason=control.cancel_reason or "cancelled",
+        )
+    if control.is_expired():
+        raise ResourceProcessTimeout(
+            "Resource conversion deadline expired before Workspace commit",
+            reason="deadline_expired",
+        )
+
+
 def _worker_response(value: str) -> JsonObject:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
-        raise ResourceProcessingError(
-            "Resource worker returned invalid JSON",
-            reason="invalid_worker_response",
+        raise ResourceWorkerProtocolError(
+            "Resource worker returned invalid JSON"
         ) from exc
     try:
         return to_json_object(parsed)
     except (TypeError, ValueError) as exc:
-        raise ResourceProcessingError(
-            "Resource worker response must be a JSON object",
-            reason="invalid_worker_response",
+        raise ResourceWorkerProtocolError(
+            "Resource worker response must be a JSON object"
         ) from exc
 
 
@@ -397,26 +419,26 @@ def _parse_worker_result(
     _worker_path(output_path, markdown_file)
     raw_assets = value.get("assets")
     if not isinstance(raw_assets, list) or len(raw_assets) > settings.max_assets:
-        raise ResourceInvariantError("Worker asset manifest is invalid")
+        raise ResourceWorkerProtocolError("Worker asset manifest is invalid")
     assets: list[_WorkerAsset] = []
     for item in raw_assets:
         if not isinstance(item, dict):
-            raise ResourceInvariantError("Worker asset entry is invalid")
+            raise ResourceWorkerProtocolError("Worker asset entry is invalid")
         typed = cast(dict[str, object], item)
         file = _required_string(typed, "file")
         link = _required_string(typed, "link")
         size = typed.get("size")
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-            raise ResourceInvariantError("Worker asset size is invalid")
+            raise ResourceWorkerProtocolError("Worker asset size is invalid")
         _worker_path(output_path, file)
         parsed_link = WorkspaceLink.parse(link)
         if not str(parsed_link).startswith(asset_prefix + "/"):
-            raise ResourceInvariantError("Worker asset link escapes target prefix")
+            raise ResourceWorkerProtocolError("Worker asset link escapes target prefix")
         assets.append(_WorkerAsset(file=file, link=link, size=size))
     try:
         status = ResourceContentStatus(_required_string(value, "content_status"))
     except ValueError as exc:
-        raise ResourceInvariantError("Worker content status is invalid") from exc
+        raise ResourceWorkerProtocolError("Worker content status is invalid") from exc
     visual = _bounded_strings(
         value.get("visual_reference_links"),
         limit=_MAX_RESULT_LINKS,
@@ -424,7 +446,9 @@ def _parse_worker_result(
     )
     asset_links = {asset.link for asset in assets}
     if any(link not in asset_links for link in visual):
-        raise ResourceInvariantError("Worker visual link is not a generated asset")
+        raise ResourceWorkerProtocolError(
+            "Worker visual link is not a generated asset"
+        )
     warnings = _bounded_strings(
         value.get("warning_codes"),
         limit=_MAX_WARNINGS,
@@ -441,17 +465,21 @@ def _parse_worker_result(
 
 def _worker_path(root: Path, relative: str) -> Path:
     if Path(relative).is_absolute():
-        raise ResourceInvariantError("Worker output path must be relative")
+        raise ResourceWorkerProtocolError("Worker output path must be relative")
     try:
         return resolve_under_root(root, relative)
     except FilesystemBoundaryError as exc:
-        raise ResourceInvariantError("Worker output path escapes staging root") from exc
+        raise ResourceWorkerProtocolError(
+            "Worker output path escapes staging root"
+        ) from exc
 
 
 def _required_string(value: Mapping[str, object], name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
-        raise ResourceInvariantError(f"Worker response field is invalid: {name}")
+        raise ResourceWorkerProtocolError(
+            f"Worker response field is invalid: {name}"
+        )
     return item
 
 
@@ -463,20 +491,19 @@ def _optional_string(value: JsonObject, name: str) -> str:
 def _required_bool(value: JsonObject, name: str) -> bool:
     item = value.get(name)
     if not isinstance(item, bool):
-        raise ResourceProcessingError(
-            "Resource worker response is missing completion status",
-            reason="invalid_worker_response",
+        raise ResourceWorkerProtocolError(
+            "Resource worker response is missing completion status"
         )
     return item
 
 
 def _bounded_strings(value: object, *, limit: int, label: str) -> tuple[str, ...]:
     if not isinstance(value, list) or len(value) > limit:
-        raise ResourceInvariantError(f"Worker {label} are invalid")
+        raise ResourceWorkerProtocolError(f"Worker {label} are invalid")
     result: list[str] = []
     for item in value:
         if not isinstance(item, str) or not item:
-            raise ResourceInvariantError(f"Worker {label} are invalid")
+            raise ResourceWorkerProtocolError(f"Worker {label} are invalid")
         if item not in result:
             result.append(item)
     return tuple(result)

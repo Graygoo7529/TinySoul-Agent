@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 import shutil
 from time import monotonic
 import zipfile
 
 from pypdf import PdfWriter
+from PIL import Image
 import pytest
 
 from tinysoul.action import (
@@ -20,6 +22,12 @@ from tinysoul.action import (
     builtin_action_catalog_root,
 )
 from tinysoul.action.core.loader import ActionCatalogLoader
+from tinysoul.action.backends import (
+    ControlledProcessRunner,
+    ProcessOutcome,
+    ProcessRequest,
+    ProcessStatus,
+)
 from tinysoul.capabilities import parse_capabilities_settings
 from tinysoul.capabilities.resource.actions import (
     RESOURCE_PYPDF_ACTION,
@@ -72,6 +80,38 @@ def test_resource_config_parses_split_action_settings() -> None:
     assert settings.convert_with_markitdown.formats == ("docx",)
     assert settings.convert_with_markitdown.extract_images is False
     assert settings.convert_with_pypdf.enabled is False
+
+
+def test_resource_config_reports_exact_nested_key() -> None:
+    with pytest.raises(ConfigError) as error:
+        parse_capabilities_settings(
+            {
+                "resource": {
+                    "convert_with_pypdf": {"extract_images": "yes"},
+                }
+            }
+        )
+
+    assert (
+        error.value.key
+        == "capabilities.resource.convert_with_pypdf.extract_images"
+    )
+
+
+def test_resource_config_rejects_nested_unknown_key() -> None:
+    with pytest.raises(ConfigError) as error:
+        parse_capabilities_settings(
+            {
+                "resource": {
+                    "convert_with_markitdown": {"fallback": True},
+                }
+            }
+        )
+
+    assert (
+        error.value.key
+        == "capabilities.resource.convert_with_markitdown.fallback"
+    )
 
 
 def test_markitdown_conversion_commits_markdown_and_docx_image(
@@ -212,6 +252,53 @@ def test_conversion_target_cannot_claim_its_source_as_a_stale_asset(
     assert source.is_file()
 
 
+@pytest.mark.parametrize(
+    ("settings", "reason"),
+    (
+        (
+            ResourceSettings(
+                max_assets=1,
+                render_pdf_pages=PdfPageRenderMode.DISABLED,
+            ),
+            "asset_count_limit_exceeded",
+        ),
+        (
+            ResourceSettings(
+                max_total_asset_bytes=1,
+                render_pdf_pages=PdfPageRenderMode.DISABLED,
+            ),
+            "asset_bytes_limit_exceeded",
+        ),
+    ),
+)
+def test_pypdf_asset_limits_fail_without_committing_partial_output(
+    local_tmp: Path,
+    settings: ResourceSettings,
+    reason: str,
+) -> None:
+    workspace = _workspace(local_tmp)
+    source = workspace.root / "incoming" / "images.pdf"
+    _write_image_pdf(source)
+    before = workspace.reconcile().manifest
+    service = ResourceConversionService(workspace=workspace, settings=settings)
+
+    with pytest.raises(ResourceProcessingError) as error:
+        service.convert(
+            converter=ResourceConverter.PYPDF,
+            source_link="workspace:incoming/images.pdf",
+            target_link="workspace:converted/images.md",
+            overwrite=False,
+            expected_source_digest="",
+            expected_target_digest="",
+            owner_turn_id="turn_1",
+            control=ActionExecutionControl(deadline=monotonic() + 30),
+        )
+
+    assert error.value.reason == reason
+    assert workspace.snapshot() == before
+    assert not (workspace.root / "converted" / "images.md").exists()
+
+
 def test_enabled_resource_dependency_must_be_available() -> None:
     class MissingDependencyChecker(DependencyChecker):
         def check_all(
@@ -317,6 +404,155 @@ def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
     assert signals[0].source == RESOURCE_PYPDF_ACTION
 
 
+def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    source = workspace.root / "incoming" / "blank.pdf"
+    source.parent.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with source.open("wb") as handle:
+        writer.write(handle)
+    before = workspace.reconcile().manifest
+    control = ActionExecutionControl(deadline=monotonic() + 30)
+    service = ResourceConversionService(
+        workspace=workspace,
+        settings=ResourceSettings(),
+        process_runner=_CompletedCancellingRunner(),
+    )
+    bus = SignalBus()
+    executor = ResourceConversionExecutor(
+        converter=ResourceConverter.PYPDF,
+        service=service,
+        bus=bus,
+    )
+
+    result = executor.execute(
+        _resource_execution(),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.frame_data["reason"] == "runtime_transfer"
+    assert workspace.snapshot() == before
+    assert not (workspace.root / "converted" / "blank.md").exists()
+    assert bus.consume() == ()
+
+
+def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    source = workspace.root / "incoming" / "blank.pdf"
+    source.parent.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with source.open("wb") as handle:
+        writer.write(handle)
+    before = workspace.reconcile().manifest
+    bus = SignalBus()
+    executor = ResourceConversionExecutor(
+        converter=ResourceConverter.PYPDF,
+        service=ResourceConversionService(
+            workspace=workspace,
+            settings=ResourceSettings(),
+            process_runner=_InvalidManifestRunner(),
+        ),
+        bus=bus,
+    )
+
+    result = executor.execute(
+        _resource_execution(),
+        ActionExecutionContext(
+            control=ActionExecutionControl(deadline=monotonic() + 30),
+        ),
+    )
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.frame_data["reason"] == "worker_protocol_invalid"
+    assert workspace.snapshot() == before
+    assert bus.consume() == ()
+
+
+class _CompletedCancellingRunner(ControlledProcessRunner):
+    def run(
+        self,
+        request: ProcessRequest,
+        control: ActionExecutionControl,
+    ) -> ProcessOutcome:
+        response = _stage_worker_markdown(request)
+        control.request_cancel("runtime_transfer")
+        return ProcessOutcome(
+            status=ProcessStatus.COMPLETED,
+            exit_code=0,
+            stdout=json.dumps(response),
+        )
+
+
+class _InvalidManifestRunner(ControlledProcessRunner):
+    def run(
+        self,
+        request: ProcessRequest,
+        control: ActionExecutionControl,
+    ) -> ProcessOutcome:
+        del request, control
+        return ProcessOutcome(
+            status=ProcessStatus.COMPLETED,
+            exit_code=0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "markdown_file": "../escape.md",
+                    "assets": [],
+                    "content_status": "complete",
+                    "visual_reference_links": [],
+                    "warning_codes": [],
+                }
+            ),
+        )
+
+
+def _stage_worker_markdown(request: ProcessRequest) -> dict[str, object]:
+    assert request.stdin_text is not None
+    payload = json.loads(request.stdin_text)
+    output = Path(payload["output_path"])
+    output.mkdir(parents=True)
+    (output / "document.md").write_text("# Converted\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "markdown_file": "document.md",
+        "assets": [],
+        "content_status": "complete",
+        "visual_reference_links": [],
+        "warning_codes": [],
+    }
+
+
+def _resource_execution() -> ActionExecution:
+    with builtin_action_catalog_root() as root:
+        action = ActionCatalogLoader().load(root).get_action(RESOURCE_PYPDF_ACTION)
+    return ActionExecution(
+        action=action,
+        call=ActionCall(
+            call_id="call_1",
+            action_name=RESOURCE_PYPDF_ACTION,
+            params={
+                "source_link": "workspace:incoming/blank.pdf",
+                "target_link": "workspace:converted/blank.md",
+            },
+            sequence=1,
+        ),
+        framework=ActionFramework(
+            invoke_id="invoke_1",
+            batch_id="batch_1",
+            scope=RunScope(),
+            domain="resource",
+            turn_id="turn_1",
+        ),
+    )
+
+
 def _workspace(root: Path):
     return WorkspaceEngineBuilder(
         WorkspaceSettings(root=(root / "workspace").resolve(), max_files=100)
@@ -350,3 +586,14 @@ def _write_docx(path: Path) -> None:
             </w:document>""",
         )
         archive.writestr("word/media/image1.png", _PNG)
+
+
+def _write_image_pdf(path: Path) -> None:
+    path.parent.mkdir(parents=True)
+    first = Image.new("RGB", (10, 10), "red")
+    second = Image.new("RGB", (10, 10), "blue")
+    try:
+        first.save(path, "PDF", save_all=True, append_images=[second])
+    finally:
+        first.close()
+        second.close()

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import codecs
+from contextlib import ExitStack
 import os
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from tempfile import TemporaryFile
+from typing import Protocol
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, dumps_json
@@ -32,6 +36,20 @@ class ProcessStatus(StrEnum):
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
     START_FAILED = "start_failed"
+
+
+class _CapturedOutput(Protocol):
+    def flush(self) -> None:
+        ...
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        ...
+
+    def tell(self) -> int:
+        ...
+
+    def read(self, n: int = -1) -> bytes:
+        ...
 
 
 @dataclass(frozen=True)
@@ -107,82 +125,87 @@ class ControlledProcessRunner:
         process_env = None
         if request.env is not None:
             process_env = {**os.environ, **request.env}
-        try:
-            process: subprocess.Popen[str]
-            process_stdin = (
-                subprocess.PIPE
-                if request.stdin_text is not None
-                else subprocess.DEVNULL
+        with ExitStack() as stack:
+            stdout_capture = stack.enter_context(TemporaryFile(mode="w+b"))
+            stderr_capture = stack.enter_context(TemporaryFile(mode="w+b"))
+            try:
+                process: subprocess.Popen[str]
+                process_stdin = (
+                    subprocess.PIPE
+                    if request.stdin_text is not None
+                    else subprocess.DEVNULL
+                )
+                if os.name == "nt":
+                    process = subprocess.Popen(
+                        list(request.argv),
+                        cwd=request.cwd,
+                        env=process_env,
+                        stdin=process_stdin,
+                        stdout=stdout_capture,
+                        stderr=stderr_capture,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        shell=False,
+                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                    )
+                else:
+                    process = subprocess.Popen(
+                        list(request.argv),
+                        cwd=request.cwd,
+                        env=process_env,
+                        stdin=process_stdin,
+                        stdout=stdout_capture,
+                        stderr=stderr_capture,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        shell=False,
+                        start_new_session=True,
+                    )
+            except OSError as exc:
+                return ProcessOutcome(
+                    status=ProcessStatus.START_FAILED,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+
+            def terminate_on_cancel(_reason: str) -> None:
+                _terminate_process_tree(process)
+
+            control.add_cancel_callback(terminate_on_cancel)
+            status = ProcessStatus.COMPLETED
+            try:
+                process.communicate(
+                    input=request.stdin_text,
+                    timeout=control.remaining_seconds(),
+                )
+            except subprocess.TimeoutExpired:
+                control.request_cancel("timeout")
+                _terminate_process_tree(process)
+                process.communicate()
+                status = ProcessStatus.TIMED_OUT
+            finally:
+                control.remove_cancel_callback(terminate_on_cancel)
+
+            if status is ProcessStatus.COMPLETED and control.is_cancelled():
+                status = ProcessStatus.CANCELLED
+            stdout_value, stdout_truncated = _read_capture(
+                stdout_capture,
+                request.stdout_limit,
             )
-            if os.name == "nt":
-                process = subprocess.Popen(
-                    list(request.argv),
-                    cwd=request.cwd,
-                    env=process_env,
-                    stdin=process_stdin,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    shell=False,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-                )
-            else:
-                process = subprocess.Popen(
-                    list(request.argv),
-                    cwd=request.cwd,
-                    env=process_env,
-                    stdin=process_stdin,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    shell=False,
-                    start_new_session=True,
-                )
-        except OSError as exc:
+            stderr_value, stderr_truncated = _read_capture(
+                stderr_capture,
+                request.stderr_limit,
+            )
             return ProcessOutcome(
-                status=ProcessStatus.START_FAILED,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
+                status=status,
+                exit_code=process.returncode,
+                stdout=stdout_value,
+                stderr=stderr_value,
+                stdout_truncated=stdout_truncated,
+                stderr_truncated=stderr_truncated,
             )
-
-        def terminate_on_cancel(_reason: str) -> None:
-            _terminate_process_tree(process)
-
-        control.add_cancel_callback(terminate_on_cancel)
-        status = ProcessStatus.COMPLETED
-        try:
-            stdout, stderr = process.communicate(
-                input=request.stdin_text,
-                timeout=control.remaining_seconds(),
-            )
-        except subprocess.TimeoutExpired:
-            control.request_cancel("timeout")
-            _terminate_process_tree(process)
-            stdout, stderr = process.communicate()
-            status = ProcessStatus.TIMED_OUT
-        finally:
-            control.remove_cancel_callback(terminate_on_cancel)
-
-        if status is ProcessStatus.COMPLETED and control.is_cancelled():
-            status = ProcessStatus.CANCELLED
-        stdout_value, stdout_truncated = _truncate(
-            stdout or "", request.stdout_limit
-        )
-        stderr_value, stderr_truncated = _truncate(
-            stderr or "", request.stderr_limit
-        )
-        return ProcessOutcome(
-            status=status,
-            exit_code=process.returncode,
-            stdout=stdout_value,
-            stderr=stderr_value,
-            stdout_truncated=stdout_truncated,
-            stderr_truncated=stderr_truncated,
-        )
 
 
 @dataclass(frozen=True)
@@ -375,6 +398,21 @@ def _truncate(value: str, limit: int) -> tuple[str, bool]:
     if len(value) <= limit:
         return value, False
     return value[:limit], True
+
+
+def _read_capture(stream: _CapturedOutput, limit: int) -> tuple[str, bool]:
+    stream.flush()
+    stream.seek(0, os.SEEK_END)
+    size = stream.tell()
+    stream.seek(0)
+    max_bytes = (limit + 1) * 4
+    data = stream.read(max_bytes)
+    has_more = size > len(data)
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    text = decoder.decode(data, final=not has_more)
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    value, truncated = _truncate(normalized, limit)
+    return value, truncated or has_more
 
 
 def _reject_unknown_options(

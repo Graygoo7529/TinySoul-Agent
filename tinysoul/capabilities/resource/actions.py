@@ -26,9 +26,9 @@ from .config import ResourceSettings
 from .dependencies import require_resource_dependencies
 from .errors import (
     ResourceContractError,
-    ResourceInvariantError,
     ResourceProcessingError,
     ResourceProcessTimeout,
+    ResourceWorkerProtocolError,
 )
 from .models import ResourceConversionResult, ResourceConverter
 from .service import ResourceConversionService
@@ -111,7 +111,7 @@ class ResourceConversionExecutor(ActionExecutor):
                 str(exc),
                 {**exc.payload, "reason": exc.reason},
             )
-        except ResourceInvariantError:
+        except ResourceWorkerProtocolError:
             return _failed(
                 execution,
                 "Resource conversion returned an invalid staged result.",

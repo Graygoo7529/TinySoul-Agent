@@ -100,3 +100,5 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 ## 待确认
 
 Stage 1 已实施并完成配置、依赖、effective Catalog、受控进程、Workspace bundle、双 action、默认模板、wheel 和隔离测试闭环。下一入口为 Stage 2；其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成的 Stage 1 提前引入网络、任意命令、持久索引或新的长期状态。
+
+Stage 1 closure audit 已进一步完成：PDF 图片/附件提取不得吞掉 asset count/bytes limit；Resource executor 在 bundle commit point 前响应 cancellation/deadline；staged worker 协议错误稳定映射为局部 `worker_protocol_invalid`；嵌套 capability 配置保留精确 key；ControlledProcessRunner 使用临时文件捕获 stdout/stderr 并只构造有界结果投影，不把 projection limit 夸大为子进程硬输出配额。对应回归测试验证超限和取消都不提交 Workspace、不递增 Manifest、不发布同步信号。

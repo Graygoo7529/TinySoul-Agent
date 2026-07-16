@@ -165,6 +165,51 @@ def test_subprocess_executor_returns_success_payload() -> None:
     assert results[0].payload["exit_code"] == 0
 
 
+def test_subprocess_executor_returns_bounded_captured_output() -> None:
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _action(
+                "test.output",
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.SUBPROCESS,
+                    handler="subprocess.default",
+                    options={
+                        "argv": [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import sys; "
+                                "sys.stdout.write('abcdefgh'); "
+                                "sys.stderr.write('uvwxyz')"
+                            ),
+                        ],
+                        "stdout_limit": 4,
+                        "stderr_limit": 3,
+                    },
+                ),
+            ),
+        ),
+    )
+    batch = _batch(
+        catalog,
+        (ToolCallRecord("call_1", "test.output", {}, ToolKind.ACTION),),
+    )
+    executors = ExecutorRegistry()
+    executors.register("subprocess.default", SubprocessActionExecutor())
+
+    results = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )
+
+    assert results[0].status is ActionResultStatus.SUCCESS
+    assert results[0].payload["stdout"] == "abcd"
+    assert results[0].payload["stderr"] == "uvw"
+    assert results[0].payload["stdout_truncated"] is True
+    assert results[0].payload["stderr_truncated"] is True
+
+
 def test_subprocess_executor_kills_timed_out_process() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),

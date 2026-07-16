@@ -271,6 +271,8 @@ def _extract_pdf(
                             label=f"Page {page_number} image",
                             visual=True,
                         )
+                except WorkerFailure:
+                    raise
                 except Exception:
                     _warning(warnings, "page_image_extraction_failed")
         if extract_attachments:
@@ -284,6 +286,8 @@ def _extract_pdf(
                             label=name,
                             visual=False,
                         )
+            except WorkerFailure:
+                raise
             except Exception:
                 _warning(warnings, "attachment_extraction_failed")
         return tuple(page_texts), len(reader.pages)

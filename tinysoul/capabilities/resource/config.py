@@ -139,31 +139,58 @@ def parse_resource_settings(tree: Mapping[str, object]) -> ResourceSettings:
 
 
 def _parse_markitdown(value: object) -> MarkItDownConversionSettings:
-    tree = _table(value, key="capabilities.resource.convert_with_markitdown")
+    key = "capabilities.resource.convert_with_markitdown"
+    tree = _table(value, key=key)
     reject_unknown_keys(
         tree,
         {"enabled", "formats", "extract_images", "extract_attachments"},
-        key="capabilities.resource.convert_with_markitdown",
+        key=key,
     )
     return MarkItDownConversionSettings(
-        enabled=_bool_value(tree, "enabled", True),
-        formats=_str_tuple(tree, "formats", ("pdf", "docx")),
-        extract_images=_bool_value(tree, "extract_images", True),
-        extract_attachments=_bool_value(tree, "extract_attachments", True),
+        enabled=_bool_value(tree, "enabled", True, key=f"{key}.enabled"),
+        formats=_str_tuple(
+            tree,
+            "formats",
+            ("pdf", "docx"),
+            key=f"{key}.formats",
+        ),
+        extract_images=_bool_value(
+            tree,
+            "extract_images",
+            True,
+            key=f"{key}.extract_images",
+        ),
+        extract_attachments=_bool_value(
+            tree,
+            "extract_attachments",
+            True,
+            key=f"{key}.extract_attachments",
+        ),
     )
 
 
 def _parse_pypdf(value: object) -> PdfConversionSettings:
-    tree = _table(value, key="capabilities.resource.convert_with_pypdf")
+    key = "capabilities.resource.convert_with_pypdf"
+    tree = _table(value, key=key)
     reject_unknown_keys(
         tree,
         {"enabled", "extract_images", "extract_attachments"},
-        key="capabilities.resource.convert_with_pypdf",
+        key=key,
     )
     return PdfConversionSettings(
-        enabled=_bool_value(tree, "enabled", True),
-        extract_images=_bool_value(tree, "extract_images", True),
-        extract_attachments=_bool_value(tree, "extract_attachments", True),
+        enabled=_bool_value(tree, "enabled", True, key=f"{key}.enabled"),
+        extract_images=_bool_value(
+            tree,
+            "extract_images",
+            True,
+            key=f"{key}.extract_images",
+        ),
+        extract_attachments=_bool_value(
+            tree,
+            "extract_attachments",
+            True,
+            key=f"{key}.extract_attachments",
+        ),
     )
 
 
@@ -192,9 +219,15 @@ def _int(tree: Mapping[str, object], name: str, default: int) -> int:
     return value
 
 
-def _bool_value(tree: Mapping[str, object], name: str, default: bool) -> bool:
+def _bool_value(
+    tree: Mapping[str, object],
+    name: str,
+    default: bool,
+    *,
+    key: str,
+) -> bool:
     value = tree.get(name, default)
-    _bool(value, key=f"capabilities.resource.{name}")
+    _bool(value, key=key)
     return cast(bool, value)
 
 
@@ -202,6 +235,8 @@ def _str_tuple(
     tree: Mapping[str, object],
     name: str,
     default: tuple[str, ...],
+    *,
+    key: str,
 ) -> tuple[str, ...]:
     value = tree.get(name)
     if value is None:
@@ -211,7 +246,7 @@ def _str_tuple(
     ):
         raise ConfigError(
             "Resource capability value must be a list of non-empty strings",
-            key=f"capabilities.resource.convert_with_markitdown.{name}",
+            key=key,
             value=value,
             expected="list[str]",
         )

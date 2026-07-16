@@ -13,8 +13,8 @@ class ResourceContractError(ResourceError):
     """Raised when a Resource caller violates the service contract."""
 
 
-class ResourceInvariantError(ResourceError):
-    """Raised when Resource internal state violates an invariant."""
+class ResourceWorkerProtocolError(ResourceError):
+    """Raised when staged worker output violates the host protocol."""
 
 
 class ResourceProcessingError(ResourceError):
@@ -38,4 +38,3 @@ class ResourceProcessTimeout(ResourceError):
     def __init__(self, message: str, *, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
-
