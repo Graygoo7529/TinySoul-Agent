@@ -70,7 +70,6 @@ class RuntimeContextBridge:
         if isinstance(error, ContextBudgetError):
             budget_payload: JsonObject = {
                 "estimated_chars": error.estimated_chars,
-                "max_chars": error.max_chars,
                 "estimated_image_bytes": error.estimated_image_bytes,
                 "max_image_bytes": error.max_image_bytes,
                 "section_usage": error.section_usage,

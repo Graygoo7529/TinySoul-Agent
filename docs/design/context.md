@@ -26,7 +26,7 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 用户轮开始前的背景。BackgroundContext 由 Context 所有，是可聚合多个内容模块的通用 Phase1 Background，不是 Agent Home 的内部容器。Session 在 Turn preparation 期间通过版本化全量快照注入当日跨 Turn 历史；注册的 `BackgroundEntryProvider` 分别提供自己拥有的默认条目、内部可加载目录、可选的目录发现 metadata 和按 Link 正文。Home provider 提供不可逐出的 core、存在时同样不可逐出的 user 正文、Home 顶层目录，以及全部 effective 通用 HOW 的 Link/title/description；Memory provider 只提供精确昨日的自动条目（如有），不把全部历史 Memory 加入 Phase1 目录。Top Link 格式表示内容可进入 Background，不表示它必然是自动正文。
 
-`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入 Context 总预算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。预算恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata、`home:agent@AGENT` 或存在时自动加载的 `home:agent@user/user`。
+`begin_turn` 清空上一 Turn 的 Session、目录 metadata 与通用 Background；`abort_turn` 同样清空未完成 Turn 的 Background、provider catalog、Session、Working、Trace 和输入状态。preparation 先从所有 provider 原子重建目录 metadata 和默认/自动条目，再提交 Session snapshot。目录 metadata 以 `background:catalog:<owner>` JSON user message 自动渲染，不作为已加载正文 Link，也不由 Phase1 逐出；其业务大小由提供方约束，并继续计入模型上下文估算。Phase1 动态加载项和昨日 Memory 条目都只属于本 Turn，不依赖 Context 内存跨 Turn 保留；跨 Turn 信息必须先进入 Session、Home 或 Memory 持久事实。SessionBackground 始终渲染在通用 Phase1 Background 之前。压力恢复可逐出 Phase1 动态来源和自动昨日 Memory，但不删除目录 metadata、`home:agent@AGENT` 或存在时自动加载的 `home:agent@user/user`。
 
 ### WorkingContext
 
@@ -60,7 +60,7 @@ BackgroundContext、WorkingContext、UserInputs 与 task prompt overlay 均渲�
 
 task prompt 由 TaskPrompt 表达，包含任务引导、任务输入与期望输出描述三部分语义。TaskPrompt 渲染为多条可切分 user messages：guide、domain HOW、task input、额外 task input blocks 和 expected output 分别可以成为独立 message。Phase2 的 overlay 可以携带按已选 action domain 组织的 HOW 引导内容（domain HOW）；引导内容由上层装配提供，Context 只负责拼装，没有内容提供方时该部分为空。
 
-composer 在构造时执行语境预算检查。文本预算覆盖消息可见文本、JSON 片段、Assistant tool call 的名称/标识/参数、ToolResult 的调用关联与元数据，以及 Assistant reasoning 的文本内容、摘要和加密推理项，避免不可见协议数据绕过上下文预算；内联 `ImagePart` 使用独立的总字节预算，避免多资源 Prompt 绕过字符预算。任一预算超限都不在 Context 内部消化，而是作为模块边界失败交给压缩流程处理（见语境压缩）。
+composer 在构造时统计各 section 的文本字符和图片字节，但不再设置静态文本字符上限；模型 token 窗口由 LLM 在每个候选模型调用前检查。内联 `ImagePart` 继续使用独立的总字节硬预算，避免多资源 Prompt 绕过本地资源边界；图片字节超限仍作为 Context 模块边界失败交给压缩流程处理。
 
 ## 语境控制工具与信号
 
@@ -87,20 +87,20 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 压缩流程遵循 Runtime 统一陷入协议，并由 Loop 的压力恢复协调器按所有权边界执行：
 
-1. composer 预算检查失败时抛出模块边界异常，由 context bridge 映射为语境压缩的 Runtime 原因；
-2. `ContextPressureRecovery` 依据预算 payload 与目标比例计算带滞回的回收量；字符预算和图片预算分开处理，图片单独超限不会触发 Workspace 文件删除；
+1. LLM 候选模型预检超过 `compression_trigger_ratio` 硬水位时，Context-built Task 中止本次模型链并映射为语境压缩 Runtime 原因；composer 的图片字节硬预算仍可进入相同原因；
+2. `ContextPressureRecovery` 依据模型窗口、message/non-message/output token 分项、消息字符投影与 `compression_target_ratio` 计算回收量；图片单独超限不会触发 Workspace 文件删除；
 3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；Home core 与存在时的自动 user 正文都不逐出；
 4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn`、且未被当前 action `target_link`/`reference_links` 保护的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；批次中途失败回滚已移动项，同步失败也尝试 restore；
 5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
-Composer 的预算异常携带各 section 的字符数和图片字节数，为恢复决策和诊断提供稳定依据。UserInputs、不可逐出的 Home core/user 和 WorkingContext 业务状态不会被无条件裁剪；自动昨日 Memory 属于可回收 Background。
+模型容量异常携带当前候选模型、窗口、水位、输入/output token 估算和消息字符投影；Composer 的图片预算异常继续携带各 section 的字符数和图片字节数。UserInputs、SessionBackground、不可逐出的 Home core/user、WorkingContext 和 task prompt 不会被裁剪；自动昨日 Memory 属于可回收 Background。回收后 Runtime 重试当前 Module 或 Phase，由上层重新 compose 整个 LLM Task；Context 不维护按模型区分的 MessageStack。
 
 ## 失败与异常边界
 
 Context 失败处理分三层：
 
 1. 局部结果：模型控制调用不合规、信号载荷不合规，收敛为 ControlResult，由上层决定记录与反馈方式；
-2. 模块边界异常：调用契约错误（ContextContractError）、内部不变量破坏（ContextInvariantError）、语境预算超限（ContextBudgetError）；
+2. 模块边界异常：调用契约错误（ContextContractError）、内部不变量破坏（ContextInvariantError）、图片字节预算超限（ContextBudgetError）；
 3. Runtime 语义异常：跨出模块边界的失败由 `failures.py` 的稳定失败枚举经 `tinysoul/runtime/bridge/` 下的 context bridge 映射——配置失败映射为启动失败，预算超限映射为语境压缩原因，其余默认结束当前 Turn。payload 只携带模块名、失败类型与摘要字段。
 
 ## 持久化边界

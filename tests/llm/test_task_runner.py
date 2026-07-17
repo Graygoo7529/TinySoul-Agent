@@ -6,6 +6,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
+from tinysoul.llm.context_window import RequestTokenEstimate
 from tinysoul.llm.messages import ImagePart, ImageUrlPart, MessageStack, UserMessage
 from tinysoul.llm.model_chain import (
     Clock,
@@ -18,7 +19,11 @@ from tinysoul.llm.model_chain import (
 from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
-from tinysoul.llm.requests import CallSettings, TaskCall
+from tinysoul.llm.requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+)
 from tinysoul.llm.responses import (
     JsonAnswer,
     RawResponse,
@@ -31,6 +36,7 @@ from tinysoul.llm.task import (
     LLMTaskRunner,
 )
 from tinysoul.runtime.exception import (
+    CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_TURN_END,
     RuntimeException,
 )
@@ -72,6 +78,195 @@ class FakeClock(Clock):
 
     def now(self) -> float:
         return self.current
+
+
+@dataclass
+class FixedTokenEstimator:
+    message_tokens: int
+    non_message_tokens: int = 0
+    message_chars: int = 100
+
+    def estimate(self, messages: MessageStack, tool_scope: ToolScope) -> RequestTokenEstimate:
+        return RequestTokenEstimate(
+            message_tokens=self.message_tokens,
+            non_message_tokens=self.non_message_tokens,
+            message_chars=self.message_chars,
+        )
+
+
+def test_context_hard_water_requests_runtime_recomposition_before_provider() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_window_models(("small", 100)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("small",),
+                retry_policy=RetryPolicy(max_cycles=1),
+            ),
+            max_output_tokens=10,
+        ),
+        context_trigger_ratio=0.8,
+        token_estimator=FixedTokenEstimator(message_tokens=71),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                context_overflow_policy=(
+                    ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                ),
+            )
+        )
+
+    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert (
+        exc_info.value.payload["kind"]
+        == LLMFailureKind.MODEL_CONTEXT_COMPRESSION_REQUIRED
+    )
+    assert exc_info.value.payload["used_tokens"] == 81
+    assert exc_info.value.payload["trigger_tokens"] == 80
+    assert provider.calls == []
+
+
+def test_context_hard_water_ends_non_context_task() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_window_models(("small", 100)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="home_search",
+                model_ids=("small",),
+                retry_policy=RetryPolicy(max_cycles=1),
+            ),
+            max_output_tokens=10,
+        ),
+        context_trigger_ratio=0.8,
+        token_estimator=FixedTokenEstimator(message_tokens=71),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="home_search",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+            )
+        )
+
+    assert exc_info.value.reason == RUNTIME_TURN_END
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED
+    assert provider.calls == []
+
+
+def test_hard_water_allows_usage_equal_to_trigger() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_window_models(("small", 100)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(profile="framework", model_ids=("small",)),
+            max_output_tokens=10,
+        ),
+        context_trigger_ratio=0.8,
+        token_estimator=FixedTokenEstimator(message_tokens=70),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+        )
+    )
+
+    assert _json_output(result) == {"model": "small"}
+    assert provider.calls == ["small"]
+
+
+def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> None:
+    @dataclass
+    class LargeFailingProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            if request.model.id == "large":
+                raise ProviderError("unavailable", kind=ProviderErrorKind.CONFIG)
+            return RawResponse(
+                answer_text='{"model": "small"}',
+                model_id=request.model.id,
+                provider_id=self.provider_id,
+            )
+
+    provider = LargeFailingProvider(provider_id="fake")
+    estimator = FixedTokenEstimator(message_tokens=71)
+    runner = LLMTaskRunner(
+        models=_window_models(("large", 1000), ("small", 100)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("large", "small"),
+                retry_policy=RetryPolicy(max_cycles=1),
+            ),
+            max_output_tokens=10,
+        ),
+        context_trigger_ratio=0.8,
+        token_estimator=estimator,
+    )
+    call = TaskCall(
+        profile="framework",
+        messages=MessageStack.of(UserMessage.from_text("hello")),
+        context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(call)
+
+    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.payload["model_id"] == "small"
+    assert provider.calls == ["large"]
+
+    estimator.message_tokens = 20
+    result = runner.run(call)
+
+    assert _json_output(result) == {"model": "small"}
+    assert provider.calls == ["large", "large", "small"]
+
+
+def test_provider_context_limit_uses_same_recomposition_path() -> None:
+    @dataclass
+    class ContextRejectingProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            raise ProviderError(
+                "provider context limit",
+                kind=ProviderErrorKind.CONTEXT_LIMIT,
+            )
+
+    provider = ContextRejectingProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_window_models(("model", 1000)),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("model",))),
+        token_estimator=FixedTokenEstimator(message_tokens=20),
+    )
+
+    with pytest.raises(RuntimeException) as exc_info:
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                context_overflow_policy=(
+                    ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                ),
+            )
+        )
+
+    assert exc_info.value.reason == CONTEXT_COMPRESSION_REQUIRED
+    assert exc_info.value.payload["provider_reported_limit"] is True
+    assert provider.calls == ["model"]
 
 
 def test_runner_uses_current_model_then_continues_forward_after_failure() -> None:
@@ -244,6 +439,7 @@ def test_runner_reports_chain_head_capabilities_by_default() -> None:
         id="vision",
         provider_id="fake",
         provider_model="vision-model",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -351,6 +547,7 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
         id="a",
         provider_id="fake",
         provider_model="a",
+        context_window_tokens=262_144,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     runner = LLMTaskRunner(
@@ -395,12 +592,14 @@ def test_runner_skips_model_missing_call_capability() -> None:
         id="text",
         provider_id="fake",
         provider_model="text",
+        context_window_tokens=262_144,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     vision_model = ModelSpec(
         id="vision",
         provider_id="fake",
         provider_model="vision",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -471,6 +670,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
         id="a",
         provider_id="fake",
         provider_model="a",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -542,6 +742,7 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
         id="tool_model",
         provider_id="fake",
         provider_model="tool-model",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -573,6 +774,7 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
         id="tool_model",
         provider_id="fake",
         provider_model="tool-model",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -614,6 +816,7 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
         id="tool_model",
         provider_id="fake",
         provider_model="tool-model",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -676,6 +879,7 @@ def test_runner_interprets_tool_call_output() -> None:
         id="tool_model",
         provider_id="fake",
         provider_model="tool-model",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -893,6 +1097,7 @@ def test_runner_reports_unknown_provider_as_contract_violation() -> None:
         id="model_a",
         provider_id="missing",
         provider_model="model-a",
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -931,6 +1136,7 @@ def _models(*ids: str) -> ModelRegistry:
                 id=model_id,
                 provider_id="fake",
                 provider_model=model_id,
+                context_window_tokens=262_144,
                 capabilities=capabilities,
             )
             for model_id in ids
@@ -938,7 +1144,32 @@ def _models(*ids: str) -> ModelRegistry:
     )
 
 
-def _tasks(chain: ModelChain) -> TaskSpecTable:
+def _window_models(*items: tuple[str, int]) -> ModelRegistry:
+    capabilities = frozenset(
+        {
+            ModelCapability.TEXT_INPUT,
+            ModelCapability.JSON_OBJECT_OUTPUT,
+        }
+    )
+    return ModelRegistry(
+        [
+            ModelSpec(
+                id=model_id,
+                provider_id="fake",
+                provider_model=model_id,
+                context_window_tokens=window,
+                capabilities=capabilities,
+            )
+            for model_id, window in items
+        ]
+    )
+
+
+def _tasks(
+    chain: ModelChain,
+    *,
+    max_output_tokens: int | None = None,
+) -> TaskSpecTable:
     return TaskSpecTable(
         [
             TaskSpec(
@@ -947,6 +1178,7 @@ def _tasks(chain: ModelChain) -> TaskSpecTable:
                 settings=CallSettings(
                     answer_format=AnswerFormat.JSON_OBJECT,
                     tool_use=ToolUse.DISABLED,
+                    max_output_tokens=max_output_tokens,
                 ),
             )
         ]

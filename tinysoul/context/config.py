@@ -14,9 +14,9 @@ class ContextSettings:
 
     system_text: str = "You are TinySoul."
     journal: str = ""
-    budget_max_chars: int | None = None
     budget_max_image_bytes: int | None = None
-    compression_target_ratio: float = 0.80
+    compression_trigger_ratio: float = 0.80
+    compression_target_ratio: float = 0.50
     trace_chunk_max_chars: int = 12000
     trace_branch_factor: int = 4
     trace_min_hot_entries: int = 2
@@ -30,13 +30,6 @@ class ContextSettings:
                 value=self.system_text,
                 expected="non-empty str",
             )
-        if self.budget_max_chars is not None and self.budget_max_chars <= 0:
-            raise ConfigError(
-                "Context budget_max_chars must be positive",
-                key="context.budget_max_chars",
-                value=self.budget_max_chars,
-                expected="positive int",
-            )
         if (
             self.budget_max_image_bytes is not None
             and self.budget_max_image_bytes <= 0
@@ -47,12 +40,19 @@ class ContextSettings:
                 value=self.budget_max_image_bytes,
                 expected="positive int",
             )
-        if not 0 < self.compression_target_ratio < 1:
+        if not 0 < self.compression_trigger_ratio < 1:
             raise ConfigError(
-                "Context compression_target_ratio must be between 0 and 1",
+                "Context compression_trigger_ratio must be between 0 and 1",
+                key="context.compression_trigger_ratio",
+                value=self.compression_trigger_ratio,
+                expected="float between 0 and 1",
+            )
+        if not 0 < self.compression_target_ratio < self.compression_trigger_ratio:
+            raise ConfigError(
+                "Context compression_target_ratio must be below the trigger ratio",
                 key="context.compression_target_ratio",
                 value=self.compression_target_ratio,
-                expected="float between 0 and 1",
+                expected="float between 0 and compression_trigger_ratio",
             )
         _require_positive(self.trace_chunk_max_chars, "trace_chunk_max_chars")
         if self.trace_branch_factor < 2:
@@ -78,8 +78,8 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
         {
             "system_text",
             "journal",
-            "budget_max_chars",
             "budget_max_image_bytes",
+            "compression_trigger_ratio",
             "compression_target_ratio",
             "trace_chunk_max_chars",
             "trace_branch_factor",
@@ -95,15 +95,15 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             default=ContextSettings.system_text,
         ),
         journal=_optional_str(tree, "journal", default="", allow_empty=True),
-        budget_max_chars=_optional_int(
-            tree,
-            "budget_max_chars",
-            default=None,
-        ),
         budget_max_image_bytes=_optional_int(
             tree,
             "budget_max_image_bytes",
             default=None,
+        ),
+        compression_trigger_ratio=_optional_float(
+            tree,
+            "compression_trigger_ratio",
+            default=ContextSettings.compression_trigger_ratio,
         ),
         compression_target_ratio=_optional_float(
             tree,

@@ -676,7 +676,12 @@ def test_builder_validates_background_configuration() -> None:
             min_hot_entries=0,
         )
     with pytest.raises(ContextContractError):
-        ContextEngineBuilder(system_text="sys").with_budget_max_chars(0)
+        (
+            ContextEngineBuilder(system_text="sys")
+            .with_compression_trigger_ratio(0.5)
+            .with_compression_target_ratio(0.5)
+            .build()
+        )
     with pytest.raises(ContextContractError):
         ContextEngineBuilder(system_text="sys").add_default_background("", "content")
     with pytest.raises(ContextContractError):

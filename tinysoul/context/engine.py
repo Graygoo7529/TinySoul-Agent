@@ -171,6 +171,7 @@ class ContextEngine:
         loadable_entries: dict[str, BackgroundContentLoader],
         background_providers: tuple[BackgroundEntryProvider, ...],
         trace_recall_max_chars: int,
+        compression_trigger_ratio: float,
         compression_target_ratio: float,
     ) -> None:
         self._composer = composer
@@ -184,6 +185,7 @@ class ContextEngine:
         self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
         self._business_day: date | None = None
         self._trace_recall_max_chars = trace_recall_max_chars
+        self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
         self._scope_builder = ContextControlScopeBuilder()
         self._normalizer = ControlCallNormalizer()
@@ -196,6 +198,10 @@ class ContextEngine:
     @property
     def turn_active(self) -> bool:
         return bool(self._turn_id)
+
+    @property
+    def compression_trigger_ratio(self) -> float:
+        return self._compression_trigger_ratio
 
     @property
     def compression_target_ratio(self) -> float:
@@ -828,25 +834,19 @@ class ContextEngineBuilder:
             raise ContextContractError("ContextEngineBuilder requires non-empty system text")
         self._system_text = system_text
         self._journal = ""
-        self._max_chars: int | None = None
         self._max_image_bytes: int | None = None
         self._trace_chunk_max_chars = 12000
         self._trace_branch_factor = 4
         self._trace_min_hot_entries = 2
         self._trace_recall_max_chars = 8000
-        self._compression_target_ratio = 0.80
+        self._compression_trigger_ratio = 0.80
+        self._compression_target_ratio = 0.50
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
         self._background_providers: list[BackgroundEntryProvider] = []
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
         self._journal = journal
-        return self
-
-    def with_budget_max_chars(self, max_chars: int | None) -> "ContextEngineBuilder":
-        if max_chars is not None and max_chars <= 0:
-            raise ContextContractError("Context budget max chars must be positive")
-        self._max_chars = max_chars
         return self
 
     def with_budget_max_image_bytes(
@@ -896,6 +896,17 @@ class ContextEngineBuilder:
                 "Context compression target ratio must be between 0 and 1"
             )
         self._compression_target_ratio = ratio
+        return self
+
+    def with_compression_trigger_ratio(
+        self,
+        ratio: float,
+    ) -> "ContextEngineBuilder":
+        if not 0 < ratio < 1:
+            raise ContextContractError(
+                "Context compression trigger ratio must be between 0 and 1"
+            )
+        self._compression_trigger_ratio = ratio
         return self
 
     def add_default_background(self, link: str, content: str) -> "ContextEngineBuilder":
@@ -952,6 +963,10 @@ class ContextEngineBuilder:
         return self
 
     def build(self) -> ContextEngine:
+        if self._compression_target_ratio >= self._compression_trigger_ratio:
+            raise ContextContractError(
+                "Context compression target ratio must be below the trigger ratio"
+            )
         background = BackgroundContext(journal=self._journal)
         loadable = dict(self._loadable_entries)
         for entry in self._default_entries:
@@ -964,7 +979,6 @@ class ContextEngineBuilder:
             composer=MessageStackComposer(
                 system_text=self._system_text,
                 budget=ContextBudget(
-                    max_chars=self._max_chars,
                     max_image_bytes=self._max_image_bytes,
                 ),
             ),
@@ -978,6 +992,7 @@ class ContextEngineBuilder:
             loadable_entries=loadable,
             background_providers=tuple(self._background_providers),
             trace_recall_max_chars=self._trace_recall_max_chars,
+            compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
         )
 

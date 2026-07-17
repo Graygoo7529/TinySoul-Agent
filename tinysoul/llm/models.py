@@ -111,6 +111,7 @@ class ModelSpec:
     id: str
     provider_id: str
     provider_model: str
+    context_window_tokens: int
     capabilities: frozenset[ModelCapability] = field(
         default_factory=lambda: frozenset({ModelCapability.TEXT_INPUT})
     )
@@ -123,6 +124,14 @@ class ModelSpec:
             raise LLMContractError("ModelSpec.provider_id must be non-empty")
         if not isinstance(self.provider_model, str) or not self.provider_model:
             raise LLMContractError("ModelSpec.provider_model must be non-empty")
+        if (
+            isinstance(self.context_window_tokens, bool)
+            or not isinstance(self.context_window_tokens, int)
+            or self.context_window_tokens <= 0
+        ):
+            raise LLMContractError(
+                "ModelSpec.context_window_tokens must be a positive integer"
+            )
         try:
             capabilities = frozenset(self.capabilities)
         except TypeError as exc:

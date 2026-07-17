@@ -31,12 +31,19 @@ from tinysoul.runtime import (
 
 
 class FakeLLMRunner:
-    def __init__(self, answer: JsonObject | None = None) -> None:
+    def __init__(
+        self,
+        answer: JsonObject | None = None,
+        runtime_error: RuntimeException | None = None,
+    ) -> None:
         self.calls: list[TaskCall] = []
         self.answer = answer or {"ok": True}
+        self.runtime_error = runtime_error
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
+        if self.runtime_error is not None:
+            raise self.runtime_error
         return TaskResult.success(
             raw_response=RawResponse(
                 answer_text="{}",
@@ -182,13 +189,17 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
 
 
 def test_llm_action_context_pressure_carries_active_resource_links() -> None:
-    context = (
-        ContextEngineBuilder(system_text="system")
-        .with_budget_max_chars(10)
-        .build()
+    context = ContextEngineBuilder(system_text="system").build()
+    pressure = RuntimeException(
+        reason=CONTEXT_COMPRESSION_REQUIRED,
+        message="model context pressure",
+        payload={"model_id": "small"},
     )
     context.begin_turn("user asks")
-    runner = LLMActionTaskRunner(llm_runner=FakeLLMRunner(), context=context)
+    runner = LLMActionTaskRunner(
+        llm_runner=FakeLLMRunner(runtime_error=pressure),
+        context=context,
+    )
     execution = _execution(
         "core.reason",
         {

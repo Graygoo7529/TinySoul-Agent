@@ -25,14 +25,12 @@ class ContextBudgetError(ContextError):
         message: str,
         *,
         estimated_chars: int,
-        max_chars: int | None,
         estimated_image_bytes: int = 0,
         max_image_bytes: int | None = None,
         section_usage: JsonObject | None = None,
     ) -> None:
         super().__init__(message)
         self.estimated_chars = estimated_chars
-        self.max_chars = max_chars
         self.estimated_image_bytes = estimated_image_bytes
         self.max_image_bytes = max_image_bytes
         self.section_usage = to_json_object(section_usage or {})

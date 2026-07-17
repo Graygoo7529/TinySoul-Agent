@@ -54,13 +54,27 @@ def test_provider_options_rejects_non_string_keys() -> None:
 
 def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:
     with pytest.raises(LLMContractError):
-        ModelSpec(id="", provider_id="fake", provider_model="model")
+        ModelSpec(
+            id="",
+            provider_id="fake",
+            provider_model="model",
+            context_window_tokens=262_144,
+        )
 
     with pytest.raises(LLMContractError):
         ModelSpec(
             id="model",
             provider_id="fake",
             provider_model="model",
+            context_window_tokens=0,
+        )
+
+    with pytest.raises(LLMContractError):
+        ModelSpec(
+            id="model",
+            provider_id="fake",
+            provider_model="model",
+            context_window_tokens=262_144,
             capabilities=cast(frozenset[ModelCapability], frozenset({"text_input"})),
         )
 
@@ -160,4 +174,5 @@ def _model(model_id: str) -> ModelSpec:
         id=model_id,
         provider_id="fake",
         provider_model=model_id,
+        context_window_tokens=262_144,
     )

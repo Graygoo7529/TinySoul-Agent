@@ -26,7 +26,12 @@ from tinysoul.context import (
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import AssistantMessage, TextPart
-from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
+from tinysoul.llm.requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+    TaskProfile,
+)
 from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolScope, ToolSelection, ToolSpec, ToolUse
 from tinysoul.runtime import (
@@ -139,6 +144,9 @@ class Phase1Unit:
                     tool_scope=tool_scope,
                     settings=_required_tool_settings(),
                     scope=scope,
+                    context_overflow_policy=(
+                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                    ),
                 )
             )
             if result.status is TaskResultStatus.FAILURE:
@@ -274,6 +282,9 @@ class Phase2Unit:
                     tool_scope=preparation.tool_scope,
                     settings=_required_tool_settings(),
                     scope=scope,
+                    context_overflow_policy=(
+                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                    ),
                 )
             )
             if result.status is TaskResultStatus.FAILURE:

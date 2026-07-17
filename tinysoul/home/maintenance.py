@@ -20,6 +20,7 @@ from tinysoul.llm import (
     CallSettings,
     JsonAnswer,
     MessageStack,
+    ModelContextOverflowPolicy,
     SystemMessage,
     TaskCall,
     TaskProfile,
@@ -359,6 +360,7 @@ class LLMHomeMaintenanceReviewer:
                     tool_use=ToolUse.DISABLED,
                 ),
                 scope=scope,
+                context_overflow_policy=ModelContextOverflowPolicy.END_TURN,
             )
         )
         if result.status is TaskResultStatus.FAILURE:

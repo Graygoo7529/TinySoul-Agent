@@ -1416,6 +1416,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
                 id="minimax_m3",
                 provider_id="minimax",
                 provider_model="MiniMax-M3",
+                context_window_tokens=262_144,
                 capabilities=frozenset(
                     {
                         ModelCapability.TEXT_INPUT,
@@ -1823,6 +1824,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
                 id="text_model",
                 provider_id="kimi",
                 provider_model="text-model",
+                context_window_tokens=262_144,
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2153,6 +2155,7 @@ def _model(
         id=provider_model.replace(".", "_"),
         provider_id=provider_id,
         provider_model=provider_model,
+        context_window_tokens=262_144,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,

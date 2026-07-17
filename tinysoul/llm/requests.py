@@ -26,6 +26,13 @@ class TaskProfile(StrEnum):
     MEMORY_MAINTENANCE = "memory_maintenance"
 
 
+class ModelContextOverflowPolicy(StrEnum):
+    """How a caller handles a model context hard-water failure."""
+
+    END_TURN = "end_turn"
+    RECOMPOSE_CONTEXT = "recompose_context"
+
+
 @dataclass(frozen=True)
 class CallSettings:
     """Common settings for a model call."""
@@ -100,6 +107,9 @@ class TaskCall:
     prompt_cache: PromptCache | None = None
     settings: CallSettings = field(default_factory=CallSettings)
     scope: RunScope = field(default_factory=RunScope)
+    context_overflow_policy: ModelContextOverflowPolicy = (
+        ModelContextOverflowPolicy.END_TURN
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, (TaskProfile, str)) or not self.profile:
@@ -118,3 +128,11 @@ class TaskCall:
             raise LLMContractError("TaskCall.settings must be CallSettings")
         if not isinstance(self.scope, RunScope):
             raise LLMContractError("TaskCall.scope must be a RunScope")
+        if not isinstance(
+            self.context_overflow_policy,
+            ModelContextOverflowPolicy,
+        ):
+            raise LLMContractError(
+                "TaskCall.context_overflow_policy must be "
+                "ModelContextOverflowPolicy"
+            )

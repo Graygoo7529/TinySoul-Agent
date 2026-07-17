@@ -88,11 +88,44 @@ def provider_error(error: Exception) -> ProviderError:
         if error.status_code in {408, 409, 429, 500, 502, 503, 504}:
             return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT)
         if error.status_code == 400:
+            if _is_context_limit_error(error):
+                return ProviderError(
+                    str(error),
+                    kind=ProviderErrorKind.CONTEXT_LIMIT,
+                )
             return ProviderError(str(error), kind=ProviderErrorKind.CONFIG)
         return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN)
     if isinstance(error, (APIConnectionError, APIError, TimeoutError)):
         return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT)
     return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN)
+
+
+def _is_context_limit_error(error: APIStatusError) -> bool:
+    values = [str(error)]
+    body = getattr(error, "body", None)
+    if isinstance(body, Mapping):
+        pending: list[object] = [body]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, Mapping):
+                pending.extend(item.values())
+            elif isinstance(item, list):
+                pending.extend(item)
+            elif isinstance(item, str):
+                values.append(item)
+    normalized = " ".join(values).lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "context_length_exceeded",
+            "context window",
+            "context length",
+            "context limit",
+            "model token limit",
+            "maximum context",
+            "too many tokens",
+        )
+    )
 
 
 def response_metadata(response: object) -> dict[str, object]:

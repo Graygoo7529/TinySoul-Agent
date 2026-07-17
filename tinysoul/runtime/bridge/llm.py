@@ -9,6 +9,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.failures import LLMFailureKind
 
 from ..exception import (
+    CONTEXT_COMPRESSION_REQUIRED,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
     RuntimeException,
@@ -17,6 +18,8 @@ from ._payload import config_error_payload, exception_payload, runtime_exception
 
 LLM_RUNTIME_REASON_MAP: dict[LLMFailureKind, str] = {
     LLMFailureKind.MODEL_CHAIN_EXHAUSTED: RUNTIME_TURN_END,
+    LLMFailureKind.MODEL_CONTEXT_COMPRESSION_REQUIRED: CONTEXT_COMPRESSION_REQUIRED,
+    LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED: RUNTIME_TURN_END,
     LLMFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     LLMFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
     LLMFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,

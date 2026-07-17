@@ -18,6 +18,7 @@ from tinysoul.capabilities.web import register_web_actions
 from tinysoul.context import (
     ContextEngine,
     ContextEngineBuilder,
+    ContextSettings,
     parse_context_settings,
 )
 from tinysoul.context.preparation import ContextTurnPreparationHandler
@@ -260,6 +261,7 @@ class TinySoulAppBuilder:
                 if self._app_settings is not None
                 else self._build_app_settings(config, app_bridge)
             )
+            context_settings = self._build_context_settings(config, context_bridge)
             capabilities_settings = config.parse_section(
                 "capabilities",
                 parse_capabilities_settings,
@@ -277,7 +279,12 @@ class TinySoulAppBuilder:
             llm = (
                 self._llm
                 if self._llm is not None
-                else self._build_llm(config, llm_bridge, observations)
+                else self._build_llm(
+                    config,
+                    llm_bridge,
+                    observations,
+                    context_trigger_ratio=context_settings.compression_trigger_ratio,
+                )
             )
             home = self._build_home(config, home_bridge, observations)
             memory = (
@@ -300,7 +307,7 @@ class TinySoulAppBuilder:
                 self._context
                 if self._context is not None
                 else self._build_context(
-                    config,
+                    context_settings,
                     home,
                     memory,
                     context_bridge,
@@ -523,6 +530,8 @@ class TinySoulAppBuilder:
         config: ConfigEnvironment,
         bridge: RuntimeLLMBridge,
         observations: ObservationEmitter,
+        *,
+        context_trigger_ratio: float,
     ) -> LLMTaskRunner:
         try:
             llm_config = config.parse_section("llm", LLMConfigParser().parse)
@@ -536,6 +545,7 @@ class TinySoulAppBuilder:
                 tasks=llm_config.tasks,
                 runtime_bridge=bridge,
                 observations=observations,
+                context_trigger_ratio=context_trigger_ratio,
             )
         except ConfigError as exc:
             enriched = config.enrich_error(exc)
@@ -638,9 +648,20 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
-    def _build_context(
+    def _build_context_settings(
         self,
         config: ConfigEnvironment,
+        bridge: RuntimeContextBridge,
+    ) -> ContextSettings:
+        try:
+            return config.parse_section("context", parse_context_settings)
+        except ConfigError as exc:
+            enriched = config.enrich_error(exc)
+            raise bridge.from_config_error(enriched) from exc
+
+    def _build_context(
+        self,
+        settings: ContextSettings,
         home: AgentHomeEngine,
         memory: MemoryEngine,
         bridge: RuntimeContextBridge,
@@ -648,11 +669,9 @@ class TinySoulAppBuilder:
         memory_bridge: RuntimeMemoryBridge,
     ) -> ContextEngine:
         try:
-            settings = config.parse_section("context", parse_context_settings)
             builder = (
                 ContextEngineBuilder(system_text=settings.system_text)
                 .with_journal(settings.journal)
-                .with_budget_max_chars(settings.budget_max_chars)
                 .with_budget_max_image_bytes(settings.budget_max_image_bytes)
                 .with_trace_heap(
                     chunk_max_chars=settings.trace_chunk_max_chars,
@@ -660,6 +679,7 @@ class TinySoulAppBuilder:
                     min_hot_entries=settings.trace_min_hot_entries,
                 )
                 .with_trace_recall_max_chars(settings.trace_recall_max_chars)
+                .with_compression_trigger_ratio(settings.compression_trigger_ratio)
                 .with_compression_target_ratio(settings.compression_target_ratio)
                 .add_background_provider(
                     HomeBackgroundEntryProvider(

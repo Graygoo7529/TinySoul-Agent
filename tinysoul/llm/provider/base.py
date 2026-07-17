@@ -22,6 +22,7 @@ class ProviderErrorKind(StrEnum):
     AUTH = "auth"
     CONFIG = "config"
     CAPABILITY = "capability"
+    CONTEXT_LIMIT = "context_limit"
     PARSE = "parse"
     UNKNOWN = "unknown"
 

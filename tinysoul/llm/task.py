@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -18,6 +18,11 @@ from tinysoul.runtime.bridge import RuntimeLLMBridge
 
 from .errors import LLMContractError, LLMError
 from .failures import LLMFailureKind
+from .context_window import (
+    ModelContextPolicy,
+    ModelContextPressureError,
+    RequestTokenEstimator,
+)
 from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
     ChainErrorDisposition,
@@ -33,7 +38,12 @@ from .model_chain import (
 from .models import ModelCapability, ModelRegistry, ModelSpec
 from .observation_payloads import task_request_observation, task_response_observation
 from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
-from .requests import CallSettings, TaskCall, TaskProfile
+from .requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+    TaskProfile,
+)
 from .responses import (
     AnswerFormat,
     ResponseInterpretError,
@@ -71,6 +81,7 @@ class CurrentModelCapabilities:
     model_id: str
     provider_id: str
     provider_model: str
+    context_window_tokens: int
     capabilities: frozenset[ModelCapability]
 
     def supports(self, capability: ModelCapability) -> bool:
@@ -153,6 +164,8 @@ class LLMTaskRunner:
         call_validator: TaskCallValidator | None = None,
         runtime_bridge: RuntimeLLMBridge | None = None,
         observations: ObservationEmitter | None = None,
+        context_trigger_ratio: float = 0.80,
+        token_estimator: RequestTokenEstimator | None = None,
     ) -> None:
         self._models = models
         self._providers = providers
@@ -163,6 +176,10 @@ class LLMTaskRunner:
         self._sleeper = sleeper or Sleeper()
         self._runtime_bridge = runtime_bridge or RuntimeLLMBridge()
         self._observations = observations or NullObservationEmitter()
+        self._context_policy = ModelContextPolicy(
+            trigger_ratio=context_trigger_ratio,
+            estimator=token_estimator,
+        )
         self._chain_runner = chain_runner or ModelChainRunner(
             state=chain_state,
             planner=chain_planner,
@@ -178,6 +195,20 @@ class LLMTaskRunner:
                 lambda model_id: self._run_model(call, task, model_id),
                 classify_error=self._classify_chain_error,
             )
+        except ModelContextPressureError as exc:
+            kind = LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED
+            if (
+                call.context_overflow_policy
+                is ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+            ):
+                kind = LLMFailureKind.MODEL_CONTEXT_COMPRESSION_REQUIRED
+            raise self._runtime_bridge.from_exception(
+                kind,
+                exc,
+                payload=to_json_object(
+                    {"profile": call.profile, **exc.usage.to_payload()}
+                ),
+            ) from exc
         except ModelChainExhaustedError as exc:
             raise self._runtime_bridge.from_exception(
                 LLMFailureKind.MODEL_CHAIN_EXHAUSTED,
@@ -220,6 +251,7 @@ class LLMTaskRunner:
             model_id=model.id,
             provider_id=model.provider_id,
             provider_model=model.provider_model,
+            context_window_tokens=model.context_window_tokens,
             capabilities=model.capabilities,
         )
 
@@ -237,6 +269,15 @@ class LLMTaskRunner:
             model,
             self._capability_policy.required_capabilities(call, settings=settings),
         )
+        reserved_output_tokens = _effective_max_output_tokens(model, settings)
+        context_usage = self._context_policy.usage(
+            model=model,
+            messages=call.messages,
+            tool_scope=call.tool_scope,
+            reserved_output_tokens=reserved_output_tokens,
+        )
+        if context_usage.over_trigger:
+            raise ModelContextPressureError(context_usage)
         provider = self._providers.get(model.provider_id)
         last_error: ProviderError | None = None
 
@@ -291,6 +332,16 @@ class LLMTaskRunner:
                     )
                 )
             except ProviderError as exc:
+                if exc.kind is ProviderErrorKind.CONTEXT_LIMIT:
+                    raise ModelContextPressureError(
+                        self._context_policy.usage(
+                            model=model,
+                            messages=call.messages,
+                            tool_scope=call.tool_scope,
+                            reserved_output_tokens=reserved_output_tokens,
+                            provider_reported_limit=True,
+                        )
+                    ) from exc
                 if exc.kind is not ProviderErrorKind.TRANSIENT:
                     raise
                 last_error = exc
@@ -394,6 +445,8 @@ class LLMTaskRunner:
     def _classify_chain_error(self, error: Exception) -> ChainErrorDisposition:
         if isinstance(error, RuntimeException):
             return ChainErrorDisposition.ABORT
+        if isinstance(error, ModelContextPressureError):
+            return ChainErrorDisposition.ABORT
         if isinstance(error, ModelCapabilityError):
             return ChainErrorDisposition.SWITCH
         if isinstance(error, ProviderError):
@@ -427,3 +480,13 @@ class LLMTaskRunner:
         task: TaskSpec,
     ) -> CallSettings:
         return task.settings.override_with(call.settings)
+
+
+def _effective_max_output_tokens(
+    model: ModelSpec,
+    settings: CallSettings,
+) -> int:
+    override = model.provider_options.request_overrides().max_output_tokens
+    if override is not None:
+        return override
+    return settings.max_output_tokens or 0

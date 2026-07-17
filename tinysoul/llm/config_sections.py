@@ -18,6 +18,7 @@ from .config_helpers import (
     optional_str,
     required_bool,
     required_capability_set,
+    required_int,
     required_str,
     required_str_list,
 )
@@ -106,7 +107,13 @@ class ModelConfigParser:
             model_table = as_table(value, key=f"llm.models.{model_id}")
             reject_unknown_keys(
                 model_table,
-                {"provider", "provider_model", "capabilities", "provider_options"},
+                {
+                    "provider",
+                    "provider_model",
+                    "context_window_tokens",
+                    "capabilities",
+                    "provider_options",
+                },
                 key=f"llm.models.{model_id}",
             )
             provider_id = required_str(
@@ -137,6 +144,11 @@ class ModelConfigParser:
                         provider_model=required_str(
                             model_table,
                             "provider_model",
+                            key=f"llm.models.{model_id}",
+                        ),
+                        context_window_tokens=required_int(
+                            model_table,
+                            "context_window_tokens",
                             key=f"llm.models.{model_id}",
                         ),
                         capabilities=required_capability_set(

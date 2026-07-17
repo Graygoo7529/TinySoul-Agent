@@ -102,24 +102,6 @@ def test_compose_section_order_and_labels() -> None:
     assert "# Domain HOW" in guidance.text
 
 
-def test_compose_budget_exceeded_raises() -> None:
-    inputs, background, working, trace = _sections()
-    composer = MessageStackComposer(
-        system_text="identity text",
-        budget=ContextBudget(max_chars=10),
-    )
-    with pytest.raises(ContextBudgetError) as exc_info:
-        composer.compose(
-            inputs=inputs,
-            background=background,
-            working=working,
-            trace=trace,
-            task_prompt=_prompt("Do phase one."),
-        )
-    assert exc_info.value.max_chars == 10
-    assert exc_info.value.estimated_chars > 10
-
-
 def test_compose_image_budget_exceeded_raises() -> None:
     inputs, background, working, trace = _sections()
     composer = MessageStackComposer(

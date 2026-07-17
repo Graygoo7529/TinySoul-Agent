@@ -19,16 +19,18 @@ from tinysoul.runtime.bridge import RuntimeContextBridge
 def test_budget_error_maps_to_compression_reason() -> None:
     bridge = RuntimeContextBridge()
     error = ContextBudgetError(
-        "over budget",
+        "image budget",
         estimated_chars=1200,
-        max_chars=1000,
+        estimated_image_bytes=2000,
+        max_image_bytes=1000,
     )
     exc = bridge.from_context_error(error)
     assert exc.reason == CONTEXT_COMPRESSION_REQUIRED
     assert exc.payload["module"] == "context"
     assert exc.payload["kind"] == ContextFailureKind.BUDGET_EXCEEDED.value
     assert exc.payload["estimated_chars"] == 1200
-    assert exc.payload["max_chars"] == 1000
+    assert exc.payload["estimated_image_bytes"] == 2000
+    assert exc.payload["max_image_bytes"] == 1000
 
 
 def test_contract_and_invariant_errors_end_turn() -> None:

@@ -40,6 +40,7 @@ def test_llm_config_parses_project_config_files() -> None:
     openai_model = config.models.get("gpt_5_5")
     assert openai_model.provider_id == "sublyx_proxy"
     assert openai_model.provider_model == "gpt-5.5"
+    assert openai_model.context_window_tokens == 262144
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert openai_model.supports(ModelCapability.TOOL_CALLING)
@@ -56,6 +57,7 @@ def test_llm_config_parses_project_config_files() -> None:
     kimi_model = config.models.get("kimi_k2_7")
     assert kimi_model.provider_id == "kimi_coding"
     assert kimi_model.provider_model == "kimi-for-coding-highspeed"
+    assert kimi_model.context_window_tokens == 262144
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
@@ -75,6 +77,7 @@ def test_llm_config_parses_project_config_files() -> None:
     kimi_k3_model = config.models.get("kimi_k3")
     assert kimi_k3_model.provider_id == "kimi_coding"
     assert kimi_k3_model.provider_model == "k3"
+    assert kimi_k3_model.context_window_tokens == 1048576
     assert kimi_k3_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_k3_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
     assert kimi_k3_model.supports(ModelCapability.TOOL_CALLING)
@@ -185,6 +188,7 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
             "bad": {
                 "provider": "missing",
                 "provider_model": "model",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -197,6 +201,33 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
 
     with pytest.raises(ConfigError):
         LLMConfigParser().parse(tree)
+
+
+def test_llm_config_requires_model_context_window() -> None:
+    tree = {
+        "providers": {
+            "fake": {
+                "enabled": True,
+                "adapter": "generic",
+                "api_style": "openai_chat",
+                "base_url": "https://example.test/v1",
+                "api_key_envs": ["FAKE_API_KEY"],
+            }
+        },
+        "models": {
+            "missing_window": {
+                "provider": "fake",
+                "provider_model": "model",
+                "capabilities": ["text_input"],
+            }
+        },
+        "tasks": {"framework": {"models": ["missing_window"]}},
+    }
+
+    with pytest.raises(ConfigError) as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key == "llm.models.missing_window.context_window_tokens"
 
 
 def test_llm_config_rejects_task_with_unknown_model() -> None:
@@ -214,6 +245,7 @@ def test_llm_config_rejects_task_with_unknown_model() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -243,6 +275,7 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -275,6 +308,7 @@ def test_provider_options_rejects_unknown_reasoning_keep() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
                 "provider_options": {"reasoning_keep": "forever"},
             }
@@ -305,6 +339,7 @@ def test_llm_config_rejects_invalid_request_override() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
                 "provider_options": {
                     "request_overrides": {"temperature": True},
@@ -337,6 +372,7 @@ def test_llm_config_rejects_invalid_enum_values_at_parse_time() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -369,6 +405,7 @@ def test_llm_config_rejects_invalid_retry_policy_at_parse_time() -> None:
             "kimi_k2_7": {
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -401,6 +438,7 @@ def test_llm_config_rejects_task_required_capability_missing_from_chain_model() 
             "text_model": {
                 "provider": "kimi",
                 "provider_model": "text-model",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             }
         },
@@ -431,6 +469,7 @@ def test_llm_config_rejects_unknown_nested_provider_option_key() -> None:
             "glm_model": {
                 "provider": "glm",
                 "provider_model": "glm-model",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
                 "provider_options": {
                     "thinking": {
@@ -471,11 +510,13 @@ def test_disabled_provider_is_filtered_without_resolving_its_credential() -> Non
             "disabled_model": {
                 "provider": "disabled",
                 "provider_model": "disabled-model",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             },
             "enabled_model": {
                 "provider": "enabled",
                 "provider_model": "enabled-model",
+                "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             },
         },

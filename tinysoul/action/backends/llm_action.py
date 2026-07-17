@@ -10,10 +10,15 @@ from tinysoul.action.core.result import ActionResult, ActionResultStage
 from tinysoul.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.requests import CallSettings, TaskCall, TaskProfile
+from tinysoul.llm.requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+    TaskProfile,
+)
 from tinysoul.llm.responses import AnswerFormat, JsonAnswer, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolUse
-from tinysoul.runtime import RuntimeException
+from tinysoul.runtime import CONTEXT_COMPRESSION_REQUIRED, RuntimeException
 from tinysoul.runtime.bridge import RuntimeContextBridge
 
 
@@ -100,10 +105,25 @@ class LLMActionTaskRunner:
                         tool_use=ToolUse.DISABLED,
                     ),
                     scope=execution.framework.scope,
+                    context_overflow_policy=(
+                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
+                    ),
                 )
             )
-        except RuntimeException:
-            raise
+        except RuntimeException as exc:
+            if exc.reason != CONTEXT_COMPRESSION_REQUIRED:
+                raise
+            protected_links = _protected_resource_links(execution)
+            if not protected_links:
+                raise
+            raise RuntimeException(
+                reason=exc.reason,
+                message=exc.message,
+                payload={
+                    **exc.payload,
+                    "protected_resource_links": list(protected_links),
+                },
+            ) from exc
         except ContextError as exc:
             protected_links = _protected_resource_links(execution)
             payload: JsonObject | None = None

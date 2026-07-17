@@ -1,6 +1,7 @@
 [llm.models.kimi_k2_7]
 provider = "kimi_coding"
 provider_model = "kimi-for-coding-highspeed"
+context_window_tokens = 262144
 capabilities = [
   "text_input",
   "image_input",
@@ -20,6 +21,7 @@ temperature = 1.0
 [llm.models.kimi_k3]
 provider = "kimi_coding"
 provider_model = "k3"
+context_window_tokens = 1048576
 capabilities = [
   "text_input",
   "image_input",

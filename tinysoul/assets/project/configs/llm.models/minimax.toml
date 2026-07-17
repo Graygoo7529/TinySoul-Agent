@@ -1,6 +1,7 @@
 [llm.models.minimax_m3]
 provider = "minimax"
 provider_model = "MiniMax-M3"
+context_window_tokens = 262144
 capabilities = [
   "text_input",
   "image_input",

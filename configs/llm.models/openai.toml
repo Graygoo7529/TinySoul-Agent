@@ -1,6 +1,7 @@
 [llm.models.gpt_5_5]
 provider = "sublyx_proxy"
 provider_model = "gpt-5.5"
+context_window_tokens = 262144
 capabilities = [
   "text_input",
   "image_input",

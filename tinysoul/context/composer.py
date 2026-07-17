@@ -26,14 +26,11 @@ from .working import WorkingContext
 
 @dataclass(frozen=True)
 class ContextBudget:
-    """Character budget for one composed message stack."""
+    """Non-token hard limits for one composed message stack."""
 
-    max_chars: int | None = None
     max_image_bytes: int | None = None
 
     def __post_init__(self) -> None:
-        if self.max_chars is not None and self.max_chars <= 0:
-            raise ContextInvariantError("ContextBudget.max_chars must be positive")
         if self.max_image_bytes is not None and self.max_image_bytes <= 0:
             raise ContextInvariantError(
                 "ContextBudget.max_image_bytes must be positive"
@@ -68,14 +65,7 @@ class ContextBudgetReport:
     sections: dict[ContextSection, ContextSectionUsage]
     total_chars: int
     total_image_bytes: int
-    max_chars: int | None
     max_image_bytes: int | None
-
-    @property
-    def required_chars(self) -> int:
-        if self.max_chars is None:
-            return 0
-        return max(0, self.total_chars - self.max_chars)
 
     def to_json(self) -> JsonObject:
         return to_json_object({
@@ -85,9 +75,7 @@ class ContextBudgetReport:
             },
             "total_chars": self.total_chars,
             "total_image_bytes": self.total_image_bytes,
-            "max_chars": self.max_chars,
             "max_image_bytes": self.max_image_bytes,
-            "required_chars": self.required_chars,
         })
 
 
@@ -139,20 +127,9 @@ class MessageStackComposer:
             },
             total_chars=estimate_chars(messages),
             total_image_bytes=estimate_image_bytes(messages),
-            max_chars=self._budget.max_chars,
             max_image_bytes=self._budget.max_image_bytes,
         )
         estimated = report.total_chars
-        max_chars = self._budget.max_chars
-        if max_chars is not None and estimated > max_chars:
-            raise ContextBudgetError(
-                "Composed message stack exceeds the context budget",
-                estimated_chars=estimated,
-                max_chars=max_chars,
-                estimated_image_bytes=report.total_image_bytes,
-                max_image_bytes=report.max_image_bytes,
-                section_usage=report.to_json(),
-            )
         estimated_image_bytes = report.total_image_bytes
         max_image_bytes = self._budget.max_image_bytes
         if (
@@ -162,7 +139,6 @@ class MessageStackComposer:
             raise ContextBudgetError(
                 "Composed message stack exceeds the image byte budget",
                 estimated_chars=estimated,
-                max_chars=max_chars,
                 estimated_image_bytes=estimated_image_bytes,
                 max_image_bytes=max_image_bytes,
                 section_usage=report.to_json(),

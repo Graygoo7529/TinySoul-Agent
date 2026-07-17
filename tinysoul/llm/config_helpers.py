@@ -61,6 +61,18 @@ def required_bool(table: Mapping[str, object], name: str, *, key: str) -> bool:
     return value
 
 
+def required_int(table: Mapping[str, object], name: str, *, key: str) -> int:
+    value = table.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(
+            "Configuration value must be an integer",
+            key=f"{key}.{name}",
+            value=value,
+            expected="int",
+        )
+    return value
+
+
 def optional_str(
     table: Mapping[str, object],
     name: str,

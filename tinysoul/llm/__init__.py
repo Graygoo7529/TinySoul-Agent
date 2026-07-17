@@ -27,7 +27,12 @@ from .models import (
     ProviderRequestOverrides,
 )
 from .reasoning import Reasoning, ReasoningKeep
-from .requests import CallSettings, TaskCall, TaskProfile
+from .requests import (
+    CallSettings,
+    ModelContextOverflowPolicy,
+    TaskCall,
+    TaskProfile,
+)
 from .responses import (
     Answer,
     AnswerFormat,
@@ -66,6 +71,7 @@ _TASK_EXPORTS = {
     "LLMTaskError",
     "LLMTaskRunner",
     "ModelCapabilityError",
+    "ModelContextOverflowPolicy",
     "TaskCallValidator",
 }
 

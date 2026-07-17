@@ -92,6 +92,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         "[llm.models.fake_model]\n"
         'provider = "fake"\n'
         'provider_model = "fake-model"\n'
+        "context_window_tokens = 262144\n"
         "capabilities = [\n"
         '  "text_input",\n'
         '  "json_object_output",\n'
