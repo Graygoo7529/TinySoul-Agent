@@ -1,0 +1,43 @@
+name = "script.promote"
+domain = "script"
+
+[tool]
+description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general HOW. Home Maintenance later reviews the resulting Home diff."
+
+[tool.schema]
+type = "object"
+required = ["source_link", "target_link"]
+additionalProperties = false
+
+[tool.schema.properties.source_link]
+type = "string"
+description = "Existing workspace:scripts/...py|sh source link."
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target home:how/<existing-skill>/scripts/...py|sh link."
+
+[tool.schema.properties.expected_source_digest]
+type = "string"
+description = "Optional source digest guard."
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Whether to replace an existing Home script. Defaults to false."
+
+[tool.schema.properties.expected_target_digest]
+type = "string"
+description = "Optional target digest guard when overwrite is true."
+
+[semantic]
+use_when = ["A tested Workspace script should become part of an existing general HOW"]
+avoid_when = ["The target HOW does not yet exist", "The script should remain temporary"]
+effects = ["modifying"]
+examples = ["Promote workspace:scripts/clean.py to home:how/data-cleaning/scripts/clean.py"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "native"
+handler = "script.promote"

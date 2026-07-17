@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: in_progress (Stage 1 and Stage 2 done; Stage 3 baseline confirmed, supervision design in progress)
+status: in_progress (Stage 1, Stage 2, and Stage 3 done; later capability stages remain)
 
 依赖（已满足）：Stage 8 发布与初始化闭环、`20260715-done-default agent home content plan.md`。
 
@@ -96,16 +96,38 @@ Stage 3 已确认以下设计基线：
 
 建议按四个实施切面推进：
 
-1. **Stage 3A Authoring And Source Model**：Script 配置/依赖、两类 source resolver、统一 write/rewrite/patch、显式 promote、domain/action HOW 和 policy；
-2. **Stage 3B Transactional Execution**：重构可复用 process primitive，实现 Python/Bash 同步 run、事务 mirror、diff/bundle commit、局部失败和 Workspace signal；
-3. **Stage 3C Supervised Execution Job**：在不引入 ongoing Action 的前提下实现 Turn-scoped start/wait/stop/finalize，以及 Cycle pacing、日志/候选产物观察和结束清理；
-4. **Stage 3D Release And Verification**：默认配置与项目模板、effective Catalog、模块/Phase/App/wheel 测试，以及 opt-in 的本地真实 Python/Bash smoke。
+1. **Stage 3A Authoring And Source Model（implemented）**：Script 配置/依赖、两类 source resolver、统一 write/rewrite/patch、显式 promote、domain/action HOW 和 policy；
+2. **Stage 3B Transactional Execution（implemented）**：重构可复用 process primitive，实现 Python/Bash run、事务 mirror、diff/bundle commit、局部失败和 Workspace signal；
+3. **Stage 3C Supervised Execution Job（implemented）**：在不引入 ongoing Action 的前提下实现 Turn-scoped start/wait/stop/finalize，以及 Cycle pacing、日志/候选产物观察和结束清理；
+4. **Stage 3D Release And Verification（completed）**：默认配置与项目模板、effective Catalog、模块/Phase/App/wheel 测试，以及本地真实 Python process smoke。
 
-Stage 3C 进入实现前仍需确认：运行 action 首次让出控制的等待时间、后续 wait 的最小/最大间隔与唤醒条件；运行中 mirror 是否允许其它 action 读取或修改；完成/停止后由哪个 action apply/discard；job 状态如何稳定投影给下一 Cycle；Turn 输出、停止、耗尽和 Runtime transfer 对活动 job 的强制清理顺序。上述策略不得改变 Phase1/Phase2/Phase3 的一般职责，也不得让 Runtime 核心解释脚本正文或 Workspace diff。
+Stage 3C 的监督语义进一步确认为：
+
+- action 集合以 `script.run_python`、`script.run_bash` 启动运行，以 `script.wait`、`script.stop` 监督进程，以 `script.read_candidate` 有界读取 mirror 内 staged 文本候选，并以 `script.apply`、`script.discard` 显式收尾；所有 run 无论是否在首次等待内结束都不自动提交，统一进入 `ready_to_apply` 后再 apply；
+- 默认 `initial_wait_seconds=10`、`min_wait_seconds=5`、`default_wait_seconds=15`、`max_wait_seconds=60`、`max_runtime_seconds=1800`、`max_supervision_cycles=32`。项目配置可以在确定性上下界内收紧；模型只能为单次 wait 请求上下界内的等待时长，不能关闭最小间隔、总时长或 Cycle 配额；
+- run 在首次等待内完成时立即返回 terminal/ready 状态；否则返回普通 success ActionResult，payload 中 `job_state=running`。wait 在进程结束、新的同 Turn input/control signal 或请求间隔到期时返回；普通 stdout/stderr 增长不逐条发信号，也不能在最小等待间隔前触发新 LLM 调用；
+- 每个 wait 返回自上次 cursor 之后的有界 stdout/stderr delta、下一个 cursor、elapsed/terminal 状态和一次有界 mirror diff metadata。完整日志与大块候选仍留在 job staging；`script.read_candidate` 使用 execution id、staged 相对路径与 cursor/max chars 返回有界 UTF-8 slice，不创建临时 Link namespace；
+- 下一 Cycle 始终从 Phase1 开始，不建立绕过三阶段主循环的 job 子循环。Phase3 已将 run/wait/stop/read/apply/discard 的 ActionResult 作为 ToolResultMessage 写入当前 TurnTrace；下一 Phase1 从正常 Context 构造看到最新结果和已合并用户追加输入。job 结果不进入 Background，job manager 内存态仍是权威运行事实；
+- 运行中允许 Agent 继续使用非 Script action，并允许修改 active Workspace；mirror apply 以启动时逐文件 baseline digest 做冲突校验，无冲突的不同路径修改可以合并，同路径修改、新文件碰撞或删除冲突局部失败并保留 job 等待 discard。一个 Turn 只允许一个 running/unresolved Script job，因此活动 Python/Bash job 存在时拒绝第二个 run；
+- apply 只接受 exit code 0 的 `ready_to_apply` job；failed、timed_out 或 stopped job 只能 inspect/read/discard，不能提交部分结果。apply 成功后返回真实 Workspace Link、清理 mirror 并发布一次 authoritative Workspace snapshot；discard 清理全部 staged 状态且不修改 active Workspace；
+- `core.answer` 在存在 running 或未 apply/discard job 时由 Script 注册的 execution admission hook 局部拒绝，避免无意丢失 Turn-scoped 工作。User stop、Turn exhausted/failed、Runtime transfer 和 Program shutdown 则强制终止进程树并 discard；cleanup 失败不能替换原始运行转移；
+- Loop 通过通用 Turn activity/continuation SPI 支持监督 Cycle：普通 `max_cycles_per_turn` 耗尽后，只有仍在有效总时长和 `max_supervision_cycles` 内的 active job 才能申请有限额外 Cycle；Loop 不读取 Script job、日志或 mirror。Runtime SignalBus 只提供可等待 generation/wakeup 机制，使 wait 能被同 Turn input/control 信号唤醒，不解释业务信号；
+- ActionResult 的 status 表示当前 tool operation 是否成功：running/ready 的 run/wait 是 success；进程非零退出、timeout、策略拒绝、冲突或非法状态使用稳定 failed/timeout 结果，并携带有界 job facts。任何结果都不使用 ongoing Action status。
+
+上述确认完成后，Stage 3 已不存在阻塞 Stage 3A-3D 实施的核心语义待确认项。实现中如平台 process-tree、Bash 可用性或 Workspace bundle 现状暴露新的局部约束，应保持上述业务语义并在对应模块设计文档记录，不通过扩大任意命令或路径权限规避。
+
+Stage 3 当前实施映射如下：
+
+- `tinysoul/capabilities/script/` 已包含 settings/dependency、Workspace/Home source resolver、确定性 source policy、authoring prompt、Action executor 和 Turn-scoped job manager；详细模块语义见 `docs/design/capabilities/script.md`；
+- `tinysoul/action/backends/process.py` 提供可被同步 subprocess 与监督 job 共用的 process-group-owned managed process、命名 capture、增量读取和进程树终止；原 `ControlledProcessRunner` 已改为复用该原语；
+- `tinysoul/workspace/mirror.py` 提供有界 full mirror、候选 diff/read 和逐文件 baseline commit；`WorkspaceEngine.write_bundle` 已支持 delete digest guard，避免检查与删除之间的同路径竞态；
+- package Catalog 已增加 `script` domain 与 11 个 action；默认 `[capabilities.script]` 启用 Python、关闭 Bash，当前项目和 `tinysoul init` 模板都包含同一配置及 `home/how_domain/script.md`；
+- AppBuilder 装配 source resolver、mirror service、job manager 和 registrar；TurnRunner 只通过通用 activity controller 请求有限额外 Cycle，并在 Turn 离开时 cleanup，不读取 Script 业务状态；SignalBus 只增加 non-consuming generation wait；
+- 隔离测试覆盖 settings、真实 Python success/failure/stop、显式 apply、同路径冲突、不同路径并发保留、额外 Cycle/cleanup、Catalog/App 和 wheel；Bash 仍按 executable 配置 opt-in，不把开发机存在性硬编码进测试。
 
 ### 后续 Stage 的确认入口
 
-- **Stage 3**：固定基线已确认；实施前继续收敛 supervision pacing、运行中可见性、apply/discard 和 Turn cleanup 的剩余语义；
+- **Stage 3**：固定基线、监督语义、全量回归与 release verification 已完成；
 - **Stage 4**：基于真实任务确认 utility 集合，避免建立无使用场景的工具集合；时间工具还需确认业务时区，结构化格式工具需确认输入输出是否通过值或 Workspace Link；
 - **Stage 5**：先确认 Home Backlink 的扫描范围与索引策略；Memory 片段检索需再确认数据规模、来源定位协议、embedding/reranker 依赖和 action 命名；
 - **Stage 6**：逐个 connector 确认授权、凭据、读写范围和人工审批；交互入口需保持 App-owned 输入/输出边界，不绕过 Runtime/Context/Action 生命周期。
@@ -143,6 +165,6 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 
 ## 待确认
 
-Stage 1 与 Stage 2 已完成，Stage 3 的 source/lifecycle/transaction/safety/language 基线已经确认，当前只继续确认监督式 execution job 与 Cycle 的协作语义；Stage 3 不沿用此前“固定测试/构建工作流”的假设。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入持久索引、新的长期状态或未确认的宿主任意命令执行。
+Stage 1、Stage 2 与 Stage 3 已完成。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入持久索引、新的长期状态或未确认的宿主任意命令执行。
 
 Stage 1 closure audit 已进一步完成：PDF 图片/附件提取不得吞掉 asset count/bytes limit；Resource executor 在 bundle commit point 前响应 cancellation/deadline；staged worker 协议错误稳定映射为局部 `worker_protocol_invalid`；嵌套 capability 配置保留精确 key；ControlledProcessRunner 使用临时文件捕获 stdout/stderr 并只构造有界结果投影，不把 projection limit 夸大为子进程硬输出配额。对应回归测试验证超限和取消都不提交 Workspace、不递增 Manifest、不发布同步信号。

@@ -197,6 +197,38 @@ class _EmptyCycleRunner:
         return CycleOutcome(cycle_id=f"cycle_{cycle_index}")
 
 
+@dataclass
+class _CountingEmptyCycleRunner:
+    calls: int = 0
+
+    def run(
+        self,
+        *,
+        turn_id: str,
+        cycle_index: int,
+        scope: RunScope,
+    ) -> CycleOutcome:
+        self.calls += 1
+        return CycleOutcome(cycle_id=f"cycle_{cycle_index}")
+
+
+@dataclass
+class _TurnActivity:
+    remaining: int
+    cleanup_calls: int = 0
+
+    def allow_additional_cycle(self, turn_id: str) -> bool:
+        assert turn_id
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+    def cleanup_turn(self, turn_id: str) -> None:
+        assert turn_id
+        self.cleanup_calls += 1
+
+
 class _FailingCompletion:
     def handle(self, completion: TurnCompletion) -> None:
         raise RuntimeException(
@@ -347,6 +379,25 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         event for event in observations.events if event.name == "turn.exhausted"
     )
     assert exhausted.level is ObservationLevel.NORMAL
+
+
+def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
+    activity = _TurnActivity(remaining=2)
+    cycles = _CountingEmptyCycleRunner()
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, cycles),
+        settings=LoopSettings(max_cycles_per_turn=1),
+        activity_controller=activity,
+    )
+
+    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+
+    assert outcome.status is TurnOutcomeStatus.EXHAUSTED
+    assert cycles.calls == 3
+    assert activity.cleanup_calls == 1
 
 
 def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:

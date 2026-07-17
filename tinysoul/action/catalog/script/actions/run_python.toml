@@ -1,0 +1,32 @@
+name = "script.run_python"
+domain = "script"
+
+[tool]
+description = "Start a Python script against a transactional Workspace mirror. The active Workspace is unchanged until a later script.apply."
+
+[tool.schema]
+type = "object"
+required = ["source_link"]
+additionalProperties = false
+
+[tool.schema.properties.source_link]
+type = "string"
+description = "Existing workspace:scripts/...py or home:how/<skill>/scripts/...py link."
+
+[tool.schema.properties.args]
+type = "array"
+description = "Optional bounded script arguments."
+items = { type = "string" }
+
+[semantic]
+use_when = ["Need deterministic Python processing over Workspace resources"]
+avoid_when = ["Another Script job is unresolved in the current Turn", "Need an arbitrary inline command"]
+effects = ["modifying"]
+examples = ["Run workspace:scripts/normalize.py against the mirrored Workspace"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "script"
+handler = "script.run_python"

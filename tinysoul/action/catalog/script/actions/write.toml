@@ -1,0 +1,45 @@
+name = "script.write"
+domain = "script"
+
+[tool]
+description = "Generate a complete Python or Bash script at a Workspace scripts link or an existing general HOW scripts resource."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "instruction"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Target workspace:scripts/...py|sh or home:how/<skill>/scripts/...py|sh link."
+
+[tool.schema.properties.instruction]
+type = "string"
+description = "Instruction for generating the complete script source."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Optional Workspace references for the internal authoring task."
+items = { type = "string" }
+
+[tool.schema.properties.overwrite]
+type = "boolean"
+description = "Whether to replace an existing target. Defaults to false."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional target digest guard when overwrite is true."
+
+[semantic]
+use_when = ["Need a complete temporary or long-term script generated from an instruction"]
+avoid_when = ["A precise edit to an existing script is sufficient", "Need to run an existing script without changing it"]
+effects = ["modifying"]
+examples = ["Write workspace:scripts/normalize.py to update Markdown files in the Workspace"]
+
+[runtime]
+timeout_seconds = 90
+parallel_policy = "serial"
+
+[backend]
+kind = "llm_action"
+handler = "script.write"

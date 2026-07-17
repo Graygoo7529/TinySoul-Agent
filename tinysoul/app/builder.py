@@ -14,6 +14,11 @@ from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
 from tinysoul.capabilities.resource import register_resource_actions
+from tinysoul.capabilities.script import (
+    ScriptJobManager,
+    ScriptSourceResolver,
+    register_script_actions,
+)
 from tinysoul.capabilities.web import register_web_actions
 from tinysoul.context import (
     ContextEngine,
@@ -111,6 +116,7 @@ from tinysoul.session.projection import (
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
+    WorkspaceMirrorService,
     WorkspacePromptReferenceResolver,
     WorkspaceTurnPreparationHandler,
     parse_workspace_settings,
@@ -328,6 +334,7 @@ class TinySoulAppBuilder:
                 context=context,
                 action_how=action_how,
             )
+            script_jobs: ScriptJobManager | None = None
             if self._action is not None:
                 action = self._action
             else:
@@ -339,6 +346,23 @@ class TinySoulAppBuilder:
                         message=str(exc),
                         payload={"error_type": type(exc).__name__},
                     ) from exc
+                script_jobs = ScriptJobManager(
+                    settings=capabilities_settings.script,
+                    mirror_service=WorkspaceMirrorService(
+                        workspace,
+                        max_files=capabilities_settings.script.max_mirror_files,
+                        max_total_bytes=capabilities_settings.script.max_mirror_bytes,
+                        max_file_bytes=(
+                            capabilities_settings.script.max_mirror_file_bytes
+                        ),
+                    ),
+                    staging=staging,
+                )
+                script_resolver = ScriptSourceResolver(
+                    workspace=workspace,
+                    home=home,
+                    max_source_chars=capabilities_settings.script.max_source_chars,
+                )
                 action = self._build_action(
                     bus=bus,
                     workspace=workspace,
@@ -356,6 +380,8 @@ class TinySoulAppBuilder:
                     capabilities_settings=capabilities_settings,
                     runtime_env=config.runtime_env,
                     staging=staging,
+                    script_jobs=script_jobs,
+                    script_resolver=script_resolver,
                 )
             try:
                 home.reconcile_prompt_mounts(
@@ -444,6 +470,7 @@ class TinySoulAppBuilder:
                         ),
                     )
                 ),
+                activity_controller=script_jobs,
                 observations=observations,
             )
             daily_lifecycle = DailyLifecycleCoordinator(
@@ -749,6 +776,8 @@ class TinySoulAppBuilder:
         capabilities_settings: CapabilitiesSettings,
         runtime_env: dict[str, str],
         staging: StagingDirectoryManager,
+        script_jobs: ScriptJobManager,
+        script_resolver: ScriptSourceResolver,
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
@@ -779,6 +808,17 @@ class TinySoulAppBuilder:
                     bus=bus,
                     runtime_bridge=workspace_bridge,
                     staging=staging,
+                )
+                register_script_actions(
+                    builder,
+                    settings=capabilities_settings.script,
+                    resolver=script_resolver,
+                    jobs=script_jobs,
+                    workspace=workspace,
+                    bus=bus,
+                    llm_action=llm_action,
+                    home_bridge=home_bridge,
+                    workspace_bridge=workspace_bridge,
                 )
                 register_home_actions(
                     builder,

@@ -8,6 +8,13 @@ from .llm_action import (
     LLMActionTaskRunner,
 )
 from .native import NativeFunctionExecutor
+from .process import (
+    ManagedProcess,
+    ManagedProcessRequest,
+    ManagedProcessRunner,
+    ManagedProcessStartError,
+    ProcessTextSlice,
+)
 from .script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
 from .subprocess import (
     ControlledProcessRunner,
@@ -25,6 +32,11 @@ __all__ = [
     "LLMActionModelRunner",
     "LLMActionTaskRunner",
     "NativeFunctionExecutor",
+    "ManagedProcess",
+    "ManagedProcessRequest",
+    "ManagedProcessRunner",
+    "ManagedProcessStartError",
+    "ProcessTextSlice",
     "ControlledProcessRunner",
     "ProcessOutcome",
     "ProcessRequest",

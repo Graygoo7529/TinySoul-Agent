@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import codecs
-from contextlib import ExitStack
-import os
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from tempfile import TemporaryFile
-from typing import Protocol
 
 from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject, dumps_json
@@ -20,6 +14,12 @@ from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutionControl
 from tinysoul.action.core.specs import ActionBackendSpec
 from tinysoul.action.core.result import ActionResult, ActionResultStage
+
+from .process import (
+    ManagedProcessRequest,
+    ManagedProcessRunner,
+    ManagedProcessStartError,
+)
 
 
 class SubprocessStdinMode(StrEnum):
@@ -36,20 +36,6 @@ class ProcessStatus(StrEnum):
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
     START_FAILED = "start_failed"
-
-
-class _CapturedOutput(Protocol):
-    def flush(self) -> None:
-        ...
-
-    def seek(self, offset: int, whence: int = 0) -> int:
-        ...
-
-    def tell(self) -> int:
-        ...
-
-    def read(self, n: int = -1) -> bytes:
-        ...
 
 
 @dataclass(frozen=True)
@@ -125,91 +111,55 @@ class ControlledProcessRunner:
             return ProcessOutcome(status=ProcessStatus.CANCELLED)
         if control.is_expired():
             return ProcessOutcome(status=ProcessStatus.TIMED_OUT)
-        process_env: dict[str, str] | None = None
-        if not request.inherit_env:
-            process_env = dict(request.env or {})
-        elif request.env is not None:
-            process_env = {**os.environ, **request.env}
-        with ExitStack() as stack:
-            stdout_capture = stack.enter_context(TemporaryFile(mode="w+b"))
-            stderr_capture = stack.enter_context(TemporaryFile(mode="w+b"))
-            try:
-                process: subprocess.Popen[str]
-                process_stdin = (
-                    subprocess.PIPE
-                    if request.stdin_text is not None
-                    else subprocess.DEVNULL
+        try:
+            handle = ManagedProcessRunner().start(
+                ManagedProcessRequest(
+                    argv=request.argv,
+                    cwd=request.cwd,
+                    env=request.env,
+                    inherit_env=request.inherit_env,
+                    stdin_text=request.stdin_text,
                 )
-                if os.name == "nt":
-                    process = subprocess.Popen(
-                        list(request.argv),
-                        cwd=request.cwd,
-                        env=process_env,
-                        stdin=process_stdin,
-                        stdout=stdout_capture,
-                        stderr=stderr_capture,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        shell=False,
-                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-                    )
-                else:
-                    process = subprocess.Popen(
-                        list(request.argv),
-                        cwd=request.cwd,
-                        env=process_env,
-                        stdin=process_stdin,
-                        stdout=stdout_capture,
-                        stderr=stderr_capture,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        shell=False,
-                        start_new_session=True,
-                    )
-            except OSError as exc:
-                return ProcessOutcome(
-                    status=ProcessStatus.START_FAILED,
-                    error_type=type(exc).__name__,
-                    error_message=str(exc),
-                )
-
+            )
+        except ManagedProcessStartError as exc:
+            return ProcessOutcome(
+                status=ProcessStatus.START_FAILED,
+                error_type=type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__,
+                error_message=str(exc),
+            )
+        with handle:
             def terminate_on_cancel(_reason: str) -> None:
-                _terminate_process_tree(process)
+                handle.terminate()
 
             control.add_cancel_callback(terminate_on_cancel)
             status = ProcessStatus.COMPLETED
             try:
-                process.communicate(
-                    input=request.stdin_text,
-                    timeout=control.remaining_seconds(),
-                )
-            except subprocess.TimeoutExpired:
-                control.request_cancel("timeout")
-                _terminate_process_tree(process)
-                process.communicate()
-                status = ProcessStatus.TIMED_OUT
+                completed = handle.wait(control.remaining_seconds())
+                if completed is None:
+                    control.request_cancel("timeout")
+                    handle.terminate()
+                    status = ProcessStatus.TIMED_OUT
             finally:
                 control.remove_cancel_callback(terminate_on_cancel)
-
             if status is ProcessStatus.COMPLETED and control.is_cancelled():
                 status = ProcessStatus.CANCELLED
-            stdout_value, stdout_truncated = _read_capture(
-                stdout_capture,
-                request.stdout_limit,
+            stdout = handle.read_stdout(
+                cursor=0,
+                max_chars=request.stdout_limit,
+                max_bytes=(request.stdout_limit + 1) * 4,
             )
-            stderr_value, stderr_truncated = _read_capture(
-                stderr_capture,
-                request.stderr_limit,
+            stderr = handle.read_stderr(
+                cursor=0,
+                max_chars=request.stderr_limit,
+                max_bytes=(request.stderr_limit + 1) * 4,
             )
             return ProcessOutcome(
                 status=status,
-                exit_code=process.returncode,
-                stdout=stdout_value,
-                stderr=stderr_value,
-                stdout_truncated=stdout_truncated,
-                stderr_truncated=stderr_truncated,
+                exit_code=handle.exit_code,
+                stdout=stdout.text,
+                stderr=stderr.text,
+                stdout_truncated=stdout.truncated,
+                stderr_truncated=stderr.truncated,
             )
 
 
@@ -366,23 +316,6 @@ def run_process_action(
     )
 
 
-def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        return
-    try:
-        os.killpg(process.pid, 9)
-    except OSError:
-        process.kill()
-
-
 def _stdin_text(execution: ActionExecution, options: SubprocessOptions) -> str | None:
     if options.stdin_mode is SubprocessStdinMode.NONE:
         return None
@@ -397,27 +330,6 @@ def _process_payload(outcome: ProcessOutcome) -> JsonObject:
         "stdout_truncated": outcome.stdout_truncated,
         "stderr_truncated": outcome.stderr_truncated,
     }
-
-
-def _truncate(value: str, limit: int) -> tuple[str, bool]:
-    if len(value) <= limit:
-        return value, False
-    return value[:limit], True
-
-
-def _read_capture(stream: _CapturedOutput, limit: int) -> tuple[str, bool]:
-    stream.flush()
-    stream.seek(0, os.SEEK_END)
-    size = stream.tell()
-    stream.seek(0)
-    max_bytes = (limit + 1) * 4
-    data = stream.read(max_bytes)
-    has_more = size > len(data)
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    text = decoder.decode(data, final=not has_more)
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    value, truncated = _truncate(normalized, limit)
-    return value, truncated or has_more
 
 
 def _reject_unknown_options(

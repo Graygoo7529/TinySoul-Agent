@@ -53,22 +53,25 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/web/actions/discover_pages.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_defuddle.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
+    assert "tinysoul/action/catalog/script/actions/run_python.toml" in names
+    assert "tinysoul/action/catalog/script/actions/apply.toml" in names
     assert "tinysoul/assets/project/configs/home.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.resource.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.web.toml" in names
+    assert "tinysoul/assets/project/configs/capabilities.script.toml" in names
     assert "tinysoul/assets/project/.env.example" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
     assert "tinysoul/assets/project/home/how_domain/resource.md" in names
     assert "tinysoul/assets/project/home/how_domain/web.md" in names
+    assert "tinysoul/assets/project/home/how_domain/script.md" in names
     assert (
         "tinysoul/assets/project/home/how/tinysoul-docs/references/"
         "use-tinysoul-context-and-link.md"
     ) in names
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
     assert not any("/action/catalog/shell/" in name for name in names)
-    assert not any("/action/catalog/script/" in name for name in names)
     assert "tinysoul/action/config.py" not in names
 
     installed = tmp_path / "installed"
@@ -119,6 +122,8 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     ).is_file()
     assert (initialized / "configs" / "capabilities.resource.toml").is_file()
     assert (initialized / "configs" / "capabilities.web.toml").is_file()
+    assert (initialized / "configs" / "capabilities.script.toml").is_file()
     assert (initialized / "home" / "how_domain" / "resource.md").is_file()
     assert (initialized / "home" / "how_domain" / "web.md").is_file()
+    assert (initialized / "home" / "how_domain" / "script.md").is_file()
     assert (initialized / "memory").is_dir()

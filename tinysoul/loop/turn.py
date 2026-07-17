@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
+from typing import Protocol
 
 from tinysoul.context import ContextEngine, TurnSummary, build_trace_phase_note_signal
 from tinysoul.context.errors import ContextError
@@ -81,6 +82,14 @@ class _TurnBoundary:
     stopped: bool = False
 
 
+class TurnActivityController(Protocol):
+    """Own bounded work that may extend and must be cleaned with one Turn."""
+
+    def allow_additional_cycle(self, turn_id: str) -> bool: ...
+
+    def cleanup_turn(self, turn_id: str) -> None: ...
+
+
 class TurnRunner:
     """Drive cycles until the user turn is answered or stopped."""
 
@@ -97,6 +106,7 @@ class TurnRunner:
         signal_consumer: ContextSignalConsumer | None = None,
         completion_pipeline: TurnCompletionPipeline | None = None,
         preparation_pipeline: TurnPreparationPipeline | None = None,
+        activity_controller: TurnActivityController | None = None,
         observations: ObservationEmitter | None = None,
     ) -> None:
         self._context = context
@@ -109,6 +119,7 @@ class TurnRunner:
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._completion_pipeline = completion_pipeline or TurnCompletionPipeline()
         self._preparation_pipeline = preparation_pipeline or TurnPreparationPipeline()
+        self._activity_controller = activity_controller
         self._observations = observations or NullObservationEmitter()
         self._active_scope: RunScope | None = None
         self._active_scope_lock = Lock()
@@ -163,7 +174,16 @@ class TurnRunner:
                 failure = preparation.failure
                 stopped = preparation.stopped
             if transfer is None:
-                for cycle_index in range(1, self._settings.max_cycles_per_turn + 1):
+                cycle_index = 1
+                while True:
+                    if cycle_index > self._settings.max_cycles_per_turn:
+                        controller = self._activity_controller
+                        if controller is None or not controller.allow_additional_cycle(
+                            turn_id
+                        ):
+                            exhausted = True
+                            self._record_cycle_limit(turn_scope)
+                            break
                     cycle = self._cycle_runner.run(
                         turn_id=turn_id,
                         cycle_index=cycle_index,
@@ -176,16 +196,18 @@ class TurnRunner:
                         transfer = self._consume_cycle_transfer(cycle, turn_scope)
                         if transfer is not None or failure is not None or stopped:
                             break
+                        cycle_index += 1
                         continue
                     if failure is not None or stopped:
                         break
-                else:
-                    exhausted = True
-                    self._record_cycle_limit(turn_scope)
+                    cycle_index += 1
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
             transfer = captured.transfer
             failure = failure or captured.failure
+        controller = self._activity_controller
+        if controller is not None and turn_id:
+            controller.cleanup_turn(turn_id)
         try:
             output = self._consume_turn_output(turn_id)
         except RuntimeException as exc:

@@ -22,6 +22,7 @@ from .errors import (
     WorkspaceImageValidationError,
     WorkspaceIOError,
     WorkspaceInvariantError,
+    WorkspaceMirrorConflict,
     WorkspaceReconciliationError,
     WorkspaceTrashRestoreRequired,
 )
@@ -42,6 +43,13 @@ from .projection import (
     WorkspaceTurnPreparationHandler,
     workspace_snapshot_signal,
 )
+from .mirror import (
+    WorkspaceMirror,
+    WorkspaceMirrorCandidate,
+    WorkspaceMirrorCommit,
+    WorkspaceMirrorDiff,
+    WorkspaceMirrorService,
+)
 from .prompts import WorkspacePromptReferenceResolver
 from .trash import WorkspaceTrashItem
 
@@ -59,6 +67,12 @@ __all__ = [
     "WorkspaceImageRead",
     "WorkspaceImageValidationError",
     "WorkspaceInvariantError",
+    "WorkspaceMirror",
+    "WorkspaceMirrorCandidate",
+    "WorkspaceMirrorCommit",
+    "WorkspaceMirrorConflict",
+    "WorkspaceMirrorDiff",
+    "WorkspaceMirrorService",
     "WorkspaceReconciliationError",
     "WorkspaceTrashRestoreRequired",
     "WorkspaceLink",

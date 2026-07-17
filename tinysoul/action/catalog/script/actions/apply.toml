@@ -1,0 +1,27 @@
+name = "script.apply"
+domain = "script"
+
+[tool]
+description = "Commit a successfully completed Script mirror diff to the active Workspace using per-path baseline conflict checks, then close the job."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped Script execution id."
+
+[semantic]
+use_when = ["A ready_to_apply Script job produced reviewed Workspace changes"]
+avoid_when = ["The job is running, failed, timed out, or stopped", "A same-path Workspace conflict must be resolved"]
+effects = ["modifying"]
+examples = ["Apply the reviewed candidate changes from the current Script job"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "script"
+handler = "script.apply"

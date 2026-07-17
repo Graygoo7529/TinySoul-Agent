@@ -1,0 +1,41 @@
+name = "script.rewrite"
+domain = "script"
+
+[tool]
+description = "Rewrite the complete source of an existing Workspace or general HOW script through an internal LLM task."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "instruction"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Existing workspace:scripts/...py|sh or home:how/<skill>/scripts/...py|sh link."
+
+[tool.schema.properties.instruction]
+type = "string"
+description = "Instruction for rewriting the complete script source."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Optional Workspace references for the internal authoring task."
+items = { type = "string" }
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional current target digest guard."
+
+[semantic]
+use_when = ["An existing script needs a substantial semantic rewrite"]
+avoid_when = ["An exact small replacement is sufficient", "Need to execute the current script unchanged"]
+effects = ["modifying"]
+examples = ["Rewrite home:how/data-cleaning/scripts/clean.py to handle CSV headers"]
+
+[runtime]
+timeout_seconds = 90
+parallel_policy = "serial"
+
+[backend]
+kind = "llm_action"
+handler = "script.rewrite"

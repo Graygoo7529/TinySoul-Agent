@@ -1,0 +1,831 @@
+"""ActionEngine integration for Script authoring and supervised execution."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from tinysoul.action import (
+    ActionEngineBuilder,
+    ActionExecution,
+    ActionExecutionContext,
+    ActionExecutor,
+    ActionResult,
+    ActionResultStage,
+)
+from tinysoul.action.backends import LLMActionTaskRunner
+from tinysoul.action.core.hooks import HookOutcome
+from tinysoul.context import PromptReferenceError
+from tinysoul.home import AgentHomeError, AgentHomeRuntimeCopyRequired
+from tinysoul.infra import JsonObject
+from tinysoul.runtime import RuntimeException, SignalBus
+from tinysoul.workspace import (
+    WorkspaceEngine,
+    WorkspaceError,
+    WorkspaceMirrorConflict,
+    WorkspacePromptReferenceResolver,
+    WorkspaceTrashRestoreRequired,
+    workspace_snapshot_signal,
+)
+
+from .config import ScriptSettings
+from .dependencies import require_script_dependencies
+from .errors import ScriptError, ScriptPolicyError
+from .jobs import ScriptJobManager, ScriptJobObservation
+from .models import ScriptLanguage, ScriptMutation, ScriptSource
+from .policy import ScriptPolicy
+from .prompts import ScriptEditPromptBuilder
+from .sources import ScriptSourceResolver
+
+
+SCRIPT_ACTIONS = (
+    "script.write",
+    "script.rewrite",
+    "script.patch",
+    "script.promote",
+    "script.run_python",
+    "script.run_bash",
+    "script.wait",
+    "script.stop",
+    "script.read_candidate",
+    "script.apply",
+    "script.discard",
+)
+
+
+class ScriptHomeRuntimeBridge(Protocol):
+    def runtime_copy_required(
+        self,
+        *,
+        link: str,
+        message: str = "Agent Home runtime copy is required.",
+        payload: JsonObject | None = None,
+    ) -> RuntimeException: ...
+
+
+class ScriptWorkspaceRuntimeBridge(Protocol):
+    def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException: ...
+
+
+@dataclass(frozen=True)
+class _AuthoringParams:
+    target_link: str
+    instruction: str
+    reference_links: tuple[str, ...]
+    expected_digest: str
+    overwrite: bool
+
+
+class ScriptAuthoringExecutor(ActionExecutor):
+    """Create or rewrite one complete Script source through an internal LLM task."""
+
+    def __init__(
+        self,
+        *,
+        mode: str,
+        resolver: ScriptSourceResolver,
+        policy: ScriptPolicy,
+        prompts: ScriptEditPromptBuilder,
+        llm_action: LLMActionTaskRunner,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        home_bridge: ScriptHomeRuntimeBridge | None,
+        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
+    ) -> None:
+        self._mode = mode
+        self._resolver = resolver
+        self._policy = policy
+        self._prompts = prompts
+        self._llm_action = llm_action
+        self._workspace = workspace
+        self._bus = bus
+        self._home_bridge = home_bridge
+        self._workspace_bridge = workspace_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        params = _authoring_params(execution, rewrite=self._mode == "rewrite")
+        if isinstance(params, ActionResult):
+            return params
+        try:
+            existing: ScriptSource | None = None
+            if self._mode == "rewrite" or params.overwrite:
+                existing = self._resolver.read(params.target_link)
+                if params.expected_digest and existing.digest != params.expected_digest:
+                    return _failed(
+                        execution,
+                        "Script target digest mismatch.",
+                        {"reason": "digest_mismatch", "link": params.target_link},
+                    )
+            if self._mode == "rewrite":
+                if existing is None:
+                    raise ScriptError("Script rewrite target disappeared")
+                prompt = self._prompts.build_rewrite(
+                    source=existing,
+                    instruction=params.instruction,
+                    reference_links=params.reference_links,
+                )
+            else:
+                prompt = self._prompts.build_write(
+                    target_link=params.target_link,
+                    instruction=params.instruction,
+                    reference_links=params.reference_links,
+                    existing=existing,
+                )
+        except Exception as exc:
+            mapped = self._source_failure(execution, exc)
+            if mapped is not None:
+                return mapped
+            raise
+        payload = self._llm_action.run_json(
+            execution=execution,
+            prompt=prompt,
+            subject=f"Script {self._mode} LLM task",
+        )
+        if isinstance(payload, ActionResult):
+            return payload
+        text = payload.get("text")
+        if not isinstance(text, str):
+            return _failed(
+                execution,
+                "Script authoring task must return a JSON string field named 'text'.",
+                {"reason": "invalid_script_source"},
+            )
+        try:
+            language = _language_for_link(params.target_link)
+            source = ScriptSource(params.target_link, text, "", language)
+            self._policy.validate(source)
+            mutation = self._resolver.write(
+                params.target_link,
+                text,
+                overwrite=self._mode == "rewrite" or params.overwrite,
+                expected_digest=(
+                    params.expected_digest
+                    or (existing.digest if existing is not None else "")
+                ),
+                owner_turn_id=execution.framework.turn_id,
+            )
+        except Exception as exc:
+            mapped = self._source_failure(execution, exc)
+            if mapped is not None:
+                return mapped
+            raise
+        if mutation.link.startswith("workspace:"):
+            _emit_workspace(self._workspace, self._bus, execution, context)
+        return _success(execution, _mutation_payload(mutation, language))
+
+    def _source_failure(
+        self,
+        execution: ActionExecution,
+        exc: Exception,
+    ) -> ActionResult | None:
+        if isinstance(exc, AgentHomeRuntimeCopyRequired):
+            if self._home_bridge is None:
+                return None
+            raise self._home_bridge.runtime_copy_required(
+                link=exc.link,
+                payload=exc.to_payload(),
+            ) from exc
+        if isinstance(exc, WorkspaceTrashRestoreRequired):
+            if self._workspace_bridge is None:
+                return None
+            raise self._workspace_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        if isinstance(exc, PromptReferenceError):
+            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+        if isinstance(exc, ScriptPolicyError):
+            return _failed(execution, str(exc), {"reason": "script_policy_rejected"})
+        if isinstance(exc, (ScriptError, AgentHomeError, WorkspaceError)):
+            return _failed(
+                execution,
+                "Script source could not be written.",
+                {"reason": "script_source_failed", "error_type": type(exc).__name__},
+            )
+        return None
+
+
+class ScriptPatchExecutor(ActionExecutor):
+    def __init__(
+        self,
+        *,
+        resolver: ScriptSourceResolver,
+        policy: ScriptPolicy,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        home_bridge: ScriptHomeRuntimeBridge | None,
+        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
+    ) -> None:
+        self._resolver = resolver
+        self._policy = policy
+        self._workspace = workspace
+        self._bus = bus
+        self._home_bridge = home_bridge
+        self._workspace_bridge = workspace_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        target = _required_text(execution, "target_link")
+        old_text = _required_text(execution, "old_text")
+        new_text = execution.call.params.get("new_text")
+        expected = execution.call.params.get("expected_digest", "")
+        if target is None or old_text is None or not isinstance(new_text, str):
+            return _failed(
+                execution,
+                "Script patch parameters are invalid.",
+                {"reason": "invalid_patch"},
+            )
+        if not isinstance(expected, str):
+            return _failed(
+                execution,
+                "Script expected_digest must be text.",
+                {"reason": "invalid_digest"},
+            )
+        try:
+            current = self._resolver.read(target)
+            if expected and current.digest != expected:
+                return _failed(
+                    execution,
+                    "Script target digest mismatch.",
+                    {"reason": "digest_mismatch"},
+                )
+            if current.text.count(old_text) != 1:
+                return _failed(
+                    execution,
+                    "Script patch old_text must occur exactly once.",
+                    {"reason": "ambiguous_patch"},
+                )
+            candidate = ScriptSource(
+                current.link,
+                current.text.replace(old_text, new_text, 1),
+                current.digest,
+                current.language,
+            )
+            self._policy.validate(candidate)
+            mutation = self._resolver.patch(
+                target,
+                old_text=old_text,
+                new_text=new_text,
+                expected_digest=expected or current.digest,
+            )
+        except AgentHomeRuntimeCopyRequired as exc:
+            if self._home_bridge is None:
+                raise
+            raise self._home_bridge.runtime_copy_required(
+                link=exc.link,
+                payload=exc.to_payload(),
+            ) from exc
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._workspace_bridge is None:
+                raise
+            raise self._workspace_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+            return _failed(
+                execution,
+                "Script patch failed.",
+                {"reason": "script_patch_failed", "error_type": type(exc).__name__},
+            )
+        if mutation.link.startswith("workspace:"):
+            _emit_workspace(self._workspace, self._bus, execution, context)
+        return _success(execution, _mutation_payload(mutation, current.language))
+
+
+class ScriptPromoteExecutor(ActionExecutor):
+    def __init__(
+        self,
+        *,
+        resolver: ScriptSourceResolver,
+        policy: ScriptPolicy,
+        home_bridge: ScriptHomeRuntimeBridge | None,
+        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
+    ) -> None:
+        self._resolver = resolver
+        self._policy = policy
+        self._home_bridge = home_bridge
+        self._workspace_bridge = workspace_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        del context
+        source = _required_text(execution, "source_link")
+        target = _required_text(execution, "target_link")
+        expected_source = execution.call.params.get("expected_source_digest", "")
+        expected_target = execution.call.params.get("expected_target_digest", "")
+        overwrite = execution.call.params.get("overwrite", False)
+        if source is None or target is None or not isinstance(overwrite, bool):
+            return _failed(
+                execution,
+                "Script promote parameters are invalid.",
+                {"reason": "invalid_promote"},
+            )
+        if not isinstance(expected_source, str) or not isinstance(expected_target, str):
+            return _failed(
+                execution,
+                "Script promote digest guards must be text.",
+                {"reason": "invalid_digest"},
+            )
+        try:
+            self._policy.validate(self._resolver.read(source))
+            mutation = self._resolver.promote(
+                source,
+                target,
+                expected_source_digest=expected_source,
+                overwrite=overwrite,
+                expected_target_digest=expected_target,
+            )
+        except AgentHomeRuntimeCopyRequired as exc:
+            if self._home_bridge is None:
+                raise
+            raise self._home_bridge.runtime_copy_required(
+                link=exc.link,
+                payload=exc.to_payload(),
+            ) from exc
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._workspace_bridge is None:
+                raise
+            raise self._workspace_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+            return _failed(
+                execution,
+                "Script promote failed.",
+                {"reason": "script_promote_failed", "error_type": type(exc).__name__},
+            )
+        return _success(
+            execution,
+            _mutation_payload(mutation, _language_for_link(target)),
+        )
+
+
+class ScriptRunExecutor(ActionExecutor):
+    def __init__(
+        self,
+        *,
+        language: ScriptLanguage,
+        settings: ScriptSettings,
+        resolver: ScriptSourceResolver,
+        policy: ScriptPolicy,
+        jobs: ScriptJobManager,
+        bus: SignalBus,
+        home_bridge: ScriptHomeRuntimeBridge | None,
+        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
+    ) -> None:
+        self._language = language
+        self._settings = settings
+        self._resolver = resolver
+        self._policy = policy
+        self._jobs = jobs
+        self._bus = bus
+        self._home_bridge = home_bridge
+        self._workspace_bridge = workspace_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        source_link = _required_text(execution, "source_link")
+        args = _string_list(execution.call.params.get("args", []))
+        if source_link is None or args is None:
+            return _failed(
+                execution,
+                "Script run parameters are invalid.",
+                {"reason": "invalid_run"},
+            )
+        if len(args) > self._settings.max_args or any(
+            len(arg) > self._settings.max_arg_chars for arg in args
+        ):
+            return _failed(
+                execution,
+                "Script arguments exceed configured boundaries.",
+                {"reason": "args_limit"},
+            )
+        try:
+            source = self._resolver.read(source_link, language=self._language)
+            self._policy.validate(source)
+            observation = self._jobs.start(
+                turn_id=execution.framework.turn_id,
+                source=source,
+                args=args,
+                control=context.control,
+                bus=context.signal_bus or self._bus,
+            )
+        except AgentHomeRuntimeCopyRequired as exc:
+            if self._home_bridge is None:
+                raise
+            raise self._home_bridge.runtime_copy_required(
+                link=exc.link,
+                payload=exc.to_payload(),
+            ) from exc
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._workspace_bridge is None:
+                raise
+            raise self._workspace_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+            return _failed(
+                execution,
+                "Script execution could not start.",
+                {"reason": "script_start_failed", "error_type": type(exc).__name__},
+            )
+        return _observation_result(execution, observation)
+
+
+class ScriptJobExecutor(ActionExecutor):
+    def __init__(
+        self,
+        *,
+        operation: str,
+        settings: ScriptSettings,
+        jobs: ScriptJobManager,
+        bus: SignalBus,
+    ) -> None:
+        self._operation = operation
+        self._settings = settings
+        self._jobs = jobs
+        self._bus = bus
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        execution_id = _required_text(execution, "execution_id")
+        if execution_id is None:
+            return _failed(
+                execution,
+                "Script job action requires execution_id.",
+                {"reason": "missing_execution_id"},
+            )
+        try:
+            if self._operation == "wait":
+                wait = execution.call.params.get(
+                    "wait_seconds",
+                    self._settings.default_wait_seconds,
+                )
+                if isinstance(wait, bool) or not isinstance(wait, int):
+                    return _failed(
+                        execution,
+                        "Script wait_seconds must be an integer.",
+                        {"reason": "invalid_wait"},
+                    )
+                return _observation_result(
+                    execution,
+                    self._jobs.wait(
+                        turn_id=execution.framework.turn_id,
+                        execution_id=execution_id,
+                        wait_seconds=wait,
+                        control=context.control,
+                        bus=context.signal_bus or self._bus,
+                    ),
+                )
+            if self._operation == "stop":
+                return _observation_result(
+                    execution,
+                    self._jobs.stop(
+                        turn_id=execution.framework.turn_id,
+                        execution_id=execution_id,
+                    ),
+                )
+            if self._operation == "read_candidate":
+                path = _required_text(execution, "path")
+                cursor = execution.call.params.get("cursor", 0)
+                max_chars = execution.call.params.get(
+                    "max_chars",
+                    self._settings.max_candidate_read_chars,
+                )
+                if (
+                    path is None
+                    or isinstance(cursor, bool)
+                    or not isinstance(cursor, int)
+                    or isinstance(max_chars, bool)
+                    or not isinstance(max_chars, int)
+                ):
+                    return _failed(
+                        execution,
+                        "Script candidate read parameters are invalid.",
+                        {"reason": "invalid_candidate_read"},
+                    )
+                return _success(
+                    execution,
+                    self._jobs.read_candidate(
+                        turn_id=execution.framework.turn_id,
+                        execution_id=execution_id,
+                        path=path,
+                        cursor=cursor,
+                        max_chars=max_chars,
+                    ),
+                )
+            if self._operation == "apply":
+                applied = self._jobs.apply(
+                    turn_id=execution.framework.turn_id,
+                    execution_id=execution_id,
+                )
+                (context.signal_bus or self._bus).emit(
+                    workspace_snapshot_signal(
+                        applied.manifest,
+                        call_id=execution.call.call_id,
+                        scope=execution.framework.scope,
+                        source="script.apply",
+                    )
+                )
+                return _success(execution, applied.payload)
+            if self._operation == "discard":
+                return _success(
+                    execution,
+                    self._jobs.discard(
+                        turn_id=execution.framework.turn_id,
+                        execution_id=execution_id,
+                    ),
+                )
+        except WorkspaceMirrorConflict:
+            return _failed(
+                execution,
+                "Script apply conflicts with a concurrently changed Workspace path. "
+                "The job remains available for review or discard.",
+                {"reason": "workspace_apply_conflict"},
+            )
+        except (ScriptError, WorkspaceError) as exc:
+            return _failed(
+                execution,
+                "Script job operation failed.",
+                {"reason": "script_job_failed", "error_type": type(exc).__name__},
+            )
+        return _failed(
+            execution,
+            "Script job operation is unavailable.",
+            {"reason": "unknown_job_operation"},
+        )
+
+
+class ScriptAnswerGuard:
+    """Prevent a final answer while a Turn still owns an unresolved Script job."""
+
+    def __init__(self, jobs: ScriptJobManager) -> None:
+        self._jobs = jobs
+
+    def check(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> HookOutcome:
+        del context
+        if self._jobs.has_unresolved(execution.framework.turn_id):
+            return HookOutcome.failed(
+                "Resolve the active Script job with wait/stop and apply/discard before answering.",
+                frame_data={"reason": "unresolved_script_job"},
+            )
+        return HookOutcome.success()
+
+
+def register_script_actions(
+    builder: ActionEngineBuilder,
+    *,
+    settings: ScriptSettings,
+    resolver: ScriptSourceResolver,
+    jobs: ScriptJobManager,
+    workspace: WorkspaceEngine,
+    bus: SignalBus,
+    llm_action: LLMActionTaskRunner,
+    home_bridge: ScriptHomeRuntimeBridge | None = None,
+    workspace_bridge: ScriptWorkspaceRuntimeBridge | None = None,
+) -> ActionEngineBuilder:
+    """Register enabled Script actions and the unresolved-job answer guard."""
+
+    require_script_dependencies(settings)
+    if not settings.enabled:
+        builder.disable_actions(*SCRIPT_ACTIONS)
+        return builder
+    policy = ScriptPolicy()
+    prompts = ScriptEditPromptBuilder(
+        WorkspacePromptReferenceResolver(
+            workspace,
+            runtime_bridge=workspace_bridge,
+        )
+    )
+    for mode in ("write", "rewrite"):
+        builder.register_executor(
+            f"script.{mode}",
+            ScriptAuthoringExecutor(
+                mode=mode,
+                resolver=resolver,
+                policy=policy,
+                prompts=prompts,
+                llm_action=llm_action,
+                workspace=workspace,
+                bus=bus,
+                home_bridge=home_bridge,
+                workspace_bridge=workspace_bridge,
+            ),
+        )
+    builder.register_executor(
+        "script.patch",
+        ScriptPatchExecutor(
+            resolver=resolver,
+            policy=policy,
+            workspace=workspace,
+            bus=bus,
+            home_bridge=home_bridge,
+            workspace_bridge=workspace_bridge,
+        ),
+    )
+    builder.register_executor(
+        "script.promote",
+        ScriptPromoteExecutor(
+            resolver=resolver,
+            policy=policy,
+            home_bridge=home_bridge,
+            workspace_bridge=workspace_bridge,
+        ),
+    )
+    for language, action_name, enabled in (
+        (ScriptLanguage.PYTHON, "script.run_python", settings.python.enabled),
+        (ScriptLanguage.BASH, "script.run_bash", settings.bash.enabled),
+    ):
+        if not enabled:
+            builder.disable_actions(action_name)
+            continue
+        builder.register_executor(
+            action_name,
+            ScriptRunExecutor(
+                language=language,
+                settings=settings,
+                resolver=resolver,
+                policy=policy,
+                jobs=jobs,
+                bus=bus,
+                home_bridge=home_bridge,
+                workspace_bridge=workspace_bridge,
+            ),
+        )
+    for operation in ("wait", "stop", "read_candidate", "apply", "discard"):
+        builder.register_executor(
+            f"script.{operation}",
+            ScriptJobExecutor(
+                operation=operation,
+                settings=settings,
+                jobs=jobs,
+                bus=bus,
+            ),
+        )
+    builder.register_execution_hook("script.answer_guard", ScriptAnswerGuard(jobs))
+    builder.use_action_execution_hooks("core.answer", "script.answer_guard")
+    return builder
+
+
+def _authoring_params(
+    execution: ActionExecution,
+    *,
+    rewrite: bool,
+) -> _AuthoringParams | ActionResult:
+    target = _required_text(execution, "target_link")
+    instruction = _required_text(execution, "instruction")
+    references = _string_list(execution.call.params.get("reference_links", []))
+    expected = execution.call.params.get("expected_digest", "")
+    overwrite = execution.call.params.get("overwrite", False)
+    if target is None or instruction is None or references is None:
+        return _failed(
+            execution,
+            "Script authoring parameters are invalid.",
+            {"reason": "invalid_authoring"},
+        )
+    if not isinstance(expected, str) or not isinstance(overwrite, bool):
+        return _failed(
+            execution,
+            "Script authoring guards are invalid.",
+            {"reason": "invalid_authoring_guard"},
+        )
+    return _AuthoringParams(
+        target,
+        instruction,
+        references,
+        expected,
+        True if rewrite else overwrite,
+    )
+
+
+def _required_text(execution: ActionExecution, name: str) -> str | None:
+    value = execution.call.params.get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def _string_list(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, list):
+        return None
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        result.append(item)
+    return tuple(result)
+
+
+def _language_for_link(link: str) -> ScriptLanguage:
+    return ScriptLanguage.PYTHON if link.endswith(".py") else ScriptLanguage.BASH
+
+
+def _mutation_payload(
+    mutation: ScriptMutation,
+    language: ScriptLanguage,
+) -> JsonObject:
+    return {
+        "link": mutation.link,
+        "digest": mutation.digest,
+        "size": mutation.size,
+        "state": mutation.state,
+        "language": language.value,
+    }
+
+
+def _observation_result(
+    execution: ActionExecution,
+    observation: ScriptJobObservation,
+) -> ActionResult:
+    if observation.timed_out:
+        return ActionResult.timeout(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            model_feedback=(
+                "Script job reached a configured timeout and must be discarded."
+            ),
+            payload=observation.payload,
+            frame_data={"reason": "script_job_timeout", "executor_leaked": False},
+        )
+    if observation.failed:
+        return _failed(
+            execution,
+            "Script process failed. Candidate output remains inspectable but cannot be applied.",
+            {"reason": "script_process_failed"},
+            payload=observation.payload,
+        )
+    return _success(execution, observation.payload)
+
+
+def _emit_workspace(
+    workspace: WorkspaceEngine,
+    bus: SignalBus,
+    execution: ActionExecution,
+    context: ActionExecutionContext,
+) -> None:
+    (context.signal_bus or bus).emit(
+        workspace_snapshot_signal(
+            workspace.snapshot(),
+            call_id=execution.call.call_id,
+            scope=execution.framework.scope,
+            source=execution.call.action_name,
+        )
+    )
+
+
+def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
+    return ActionResult.success(
+        call_id=execution.call.call_id,
+        invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id,
+        action_name=execution.call.action_name,
+        sequence=execution.call.sequence,
+        domain=execution.framework.domain,
+        payload=payload,
+    )
+
+
+def _failed(
+    execution: ActionExecution,
+    feedback: str,
+    frame_data: JsonObject,
+    *,
+    payload: JsonObject | None = None,
+) -> ActionResult:
+    return ActionResult.failed(
+        call_id=execution.call.call_id,
+        invoke_id=execution.framework.invoke_id,
+        batch_id=execution.framework.batch_id,
+        action_name=execution.call.action_name,
+        stage=ActionResultStage.EXECUTE,
+        sequence=execution.call.sequence,
+        domain=execution.framework.domain,
+        model_feedback=feedback,
+        frame_data=frame_data,
+        payload=payload,
+    )

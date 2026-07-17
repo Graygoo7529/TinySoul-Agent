@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
+from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -573,8 +574,9 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("workspace.scan", emit_invalid_sync)
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
-        .disable_actions(
-            "resource.convert_with_markitdown",
+            .disable_actions(
+                *SCRIPT_ACTIONS,
+                "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",
             "web.fetch_with_defuddle",
@@ -641,6 +643,7 @@ def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .disable_actions(
+            *SCRIPT_ACTIONS,
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",

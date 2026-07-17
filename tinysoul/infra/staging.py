@@ -63,6 +63,15 @@ class StagingDirectoryManager:
     def allocate(self, prefix: str) -> Iterator[Path]:
         """Yield one unique action directory and remove it on scope exit."""
 
+        directory = self.create(prefix)
+        try:
+            yield directory
+        finally:
+            self.cleanup(directory)
+
+    def create(self, prefix: str) -> Path:
+        """Create one retained child for work spanning multiple action calls."""
+
         if not isinstance(prefix, str) or not _PREFIX_PATTERN.fullmatch(prefix):
             raise StagingError("Staging prefix is invalid")
         with self._lock:
@@ -73,11 +82,23 @@ class StagingDirectoryManager:
                 )
             except OSError as exc:
                 raise StagingError("Action staging directory could not be created") from exc
+        return directory
+
+    def cleanup(self, directory: Path) -> None:
+        """Remove one child previously created by this manager."""
+
+        if not isinstance(directory, Path):
+            raise StagingError("Staging cleanup path must be a Path")
         try:
-            yield directory
-        finally:
+            resolved = directory.resolve()
+            root = self._root.resolve()
+        except OSError as exc:
+            raise StagingError("Staging cleanup path could not be resolved") from exc
+        if resolved.parent != root:
+            raise StagingError("Staging cleanup path must be a direct child of the root")
+        with self._lock:
             try:
-                _remove(directory)
+                _remove(resolved)
             except OSError as exc:
                 raise StagingError("Action staging directory could not be cleaned") from exc
 

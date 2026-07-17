@@ -97,6 +97,8 @@ AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应
 
 Resource capability 在此边界解析 `[capabilities.resource]`，检查 enabled action 推导出的依赖，注册 `resource.convert_with_markitdown`/`resource.convert_with_pypdf` executor，或把禁用 action 从 effective Catalog 移除。AppBuilder 不解析文档、不选择 converter，也不读取转换正文；Home prompt mount reconciliation 只观察 ActionEngine 最终暴露的 domain/action identities。
 
+Script capability 在此边界解析 `[capabilities.script]`，装配 Workspace transaction mirror、Home/Workspace source resolver、Turn-scoped job manager 和 Script registrar。AppBuilder 不解释脚本正文、job state 或 candidate diff；TurnRunner 只接收通用 activity controller，用于在普通 Cycle 预算后申请有限额外 Cycle并在 Turn 边界 cleanup。Python 默认启用，Bash 只有显式启用且 executable 检查通过时才进入 effective Catalog。
+
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 
 AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。

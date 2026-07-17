@@ -1,0 +1,32 @@
+name = "script.run_bash"
+domain = "script"
+
+[tool]
+description = "Start a Bash script against a transactional Workspace mirror when the configured Bash executable is available."
+
+[tool.schema]
+type = "object"
+required = ["source_link"]
+additionalProperties = false
+
+[tool.schema.properties.source_link]
+type = "string"
+description = "Existing workspace:scripts/...sh or home:how/<skill>/scripts/...sh link."
+
+[tool.schema.properties.args]
+type = "array"
+description = "Optional bounded script arguments."
+items = { type = "string" }
+
+[semantic]
+use_when = ["Need configured Bash processing over Workspace resources"]
+avoid_when = ["Bash is disabled or unavailable", "Another Script job is unresolved in the current Turn"]
+effects = ["modifying"]
+examples = ["Run workspace:scripts/list-inputs.sh against the mirrored Workspace"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "script"
+handler = "script.run_bash"

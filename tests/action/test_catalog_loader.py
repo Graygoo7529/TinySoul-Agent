@@ -20,7 +20,11 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("home")
     assert catalog.has_domain("memory")
     assert not catalog.has_domain("shell")
-    assert not catalog.has_domain("script")
+    assert catalog.has_domain("script")
+    assert (
+        catalog.get_action("script.run_python").backend.handler
+        == "script.run_python"
+    )
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"

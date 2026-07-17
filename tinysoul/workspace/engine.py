@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
@@ -730,13 +730,12 @@ class WorkspaceEngine:
         writes: Sequence[WorkspaceBundleWrite],
         *,
         delete_links: Sequence[WorkspaceLink | str] = (),
+        expected_delete_digests: Mapping[str, str] | None = None,
     ) -> WorkspaceBundleResult:
         """Commit a multi-resource mutation with disk and manifest rollback."""
 
         with self._lock:
             items = tuple(writes)
-            if not items:
-                raise WorkspaceContractError("Workspace bundle requires writes")
             if any(not isinstance(item, WorkspaceBundleWrite) for item in items):
                 raise WorkspaceContractError(
                     "Workspace bundle writes must be WorkspaceBundleWrite values"
@@ -751,6 +750,25 @@ class WorkspaceEngine:
                 for link in delete_links
             )
             delete_values = tuple(str(link) for link in deletes)
+            delete_guards = dict(expected_delete_digests or {})
+            if any(
+                not isinstance(link, str)
+                or not isinstance(digest, str)
+                for link, digest in delete_guards.items()
+            ):
+                raise WorkspaceContractError(
+                    "Workspace bundle delete digest guards must contain text values"
+                )
+            unknown_guards = set(delete_guards) - set(delete_values)
+            if unknown_guards:
+                raise WorkspaceContractError(
+                    "Workspace bundle delete digest guard has no matching delete: "
+                    + sorted(unknown_guards)[0]
+                )
+            if not items and not deletes:
+                raise WorkspaceContractError(
+                    "Workspace bundle requires at least one write or delete"
+                )
             if len(set(delete_values)) != len(delete_values):
                 raise WorkspaceContractError(
                     "Workspace bundle delete links must be unique"
@@ -810,7 +828,13 @@ class WorkspaceEngine:
                         f"Workspace bundle delete resource does not exist: {link}"
                     )
                 paths[link] = path
-                previous[link] = self._read_rollback_bytes(path)
+                previous_content = self._read_rollback_bytes(path)
+                previous[link] = previous_content
+                expected = delete_guards.get(link, "")
+                if expected and sha256(previous_content).hexdigest() != expected:
+                    raise WorkspaceContractError(
+                        f"Workspace bundle delete resource digest mismatch: {link}"
+                    )
 
             try:
                 for item in items:

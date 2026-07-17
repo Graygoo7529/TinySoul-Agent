@@ -27,6 +27,10 @@ class WorkspaceReconciliationError(WorkspaceError):
     """Raised when disk inventory cannot be reconciled completely."""
 
 
+class WorkspaceMirrorConflict(WorkspaceError):
+    """Raised when active resources changed after a mirror baseline was taken."""
+
+
 class WorkspaceTrashRestoreRequired(WorkspaceError):
     """Raised when an active resource can be recovered from Workspace Trash."""
 

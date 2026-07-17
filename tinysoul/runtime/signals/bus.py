@@ -13,20 +13,23 @@ class SignalBus:
 
     def __init__(self) -> None:
         self._signals: list[Signal] = []
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
+        self._generation = 0
 
     def emit(self, signal: Signal) -> None:
         if not isinstance(signal, Signal):
             raise RuntimeContractError("SignalBus.emit expects a Signal")
-        with self._lock:
+        with self._condition:
             self._signals.append(signal)
+            self._generation += 1
+            self._condition.notify_all()
 
     def peek(self) -> tuple[Signal, ...]:
-        with self._lock:
+        with self._condition:
             return tuple(self._signals)
 
     def consume(self) -> tuple[Signal, ...]:
-        with self._lock:
+        with self._condition:
             consumed = tuple(self._signals)
             self._signals.clear()
             return consumed
@@ -38,7 +41,7 @@ class SignalBus:
             raise RuntimeContractError(
                 "SignalBus.consume_namespace requires a non-empty prefix"
             )
-        with self._lock:
+        with self._condition:
             matched: list[Signal] = []
             remaining: list[Signal] = []
             for signal in self._signals:
@@ -56,7 +59,7 @@ class SignalBus:
             raise RuntimeContractError(
                 "SignalBus.consume_name requires a non-empty name"
             )
-        with self._lock:
+        with self._condition:
             matched: list[Signal] = []
             remaining: list[Signal] = []
             for signal in self._signals:
@@ -68,5 +71,23 @@ class SignalBus:
             return tuple(matched)
 
     def __len__(self) -> int:
-        with self._lock:
+        with self._condition:
             return len(self._signals)
+
+    def generation(self) -> int:
+        """Return a monotonic snapshot used only for non-consuming wakeups."""
+
+        with self._condition:
+            return self._generation
+
+    def wait_for_change(self, generation: int, timeout: float | None) -> int:
+        """Wait until a signal is emitted, without consuming business signals."""
+
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise RuntimeContractError("Signal generation must be non-negative")
+        if timeout is not None and timeout < 0:
+            raise RuntimeContractError("Signal wait timeout must be non-negative")
+        with self._condition:
+            if self._generation == generation:
+                self._condition.wait(timeout)
+            return self._generation

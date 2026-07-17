@@ -77,6 +77,7 @@ ActionResult 是否包含正文由 action 的交互语义和明确上限决定�
 
 - Resource conversion：`docs/design/capabilities/resource.md`；
 - Web search/fetch：`docs/design/capabilities/web.md`。
+- Script authoring/execution：`docs/design/capabilities/script.md`。
 
 ## 失败语义
 
