@@ -67,6 +67,6 @@ runtime/.staging/script-job-*/
 
 ## 失败语义
 
-无效 Link、缺失 HOW、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；只有 Loop 直接调用的 Script activity pacing 异常使用 Script failure kind/Runtime bridge。配置错误、启用 Bash 但 executable 不存在、Catalog/registrar 不一致属于启动失败。
+无效 Link、缺失 HOW、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 `wait_before_cycle` 与 `allow_additional_cycle` 属于同一 non-Action Script activity 边界，内部失败使用 Script failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
 
 job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。

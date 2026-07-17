@@ -238,6 +238,7 @@ class TinySoulAppBuilder:
         workspace_bridge = RuntimeWorkspaceBridge()
         home_bridge = RuntimeAgentHomeBridge()
         memory_bridge = RuntimeMemoryBridge()
+        script_bridge = RuntimeScriptBridge()
         try:
             config = (
                 self._config_env
@@ -269,9 +270,9 @@ class TinySoulAppBuilder:
                 else self._build_app_settings(config, app_bridge)
             )
             context_settings = self._build_context_settings(config, context_bridge)
-            capabilities_settings = config.parse_section(
-                "capabilities",
-                parse_capabilities_settings,
+            capabilities_settings = self._build_capabilities_settings(
+                config,
+                script_bridge,
             )
             output_sinks = tuple(self._output_sinks)
             if not output_sinks and app_settings.interactive:
@@ -358,7 +359,7 @@ class TinySoulAppBuilder:
                         ),
                     ),
                     staging=staging,
-                    runtime_bridge=RuntimeScriptBridge(),
+                    runtime_bridge=script_bridge,
                 )
                 script_resolver = ScriptSourceResolver(
                     workspace=workspace,
@@ -376,6 +377,7 @@ class TinySoulAppBuilder:
                     memory_bridge=memory_bridge,
                     workspace_bridge=workspace_bridge,
                     action_bridge=action_bridge,
+                    script_bridge=script_bridge,
                     llm_action=llm_action,
                     llm=llm,
                     observations=observations,
@@ -677,6 +679,23 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
+    def _build_capabilities_settings(
+        self,
+        config: ConfigEnvironment,
+        script_bridge: RuntimeScriptBridge,
+    ) -> CapabilitiesSettings:
+        try:
+            return config.parse_section(
+                "capabilities",
+                parse_capabilities_settings,
+            )
+        except ConfigError as exc:
+            if exc.key == "capabilities.script" or exc.key.startswith(
+                "capabilities.script."
+            ):
+                raise script_bridge.from_config_error(exc) from exc
+            raise
+
     def _build_context_settings(
         self,
         config: ConfigEnvironment,
@@ -772,6 +791,7 @@ class TinySoulAppBuilder:
         memory_bridge: RuntimeMemoryBridge,
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
+        script_bridge: RuntimeScriptBridge,
         llm_action: LLMActionTaskRunner,
         llm: LLMRunner,
         observations: ObservationEmitter,
@@ -811,17 +831,20 @@ class TinySoulAppBuilder:
                     runtime_bridge=workspace_bridge,
                     staging=staging,
                 )
-                register_script_actions(
-                    builder,
-                    settings=capabilities_settings.script,
-                    resolver=script_resolver,
-                    jobs=script_jobs,
-                    workspace=workspace,
-                    bus=bus,
-                    llm_action=llm_action,
-                    home_bridge=home_bridge,
-                    workspace_bridge=workspace_bridge,
-                )
+                try:
+                    register_script_actions(
+                        builder,
+                        settings=capabilities_settings.script,
+                        resolver=script_resolver,
+                        jobs=script_jobs,
+                        workspace=workspace,
+                        bus=bus,
+                        llm_action=llm_action,
+                        home_bridge=home_bridge,
+                        workspace_bridge=workspace_bridge,
+                    )
+                except ConfigError as exc:
+                    raise script_bridge.from_config_error(exc) from exc
                 register_home_actions(
                     builder,
                     home=home,

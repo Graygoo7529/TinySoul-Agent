@@ -5,7 +5,7 @@ from hashlib import sha256
 from threading import Thread
 from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import cast
+from typing import NoReturn, cast
 
 import pytest
 
@@ -19,7 +19,15 @@ from tinysoul.capabilities.script.sources import ScriptSourceResolver
 from tinysoul.context import build_input_append_signal
 from tinysoul.home import AgentHomeEngine
 from tinysoul.infra import StagingDirectoryManager
-from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
+from tinysoul.runtime import (
+    RunLevel,
+    RunScope,
+    RuntimeException,
+    Signal,
+    SignalBus,
+    SignalWatch,
+)
+from tinysoul.runtime.bridge import RuntimeScriptBridge
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceMirrorConflict,
@@ -219,7 +227,7 @@ def test_job_rejects_workspace_source_changed_after_snapshot(local_tmp: Path) ->
             source=source,
             args=(),
             control=ActionExecutionControl(),
-            bus=None,
+            bus=_FailingCloseSignalBus(),
         )
 
     assert manager.has_unresolved("turn_1") is False
@@ -283,6 +291,125 @@ def test_source_resolver_enforces_write_and_patch_limits(local_tmp: Path) -> Non
         resolver.patch(source, old_text="5", new_text="56")
 
     assert workspace.read_text(record.link).text == "12345"
+
+
+def test_source_resolver_enforces_read_rewrite_and_promote_limits(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    oversized = workspace.write_text(
+        "workspace:scripts/oversized.py",
+        "123456",
+        owner_turn_id="turn_1",
+    )
+    home = _RecordingHome()
+    resolver = ScriptSourceResolver(
+        workspace=workspace,
+        home=cast(AgentHomeEngine, home),
+        max_source_chars=5,
+    )
+
+    with pytest.raises(ScriptContractError, match="exceeds 5"):
+        resolver.read(oversized.link)
+    with pytest.raises(ScriptContractError, match="exceeds 5"):
+        resolver.write(
+            oversized.link,
+            "abcdef",
+            overwrite=True,
+            expected_digest=oversized.digest,
+            owner_turn_id="turn_1",
+        )
+    with pytest.raises(ScriptContractError, match="exceeds 5"):
+        resolver.promote(
+            ScriptSource(
+                oversized.link,
+                "abcdef",
+                oversized.digest,
+                ScriptLanguage.PYTHON,
+            ),
+            "home:how/test/scripts/task.py",
+            expected_source_digest=oversized.digest,
+            overwrite=False,
+            expected_target_digest="",
+        )
+
+    assert home.written_text == ""
+
+
+def test_additional_cycle_failure_uses_script_runtime_bridge(
+    local_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(local_tmp)
+    record = workspace.write_text(
+        "workspace:scripts/wait.py",
+        "import time\ntime.sleep(30)\n",
+        owner_turn_id="turn_1",
+    )
+    manager = _jobs(local_tmp, workspace, runtime_bridge=RuntimeScriptBridge())
+    running = manager.start(
+        turn_id="turn_1",
+        source=ScriptSource(
+            record.link,
+            workspace.read_text(record.link).text,
+            record.digest,
+            ScriptLanguage.PYTHON,
+        ),
+        args=(),
+        control=ActionExecutionControl(),
+        bus=None,
+    )
+
+    def fail_refresh(_job: object) -> NoReturn:
+        raise RuntimeError("refresh failed")
+
+    monkeypatch.setattr(manager, "_refresh", fail_refresh)
+    with pytest.raises(RuntimeException) as raised:
+        manager.allow_additional_cycle("turn_1")
+
+    assert raised.value.payload["module"] == "script"
+    assert raised.value.payload["kind"] == "script.internal_failure"
+    assert raised.value.payload["operation"] == "allow_additional_cycle"
+    monkeypatch.undo()
+    manager.stop(
+        turn_id="turn_1",
+        execution_id=str(running.payload["execution_id"]),
+    )
+    manager.discard(
+        turn_id="turn_1",
+        execution_id=str(running.payload["execution_id"]),
+    )
+
+
+def test_signal_watch_close_failure_does_not_skip_job_cleanup(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    record = workspace.write_text(
+        "workspace:scripts/done.py",
+        "print('done')\n",
+        owner_turn_id="turn_1",
+    )
+    manager = _jobs(local_tmp, workspace)
+    running = manager.start(
+        turn_id="turn_1",
+        source=ScriptSource(
+            record.link,
+            workspace.read_text(record.link).text,
+            record.digest,
+            ScriptLanguage.PYTHON,
+        ),
+        args=(),
+        control=ActionExecutionControl(),
+        bus=_FailingCloseSignalBus(),
+    )
+    staging_roots = tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
+
+    manager.discard(
+        turn_id="turn_1",
+        execution_id=str(running.payload["execution_id"]),
+    )
+
+    assert manager.has_unresolved("turn_1") is False
+    assert staging_roots and not staging_roots[0].exists()
 
 
 def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
@@ -421,13 +548,19 @@ def _mirrors(workspace):
     )
 
 
-def _jobs(root: Path, workspace) -> ScriptJobManager:
+def _jobs(
+    root: Path,
+    workspace,
+    *,
+    runtime_bridge: RuntimeScriptBridge | None = None,
+) -> ScriptJobManager:
     staging = StagingDirectoryManager(root.resolve())
     staging.prepare()
     return ScriptJobManager(
         settings=_settings(),
         mirror_service=_mirrors(workspace),
         staging=staging,
+        runtime_bridge=runtime_bridge,
     )
 
 
@@ -457,3 +590,16 @@ class _RecordingHome:
             size=len(text.encode("utf-8")),
             state=SimpleNamespace(value="modified"),
         )
+
+
+class _FailingCloseSignalBus(SignalBus):
+    def watch(self) -> SignalWatch:
+        return cast(SignalWatch, _FailingCloseSignalWatch())
+
+
+class _FailingCloseSignalWatch:
+    def wait_for_matching(self, _predicate: object, _timeout: float | None) -> None:
+        return None
+
+    def close(self) -> NoReturn:
+        raise RuntimeError("watch close failed")

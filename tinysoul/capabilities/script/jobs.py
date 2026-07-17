@@ -126,7 +126,10 @@ class ScriptJobManager:
         signal_watch = bus.watch() if bus is not None else SignalBus().watch()
         with self._lock:
             if turn_id in self._by_turn:
-                signal_watch.close()
+                try:
+                    signal_watch.close()
+                except Exception:
+                    pass
                 raise ScriptStateError("The current Turn already has an unresolved Script job")
             execution_id = f"script_{uuid4().hex}"
             staging_root: Path | None = None
@@ -157,7 +160,10 @@ class ScriptJobManager:
                     capture_root=staging_root / "logs",
                 )
             except Exception as exc:
-                signal_watch.close()
+                try:
+                    signal_watch.close()
+                except Exception:
+                    pass
                 if staging_root is not None:
                     try:
                         self._staging.cleanup(staging_root)
@@ -317,18 +323,28 @@ class ScriptJobManager:
             return turn_id in self._by_turn
 
     def allow_supervision_cycle(self, turn_id: str) -> bool:
-        with self._lock:
-            execution_id = self._by_turn.get(turn_id)
-            if execution_id is None:
-                return False
-            job = self._jobs[execution_id]
-            self._refresh(job)
-            if monotonic() >= job.deadline:
-                return False
-            if job.supervision_cycles >= self._settings.max_supervision_cycles:
-                return False
-            job.supervision_cycles += 1
-            return True
+        try:
+            with self._lock:
+                execution_id = self._by_turn.get(turn_id)
+                if execution_id is None:
+                    return False
+                job = self._jobs[execution_id]
+                self._refresh(job)
+                if monotonic() >= job.deadline:
+                    return False
+                if job.supervision_cycles >= self._settings.max_supervision_cycles:
+                    return False
+                job.supervision_cycles += 1
+                return True
+        except RuntimeException:
+            raise
+        except Exception as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.from_script_error(
+                exc,
+                payload={"turn_id": turn_id, "operation": "allow_additional_cycle"},
+            ) from exc
 
     def allow_additional_cycle(self, turn_id: str) -> bool:
         """Grant one bounded Cycle beyond the ordinary Turn limit."""
@@ -517,11 +533,14 @@ class ScriptJobManager:
 
     def _remove(self, job: _ScriptJob, *, suppress_cleanup: bool = False) -> None:
         first_error: Exception | None = None
-        job.signal_watch.close()
+        try:
+            job.signal_watch.close()
+        except Exception as exc:
+            first_error = exc
         try:
             job.process.close()
         except Exception as exc:
-            first_error = exc
+            first_error = first_error or exc
         try:
             self._staging.cleanup(job.staging_root)
         except Exception as exc:

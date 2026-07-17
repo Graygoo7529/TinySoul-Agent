@@ -383,6 +383,54 @@ def test_app_builder_workspace_config_error_is_workspace_startup_failure(
     assert exc.payload["key"] == "workspace.max_files"
 
 
+def test_app_builder_script_config_error_is_script_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(tmp_path, {"capabilities.script.max_source_chars": 0})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "script"
+    assert exc.payload["kind"] == "script.configuration_failed"
+    assert exc.payload["key"] == "capabilities.script.max_source_chars"
+
+
+def test_app_builder_script_dependency_error_is_script_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(
+        tmp_path,
+        {
+            "capabilities.script.bash.enabled": True,
+            "capabilities.script.bash.executable": "tinysoul-missing-bash-for-test",
+        },
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "script"
+    assert exc.payload["kind"] == "script.configuration_failed"
+    assert exc.payload["key"] == "capabilities.dependencies.script.bash"
+
+
 def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
     tmp_path: Path,
 ) -> None:
