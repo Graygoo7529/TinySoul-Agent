@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: in_progress (Stage 1 and Stage 2A done; Stage 2B pending confirmation)
+status: in_progress (Stage 1 and Stage 2 done; Stage 3 pending confirmation)
 
 依赖（已满足）：Stage 8 发布与初始化闭环、`20260715-done-default agent home content plan.md`。
 
@@ -23,8 +23,8 @@ status: in_progress (Stage 1 and Stage 2A done; Stage 2B pending confirmation)
 本计划将 TinySoul 定位为本地、项目作用域内的知识工作 Agent。推进顺序优先补齐“取得内容、转换内容、受控执行、确定性处理”，再扩展知识图检索、外部连接器和交互界面。以下 Stage 只表示本能力扩展计划内部的顺序，不复用此前 Daily Lifecycle 的 Stage 编号；每个 Stage 都必须在语义确认、实现和验收完成后再进入下一项：
 
 1. **Stage 1 Resource Conversion（done）**：在 Workspace Link 边界内把受支持文档转换为可检查、可作为后续 action reference 的 Markdown 与关联资源；
-2. **Stage 2 Web Search And Fetch（2A done）**：提供有界搜索和网页读取，返回来源 Link、摘要与引用信息，不在该阶段引入登录、提交表单或其它写操作；
-3. **Stage 3 Controlled Project Tasks**：只暴露项目拥有的具名工作流和固定参数，不提供任意 shell 字符串或模型自行拼接命令；
+2. **Stage 2 Web Search, Discovery And Fetch（done）**：提供有界搜索、页面发现和网页读取，返回来源、候选 URL、语义信号或 Workspace Link，不在该阶段引入登录、提交表单或其它写操作；
+3. **Stage 3 Code And Script Execution**：建立通过 Workspace Link 编写代码/脚本并受控执行 Python 或 bash 的能力；具体脚本来源、参数、工作目录、依赖、权限、审批和结果边界在进入 Stage 3 前确认，不把模型参数直接拼接为宿主任意命令；
 4. **Stage 4 Deterministic Utilities**：补充数学、时间、编码和结构化格式转换等具有明确 schema、纯输入输出和稳定失败语义的工具；
 5. **Stage 5 Knowledge Retrieval Enhancements**：实现 Home Backlink，并在真实数据规模证明需要后增强 Memory 片段检索；
 6. **Stage 6 Connectors And Interaction**：按真实使用场景增加外部服务连接器、文件导入导出、用户审批和更丰富的交互入口，不预先建设通用插件平台。
@@ -58,13 +58,14 @@ Stage 1 已按以下切面完成：
 - bundle 提交只产生一次 manifest revision 和一次 workspace snapshot signal；
 - ActionResult metadata-only，测试与仓库真实 runtime/workspace/Home 隔离。
 
-### Stage 2 Web Search And Fetch
+### Stage 2 Web Search, Discovery And Fetch
 
-Stage 2A 已建立无独立持久状态的 `capabilities.web` 和 `web` domain，确认后的详细语义见 `docs/design/capabilities/web.md`。当前 action 为：
+Stage 2 已建立无独立持久状态的 `capabilities.web` 和 `web` domain，确认后的详细语义见 `docs/design/capabilities/web.md`。当前 action 为：
 
 1. `web.search_by_kimi`：独立于 TinySoul LLM task/provider/Context 的 Kimi `$web_search` 封装，结果固定同时包含 Markdown `answer` 和结构化 `results`，不提供 mode；
-2. `web.fetch_with_defuddle`：已知 URL 的优先本地提取路径，依赖可检测的可选 Defuddle CLI；
-3. `web.fetch_with_trafilatura`：同一 fetch 语义的基础 Python fallback。
+2. `web.discover_pages`：从一个公开 HTTPS seed 返回同源候选页面，并可在配置上限内递归访问以补充确定性页面信号；
+3. `web.fetch_with_defuddle`：已知 URL 的优先本地提取路径，依赖可检测的可选 Defuddle CLI；
+4. `web.fetch_with_trafilatura`：同一 fetch 语义的基础 Python fallback。
 
 已落实边界：
 
@@ -73,16 +74,15 @@ Stage 2A 已建立无独立持久状态的 `capabilities.web` 和 `web` domain�
 - fetch 只接受公开 HTTPS，逐跳校验 DNS/redirect，限制请求时长、source bytes、redirect 和 output chars，禁用环境代理、cookie 与认证；
 - 两个 fetch action 都由 Web worker 统一下载并规范化相对链接，Defuddle/Trafilatura 仅处理 staged HTML；正文总是提交到显式 Workspace Markdown target；
 - 图片只保留远程绝对 URL，不下载 `.assets/`；ActionResult 只含有界 excerpt 和 artifact metadata，不调用 LLM；
-- 三项 action 分别 enabled/依赖检查/effective Catalog 过滤；Defuddle executable 检测扩展了通用 DependencyChecker；worker 复用 ControlledProcessRunner 并使用最小环境传递专用搜索密钥；
+- 四项 action 分别 enabled/依赖检查/effective Catalog 过滤；Defuddle executable 检测扩展了通用 DependencyChecker；worker 复用 ControlledProcessRunner 并使用最小环境传递专用搜索密钥；
 - Web 与 Resource 中间文件共用 `runtime/.staging/`，App 启动清理遗留子目录，action 作用域结束清理当前唯一子目录；该根不进入 Workspace Manifest 或 Daily archive；
 - Catalog、domain HOW、默认项目配置、`.env.example`、wheel package data 和隔离测试已闭环。
 
-Stage 2B 保留为后续 crawl 能力：只有在确认真实多页场景后再设计 Crawlee adapter、crawl action 名称、robots、队列/去重、页面与站点 budget、缓存和来源集合协议。Stage 2B 不新增通用网络 backend kind，也不放宽 Stage 2A 的单页 fetch 边界。
+Stage 2B 已完成 Page Discovery，而不是自动持久化整站正文。`web.discover_pages` 访问一个公开 HTTPS seed，返回该页面可进一步访问的同源候选 URL；可选的 `max_visit_depth` 在配置硬上限内让 Crawlee 递归访问候选并补充 title、meta description、H1、canonical、来源 anchor 等确定性信号。Discovery 不调用 LLM、不自动调用 fetch、不保存访问页面正文；Agent 在后续 Cycle 根据 ActionResult 决定是否调用现有 Defuddle/Trafilatura fetch。Crawlee 只提供 action-scoped RequestQueue、去重、重试和有界调度，实际下载继续使用 TinySoul 的公开 HTTPS/redirect/bytes 边界。默认 depth 为 0、scope 固定 same-origin、robots 强制遵守、query link 默认不扩散，不建立缓存、跨重启 resume 或长期 Crawl 状态。完整 canonical discovery result 受硬上限约束；超过 inline 上限时完整 JSON spill 到 `workspace:web/discovery/<invoke-id>-<call-id>.json`，ActionResult 返回有界 preview 与 `see_more_at`。Catalog、domain HOW、独立 Crawlee 依赖检测、默认项目配置、inline/spill、Workspace signal、相对链接解析、硬 page budget 与可选真实网络 smoke test 均已形成验收闭环。
 
 ### 后续 Stage 的确认入口
 
-- **Stage 2B**：确认 Crawlee 的真实多页场景、action identity、robots、队列/去重、页面/站点 budget、缓存和来源集合协议；
-- **Stage 3**：确认首批真实项目工作流、每个具名 task 的固定命令模板、工作目录、参数白名单、环境变量、变更范围、审批和回滚语义；
+- **Stage 3**：确认 Workspace 代码/脚本的创建方式、Python/bash action identity、脚本与参数边界、工作目录、依赖环境、网络/文件权限、审批、输出和清理语义；
 - **Stage 4**：基于真实任务确认 utility 集合，避免建立无使用场景的工具集合；时间工具还需确认业务时区，结构化格式工具需确认输入输出是否通过值或 Workspace Link；
 - **Stage 5**：先确认 Home Backlink 的扫描范围与索引策略；Memory 片段检索需再确认数据规模、来源定位协议、embedding/reranker 依赖和 action 命名；
 - **Stage 6**：逐个 connector 确认授权、凭据、读写范围和人工审批；交互入口需保持 App-owned 输入/输出边界，不绕过 Runtime/Context/Action 生命周期。
@@ -120,6 +120,6 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 
 ## 待确认
 
-Stage 1 与 Stage 2A 已完成。下一推进选择应在 Stage 2B Crawl 与 Stage 3 Controlled Project Tasks 之间基于真实需求确认；若当前没有多页 crawl 场景，按推荐路线直接讨论 Stage 3，不为阶段编号预建 Crawlee。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入任意命令、持久索引或新的长期状态。
+Stage 1 与 Stage 2 已完成，下一步进入 Stage 3 Code And Script Execution 的语义确认；Stage 3 不沿用此前“固定测试/构建工作流”的假设。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入持久索引、新的长期状态或未确认的宿主任意命令执行。
 
 Stage 1 closure audit 已进一步完成：PDF 图片/附件提取不得吞掉 asset count/bytes limit；Resource executor 在 bundle commit point 前响应 cancellation/deadline；staged worker 协议错误稳定映射为局部 `worker_protocol_invalid`；嵌套 capability 配置保留精确 key；ControlledProcessRunner 使用临时文件捕获 stdout/stderr 并只构造有界结果投影，不把 projection limit 夸大为子进程硬输出配额。对应回归测试验证超限和取消都不提交 Workspace、不递增 Manifest、不发布同步信号。

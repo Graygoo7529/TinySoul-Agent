@@ -1,0 +1,42 @@
+name = "web.discover_pages"
+domain = "web"
+
+[tool]
+description = "Discover same-origin pages reachable from one public HTTPS seed. Returns bounded URL and deterministic page metadata for deciding which pages to fetch later; it does not save page bodies."
+
+[tool.schema]
+type = "object"
+required = ["start_url"]
+additionalProperties = false
+
+[tool.schema.properties.start_url]
+type = "string"
+description = "Public HTTPS seed page to inspect."
+
+[tool.schema.properties.max_visit_depth]
+type = "integer"
+description = "Optional recursive visit depth from zero through the configured project maximum. Zero visits only the seed."
+
+[tool.schema.properties.include_globs]
+type = "array"
+description = "Optional same-origin URL path globs that candidates must match."
+items = { type = "string" }
+
+[tool.schema.properties.exclude_globs]
+type = "array"
+description = "Optional same-origin URL path globs that candidates must not match."
+items = { type = "string" }
+
+[semantic]
+use_when = ["Need links or page metadata from a known page before deciding which pages deserve full fetch", "Need bounded recursive same-origin page discovery"]
+avoid_when = ["A known page should be converted directly to Workspace Markdown", "Need current source discovery across the public Web rather than links from a known site"]
+effects = ["additive"]
+examples = ["Discover direct documentation pages linked from https://example.com/docs/ with max_visit_depth 0"]
+
+[runtime]
+timeout_seconds = 180
+parallel_policy = "serial"
+
+[backend]
+kind = "subprocess"
+handler = "web.discover_pages"

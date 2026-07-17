@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,8 @@ def main() -> int:
         operation = _required_string(request, "operation")
         if operation == "search_by_kimi":
             response = _search_by_kimi(request)
+        elif operation == "discover_pages":
+            response = _discover_pages(request)
         elif operation in {"fetch_with_defuddle", "fetch_with_trafilatura"}:
             response = _fetch(request, operation=operation)
         else:
@@ -187,6 +190,64 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         "Kimi Search ended without a result",
         reason="provider_protocol_invalid",
     )
+
+
+def _discover_pages(request: JsonObject) -> JsonObject:
+    from .discovery import DiscoveryRequest, discover_pages
+
+    max_result_chars = _required_positive_int(request, "max_result_chars")
+    result = asyncio.run(
+        discover_pages(
+            DiscoveryRequest(
+                start_url=_required_string(request, "start_url"),
+                max_visit_depth=_required_non_negative_int(
+                    request,
+                    "max_visit_depth",
+                ),
+                include_globs=_required_string_tuple(request, "include_globs"),
+                exclude_globs=_required_string_tuple(request, "exclude_globs"),
+                max_pages=_required_positive_int(request, "max_pages"),
+                max_candidates=_required_positive_int(request, "max_candidates"),
+                max_links_per_page=_required_positive_int(
+                    request,
+                    "max_links_per_page",
+                ),
+                max_concurrency=_required_positive_int(
+                    request,
+                    "max_concurrency",
+                ),
+                max_tasks_per_minute=_required_positive_int(
+                    request,
+                    "max_tasks_per_minute",
+                ),
+                max_request_retries=_required_non_negative_int(
+                    request,
+                    "max_request_retries",
+                ),
+                max_crawl_seconds=_required_positive_int(
+                    request,
+                    "max_crawl_seconds",
+                ),
+                max_source_bytes=_required_positive_int(
+                    request,
+                    "max_source_bytes",
+                ),
+                request_timeout_seconds=_required_positive_int(
+                    request,
+                    "request_timeout_seconds",
+                ),
+                max_redirects=_required_positive_int(request, "max_redirects"),
+                user_agent=_required_string(request, "user_agent"),
+                allow_query_links=_required_bool(request, "allow_query_links"),
+            )
+        )
+    )
+    if len(dumps_json(result)) > max_result_chars:
+        raise WebProcessingError(
+            "Web discovery result exceeds the configured result limit",
+            reason="result_chars_limit_exceeded",
+        )
+    return {"ok": True, **result}
 
 
 def _fetch(request: JsonObject, *, operation: str) -> JsonObject:
@@ -444,6 +505,38 @@ def _required_positive_int(value: JsonObject, name: str) -> int:
             reason="worker_protocol_invalid",
         )
     return item
+
+
+def _required_non_negative_int(value: JsonObject, name: str) -> int:
+    item = value.get(name)
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise WebProcessingError(
+            "Web worker numeric boundary is invalid",
+            reason="worker_protocol_invalid",
+        )
+    return item
+
+
+def _required_bool(value: JsonObject, name: str) -> bool:
+    item = value.get(name)
+    if not isinstance(item, bool):
+        raise WebProcessingError(
+            "Web worker boolean boundary is invalid",
+            reason="worker_protocol_invalid",
+        )
+    return item
+
+
+def _required_string_tuple(value: JsonObject, name: str) -> tuple[str, ...]:
+    item = value.get(name)
+    if not isinstance(item, list) or any(
+        not isinstance(entry, str) or not entry for entry in item
+    ):
+        raise WebProcessingError(
+            "Web worker string list is invalid",
+            reason="worker_protocol_invalid",
+        )
+    return tuple(cast(list[str], item))
 
 
 def _search_token_usage(arguments: JsonObject) -> int:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from tinysoul.action import (
     ActionEngineBuilder,
@@ -36,11 +36,17 @@ from .errors import (
     WebProcessTimeout,
     WebWorkerProtocolError,
 )
-from .models import WebExtractor, WebFetchResult, WebSearchResult
+from .models import (
+    WebDiscoveryResult,
+    WebExtractor,
+    WebFetchResult,
+    WebSearchResult,
+)
 from .service import WebCapabilityService
 
 
 WEB_SEARCH_KIMI_ACTION = "web.search_by_kimi"
+WEB_DISCOVER_PAGES_ACTION = "web.discover_pages"
 WEB_FETCH_DEFUDDLE_ACTION = "web.fetch_with_defuddle"
 WEB_FETCH_TRAFILATURA_ACTION = "web.fetch_with_trafilatura"
 
@@ -51,6 +57,14 @@ class _FetchParams:
     target_link: str
     overwrite: bool
     expected_target_digest: str
+
+
+@dataclass(frozen=True)
+class _DiscoveryParams:
+    start_url: str
+    max_visit_depth: int
+    include_globs: tuple[str, ...]
+    exclude_globs: tuple[str, ...]
 
 
 class WebActionRuntimeBridge(Protocol):
@@ -183,6 +197,63 @@ class WebFetchExecutor(ActionExecutor):
         return _success(execution, _fetch_payload(result))
 
 
+class WebDiscoveryExecutor(ActionExecutor):
+    """Discover same-origin page candidates through the bounded Web service."""
+
+    def __init__(
+        self,
+        *,
+        service: WebCapabilityService,
+        bus: SignalBus,
+    ) -> None:
+        self._service = service
+        self._bus = bus
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        params = _discovery_params(execution)
+        if isinstance(params, ActionResult):
+            return params
+        try:
+            result = self._service.discover_pages(
+                start_url=params.start_url,
+                max_visit_depth=params.max_visit_depth,
+                include_globs=params.include_globs,
+                exclude_globs=params.exclude_globs,
+                invoke_id=execution.framework.invoke_id,
+                call_id=execution.call.call_id,
+                owner_turn_id=execution.framework.turn_id,
+                control=context.control,
+            )
+        except WebProcessTimeout as exc:
+            return _timeout(execution, str(exc), reason=exc.reason)
+        except WebProcessingError as exc:
+            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+        except WebWorkerProtocolError:
+            return _failed(
+                execution,
+                "Web page discovery returned an invalid bounded result.",
+                {"reason": "worker_protocol_invalid"},
+            )
+        except StagingError:
+            return _failed(
+                execution,
+                "Web page discovery staging could not be completed.",
+                {"reason": "staging_failed"},
+            )
+        except (WebContractError, WorkspaceError) as exc:
+            return _failed(
+                execution,
+                "Web page discovery could not be completed.",
+                {"reason": "web_discovery_failed", "error_type": type(exc).__name__},
+            )
+        _emit_discovery_snapshot(execution, context, self._bus, result)
+        return _success(execution, result.payload)
+
+
 def register_web_actions(
     builder: ActionEngineBuilder,
     *,
@@ -198,15 +269,23 @@ def register_web_actions(
 
     require_web_dependencies(settings, checker=dependency_checker)
     search_enabled = settings.search_by_kimi.enabled
+    discovery_enabled = settings.discover_pages.enabled
     defuddle_enabled = settings.fetch_with_defuddle.enabled
     trafilatura_enabled = settings.fetch_with_trafilatura.enabled
     if not search_enabled:
         builder.disable_actions(WEB_SEARCH_KIMI_ACTION)
+    if not discovery_enabled:
+        builder.disable_actions(WEB_DISCOVER_PAGES_ACTION)
     if not defuddle_enabled:
         builder.disable_actions(WEB_FETCH_DEFUDDLE_ACTION)
     if not trafilatura_enabled:
         builder.disable_actions(WEB_FETCH_TRAFILATURA_ACTION)
-    if not search_enabled and not defuddle_enabled and not trafilatura_enabled:
+    if (
+        not search_enabled
+        and not discovery_enabled
+        and not defuddle_enabled
+        and not trafilatura_enabled
+    ):
         return builder
     service = WebCapabilityService(
         workspace=workspace,
@@ -219,6 +298,11 @@ def register_web_actions(
         builder.register_executor(
             WEB_SEARCH_KIMI_ACTION,
             KimiSearchExecutor(service=service, bus=bus),
+        )
+    if discovery_enabled:
+        builder.register_executor(
+            WEB_DISCOVER_PAGES_ACTION,
+            WebDiscoveryExecutor(service=service, bus=bus),
         )
     if defuddle_enabled:
         builder.register_executor(
@@ -280,6 +364,57 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
     )
 
 
+def _discovery_params(
+    execution: ActionExecution,
+) -> _DiscoveryParams | ActionResult:
+    start_url = execution.call.params.get("start_url")
+    if not isinstance(start_url, str) or not start_url.strip():
+        return _failed(
+            execution,
+            "Web page discovery requires a non-empty 'start_url'.",
+            {"reason": "invalid_start_url"},
+        )
+    max_visit_depth = execution.call.params.get("max_visit_depth", 0)
+    if (
+        isinstance(max_visit_depth, bool)
+        or not isinstance(max_visit_depth, int)
+        or max_visit_depth < 0
+    ):
+        return _failed(
+            execution,
+            "Web page discovery max_visit_depth must be a non-negative integer.",
+            {"reason": "invalid_visit_depth"},
+        )
+    include_globs = _string_tuple_param(execution, "include_globs")
+    if isinstance(include_globs, ActionResult):
+        return include_globs
+    exclude_globs = _string_tuple_param(execution, "exclude_globs")
+    if isinstance(exclude_globs, ActionResult):
+        return exclude_globs
+    return _DiscoveryParams(
+        start_url=start_url.strip(),
+        max_visit_depth=max_visit_depth,
+        include_globs=include_globs,
+        exclude_globs=exclude_globs,
+    )
+
+
+def _string_tuple_param(
+    execution: ActionExecution,
+    name: str,
+) -> tuple[str, ...] | ActionResult:
+    value = execution.call.params.get(name, [])
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        return _failed(
+            execution,
+            f"Web page discovery {name} must be an array of non-empty strings.",
+            {"reason": "invalid_path_globs"},
+        )
+    return tuple(cast(list[str], value))
+
+
 def _fetch_payload(result: WebFetchResult) -> JsonObject:
     return {
         "markdown_link": result.markdown_link,
@@ -298,6 +433,24 @@ def _emit_search_snapshot(
     context: ActionExecutionContext,
     bus: SignalBus,
     result: WebSearchResult,
+) -> None:
+    if result.manifest is None:
+        return
+    (context.signal_bus or bus).emit(
+        workspace_snapshot_signal(
+            result.manifest,
+            call_id=execution.call.call_id,
+            scope=execution.framework.scope,
+            source=execution.call.action_name,
+        )
+    )
+
+
+def _emit_discovery_snapshot(
+    execution: ActionExecution,
+    context: ActionExecutionContext,
+    bus: SignalBus,
+    result: WebDiscoveryResult,
 ) -> None:
     if result.manifest is None:
         return

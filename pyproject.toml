@@ -26,7 +26,11 @@ tinysoul = "tinysoul.app.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "crawlee>=1.8,<2",
     "pytest",
+]
+web-crawl = [
+    "crawlee>=1.8,<2",
 ]
 
 [tool.setuptools.packages.find]

@@ -74,6 +74,61 @@ class KimiSearchSettings:
 
 
 @dataclass(frozen=True)
+class WebDiscoverySettings:
+    enabled: bool = False
+    max_visit_depth: int = 1
+    max_pages: int = 20
+    max_candidates: int = 100
+    max_links_per_page: int = 200
+    max_result_chars: int = 100_000
+    max_inline_chars: int = 12_000
+    max_concurrency: int = 2
+    max_tasks_per_minute: int = 30
+    max_request_retries: int = 1
+    max_crawl_seconds: int = 90
+    allow_query_links: bool = False
+
+    def __post_init__(self) -> None:
+        key = "capabilities.web.discover_pages"
+        _bool(self.enabled, key=f"{key}.enabled")
+        _bool(self.allow_query_links, key=f"{key}.allow_query_links")
+        _non_negative(self.max_visit_depth, key=f"{key}.max_visit_depth")
+        _non_negative(self.max_request_retries, key=f"{key}.max_request_retries")
+        for name in (
+            "max_pages",
+            "max_candidates",
+            "max_links_per_page",
+            "max_result_chars",
+            "max_inline_chars",
+            "max_concurrency",
+            "max_tasks_per_minute",
+            "max_crawl_seconds",
+        ):
+            _positive(getattr(self, name), key=f"{key}.{name}")
+        if self.max_inline_chars > self.max_result_chars:
+            raise ConfigError(
+                "Discovery inline result limit cannot exceed the full result limit",
+                key=f"{key}.max_inline_chars",
+                value=self.max_inline_chars,
+                expected=f"<= {self.max_result_chars}",
+            )
+        if self.max_inline_chars < 1_000:
+            raise ConfigError(
+                "Discovery inline result limit is too small for a stable result shape",
+                key=f"{key}.max_inline_chars",
+                value=self.max_inline_chars,
+                expected=">= 1000",
+            )
+        if self.max_concurrency > self.max_pages:
+            raise ConfigError(
+                "Discovery concurrency cannot exceed the page budget",
+                key=f"{key}.max_concurrency",
+                value=self.max_concurrency,
+                expected=f"<= {self.max_pages}",
+            )
+
+
+@dataclass(frozen=True)
 class WebSettings:
     max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES
     max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS
@@ -82,6 +137,7 @@ class WebSettings:
     max_redirects: int = DEFAULT_MAX_REDIRECTS
     user_agent: str = DEFAULT_USER_AGENT
     search_by_kimi: KimiSearchSettings = field(default_factory=KimiSearchSettings)
+    discover_pages: WebDiscoverySettings = field(default_factory=WebDiscoverySettings)
     fetch_with_defuddle: WebFetchSettings = field(
         default_factory=lambda: WebFetchSettings(enabled=False)
     )
@@ -101,6 +157,11 @@ class WebSettings:
             raise ConfigError(
                 "Kimi search settings are invalid",
                 key="capabilities.web.search_by_kimi",
+            )
+        if not isinstance(self.discover_pages, WebDiscoverySettings):
+            raise ConfigError(
+                "Web discovery settings are invalid",
+                key="capabilities.web.discover_pages",
             )
         for name in ("fetch_with_defuddle", "fetch_with_trafilatura"):
             if not isinstance(getattr(self, name), WebFetchSettings):
@@ -123,6 +184,7 @@ def parse_web_settings(tree: Mapping[str, object]) -> WebSettings:
             "max_redirects",
             "user_agent",
             "search_by_kimi",
+            "discover_pages",
             "fetch_with_defuddle",
             "fetch_with_trafilatura",
         },
@@ -144,6 +206,7 @@ def parse_web_settings(tree: Mapping[str, object]) -> WebSettings:
         max_redirects=_int(tree, "max_redirects", DEFAULT_MAX_REDIRECTS),
         user_agent=_string(tree, "user_agent", DEFAULT_USER_AGENT),
         search_by_kimi=_parse_kimi_search(tree.get("search_by_kimi")),
+        discover_pages=_parse_discovery(tree.get("discover_pages")),
         fetch_with_defuddle=_parse_fetch(
             tree.get("fetch_with_defuddle"),
             name="fetch_with_defuddle",
@@ -225,6 +288,73 @@ def _parse_fetch(value: object, *, name: str, default: bool) -> WebFetchSettings
     )
 
 
+def _parse_discovery(value: object) -> WebDiscoverySettings:
+    key = "capabilities.web.discover_pages"
+    tree = _table(value, key=key)
+    reject_unknown_keys(
+        tree,
+        {
+            "enabled",
+            "max_visit_depth",
+            "max_pages",
+            "max_candidates",
+            "max_links_per_page",
+            "max_result_chars",
+            "max_inline_chars",
+            "max_concurrency",
+            "max_tasks_per_minute",
+            "max_request_retries",
+            "max_crawl_seconds",
+            "allow_query_links",
+        },
+        key=key,
+    )
+    defaults = WebDiscoverySettings()
+    return WebDiscoverySettings(
+        enabled=_bool_value(tree, "enabled", defaults.enabled, key=f"{key}.enabled"),
+        max_visit_depth=_int(
+            tree, "max_visit_depth", defaults.max_visit_depth, key=key
+        ),
+        max_pages=_int(tree, "max_pages", defaults.max_pages, key=key),
+        max_candidates=_int(
+            tree, "max_candidates", defaults.max_candidates, key=key
+        ),
+        max_links_per_page=_int(
+            tree, "max_links_per_page", defaults.max_links_per_page, key=key
+        ),
+        max_result_chars=_int(
+            tree, "max_result_chars", defaults.max_result_chars, key=key
+        ),
+        max_inline_chars=_int(
+            tree, "max_inline_chars", defaults.max_inline_chars, key=key
+        ),
+        max_concurrency=_int(
+            tree, "max_concurrency", defaults.max_concurrency, key=key
+        ),
+        max_tasks_per_minute=_int(
+            tree,
+            "max_tasks_per_minute",
+            defaults.max_tasks_per_minute,
+            key=key,
+        ),
+        max_request_retries=_int(
+            tree,
+            "max_request_retries",
+            defaults.max_request_retries,
+            key=key,
+        ),
+        max_crawl_seconds=_int(
+            tree, "max_crawl_seconds", defaults.max_crawl_seconds, key=key
+        ),
+        allow_query_links=_bool_value(
+            tree,
+            "allow_query_links",
+            defaults.allow_query_links,
+            key=f"{key}.allow_query_links",
+        ),
+    )
+
+
 def _table(value: object, *, key: str) -> Mapping[str, object]:
     if value is None:
         return {}
@@ -293,6 +423,16 @@ def _positive(value: object, *, key: str) -> None:
             key=key,
             value=value,
             expected="positive int",
+        )
+
+
+def _non_negative(value: object, *, key: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ConfigError(
+            "Web capability setting must be non-negative",
+            key=key,
+            value=value,
+            expected="non-negative int",
         )
 
 

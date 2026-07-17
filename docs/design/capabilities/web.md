@@ -4,11 +4,12 @@
 
 `tinysoul.capabilities.web` 是无独立持久状态的只读外部 Web 能力。它不拥有 Link namespace、缓存、索引或 Runtime/Trap 生命周期；搜索的交互结果进入 TurnTrace，需保留的长结果和网页正文写入现有 `workspace:` 资源。
 
-Web domain 当前暴露三个独立 action：
+Web domain 当前暴露四个独立 action：
 
 1. `web.search_by_kimi`：通过独立 Kimi Search provider 取得当前信息，同时返回 `answer` 和结构化 `results`；
-2. `web.fetch_with_defuddle`：优先使用本机 Defuddle CLI 提取已知网页；
-3. `web.fetch_with_trafilatura`：使用 wheel 基础依赖 Trafilatura 的网页提取 fallback。
+2. `web.discover_pages`：从一个 seed 页面发现可进一步访问的同源候选 URL，并可有界递归访问以补充确定性页面信号；
+3. `web.fetch_with_defuddle`：优先使用本机 Defuddle CLI 提取已知网页；
+4. `web.fetch_with_trafilatura`：使用 wheel 基础依赖 Trafilatura 的网页提取 fallback。
 
 两个 fetch action 行为相同但 adapter 的安装方式、提取质量和失败模式不同，因此保留可显式选择的 action，并由 domain HOW 引导优先顺序。它们不会在一次 action 内自动串联或触发新的 Agent cycle。
 
@@ -25,6 +26,18 @@ Kimi Search 是 Web capability-owned provider 封装，不是 TinySoul LLM task�
 Kimi 最终响应先完整校验为 canonical `answer/results`，不在 normalization 阶段按 result 数量或 snippet 长度静默裁剪。`max_result_chars` 是完整 canonical 结果的硬上限，超过时整次 action 局部失败；`max_inline_chars` 只决定交付形态。未超过 inline 上限时完整结果进入 ActionResult；超过 inline 上限时完整 answer/results 写入唯一的 `workspace:web/search/<invoke-id>-<call-id>.md`，ActionResult 返回同一结果的有界 shape-safe preview、完整 `result_count`、`truncated=true`、`see_more_at` 和 usage。preview 可以裁剪 answer、result 数量或 snippet，但所有被裁剪内容都必须存在于 Workspace 文档中。
 
 Kimi Search worker 只获得专用搜索密钥和运行所需的最小进程环境，不继承其它 LLM provider 凭据。provider builtin-function 协议被隔离在 worker 动态边界，供应商协议变化不得扩散到 TinySoul LLM 或 Action 核心。
+
+## Page Discovery 边界
+
+`web.discover_pages` 接收 `start_url`、可选 `max_visit_depth` 和有界 path glob include/exclude。它返回 seed 的 title/meta description/H1/canonical，以及去重候选 page 的 URL、depth、visited/candidate/failed 状态、首次来源 URL、anchor text、link title、rel 和访问后可取得的页面 metadata。上述字段是确定性 DOM/HTTP 信号，不包含 LLM 生成的推荐、分类或摘要。
+
+`max_visit_depth=0` 是默认语义：只访问 seed，直接 outgoing pages 作为 candidate 返回，不访问候选。更大 depth 只能在项目配置硬上限内使用；被递归访问的候选可补充页面 metadata，并继续发现下一层 frontier，因此之后由 Agent 选择 fetch 时可能再次下载同一页面。Discovery 与 Fetch 是两个不同 Agent Cycle 中的显式行动，不在 action 内自动串联。
+
+Crawlee 只拥有 action-scoped `BasicCrawler`、Memory RequestQueue、URL 去重、重试、并发/速率和运行统计；不使用 Crawlee 默认 HTTP client、browser、storage persistence 或自动 `enqueue_links` 网络路径。每个实际 seed/递归页面和 robots 请求继续通过 Web-owned 公开 HTTPS 下载边界，redirect 后仍必须处于 seed same-origin。候选只来自 `<a href>`，fragment 被移除；query link 默认不扩散，include/exclude 只解释为有界 path glob。robots 强制遵守，模型不能关闭。Discovery 不执行脚本、表单、下载、登录或跨域访问，不建立缓存或跨重启 resume。
+
+完整 discovery canonical result 先受 candidate/page/字段长度与 `max_result_chars` 硬上限约束；不在形成 canonical result 前静默裁剪 candidate。未超过 `max_inline_chars` 时完整进入 ActionResult；超过时完整 JSON 写入 `workspace:web/discovery/<invoke-id>-<call-id>.json`，ActionResult 返回同一 shape 的有界 preview、完整计数、`truncated=true`、`see_more_at`。除 overflow JSON 外，Discovery 不写 Workspace，也不保存访问页面正文。结果 URL 和 metadata 都是不可信 interaction data，后续 fetch 必须重新执行完整 URL/network 校验。
+
+Crawlee 是 `web-crawl` wheel extra 和开发测试依赖，项目模板默认禁用 Discovery；启用前应安装 `tinysoul[web-crawl]`。当前支持并约束 `crawlee>=1.8,<2`，避免主版本动态协议变化直接进入 worker。启用 action 但当前解释器缺少 Crawlee 时，App 在 effective Catalog 装配期显式失败。
 
 ## Fetch 与提取
 
@@ -49,4 +62,4 @@ worker 超时或 Runtime transfer 通过 `ControlledProcessRunner` 终止进程�
 
 ## 后续边界
 
-Crawlee、站点 crawl、robots 策略、页面队列、去重和 crawl budget 属于后续 Stage 2B。它们不能通过放宽当前单页 fetch 入口隐式加入，也不要求新增 backend kind；只有真实 crawl 语义确认后才扩展 Web-owned service/worker 和具名 action。
+Playwright/browser rendering、跨域 discovery、sitemap loader、持久 RequestQueue、缓存、跨重启 resume、WARC 和自动整站正文提交不属于首版 Page Discovery。它们不能通过扩大 `web.discover_pages` 参数隐式加入，也不要求新增 backend kind；出现真实场景时应增加清晰 action 或独立设计长期状态边界。

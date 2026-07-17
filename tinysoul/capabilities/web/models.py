@@ -34,6 +34,23 @@ class WebSearchResult:
 
 
 @dataclass(frozen=True)
+class WebDiscoveryResult:
+    """Bounded page discovery result with optional Workspace overflow."""
+
+    payload: JsonObject
+    manifest: WorkspaceManifest | None = None
+    record: WorkspaceResourceRecord | None = None
+
+    def __post_init__(self) -> None:
+        if not self.payload:
+            raise WebContractError("Web discovery payload must be non-empty")
+        if bool(self.manifest) != bool(self.record):
+            raise WebContractError(
+                "Web discovery Workspace manifest and record must be set together"
+            )
+
+
+@dataclass(frozen=True)
 class WebFetchResult:
     """Committed Workspace Markdown from one fetched public page."""
 

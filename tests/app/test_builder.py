@@ -75,6 +75,7 @@ def test_app_builder_cleans_project_capability_staging_on_startup(
             "capabilities.resource.convert_with_markitdown.enabled": False,
             "capabilities.resource.convert_with_pypdf.enabled": False,
             "capabilities.web.search_by_kimi.enabled": False,
+            "capabilities.web.discover_pages.enabled": False,
             "capabilities.web.fetch_with_defuddle.enabled": False,
             "capabilities.web.fetch_with_trafilatura.enabled": False,
         },

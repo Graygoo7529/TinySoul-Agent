@@ -50,6 +50,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     )
     assert "tinysoul/action/catalog/resource/actions/convert_with_pypdf.toml" in names
     assert "tinysoul/action/catalog/web/actions/search_by_kimi.toml" in names
+    assert "tinysoul/action/catalog/web/actions/discover_pages.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_defuddle.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
     assert "tinysoul/assets/project/configs/home.toml" in names

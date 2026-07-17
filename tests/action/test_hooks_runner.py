@@ -333,6 +333,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "resource.convert_with_pypdf",
         "session.history.inspect",
         "session.history.recall",
+        "web.discover_pages",
         "web.fetch_with_defuddle",
         "web.fetch_with_trafilatura",
         "web.search_by_kimi",

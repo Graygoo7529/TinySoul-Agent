@@ -576,6 +576,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .disable_actions(
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
+            "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",
             "web.search_by_kimi",
@@ -642,6 +643,7 @@ def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
         .disable_actions(
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
+            "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",
             "web.search_by_kimi",

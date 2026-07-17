@@ -18,6 +18,20 @@ max_tool_rounds = 6
 max_search_tokens = 100000
 max_output_tokens = 8192
 
+[capabilities.web.discover_pages]
+enabled = true
+max_visit_depth = 1
+max_pages = 20
+max_candidates = 100
+max_links_per_page = 200
+max_result_chars = 100000
+max_inline_chars = 12000
+max_concurrency = 2
+max_tasks_per_minute = 30
+max_request_retries = 1
+max_crawl_seconds = 90
+allow_query_links = false
+
 [capabilities.web.fetch_with_defuddle]
 enabled = true
 

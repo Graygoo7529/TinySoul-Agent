@@ -29,6 +29,14 @@ class FetchedPage:
     content_type: str
 
 
+@dataclass(frozen=True)
+class _FetchedText:
+    final_url: str
+    text: str
+    content_type: str
+    status_code: int
+
+
 AddressResolver = Callable[..., object]
 
 
@@ -42,6 +50,56 @@ def fetch_public_page(
 ) -> FetchedPage:
     """Fetch one public HTTPS page with bounded body and explicit redirects."""
 
+    fetched = _fetch_public_text(
+        url,
+        max_bytes=max_bytes,
+        timeout_seconds=timeout_seconds,
+        max_redirects=max_redirects,
+        user_agent=user_agent,
+        allowed_content_types=_ALLOWED_CONTENT_TYPES,
+    )
+    normalized = normalize_html_links(fetched.text, base_url=fetched.final_url)
+    return FetchedPage(
+        final_url=fetched.final_url,
+        html=normalized,
+        content_type=fetched.content_type,
+    )
+
+
+def fetch_public_robots(
+    page_url: str,
+    *,
+    max_bytes: int,
+    timeout_seconds: int,
+    max_redirects: int,
+    user_agent: str,
+) -> str:
+    """Return one origin's robots.txt through the public HTTPS boundary."""
+
+    page = urlsplit(validate_public_https_url(page_url))
+    robots_url = urlunsplit(("https", page.netloc, "/robots.txt", "", ""))
+    fetched = _fetch_public_text(
+        robots_url,
+        max_bytes=max_bytes,
+        timeout_seconds=timeout_seconds,
+        max_redirects=max_redirects,
+        user_agent=user_agent,
+        allowed_content_types=_ALLOWED_CONTENT_TYPES,
+        empty_statuses=frozenset({404, 410}),
+    )
+    return fetched.text
+
+
+def _fetch_public_text(
+    url: str,
+    *,
+    max_bytes: int,
+    timeout_seconds: int,
+    max_redirects: int,
+    user_agent: str,
+    allowed_content_types: frozenset[str],
+    empty_statuses: frozenset[int] = frozenset(),
+) -> _FetchedText:
     current = validate_public_https_url(url)
     headers = {
         "Accept": "text/html,application/xhtml+xml,text/plain;q=0.8",
@@ -73,6 +131,15 @@ def fetch_public_page(
                             urljoin(str(response.url), location)
                         )
                         continue
+                    if response.status_code in empty_statuses:
+                        return _FetchedText(
+                            final_url=validate_public_https_url(str(response.url)),
+                            text="",
+                            content_type=_content_type(
+                                response.headers.get("content-type", "")
+                            ),
+                            status_code=response.status_code,
+                        )
                     if response.status_code < 200 or response.status_code >= 300:
                         raise WebProcessingError(
                             "Web page returned an unsuccessful HTTP status",
@@ -80,7 +147,7 @@ def fetch_public_page(
                             payload={"status_code": response.status_code},
                         )
                     content_type = _content_type(response.headers.get("content-type", ""))
-                    if content_type not in _ALLOWED_CONTENT_TYPES:
+                    if content_type not in allowed_content_types:
                         raise WebProcessingError(
                             "Web page content type is not supported",
                             reason="unsupported_content_type",
@@ -108,11 +175,11 @@ def fetch_public_page(
                     final_url = validate_public_https_url(str(response.url))
                     encoding = response.encoding or "utf-8"
                     text = bytes(body).decode(encoding, errors="replace")
-                    normalized = normalize_html_links(text, base_url=final_url)
-                    return FetchedPage(
+                    return _FetchedText(
                         final_url=final_url,
-                        html=normalized,
+                        text=text,
                         content_type=content_type,
+                        status_code=response.status_code,
                     )
     except WebProcessingError:
         raise

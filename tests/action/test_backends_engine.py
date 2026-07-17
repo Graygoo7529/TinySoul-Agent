@@ -379,6 +379,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .disable_actions(
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
+            "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",
             "web.search_by_kimi",

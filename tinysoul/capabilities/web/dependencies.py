@@ -20,6 +20,11 @@ KIMI_REQUIREMENT = DependencyRequirement(
     distributions=("openai",),
     modules=("openai",),
 )
+CRAWLEE_REQUIREMENT = DependencyRequirement(
+    id="web.discovery",
+    distributions=("crawlee",),
+    modules=("crawlee",),
+)
 DEFUDDLE_REQUIREMENT = DependencyRequirement(
     id="web.defuddle",
     executables=("defuddle",),
@@ -39,8 +44,11 @@ def web_dependency_requirements(
     requirements: list[DependencyRequirement] = []
     if settings.search_by_kimi.enabled:
         requirements.append(KIMI_REQUIREMENT)
+    if settings.discover_pages.enabled:
+        requirements.append(CRAWLEE_REQUIREMENT)
     if (
-        settings.fetch_with_defuddle.enabled
+        settings.discover_pages.enabled
+        or settings.fetch_with_defuddle.enabled
         or settings.fetch_with_trafilatura.enabled
     ):
         requirements.append(HTTP_REQUIREMENT)
