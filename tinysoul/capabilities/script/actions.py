@@ -16,11 +16,16 @@ from tinysoul.action import (
 from tinysoul.action.backends import LLMActionTaskRunner
 from tinysoul.action.core.hooks import HookOutcome
 from tinysoul.context import PromptReferenceError
-from tinysoul.home import AgentHomeError, AgentHomeRuntimeCopyRequired
+from tinysoul.home import (
+    AgentHomeContractError,
+    AgentHomeError,
+    AgentHomeRuntimeCopyRequired,
+)
 from tinysoul.infra import JsonObject
 from tinysoul.runtime import RuntimeException, SignalBus
 from tinysoul.workspace import (
     WorkspaceEngine,
+    WorkspaceContractError,
     WorkspaceError,
     WorkspaceMirrorConflict,
     WorkspacePromptReferenceResolver,
@@ -62,9 +67,23 @@ class ScriptHomeRuntimeBridge(Protocol):
         payload: JsonObject | None = None,
     ) -> RuntimeException: ...
 
+    def from_home_error(
+        self,
+        error: Exception,
+        *,
+        payload: JsonObject | None = None,
+    ) -> RuntimeException: ...
+
 
 class ScriptWorkspaceRuntimeBridge(Protocol):
     def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException: ...
+
+    def from_workspace_error(
+        self,
+        error: Exception,
+        *,
+        payload: JsonObject | None = None,
+    ) -> RuntimeException: ...
 
 
 @dataclass(frozen=True)
@@ -111,6 +130,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
         if isinstance(params, ActionResult):
             return params
         try:
+            language = self._resolver.validate_link(params.target_link)
             existing: ScriptSource | None = None
             if self._mode == "rewrite" or params.overwrite:
                 existing = self._resolver.read(params.target_link)
@@ -155,7 +175,6 @@ class ScriptAuthoringExecutor(ActionExecutor):
                 {"reason": "invalid_script_source"},
             )
         try:
-            language = _language_for_link(params.target_link)
             source = ScriptSource(params.target_link, text, "", language)
             self._policy.validate(source)
             mutation = self._resolver.write(
@@ -200,12 +219,17 @@ class ScriptAuthoringExecutor(ActionExecutor):
             return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
         if isinstance(exc, ScriptPolicyError):
             return _failed(execution, str(exc), {"reason": "script_policy_rejected"})
-        if isinstance(exc, (ScriptError, AgentHomeError, WorkspaceError)):
+        if isinstance(exc, (ScriptError, AgentHomeContractError, WorkspaceContractError)):
             return _failed(
                 execution,
                 "Script source could not be written.",
                 {"reason": "script_source_failed", "error_type": type(exc).__name__},
             )
+        _raise_owner_error(
+            exc,
+            home_bridge=self._home_bridge,
+            workspace_bridge=self._workspace_bridge,
+        )
         return None
 
 
@@ -270,10 +294,9 @@ class ScriptPatchExecutor(ActionExecutor):
             )
             self._policy.validate(candidate)
             mutation = self._resolver.patch(
-                target,
+                current,
                 old_text=old_text,
                 new_text=new_text,
-                expected_digest=expected or current.digest,
             )
         except AgentHomeRuntimeCopyRequired as exc:
             if self._home_bridge is None:
@@ -289,12 +312,16 @@ class ScriptPatchExecutor(ActionExecutor):
                 link=exc.link,
                 trash_ref=exc.trash_ref,
             ) from exc
-        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+        except (ScriptError, AgentHomeContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script patch failed.",
                 {"reason": "script_patch_failed", "error_type": type(exc).__name__},
             )
+        except AgentHomeError as exc:
+            _raise_home_error(exc, self._home_bridge)
+        except WorkspaceError as exc:
+            _raise_workspace_error(exc, self._workspace_bridge)
         if mutation.link.startswith("workspace:"):
             _emit_workspace(self._workspace, self._bus, execution, context)
         return _success(execution, _mutation_payload(mutation, current.language))
@@ -338,9 +365,10 @@ class ScriptPromoteExecutor(ActionExecutor):
                 {"reason": "invalid_digest"},
             )
         try:
-            self._policy.validate(self._resolver.read(source))
+            source_snapshot = self._resolver.read(source)
+            self._policy.validate(source_snapshot)
             mutation = self._resolver.promote(
-                source,
+                source_snapshot,
                 target,
                 expected_source_digest=expected_source,
                 overwrite=overwrite,
@@ -360,15 +388,19 @@ class ScriptPromoteExecutor(ActionExecutor):
                 link=exc.link,
                 trash_ref=exc.trash_ref,
             ) from exc
-        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+        except (ScriptError, AgentHomeContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script promote failed.",
                 {"reason": "script_promote_failed", "error_type": type(exc).__name__},
             )
+        except AgentHomeError as exc:
+            _raise_home_error(exc, self._home_bridge)
+        except WorkspaceError as exc:
+            _raise_workspace_error(exc, self._workspace_bridge)
         return _success(
             execution,
-            _mutation_payload(mutation, _language_for_link(target)),
+            _mutation_payload(mutation, self._resolver.validate_link(target)),
         )
 
 
@@ -439,12 +471,22 @@ class ScriptRunExecutor(ActionExecutor):
                 link=exc.link,
                 trash_ref=exc.trash_ref,
             ) from exc
-        except (ScriptError, AgentHomeError, WorkspaceError) as exc:
+        except WorkspaceMirrorConflict:
+            return _failed(
+                execution,
+                "Workspace changed while the Script execution mirror was prepared.",
+                {"reason": "workspace_mirror_changed"},
+            )
+        except (ScriptError, AgentHomeContractError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script execution could not start.",
                 {"reason": "script_start_failed", "error_type": type(exc).__name__},
             )
+        except AgentHomeError as exc:
+            _raise_home_error(exc, self._home_bridge)
+        except WorkspaceError as exc:
+            _raise_workspace_error(exc, self._workspace_bridge)
         return _observation_result(execution, observation)
 
 
@@ -456,11 +498,13 @@ class ScriptJobExecutor(ActionExecutor):
         settings: ScriptSettings,
         jobs: ScriptJobManager,
         bus: SignalBus,
+        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
     ) -> None:
         self._operation = operation
         self._settings = settings
         self._jobs = jobs
         self._bus = bus
+        self._workspace_bridge = workspace_bridge
 
     def execute(
         self,
@@ -562,12 +606,14 @@ class ScriptJobExecutor(ActionExecutor):
                 "The job remains available for review or discard.",
                 {"reason": "workspace_apply_conflict"},
             )
-        except (ScriptError, WorkspaceError) as exc:
+        except (ScriptError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script job operation failed.",
                 {"reason": "script_job_failed", "error_type": type(exc).__name__},
             )
+        except WorkspaceError as exc:
+            _raise_workspace_error(exc, self._workspace_bridge)
         return _failed(
             execution,
             "Script job operation is unavailable.",
@@ -613,7 +659,7 @@ def register_script_actions(
     if not settings.enabled:
         builder.disable_actions(*SCRIPT_ACTIONS)
         return builder
-    policy = ScriptPolicy()
+    policy = ScriptPolicy(max_source_chars=settings.max_source_chars)
     prompts = ScriptEditPromptBuilder(
         WorkspacePromptReferenceResolver(
             workspace,
@@ -683,6 +729,7 @@ def register_script_actions(
                 settings=settings,
                 jobs=jobs,
                 bus=bus,
+                workspace_bridge=workspace_bridge,
             ),
         )
     builder.register_execution_hook("script.answer_guard", ScriptAnswerGuard(jobs))
@@ -735,10 +782,6 @@ def _string_list(value: object) -> tuple[str, ...] | None:
             return None
         result.append(item)
     return tuple(result)
-
-
-def _language_for_link(link: str) -> ScriptLanguage:
-    return ScriptLanguage.PYTHON if link.endswith(".py") else ScriptLanguage.BASH
 
 
 def _mutation_payload(
@@ -829,3 +872,39 @@ def _failed(
         frame_data=frame_data,
         payload=payload,
     )
+
+
+def _raise_owner_error(
+    exc: Exception,
+    *,
+    home_bridge: ScriptHomeRuntimeBridge | None,
+    workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
+) -> None:
+    if isinstance(exc, AgentHomeError):
+        _raise_home_error(exc, home_bridge)
+    if isinstance(exc, WorkspaceError):
+        _raise_workspace_error(exc, workspace_bridge)
+
+
+def _raise_home_error(
+    exc: AgentHomeError,
+    bridge: ScriptHomeRuntimeBridge | None,
+) -> None:
+    if bridge is None:
+        raise exc
+    raise bridge.from_home_error(
+        exc,
+        payload={"capability": "script"},
+    ) from exc
+
+
+def _raise_workspace_error(
+    exc: WorkspaceError,
+    bridge: ScriptWorkspaceRuntimeBridge | None,
+) -> None:
+    if bridge is None:
+        raise exc
+    raise bridge.from_workspace_error(
+        exc,
+        payload={"capability": "script"},
+    ) from exc

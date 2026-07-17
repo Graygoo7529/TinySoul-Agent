@@ -23,14 +23,31 @@ class ScriptSourceResolver:
         self._home = home
         self._max_source_chars = max_source_chars
 
+    def validate_link(
+        self,
+        link: str,
+        *,
+        language: ScriptLanguage | None = None,
+    ) -> ScriptLanguage:
+        parsed_language = language or _language_for_link(link)
+        _require_script_link(link, language=parsed_language)
+        return parsed_language
+
+    def validate_text(self, text: str) -> None:
+        if not isinstance(text, str):
+            raise ScriptContractError("Script source must be text")
+        if len(text) > self._max_source_chars:
+            raise ScriptContractError(
+                f"Script source exceeds {self._max_source_chars} characters"
+            )
+
     def read(
         self,
         link: str,
         *,
         language: ScriptLanguage | None = None,
     ) -> ScriptSource:
-        parsed_language = language or _language_for_link(link)
-        _require_script_link(link, language=parsed_language)
+        parsed_language = self.validate_link(link, language=language)
         if link.startswith("workspace:"):
             result = self._workspace.read_text(
                 link,
@@ -46,6 +63,7 @@ class ScriptSourceResolver:
             raise ScriptContractError(
                 f"Script source exceeds {self._max_source_chars} characters: {link}"
             )
+        self.validate_text(result.text)
         return ScriptSource(
             link=link,
             text=result.text,
@@ -62,7 +80,8 @@ class ScriptSourceResolver:
         expected_digest: str,
         owner_turn_id: str,
     ) -> ScriptMutation:
-        _require_script_link(link)
+        self.validate_link(link)
+        self.validate_text(text)
         if link.startswith("workspace:"):
             result = self._workspace.write_text(
                 link,
@@ -93,19 +112,24 @@ class ScriptSourceResolver:
 
     def patch(
         self,
-        link: str,
+        source: ScriptSource,
         *,
         old_text: str,
         new_text: str,
-        expected_digest: str,
     ) -> ScriptMutation:
-        _require_script_link(link)
-        if link.startswith("workspace:"):
+        self.validate_link(source.link, language=source.language)
+        if source.text.count(old_text) != 1:
+            raise ScriptContractError(
+                "Script patch old_text must occur exactly once"
+            )
+        candidate = source.text.replace(old_text, new_text, 1)
+        self.validate_text(candidate)
+        if source.link.startswith("workspace:"):
             result = self._workspace.patch_text(
-                link,
+                source.link,
                 old_text=old_text,
                 new_text=new_text,
-                expected_digest=expected_digest,
+                expected_digest=source.digest,
             )
             return ScriptMutation(
                 link=result.link,
@@ -113,12 +137,12 @@ class ScriptSourceResolver:
                 size=result.size,
                 state="modified",
             )
-        _require_existing_skill(self._home, link)
+        _require_existing_skill(self._home, source.link)
         result = self._home.patch_resource(
-            link,
+            source.link,
             old_text=old_text,
             new_text=new_text,
-            expected_digest=expected_digest,
+            expected_digest=source.digest,
         )
         return ScriptMutation(
             link=result.link,
@@ -129,22 +153,24 @@ class ScriptSourceResolver:
 
     def promote(
         self,
-        source_link: str,
+        source: ScriptSource,
         target_link: str,
         *,
         expected_source_digest: str,
         overwrite: bool,
         expected_target_digest: str,
     ) -> ScriptMutation:
-        if not source_link.startswith("workspace:"):
+        if not source.link.startswith("workspace:"):
             raise ScriptContractError("Script promote source must be a Workspace Link")
         if not target_link.startswith("home:how/"):
             raise ScriptContractError(
                 "Script promote target must be a general HOW scripts resource"
             )
-        source = self.read(source_link)
         if expected_source_digest and source.digest != expected_source_digest:
             raise ScriptContractError("Script promote source digest mismatch")
+        self.validate_link(source.link, language=source.language)
+        self.validate_link(target_link, language=source.language)
+        self.validate_text(source.text)
         if _language_for_link(target_link) is not source.language:
             raise ScriptContractError("Script promote source and target languages differ")
         return self.write(

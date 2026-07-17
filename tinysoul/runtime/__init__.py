@@ -24,7 +24,7 @@ from .observation import (
 )
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
-from .signals import Signal, SignalBus
+from .signals import Signal, SignalBus, SignalWatch
 
 __all__ = [
     "CONTEXT_COMPRESSION_REQUIRED",
@@ -56,6 +56,7 @@ __all__ = [
     "RuntimeTrap",
     "Signal",
     "SignalBus",
+    "SignalWatch",
     "TrapHandler",
     "TrapHandlerRegistry",
     "TrapResult",

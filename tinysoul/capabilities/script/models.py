@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from hashlib import sha256
 
 
 class ScriptLanguage(StrEnum):
@@ -29,6 +30,12 @@ class ScriptSource:
     text: str
     digest: str
     language: ScriptLanguage
+
+    @property
+    def snapshot_digest(self) -> str:
+        """Digest the exact normalized UTF-8 snapshot checked by Script policy."""
+
+        return sha256(self.text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

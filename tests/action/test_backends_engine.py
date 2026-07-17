@@ -8,7 +8,7 @@ import pytest
 
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.action.backends.native import NativeFunctionExecutor
-from tinysoul.action.backends.script import TemporaryScriptExecutor
+from tinysoul.action.backends.process import ManagedProcessRequest, ManagedProcessRunner
 from tinysoul.action.backends.subprocess import SubprocessActionExecutor
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
@@ -211,6 +211,24 @@ def test_subprocess_executor_returns_bounded_captured_output() -> None:
     assert results[0].payload["stderr_truncated"] is True
 
 
+def test_managed_process_preserves_caller_owned_capture_directory(
+    tmp_path: Path,
+) -> None:
+    capture_root = tmp_path / "job-logs"
+    process = ManagedProcessRunner().start(
+        ManagedProcessRequest(
+            argv=(sys.executable, "-c", "print('captured')"),
+        ),
+        capture_root=capture_root,
+    )
+
+    assert process.wait(5.0) == 0
+    process.close()
+
+    assert (capture_root / "stdout.log").read_text(encoding="utf-8") == "captured\n"
+    assert (capture_root / "stderr.log").read_text(encoding="utf-8") == ""
+
+
 def test_subprocess_executor_kills_timed_out_process() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
@@ -313,38 +331,6 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
         ).run(batch, ActionExecutionContext())
 
     assert monotonic() - started < 5.0
-
-
-def test_temporary_script_executor_runs_python_code() -> None:
-    catalog = ActionCatalog(
-        domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.script",
-                schema={
-                    "type": "object",
-                    "properties": {"code": {"type": "string"}},
-                    "required": ["code"],
-                    "additionalProperties": False,
-                },
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.SCRIPT,
-                    handler="script.temporary",
-                ),
-            ),
-        ),
-    )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.script", {"code": "print('hi')"}, ToolKind.ACTION),),
-    )
-    executors = ExecutorRegistry()
-    executors.register("script.temporary", TemporaryScriptExecutor())
-
-    results = ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
-
-    assert results[0].status is ActionResultStatus.SUCCESS
-    assert results[0].payload["stdout"] == "hi\n"
 
 
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:

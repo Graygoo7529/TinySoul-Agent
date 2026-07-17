@@ -224,9 +224,19 @@ class _TurnActivity:
         self.remaining -= 1
         return True
 
+    def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None:
+        assert turn_id
+        assert isinstance(bus, SignalBus)
+
     def cleanup_turn(self, turn_id: str) -> None:
         assert turn_id
         self.cleanup_calls += 1
+
+
+class _FailingTurnActivity(_TurnActivity):
+    def cleanup_turn(self, turn_id: str) -> None:
+        super().cleanup_turn(turn_id)
+        raise RuntimeError("cleanup failed")
 
 
 class _FailingCompletion:
@@ -398,6 +408,31 @@ def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert cycles.calls == 3
     assert activity.cleanup_calls == 1
+
+
+def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
+    observations = _RecordingObservations([], [])
+    activity = _FailingTurnActivity(remaining=0)
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, _EmptyCycleRunner()),
+        settings=LoopSettings(max_cycles_per_turn=1),
+        activity_controller=activity,
+        observations=observations,
+    )
+
+    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+
+    assert outcome.status is TurnOutcomeStatus.EXHAUSTED
+    assert activity.cleanup_calls == 1
+    cleanup = next(
+        event
+        for event in observations.events
+        if event.name == "turn.activity_cleanup_failed"
+    )
+    assert cleanup.payload["error_type"] == "RuntimeError"
 
 
 def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:

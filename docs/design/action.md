@@ -205,7 +205,9 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### script
 
-`script` 后端用于临时 Python 脚本动作。它从 action params 中读取脚本内容，写入临时目录，然后复用 subprocess 运行语义。script 后端只提供执行机制；是否向模型暴露脚本编写动作由具体 action TOML 决定。
+`script` backend kind 是需要进程终止语义的 Script capability action 分类，不提供通用 inline-code executor。具体 `script.run_python` / `script.run_bash` handler 由 `tinysoul.capabilities.script` 注册，并由 capability 拥有 source、policy、事务 mirror 和 Turn-scoped job；Action 层只提供可复用 managed process 原语及 runner 的进程取消策略。
+
+`tinysoul/action/backends/process.py` 是不注册到 ActionEngine 的底层生命周期原语，提供 retained process handle、文件 capture、增量读取和进程树终止。`subprocess.py` 在其上提供同步 `ControlledProcessRunner` adapter 与通用 `subprocess.default` Action executor。业务 capability 可直接复用 managed process 或同步 adapter，但不得复制 `Popen`/终止逻辑，也不得因 `backend.kind=script` 假设存在同名通用 handler。
 
 ### llm_action
 
@@ -233,7 +235,7 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。已注册 backend 可以同步提供 backend options validator；这些 validator 在 catalog 加载阶段校验各自的 TOML options，并把动态边界尽早转换为后端明确类型。通用 `subprocess.default` 和 `script.temporary` 后端由 builder 默认注册 executor 与 options validator；native handler 需要调用方显式注册具体函数。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。已注册 backend 可以同步提供 backend options validator；这些 validator 在 catalog 加载阶段校验各自的 TOML options，并把动态边界尽早转换为后端明确类型。只有通用 `subprocess.default` 由 builder 默认注册 executor 与 options validator；native 与 capability-specific script handler 由对应 registrar 显式注册。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。
 
 ## Action Schema
 

@@ -11,6 +11,7 @@ max_candidate_read_chars = 12000
 max_log_bytes = 2097152
 max_log_delta_chars = 4000
 initial_wait_seconds = 10
+cycle_wait_seconds = 30
 min_wait_seconds = 5
 default_wait_seconds = 15
 max_wait_seconds = 60

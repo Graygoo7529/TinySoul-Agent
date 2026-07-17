@@ -51,6 +51,7 @@ class ScriptSettings:
     max_log_bytes: int = 2 * 1024 * 1024
     max_log_delta_chars: int = 4_000
     initial_wait_seconds: int = 10
+    cycle_wait_seconds: int = 30
     min_wait_seconds: int = 5
     default_wait_seconds: int = 15
     max_wait_seconds: int = 60
@@ -85,6 +86,7 @@ class ScriptSettings:
             "max_log_bytes",
             "max_log_delta_chars",
             "initial_wait_seconds",
+            "cycle_wait_seconds",
             "min_wait_seconds",
             "default_wait_seconds",
             "max_wait_seconds",
@@ -112,12 +114,31 @@ class ScriptSettings:
                     f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
                 ),
             )
-        if self.initial_wait_seconds > self.max_wait_seconds:
+        if not (
+            self.min_wait_seconds
+            <= self.initial_wait_seconds
+            <= self.max_wait_seconds
+        ):
             raise ConfigError(
-                "Script initial wait cannot exceed max wait",
+                "Script initial wait is outside wait boundaries",
                 key="capabilities.script.initial_wait_seconds",
                 value=self.initial_wait_seconds,
-                expected=f"<= {self.max_wait_seconds}",
+                expected=(
+                    f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
+                ),
+            )
+        if not (
+            self.min_wait_seconds
+            <= self.cycle_wait_seconds
+            <= self.max_wait_seconds
+        ):
+            raise ConfigError(
+                "Script Cycle wait is outside wait boundaries",
+                key="capabilities.script.cycle_wait_seconds",
+                value=self.cycle_wait_seconds,
+                expected=(
+                    f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
+                ),
             )
         if self.max_mirror_file_bytes > self.max_mirror_bytes:
             raise ConfigError(
@@ -145,6 +166,7 @@ def parse_script_settings(tree: Mapping[str, object]) -> ScriptSettings:
         "max_log_bytes",
         "max_log_delta_chars",
         "initial_wait_seconds",
+        "cycle_wait_seconds",
         "min_wait_seconds",
         "default_wait_seconds",
         "max_wait_seconds",

@@ -87,6 +87,8 @@ class TurnActivityController(Protocol):
 
     def allow_additional_cycle(self, turn_id: str) -> bool: ...
 
+    def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None: ...
+
     def cleanup_turn(self, turn_id: str) -> None: ...
 
 
@@ -184,6 +186,11 @@ class TurnRunner:
                             exhausted = True
                             self._record_cycle_limit(turn_scope)
                             break
+                    if self._activity_controller is not None:
+                        self._activity_controller.wait_before_cycle(
+                            turn_id,
+                            bus=self._bus,
+                        )
                     cycle = self._cycle_runner.run(
                         turn_id=turn_id,
                         cycle_index=cycle_index,
@@ -205,9 +212,22 @@ class TurnRunner:
             captured = self._capture(exc, turn_scope)
             transfer = captured.transfer
             failure = failure or captured.failure
-        controller = self._activity_controller
-        if controller is not None and turn_id:
-            controller.cleanup_turn(turn_id)
+        finally:
+            controller = self._activity_controller
+            if controller is not None and turn_id:
+                try:
+                    controller.cleanup_turn(turn_id)
+                except Exception as exc:
+                    self._emit(
+                        turn_scope,
+                        "turn.activity_cleanup_failed",
+                        ObservationLevel.NORMAL,
+                        "Turn activity cleanup failed.",
+                        {
+                            "turn_id": turn_id,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
         try:
             output = self._consume_turn_output(turn_id)
         except RuntimeException as exc:

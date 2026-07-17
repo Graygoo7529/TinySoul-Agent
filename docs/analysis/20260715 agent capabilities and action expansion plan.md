@@ -99,7 +99,8 @@ Stage 3 已确认以下设计基线：
 1. **Stage 3A Authoring And Source Model（implemented）**：Script 配置/依赖、两类 source resolver、统一 write/rewrite/patch、显式 promote、domain/action HOW 和 policy；
 2. **Stage 3B Transactional Execution（implemented）**：重构可复用 process primitive，实现 Python/Bash run、事务 mirror、diff/bundle commit、局部失败和 Workspace signal；
 3. **Stage 3C Supervised Execution Job（implemented）**：在不引入 ongoing Action 的前提下实现 Turn-scoped start/wait/stop/finalize，以及 Cycle pacing、日志/候选产物观察和结束清理；
-4. **Stage 3D Release And Verification（completed）**：默认配置与项目模板、effective Catalog、模块/Phase/App/wheel 测试，以及本地真实 Python process smoke。
+4. **Stage 3D Release And Verification（completed）**：默认配置与项目模板、effective Catalog、模块/Phase/App/wheel 测试，以及本地真实 Python process smoke；
+5. **Stage 3E Integrity And Supervision Hardening（completed）**：修复最终审计发现的源码身份、Cycle 节流、Signal 唤醒、日志 staging、异常清理和旧 backend 组织问题，并通过全量与发布验证。
 
 Stage 3C 的监督语义进一步确认为：
 
@@ -116,6 +117,20 @@ Stage 3C 的监督语义进一步确认为：
 
 上述确认完成后，Stage 3 已不存在阻塞 Stage 3A-3D 实施的核心语义待确认项。实现中如平台 process-tree、Bash 可用性或 Workspace bundle 现状暴露新的局部约束，应保持上述业务语义并在对应模块设计文档记录，不通过扩大任意命令或路径权限规避。
 
+Stage 3E 进一步确认以下加固语义：
+
+- policy 校验、promote 写入与 process 实际执行必须绑定同一个不可变 `ScriptSource` snapshot。owner resource digest 用于 Link/CAS 身份；解码后的 snapshot 以固定 UTF-8 字节写入 job `source/` 并生成独立 snapshot digest，process 只执行该 digest 已复核的冻结入口，Workspace mirror 仍是 cwd 和唯一 staged 产物边界。Workspace mirror 创建时也必须复核复制文件与 baseline resource digest；不一致时在启动进程前局部失败。`script.promote` 不得在 policy 校验后按 Link 二次读取源码；
+- `max_source_chars` 是 Script-owned 可配置的读写共同边界，约束 read、LLM write/rewrite 输出、patch 后完整候选、promote 和 resolver 最终 mutation。Workspace/Home owner 自有上限继续生效，实际写入上限取所有者边界与 Script 边界中的较小者；
+- 新增默认 `cycle_wait_seconds=30`。当 job 仍为 `running` 时，相邻 Agent Cycle 的启动间隔不得小于该值；run 的 initial wait 和 Cycle 内其它耗时计入间隔，不机械叠加完整等待。进程结束可立即进入下一 Cycle；
+- 只有当前 Turn scope 下、协议可解析的 `context.input.append` 或 `loop.control.request` 可以提前解除运行中 job 的 Cycle/wait 等待。SignalBus 提供带 cursor/predicate 的 non-consuming wait，不消费业务 Signal；日志增长、其它 namespace、其它 Turn、非法 payload 均不得唤醒，也不得由同一旧 Signal 反复唤醒；
+- 完整 stdout/stderr 固定保存在当前 project-scoped `runtime/.staging/script-job-*/logs/`，与 mirror/source 同属一个 job staging。底层 managed process 可接受调用方提供的 capture 目录；同步 subprocess 未提供时继续自行拥有临时 capture。任何日志均不建立 Link、不进入 Workspace Manifest 或 Daily archive；
+- Script action 的可修正业务失败收敛为稳定局部 ActionResult；Home runtime copy 与 Workspace Trash restore 继续通过各自精确 Runtime bridge；Workspace/Home IO 或 invariant failure 保持 owner module 语义，不能被泛化为 Script 业务失败。Turn activity cleanup 必须在 `finally` 中 best-effort/no-throw，且不能替换已有 Runtime transfer、异常或进程终止原因；
+- 删除旧 inline-code `TemporaryScriptExecutor` 与 `script.temporary` 默认注册。`tinysoul/action/backends/process.py` 只提供受监督进程生命周期原语，不注册到 ActionEngine；`subprocess.py` 提供同步 adapter 和 `subprocess.default` executor；`tinysoul.capabilities.script` 拥有 Script source/job 和 action-specific executor。`backend.kind=script` 仍作为执行分类及进程取消策略，不要求存在同名通用 handler。
+
+Stage 3E 验收必须覆盖 source/mirror digest 竞态、promote 单 snapshot、全部 mutation 的 source 上限、相邻 Cycle pacing、合法/非法/跨 Turn Signal 唤醒、process completion 提前唤醒、统一日志 staging、Turn/Runtime transfer cleanup、删除 `script.temporary`，以及完整 pytest、静态类型检查、wheel 构建和隔离安装验证。
+
+Stage 3E 实施结果：`ScriptSource` 现同时保留 owner resource digest 与固定 UTF-8 snapshot digest，run/promote 不再在 policy 后二次读取源码；Workspace mirror 在复制时复核 baseline 字节，准备期变化局部返回 `workspace_mirror_changed`。`max_source_chars` 已进入 resolver mutation 与 policy 双边界。SignalBus 新增显式 closeable `SignalWatch`，只在 watcher 存活期间保留 non-consuming emissions；Script 仅以当前 Turn 的合法 input/control parser 唤醒，并按默认 30 秒约束相邻 running-job Cycle。完整日志固定在 job staging `logs/`，caller-owned capture 由 job 统一清理；Turn cleanup 位于 `finally` 且错误只形成 Observation。旧 `TemporaryScriptExecutor`/`script.temporary` 已删除，process/subprocess/capability 三层职责已对齐。全量 pytest、`ty`、干净 wheel 构建、隔离安装及旧 backend 文件缺失检查均通过。
+
 Stage 3 当前实施映射如下：
 
 - `tinysoul/capabilities/script/` 已包含 settings/dependency、Workspace/Home source resolver、确定性 source policy、authoring prompt、Action executor 和 Turn-scoped job manager；详细模块语义见 `docs/design/capabilities/script.md`；
@@ -127,7 +142,7 @@ Stage 3 当前实施映射如下：
 
 ### 后续 Stage 的确认入口
 
-- **Stage 3**：固定基线、监督语义、全量回归与 release verification 已完成；
+- **Stage 3**：Stage 3A-3E、全量回归与 release verification 已完成；
 - **Stage 4**：基于真实任务确认 utility 集合，避免建立无使用场景的工具集合；时间工具还需确认业务时区，结构化格式工具需确认输入输出是否通过值或 Workspace Link；
 - **Stage 5**：先确认 Home Backlink 的扫描范围与索引策略；Memory 片段检索需再确认数据规模、来源定位协议、embedding/reranker 依赖和 action 命名；
 - **Stage 6**：逐个 connector 确认授权、凭据、读写范围和人工审批；交互入口需保持 App-owned 输入/输出边界，不绕过 Runtime/Context/Action 生命周期。

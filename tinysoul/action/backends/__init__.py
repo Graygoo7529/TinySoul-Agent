@@ -15,7 +15,6 @@ from .process import (
     ManagedProcessStartError,
     ProcessTextSlice,
 )
-from .script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
 from .subprocess import (
     ControlledProcessRunner,
     ProcessOutcome,
@@ -43,6 +42,4 @@ __all__ = [
     "ProcessStatus",
     "SubprocessActionExecutor",
     "SubprocessBackendOptionsValidator",
-    "TemporaryScriptBackendOptionsValidator",
-    "TemporaryScriptExecutor",
 ]

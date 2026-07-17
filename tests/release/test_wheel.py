@@ -73,6 +73,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
     assert not any("/action/catalog/shell/" in name for name in names)
     assert "tinysoul/action/config.py" not in names
+    assert "tinysoul/action/backends/script.py" not in names
 
     installed = tmp_path / "installed"
     subprocess.run(

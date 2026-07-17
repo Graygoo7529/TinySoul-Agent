@@ -104,6 +104,7 @@ from tinysoul.runtime.bridge import (
     RuntimeLoopBridge,
     RuntimeMemoryBridge,
     RuntimeSessionBridge,
+    RuntimeScriptBridge,
     RuntimeWorkspaceBridge,
 )
 from tinysoul.session import SessionEngine, parse_session_settings
@@ -357,6 +358,7 @@ class TinySoulAppBuilder:
                         ),
                     ),
                     staging=staging,
+                    runtime_bridge=RuntimeScriptBridge(),
                 )
                 script_resolver = ScriptSourceResolver(
                     workspace=workspace,

@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from hashlib import sha256
+from threading import Thread
+from time import monotonic, sleep
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from tinysoul.action import ActionExecutionControl
 from tinysoul.capabilities import parse_capabilities_settings
 from tinysoul.capabilities.script.config import ScriptSettings
-from tinysoul.capabilities.script.errors import ScriptStateError
+from tinysoul.capabilities.script.errors import ScriptContractError, ScriptStateError
 from tinysoul.capabilities.script.jobs import ScriptJobManager
 from tinysoul.capabilities.script.models import ScriptJobState, ScriptLanguage, ScriptSource
+from tinysoul.capabilities.script.sources import ScriptSourceResolver
+from tinysoul.context import build_input_append_signal
+from tinysoul.home import AgentHomeEngine
 from tinysoul.infra import StagingDirectoryManager
+from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceMirrorConflict,
@@ -180,9 +189,215 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
     manager.discard(turn_id="turn_stop", execution_id=running_id)
 
 
+def test_job_rejects_workspace_source_changed_after_snapshot(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    original = workspace.write_text(
+        "workspace:scripts/task.py",
+        "print('old')\n",
+        owner_turn_id="turn_1",
+    )
+    source = ScriptSource(
+        original.link,
+        "print('old')\n",
+        original.digest,
+        ScriptLanguage.PYTHON,
+    )
+    workspace.write_text(
+        original.link,
+        "print('new')\n",
+        overwrite=True,
+        expected_digest=original.digest,
+    )
+    manager = _jobs(local_tmp, workspace)
+
+    with pytest.raises(
+        (ScriptContractError, WorkspaceMirrorConflict),
+        match="changed .*Script mirror|changed after policy validation",
+    ):
+        manager.start(
+            turn_id="turn_1",
+            source=source,
+            args=(),
+            control=ActionExecutionControl(),
+            bus=None,
+        )
+
+    assert manager.has_unresolved("turn_1") is False
+    assert not tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
+
+
+def test_promote_writes_the_frozen_source_snapshot(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    record = workspace.write_text(
+        "workspace:scripts/task.py",
+        "print('checked')\n",
+        owner_turn_id="turn_1",
+    )
+    home = _RecordingHome()
+    resolver = ScriptSourceResolver(
+        workspace=workspace,
+        home=cast(AgentHomeEngine, home),
+        max_source_chars=100,
+    )
+    source = resolver.read(record.link)
+    workspace.write_text(
+        record.link,
+        "print('changed')\n",
+        overwrite=True,
+        expected_digest=record.digest,
+    )
+
+    resolver.promote(
+        source,
+        "home:how/test/scripts/task.py",
+        expected_source_digest=source.digest,
+        overwrite=False,
+        expected_target_digest="",
+    )
+
+    assert home.written_text == "print('checked')\n"
+
+
+def test_source_resolver_enforces_write_and_patch_limits(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    resolver = ScriptSourceResolver(
+        workspace=workspace,
+        home=cast(AgentHomeEngine, _RecordingHome()),
+        max_source_chars=5,
+    )
+    with pytest.raises(ScriptContractError, match="exceeds 5"):
+        resolver.write(
+            "workspace:scripts/task.py",
+            "123456",
+            overwrite=False,
+            expected_digest="",
+            owner_turn_id="turn_1",
+        )
+    record = workspace.write_text(
+        "workspace:scripts/task.py",
+        "12345",
+        owner_turn_id="turn_1",
+    )
+    source = resolver.read(record.link)
+    with pytest.raises(ScriptContractError, match="exceeds 5"):
+        resolver.patch(source, old_text="5", new_text="56")
+
+    assert workspace.read_text(record.link).text == "12345"
+
+
+def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    record = workspace.write_text(
+        "workspace:scripts/wait.py",
+        "import time\ntime.sleep(30)\n",
+        owner_turn_id="turn_1",
+    )
+    manager = _jobs(local_tmp, workspace)
+    bus = SignalBus()
+    running = manager.start(
+        turn_id="turn_1",
+        source=ScriptSource(
+            record.link,
+            workspace.read_text(record.link).text,
+            record.digest,
+            ScriptLanguage.PYTHON,
+        ),
+        args=(),
+        control=ActionExecutionControl(),
+        bus=bus,
+    )
+    execution_id = str(running.payload["execution_id"])
+    observations: list[object] = []
+    thread = Thread(
+        target=lambda: observations.append(
+            manager.wait(
+                turn_id="turn_1",
+                execution_id=execution_id,
+                wait_seconds=2,
+                control=ActionExecutionControl(),
+                bus=bus,
+            )
+        )
+    )
+    thread.start()
+    sleep(0.1)
+    bus.emit(
+        Signal(
+            name="workspace.sync",
+            source="test",
+            scope=_turn_scope("turn_1"),
+            payload={},
+        )
+    )
+    bus.emit(
+        build_input_append_signal(
+            "wrong turn",
+            scope=_turn_scope("turn_2"),
+            source="test",
+        )
+    )
+    sleep(0.2)
+    assert thread.is_alive()
+    bus.emit(
+        build_input_append_signal(
+            "inspect progress",
+            scope=_turn_scope("turn_1"),
+            source="test",
+        )
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert len(observations) == 1
+    manager.stop(turn_id="turn_1", execution_id=execution_id)
+    manager.discard(turn_id="turn_1", execution_id=execution_id)
+
+
+def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    record = workspace.write_text(
+        "workspace:scripts/wait.py",
+        "import time\nprint('started', flush=True)\ntime.sleep(30)\n",
+        owner_turn_id="turn_1",
+    )
+    manager = _jobs(local_tmp, workspace)
+    bus = SignalBus()
+    running = manager.start(
+        turn_id="turn_1",
+        source=ScriptSource(
+            record.link,
+            workspace.read_text(record.link).text,
+            record.digest,
+            ScriptLanguage.PYTHON,
+        ),
+        args=(),
+        control=ActionExecutionControl(),
+        bus=bus,
+    )
+    execution_id = str(running.payload["execution_id"])
+    staging_roots = tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
+    assert len(staging_roots) == 1
+    assert (staging_roots[0] / "logs" / "stdout.log").is_file()
+    assert (staging_roots[0] / "logs" / "stderr.log").is_file()
+
+    manager.wait_before_cycle("turn_1", bus=bus)
+    started = monotonic()
+    manager.wait_before_cycle("turn_1", bus=bus)
+    assert monotonic() - started >= 0.8
+
+    manager.stop(turn_id="turn_1", execution_id=execution_id)
+    manager.discard(turn_id="turn_1", execution_id=execution_id)
+    assert not staging_roots[0].exists()
+
+
 def _settings() -> ScriptSettings:
     return ScriptSettings(
         initial_wait_seconds=1,
+        cycle_wait_seconds=1,
         min_wait_seconds=1,
         default_wait_seconds=1,
         max_wait_seconds=2,
@@ -214,3 +429,31 @@ def _jobs(root: Path, workspace) -> ScriptJobManager:
         mirror_service=_mirrors(workspace),
         staging=staging,
     )
+
+
+def _turn_scope(turn_id: str) -> RunScope:
+    return RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
+
+
+class _RecordingHome:
+    written_text = ""
+
+    def loadable_background_links(self) -> tuple[str, ...]:
+        return ("home:how@test",)
+
+    def write_resource(
+        self,
+        link: str,
+        text: str,
+        *,
+        overwrite: bool,
+        expected_digest: str,
+    ) -> object:
+        del overwrite, expected_digest
+        self.written_text = text
+        return SimpleNamespace(
+            link=link,
+            digest=sha256(text.encode("utf-8")).hexdigest(),
+            size=len(text.encode("utf-8")),
+            state=SimpleNamespace(value="modified"),
+        )

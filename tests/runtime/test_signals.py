@@ -45,6 +45,27 @@ def test_signal_bus_rejects_non_signal() -> None:
         bus.emit(cast(Signal, "bad"))
 
 
+def test_signal_bus_matching_wait_is_non_consuming_and_cursor_bound() -> None:
+    bus = SignalBus()
+    scope = RunScope.of(RunFrame(RunLevel.TURN, "turn_1"))
+    first = Signal("workspace.sync", "test", scope)
+    second = Signal("context.input.append", "test", scope, {"text": "more"})
+    bus.emit(first)
+    watch = bus.watch()
+    bus.emit(second)
+    assert bus.consume_name("context.input.append") == (second,)
+
+    matched = watch.wait_for_matching(
+        lambda signal: signal.name == "context.input.append",
+        0,
+    )
+
+    assert matched is second
+    assert bus.peek() == (first,)
+    assert watch.wait_for_matching(lambda _signal: True, 0) is None
+    watch.close()
+
+
 def test_signal_normalizes_payload() -> None:
     scope = RunScope.of(RunFrame(RunLevel.PROGRAM, "main"))
 

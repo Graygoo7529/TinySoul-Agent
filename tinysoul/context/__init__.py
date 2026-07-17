@@ -51,6 +51,7 @@ from .signals import (
     build_trace_decision_signal,
     build_trace_phase_note_signal,
     build_workspace_sync_signal,
+    parse_input_append_signal,
 )
 from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
@@ -106,6 +107,7 @@ __all__ = [
     "build_trace_phase_note_signal",
     "build_workspace_sync_signal",
     "parse_context_settings",
+    "parse_input_append_signal",
     "register_context_actions",
 ]
 

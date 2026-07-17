@@ -7,9 +7,12 @@ from hashlib import sha256
 from pathlib import Path
 import shutil
 
+from tinysoul.infra.filesystem import file_digest
+
 from .engine import WorkspaceBundleWrite, WorkspaceEngine
 from .errors import (
     WorkspaceContractError,
+    WorkspaceError,
     WorkspaceIOError,
     WorkspaceMirrorConflict,
     WorkspaceReconciliationError,
@@ -116,6 +119,11 @@ class WorkspaceMirrorService:
                         f"Workspace mirror source is not a regular file: {record.link}"
                     )
                 shutil.copyfile(source, target)
+                if file_digest(target) != record.digest:
+                    raise WorkspaceMirrorConflict(
+                        "Workspace resource changed while its Script mirror was created: "
+                        + record.link
+                    )
                 entries.append(
                     WorkspaceMirrorEntry(
                         link=record.link,
@@ -125,12 +133,12 @@ class WorkspaceMirrorService:
                         owner_turn_id=record.owner_turn_id,
                     )
                 )
-        except (OSError, WorkspaceContractError) as exc:
+        except (OSError, WorkspaceError) as exc:
             try:
                 shutil.rmtree(root)
             except OSError:
                 pass
-            if isinstance(exc, WorkspaceContractError):
+            if isinstance(exc, WorkspaceError):
                 raise
             raise WorkspaceIOError("Workspace mirror could not be populated") from exc
         return WorkspaceMirror(

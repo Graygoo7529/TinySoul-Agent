@@ -73,7 +73,7 @@ class ManagedProcess:
         stderr_capture: CapturedOutput,
         stdout_path: Path,
         stderr_path: Path,
-        capture_directory: TemporaryDirectory[str],
+        capture_directory: TemporaryDirectory[str] | None,
     ) -> None:
         self._process = process
         self._stdout = stdout_capture
@@ -145,16 +145,29 @@ class ManagedProcess:
         with self._lock:
             if self._closed:
                 return
-            if self.running():
-                self.terminate()
+            try:
+                if self.running():
+                    self.terminate()
+                    try:
+                        self._process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        self._process.kill()
+                        self._process.wait()
+            except Exception:
+                pass
+            try:
+                self._stdout.close()
+            except Exception:
+                pass
+            try:
+                self._stderr.close()
+            except Exception:
+                pass
+            if self._capture_directory is not None:
                 try:
-                    self._process.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    self._process.kill()
-                    self._process.wait()
-            self._stdout.close()
-            self._stderr.close()
-            self._capture_directory.cleanup()
+                    self._capture_directory.cleanup()
+                except Exception:
+                    pass
             self._closed = True
 
     def _read_stream(
@@ -190,20 +203,41 @@ class ManagedProcess:
 class ManagedProcessRunner:
     """Start process-group-owned children without waiting for completion."""
 
-    def start(self, request: ManagedProcessRequest) -> ManagedProcess:
+    def start(
+        self,
+        request: ManagedProcessRequest,
+        *,
+        capture_root: Path | None = None,
+    ) -> ManagedProcess:
         process_env: dict[str, str] | None = None
         if not request.inherit_env:
             process_env = dict(request.env or {})
         elif request.env is not None:
             process_env = {**os.environ, **request.env}
-        capture_directory = TemporaryDirectory(prefix="tinysoul_process_")
-        stdout_path = Path(capture_directory.name) / "stdout.log"
-        stderr_path = Path(capture_directory.name) / "stderr.log"
-        stdout_capture = stdout_path.open("w+b")
-        stderr_capture = stderr_path.open("w+b")
+        capture_directory: TemporaryDirectory[str] | None = None
+        stdout_capture: CapturedOutput | None = None
+        stderr_capture: CapturedOutput | None = None
         process_stdin = subprocess.PIPE if request.stdin_text is not None else subprocess.DEVNULL
         process: subprocess.Popen[str] | None = None
         try:
+            if capture_root is None:
+                capture_directory = TemporaryDirectory(prefix="tinysoul_process_")
+                root = Path(capture_directory.name)
+            else:
+                if not isinstance(capture_root, Path):
+                    raise ActionContractError(
+                        "Managed process capture root must be a Path or None"
+                    )
+                if capture_root.exists():
+                    raise ActionContractError(
+                        "Managed process capture root must not already exist"
+                    )
+                capture_root.mkdir(parents=True)
+                root = capture_root
+            stdout_path = root / "stdout.log"
+            stderr_path = root / "stderr.log"
+            stdout_capture = stdout_path.open("w+b")
+            stderr_capture = stderr_path.open("w+b")
             if os.name == "nt":
                 process = subprocess.Popen(
                     list(request.argv),
@@ -235,13 +269,20 @@ class ManagedProcessRunner:
             if request.stdin_text is not None and process.stdin is not None:
                 process.stdin.write(request.stdin_text)
                 process.stdin.close()
-        except OSError as exc:
+        except Exception as exc:
             if process is not None:
                 terminate_process_tree(process)
-            stdout_capture.close()
-            stderr_capture.close()
-            capture_directory.cleanup()
+            if stdout_capture is not None:
+                stdout_capture.close()
+            if stderr_capture is not None:
+                stderr_capture.close()
+            if capture_directory is not None:
+                capture_directory.cleanup()
+            if isinstance(exc, ActionContractError):
+                raise
             raise ManagedProcessStartError(str(exc)) from exc
+        assert stdout_capture is not None
+        assert stderr_capture is not None
         return ManagedProcess(
             process,
             stdout_capture=stdout_capture,
@@ -258,17 +299,26 @@ def terminate_process_tree(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            try:
+                process.kill()
+            except OSError:
+                pass
         return
     try:
         os.killpg(process.pid, 9)
     except OSError:
-        process.kill()
+        try:
+            process.kill()
+        except OSError:
+            pass
 
 
 def _path_size(path: Path) -> int:

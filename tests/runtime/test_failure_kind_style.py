@@ -13,6 +13,7 @@ from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.loop.failures import LoopFailureKind
 from tinysoul.memory.failures import MemoryFailureKind
 from tinysoul.session.failures import SessionFailureKind
+from tinysoul.capabilities.script.failures import ScriptFailureKind
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
 
@@ -28,6 +29,7 @@ from tinysoul.workspace.failures import WorkspaceFailureKind
         ("loop", LoopFailureKind),
         ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
+        ("script", ScriptFailureKind),
         ("workspace", WorkspaceFailureKind),
     ),
 )

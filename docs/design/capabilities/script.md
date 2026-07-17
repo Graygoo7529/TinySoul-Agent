@@ -13,6 +13,10 @@
 - `script.promote` 只允许从 `workspace:scripts/...` 复制到 `home:how/<existing-skill>/scripts/...`，扩展名必须保持一致；
 - promote 写入 lazy runtime Home，随后由普通 Home Maintenance review/apply；它不直接写实际 Home，也不自动创建 skill。
 
+`ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`script.promote` 同样直接写入已校验 snapshot，不二次读取 source Link。
+
+`max_source_chars` 是 Script 的读写共同边界：read、LLM write/rewrite 输出、patch 后完整候选、promote 与 resolver 最终 mutation 都必须检查。Workspace/Home 自有 mutation 上限继续独立生效，实际边界取二者较小值。
+
 Python 默认启用并使用当前 TinySoul Python 解释器。Bash 独立配置、默认关闭；启用时由 Infra dependency checker 检查配置的 executable。两种语言使用独立 run action，避免把任意 inline command 或 shell 字符串作为执行接口。
 
 ## Job 生命周期
@@ -21,7 +25,7 @@ Python 默认启用并使用当前 TinySoul Python 解释器。Bash 独立配置
 
 后续动作固定为：
 
-- `script.wait`：等待进程完成、等待区间到期或 SignalBus 出现新 signal；日志增长本身不唤醒；
+- `script.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；
 - `script.stop`：终止进程并保留镜像供检查；stopped 不可 apply；
 - `script.read_candidate`：按候选相对路径读取有界 UTF-8 文本；候选路径不是 Link；
 - `script.apply`：只允许 `ready_to_apply`，逐文件比较创建 job 时的 baseline digest 与当前 active Workspace；同路径并发变化拒绝整个提交，job 保留；
@@ -33,7 +37,22 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 普通 Turn Cycle 上限耗尽后，只有 unresolved Script job 可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
 
-`script.wait` 默认 15 秒，允许范围 5 至 60 秒；它承担监督节奏，避免模型在长进程运行期间快速空转。默认进程上限 1800 秒，额外监督 Cycle 上限 32。Turn stop、失败、耗尽、Runtime transfer 或正常离开时，TurnRunner 调用 job manager 终止进程并 best-effort 清理 retained staging。
+`script.wait` 默认 15 秒，允许范围 5 至 60 秒；运行中 job 的相邻 Cycle 还必须满足默认 `cycle_wait_seconds=30` 的最小启动间隔。run initial wait 和当前 Cycle 的其它耗时计入该间隔，不机械追加完整 30 秒；进程结束或上述当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+
+默认进程上限 1800 秒，额外监督 Cycle 上限 32。Turn stop、失败、耗尽、Runtime transfer 或正常离开时，TurnRunner 在 `finally` 中调用 job manager 终止进程并 best-effort 清理 retained staging；cleanup 错误只形成 Observation，不能替换原始 transfer 或失败。
+
+每个 job 的完整 staging 固定为：
+
+```text
+runtime/.staging/script-job-*/
+├── source/       # policy 校验并经 snapshot digest 复核的执行入口
+├── workspace/    # active Workspace 的事务 mirror/cwd
+└── logs/
+    ├── stdout.log
+    └── stderr.log
+```
+
+完整日志不建立 Link、不进入 Workspace Manifest 或 Daily archive。`ManagedProcessRunner` 在 Script 场景使用调用方提供的 `logs/`；同步 subprocess 未提供 capture root 时仍使用自己拥有并清理的系统临时目录。
 
 ## Workspace 提交
 
@@ -48,6 +67,6 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 ## 失败语义
 
-无效 Link、缺失 HOW、语法拒绝、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。配置错误、启用 Bash 但 executable 不存在、Catalog/registrar 不一致属于启动失败。
+无效 Link、缺失 HOW、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；只有 Loop 直接调用的 Script activity pacing 异常使用 Script failure kind/Runtime bridge。配置错误、启用 Bash 但 executable 不存在、Catalog/registrar 不一致属于启动失败。
 
 job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。

@@ -16,7 +16,6 @@ from tinysoul.runtime import (
 )
 
 from .backends.native import NativeActionFunction, NativeFunctionExecutor
-from .backends.script import TemporaryScriptBackendOptionsValidator, TemporaryScriptExecutor
 from .backends.subprocess import SubprocessBackendOptionsValidator, SubprocessActionExecutor
 from .core.call import (
     ActionBatch,
@@ -217,11 +216,6 @@ class ActionEngineBuilder:
             "subprocess.default",
             SubprocessActionExecutor(),
             options_validator=SubprocessBackendOptionsValidator(),
-        )
-        self.register_executor(
-            "script.temporary",
-            TemporaryScriptExecutor(),
-            options_validator=TemporaryScriptBackendOptionsValidator(),
         )
 
     def register_executor(

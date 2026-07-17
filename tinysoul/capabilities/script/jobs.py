@@ -9,6 +9,7 @@ import sys
 from threading import RLock
 from time import monotonic
 from uuid import uuid4
+from typing import Protocol
 
 from tinysoul.action import ActionExecutionControl
 from tinysoul.action.backends import (
@@ -18,7 +19,25 @@ from tinysoul.action.backends import (
     ManagedProcessStartError,
 )
 from tinysoul.infra import JsonObject, StagingDirectoryManager
-from tinysoul.runtime import SignalBus
+from tinysoul.infra.filesystem import file_digest
+from tinysoul.context import (
+    SIGNAL_INPUT_APPEND,
+    ContextError,
+    parse_input_append_signal,
+)
+from tinysoul.loop.signals import (
+    SIGNAL_CONTROL_REQUEST,
+    LoopControlKind,
+    parse_control_request_signal,
+)
+from tinysoul.loop import LoopError
+from tinysoul.runtime import (
+    RunLevel,
+    RuntimeException,
+    Signal,
+    SignalBus,
+    SignalWatch,
+)
 from tinysoul.workspace import (
     WorkspaceManifest,
     WorkspaceMirror,
@@ -41,11 +60,13 @@ class _ScriptJob:
     process: ManagedProcess
     started_at: float
     deadline: float
+    signal_watch: SignalWatch
     stdout_cursor: int = 0
     stderr_cursor: int = 0
     state: ScriptJobState = ScriptJobState.RUNNING
     failure_reason: str = ""
     supervision_cycles: int = 0
+    next_cycle_at: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -61,6 +82,15 @@ class ScriptJobApply:
     manifest: WorkspaceManifest
 
 
+class ScriptRuntimeBridge(Protocol):
+    def from_script_error(
+        self,
+        error: Exception,
+        *,
+        payload: JsonObject | None = None,
+    ) -> RuntimeException: ...
+
+
 class ScriptJobManager:
     """Own at most one unresolved process job per active Turn."""
 
@@ -71,11 +101,13 @@ class ScriptJobManager:
         mirror_service: WorkspaceMirrorService,
         staging: StagingDirectoryManager,
         process_runner: ManagedProcessRunner | None = None,
+        runtime_bridge: ScriptRuntimeBridge | None = None,
     ) -> None:
         self._settings = settings
         self._mirrors = mirror_service
         self._staging = staging
         self._process_runner = process_runner or ManagedProcessRunner()
+        self._runtime_bridge = runtime_bridge
         self._jobs: dict[str, _ScriptJob] = {}
         self._by_turn: dict[str, str] = {}
         self._lock = RLock()
@@ -91,26 +123,46 @@ class ScriptJobManager:
     ) -> ScriptJobObservation:
         if not turn_id:
             raise ScriptContractError("Script run requires a Turn id")
+        signal_watch = bus.watch() if bus is not None else SignalBus().watch()
         with self._lock:
             if turn_id in self._by_turn:
+                signal_watch.close()
                 raise ScriptStateError("The current Turn already has an unresolved Script job")
             execution_id = f"script_{uuid4().hex}"
             staging_root: Path | None = None
             try:
                 staging_root = self._staging.create("script-job")
                 mirror = self._mirrors.create(staging_root / "workspace")
+                if source.link.startswith("workspace:"):
+                    baseline = next(
+                        (item for item in mirror.entries if item.link == source.link),
+                        None,
+                    )
+                    if baseline is None or baseline.digest != source.digest:
+                        raise ScriptContractError(
+                            "Script Workspace source changed after policy validation"
+                        )
                 script_path = self._execution_source(source, staging_root, mirror)
+                if file_digest(script_path) != source.snapshot_digest:
+                    raise ScriptContractError(
+                        "Script source changed after policy validation"
+                    )
                 process = self._process_runner.start(
                     ManagedProcessRequest(
                         argv=self._argv(source.language, script_path, args),
                         cwd=str(mirror.root),
                         env=self._environment(mirror.root),
                         inherit_env=False,
-                    )
+                    ),
+                    capture_root=staging_root / "logs",
                 )
             except Exception as exc:
+                signal_watch.close()
                 if staging_root is not None:
-                    self._staging.cleanup(staging_root)
+                    try:
+                        self._staging.cleanup(staging_root)
+                    except Exception:
+                        pass
                 if isinstance(exc, ScriptContractError):
                     raise
                 if not isinstance(exc, (OSError, ManagedProcessStartError)):
@@ -126,6 +178,8 @@ class ScriptJobManager:
                 process=process,
                 started_at=now,
                 deadline=now + self._settings.max_runtime_seconds,
+                signal_watch=signal_watch,
+                next_cycle_at=now + self._settings.cycle_wait_seconds,
             )
             self._jobs[execution_id] = job
             self._by_turn[turn_id] = execution_id
@@ -224,6 +278,7 @@ class ScriptJobManager:
             "job_state": "applied",
             "source_link": job.source.link,
             "source_digest": job.source.digest,
+            "source_snapshot_digest": job.source.snapshot_digest,
             "workspace_links": [
                 item.workspace_link
                 for item in committed.changes
@@ -280,6 +335,41 @@ class ScriptJobManager:
 
         return self.allow_supervision_cycle(turn_id)
 
+    def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None:
+        """Pace adjacent Cycles while the Turn owns a running process."""
+
+        try:
+            with self._lock:
+                execution_id = self._by_turn.get(turn_id)
+                job = self._jobs.get(execution_id) if execution_id else None
+            if job is None:
+                return
+            while True:
+                self._refresh(job)
+                if job.state is not ScriptJobState.RUNNING:
+                    return
+                now = monotonic()
+                remaining = job.next_cycle_at - now
+                if remaining <= 0:
+                    job.next_cycle_at = now + self._settings.cycle_wait_seconds
+                    return
+                matched = job.signal_watch.wait_for_matching(
+                    lambda signal: _is_turn_wake_signal(signal, turn_id),
+                    min(0.1, remaining),
+                )
+                if matched is not None:
+                    job.next_cycle_at = monotonic() + self._settings.cycle_wait_seconds
+                    return
+        except RuntimeException:
+            raise
+        except Exception as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.from_script_error(
+                exc,
+                payload={"turn_id": turn_id, "operation": "wait_before_cycle"},
+            ) from exc
+
     def cleanup_turn(self, turn_id: str) -> None:
         with self._lock:
             execution_id = self._by_turn.get(turn_id)
@@ -290,6 +380,8 @@ class ScriptJobManager:
             if job.process.running():
                 job.process.terminate()
                 job.process.wait(5.0)
+        except Exception:
+            pass
         finally:
             self._remove(job, suppress_cleanup=True)
 
@@ -308,7 +400,6 @@ class ScriptJobManager:
         bus: SignalBus | None,
     ) -> ScriptJobObservation:
         wait_deadline = monotonic() + wait_seconds
-        generation = bus.generation() if bus is not None else 0
         while True:
             self._refresh(job)
             if job.state is not ScriptJobState.RUNNING:
@@ -326,8 +417,12 @@ class ScriptJobManager:
             if bus is None:
                 job.process.wait(slice_seconds)
                 continue
-            observed = bus.wait_for_change(generation, slice_seconds)
-            if observed != generation:
+            matched = job.signal_watch.wait_for_matching(
+                lambda signal: _is_turn_wake_signal(signal, job.turn_id),
+                slice_seconds,
+            )
+            if matched is not None:
+                job.next_cycle_at = monotonic()
                 return self._observation(job)
 
     def _refresh(self, job: _ScriptJob) -> None:
@@ -421,17 +516,23 @@ class ScriptJobManager:
             return job
 
     def _remove(self, job: _ScriptJob, *, suppress_cleanup: bool = False) -> None:
+        first_error: Exception | None = None
+        job.signal_watch.close()
         try:
             job.process.close()
+        except Exception as exc:
+            first_error = exc
+        try:
             self._staging.cleanup(job.staging_root)
-        except Exception:
-            if not suppress_cleanup:
-                raise
+        except Exception as exc:
+            first_error = first_error or exc
         finally:
             with self._lock:
                 self._jobs.pop(job.execution_id, None)
                 if self._by_turn.get(job.turn_id) == job.execution_id:
                     self._by_turn.pop(job.turn_id, None)
+        if first_error is not None and not suppress_cleanup:
+            raise ScriptExecutionError("Script job cleanup failed") from first_error
 
     def _execution_source(
         self,
@@ -439,12 +540,11 @@ class ScriptJobManager:
         staging_root: Path,
         mirror: WorkspaceMirror,
     ) -> Path:
-        if source.link.startswith("workspace:"):
-            from tinysoul.workspace import WorkspaceLink
-
-            return mirror.root.joinpath(*WorkspaceLink.parse(source.link).path.parts)
-        entry = staging_root / f"entry{source.language.suffix}"
-        entry.write_text(source.text, encoding="utf-8")
+        del mirror
+        source_root = staging_root / "source"
+        source_root.mkdir()
+        entry = source_root / f"entry{source.language.suffix}"
+        entry.write_bytes(source.text.encode("utf-8"))
         return entry
 
     def _argv(
@@ -471,3 +571,21 @@ class ScriptJobManager:
             }
         )
         return env
+
+
+def _is_turn_wake_signal(signal: Signal, turn_id: str) -> bool:
+    frame = signal.scope.nearest(RunLevel.TURN)
+    if frame is None or frame.name != turn_id:
+        return False
+    try:
+        if signal.name == SIGNAL_INPUT_APPEND:
+            return bool(parse_input_append_signal(signal))
+        if signal.name == SIGNAL_CONTROL_REQUEST:
+            request = parse_control_request_signal(signal)
+            return request.kind in {
+                LoopControlKind.STOP_TURN,
+                LoopControlKind.EXIT_PROGRAM,
+            }
+    except (ContextError, LoopError):
+        return False
+    return False
