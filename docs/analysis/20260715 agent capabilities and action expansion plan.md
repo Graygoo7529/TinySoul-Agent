@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: in_progress (Stage 1 and Stage 2 done; Stage 3 pending confirmation)
+status: in_progress (Stage 1 and Stage 2 done; Stage 3 baseline confirmed, supervision design in progress)
 
 依赖（已满足）：Stage 8 发布与初始化闭环、`20260715-done-default agent home content plan.md`。
 
@@ -24,7 +24,7 @@ status: in_progress (Stage 1 and Stage 2 done; Stage 3 pending confirmation)
 
 1. **Stage 1 Resource Conversion（done）**：在 Workspace Link 边界内把受支持文档转换为可检查、可作为后续 action reference 的 Markdown 与关联资源；
 2. **Stage 2 Web Search, Discovery And Fetch（done）**：提供有界搜索、页面发现和网页读取，返回来源、候选 URL、语义信号或 Workspace Link，不在该阶段引入登录、提交表单或其它写操作；
-3. **Stage 3 Code And Script Execution**：建立通过 Workspace Link 编写代码/脚本并受控执行 Python 或 bash 的能力；具体脚本来源、参数、工作目录、依赖、权限、审批和结果边界在进入 Stage 3 前确认，不把模型参数直接拼接为宿主任意命令；
+3. **Stage 3 Code And Script Execution（baseline confirmed）**：建立通过 Workspace/Home resource Link 编写脚本、事务式运行 Python 或 bash，以及在后续切面监督长任务的能力；不把模型参数直接拼接为宿主任意命令；
 4. **Stage 4 Deterministic Utilities**：补充数学、时间、编码和结构化格式转换等具有明确 schema、纯输入输出和稳定失败语义的工具；
 5. **Stage 5 Knowledge Retrieval Enhancements**：实现 Home Backlink，并在真实数据规模证明需要后增强 Memory 片段检索；
 6. **Stage 6 Connectors And Interaction**：按真实使用场景增加外部服务连接器、文件导入导出、用户审批和更丰富的交互入口，不预先建设通用插件平台。
@@ -80,9 +80,32 @@ Stage 2 已建立无独立持久状态的 `capabilities.web` 和 `web` domain，
 
 Stage 2B 已完成 Page Discovery，而不是自动持久化整站正文。`web.discover_pages` 访问一个公开 HTTPS seed，返回该页面可进一步访问的同源候选 URL；可选的 `max_visit_depth` 在配置硬上限内让 Crawlee 递归访问候选并补充 title、meta description、H1、canonical、来源 anchor 等确定性信号。Discovery 不调用 LLM、不自动调用 fetch、不保存访问页面正文；Agent 在后续 Cycle 根据 ActionResult 决定是否调用现有 Defuddle/Trafilatura fetch。Crawlee 只提供 action-scoped RequestQueue、去重、重试和有界调度，实际下载继续使用 TinySoul 的公开 HTTPS/redirect/bytes 边界。默认 depth 为 0、scope 固定 same-origin、robots 强制遵守、query link 默认不扩散，不建立缓存、跨重启 resume 或长期 Crawl 状态。完整 canonical discovery result 受硬上限约束；超过 inline 上限时完整 JSON spill 到 `workspace:web/discovery/<invoke-id>-<call-id>.json`，ActionResult 返回有界 preview 与 `see_more_at`。Catalog、domain HOW、独立 Crawlee 依赖检测、默认项目配置、inline/spill、Workspace signal、相对链接解析、硬 page budget 与可选真实网络 smoke test 均已形成验收闭环。
 
+### Stage 3 Code And Script Execution
+
+Stage 3 已确认以下设计基线：
+
+- Script 是独立 action domain；业务 executor、source resolver、policy、事务 Workspace mirror 和后续 execution job manager 位于 `tinysoul.capabilities.script`。通用进程启动、捕获、取消、deadline 和进程树回收继续复用或重构 `tinysoul.action.backends`，capability 不复制底层 subprocess 机制；
+- 临时脚本使用真实 Workspace Link，例如 `workspace:scripts/analyze-data.py`；长期脚本使用既有 Home progressive resource Link `home:how/<skill>/scripts/<script>.py|.sh`，并要求目标 `home:how@<skill>` 已存在。两者不增加平行的 location/lifetime 参数；
+- 长期脚本始终通过 Agent Home effective view 读取和修改，执行 runtime override 或 lazy copy，不绕过 overlay 直接读写 actual Home；
+- Workspace 临时脚本只有经过显式 `script.promote` 才复制到一个已存在通用 HOW 的 runtime `scripts/`。Home Maintenance 仍只 review active runtime Home 与 actual Home，不扫描 Workspace；promote 形成的 runtime diff 后续按现有 Home Maintenance apply/discard 语义处理。通用 HOW 创建 action 属于后续能力，不由 promote 隐式创建；
+- 脚本不直接修改 active Workspace。每次运行基于已 reconcile Workspace 建立 action/job-scoped 事务 mirror，以该 mirror 为 cwd；完成后计算有界 diff，并只通过 WorkspaceEngine 的 bundle mutation 提交。失败、超时、停止、越界或冲突不得把 mirror 的部分结果写入 active Workspace；
+- 首版安全等级固定为“事务隔离 + 策略检查”，明确不宣称针对恶意 Python/Bash 的 OS 硬沙箱。Action hook 可做参数、Link、语言、配额与准入检查；Script service 必须对固定 digest 的源码执行语法/策略检查，并使用最小环境、`shell=False`、无交互 stdin、硬 timeout 与进程树终止；
+- Python 默认启用；Bash 是按 executable 检测的独立可选能力。Python 与 Bash 使用不同 run action 和 effective Catalog availability，但共享 source/mirror/policy/result 协议；
+- execution job 默认 Turn-scoped、不跨重启，同一 Turn 最多一个 `running` job。启动、等待、停止或收尾它的每个 Action 仍须在所属 ActionBatch 内收敛，不能恢复旧式 `ONGOING Action`；Turn/Program 结束必须终止进程树并清理未提交 mirror；
+- 脚本正文、完整 stdout/stderr 和运行中大块产物不直接进入 TurnTrace。ActionResult 只返回状态、source Link/digest、execution id、日志游标/有界片段、staged 候选产物的有界路径/metadata、diff/count、冲突或提交摘要；候选产物在 apply 前不是可加载的 `workspace:` Link，成功提交后才返回实际 Workspace Link，并只发布一次 authoritative Manifest snapshot signal。
+
+建议按四个实施切面推进：
+
+1. **Stage 3A Authoring And Source Model**：Script 配置/依赖、两类 source resolver、统一 write/rewrite/patch、显式 promote、domain/action HOW 和 policy；
+2. **Stage 3B Transactional Execution**：重构可复用 process primitive，实现 Python/Bash 同步 run、事务 mirror、diff/bundle commit、局部失败和 Workspace signal；
+3. **Stage 3C Supervised Execution Job**：在不引入 ongoing Action 的前提下实现 Turn-scoped start/wait/stop/finalize，以及 Cycle pacing、日志/候选产物观察和结束清理；
+4. **Stage 3D Release And Verification**：默认配置与项目模板、effective Catalog、模块/Phase/App/wheel 测试，以及 opt-in 的本地真实 Python/Bash smoke。
+
+Stage 3C 进入实现前仍需确认：运行 action 首次让出控制的等待时间、后续 wait 的最小/最大间隔与唤醒条件；运行中 mirror 是否允许其它 action 读取或修改；完成/停止后由哪个 action apply/discard；job 状态如何稳定投影给下一 Cycle；Turn 输出、停止、耗尽和 Runtime transfer 对活动 job 的强制清理顺序。上述策略不得改变 Phase1/Phase2/Phase3 的一般职责，也不得让 Runtime 核心解释脚本正文或 Workspace diff。
+
 ### 后续 Stage 的确认入口
 
-- **Stage 3**：确认 Workspace 代码/脚本的创建方式、Python/bash action identity、脚本与参数边界、工作目录、依赖环境、网络/文件权限、审批、输出和清理语义；
+- **Stage 3**：固定基线已确认；实施前继续收敛 supervision pacing、运行中可见性、apply/discard 和 Turn cleanup 的剩余语义；
 - **Stage 4**：基于真实任务确认 utility 集合，避免建立无使用场景的工具集合；时间工具还需确认业务时区，结构化格式工具需确认输入输出是否通过值或 Workspace Link；
 - **Stage 5**：先确认 Home Backlink 的扫描范围与索引策略；Memory 片段检索需再确认数据规模、来源定位协议、embedding/reranker 依赖和 action 命名；
 - **Stage 6**：逐个 connector 确认授权、凭据、读写范围和人工审批；交互入口需保持 App-owned 输入/输出边界，不绕过 Runtime/Context/Action 生命周期。
@@ -120,6 +143,6 @@ Backlink 是待实现的 Home-owned Link 图能力，不放入通用 Infra，也
 
 ## 待确认
 
-Stage 1 与 Stage 2 已完成，下一步进入 Stage 3 Code And Script Execution 的语义确认；Stage 3 不沿用此前“固定测试/构建工作流”的假设。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入持久索引、新的长期状态或未确认的宿主任意命令执行。
+Stage 1 与 Stage 2 已完成，Stage 3 的 source/lifecycle/transaction/safety/language 基线已经确认，当前只继续确认监督式 execution job 与 Cycle 的协作语义；Stage 3 不沿用此前“固定测试/构建工作流”的假设。其余问题保留在“后续 Stage 的确认入口”、Home Backlink 和 Memory 检索增强章节，在进入对应 Stage 时再展开。后续能力不得借已完成阶段提前引入持久索引、新的长期状态或未确认的宿主任意命令执行。
 
 Stage 1 closure audit 已进一步完成：PDF 图片/附件提取不得吞掉 asset count/bytes limit；Resource executor 在 bundle commit point 前响应 cancellation/deadline；staged worker 协议错误稳定映射为局部 `worker_protocol_invalid`；嵌套 capability 配置保留精确 key；ControlledProcessRunner 使用临时文件捕获 stdout/stderr 并只构造有界结果投影，不把 projection limit 夸大为子进程硬输出配额。对应回归测试验证超限和取消都不提交 Workspace、不递增 Manifest、不发布同步信号。
