@@ -276,7 +276,7 @@ def test_trace_recall_overlay_folds_back_to_origin_pointer() -> None:
 
     assert trace.render_messages()[0] == full
     report = trace.compact(required_chars=0)
-    assert report.folded_recall_count == 1
+    assert report.folded_overlay_count == 1
     assert trace.render_messages()[0] == compact
     assert trace.entries()[0].origin_refs == ("session:turn/old",)
 

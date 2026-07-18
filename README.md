@@ -29,6 +29,7 @@ The Action Catalog is versioned package data and is not copied into projects. Pr
 ## Development
 
 ```powershell
+python -m pip install -e ".[dev]"
 python -m pytest tests -q
 $env:TINYSOUL_PYTHON=(Get-Command python).Source
 .\scripts\typecheck.ps1

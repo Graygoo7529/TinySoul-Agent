@@ -7,18 +7,21 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action import ActionEngine, ActionEngineBuilder
+from tinysoul.action.backends import LLMActionTaskRunner
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
+    ContextEngine,
     ContextEngineBuilder,
     WorkspaceSnapshot,
     build_workspace_sync_signal,
 )
 from tinysoul.context.trace import TraceKind
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import JsonPart, MessageStack, TextPart
 from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import RawResponse, TaskFailure, TaskResult
+from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.memory import (
@@ -38,6 +41,12 @@ from tinysoul.runtime import (
     SignalBus,
 )
 from tinysoul.runtime.bridge import RuntimeMemoryBridge
+from tinysoul.workspace import (
+    WorkspaceEngine,
+    WorkspaceEngineBuilder,
+    WorkspaceSettings,
+    register_workspace_actions,
+)
 
 
 class FakeLLM:
@@ -312,6 +321,111 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
     assert context.background_links() == ()
 
 
+def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "a.md").write_text("alpha needle\n", encoding="utf-8")
+    (workspace_root / "b.md").write_text("beta\n", encoding="utf-8")
+    workspace = WorkspaceEngineBuilder(WorkspaceSettings(root=workspace_root)).build()
+    workspace.reconcile()
+
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("inspect workspace")
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _json_result(
+                {
+                    "answer": "Alpha and beta are present.",
+                    "source_ids": ["source_1", "source_2"],
+                }
+            ),
+        )
+    )
+    action = _action_engine(
+        workspace=workspace,
+        workspace_context=context,
+        workspace_bus=bus,
+        workspace_llm=llm,
+    )
+    normalization = action.normalize(
+        (
+            ToolCallRecord(
+                id="read_1",
+                name="workspace.read",
+                arguments={
+                    "link": "workspace:a.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                },
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="search_1",
+                name="workspace.search_text",
+                arguments={
+                    "query": "needle",
+                    "scope": {"kind": "workspace"},
+                },
+                kind=ToolKind.ACTION,
+            ),
+            ToolCallRecord(
+                id="analyze_1",
+                name="workspace.analyze",
+                arguments={
+                    "intent": "Compare the selected files.",
+                    "reference_links": ["workspace:a.md", "workspace:b.md"],
+                },
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = Phase3Unit(context=context, action=action, bus=bus).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert [result.status.value for result in outcome.results] == [
+        "success",
+        "success",
+        "success",
+    ]
+    assert len(llm.calls) == 1
+    entries = context.seal_trace().entries
+    assert len(entries) == 3
+    for entry in entries[:2]:
+        assert entry.visible_overlay is not None
+        assert isinstance(entry.visible_overlay.parts[0], JsonPart)
+        assert isinstance(entry.message.parts[0], JsonPart)
+        assert "alpha needle" in str(entry.visible_overlay.parts[0].value)
+        assert "alpha needle" not in str(entry.message.parts[0].value)
+    assert entries[2].visible_overlay is None
+    assert isinstance(entries[2].message.parts[0], JsonPart)
+    analyze_payload = entries[2].message.parts[0].value["payload"]
+    assert isinstance(analyze_payload, dict)
+    assert analyze_payload["answer"] == (
+        "Alpha and beta are present."
+    )
+    assert context.fold_trace_overlays() == 2
+    assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
+
+    summary = context.end_turn()
+    assert "alpha needle" not in str(summary.trace)
+    assert "Alpha and beta are present." in str(summary.trace)
+
+
 def test_phase1_retries_invalid_domain_selection() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
@@ -568,23 +682,23 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("session.history.recall", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
-        .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})
-        .register_native("workspace.read", lambda execution, context: {"text": "ok"})
-        .register_native("workspace.search_text", lambda execution, context: {"items": []})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
-            .register_native("workspace.restore", lambda execution, context: {"restored": True})
-            .register_native("workspace.trash.list", lambda execution, context: {"items": []})
+        .register_native("workspace.restore", lambda execution, context: {"restored": True})
+        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
         .register_native("workspace.scan", emit_invalid_sync)
         .register_native("workspace.write", lambda execution, context: {"written": True})
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
-            .disable_actions(
-                *SCRIPT_ACTIONS,
-                "resource.convert_with_markitdown",
+        .disable_actions(
+            *SCRIPT_ACTIONS,
+            "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",
             "web.search_by_kimi",
+            "workspace.analyze",
+            "workspace.read",
+            "workspace.search_text",
         )
         .build()
     )
@@ -617,7 +731,14 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     assert raised.value.payload["kind"] == "loop.contract_violation"
 
 
-def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
+def _action_engine(
+    *,
+    memory: MemoryEngine | None = None,
+    workspace: WorkspaceEngine | None = None,
+    workspace_context: ContextEngine | None = None,
+    workspace_bus: SignalBus | None = None,
+    workspace_llm: FakeLLM | None = None,
+) -> ActionEngine:
     builder = (
         ActionEngineBuilder(Path("tinysoul/action/catalog"))
         .register_native("context.trace.fold", lambda execution, context: {})
@@ -637,17 +758,6 @@ def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
-        .register_native("workspace.delete", lambda execution, context: {"deleted": True})
-        .register_native("workspace.describe", lambda execution, context: {"described": True})
-        .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})
-        .register_native("workspace.read", lambda execution, context: {"text": "ok"})
-        .register_native("workspace.search_text", lambda execution, context: {"items": []})
-        .register_native("workspace.patch", lambda execution, context: {"patched": True})
-        .register_native("workspace.restore", lambda execution, context: {"restored": True})
-        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
-        .register_native("workspace.scan", lambda execution, context: {"scanned": True})
-        .register_native("workspace.write", lambda execution, context: {"written": True})
-        .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .disable_actions(
             *SCRIPT_ACTIONS,
             "resource.convert_with_markitdown",
@@ -658,6 +768,50 @@ def _action_engine(*, memory: MemoryEngine | None = None) -> ActionEngine:
             "web.search_by_kimi",
         )
     )
+    if workspace is None:
+        builder = (
+            builder.register_native(
+                "workspace.delete", lambda execution, context: {"deleted": True}
+            )
+            .register_native(
+                "workspace.describe", lambda execution, context: {"described": True}
+            )
+            .register_native(
+                "workspace.patch", lambda execution, context: {"patched": True}
+            )
+            .register_native(
+                "workspace.restore", lambda execution, context: {"restored": True}
+            )
+            .register_native(
+                "workspace.trash.list", lambda execution, context: {"items": []}
+            )
+            .register_native(
+                "workspace.scan", lambda execution, context: {"scanned": True}
+            )
+            .register_native(
+                "workspace.write", lambda execution, context: {"written": True}
+            )
+            .register_native(
+                "workspace.rewrite", lambda execution, context: {"rewritten": True}
+            )
+            .disable_actions(
+                "workspace.analyze",
+                "workspace.read",
+                "workspace.search_text",
+            )
+        )
+    else:
+        if workspace_context is None or workspace_bus is None or workspace_llm is None:
+            raise AssertionError("Real Workspace actions require Context, SignalBus, and LLM")
+        register_workspace_actions(
+            builder,
+            workspace=workspace,
+            bus=workspace_bus,
+            llm_action=LLMActionTaskRunner(
+                llm_runner=workspace_llm,
+                context=workspace_context,
+            ),
+        )
     if memory is None:
         builder.register_native(
             "memory.recall",
@@ -685,6 +839,18 @@ def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:
         ),
         answer=None,
         tool_calls=tool_calls,
+    )
+
+
+def _json_result(value: JsonObject) -> TaskResult:
+    return TaskResult.success(
+        raw_response=RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+        ),
+        answer=JsonAnswer(value),
+        tool_calls=(),
     )
 
 

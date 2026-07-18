@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -11,13 +12,23 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     tmp_path: Path,
 ) -> None:
     project_root = Path(__file__).resolve().parents[2]
-    wheel_root = tmp_path / "wheel"
+    build_root = tmp_path.parent / "wheel-build"
+    source_root = build_root / "source"
+    wheel_root = build_root / "wheel"
+    source_root.mkdir(parents=True)
     wheel_root.mkdir()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(project_root / name, source_root / name)
+    shutil.copytree(
+        project_root / "tinysoul",
+        source_root / "tinysoul",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     environment = {
         **os.environ,
         "PIP_NO_CACHE_DIR": "1",
-        "TMP": str(tmp_path),
-        "TEMP": str(tmp_path),
+        "TMP": str(build_root),
+        "TEMP": str(build_root),
     }
     subprocess.run(
         (
@@ -32,7 +43,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
             "--wheel-dir",
             str(wheel_root),
         ),
-        cwd=project_root,
+        cwd=source_root,
         env=environment,
         check=True,
         capture_output=True,

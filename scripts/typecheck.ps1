@@ -8,3 +8,4 @@ if ($env:TINYSOUL_PYTHON) {
 }
 
 & $pythonPath -m ty check --python $pythonPath
+exit $LASTEXITCODE

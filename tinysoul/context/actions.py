@@ -120,10 +120,10 @@ class ContextTraceFoldExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         try:
-            folded = self._context.fold_trace_recalls()
+            folded = self._context.fold_trace_overlays()
         except ContextError as exc:
             return _failed(execution, f"Trace fold failed: {exc}")
-        return _success(execution, {"folded_recall_count": folded})
+        return _success(execution, {"folded_overlay_count": folded})
 
 
 def _required_ref(execution: ActionExecution) -> str | None:

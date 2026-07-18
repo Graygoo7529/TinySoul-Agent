@@ -522,9 +522,9 @@ class ContextEngine:
             }
         )
 
-    def fold_trace_recalls(self) -> int:
+    def fold_trace_overlays(self) -> int:
         self._require_turn()
-        return self._trace.fold_recalls()
+        return self._trace.fold_overlays()
 
     def seal_trace(self) -> SealedTurnTrace:
         self._require_turn()

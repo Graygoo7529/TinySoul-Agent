@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=70.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,6 +28,8 @@ tinysoul = "tinysoul.app.cli:main"
 dev = [
     "crawlee>=1.8,<2",
     "pytest",
+    "setuptools>=70.1",
+    "ty>=0.0.57",
 ]
 web-crawl = [
     "crawlee>=1.8,<2",

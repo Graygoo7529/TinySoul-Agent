@@ -859,6 +859,70 @@ def test_workspace_search_text_workspace_scope_centers_long_match(
     assert fragment.start_column > 1
 
 
+def test_workspace_search_text_casefold_excerpt_uses_original_columns(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_text(
+        "ß" * 700 + "Needle" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    fragment = result.fragments[0]
+    assert "Needle" in fragment.text
+    assert fragment.start_column is not None
+    assert fragment.start_column <= 701
+    assert fragment.end_column is not None
+    assert fragment.end_column >= 706
+
+
+def test_workspace_search_text_casefold_match_can_expand_source_character(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_text(
+        "x" * 700 + "Straße" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "STRASSE",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    fragment = result.fragments[0]
+    assert "Straße" in fragment.text
+    assert fragment.start_column is not None
+    assert fragment.start_column <= 701
+    assert fragment.end_column is not None
+    assert fragment.end_column >= 706
+
+
 def test_workspace_search_text_skips_invalid_utf8_with_partial_coverage(
     tmp_path: Path,
 ) -> None:

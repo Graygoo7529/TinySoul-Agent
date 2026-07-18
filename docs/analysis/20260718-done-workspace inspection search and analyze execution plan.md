@@ -215,6 +215,14 @@ max_answer_chars = 4000
 - 当前项目与 init 模板已同步嵌套 search/analysis 配置、Catalog package data、Workspace domain HOW 和三个 action HOW；AGENT、Action/Workspace 设计文档与能力扩展计划已同步。
 - 全量 `pytest tests` 通过；真实网络/供应商测试按仓库既有条件跳过。全量 `ty check` 通过，wheel 构建、package-data 断言、隔离安装和 `tinysoul init` 验证通过。
 
+## 20260719 后续审查修复
+
+- 不区分大小写搜索继续使用 Unicode casefold，但命中 span 现映射回原文字符坐标；长行 excerpt 不再直接使用折叠字符串索引，并覆盖命中前扩张字符与命中本身扩张两类回归。
+- Context 折叠 API、compaction report、ActionResult 和 Catalog 从 recall-only 命名统一为 overlay 语义；`context.trace.fold` 会移除全部 foldable visible overlays，并返回 `folded_overlay_count`。
+- dev extra 显式包含 `setuptools>=70.1` 与 `ty`；PowerShell 类型检查脚本透传 native exit code。release 测试在 pytest basetemp 下使用短路径 clean source 构建，不读取或污染检出目录的 `build/`/`egg-info`。
+- 新增真实 `ActionEngine -> Phase3Unit -> Context -> TurnSummary` Workspace inspection 测试，同时执行 read、search 和一次 analyze LLM task，验证当前 Turn overlay、canonical trace、显式 fold、来源结论和无正文持久化。
+- 当前环境无需临时 `PYTHONPATH`，共收集 690 项测试；675 项通过、15 项按既有真实供应商/环境条件跳过。全量 `ty check`、wheel package data、隔离安装和 `tinysoul init` 验收通过。
+
 ## 验收边界
 
 - WorkingContext 和 BackgroundContext 仍不保存 Workspace 正文；

@@ -34,9 +34,9 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### TurnTraceHeap
 
-本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整记录，同时维护“热条目 + 冷节点头部”的可见投影。压缩不会删除 canonical entry，而是按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。recall 使用 zero-based continuation cursor；响应包含 `next_cursor` 与 `truncated`，调用额度会被配置的 `trace_recall_max_chars` 限制，因此同一不可变 leaf 可以分段继续探索。轨迹条目保持原子，不在消息 JSON 中间切断。召回结果携带 origin ref，并在下一次压缩时折叠回短指针，避免召回历史递归膨胀。
+本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整 canonical record，同时维护“热条目 + 冷节点头部”的可见投影。foldable ActionResult 额外持有只在当前 Turn 可见的完整 overlay；Context 压缩或 `context.trace.fold` 会统一移除所有这类 overlay，并报告 `folded_overlay_count`，不会修改 compact canonical message。压缩随后可按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。recall 使用 zero-based continuation cursor；响应包含 `next_cursor` 与 `truncated`，调用额度会被配置的 `trace_recall_max_chars` 限制，因此同一不可变 leaf 可以分段继续探索。轨迹条目保持原子，不在消息 JSON 中间切断。recall 自身也使用同一 foldable projection，不建立专用折叠分支。
 
-每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、来源和可选 origin ref。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。Turn 结束时 `seal()` 产生包含完整 entries、节点和 roots 的不可变投影，供 TurnSummary 与 Session 持久化使用。
+每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。
 
 ### PendingInputs
 

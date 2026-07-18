@@ -178,7 +178,7 @@ Action result 需要同时表达三类信息：
 2. 给 trace/log 使用的完整 JSON payload。
 3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
 
-Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 结果以完整 payload 作为 canonical trace；foldable 结果要求成功 ActionResult 提供非空 `compact_payload` 和有界、去重的 `origin_refs`，以 compact payload 作为 canonical trace、完整 payload 作为当前 Turn 的 visible overlay。Context 压缩或显式 fold 会移除 overlay，TurnSummary 与 Session 始终只接收 canonical compact payload；即使当前 Turn 未发生压缩，也不会把完整 overlay 写入 Session。standard action 返回 projection 或 foldable action 缺少 projection 都由 runner 收敛为局部 trace-policy mismatch。failed/timeout 结果不携带 projection。
+Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 结果以完整 payload 作为 canonical trace；foldable 结果要求成功 ActionResult 提供非空 `compact_payload` 和有界、去重的 `origin_refs`，以 compact payload 作为 canonical trace、完整 payload 作为当前 Turn 的 visible overlay。Context 压缩或 `context.trace.fold` 会统一移除所有当前 visible overlays，显式 fold 结果使用 `folded_overlay_count`；TurnSummary 与 Session 始终只接收 canonical compact payload，即使当前 Turn 未发生压缩，也不会把完整 overlay 写入 Session。standard action 返回 projection 或 foldable action 缺少 projection 都由 runner 收敛为局部 trace-policy mismatch。failed/timeout 结果不携带 projection。
 
 Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 compact 字段。字段选择属于业务 executor；Loop 只把已验证的 projection 转成 Context signal，Context 和 Session 不包含 action-specific 折叠分支。`context.trace.recall`、`session.history.recall`、`workspace.read` 和 `workspace.search_text` 共用该框架语义。
 

@@ -352,13 +352,48 @@ def _validate_query(query: str, max_chars: int) -> str:
 
 
 def _matching_lines(text: str, query: str, *, case_sensitive: bool) -> tuple[int, ...]:
-    needle = query if case_sensitive else query.casefold()
     result: list[int] = []
     for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
-        haystack = line if case_sensitive else line.casefold()
-        if needle in haystack:
+        line_text = line.rstrip("\r\n")
+        if _literal_match_span(
+            line_text,
+            query,
+            case_sensitive=case_sensitive,
+        ) is not None:
             result.append(line_number)
     return tuple(result)
+
+
+def _literal_match_span(
+    text: str,
+    query: str,
+    *,
+    case_sensitive: bool,
+) -> tuple[int, int] | None:
+    """Return the first literal match as original-text character offsets."""
+
+    if case_sensitive:
+        start = text.find(query)
+        return None if start < 0 else (start, start + len(query))
+
+    needle = query.casefold()
+    if not needle:
+        return None
+    folded_start = text.casefold().find(needle)
+    if folded_start < 0:
+        return None
+    folded_end = folded_start + len(needle)
+
+    source_start: int | None = None
+    folded_offset = 0
+    for index, char in enumerate(text):
+        next_offset = folded_offset + len(char.casefold())
+        if source_start is None and next_offset > folded_start:
+            source_start = index
+        if source_start is not None and next_offset >= folded_end:
+            return source_start, index + 1
+        folded_offset = next_offset
+    return None
 
 
 def _candidate_fragments(
@@ -425,11 +460,23 @@ def _fragment_for_window(
         )
     match_line = match_lines[0]
     line_text = lines[match_line - 1].rstrip("\r\n")
-    haystack = line_text if case_sensitive else line_text.casefold()
-    needle = query if case_sensitive else query.casefold()
-    match_start = max(0, haystack.find(needle))
-    excerpt_start = max(0, match_start - max_excerpt_chars // 3)
+    match_span = _literal_match_span(
+        line_text,
+        query,
+        case_sensitive=case_sensitive,
+    )
+    if match_span is None:
+        raise WorkspaceContractError(
+            "Workspace search fragment no longer contains its recorded match"
+        )
+    match_start, match_end = match_span
+    match_chars = match_end - match_start
+    left_context = max(0, max_excerpt_chars - match_chars) // 3
+    excerpt_start = max(0, match_start - left_context)
     excerpt_end = min(len(line_text), excerpt_start + max_excerpt_chars)
+    if excerpt_end < match_end:
+        excerpt_end = match_end
+        excerpt_start = max(0, excerpt_end - max_excerpt_chars)
     if excerpt_end - excerpt_start < max_excerpt_chars:
         excerpt_start = max(0, excerpt_end - max_excerpt_chars)
     excerpt = line_text[excerpt_start:excerpt_end]

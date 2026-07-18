@@ -122,7 +122,7 @@ class TraceCompactionReport:
 
     changed: bool
     compacted_count: int
-    folded_recall_count: int
+    folded_overlay_count: int
     reclaimed_chars: int
     remaining_hot_count: int
     node_refs: tuple[str, ...] = field(default_factory=tuple)
@@ -250,7 +250,7 @@ class TurnTraceHeap:
         if required_chars < 0:
             raise ContextContractError("required_chars cannot be negative")
         before_chars = self.visible_char_count()
-        folded = self.fold_recalls()
+        folded = self.fold_overlays()
         reclaimed = before_chars - self.visible_char_count()
         compacted: list[TraceEntry] = []
         available = max(0, len(self._hot_entry_ids) - self._min_hot_entries)
@@ -266,13 +266,15 @@ class TurnTraceHeap:
         return TraceCompactionReport(
             changed=bool(folded or compacted),
             compacted_count=len(compacted),
-            folded_recall_count=folded,
+            folded_overlay_count=folded,
             reclaimed_chars=max(0, reclaimed),
             remaining_hot_count=len(self._hot_entry_ids),
             node_refs=refs,
         )
 
-    def fold_recalls(self) -> int:
+    def fold_overlays(self) -> int:
+        """Remove current-Turn visible overlays from foldable trace entries."""
+
         folded = 0
         updated: list[TraceEntry] = []
         for entry in self._entries:

@@ -144,7 +144,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 当前 inspection action 具有三种不同职责：
 
 - `workspace.read` 接受一个明确 UTF-8 text Link、1-based 闭区间、可选 cursor/字符上限/expected digest。Engine 以固定字符块扫描指定行范围，调用方上限只能收紧 Workspace 的 `max_read_chars`；结果包含请求和实际位置、正文、截断原因、续读 cursor/position 与 EOF 事实。显式范围偶然覆盖很短的完整文件是允许的，禁止的是隐式或无界整文件读取。
-- `workspace.search_text` 接受单行字面量 query 和显式 file/directory/workspace scope，不接受 regex。目录 prefix 是选择器而不是新的 Link 类型；候选按 Link、命中按行号稳定排序，重叠上下文合并为片段。scan budget 决定 `coverage.complete`，result budget 决定 fragments、额外 line hints 与 `truncated`，二者不能混为一个标记；长行片段围绕实际命中裁剪并返回列位置。
+- `workspace.search_text` 接受单行字面量 query 和显式 file/directory/workspace scope，不接受 regex。目录 prefix 是选择器而不是新的 Link 类型；候选按 Link、命中按行号稳定排序，重叠上下文合并为片段。scan budget 决定 `coverage.complete`，result budget 决定 fragments、额外 line hints 与 `truncated`，二者不能混为一个标记；不区分大小写匹配使用 Unicode casefold，但长行裁剪和列位置始终映射回原文字符坐标，片段必须保留实际来源 match span。
 - `workspace.analyze` 只接受 Phase2 已选择的非空、去重 text `reference_links` 和有界 intent，不接受目录或 Workspace scope，也不在 Phase3 重新选择资源。每个 reference 必须完整进入一次 action-internal LLM task；任一单文件、Link 数量或合计 source 超出 analysis budget 时，不调用 LLM，而是返回带 Link/digest/size 诊断的局部失败。成功输出只含有界 answer、经过 executor 验证的 source ids 映射和 coverage，不携带原始正文，不修改 Workspace 或发布 snapshot。
 
 `workspace.read` 与 `workspace.search_text` 的成功结果使用 Catalog 声明的 foldable trace mode：正文只存在于当前 Turn visible overlay；canonical trace 删除正文但保留 Link、digest、范围/hints 和 coverage，Context pressure 可移除 overlay，Session 无论是否发生压缩都只持久化 compact locator。Workspace 资源可变且按日归档，compact locator 不承诺跨日恢复原片段。`workspace.analyze` 返回的是有界整理结论，使用 standard trace；原始 references 只存在于 action-internal prompt。
