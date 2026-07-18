@@ -41,26 +41,33 @@ class ActionTraceMode(StrEnum):
 
 @dataclass(frozen=True)
 class ActionTraceProjection:
-    """Optional compact trace form for a large, recall-style action result."""
+    """Business-provided compact data for a foldable action result."""
 
-    mode: ActionTraceMode = ActionTraceMode.STANDARD
-    origin_ref: str = ""
+    origin_refs: tuple[str, ...] = ()
     compact_payload: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.mode, ActionTraceMode):
+        if not isinstance(self.origin_refs, tuple):
             raise ActionInvariantError(
-                "ActionTraceProjection.mode must be an ActionTraceMode"
+                "ActionTraceProjection.origin_refs must be a tuple"
             )
-        if self.mode is ActionTraceMode.FOLDABLE and not self.origin_ref:
+        if any(not isinstance(ref, str) or not ref for ref in self.origin_refs):
             raise ActionInvariantError(
-                "Foldable ActionTraceProjection requires a non-empty origin_ref"
+                "ActionTraceProjection.origin_refs must contain non-empty strings"
+            )
+        if len(set(self.origin_refs)) != len(self.origin_refs):
+            raise ActionInvariantError(
+                "ActionTraceProjection.origin_refs must be unique"
             )
         object.__setattr__(
             self,
             "compact_payload",
             to_json_object(self.compact_payload),
         )
+        if not self.compact_payload:
+            raise ActionInvariantError(
+                "ActionTraceProjection.compact_payload must be non-empty"
+            )
 
 
 class ActionPhaseResultStatus(StrEnum):
@@ -116,6 +123,13 @@ class ActionResult:
         ):
             raise ActionInvariantError(
                 "ActionResult.trace_projection must be an ActionTraceProjection or None"
+            )
+        if (
+            self.status is not ActionResultStatus.SUCCESS
+            and self.trace_projection is not None
+        ):
+            raise ActionInvariantError(
+                "Only successful ActionResults may carry a trace projection"
             )
         object.__setattr__(self, "payload", to_json_object(self.payload))
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))

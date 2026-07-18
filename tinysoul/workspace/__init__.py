@@ -4,8 +4,18 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .actions import register_workspace_actions
-from .config import WorkspaceSettings, parse_workspace_settings
+from .config import (
+    WorkspaceAnalysisSettings,
+    WorkspaceSearchSettings,
+    WorkspaceSettings,
+    parse_workspace_settings,
+)
 from .engine import (
+    WorkspaceAnalysisBudgetFailure,
+    WorkspaceAnalysisBudgetReason,
+    WorkspaceAnalysisInput,
+    WorkspaceAnalysisPreparation,
+    WorkspaceAnalysisReference,
     WorkspaceBundleResult,
     WorkspaceBundleWrite,
     WorkspaceDocumentRead,
@@ -14,6 +24,7 @@ from .engine import (
     WorkspaceImageRead,
     WorkspacePromptInput,
     WorkspaceTextRead,
+    WorkspaceTextRangeResult,
     WorkspaceTextSlice,
 )
 from .errors import (
@@ -51,10 +62,25 @@ from .mirror import (
     WorkspaceMirrorService,
 )
 from .prompts import WorkspacePromptReferenceResolver
+from .search import (
+    WorkspaceSearchCoverage,
+    WorkspaceSearchFragment,
+    WorkspaceSearchLineHint,
+    WorkspaceSearchScope,
+    WorkspaceSearchScopeKind,
+    WorkspaceTextSearchResult,
+)
 from .trash import WorkspaceTrashItem
+from .text import WorkspaceTextPosition, WorkspaceTextRangeRead
 
 __all__ = [
     "WorkspaceContractError",
+    "WorkspaceAnalysisSettings",
+    "WorkspaceAnalysisBudgetFailure",
+    "WorkspaceAnalysisBudgetReason",
+    "WorkspaceAnalysisInput",
+    "WorkspaceAnalysisPreparation",
+    "WorkspaceAnalysisReference",
     "WorkspaceBundleResult",
     "WorkspaceBundleWrite",
     "WorkspaceDocumentRead",
@@ -85,8 +111,18 @@ __all__ = [
     "WorkspaceRetention",
     "WorkspaceResourceRecord",
     "WorkspaceSettings",
+    "WorkspaceSearchSettings",
+    "WorkspaceSearchCoverage",
+    "WorkspaceSearchFragment",
+    "WorkspaceSearchLineHint",
+    "WorkspaceSearchScope",
+    "WorkspaceSearchScopeKind",
     "WorkspaceTextRead",
+    "WorkspaceTextPosition",
+    "WorkspaceTextRangeRead",
+    "WorkspaceTextRangeResult",
     "WorkspaceTextSlice",
+    "WorkspaceTextSearchResult",
     "WorkspaceTurnPreparationHandler",
     "workspace_snapshot_signal",
     "WorkspaceTrashItem",

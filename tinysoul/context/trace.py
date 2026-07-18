@@ -46,7 +46,7 @@ class TraceEntry:
     cycle_id: str = ""
     phase: CyclePhase | None = None
     visible_overlay: Message | None = None
-    origin_ref: str = ""
+    origin_refs: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not self.entry_id:
@@ -55,10 +55,12 @@ class TraceEntry:
             raise ContextInvariantError("TraceEntry.kind must be a TraceKind")
         if self.phase is not None and not isinstance(self.phase, CyclePhase):
             raise ContextInvariantError("TraceEntry.phase must be a CyclePhase")
-        if self.visible_overlay is not None and not self.origin_ref:
+        if any(not isinstance(ref, str) or not ref for ref in self.origin_refs):
             raise ContextInvariantError(
-                "TraceEntry visible_overlay requires a non-empty origin_ref"
+                "TraceEntry origin_refs must contain non-empty strings"
             )
+        if len(set(self.origin_refs)) != len(self.origin_refs):
+            raise ContextInvariantError("TraceEntry origin_refs must be unique")
 
     @property
     def visible_message(self) -> Message:
@@ -219,7 +221,7 @@ class TurnTraceHeap:
         *,
         cycle_id: str = "",
         compact_message: ToolResultMessage | None = None,
-        origin_ref: str = "",
+        origin_refs: tuple[str, ...] = (),
     ) -> TraceEntry:
         return self._append(
             TraceKind.ACTION_RESULT,
@@ -227,7 +229,7 @@ class TurnTraceHeap:
             cycle_id=cycle_id,
             phase=CyclePhase.PHASE3,
             visible_overlay=message if compact_message is not None else None,
-            origin_ref=origin_ref,
+            origin_refs=origin_refs,
         )
 
     def append_phase_note(
@@ -358,7 +360,7 @@ class TurnTraceHeap:
         cycle_id: str = "",
         phase: CyclePhase | None = None,
         visible_overlay: Message | None = None,
-        origin_ref: str = "",
+        origin_refs: tuple[str, ...] = (),
     ) -> TraceEntry:
         entry = TraceEntry(
             entry_id=_entry_id(),
@@ -367,7 +369,7 @@ class TurnTraceHeap:
             cycle_id=cycle_id,
             phase=phase,
             visible_overlay=visible_overlay,
-            origin_ref=origin_ref,
+            origin_refs=origin_refs,
         )
         self._entries.append(entry)
         self._hot_entry_ids.append(entry.entry_id)

@@ -31,6 +31,8 @@ status: in_progress (Stage 1, Stage 2, and Stage 3 done; later capability stages
 
 该顺序不是要求一次性完成全部能力。Stage 1 至 Stage 4 应各自形成独立、可使用的能力闭环；Stage 5 和 Stage 6 只有在实际使用反馈给出明确查询或连接需求时才进入实施。
 
+跨 Stage 的 Workspace inspection 基础已完成：`workspace.read` 提供显式有界 range/cursor 读取，`workspace.search_text` 提供 file/directory/workspace scope 的确定性字面量定位，`workspace.analyze` 只对 Phase2 选择的明确多 Link 执行一次完整引用分析。read/search 正文使用 Action Catalog 声明的 foldable trace 生命周期，Session 只持久化 compact locator；analyze 使用 standard result 且不携带原始 references。该基础不改变 Stage 4 的 utility 范围，也不提前引入 Stage 5 的持久索引、embedding 或 Memory 片段语义搜索。详细执行记录见 `docs/analysis/20260718-done-workspace inspection search and analyze execution plan.md`。
+
 ### Stage 1 Resource Conversion
 
 Stage 1 解决 Workspace 已识别 `document`、但不能把文档转换为可局部读取 Markdown/图片资源的断点。确认后的实现语义见 `docs/design/capabilities.md` 与 `docs/design/capabilities/resource.md`。

@@ -17,13 +17,20 @@ from tinysoul.action.core.hooks import (
     HookOutcome,
 )
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
+from tinysoul.action.core.result import (
+    ActionResult,
+    ActionResultStage,
+    ActionResultStatus,
+    ActionTraceMode,
+    ActionTraceProjection,
+)
 from tinysoul.action.core.runner import ActionBatchRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
     ActionBackendSpec,
     ActionDomainSpec,
     ActionParallelPolicy,
+    ActionResultRuntimeSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
     ActionSpec,
@@ -98,6 +105,23 @@ class RuntimeExceptionExecutor:
         )
 
 
+class ProjectionExecutor:
+    def execute(self, execution, context) -> ActionResult:
+        return ActionResult.success(
+            call_id=execution.call.call_id,
+            invoke_id=execution.framework.invoke_id,
+            batch_id=execution.framework.batch_id,
+            action_name=execution.call.action_name,
+            sequence=execution.call.sequence,
+            domain=execution.framework.domain,
+            payload={"text": "full"},
+            trace_projection=ActionTraceProjection(
+                origin_refs=("workspace:a.md", "workspace:b.md"),
+                compact_payload={"links": ["workspace:a.md", "workspace:b.md"]},
+            ),
+        )
+
+
 ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
 
 
@@ -140,6 +164,59 @@ def test_runner_returns_action_result_from_executor() -> None:
     assert results[0].status is ActionResultStatus.SUCCESS
     assert results[0].call_id == "call_1"
     assert results[0].payload == {"ok": True}
+
+
+def test_runner_accepts_projection_for_foldable_action() -> None:
+    catalog, batch = _single_test_batch(
+        _test_action("test.foldable", trace_mode=ActionTraceMode.FOLDABLE)
+    )
+    executors = ExecutorRegistry()
+    executors.register("test.foldable", ProjectionExecutor())
+
+    result = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.status is ActionResultStatus.SUCCESS
+    assert result.trace_projection is not None
+    assert result.trace_projection.origin_refs == (
+        "workspace:a.md",
+        "workspace:b.md",
+    )
+
+
+def test_runner_rejects_missing_foldable_projection() -> None:
+    catalog, batch = _single_test_batch(
+        _test_action("test.foldable", trace_mode=ActionTraceMode.FOLDABLE)
+    )
+    executors = ExecutorRegistry()
+    executors.register(
+        "test.foldable",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+
+    result = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.frame_data["reason"] == "result_trace_policy_mismatch"
+
+
+def test_runner_rejects_projection_for_standard_action() -> None:
+    catalog, batch = _single_test_batch(_test_action("test.standard"))
+    executors = ExecutorRegistry()
+    executors.register("test.standard", ProjectionExecutor())
+
+    result = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.frame_data["reason"] == "result_trace_policy_mismatch"
 
 
 def test_runner_allows_runtime_exception_to_reach_trap() -> None:
@@ -348,12 +425,15 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "web.fetch_with_defuddle",
         "web.fetch_with_trafilatura",
         "web.search_by_kimi",
+        "workspace.analyze",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
+        "workspace.read",
         "workspace.restore",
         "workspace.rewrite",
         "workspace.scan",
+        "workspace.search_text",
         "workspace.trash.list",
         "workspace.write",
     )
@@ -689,6 +769,7 @@ def _test_action(
     name: str,
     *,
     timeout_seconds: float | None = None,
+    trace_mode: ActionTraceMode = ActionTraceMode.STANDARD,
 ) -> ActionSpec:
     return ActionSpec(
         name=name,
@@ -707,9 +788,34 @@ def _test_action(
         runtime=ActionRuntimeSpec(
             timeout_seconds=timeout_seconds,
             parallel_policy=ActionParallelPolicy.ALLOWED,
+            result=ActionResultRuntimeSpec(trace_mode=trace_mode),
         ),
         backend=ActionBackendSpec(
             kind=ActionBackendKind.NATIVE,
             handler=name,
         ),
+    )
+
+
+def _single_test_batch(action: ActionSpec):
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(action,),
+    )
+    normalization = ActionCallNormalizer().normalize(
+        (
+            ToolCallRecord(
+                id="call_1",
+                name=action.name,
+                arguments={},
+                kind=ToolKind.ACTION,
+            ),
+        ),
+        catalog=catalog,
+    )
+    return catalog, ActionExecutionBuilder().build_batch(
+        normalization.calls,
+        catalog=catalog,
+        scope=RunScope(),
+        batch_id="batch_1",
     )

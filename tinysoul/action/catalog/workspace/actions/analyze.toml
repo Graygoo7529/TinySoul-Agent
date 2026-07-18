@@ -1,0 +1,40 @@
+name = "workspace.analyze"
+domain = "workspace"
+
+[tool]
+description = "Analyze explicit complete UTF-8 Workspace text references for one intent and return a bounded grounded answer without modifying Workspace."
+
+[tool.schema]
+type = "object"
+required = ["intent", "reference_links"]
+additionalProperties = false
+
+[tool.schema.properties.intent]
+type = "string"
+description = "Non-empty analysis intent, bounded by Workspace analysis settings."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "One or more exact Workspace text resource Links selected by Phase2."
+
+[tool.schema.properties.reference_links.items]
+type = "string"
+description = "Exact Workspace text resource Link."
+
+[semantic]
+use_when = ["Phase2 has selected exact Workspace text Links that should be analyzed into one grounded result", "A fixed intent and bounded answer are sufficient"]
+avoid_when = ["Relevant files are not yet known", "A literal occurrence should first be located", "A selected file exceeds analysis budgets", "The Workspace should be modified"]
+effects = ["read_only"]
+examples = ["Analyze selected Action and Context implementation files for result lifecycle behavior"]
+
+[runtime]
+timeout_seconds = 90
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "llm_action"
+handler = "workspace.analyze"

@@ -13,7 +13,6 @@ from tinysoul.action import (
     ActionPhaseResult,
     ActionResult,
     ActionResultStatus,
-    ActionTraceMode,
 )
 from tinysoul.context import (
     ContextEngine,
@@ -548,17 +547,12 @@ class Phase3Unit:
                     scope=scope,
                     source="loop.phase3",
                     cycle_id=cycle_id,
-                    origin_ref=(
-                        projection.origin_ref
-                        if projection is not None
-                        and projection.mode is ActionTraceMode.FOLDABLE
-                        else ""
+                    origin_refs=(
+                        projection.origin_refs if projection is not None else ()
                     ),
                     compact_payload=(
                         projection.compact_payload
-                        if projection is not None
-                        and projection.mode is ActionTraceMode.FOLDABLE
-                        else None
+                        if projection is not None else None
                     ),
                 )
             )

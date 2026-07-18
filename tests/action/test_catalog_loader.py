@@ -7,6 +7,7 @@ import pytest
 from tinysoul.action import builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import ActionSchemaDefinitionError
+from tinysoul.action.core.result import ActionTraceMode
 from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
 from tinysoul.infra.config import ConfigError
 
@@ -35,6 +36,10 @@ def test_load_builtin_catalog() -> None:
     assert reason.backend.handler == "core.reason"
     write = catalog.get_action("workspace.write")
     assert write.backend.kind is ActionBackendKind.LLM_ACTION
+    assert (
+        catalog.get_action("context.trace.recall").runtime.result.trace_mode
+        is ActionTraceMode.FOLDABLE
+    )
 
 
 def test_catalog_view_by_domain() -> None:
@@ -44,12 +49,15 @@ def test_catalog_view_by_domain() -> None:
 
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == [
+        "workspace.analyze",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
+        "workspace.read",
         "workspace.restore",
         "workspace.rewrite",
         "workspace.scan",
+        "workspace.search_text",
         "workspace.trash.list",
         "workspace.write",
     ]
@@ -142,6 +150,25 @@ def test_invalid_runtime_enum_raises_config_error() -> None:
         )
 
     assert error.value.key == "domain.runtime.parallel_policy"
+
+
+def test_action_runtime_parses_foldable_result_trace_mode() -> None:
+    runtime = ActionTomlParser().parse_runtime(
+        {"result": {"trace_mode": "foldable"}},
+        key="action.runtime",
+    )
+
+    assert runtime.result.trace_mode is ActionTraceMode.FOLDABLE
+
+
+def test_invalid_result_trace_mode_raises_config_error() -> None:
+    with pytest.raises(ConfigError) as error:
+        ActionTomlParser().parse_runtime(
+            {"result": {"trace_mode": "temporary"}},
+            key="action.runtime",
+        )
+
+    assert error.value.key == "action.runtime.result.trace_mode"
 
 
 def test_unsupported_action_schema_keyword_raises_config_error() -> None:

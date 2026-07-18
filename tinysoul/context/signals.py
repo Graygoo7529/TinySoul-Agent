@@ -246,7 +246,7 @@ class TraceAppend:
     decision: AssistantMessage | None = None
     action_result: ToolResultMessage | None = None
     compact_action_result: ToolResultMessage | None = None
-    origin_ref: str = ""
+    origin_refs: tuple[str, ...] = ()
     note: JsonObject | None = None
 
 
@@ -298,7 +298,7 @@ def build_trace_action_result_signal(
     scope: RunScope,
     source: str,
     cycle_id: str = "",
-    origin_ref: str = "",
+    origin_refs: tuple[str, ...] = (),
     compact_payload: JsonObject | None = None,
 ) -> Signal:
     payload: JsonObject = {
@@ -310,11 +310,15 @@ def build_trace_action_result_signal(
         "content": _parts_to_json(message.parts),
     }
     if compact_payload is not None:
-        if not origin_ref:
+        if any(not isinstance(ref, str) or not ref for ref in origin_refs):
             raise ContextContractError(
-                "Foldable trace action result requires a non-empty origin_ref"
+                "Foldable trace action result origin refs must be non-empty strings"
             )
-        payload["origin_ref"] = origin_ref
+        if len(set(origin_refs)) != len(origin_refs):
+            raise ContextContractError(
+                "Foldable trace action result origin refs must be unique"
+            )
+        payload["origin_refs"] = list(origin_refs)
         payload["compact_payload"] = to_json_object(compact_payload)
     return Signal(name=SIGNAL_TRACE_APPEND, source=source, scope=scope, payload=payload)
 
@@ -410,13 +414,24 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
                     status=status,
                     label="action_result",
                 )
-        origin_ref = _optional_str(signal.payload, "origin_ref")
+        origin_refs_value = signal.payload.get("origin_refs", [])
+        if not isinstance(origin_refs_value, list) or any(
+            not isinstance(ref, str) or not ref for ref in origin_refs_value
+        ):
+            raise ContextContractError(
+                "Trace action result origin_refs must be a list of non-empty strings"
+            )
+        origin_refs = tuple(
+            ref for ref in origin_refs_value if isinstance(ref, str)
+        )
+        if len(set(origin_refs)) != len(origin_refs):
+            raise ContextContractError("Trace action result origin_refs must be unique")
         compact_action_result = None
         compact_payload = signal.payload.get("compact_payload")
         if compact_payload is not None:
-            if not origin_ref or not isinstance(compact_payload, dict):
+            if not isinstance(compact_payload, dict):
                 raise ContextContractError(
-                    "Foldable trace result requires origin_ref and compact_payload"
+                    "Foldable trace result requires compact_payload"
                 )
             compact_action_result = ToolResultMessage.from_json(
                 call_id=_required_str(signal.payload, "call_id"),
@@ -431,7 +446,7 @@ def parse_trace_append_signal(signal: Signal) -> TraceAppend:
             phase=CyclePhase.PHASE3,
             action_result=message,
             compact_action_result=compact_action_result,
-            origin_ref=origin_ref,
+            origin_refs=origin_refs,
         )
     if kind is TraceAppendKind.PHASE_NOTE:
         note = signal.payload.get("note")

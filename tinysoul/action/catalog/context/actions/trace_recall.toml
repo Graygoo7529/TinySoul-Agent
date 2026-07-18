@@ -30,6 +30,9 @@ examples = ["Recall a leaf containing an earlier failed action result"]
 [runtime]
 parallel_policy = "serial"
 
+[runtime.result]
+trace_mode = "foldable"
+
 [backend]
 kind = "native"
 handler = "context.trace.recall"

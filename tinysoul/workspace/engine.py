@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
 from threading import RLock
@@ -39,6 +40,13 @@ from .manifest import (
 )
 from .reconcile import WorkspaceReconcileResult, WorkspaceReconciler
 from .resources import WorkspaceResourceClassifier, image_data_matches
+from .search import (
+    WorkspaceSearchScope,
+    WorkspaceSearchScopeKind,
+    WorkspaceTextSearchResult,
+    WorkspaceTextSearchService,
+)
+from .text import WorkspaceTextRangeRead, read_text_range as read_text_file_range
 from .trash import WorkspaceTrashItem, WorkspaceTrashStore
 
 
@@ -147,6 +155,66 @@ class WorkspaceTextSlice:
 
 
 @dataclass(frozen=True)
+class WorkspaceTextRangeResult:
+    """A digest-bound bounded page from an explicit Workspace line range."""
+
+    link: str
+    digest: str
+    size: int
+    start_line: int
+    end_line: int
+    max_chars: int
+    page: WorkspaceTextRangeRead
+
+
+@dataclass(frozen=True)
+class WorkspaceAnalysisReference:
+    """One complete text reference for a Workspace analysis task."""
+
+    source_id: str
+    link: str
+    text: str
+    digest: str
+    size: int
+    end_line: int
+
+
+@dataclass(frozen=True)
+class WorkspaceAnalysisInput:
+    """A complete bounded reference bundle for one analysis task."""
+
+    references: tuple[WorkspaceAnalysisReference, ...]
+    total_chars: int
+
+
+class WorkspaceAnalysisBudgetReason(StrEnum):
+    REFERENCE_COUNT = "reference_count_exceeded"
+    REFERENCE_CHARS = "reference_chars_exceeded"
+    SOURCE_CHARS = "source_chars_exceeded"
+
+
+@dataclass(frozen=True)
+class WorkspaceAnalysisBudgetFailure:
+    reason: WorkspaceAnalysisBudgetReason
+    limit: int
+    observed: int
+    offending_link: str = ""
+    inspected: tuple[WorkspaceResourceRecord, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkspaceAnalysisPreparation:
+    input: WorkspaceAnalysisInput | None = None
+    failure: WorkspaceAnalysisBudgetFailure | None = None
+
+    def __post_init__(self) -> None:
+        if (self.input is None) == (self.failure is None):
+            raise WorkspaceContractError(
+                "Workspace analysis preparation requires exactly one outcome"
+            )
+
+
+@dataclass(frozen=True)
 class WorkspacePromptInput:
     """Workspace text slices for a temporary task prompt."""
 
@@ -187,6 +255,7 @@ class WorkspaceEngine:
             manifest_store=manifest_store,
             classifier=classifier,
         )
+        self._text_search = WorkspaceTextSearchService(settings.search)
         self._lock = RLock()
 
     @property
@@ -615,6 +684,184 @@ class WorkspaceEngine:
             truncated=read.truncated,
             size=record.size,
             digest=record.digest,
+        )
+
+    def read_text_range(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        start_line: int,
+        end_line: int,
+        cursor: int = 0,
+        max_chars: int | None = None,
+        expected_digest: str | None = None,
+    ) -> WorkspaceTextRangeResult:
+        with self._lock:
+            return self._read_text_range(
+                link,
+                start_line=start_line,
+                end_line=end_line,
+                cursor=cursor,
+                max_chars=max_chars,
+                expected_digest=expected_digest,
+            )
+
+    def _read_text_range(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        start_line: int,
+        end_line: int,
+        cursor: int,
+        max_chars: int | None,
+        expected_digest: str | None,
+    ) -> WorkspaceTextRangeResult:
+        for name, value in (("start_line", start_line), ("end_line", end_line)):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise WorkspaceContractError(
+                    f"Workspace read {name} must be a positive integer"
+                )
+        if end_line < start_line:
+            raise WorkspaceContractError(
+                "Workspace read end_line must be greater than or equal to start_line"
+            )
+        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+            raise WorkspaceContractError(
+                "Workspace read cursor must be a non-negative integer"
+            )
+        if max_chars is not None and (
+            isinstance(max_chars, bool)
+            or not isinstance(max_chars, int)
+            or max_chars <= 0
+        ):
+            raise WorkspaceContractError(
+                "Workspace read max_chars must be a positive integer"
+            )
+        if expected_digest is not None and (
+            not isinstance(expected_digest, str) or not expected_digest
+        ):
+            raise WorkspaceContractError(
+                "Workspace read expected_digest must be a non-empty string"
+            )
+        limit = (
+            self._settings.max_read_chars
+            if max_chars is None
+            else min(max_chars, self._settings.max_read_chars)
+        )
+        record = self._inspect_record(link)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Workspace resource is not directly readable text: {record.link}"
+            )
+        if expected_digest is not None and record.digest != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {record.link}"
+            )
+        try:
+            page = read_text_file_range(
+                self.path_for(record.link),
+                start_line=start_line,
+                end_line=end_line,
+                cursor=cursor,
+                max_chars=limit,
+            )
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Workspace resource is not readable as UTF-8 text: {record.link}"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to read workspace resource: {exc}") from exc
+        if not page.cursor_valid:
+            raise WorkspaceContractError(
+                f"Workspace read cursor exceeds the requested range: {record.link}"
+            )
+        return WorkspaceTextRangeResult(
+            link=record.link,
+            digest=record.digest,
+            size=record.size,
+            start_line=start_line,
+            end_line=end_line,
+            max_chars=limit,
+            page=page,
+        )
+
+    def search_text(
+        self,
+        query: str,
+        *,
+        scope: WorkspaceSearchScope,
+        case_sensitive: bool = False,
+        top_k: int | None = None,
+    ) -> WorkspaceTextSearchResult:
+        with self._lock:
+            if not isinstance(scope, WorkspaceSearchScope):
+                raise WorkspaceContractError(
+                    "Workspace search scope must be a WorkspaceSearchScope"
+                )
+            manifest = self._manifest_store.load()
+            records = self._search_records(manifest, scope)
+            return self._text_search.search(
+                query=query,
+                scope=scope,
+                records=records,
+                root=self._settings.root,
+                case_sensitive=case_sensitive,
+                top_k=top_k,
+            )
+
+    def _search_records(
+        self,
+        manifest: WorkspaceManifest,
+        scope: WorkspaceSearchScope,
+    ) -> tuple[WorkspaceResourceRecord, ...]:
+        text_records = tuple(
+            sorted(
+                (
+                    record
+                    for record in manifest.resources
+                    if record.kind is WorkspaceResourceKind.TEXT
+                ),
+                key=lambda record: record.link,
+            )
+        )
+        if scope.kind is WorkspaceSearchScopeKind.WORKSPACE:
+            return text_records
+        if scope.kind is WorkspaceSearchScopeKind.FILE:
+            record = next(
+                (record for record in manifest.resources if record.link == scope.locator),
+                None,
+            )
+            if record is None:
+                self._raise_trash_restore_required(scope.locator)
+                raise WorkspaceContractError(
+                    f"Workspace search file is not in the current manifest: {scope.locator}"
+                )
+            if record.kind is not WorkspaceResourceKind.TEXT:
+                raise WorkspaceContractError(
+                    f"Workspace search file is not readable text: {scope.locator}"
+                )
+            return (record,)
+        directory_link = WorkspaceLink.parse(scope.locator[:-1])
+        directory_path = self.path_for(directory_link)
+        if self._is_internal_path(directory_path):
+            raise WorkspaceContractError(
+                f"Workspace search directory is internal: {scope.locator}"
+            )
+        relative = directory_path.resolve().relative_to(self._settings.root.resolve())
+        ignored = set(self._settings.ignore_dirs)
+        if any(part in ignored or part.startswith(".") for part in relative.parts):
+            raise WorkspaceContractError(
+                f"Workspace search directory is ignored: {scope.locator}"
+            )
+        if not directory_path.exists() or not directory_path.is_dir():
+            raise WorkspaceContractError(
+                f"Workspace search directory does not exist: {scope.locator}"
+            )
+        prefix = directory_link.relative_path.rstrip("/") + "/"
+        return tuple(
+            record
+            for record in text_records
+            if record.relative_path.startswith(prefix)
         )
 
     def write_target_exists(self, link: WorkspaceLink | str) -> bool:
@@ -1117,6 +1364,101 @@ class WorkspaceEngine:
         )
         return WorkspacePromptInput(slices=slices)
 
+    def prepare_analysis_references(
+        self,
+        links: Sequence[WorkspaceLink | str],
+    ) -> WorkspaceAnalysisPreparation:
+        with self._lock:
+            return self._prepare_analysis_references(links)
+
+    def _prepare_analysis_references(
+        self,
+        links: Sequence[WorkspaceLink | str],
+    ) -> WorkspaceAnalysisPreparation:
+        settings = self._settings.analysis
+        if not links:
+            raise WorkspaceContractError(
+                "Workspace analysis requires at least one reference link"
+            )
+        normalized = tuple(
+            str(WorkspaceLink.parse(link)) if isinstance(link, str) else str(link)
+            for link in links
+        )
+        if len(set(normalized)) != len(normalized):
+            raise WorkspaceContractError(
+                "Workspace analysis reference links must be unique"
+            )
+        if len(normalized) > settings.max_reference_links:
+            return WorkspaceAnalysisPreparation(
+                failure=WorkspaceAnalysisBudgetFailure(
+                    reason=WorkspaceAnalysisBudgetReason.REFERENCE_COUNT,
+                    limit=settings.max_reference_links,
+                    observed=len(normalized),
+                )
+            )
+
+        references: list[WorkspaceAnalysisReference] = []
+        inspected: list[WorkspaceResourceRecord] = []
+        total_chars = 0
+        for index, link in enumerate(normalized, start=1):
+            record = self._inspect_record(link)
+            if record.kind is not WorkspaceResourceKind.TEXT:
+                raise WorkspaceContractError(
+                    f"Workspace analysis reference is not readable text: {record.link}"
+                )
+            inspected.append(record)
+            try:
+                read = read_text_prefix(
+                    self.path_for(record.link),
+                    max_chars=settings.max_chars_per_reference,
+                )
+            except UnicodeDecodeError as exc:
+                raise WorkspaceContractError(
+                    f"Workspace resource is not readable as UTF-8 text: {record.link}"
+                ) from exc
+            except OSError as exc:
+                raise WorkspaceIOError(
+                    f"Failed to read workspace analysis reference: {exc}"
+                ) from exc
+            if read.truncated:
+                return WorkspaceAnalysisPreparation(
+                    failure=WorkspaceAnalysisBudgetFailure(
+                        reason=WorkspaceAnalysisBudgetReason.REFERENCE_CHARS,
+                        limit=settings.max_chars_per_reference,
+                        observed=settings.max_chars_per_reference + 1,
+                        offending_link=record.link,
+                        inspected=tuple(inspected),
+                    )
+                )
+            proposed_total = total_chars + len(read.text)
+            if proposed_total > settings.max_source_chars:
+                return WorkspaceAnalysisPreparation(
+                    failure=WorkspaceAnalysisBudgetFailure(
+                        reason=WorkspaceAnalysisBudgetReason.SOURCE_CHARS,
+                        limit=settings.max_source_chars,
+                        observed=proposed_total,
+                        offending_link=record.link,
+                        inspected=tuple(inspected),
+                    )
+                )
+            total_chars = proposed_total
+            references.append(
+                WorkspaceAnalysisReference(
+                    source_id=f"source_{index}",
+                    link=record.link,
+                    text=read.text,
+                    digest=record.digest,
+                    size=record.size,
+                    end_line=_text_end_line(read.text),
+                )
+            )
+        return WorkspaceAnalysisPreparation(
+            input=WorkspaceAnalysisInput(
+                references=tuple(references),
+                total_chars=total_chars,
+            )
+        )
+
     def reconcile(self) -> WorkspaceReconcileResult:
         with self._lock:
             return self._reconciler.reconcile()
@@ -1341,3 +1683,10 @@ def _render_prompt_slice(text_slice: WorkspaceTextSlice) -> str:
         text_slice.text,
     ]
     return "\n".join(lines)
+
+
+def _text_end_line(text: str) -> int:
+    if not text:
+        return 0
+    newline_count = text.count("\n")
+    return newline_count if text.endswith("\n") else newline_count + 1

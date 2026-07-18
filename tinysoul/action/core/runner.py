@@ -29,7 +29,7 @@ from .executor import (
     ExecutorRegistry,
 )
 from .hooks import ActionExecutionHookPipeline
-from .result import ActionResult, ActionResultStage, ActionResultStatus
+from .result import ActionResult, ActionResultStage, ActionResultStatus, ActionTraceMode
 from .specs import ActionBackendKind, ActionParallelPolicy
 
 
@@ -440,6 +440,24 @@ class ActionBatchRunner:
                     "late_success": True,
                 },
             )
+        projection_mismatch = self._trace_projection_mismatch(execution, result)
+        if projection_mismatch:
+            return ActionResult.failed(
+                call_id=execution.call.call_id,
+                invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
+                action_name=execution.call.action_name,
+                stage=ActionResultStage.EXECUTE,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
+                model_feedback=(
+                    "Action executor result did not satisfy its configured trace policy."
+                ),
+                frame_data={
+                    "reason": "result_trace_policy_mismatch",
+                    **projection_mismatch,
+                },
+            )
         return result
 
     def _execute(
@@ -556,3 +574,24 @@ class ActionBatchRunner:
                     "actual": actual[name],
                 }
         return mismatch
+
+    def _trace_projection_mismatch(
+        self,
+        execution: ActionExecution,
+        result: ActionResult,
+    ) -> JsonObject:
+        if result.status is not ActionResultStatus.SUCCESS:
+            return {}
+        mode = execution.action.runtime.result.trace_mode
+        has_projection = result.trace_projection is not None
+        if mode is ActionTraceMode.FOLDABLE and not has_projection:
+            return {
+                "configured_trace_mode": mode.value,
+                "projection_present": False,
+            }
+        if mode is ActionTraceMode.STANDARD and has_projection:
+            return {
+                "configured_trace_mode": mode.value,
+                "projection_present": True,
+            }
+        return {}

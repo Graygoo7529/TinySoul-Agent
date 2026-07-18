@@ -54,6 +54,8 @@ include = ["tinysoul*"]
     "project/home/how/*/references/*.md",
     "project/home/how/*/scripts/*.py",
     "project/home/how_domain/*.md",
+    "project/home/how_domain/*/DOMAIN.md",
+    "project/home/how_action/*/*.md",
     "project/home/what/*/*.md",
     "project/home/why/*.md",
 ]

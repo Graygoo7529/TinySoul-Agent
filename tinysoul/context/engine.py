@@ -785,7 +785,7 @@ class ContextEngine:
                 append.action_result,
                 cycle_id=append.cycle_id,
                 compact_message=append.compact_action_result,
-                origin_ref=append.origin_ref,
+                origin_refs=append.origin_refs,
             )
         elif append.note is not None:
             self._trace.append_phase_note(
@@ -1063,7 +1063,7 @@ def _trace_entry_record(entry: TraceEntry) -> JsonObject:
             "cycle_id": entry.cycle_id,
             "phase": entry.phase.value if entry.phase is not None else "",
             "message": _message_record(entry.message),
-            "origin_ref": entry.origin_ref,
+            "origin_refs": list(entry.origin_refs),
         }
     )
 

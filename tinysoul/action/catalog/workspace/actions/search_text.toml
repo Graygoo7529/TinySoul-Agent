@@ -1,0 +1,59 @@
+name = "workspace.search_text"
+domain = "workspace"
+
+[tool]
+description = "Search one explicit Workspace text scope for a bounded single-line literal query."
+
+[tool.schema]
+type = "object"
+required = ["query", "scope"]
+additionalProperties = false
+
+[tool.schema.properties.query]
+type = "string"
+description = "Non-empty single-line literal query. Regular expressions are not supported."
+
+[tool.schema.properties.scope]
+type = "object"
+required = ["kind"]
+additionalProperties = false
+
+[tool.schema.properties.scope.properties.kind]
+type = "string"
+enum = ["file", "directory", "workspace"]
+
+[tool.schema.properties.scope.properties.link]
+type = "string"
+description = "Required exact Workspace text Link for file scope."
+
+[tool.schema.properties.scope.properties.prefix]
+type = "string"
+description = "Required workspace:path/ directory prefix for directory scope."
+
+[tool.schema.properties.case_sensitive]
+type = "boolean"
+description = "Whether literal matching is case-sensitive. Defaults to false."
+
+[tool.schema.properties.top_k]
+type = "integer"
+description = "Optional number of fragments, bounded by Workspace search settings."
+
+[semantic]
+use_when = ["A literal term or identifier should be located in a known file, directory, or the current Workspace", "Source line hints and nearby fragments are useful"]
+avoid_when = ["The exact line range is already known", "A semantic interpretation rather than literal matching is required", "A regular expression is required"]
+effects = ["read_only"]
+examples = ["Search the workspace:tinysoul/workspace/ directory for WorkspaceContractError"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.search_text"

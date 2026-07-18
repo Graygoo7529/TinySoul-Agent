@@ -8,6 +8,7 @@ from enum import StrEnum
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .errors import ActionInvariantError
+from .result import ActionTraceMode
 from .schema import validate_action_schema_definition
 
 
@@ -123,12 +124,26 @@ class ActionHookSpec:
 
 
 @dataclass(frozen=True)
+class ActionResultRuntimeSpec:
+    """Framework trace behavior for successful action results."""
+
+    trace_mode: ActionTraceMode = ActionTraceMode.STANDARD
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.trace_mode, ActionTraceMode):
+            raise ActionInvariantError(
+                "ActionResultRuntimeSpec.trace_mode must be an ActionTraceMode"
+            )
+
+
+@dataclass(frozen=True)
 class ActionRuntimeSpec:
     """Framework-only action runtime configuration."""
 
     timeout_seconds: float | None = None
     parallel_policy: ActionParallelPolicy = ActionParallelPolicy.ALLOWED
     hooks: ActionHookSpec = field(default_factory=ActionHookSpec)
+    result: ActionResultRuntimeSpec = field(default_factory=ActionResultRuntimeSpec)
 
     def __post_init__(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
@@ -139,6 +154,10 @@ class ActionRuntimeSpec:
             )
         if not isinstance(self.hooks, ActionHookSpec):
             raise ActionInvariantError("ActionRuntimeSpec.hooks must be an ActionHookSpec")
+        if not isinstance(self.result, ActionResultRuntimeSpec):
+            raise ActionInvariantError(
+                "ActionRuntimeSpec.result must be an ActionResultRuntimeSpec"
+            )
 
 
 @dataclass(frozen=True)

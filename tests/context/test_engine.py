@@ -87,6 +87,46 @@ def test_turn_lifecycle_and_compose() -> None:
     assert not engine.turn_active
 
 
+def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
+    engine = _engine()
+    scope = _scope(engine.begin_turn("read workspace"))
+    bus = SignalBus()
+    bus.emit(
+        build_trace_action_result_signal(
+            ToolResultMessage.from_json(
+                call_id="read_1",
+                tool_name="workspace.read",
+                value={"link": "workspace:a.md", "text": "sensitive body"},
+            ),
+            scope=scope,
+            source="loop.phase3",
+            cycle_id="cycle_1",
+            origin_refs=("workspace:a.md",),
+            compact_payload={"link": "workspace:a.md", "folded": True},
+        )
+    )
+
+    assert engine.consume_signals(bus) == ()
+    visible = next(
+        message
+        for message in engine.compose(_prompt()).messages
+        if isinstance(message, ToolResultMessage)
+    )
+    assert isinstance(visible.parts[0], JsonPart)
+    assert visible.parts[0].value["text"] == "sensitive body"
+
+    summary = engine.end_turn()
+    trace_message = summary.trace[0]["message"]
+    assert isinstance(trace_message, dict)
+    content = trace_message["content"]
+    assert isinstance(content, list)
+    assert content[0]["value"] == {
+        "link": "workspace:a.md",
+        "folded": True,
+    }
+    assert summary.trace[0]["origin_refs"] == ["workspace:a.md"]
+
+
 def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
     with pytest.raises(ContextContractError, match="turn_id"):
         ContextSignalBatch(turn_id="")

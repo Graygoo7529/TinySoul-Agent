@@ -30,6 +30,9 @@ examples = ["Recall a prior Turn, then follow a summary child ref"]
 [runtime]
 parallel_policy = "serial"
 
+[runtime.result]
+trace_mode = "foldable"
+
 [backend]
 kind = "native"
 handler = "session.history.recall"

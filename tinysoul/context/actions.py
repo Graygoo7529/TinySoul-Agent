@@ -9,7 +9,6 @@ from tinysoul.action import (
     ActionExecutor,
     ActionResult,
     ActionResultStage,
-    ActionTraceMode,
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -100,8 +99,7 @@ class ContextTraceRecallExecutor(ActionExecutor):
             execution,
             payload,
             trace_projection=ActionTraceProjection(
-                mode=ActionTraceMode.FOLDABLE,
-                origin_ref=ref,
+                origin_refs=(ref,),
                 compact_payload={
                     "origin_ref": ref,
                     "entry_count": payload["entry_count"],

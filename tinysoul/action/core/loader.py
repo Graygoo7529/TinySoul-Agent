@@ -20,11 +20,13 @@ from .specs import (
     ActionEnvironmentEffect,
     ActionHookSpec,
     ActionParallelPolicy,
+    ActionResultRuntimeSpec,
     ActionRuntimeSpec,
     ActionSemanticSpec,
     ActionSpec,
     ActionToolSpec,
 )
+from .result import ActionTraceMode
 
 E = TypeVar("E", bound=StrEnum)
 
@@ -208,7 +210,9 @@ class ActionTomlParser:
             else ActionParallelPolicy.ALLOWED.value
         )
         base_hooks = base.hooks if base is not None else ActionHookSpec()
+        base_result = base.result if base is not None else ActionResultRuntimeSpec()
         hook_table = _optional_table(table, "hooks", key=key)
+        result_table = _optional_table(table, "result", key=key)
         return ActionRuntimeSpec(
             timeout_seconds=timeout_seconds,
             parallel_policy=_enum_value(
@@ -230,6 +234,18 @@ class ActionTomlParser:
                     *base_hooks.execution_hooks,
                     *_optional_str_list(hook_table, "execute", key=f"{key}.hooks"),
                 ),
+            ),
+            result=ActionResultRuntimeSpec(
+                trace_mode=_enum_value(
+                    ActionTraceMode,
+                    _optional_str(
+                        result_table,
+                        "trace_mode",
+                        default=base_result.trace_mode.value,
+                        key=f"{key}.result",
+                    ),
+                    key=f"{key}.result.trace_mode",
+                )
             ),
         )
 

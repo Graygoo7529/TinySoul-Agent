@@ -1,0 +1,54 @@
+name = "workspace.read"
+domain = "workspace"
+
+[tool]
+description = "Read one explicit bounded line range from a UTF-8 Workspace text resource."
+
+[tool.schema]
+type = "object"
+required = ["link", "start_line", "end_line"]
+additionalProperties = false
+
+[tool.schema.properties.link]
+type = "string"
+description = "Exact Workspace text resource link."
+
+[tool.schema.properties.start_line]
+type = "integer"
+description = "1-based inclusive start line."
+
+[tool.schema.properties.end_line]
+type = "integer"
+description = "1-based inclusive end line."
+
+[tool.schema.properties.max_chars]
+type = "integer"
+description = "Optional positive result text limit that can only tighten the Workspace limit."
+
+[tool.schema.properties.cursor]
+type = "integer"
+description = "Optional 0-based continuation cursor within the requested line range."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional exact source digest used to reject a stale read."
+
+[semantic]
+use_when = ["An exact Workspace text Link and relevant line range are known", "A previous bounded read should be continued"]
+avoid_when = ["The relevant file or line range is unknown", "A document requires conversion", "The resource should be modified"]
+effects = ["read_only"]
+examples = ["Read lines 120 through 180 from workspace:src/service.py"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.read"

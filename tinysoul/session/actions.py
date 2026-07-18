@@ -9,7 +9,6 @@ from tinysoul.action import (
     ActionExecutor,
     ActionResult,
     ActionResultStage,
-    ActionTraceMode,
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject
@@ -90,8 +89,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             execution,
             payload,
             trace_projection=ActionTraceProjection(
-                mode=ActionTraceMode.FOLDABLE,
-                origin_ref=ref,
+                origin_refs=(ref,),
                 compact_payload={
                     "origin_ref": ref,
                     "next_cursor": payload["next_cursor"],

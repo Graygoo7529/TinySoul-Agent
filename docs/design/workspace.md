@@ -4,7 +4,7 @@
 
 本文描述 Workspace 模块的当前设计。代码已包含独立 Workspace 模块，并完成 `workspace:` 链接解析、workspace 根目录配置、manifest reconciliation、类型化资源访问、WorkspaceSnapshot 全量同步、文件变更 action 和 Runtime bridge 接入。
 
-当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、内部临时 task prompt 输入、bounded document read、可回滚 bundle mutation、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
+当前实现覆盖 Workspace 的完整磁盘 reconciliation、显式 business day、Turn 启动语境投影、类型化资源发现、语义描述、扫描诊断、显式有界文本读取、确定性字面量搜索、明确多 Link 分析、内部临时 task prompt 输入、bounded document read、可回滚 bundle mutation、文件变更、可恢复 Trash 和日终归档。`workspace.delete` 是活动日内逻辑删除；Trash 在日切时与 Workspace 分别进入统一时间戳归档，新日 active API 不追踪旧日 Trash。
 
 ## 定位
 
@@ -16,7 +16,7 @@ Workspace 不维护语境状态，不解释外部输入命令，也不读取 Age
 
 1. `workspace:` 链接有唯一解析和校验入口，避免路径规则散落在 app、action 或具体工具函数中。
 2. WorkingContext 只保存 workspace 资源句柄和摘要，不保存文件正文、图片字节或长内容。
-3. workspace 文件内容只在具体 action 执行期读取，并作为 action 内部输入或临时 task prompt 使用。
+3. workspace 文件内容只在具体 action 执行期读取；隐式或无界整文件读取禁止，显式有界 inspection 可以把片段作为当前 Turn 的 foldable ActionResult overlay，action-internal LLM 仍只使用临时 task prompt。
 4. `workspace.scan` 保持现有外部行为，但扫描规则、摘要格式和 WorkingContext patch 构造迁入 Workspace 模块。
 5. workspace 根目录、忽略规则、manifest 损坏、路径越界和读写失败有清楚的失败语义。
 6. App 只负责装配 Workspace 门面，不再直接扫描目录或解释 `workspace:` 链接。
@@ -38,7 +38,7 @@ Workspace 的核心职责：
 
 Workspace 不负责：
 
-- 把文件正文写入 BackgroundContext 或 TurnTraceHeap；
+- 把文件正文写入 BackgroundContext、WorkingContext 或 Session canonical trace；
 - 决定 Phase1/Phase2 的行动策略；
 - 维护 Agent Home 的 WHAT/WHY/HOW 或 Memory 模块的 MEMORY；
 - 解析终端、HTTP、WebSocket 等外部输入；
@@ -127,7 +127,7 @@ archive/
 
 Workspace 模块只管理 `runtime/workspace` 或配置传入的 workspace root。日切时旧 Workspace 与 active Trash 被移出 runtime，分别进入统一时间戳归档的 `workspace/`、`trash/`；新日 runtime Workspace 从空 Manifest 开始。日终归档由 workspace 门面提供归档能力，但跨模块调度不属于 Workspace 自身。Home/Memory Maintenance 都不通过 active Trash API 追踪或恢复旧日 Trash，Home runtime 也不参与 Workspace 的日切事务。
 
-当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 只配置 root、读取/扫描上限与忽略规则。Workspace 模块解析配置；AppBuilder 只传递 section tree 并构建门面。
+当前实现默认使用 `runtime/workspace` 作为 workspace root。Manifest 与 Trash 路径固定为 module-owned `.tinysoul/workspace_manifest.json`、`.tinysoul/trash`，不再允许配置到 active root 外；`configs/workspace.toml` 配置 root、通用读取/扫描上限、忽略规则，以及嵌套的确定性搜索和分析预算。Workspace 模块解析配置并拒绝嵌套未知键；Action Catalog 不复制这些业务预算。AppBuilder 只传递 section tree并构建门面。
 
 ## Action 接入
 
@@ -141,6 +141,14 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 4. 发出带 Manifest revision 的 `context.workspace.sync` 全量快照（空快照也发出）；
 5. 返回 compact JSON payload，包含资源数量、链接摘要、跳过数量、跳过原因计数和是否达到扫描上限。
 
+当前 inspection action 具有三种不同职责：
+
+- `workspace.read` 接受一个明确 UTF-8 text Link、1-based 闭区间、可选 cursor/字符上限/expected digest。Engine 以固定字符块扫描指定行范围，调用方上限只能收紧 Workspace 的 `max_read_chars`；结果包含请求和实际位置、正文、截断原因、续读 cursor/position 与 EOF 事实。显式范围偶然覆盖很短的完整文件是允许的，禁止的是隐式或无界整文件读取。
+- `workspace.search_text` 接受单行字面量 query 和显式 file/directory/workspace scope，不接受 regex。目录 prefix 是选择器而不是新的 Link 类型；候选按 Link、命中按行号稳定排序，重叠上下文合并为片段。scan budget 决定 `coverage.complete`，result budget 决定 fragments、额外 line hints 与 `truncated`，二者不能混为一个标记；长行片段围绕实际命中裁剪并返回列位置。
+- `workspace.analyze` 只接受 Phase2 已选择的非空、去重 text `reference_links` 和有界 intent，不接受目录或 Workspace scope，也不在 Phase3 重新选择资源。每个 reference 必须完整进入一次 action-internal LLM task；任一单文件、Link 数量或合计 source 超出 analysis budget 时，不调用 LLM，而是返回带 Link/digest/size 诊断的局部失败。成功输出只含有界 answer、经过 executor 验证的 source ids 映射和 coverage，不携带原始正文，不修改 Workspace 或发布 snapshot。
+
+`workspace.read` 与 `workspace.search_text` 的成功结果使用 Catalog 声明的 foldable trace mode：正文只存在于当前 Turn visible overlay；canonical trace 删除正文但保留 Link、digest、范围/hints 和 coverage，Context pressure 可移除 overlay，Session 无论是否发生压缩都只持久化 compact locator。Workspace 资源可变且按日归档，compact locator 不承诺跨日恢复原片段。`workspace.analyze` 返回的是有界整理结论，使用 standard trace；原始 references 只存在于 action-internal prompt。
+
 当前已实现的 `workspace.describe` 行为：
 
 1. 解析并校验一个可直接读取的 text/image `target_link`；
@@ -151,7 +159,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 
 reconciliation 达到文件数量上限或出现非内部资源读取失败时状态为 incomplete：保留旧 Manifest，不发布全量 Context snapshot。变更 action 在这种情况下回滚磁盘修改；显式 `workspace.scan` 返回局部失败和诊断。
 
-正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 支持按 1-based 行号读取局部文本片段，用于 Workspace 模块内部的长文件处理。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。`WorkspaceEditPromptBuilder` 在同一 prompt 模块内组合 write/rewrite 的 instruction、target、reference 和输出协议，并返回构造 prompt 时观察到的 target digest；executor 只负责参数适配、调用 LLM、调用 WorkspaceEngine 和映射结果。Phase2/Phase3 边界只传递 `reference_links` 与 `target_link`，不传递正文或行范围参数；需要更细粒度读取时应由具体 workspace action 在内部决定。调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
+正文临时任务输入已经由 `WorkspaceEngine.prepare_task_input` 提供。它接收一个或多个 `workspace:` 链接，按配置或调用方传入的上限读取 UTF-8 文本前缀，并返回由 `WorkspaceTextSlice` 组成的 `WorkspacePromptInput`。`WorkspaceEngine.read_text_slice` 继续服务模块内部前缀/行读取；公开 inspection 使用具有 digest、闭区间和 cursor 结果语义的 `read_text_range`。`WorkspacePromptReferenceResolver` 负责把 `workspace:` 链接转换为 Context `PromptBlock`：`resolve_reference(link)` 生成只读参考 block，`resolve_target(link)` 生成 workspace action 的目标 block。`WorkspaceEditPromptBuilder` 组合 write/rewrite 的 instruction、target、reference 和输出协议；`WorkspaceAnalysisPromptBuilder` 组合 intent、完整 references 和 grounded JSON 输出协议。Phase2/Phase3 边界只传递 Link、明确 inspection scope/range 和 intent，不传递正文。除 foldable read/search 的有界 visible overlay 外，调用方不得把正文作为普通 ActionResult payload 或 WorkingContext 资源摘要保存。
 
 本地 Resource conversion 使用两个更窄的 Workspace 门面：`read_document` 只完整读取已登记的 document resource，并同时校验配置字节上限、实际大小和 digest；`write_bundle` 在同一 Engine 锁内预检全部 write/delete Link、覆盖和 digest 条件，再写入文件并只做一次完整 reconciliation。bundle 中任一写入、删除、reconciliation 或最终 Manifest 保存失败时恢复操作前字节与 Manifest；成功返回的所有 record 属于同一个 revision。该语义仍服从单进程单写者边界，不宣称断电事务或跨进程 CAS。
 
@@ -176,7 +184,7 @@ Workspace 的明确一致性等级是“单进程单写者、Engine 实例内线
 
 Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；write/patch/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。Reconciler 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
 
-Context 中不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，应在 action 内部进行摘要、切片或转化为临时 task prompt，再把摘要和资源链接写回 trace。
+WorkingContext 与 BackgroundContext 不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，优先在 action 内部进行分析、转化为临时 task prompt，或通过显式有界 read/search 返回。read/search 完整 payload 只作为当前 Turn visible overlay，compact payload 才是 canonical trace 和 Session 输入；analyze 的 references 只进入内部 prompt，ActionResult 只保存结论与来源。
 
 ## Infra 依赖
 
@@ -217,6 +225,8 @@ tinysoul/workspace/
   projection.py
   actions.py
   prompts.py
+  search.py
+  text.py
   errors.py
   failures.py
 ```
@@ -233,16 +243,17 @@ AppBuilder 的目标职责是：
 
 验收点：
 
-- `workspace.scan`、`workspace.describe`、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/workspace/`；
+- `workspace.scan`、`workspace.read`、`workspace.search_text`、`workspace.analyze`、`workspace.describe`、`workspace.write`、`workspace.patch`、`workspace.delete` 和 `workspace.rewrite` 行为测试位于 `tests/workspace/`；
 - AppBuilder 不包含 workspace 扫描闭包；
 - `workspace:` 链接解析和越界防护有单元测试；
 - manifest 完整 reconciliation、incomplete 不提交、无变化 revision 稳定和 description digest 失效有单元测试；
 - Turn preparation 在首个 Phase 前投影完整 Manifest；
 - text/image/document/binary 分类、ImagePart 内容签名校验、图片预算和 document conversion_required 有单元测试；
-- Engine 内部有界文本前缀读取、行范围文本切片、`WorkspacePromptInput`、workspace link 到 reference/target PromptBlock 的局部解析不会通过模型侧 action 把正文写入 Context 或普通 ActionResult；
+- Engine 内部有界文本前缀读取、公开 range/cursor 读取、确定性 file/directory/workspace 字面量搜索、`WorkspacePromptInput` 和 workspace link 到 PromptBlock 的局部解析都有边界测试；read/search 正文只进入 foldable visible overlay，TurnSummary/Session 只保存 compact locator；
+- `workspace.analyze` 覆盖完整 reference budget、超限不调用 LLM、虚构 source id 拒绝、standard result 不携带 reference 正文和无 Workspace mutation；
 - Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
 - write/patch/delete/rewrite action 使用 `target_link` 表达变更目标；write/rewrite 在 action 内部调用 LLM 生成完整文本，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；
 - workspace 配置错误和 manifest 不变量错误经 Runtime bridge 映射；
 - Context 测试继续证明 WorkingContext 只保存链接和摘要。
 
-仍需补充的主要能力是 document conversion action；日终 workspace/trash 归档与 partial resume 已有故障测试。
+Document conversion action 已由 Resource capability 提供；日终 workspace/trash 归档与 partial resume 已有故障测试。

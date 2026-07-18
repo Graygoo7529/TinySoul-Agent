@@ -27,6 +27,7 @@ from tinysoul.context import (
     PromptReferenceError,
     SIGNAL_WORKSPACE_SYNC,
 )
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
@@ -36,6 +37,7 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 from tinysoul.workspace import (
     WorkspaceContractError,
+    WorkspaceAnalysisSettings,
     WorkspaceBundleWrite,
     WorkspaceDiscoverySkipKind,
     WorkspaceEngineBuilder,
@@ -47,10 +49,59 @@ from tinysoul.workspace import (
     WorkspaceReconcileStatus,
     WorkspaceRetention,
     WorkspaceResourceKind,
+    WorkspaceSearchScope,
+    WorkspaceSearchScopeKind,
+    WorkspaceSearchSettings,
     WorkspaceSettings,
     WorkspaceTextSlice,
     WorkspaceTrashRestoreRequired,
+    parse_workspace_settings,
 )
+
+
+def test_workspace_settings_parse_search_and_analysis_tables(tmp_path: Path) -> None:
+    settings = parse_workspace_settings(
+        {
+            "search": {
+                "max_scan_chars": 1234,
+                "max_excerpt_chars": 321,
+                "max_result_chars": 4321,
+            },
+            "analysis": {
+                "max_reference_links": 3,
+                "max_source_chars": 6000,
+                "max_chars_per_reference": 2000,
+            },
+        },
+        project_root=tmp_path,
+    )
+
+    assert settings.search.max_scan_chars == 1234
+    assert settings.search.max_excerpt_chars == 321
+    assert settings.search.max_result_chars == 4321
+    assert settings.analysis.max_reference_links == 3
+    assert settings.analysis.max_source_chars == 6000
+    assert settings.analysis.max_chars_per_reference == 2000
+
+
+def test_workspace_settings_reject_unknown_nested_key(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        parse_workspace_settings(
+            {"search": {"semantic_provider": "implicit"}},
+            project_root=tmp_path,
+        )
+
+    assert exc_info.value.key == "workspace.search.semantic_provider"
+
+
+def test_workspace_search_excerpt_budget_must_contain_query() -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        WorkspaceSearchSettings(
+            max_query_chars=20,
+            max_excerpt_chars=10,
+        )
+
+    assert exc_info.value.key == "workspace.search.max_excerpt_chars"
 
 
 def test_workspace_document_read_is_bounded_and_digest_checked(local_tmp: Path) -> None:
@@ -108,10 +159,13 @@ from tinysoul.workspace.manifest import WorkspaceManifestStore
 from tinysoul.workspace.projection import WorkspaceTurnPreparationHandler
 from tinysoul.workspace.pressure import WorkspacePressureReclaimer
 from tinysoul.workspace.actions import (
+    WorkspaceAnalyzeExecutor,
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
     WorkspacePatchExecutor,
     WorkspaceRewriteExecutor,
+    WorkspaceReadExecutor,
+    WorkspaceSearchTextExecutor,
     WorkspaceScanExecutor,
     WorkspaceWriteExecutor,
 )
@@ -584,6 +638,402 @@ def test_workspace_read_text_slice_rejects_invalid_bounds(tmp_path: Path) -> Non
         engine.read_text_slice("workspace:a.md", max_lines=0)
     with pytest.raises(WorkspaceContractError, match="limit"):
         engine.read_text_slice("workspace:a.md", max_chars=0)
+
+
+def test_workspace_read_text_range_continues_inside_long_line(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef\nsecond\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, max_read_chars=4)
+    ).build()
+
+    first = engine.read_text_range(
+        "workspace:a.md",
+        start_line=1,
+        end_line=1,
+        max_chars=3,
+    )
+    second = engine.read_text_range(
+        "workspace:a.md",
+        start_line=1,
+        end_line=1,
+        cursor=first.page.next_cursor or 0,
+        max_chars=10,
+        expected_digest=first.digest,
+    )
+
+    assert first.page.text == "abc"
+    assert first.page.truncated is True
+    assert first.page.next_cursor == 3
+    assert first.page.next_position is not None
+    assert (first.page.next_position.line, first.page.next_position.column) == (1, 4)
+    assert second.page.text == "def\n"
+    assert second.page.truncated is False
+    assert second.max_chars == 4
+
+
+def test_workspace_read_text_range_rejects_invalid_cursor_and_digest(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("one\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+
+    with pytest.raises(WorkspaceContractError, match="cursor exceeds"):
+        engine.read_text_range(
+            "workspace:a.md",
+            start_line=1,
+            end_line=1,
+            cursor=10,
+        )
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.read_text_range(
+            "workspace:a.md",
+            start_line=1,
+            end_line=1,
+            expected_digest="stale",
+        )
+
+
+def test_workspace_read_text_range_normalizes_crlf_unicode_and_reports_eof(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_bytes("alpha\r\n中文".encode())
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.read_text_range(
+        "workspace:a.txt",
+        start_line=2,
+        end_line=2,
+    )
+
+    assert result.page.text == "中文"
+    assert result.page.actual_start is not None
+    assert result.page.actual_start.line == 2
+    assert result.page.actual_start.column == 1
+    assert result.page.actual_end is not None
+    assert result.page.actual_end.column == 2
+    assert result.page.eof_reached is True
+    assert result.page.truncated is False
+
+
+def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path, max_read_chars=7)
+    ).build()
+
+    result = WorkspaceReadExecutor(engine).execute(
+        _execution(
+            "workspace.read",
+            {"link": "workspace:a.md", "start_line": 2, "end_line": 3},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["text"] == "two\nthr"
+    assert result.payload["truncated"] is True
+    assert result.trace_projection is not None
+    assert result.trace_projection.origin_refs == ("workspace:a.md",)
+    assert "text" not in result.trace_projection.compact_payload
+
+
+def test_workspace_search_text_scopes_directory_and_returns_fragments(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src2").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "before\nWorkspaceContractError here\nafter\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src2" / "b.py").write_text(
+        "WorkspaceContractError elsewhere\n",
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "WorkspaceContractError",
+        scope=WorkspaceSearchScope(
+            WorkspaceSearchScopeKind.DIRECTORY,
+            "workspace:src/",
+        ),
+        case_sensitive=True,
+    )
+
+    assert result.coverage.complete is True
+    assert result.match_line_count == 1
+    assert len(result.fragments) == 1
+    assert result.fragments[0].link == "workspace:src/a.py"
+    assert (result.fragments[0].start_line, result.fragments[0].end_line) == (1, 3)
+    assert "WorkspaceContractError here" in result.fragments[0].text
+
+
+def test_workspace_search_text_returns_line_hints_after_fragment_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text(
+        "needle one\nmiddle\nneedle two\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.md").write_text("needle three\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(context_lines=0, default_top_k=1),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+        top_k=1,
+    )
+
+    assert len(result.fragments) == 1
+    assert [(item.link, item.line) for item in result.line_hints] == [
+        ("workspace:a.md", 3),
+        ("workspace:b.md", 1),
+    ]
+    assert result.truncated is True
+
+
+def test_workspace_search_text_reports_incomplete_scan_budget(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("x" * 20 + "needle", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(max_scan_chars=10),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(
+            WorkspaceSearchScopeKind.FILE,
+            "workspace:a.md",
+        ),
+    )
+
+    assert result.fragments == ()
+    assert result.coverage.complete is False
+    assert result.coverage.reason == "scan_limit"
+    assert result.coverage.characters_scanned == 10
+
+
+def test_workspace_search_text_workspace_scope_centers_long_match(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "b.txt").write_text("no match", encoding="utf-8")
+    (tmp_path / "a.txt").write_text(
+        "x" * 700 + "Needle" + "z" * 700,
+        encoding="utf-8",
+    )
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            search=WorkspaceSearchSettings(
+                max_query_chars=20,
+                max_excerpt_chars=80,
+                max_result_chars=4000,
+            ),
+        )
+    ).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    assert len(result.fragments) == 1
+    fragment = result.fragments[0]
+    assert fragment.link == "workspace:a.txt"
+    assert "Needle" in fragment.text
+    assert fragment.excerpt_truncated is True
+    assert fragment.start_column is not None
+    assert fragment.start_column > 1
+
+
+def test_workspace_search_text_skips_invalid_utf8_with_partial_coverage(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.txt").write_bytes(b"\xff\xfe")
+    (tmp_path / "b.txt").write_text("needle", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = engine.search_text(
+        "needle",
+        scope=WorkspaceSearchScope(WorkspaceSearchScopeKind.WORKSPACE),
+    )
+
+    assert [fragment.link for fragment in result.fragments] == ["workspace:b.txt"]
+    assert result.coverage.complete is False
+    assert result.coverage.reason == "unreadable_text"
+    assert result.coverage.skipped_count == 1
+
+
+def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = WorkspaceSearchTextExecutor(engine).execute(
+        _execution(
+            "workspace.search_text",
+            {
+                "query": "needle",
+                "scope": {"kind": "file", "link": "workspace:a.md"},
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    fragments = result.payload["fragments"]
+    assert isinstance(fragments, list)
+    fragment = fragments[0]
+    assert isinstance(fragment, dict)
+    assert fragment["text"] == "needle\n"
+    assert result.trace_projection is not None
+    compact = result.trace_projection.compact_payload
+    compact_fragments = compact["fragments"]
+    assert isinstance(compact_fragments, list)
+    compact_fragment = compact_fragments[0]
+    assert isinstance(compact_fragment, dict)
+    assert "text" not in compact_fragment
+
+
+def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("alpha\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("beta\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    llm = FakeLLMRunner(
+        answer={"answer": "Alpha and beta are present.", "source_ids": ["source_1"]}
+    )
+    executor = WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    )
+    before = engine.reconcile().manifest
+
+    result = executor.execute(
+        _execution(
+            "workspace.analyze",
+            {
+                "intent": "Compare the files.",
+                "reference_links": ["workspace:a.md", "workspace:b.md"],
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["answer"] == "Alpha and beta are present."
+    assert result.payload["sources"] == [
+        {
+            "source_id": "source_1",
+            "link": "workspace:a.md",
+            "digest": engine.inspect("workspace:a.md").digest,
+            "size": engine.inspect("workspace:a.md").size,
+            "range": {"start_line": 1, "end_line": 1},
+        }
+    ]
+    assert result.trace_projection is None
+    assert engine.load_manifest() == before
+    assert len(llm.calls) == 1
+    assert "alpha" in _task_call_text_for_label(
+        llm.calls[0], "task_prompt:input:workspace:analysis:source_1"
+    )
+
+
+def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            analysis=WorkspaceAnalysisSettings(
+                max_chars_per_reference=5,
+                max_source_chars=10,
+            ),
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    llm = FakeLLMRunner(
+        answer={"answer": "unused", "source_ids": ["source_1"]}
+    )
+
+    result = WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.payload["reason"] == "reference_chars_exceeded"
+    assert result.payload["offending_link"] == "workspace:a.md"
+    assert llm.calls == []
+
+
+def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    llm = FakeLLMRunner(
+        answer={"answer": "Invented.", "source_ids": ["source_99"]}
+    )
+
+    result = WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.frame_data["reason"] == "unknown_analysis_source_ids"
+
+
+def test_workspace_analyze_requires_at_least_one_grounding_source(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("analyze files")
+    llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
+
+    result = WorkspaceAnalyzeExecutor(
+        workspace=engine,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
+    ).execute(
+        _execution(
+            "workspace.analyze",
+            {"intent": "Analyze.", "reference_links": ["workspace:a.md"]},
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.frame_data["reason"] == "invalid_analysis_source_ids"
 
 
 def test_workspace_write_text_creates_resource_and_manifest(tmp_path: Path) -> None:

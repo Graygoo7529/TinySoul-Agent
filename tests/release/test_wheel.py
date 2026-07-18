@@ -55,6 +55,9 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
     assert "tinysoul/action/catalog/script/actions/run_python.toml" in names
     assert "tinysoul/action/catalog/script/actions/apply.toml" in names
+    assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
+    assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
+    assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
     assert "tinysoul/assets/project/configs/home.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.resource.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.web.toml" in names
@@ -66,6 +69,12 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/how_domain/resource.md" in names
     assert "tinysoul/assets/project/home/how_domain/web.md" in names
     assert "tinysoul/assets/project/home/how_domain/script.md" in names
+    assert (
+        "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
+    )
+    assert "tinysoul/assets/project/home/how_action/workspace/read.md" in names
+    assert "tinysoul/assets/project/home/how_action/workspace/search_text.md" in names
+    assert "tinysoul/assets/project/home/how_action/workspace/analyze.md" in names
     assert (
         "tinysoul/assets/project/home/how/tinysoul-docs/references/"
         "use-tinysoul-context-and-link.md"
@@ -127,4 +136,16 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     assert (initialized / "home" / "how_domain" / "resource.md").is_file()
     assert (initialized / "home" / "how_domain" / "web.md").is_file()
     assert (initialized / "home" / "how_domain" / "script.md").is_file()
+    assert (
+        initialized / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_action" / "workspace" / "read.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_action" / "workspace" / "search_text.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_action" / "workspace" / "analyze.md"
+    ).is_file()
     assert (initialized / "memory").is_dir()

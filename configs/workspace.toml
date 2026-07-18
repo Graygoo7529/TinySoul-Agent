@@ -13,3 +13,20 @@ ignore_dirs = [
   ".tinysoul",
   "__pycache__",
 ]
+
+[workspace.search]
+max_query_chars = 256
+max_scan_chars = 1000000
+candidate_limit = 100
+default_top_k = 8
+max_top_k = 16
+context_lines = 2
+max_excerpt_chars = 600
+max_result_chars = 8000
+
+[workspace.analysis]
+max_intent_chars = 2000
+max_reference_links = 8
+max_source_chars = 24000
+max_chars_per_reference = 12000
+max_answer_chars = 4000

@@ -19,6 +19,7 @@ Stage 6.2 已将 Memory-owned `memory.search` 收敛为单日候选，并与 `me
 5. Action 定义使用 TOML 存放，入口动态校验后尽早转换为内部类型。
 6. 去掉旧设计中的冗余字段，保持模型侧可见描述和框架内运行配置分离。
 7. 内置 Action Catalog 随 TinySoul 包版本发布，项目只配置业务运行参数，不以路径替换框架 catalog。
+8. ActionResult 的 trace 生命周期由 Catalog 声明，业务 executor 只提供结果内容及必要的 compact projection 数据。
 
 ## 分层模型
 
@@ -78,7 +79,7 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 1. 模型侧工具协议，用于构造 Phase2 可见工具。
 2. 模型侧补充语义，用于帮助模型判断何时使用或避免某个 action。
-3. 框架内运行配置，用于控制超时、并发和 hook。
+3. 框架内运行配置，用于控制超时、并发、hook 和结果 trace 生命周期。
 4. 后端执行配置，用于描述真实执行落点。
 
 模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
@@ -167,7 +168,7 @@ Action result 需要同时表达三类信息：
 - model feedback
 - frame data
 
-大块文件内容、长文本和非结构化资源不直接塞回结果，改用资源句柄或摘要。
+大块文件内容、隐式整文件内容和无界文本不直接塞回结果，改用资源句柄或摘要。明确 inspection action 可以返回受 owner 配置硬限制的文本片段；这类正文必须使用 foldable trace 生命周期，不能成为 Session 持久化正文。
 
 `ActionResult` 是具体 action call 的局部事实记录，不等同于 LLM message。Action phase result 是 action 模块某个 phase 的局部执行记录，用于表达无法绑定到具体 action call 的框架性问题。
 
@@ -177,7 +178,9 @@ Action result 需要同时表达三类信息：
 2. 给 trace/log 使用的完整 JSON payload。
 3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
 
-Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。对于可逐层召回的大结果，ActionResult 可以附带 foldable trace projection，使 Context 在当前 Cycle 展示完整结果、压缩后只保留 origin ref。
+Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 结果以完整 payload 作为 canonical trace；foldable 结果要求成功 ActionResult 提供非空 `compact_payload` 和有界、去重的 `origin_refs`，以 compact payload 作为 canonical trace、完整 payload 作为当前 Turn 的 visible overlay。Context 压缩或显式 fold 会移除 overlay，TurnSummary 与 Session 始终只接收 canonical compact payload；即使当前 Turn 未发生压缩，也不会把完整 overlay 写入 Session。standard action 返回 projection 或 foldable action 缺少 projection 都由 runner 收敛为局部 trace-policy mismatch。failed/timeout 结果不携带 projection。
+
+Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 compact 字段。字段选择属于业务 executor；Loop 只把已验证的 projection 转成 Context signal，Context 和 Session 不包含 action-specific 折叠分支。`context.trace.recall`、`session.history.recall`、`workspace.read` 和 `workspace.search_text` 共用该框架语义。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 
@@ -213,7 +216,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/action/backends/llm_action.py`，负责集中处理 Phase3 自动 HOW、Context message stack 构造、`LLM_ACTION` task 调用、JSON object 输出和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
 
-`llm_action` 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。需要操作 workspace 的 LLM action 不使用通用参数承载目标正文，而应由 Workspace 模块提供 executor，接收 `target_link` 和 `reference_links`，在 action 内部加载目标与参考正文并调用共享 LLM action 服务。新增动作必须直接使用 block/link 协议。
+`llm_action` 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。Workspace-owned LLM action 由 Workspace 模块提供 executor：修改类 action 接收 `target_link` 和 `reference_links`；分析类 action 可以只接收 Phase2 已选择的明确 `reference_links` 与意图。二者都在 action 内部加载正文并调用共享 LLM action 服务，不把正文作为 Phase2 参数。新增动作必须直接使用 block/link 协议。
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
@@ -221,7 +224,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
-嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，不是通用推理 action；它们使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文，并生成完整写入文本。
+嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文并生成完整写入文本；`workspace.analyze` 只接受 Phase2 已选择的明确 text Links 与 intent，要求所有 references 完整且在 owner budget 内后执行一次 LLM task，返回有界 answer 和经过 executor 验证的来源定位，不修改 Workspace。
 
 `llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置合理 timeout，并避免承担需要硬停止语义的任务。
 

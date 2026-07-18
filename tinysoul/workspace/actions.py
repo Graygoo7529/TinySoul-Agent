@@ -12,20 +12,32 @@ from tinysoul.action import (
     ActionExecutor,
     ActionResult,
     ActionResultStage,
+    ActionTraceProjection,
 )
 from tinysoul.context import (
     PromptReferenceError,
 )
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import RuntimeException, SignalBus
 
-from .engine import WorkspaceEngine
-from .errors import WorkspaceError, WorkspaceTrashRestoreRequired
+from .engine import (
+    WorkspaceAnalysisBudgetFailure,
+    WorkspaceEngine,
+    WorkspaceTextRangeResult,
+)
+from .errors import (
+    WorkspaceContractError,
+    WorkspaceError,
+    WorkspaceTrashRestoreRequired,
+)
 from .manifest import WorkspaceResourceRecord, WorkspaceRetention
 from .prompts import (
+    WorkspaceAnalysisPromptBuilder,
     WorkspaceEditPromptBuilder,
 )
 from .projection import workspace_snapshot_signal
+from .search import WorkspaceSearchScope, WorkspaceSearchScopeKind
+from .text import WorkspaceTextPosition
 
 
 WORKSPACE_REWRITE_ACTION = "workspace.rewrite"
@@ -98,7 +110,23 @@ def register_workspace_actions(
     """Register workspace action executors on an action builder."""
 
     result = (
-        builder.register_executor("workspace.scan", WorkspaceScanExecutor(workspace, bus))
+        builder.register_executor(
+            "workspace.read",
+            WorkspaceReadExecutor(workspace, runtime_bridge=runtime_bridge),
+        )
+        .register_executor(
+            "workspace.search_text",
+            WorkspaceSearchTextExecutor(workspace, runtime_bridge=runtime_bridge),
+        )
+        .register_executor(
+            "workspace.analyze",
+            WorkspaceAnalyzeExecutor(
+                workspace=workspace,
+                llm_action=llm_action,
+                runtime_bridge=runtime_bridge,
+            ),
+        )
+        .register_executor("workspace.scan", WorkspaceScanExecutor(workspace, bus))
         .register_executor(
             "workspace.describe",
             WorkspaceDescribeExecutor(
@@ -147,6 +175,362 @@ def register_workspace_actions(
             runtime_bridge=runtime_bridge,
         ),
     )
+
+
+class WorkspaceReadExecutor(ActionExecutor):
+    """Return one bounded, digest-bound Workspace text range."""
+
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        *,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
+    ) -> None:
+        self._workspace = workspace
+        self._runtime_bridge = runtime_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        params = execution.call.params
+        link = params.get("link")
+        start_line = params.get("start_line")
+        end_line = params.get("end_line")
+        cursor = params.get("cursor", 0)
+        max_chars = params.get("max_chars")
+        expected_digest = params.get("expected_digest")
+        if not isinstance(link, str) or not link:
+            return _failed(
+                execution,
+                "workspace.read requires a non-empty 'link' parameter.",
+                {"reason": "missing_link"},
+            )
+        if isinstance(start_line, bool) or not isinstance(start_line, int):
+            return _failed(
+                execution,
+                "workspace.read start_line must be an integer.",
+                {"reason": "invalid_start_line"},
+            )
+        if isinstance(end_line, bool) or not isinstance(end_line, int):
+            return _failed(
+                execution,
+                "workspace.read end_line must be an integer.",
+                {"reason": "invalid_end_line"},
+            )
+        if isinstance(cursor, bool) or not isinstance(cursor, int):
+            return _failed(
+                execution,
+                "workspace.read cursor must be an integer.",
+                {"reason": "invalid_cursor"},
+            )
+        if max_chars is not None and (
+            isinstance(max_chars, bool) or not isinstance(max_chars, int)
+        ):
+            return _failed(
+                execution,
+                "workspace.read max_chars must be an integer when provided.",
+                {"reason": "invalid_max_chars"},
+            )
+        if expected_digest is not None and not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "workspace.read expected_digest must be a string when provided.",
+                {"reason": "invalid_expected_digest"},
+            )
+        try:
+            result = self._workspace.read_text_range(
+                link,
+                start_line=start_line,
+                end_line=end_line,
+                cursor=cursor,
+                max_chars=max_chars if isinstance(max_chars, int) else None,
+                expected_digest=(
+                    expected_digest if isinstance(expected_digest, str) else None
+                ),
+            )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace read failed: {exc}",
+                {"reason": "workspace_read_failed", "error_type": type(exc).__name__},
+            )
+        payload = _text_range_payload(result)
+        compact_payload = {key: value for key, value in payload.items() if key != "text"}
+        compact_payload["folded"] = True
+        return _success(
+            execution,
+            payload,
+            trace_projection=ActionTraceProjection(
+                origin_refs=(result.link,),
+                compact_payload=compact_payload,
+            ),
+        )
+
+
+class WorkspaceSearchTextExecutor(ActionExecutor):
+    """Search an explicit Workspace text scope for one literal query."""
+
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        *,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
+    ) -> None:
+        self._workspace = workspace
+        self._runtime_bridge = runtime_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        query = execution.call.params.get("query")
+        if not isinstance(query, str) or not query:
+            return _failed(
+                execution,
+                "workspace.search_text requires a non-empty 'query' parameter.",
+                {"reason": "invalid_query"},
+            )
+        try:
+            scope = _search_scope(execution.call.params.get("scope"))
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace text search scope is invalid: {exc}",
+                {"reason": "invalid_scope", "error_type": type(exc).__name__},
+            )
+        case_sensitive = execution.call.params.get("case_sensitive", False)
+        if not isinstance(case_sensitive, bool):
+            return _failed(
+                execution,
+                "workspace.search_text case_sensitive must be boolean.",
+                {"reason": "invalid_case_sensitive"},
+            )
+        top_k = execution.call.params.get("top_k")
+        if top_k is not None and (
+            isinstance(top_k, bool) or not isinstance(top_k, int)
+        ):
+            return _failed(
+                execution,
+                "workspace.search_text top_k must be an integer when provided.",
+                {"reason": "invalid_top_k"},
+            )
+        try:
+            result = self._workspace.search_text(
+                query,
+                scope=scope,
+                case_sensitive=case_sensitive,
+                top_k=top_k if isinstance(top_k, int) else None,
+            )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace text search failed: {exc}",
+                {"reason": "workspace_search_failed", "error_type": type(exc).__name__},
+            )
+        payload = result.to_json()
+        compact_payload = result.to_json(include_text=False)
+        compact_payload["folded"] = True
+        origin_refs = tuple(
+            dict.fromkeys(
+                [
+                    *(fragment.link for fragment in result.fragments),
+                    *(hint.link for hint in result.line_hints),
+                ]
+            )
+        )
+        return _success(
+            execution,
+            payload,
+            trace_projection=ActionTraceProjection(
+                origin_refs=origin_refs,
+                compact_payload=compact_payload,
+            ),
+        )
+
+
+class WorkspaceAnalyzeExecutor(ActionExecutor):
+    """Analyze explicit complete Workspace text references without mutation."""
+
+    def __init__(
+        self,
+        *,
+        workspace: WorkspaceEngine,
+        llm_action: LLMActionTaskRunner,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
+    ) -> None:
+        self._workspace = workspace
+        self._llm_action = llm_action
+        self._runtime_bridge = runtime_bridge
+        self._prompt_builder = WorkspaceAnalysisPromptBuilder()
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        intent = execution.call.params.get("intent")
+        if not isinstance(intent, str) or not intent.strip():
+            return _failed(
+                execution,
+                "workspace.analyze requires a non-empty 'intent' parameter.",
+                {"reason": "invalid_intent"},
+            )
+        settings = self._workspace.settings.analysis
+        if len(intent) > settings.max_intent_chars:
+            return _failed(
+                execution,
+                "workspace.analyze intent exceeds its size limit.",
+                {
+                    "reason": "intent_chars_exceeded",
+                    "limit": settings.max_intent_chars,
+                    "observed": len(intent),
+                },
+            )
+        links_value = execution.call.params.get("reference_links")
+        if not isinstance(links_value, list) or not links_value or any(
+            not isinstance(link, str) or not link for link in links_value
+        ):
+            return _failed(
+                execution,
+                "workspace.analyze reference_links must be a non-empty string array.",
+                {"reason": "invalid_reference_links"},
+            )
+        links = tuple(link for link in links_value if isinstance(link, str))
+        try:
+            preparation = self._workspace.prepare_analysis_references(links)
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace analysis preparation failed: {exc}",
+                {
+                    "reason": "workspace_analysis_preparation_failed",
+                    "error_type": type(exc).__name__,
+                },
+            )
+        if preparation.failure is not None:
+            budget_payload = _analysis_budget_payload(preparation.failure)
+            return _failed(
+                execution,
+                "Workspace analysis references exceed the configured source budget.",
+                budget_payload,
+                payload=budget_payload,
+            )
+        analysis_input = preparation.input
+        if analysis_input is None:
+            return _failed(
+                execution,
+                "Workspace analysis preparation returned no input.",
+                {"reason": "missing_analysis_input"},
+            )
+        prompt = self._prompt_builder.build(
+            intent=intent.strip(),
+            analysis_input=analysis_input,
+            max_answer_chars=settings.max_answer_chars,
+        )
+        value = self._llm_action.run_json(
+            execution=execution,
+            prompt=prompt,
+            subject="Workspace analyze LLM task",
+        )
+        if isinstance(value, ActionResult):
+            return value
+        if set(value) != {"answer", "source_ids"}:
+            return _failed(
+                execution,
+                "workspace.analyze LLM output must contain only answer and source_ids.",
+                {"reason": "invalid_analysis_output"},
+            )
+        answer = value.get("answer")
+        source_ids_value = value.get("source_ids")
+        if not isinstance(answer, str) or not answer.strip():
+            return _failed(
+                execution,
+                "workspace.analyze LLM output requires a non-empty answer.",
+                {"reason": "invalid_analysis_answer"},
+            )
+        if len(answer) > settings.max_answer_chars:
+            return _failed(
+                execution,
+                "workspace.analyze LLM answer exceeds its size limit.",
+                {
+                    "reason": "analysis_answer_chars_exceeded",
+                    "limit": settings.max_answer_chars,
+                    "observed": len(answer),
+                },
+            )
+        if not isinstance(source_ids_value, list) or not source_ids_value or any(
+            not isinstance(source_id, str) or not source_id
+            for source_id in source_ids_value
+        ):
+            return _failed(
+                execution,
+                "workspace.analyze source_ids must be a non-empty string array.",
+                {"reason": "invalid_analysis_source_ids"},
+            )
+        source_ids = tuple(
+            source_id for source_id in source_ids_value if isinstance(source_id, str)
+        )
+        by_id = {
+            reference.source_id: reference
+            for reference in analysis_input.references
+        }
+        if len(set(source_ids)) != len(source_ids) or any(
+            source_id not in by_id for source_id in source_ids
+        ):
+            return _failed(
+                execution,
+                "workspace.analyze source_ids must uniquely reference supplied sources.",
+                {"reason": "unknown_analysis_source_ids"},
+            )
+        sources: list[JsonObject] = []
+        for source_id in source_ids:
+            reference = by_id[source_id]
+            sources.append(
+                {
+                    "source_id": source_id,
+                    "link": reference.link,
+                    "digest": reference.digest,
+                    "size": reference.size,
+                    "range": {"start_line": 1, "end_line": reference.end_line},
+                }
+            )
+        payload = to_json_object(
+            {
+                "intent": intent.strip(),
+                "answer": answer.strip(),
+                "sources": sources,
+                "coverage": {
+                    "complete": True,
+                    "files_loaded": len(analysis_input.references),
+                    "source_chars": analysis_input.total_chars,
+                },
+            }
+        )
+        return _success(execution, payload)
 
 
 class WorkspaceDescribeExecutor(ActionExecutor):
@@ -784,7 +1168,12 @@ def _record_payload(record: WorkspaceResourceRecord) -> JsonObject:
     }
 
 
-def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
+def _success(
+    execution: ActionExecution,
+    payload: JsonObject,
+    *,
+    trace_projection: ActionTraceProjection | None = None,
+) -> ActionResult:
     return ActionResult.success(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -793,13 +1182,103 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
         payload=payload,
+        trace_projection=trace_projection,
     )
+
+
+def _text_range_payload(result: WorkspaceTextRangeResult) -> JsonObject:
+    page = result.page
+    return {
+        "link": result.link,
+        "digest": result.digest,
+        "size": result.size,
+        "requested": {
+            "start_line": result.start_line,
+            "end_line": result.end_line,
+            "cursor": page.cursor,
+            "max_chars": result.max_chars,
+        },
+        "actual": {
+            "start": _position_payload(page.actual_start),
+            "end": _position_payload(page.actual_end),
+        },
+        "text": page.text,
+        "truncated": page.truncated,
+        "truncation_reason": "character_limit" if page.truncated else "",
+        "next_cursor": page.next_cursor,
+        "next_position": _position_payload(page.next_position),
+        "eof_reached": page.eof_reached,
+    }
+
+
+def _position_payload(position: WorkspaceTextPosition | None) -> JsonObject | None:
+    if position is None:
+        return None
+    return {"line": position.line, "column": position.column}
+
+
+def _search_scope(value: object) -> WorkspaceSearchScope:
+    if not isinstance(value, dict):
+        raise WorkspaceContractError("Workspace search scope must be an object")
+    kind_value = value.get("kind")
+    if not isinstance(kind_value, str):
+        raise WorkspaceContractError("Workspace search scope requires a kind")
+    try:
+        kind = WorkspaceSearchScopeKind(kind_value)
+    except ValueError as exc:
+        raise WorkspaceContractError(
+            f"Unknown Workspace search scope kind: {kind_value}"
+        ) from exc
+    expected_keys = {
+        WorkspaceSearchScopeKind.FILE: {"kind", "link"},
+        WorkspaceSearchScopeKind.DIRECTORY: {"kind", "prefix"},
+        WorkspaceSearchScopeKind.WORKSPACE: {"kind"},
+    }[kind]
+    if set(value) != expected_keys:
+        raise WorkspaceContractError(
+            f"Workspace {kind.value} search scope must contain exactly "
+            f"{sorted(expected_keys)}"
+        )
+    if kind is WorkspaceSearchScopeKind.FILE:
+        locator = value.get("link")
+    elif kind is WorkspaceSearchScopeKind.DIRECTORY:
+        locator = value.get("prefix")
+    else:
+        locator = ""
+    if not isinstance(locator, str):
+        raise WorkspaceContractError(
+            f"Workspace {kind.value} search scope locator must be a string"
+        )
+    return WorkspaceSearchScope(kind=kind, locator=locator)
+
+
+def _analysis_budget_payload(failure: WorkspaceAnalysisBudgetFailure) -> JsonObject:
+    return {
+        "reason": failure.reason.value,
+        "limit": failure.limit,
+        "observed_at_least": failure.observed,
+        "offending_link": failure.offending_link,
+        "references": [
+            {
+                "link": record.link,
+                "digest": record.digest,
+                "size": record.size,
+            }
+            for record in failure.inspected
+        ],
+        "hint": (
+            "Reduce reference_links or inspect relevant ranges with "
+            "workspace.read/workspace.search_text."
+        ),
+    }
 
 
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
     frame_data: JsonObject,
+    *,
+    payload: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -810,5 +1289,6 @@ def _failed(
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
         model_feedback=model_feedback,
+        payload=payload,
         frame_data=frame_data,
     )
