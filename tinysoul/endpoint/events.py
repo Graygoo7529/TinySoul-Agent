@@ -8,7 +8,7 @@ from threading import Condition
 from time import monotonic
 
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
-from tinysoul.runtime import ObservationEvent, ObservationLevel, RunScope
+from tinysoul.runtime import ObservationEvent, ObservationLevel
 
 from .errors import EndpointContractError, EndpointInvariantError
 
@@ -110,27 +110,6 @@ class EndpointEventBuffer:
                 removed = self._events.popleft()
                 self._bytes -= removed.size_bytes
             self._condition.notify_all()
-
-    def publish(
-        self,
-        *,
-        name: str,
-        level: ObservationLevel,
-        source: str,
-        message: str,
-        payload: JsonObject,
-        scope: RunScope | None = None,
-    ) -> None:
-        self.write(
-            ObservationEvent(
-                name=name,
-                level=level,
-                source=source,
-                scope=scope or RunScope(),
-                message=message,
-                payload=payload,
-            )
-        )
 
     def replay(
         self,

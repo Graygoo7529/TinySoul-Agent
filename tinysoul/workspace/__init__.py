@@ -55,6 +55,7 @@ from .projection import (
     WorkspaceTurnPreparationHandler,
     workspace_snapshot_signal,
 )
+from .observation import emit_workspace_changed
 from .mirror import (
     WorkspaceMirror,
     WorkspaceMirrorCandidate,
@@ -127,6 +128,7 @@ __all__ = [
     "WorkspaceTextSearchResult",
     "WorkspaceTurnPreparationHandler",
     "workspace_snapshot_signal",
+    "emit_workspace_changed",
     "WorkspaceTrashItem",
     "parse_workspace_settings",
     "register_workspace_actions",

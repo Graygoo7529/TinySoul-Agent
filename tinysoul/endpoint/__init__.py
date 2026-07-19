@@ -4,9 +4,9 @@ from .config import EndpointSettings
 from .engine import (
     EndpointControlKind,
     EndpointEngine,
-    EndpointReady,
     EndpointResourceBlob,
 )
+from .host import EndpointHost, EndpointReady
 from .errors import (
     EndpointContractError,
     EndpointError,
@@ -26,6 +26,7 @@ __all__ = [
     "EndpointEventEnvelope",
     "EndpointEventPage",
     "EndpointFailureKind",
+    "EndpointHost",
     "EndpointInvariantError",
     "EndpointReady",
     "EndpointRequestError",

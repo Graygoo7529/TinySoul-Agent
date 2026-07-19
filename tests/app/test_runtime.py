@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -66,6 +66,18 @@ class _FailingStopSource(_SubmittingSource):
         raise RuntimeError("stop failed")
 
 
+@dataclass
+class _RecordingService:
+    started: int = 0
+    stopped: int = 0
+
+    def start(self) -> None:
+        self.started += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
 def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
@@ -86,6 +98,29 @@ def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     assert outcome.transfer is not None
     assert outcome.transfer.action is RuntimeTransferAction.END
     assert outcome.transfer.target.level is RunLevel.PROGRAM
+
+
+def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
+    tmp_path: Path,
+) -> None:
+    service = _RecordingService()
+    source = _SubmittingSource((InputEvent("exit", source="unit"),))
+    built = (
+        TinySoulAppBuilder()
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_input_source(source)
+        .build()
+    )
+    app = replace(built, services=(service,))
+
+    app.run()
+
+    assert service.started == 1
+    assert source.started == 1
+    assert source.stopped == 1
+    assert service.stopped == 1
 
 
 def test_tinysoul_app_stops_started_sources_when_later_start_fails(

@@ -13,3 +13,11 @@ class RuntimeContractError(RuntimeModuleError):
 
 class RuntimeInvariantError(RuntimeModuleError):
     """Raised when runtime assembled state violates an internal invariant."""
+
+
+class RuntimeGatewayError(RuntimeModuleError):
+    """Raised when an external application gateway rejects a request."""
+
+
+class RuntimeInputBlockedError(RuntimeGatewayError):
+    """Raised when application state blocks ordinary user input."""

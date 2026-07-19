@@ -13,12 +13,14 @@ tinysoul/app/
   config.py          # AppSettings、输入/输出与 scheduler 配置
   errors.py          # app 契约与不变量错误
   failures.py        # app Runtime bridge 失败枚举
+  gateway.py         # AppCommandGateway 统一命令、控制与决策入口
   inputs.py          # InputEvent、InputCommandParser、InputDispatcher
   maintenance.py     # 人工 Home review decision broker
   initializer.py     # package project template 初始化
   outputs.py         # OutputSink、ObservationRouter 与终端渲染
   cli.py             # console script 入口
   runtime.py         # TinySoulApp 生命周期入口
+  services.py        # Endpoint 等长运行 AppService 生命周期协议
   builder.py         # TinySoulAppBuilder 全局装配入口
   sources/
     terminal.py      # 终端输入源
@@ -33,12 +35,13 @@ App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app �
 
 外部输入源不直接操作 SignalBus。所有外部输入先转换为 `InputEvent`，再进入 app 的输入解析和分发流程。
 
-输入处理分为两层：
+输入处理分为三层：
 
+- `AppCommandGateway` 是唯一外部命令入口；它区分可信终端交互行与普通用户文本，协调 typed control、Maintenance decision 和活跃 Turn Workspace snapshot；
 - `InputCommandParser` 是纯解析器，无副作用；它根据当前是否存在活跃 Turn，把 InputEvent 分类为启动 Turn、追加输入、停止 Turn、Home/Memory Maintenance、拒绝的命令、退出 Program 或忽略。
 - `InputDispatcher` 承担副作用；它将 User Turn、Home Maintenance、指定日期 Memory Maintenance 和 Program 退出等 Program 级输入投递到 ProgramRunner 队列，将 Turn 内追加输入转换为 `context.input.append` 信号，将 Turn 内控制请求转换为 `loop.control.request` 信号。
 
-这个拆分保证输入命令策略可以单独测试，也保证终端、API、HTTP、WebSocket 或 IPC 输入源都只依赖同一个 InputEvent 协议。
+Terminal 通过 Gateway 的 interactive 入口保留上下文相关的 `apply/discard/stop`；Endpoint 普通文本通过 user input 入口，不能解释这些决策词，pending decision 时必须走带 decision_id 的 typed API。`source` 只用于审计，不承担授权。
 
 ## Program 输入队列
 
@@ -54,12 +57,12 @@ Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，
 
 - `TerminalInputSource` 从 stdin 读取行输入；stdin 到 EOF 时，它提交配置中的首个 Program 退出命令，使阻塞中的 ProgramRunner 通过正常输入/Trap 流程结束；
 - 内置 `MaintenanceScheduler` 是时间驱动的 `ProgramEventSource`，只向 Program 投递 daily rollover/Home Maintenance/Memory Maintenance event，不在 scheduler 线程直接调用业务模块；
-- 测试或嵌入式调用可以直接调用 `TinySoulApp.submit_input()` 或 `InputDispatcher.submit()`；
-- 后续 HTTP、WebSocket、IPC 或文件监听输入源应作为 app source adapter 接入。
+- 测试或嵌入式调用可以调用普通文本语义的 `TinySoulApp.submit_input()`；只有受信任的本地命令行适配器使用 `submit_interactive_event()`；
+- HTTP/WebSocket Endpoint 是独立 AppService，通过 AppCommandGateway 提交输入和控制，不伪装成 InputSource；后续长运行传输适配器遵循相同边界。
 
 外部框架只应出现在 source adapter 内部，不应进入 loop、context、action 或 llm 的核心语义。
 
-`TinySoulApp.run()` 先启动 Program event source，再启动外部 input source，并在程序退出或启动失败时停止全部已启动 source。`run_once()` 不启动任何 source，因此不会创建 scheduler 线程，但 ProgramRunner 仍执行 Daily preflight。停止过程采用 best-effort：一个 source 停止失败不阻止其他已启动 source 停止；当主流程本身没有异常时，停止失败会作为 app 不变量失败向调用方报告。
+`TinySoulApp.run()` 依次启动 Program event source、AppService 和外部 input source，并在程序退出或启动失败时按逆序停止全部已启动组件。`run_once()` 不启动这些长运行组件，因此不会创建 scheduler 或 Endpoint 线程，但 ProgramRunner 仍执行 Daily preflight。停止过程采用 best-effort。
 
 ## 输出与观察事件
 
@@ -89,7 +92,7 @@ TinySoulAppBuilder 负责：
 - 调用各模块和已启用 capability 的 registrar 装配 executor，并在 ActionEngine build 前移除禁用 action；
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
 - preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
-- 构建 InputCommandParser、InputDispatcher、终端输入源和内置 scheduler；
+- 构建 InputCommandParser、InputDispatcher、AppCommandGateway、终端输入源、Endpoint service 和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
 - 返回 TinySoulApp。
 
@@ -105,9 +108,9 @@ AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared 
 
 AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
 
-人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`HomeDecisionBroker` 为 Home Maintenance 提供带 decision identity 的共享 typed channel；终端只在存在 pending change 时消费精确 `apply/discard/stop`，Endpoint 通过同一 broker 提交 typed decision。其它输入继续走正常解析并在 Program queue 等待。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。scheduler 触发 Home 时使用 Home-owned LLM reviewer；scheduler 触发 Memory 时若昨日 MEMORY 已存在且非空、可读、未超限则 skipped，人工指令仍可基于任意既有 Markdown 格式的旧 MEMORY 和 Session 重写。
+人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`HomeDecisionBroker` 为 Home Maintenance 提供带 decision identity 的共享 typed channel；终端只在存在 pending change 时消费精确 `apply/discard/stop`，Endpoint 只能通过带 decision_id 的 typed API 提交决策，pending 期间的普通 Endpoint input 返回冲突。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。
 
-`tinysoul serve` 使用同一 AppBuilder 启动 authenticated loopback Endpoint。AppBuilder 在该模式下把有界 event buffer 加入 Observation fan-out，把 EndpointEngine 作为 InputSource，并注入同一 InputDispatcher、DailyLifecycleCoordinator、SessionEngine、WorkspaceEngine 和 HomeDecisionBroker；不会建立桌面专用 Program 或文件访问路径。stdout 只交付一次 ready handshake，业务输出全部通过事件流发送。
+`tinysoul serve` 使用同一 AppBuilder 启动 authenticated loopback Endpoint。EndpointEngine 是无生命周期的 application facade，EndpointHost 作为 AppService 延迟加载并启停 ASGI server；有界 event buffer 只作为 ObservationRouter sink。默认 headless 模式的 stdout 只交付一次 ready handshake；`--terminal --terminal-mode <level>` 可显式同时挂载 Terminal input 和 Console sink，此时 ready 信息写 stderr。两种入口共享同一 Gateway、Program 和业务模块。
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 

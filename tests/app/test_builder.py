@@ -95,20 +95,21 @@ def test_app_builder_cleans_project_capability_staging_on_startup(
     assert tuple(staging.iterdir()) == ()
 
 
-def test_app_builder_mounts_endpoint_as_input_and_model_output_source(
+def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     tmp_path: Path,
 ) -> None:
     app = (
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
-        .with_app_settings(AppSettings(interactive=False))
+        .with_app_settings(AppSettings(interactive=True))
         .with_llm_runner(FakeLLM(()))
         .with_endpoint(EndpointSettings(token="x" * 32))
         .build()
     )
 
     assert app.endpoint is not None
-    assert app.input_sources == (app.endpoint,)
+    assert app.input_sources == ()
+    assert len(app.services) == 1
     assert app.observations.mode.value == "model"
 
 

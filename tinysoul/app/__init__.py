@@ -15,6 +15,7 @@ from .errors import (
     AppInvariantError,
     AppOutputError,
 )
+from .gateway import AppCommandGateway
 from .initializer import ProjectInitializationOutcome, ProjectInitializer
 from .failures import AppFailureKind
 from .inputs import (
@@ -29,6 +30,7 @@ from .inputs import (
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .maintenance import HomeDecisionBroker, MaintenanceDecisionSnapshot
 from .runtime import TinySoulApp
+from .services import AppService
 from .sources import MaintenanceSchedule, MaintenanceScheduler, TerminalInputSource
 
 __all__ = [
@@ -39,6 +41,8 @@ __all__ = [
     "AppInvariantError",
     "AppOutputError",
     "AppSettings",
+    "AppCommandGateway",
+    "AppService",
     "ConsoleOutputSink",
     "InputCommandParser",
     "InputCommandSettings",

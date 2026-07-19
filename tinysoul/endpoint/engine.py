@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -11,8 +10,13 @@ from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
 from tinysoul.loop.errors import LoopError
-from tinysoul.runtime import ObservationLevel, RunScope
-from tinysoul.runtime.bridge import RuntimeEndpointBridge
+from tinysoul.runtime import (
+    ObservationEmitter,
+    ObservationLevel,
+    RunScope,
+    RuntimeGatewayError,
+    RuntimeInputBlockedError,
+)
 from tinysoul.session import SessionEngine
 from tinysoul.session.errors import SessionContractError, SessionError
 from tinysoul.workspace import (
@@ -20,29 +24,18 @@ from tinysoul.workspace import (
     WorkspaceBundleWrite,
     WorkspaceManifest,
     WorkspaceRetention,
+    emit_workspace_changed,
 )
 from tinysoul.workspace.errors import WorkspaceContractError, WorkspaceError
 
 from .config import EndpointSettings
-from .errors import (
-    EndpointRequestError,
-    EndpointServerError,
-)
+from .errors import EndpointRequestError
 from .events import EndpointEventBuffer, EndpointEventPage
 
 
 class EndpointControlKind(StrEnum):
     STOP_TURN = "stop_turn"
     EXIT_PROGRAM = "exit_program"
-
-
-class EndpointServer(Protocol):
-    @property
-    def port(self) -> int: ...
-
-    def start(self) -> None: ...
-
-    def stop(self) -> None: ...
 
 
 class PendingMaintenanceDecision(Protocol):
@@ -53,31 +46,46 @@ class PendingMaintenanceDecision(Protocol):
     def change(self) -> HomeMaintenanceChange: ...
 
 
-class MaintenanceDecisionBroker(Protocol):
-    def pending_decision(self) -> PendingMaintenanceDecision | None: ...
+class EndpointAppGateway(Protocol):
+    @property
+    def active_turn_scope(self) -> RunScope | None: ...
 
-    def submit_decision(
+    @property
+    def current_scope(self) -> RunScope: ...
+
+    def submit_user_input(
+        self,
+        text: str,
+        *,
+        source: str,
+        metadata: JsonObject,
+    ) -> None: ...
+
+    def request_control(
+        self,
+        kind: LoopControlKind,
+        *,
+        source: str,
+        text: str,
+        metadata: JsonObject,
+    ) -> None: ...
+
+    def pending_maintenance_decision(
+        self,
+    ) -> PendingMaintenanceDecision | None: ...
+
+    def resolve_maintenance_decision(
         self,
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
     ) -> bool: ...
 
-
-@dataclass(frozen=True)
-class EndpointReady:
-    host: str
-    port: int
-    token: str
-    protocol_version: int = 1
-
-    def to_json(self) -> JsonObject:
-        return {
-            "type": "endpoint.ready",
-            "protocol_version": self.protocol_version,
-            "host": self.host,
-            "port": self.port,
-            "token": self.token,
-        }
+    def sync_workspace_context(
+        self,
+        manifest: WorkspaceManifest,
+        *,
+        source: str,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -97,30 +105,19 @@ class EndpointEngine:
         *,
         settings: EndpointSettings,
         events: EndpointEventBuffer,
+        gateway: EndpointAppGateway,
+        observations: ObservationEmitter,
         workspace: WorkspaceEngine,
         session: SessionEngine,
         daily_lifecycle: DailyLifecycleCoordinator,
-        decisions: MaintenanceDecisionBroker,
-        submit_input: Callable[[str, str, JsonObject], None],
-        request_control: Callable[[LoopControlKind, str, str, JsonObject], None],
-        active_turn_scope: Callable[[], RunScope | None],
-        sync_workspace: Callable[[WorkspaceManifest], None],
-        ready: Callable[[EndpointReady], None] | None = None,
-        runtime_bridge: RuntimeEndpointBridge | None = None,
     ) -> None:
         self._settings = settings
         self._events = events
+        self._gateway = gateway
+        self._observations = observations
         self._workspace = workspace
         self._session = session
         self._daily = daily_lifecycle
-        self._decisions = decisions
-        self._submit_input = submit_input
-        self._request_control = request_control
-        self._active_turn_scope = active_turn_scope
-        self._sync_workspace = sync_workspace
-        self._ready = ready
-        self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
-        self._server: EndpointServer | None = None
 
     @property
     def settings(self) -> EndpointSettings:
@@ -130,49 +127,8 @@ class EndpointEngine:
     def events(self) -> EndpointEventBuffer:
         return self._events
 
-    def start(self, sink: object) -> None:
-        if self._server is not None:
-            raise EndpointServerError("Endpoint server is already started")
-        try:
-            from .server import EndpointASGIServer
-
-            server = EndpointASGIServer(engine=self, settings=self._settings)
-            server.start()
-        except ImportError as exc:
-            error = EndpointServerError(
-                "Endpoint desktop dependencies are not installed"
-            )
-            raise self._runtime_bridge.from_endpoint_error(error) from exc
-        except EndpointServerError as exc:
-            raise self._runtime_bridge.from_endpoint_error(exc) from exc
-        self._server = server
-        try:
-            if self._ready is not None:
-                self._ready(
-                    EndpointReady(
-                        host=self._settings.host,
-                        port=server.port,
-                        token=self._settings.token,
-                    )
-                )
-        except Exception as exc:
-            self._server = None
-            try:
-                server.stop()
-            except EndpointServerError:
-                pass
-            error = EndpointServerError("Endpoint ready handshake failed")
-            raise self._runtime_bridge.from_endpoint_error(error) from exc
-
-    def stop(self) -> None:
-        server = self._server
-        if server is None:
-            return
-        self._server = None
-        server.stop()
-
     def status(self) -> JsonObject:
-        turn_scope = self._active_turn_scope()
+        turn_scope = self._gateway.active_turn_scope
         try:
             with self._daily.active_day_lease() as day:
                 workspace_revision = self._workspace.load_manifest().revision
@@ -182,7 +138,7 @@ class EndpointEngine:
             workspace_revision = -1
             session_revision = -1
             active_day = ""
-        pending = self._decisions.pending_decision()
+        pending = self._gateway.pending_maintenance_decision()
         return {
             "protocol_version": 1,
             "ready": bool(active_day),
@@ -201,7 +157,24 @@ class EndpointEngine:
                 code="input.invalid",
                 message="Input text must be non-empty.",
             )
-        self._submit_input(text, "endpoint", to_json_object(metadata))
+        try:
+            self._gateway.submit_user_input(
+                text,
+                source="endpoint",
+                metadata=to_json_object(metadata),
+            )
+        except RuntimeInputBlockedError as exc:
+            raise EndpointRequestError(
+                status_code=409,
+                code="maintenance.decision_required",
+                message=str(exc),
+            ) from exc
+        except RuntimeGatewayError as exc:
+            raise EndpointRequestError(
+                status_code=409,
+                code="input.rejected",
+                message=str(exc),
+            ) from exc
         return {"accepted": True}
 
     def submit_control(
@@ -213,7 +186,19 @@ class EndpointEngine:
             EndpointControlKind.STOP_TURN: LoopControlKind.STOP_TURN,
             EndpointControlKind.EXIT_PROGRAM: LoopControlKind.EXIT_PROGRAM,
         }[kind]
-        self._request_control(loop_kind, "endpoint", kind.value, metadata)
+        try:
+            self._gateway.request_control(
+                loop_kind,
+                source="endpoint",
+                text=kind.value,
+                metadata=metadata,
+            )
+        except RuntimeGatewayError as exc:
+            raise EndpointRequestError(
+                status_code=409,
+                code="control.rejected",
+                message=str(exc),
+            ) from exc
         return {"accepted": True, "kind": kind.value}
 
     def replay_events(
@@ -468,7 +453,7 @@ class EndpointEngine:
             raise _workspace_error(exc) from exc
 
     def maintenance_decision(self) -> JsonObject:
-        pending = self._decisions.pending_decision()
+        pending = self._gateway.pending_maintenance_decision()
         if pending is None:
             return {"pending": False}
         return {
@@ -483,7 +468,7 @@ class EndpointEngine:
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
     ) -> JsonObject:
-        if not self._decisions.submit_decision(decision_id, decision):
+        if not self._gateway.resolve_maintenance_decision(decision_id, decision):
             raise EndpointRequestError(
                 status_code=409,
                 code="maintenance.decision_stale",
@@ -499,19 +484,18 @@ class EndpointEngine:
         manifest: WorkspaceManifest,
         link: str,
     ) -> None:
-        self._sync_workspace(manifest)
-        self._events.publish(
-            name="workspace.changed",
-            level=ObservationLevel.NORMAL,
-            source="endpoint.engine",
-            message=f"Workspace resource {operation} committed.",
-            payload={
-                "operation": operation,
-                "day": str(day),
-                "link": link,
-                "revision": manifest.revision,
-            },
-            scope=self._active_turn_scope(),
+        self._gateway.sync_workspace_context(
+            manifest,
+            source="endpoint.workspace",
+        )
+        emit_workspace_changed(
+            self._observations,
+            operation=operation,
+            day=str(day),
+            manifest=manifest,
+            link=link,
+            scope=self._gateway.current_scope,
+            source="endpoint.workspace",
         )
 
 

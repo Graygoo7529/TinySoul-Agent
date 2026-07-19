@@ -12,7 +12,13 @@ from .exception import (
     RuntimeException,
 )
 from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
-from .errors import RuntimeContractError, RuntimeInvariantError, RuntimeModuleError
+from .errors import (
+    RuntimeContractError,
+    RuntimeGatewayError,
+    RuntimeInputBlockedError,
+    RuntimeInvariantError,
+    RuntimeModuleError,
+)
 from .scope import CyclePhase, RunFrame, RunLevel, RunScope
 from .observation import (
     NullObservationEmitter,
@@ -40,6 +46,8 @@ __all__ = [
     "RuntimeModuleRunner",
     "RuntimeTransferInterrupt",
     "RuntimeContractError",
+    "RuntimeGatewayError",
+    "RuntimeInputBlockedError",
     "RuntimeInvariantError",
     "RuntimeModuleError",
     "NullObservationEmitter",

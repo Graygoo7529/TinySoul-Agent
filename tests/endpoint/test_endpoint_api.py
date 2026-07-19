@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from tinysoul.app import HomeDecisionBroker
+from tinysoul.app import HomeDecisionBroker, ObservationRoute, ObservationRouter
 from tinysoul.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
@@ -17,7 +18,13 @@ from tinysoul.endpoint import (
 from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.json import JsonObject
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
-from tinysoul.runtime import ObservationEvent, ObservationLevel
+from tinysoul.runtime import (
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+    RuntimeInputBlockedError,
+)
 from tinysoul.session import SessionEngine, SessionSettings
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
 
@@ -27,7 +34,7 @@ TOKEN = "endpoint-test-token-0000000000000000"
 
 
 def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
-    engine, inputs, controls, _synced = _engine(tmp_path)
+    engine, gateway = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     assert client.get("/v1/status").status_code == 401
@@ -60,7 +67,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         json={"text": "hello", "metadata": {"client_id": "ui"}},
     )
     assert response.status_code == 202
-    assert inputs == [("hello", "endpoint", {"client_id": "ui"})]
+    assert gateway.inputs == [("hello", "endpoint", {"client_id": "ui"})]
 
     response = client.post(
         "/v1/control",
@@ -68,14 +75,14 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         json={"kind": "exit_program"},
     )
     assert response.status_code == 202
-    assert controls[0][0] is LoopControlKind.EXIT_PROGRAM
+    assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
 
 
 def test_endpoint_hides_unexpected_exception_details(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    engine, _gateway = _engine(tmp_path)
 
     def fail_status() -> JsonObject:
         raise OSError("B:\\private\\workspace")
@@ -99,8 +106,26 @@ def test_endpoint_hides_unexpected_exception_details(
     assert "private" not in response.text
 
 
+def test_endpoint_input_cannot_resolve_pending_maintenance_text(
+    tmp_path: Path,
+) -> None:
+    engine, gateway = _engine(tmp_path)
+    gateway.block_input = True
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    response = client.post(
+        "/v1/input",
+        headers=_auth(),
+        json={"text": "apply"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "maintenance.decision_required"
+    assert gateway.inputs == []
+
+
 def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
-    engine, _inputs, _controls, synced = _engine(tmp_path)
+    engine, gateway = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     manifest = client.get("/v1/workspace/manifest", headers=_auth()).json()
@@ -118,7 +143,14 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
     body = created.json()
     digest = body["record"]["digest"]
     revision = body["manifest"]["revision"]
-    assert synced[-1].revision == revision
+    assert gateway.synced[-1].revision == revision
+    assert gateway.observed[-1].name == "workspace.changed"
+    replayed = engine.replay_events(
+        after=0,
+        mode=ObservationLevel.NORMAL,
+        limit=20,
+    )
+    assert replayed.events[-1].name == "workspace.changed"
 
     read = client.get(
         "/v1/workspace/resource",
@@ -166,7 +198,7 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
 
 
 def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
-    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    engine, _gateway = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     revision = client.get(
         "/v1/workspace/manifest",
@@ -197,8 +229,34 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
     assert response.headers["x-tinysoul-digest"] == record["digest"]
 
 
+def test_workspace_observation_failure_does_not_change_mutation_result(
+    tmp_path: Path,
+) -> None:
+    engine, gateway = _engine(tmp_path, event_max_bytes=1)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    revision = client.get(
+        "/v1/workspace/manifest",
+        headers=_auth(),
+    ).json()["revision"]
+
+    response = client.put(
+        "/v1/workspace/resource",
+        headers=_auth(),
+        json={
+            "link": "workspace:committed.md",
+            "text": "committed",
+            "expected_revision": revision,
+        },
+    )
+
+    assert response.status_code == 200
+    assert gateway.synced[-1].revision == response.json()["manifest"]["revision"]
+    assert gateway.observed[-1].name == "workspace.changed"
+    assert engine.events.latest_sequence == 0
+
+
 def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None:
-    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    engine, _gateway = _engine(tmp_path)
     engine.events.write(
         ObservationEvent(
             name="turn.started",
@@ -235,7 +293,7 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
 
 
 def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
-    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    engine, _gateway = _engine(tmp_path)
     server = EndpointASGIServer(engine=engine, settings=engine.settings)
     server.start()
     try:
@@ -251,12 +309,9 @@ def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
 
 def _engine(
     tmp_path: Path,
-) -> tuple[
-    EndpointEngine,
-    list[tuple[str, str, JsonObject]],
-    list[tuple[LoopControlKind, str, str, JsonObject]],
-    list[WorkspaceManifest],
-]:
+    *,
+    event_max_bytes: int = 1024 * 1024,
+) -> tuple[EndpointEngine, _EndpointGateway]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     workspace = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path / "workspace")
@@ -270,28 +325,88 @@ def _engine(
         DAY,
         now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
-    events = EndpointEventBuffer(capacity=32, max_bytes=1024 * 1024)
-    inputs: list[tuple[str, str, JsonObject]] = []
-    controls: list[tuple[LoopControlKind, str, str, JsonObject]] = []
-    synced: list[WorkspaceManifest] = []
+    events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
+    gateway = _EndpointGateway()
+    observations = ObservationRouter(
+        mode=ObservationLevel.MODEL,
+        routes=(
+            ObservationRoute(sink=events, mode=ObservationLevel.MODEL),
+            ObservationRoute(sink=gateway, mode=ObservationLevel.MODEL),
+        ),
+    )
     settings = EndpointSettings(token=TOKEN)
     engine = EndpointEngine(
         settings=settings,
         events=events,
+        gateway=gateway,
+        observations=observations,
         workspace=workspace,
         session=session,
         daily_lifecycle=daily,
-        decisions=HomeDecisionBroker(),
-        submit_input=lambda text, source, metadata: inputs.append(
-            (text, source, metadata)
-        ),
-        request_control=lambda kind, source, text, metadata: controls.append(
-            (kind, source, text, metadata)
-        ),
-        active_turn_scope=lambda: None,
-        sync_workspace=synced.append,
     )
-    return engine, inputs, controls, synced
+    return engine, gateway
+
+
+@dataclass
+class _EndpointGateway:
+    decisions: HomeDecisionBroker = field(default_factory=HomeDecisionBroker)
+    inputs: list[tuple[str, str, JsonObject]] = field(default_factory=list)
+    controls: list[tuple[LoopControlKind, str, str, JsonObject]] = field(
+        default_factory=list
+    )
+    synced: list[WorkspaceManifest] = field(default_factory=list)
+    observed: list[ObservationEvent] = field(default_factory=list)
+    block_input: bool = False
+
+    @property
+    def active_turn_scope(self) -> RunScope | None:
+        return None
+
+    @property
+    def current_scope(self) -> RunScope:
+        return RunScope().push(RunLevel.PROGRAM, "program")
+
+    def submit_user_input(
+        self,
+        text: str,
+        *,
+        source: str,
+        metadata: JsonObject,
+    ) -> None:
+        if self.block_input:
+            raise RuntimeInputBlockedError("Maintenance decision is pending")
+        self.inputs.append((text, source, metadata))
+
+    def request_control(
+        self,
+        kind: LoopControlKind,
+        *,
+        source: str,
+        text: str,
+        metadata: JsonObject,
+    ) -> None:
+        self.controls.append((kind, source, text, metadata))
+
+    def pending_maintenance_decision(self):
+        return self.decisions.pending_decision()
+
+    def resolve_maintenance_decision(
+        self,
+        decision_id: str,
+        decision,
+    ) -> bool:
+        return self.decisions.submit_decision(decision_id, decision)
+
+    def sync_workspace_context(
+        self,
+        manifest: WorkspaceManifest,
+        *,
+        source: str,
+    ) -> None:
+        self.synced.append(manifest)
+
+    def write(self, event: ObservationEvent) -> None:
+        self.observed.append(event)
 
 
 def _auth() -> dict[str, str]:

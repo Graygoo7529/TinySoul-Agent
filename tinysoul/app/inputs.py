@@ -29,7 +29,6 @@ from tinysoul.runtime import (
 
 from .config import InputCommandSettings
 from .errors import AppContractError
-from .maintenance import MaintenanceDecisionInputRouter, MaintenanceDecisionRoute
 
 
 @dataclass(frozen=True)
@@ -207,7 +206,6 @@ class InputDispatcher:
         bus: SignalBus,
         program_inputs: Queue[ProgramInputEvent],
         active_turn_scope: Callable[[], RunScope | None],
-        decision_router: MaintenanceDecisionInputRouter | None = None,
         observations: ObservationEmitter | None = None,
         program_scope: RunScope | None = None,
     ) -> None:
@@ -215,7 +213,6 @@ class InputDispatcher:
         self._bus = bus
         self._program_inputs = program_inputs
         self._active_turn_scope = active_turn_scope
-        self._decision_router = decision_router
         self._observations = observations or NullObservationEmitter()
         self._program_scope = program_scope or RunScope().push(
             RunLevel.PROGRAM,
@@ -226,19 +223,6 @@ class InputDispatcher:
         self.dispatch(event)
 
     def dispatch(self, event: InputEvent) -> None:
-        if self._decision_router is not None:
-            route = self._decision_router.route(event.text, source=event.source)
-            if route is MaintenanceDecisionRoute.CONSUMED:
-                return
-            if route is MaintenanceDecisionRoute.CONSUMED_AND_EXIT:
-                self._program_inputs.put(
-                    ProgramInputEvent.exit_program(
-                        text=event.text,
-                        source=event.source,
-                        metadata={**event.metadata, "received_at": event.received_at},
-                    )
-                )
-                return
         turn_scope = self._active_turn_scope()
         turn_active = turn_scope is not None
         intent = self._parser.parse(event, turn_active=turn_active)
@@ -276,18 +260,6 @@ class InputDispatcher:
             self._emit_rejected(intent)
             return
         if intent.kind is InputIntentKind.EXIT_PROGRAM:
-            if (
-                self._decision_router is not None
-                and self._decision_router.stop_pending(source=intent.source)
-            ):
-                self._program_inputs.put(
-                    ProgramInputEvent.exit_program(
-                        text=intent.text,
-                        source=intent.source,
-                        metadata=intent.metadata,
-                    )
-                )
-                return
             if turn_active:
                 self._emit_control(
                     LoopControlKind.EXIT_PROGRAM,
@@ -344,18 +316,6 @@ class InputDispatcher:
             return
         if kind is not LoopControlKind.EXIT_PROGRAM:
             raise AppContractError(f"Unsupported input control: {kind.value}")
-        if (
-            self._decision_router is not None
-            and self._decision_router.stop_pending(source=source)
-        ):
-            self._program_inputs.put(
-                ProgramInputEvent.exit_program(
-                    text=text,
-                    source=source,
-                    metadata=payload,
-                )
-            )
-            return
         if turn_scope is not None:
             self._emit_control(kind, text=text, scope=turn_scope)
             return

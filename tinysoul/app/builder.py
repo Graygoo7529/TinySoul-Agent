@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from uuid import uuid4
 
 from tinysoul.action import (
     ActionEngine,
@@ -38,8 +37,8 @@ from tinysoul.context.errors import ContextError
 from tinysoul.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
+    EndpointHost,
     EndpointReady,
-    EndpointRequestError,
     EndpointSettings,
 )
 from tinysoul.home import (
@@ -66,7 +65,6 @@ from tinysoul.memory import (
 from tinysoul.memory.errors import MemoryError
 from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.infra.json import JsonObject
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -81,7 +79,6 @@ from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.loop.program import ProgramRunner
-from tinysoul.loop.signals import LoopControlKind
 from tinysoul.loop.maintenance import ProgramMaintenanceRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
@@ -135,19 +132,18 @@ from tinysoul.session.projection import (
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
-    WorkspaceManifest,
     WorkspaceMirrorService,
     WorkspacePromptReferenceResolver,
     WorkspaceTurnPreparationHandler,
     parse_workspace_settings,
     register_workspace_actions,
-    workspace_snapshot_signal,
 )
 from tinysoul.workspace.errors import WorkspaceError
 
 from .config import AppSettings, parse_app_settings
 from .errors import AppError, AppInvariantError
-from .inputs import InputCommandParser, InputDispatcher, InputEvent, InputSource
+from .gateway import AppCommandGateway
+from .inputs import InputCommandParser, InputDispatcher, InputSource
 from .maintenance import HomeDecisionBroker
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .runtime import TinySoulApp
@@ -588,80 +584,43 @@ class TinySoulAppBuilder:
                 bus=bus,
                 program_inputs=program_runner.input_queue,
                 active_turn_scope=lambda: turn_runner.active_scope,
-                decision_router=decision_broker,
                 observations=observations,
                 program_scope=program_runner.scope,
             )
+            gateway = AppCommandGateway(
+                dispatcher=dispatcher,
+                decisions=decision_broker,
+                bus=bus,
+                active_turn_scope=lambda: turn_runner.active_scope,
+                program_scope=program_runner.scope,
+            )
             endpoint: EndpointEngine | None = None
+            services = ()
             input_sources = tuple(self._input_sources)
             if self._endpoint_settings is not None:
                 if endpoint_events is None:
                     raise AppInvariantError("Endpoint event buffer was not assembled")
-
-                def sync_workspace(manifest: WorkspaceManifest) -> None:
-                    active_scope = turn_runner.active_scope
-                    if active_scope is None:
-                        return
-                    bus.emit(
-                        workspace_snapshot_signal(
-                            manifest,
-                            call_id=f"endpoint_{uuid4().hex[:12]}",
-                            scope=active_scope,
-                            source="endpoint.workspace",
-                        )
-                    )
-
-                def submit_endpoint_input(
-                    text: str,
-                    source: str,
-                    metadata: JsonObject,
-                ) -> None:
-                    try:
-                        dispatcher.submit(
-                            InputEvent(text=text, source=source, metadata=metadata)
-                        )
-                    except AppError as exc:
-                        raise EndpointRequestError(
-                            status_code=409,
-                            code="input.rejected",
-                            message=str(exc),
-                        ) from exc
-
-                def request_endpoint_control(
-                    kind: LoopControlKind,
-                    source: str,
-                    text: str,
-                    metadata: JsonObject,
-                ) -> None:
-                    try:
-                        dispatcher.request_control(
-                            kind,
-                            source=source,
-                            text=text,
-                            metadata=metadata,
-                        )
-                    except AppError as exc:
-                        raise EndpointRequestError(
-                            status_code=409,
-                            code="control.rejected",
-                            message=str(exc),
-                        ) from exc
-
                 endpoint = EndpointEngine(
                     settings=self._endpoint_settings,
                     events=endpoint_events,
+                    gateway=gateway,
+                    observations=observations,
                     workspace=workspace,
                     session=session,
                     daily_lifecycle=daily_lifecycle,
-                    decisions=decision_broker,
-                    submit_input=submit_endpoint_input,
-                    request_control=request_endpoint_control,
-                    active_turn_scope=lambda: turn_runner.active_scope,
-                    sync_workspace=sync_workspace,
-                    ready=self._endpoint_ready,
                 )
-                input_sources = (*input_sources, endpoint)
-            if not input_sources and app_settings.interactive:
+                services = (
+                    EndpointHost(
+                        engine=endpoint,
+                        settings=self._endpoint_settings,
+                        ready=self._endpoint_ready,
+                    ),
+                )
+            if (
+                not input_sources
+                and app_settings.interactive
+                and self._endpoint_settings is None
+            ):
                 input_sources = (
                     TerminalInputSource(
                         eof_command=app_settings.input_commands.exit_commands[0],
@@ -680,8 +639,10 @@ class TinySoulAppBuilder:
             return TinySoulApp(
                 program_runner=program_runner,
                 input_dispatcher=dispatcher,
+                gateway=gateway,
                 input_sources=input_sources,
                 program_event_sources=program_event_sources,
+                services=services,
                 observations=observations,
                 endpoint=endpoint,
             )

@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Queue
 from threading import Event, RLock, Thread
+
+import pytest
 
 from tinysoul.app import (
     AppSettings,
+    AppCommandGateway,
+    InputCommandParser,
+    InputDispatcher,
+    InputEvent,
     SchedulerSettings,
     HomeDecisionBroker,
     TinySoulAppBuilder,
@@ -20,8 +27,13 @@ from tinysoul.home import (
 from tinysoul.home.overlay import HomeOverlayState
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.llm import TaskCall, TaskResult
-from tinysoul.loop import ProgramOutcome, ProgramWorkStatus
-from tinysoul.runtime import ObservationEvent, ObservationLevel
+from tinysoul.loop import ProgramInputEvent, ProgramOutcome, ProgramWorkStatus
+from tinysoul.runtime import (
+    ObservationEvent,
+    ObservationLevel,
+    RuntimeInputBlockedError,
+    SignalBus,
+)
 
 
 @dataclass
@@ -90,6 +102,43 @@ def test_program_exit_can_stop_pending_manual_review() -> None:
     assert broker.stop_pending(source="terminal") is False
 
 
+def test_gateway_requires_typed_endpoint_decision_while_terminal_can_reply() -> None:
+    observations = _RecordingObservations()
+    broker = HomeDecisionBroker(observations=observations)
+    queue: Queue[ProgramInputEvent] = Queue()
+    bus = SignalBus()
+    dispatcher = InputDispatcher(
+        parser=InputCommandParser(),
+        bus=bus,
+        program_inputs=queue,
+        active_turn_scope=lambda: None,
+    )
+    gateway = AppCommandGateway(
+        dispatcher=dispatcher,
+        decisions=broker,
+        bus=bus,
+        active_turn_scope=lambda: None,
+    )
+    decisions: list[HomeMaintenanceDecision | None] = []
+    thread = Thread(target=lambda: decisions.append(broker.decide(_change())))
+    thread.start()
+    assert observations.emitted.wait(timeout=2.0)
+
+    try:
+        with pytest.raises(RuntimeInputBlockedError):
+            gateway.submit_user_input("apply", source="endpoint", metadata={})
+
+        assert broker.pending is True
+        assert queue.empty()
+        gateway.submit(InputEvent("apply", source="terminal"))
+    finally:
+        if broker.pending:
+            broker.stop_pending(source="test.cleanup")
+    thread.join(timeout=2.0)
+
+    assert decisions == [HomeMaintenanceDecision.APPLY]
+
+
 def test_app_manual_home_maintenance_reviews_and_applies_runtime_diff(
     tmp_path: Path,
 ) -> None:
@@ -128,8 +177,8 @@ def test_app_manual_home_maintenance_reviews_and_applies_runtime_diff(
     thread = Thread(target=run_app)
     thread.start()
     assert sink.decision_prompt.wait(timeout=5.0)
-    app.submit_input("apply", source="terminal")
-    app.submit_input("exit", source="terminal")
+    app.submit_interactive_event(InputEvent("apply", source="terminal"))
+    app.submit_interactive_event(InputEvent("exit", source="terminal"))
     thread.join(timeout=5.0)
 
     assert thread.is_alive() is False

@@ -31,6 +31,8 @@ tinysoul serve --root <project-root> --host 127.0.0.1 --port 0 --mode model
 
 `port=0` 使用预绑定 socket 取得空闲端口。未显式传入 `--token` 时后端生成进程级 token，并通过 child stdout 交给父进程；不要把 token 写入 localStorage、日志或 URL。前端退出时调用 `POST /v1/control` 提交 `exit_program`，等待 sidecar 正常退出；超时后才由 Tauri 收尾子进程。
 
+调试时可使用 `tinysoul serve ... --terminal --terminal-mode verbose` 同时启用 stdin/Console；该模式把 ready JSON 写入 stderr，不适合作为桌面 sidecar handshake。默认不带 `--terminal` 的 serve 仍是 headless 模式。
+
 生产安装包需要携带真实 CPython 环境及 TinySoul desktop extra，不能只把当前入口冻结为不完整的单文件解释器，因为 Script Python action 使用当前 Python executable。desktop extra 包含 FastAPI、Uvicorn 和 WebSockets。
 
 ## 鉴权与通用规则
@@ -55,7 +57,7 @@ HTTP 错误统一为：
 ```
 
 - `401`：token 缺失或错误；
-- `409`：Program 尚未完成 active-day 初始化、控制与当前状态冲突，或 Workspace revision/digest 过期；
+- `409`：Program 尚未完成 active-day 初始化、Maintenance decision 待处理、控制与当前状态冲突，或 Workspace revision/digest 过期；
 - `413`：请求超过 Endpoint body 上限；
 - `422`：请求 schema 或 Session recall 参数无效；
 - `500`：模块 I/O 或内部失败，正文不暴露绝对路径、traceback 或原始异常。
@@ -75,7 +77,7 @@ HTTP 错误统一为：
 }
 ```
 
-返回 `202 {"accepted": true}`。空闲时输入进入新的 User Turn；Turn 活跃时输入按现有 InputDispatcher 语义追加到当前 Turn；Maintenance decision pending 时普通文本不会绕过 broker。
+返回 `202 {"accepted": true}`。空闲时输入进入新的 User Turn；Turn 活跃时输入按现有 InputDispatcher 语义追加到当前 Turn。Maintenance decision pending 时返回 `409 maintenance.decision_required`，普通文本（包括 `apply`、`discard`、`stop`）不会解决该 decision。
 
 ### 控制
 
@@ -131,8 +133,8 @@ WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 
 主要 UI 映射：
 
-- normal：`turn.started`、`turn.output`、Turn terminal、Daily/Program work 与 `workspace.changed`；
-- verbose：`loop.phase.started/completed`、`llm.task.started/completed/failed`、`action.call`、`action.result`、`context.background.snapshot/changed`；
+- normal：`turn.output`、Turn terminal、Daily/Program work 与 `workspace.changed`；
+- verbose：`turn.started`、`loop.phase.started/completed`、`llm.task.started/completed/failed`、`action.call`、`action.result`、`context.background.snapshot/changed`；
 - model：`llm.model.request/response`。同一次 LLM Task 的全部事件都带相同 `payload.task_id`；request 中的 `messages` 和 `tools` 是完整 provider-neutral 构造结果。
 
 `context.background.*.payload.entries` 包含当前 top link、content、source、owner 和 evictable，可直接驱动 Top Link 面板。MODEL 事件不含图片原始字节、provider 原始响应、reasoning content、密钥或绝对路径。
@@ -179,11 +181,11 @@ Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写�
 
 删除是可恢复 Trash move，不提供直接物理删除。收到 `workspace.conflict` 时保留用户编辑缓冲，重新拉取 Manifest/正文，再由用户决定合并或覆盖，不能自动用新 digest 重试旧正文。
 
-Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；低 revision snapshot 在 Context 中幂等忽略，同 revision 内容冲突仍作为不变量失败。
+Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；`workspace.changed` 经 ObservationRouter 同时分发到已配置的 Console 与 Endpoint event buffer，不是直接写入 WebSocket buffer。
 
 ## Maintenance
 
 - `GET /v1/maintenance/decision`：取得当前 pending decision_id 和 Home change；
 - `POST /v1/maintenance/decision`：提交 decision_id 以及 `apply`、`discard` 或 `stop`。
 
-decision_id 防止旧对话框确认后续 change。`409 maintenance.decision_stale` 时关闭旧对话框并重新获取 pending 状态。
+decision_id 防止旧对话框确认后续 change。`409 maintenance.decision_stale` 时关闭旧对话框并重新获取 pending 状态；`409 maintenance.decision_required` 时保持输入草稿并先展示当前 decision。

@@ -18,6 +18,7 @@ from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
 from .outputs import ConsoleOutputSink
+from .sources import TerminalInputSource
 from .initializer import ProjectInitializer
 
 
@@ -106,16 +107,28 @@ def _serve(argv: Sequence[str]) -> int:
         choices=tuple(level.value for level in ObservationLevel),
         default=ObservationLevel.MODEL.value,
     )
+    parser.add_argument(
+        "--terminal",
+        action="store_true",
+        help="also attach terminal input and console output",
+    )
+    parser.add_argument(
+        "--terminal-mode",
+        choices=tuple(level.value for level in ObservationLevel),
+        default=ObservationLevel.NORMAL.value,
+        help="terminal observation detail when --terminal is enabled",
+    )
     args = parser.parse_args(tuple(argv))
     root = args.root.resolve()
     token = args.token or token_urlsafe(32)
     try:
         mode = ObservationLevel(args.mode)
+        terminal_mode = ObservationLevel(args.terminal_mode)
         config = ConfigEnvironment.from_project_root(
             root,
             overrides={
                 "app.interactive": True,
-                "app.output.mode": mode.value,
+                "app.output.mode": terminal_mode.value,
             },
         )
         app_settings = config.parse_section("app", parse_app_settings)
@@ -127,15 +140,24 @@ def _serve(argv: Sequence[str]) -> int:
         )
 
         def ready(value: EndpointReady) -> None:
-            print(dumps_json(value.to_json()), flush=True)
+            stream = sys.stderr if args.terminal else sys.stdout
+            print(dumps_json(value.to_json()), file=stream, flush=True)
 
-        app = (
+        builder = (
             TinySoulAppBuilder(root)
             .with_config_environment(config)
             .with_app_settings(app_settings)
             .with_endpoint(endpoint_settings, ready=ready)
-            .build()
         )
+        if args.terminal:
+            builder = builder.with_input_source(
+                TerminalInputSource(
+                    eof_command=app_settings.input_commands.exit_commands[0],
+                )
+            ).with_output_sink(
+                ConsoleOutputSink(max_chars=app_settings.output.model_max_chars)
+            )
+        app = builder.build()
         app.run()
         return 0
     except KeyboardInterrupt:
