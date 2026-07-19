@@ -1,0 +1,31 @@
+name = "shell.wait"
+domain = "shell"
+
+[tool]
+description = "Wait for the active Shell job to finish, receive valid same-Turn input/control, or reach the requested interval."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped Shell execution id."
+
+[tool.schema.properties.wait_seconds]
+type = "integer"
+description = "Bounded wait interval; defaults to shared supervised process configuration."
+
+[semantic]
+use_when = ["The current Turn has a running Shell job that needs paced supervision"]
+avoid_when = ["No Shell job is active", "The job already needs apply or discard"]
+effects = ["read_only"]
+examples = ["Wait for the current Shell job"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "shell.wait"

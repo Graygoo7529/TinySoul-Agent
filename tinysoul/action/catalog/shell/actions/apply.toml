@@ -1,0 +1,27 @@
+name = "shell.apply"
+domain = "shell"
+
+[tool]
+description = "Commit a successfully completed Shell mirror diff using per-path baseline conflict checks, then close the job."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped Shell execution id."
+
+[semantic]
+use_when = ["A ready_to_apply Shell job produced reviewed Workspace changes"]
+avoid_when = ["The job is running, failed, timed out, stopped, or already completed without changes"]
+effects = ["modifying"]
+examples = ["Apply reviewed Shell candidate changes"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "shell.apply"

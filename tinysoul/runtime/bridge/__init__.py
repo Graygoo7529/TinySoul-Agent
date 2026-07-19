@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from .memory import RuntimeMemoryBridge
     from .session import RuntimeSessionBridge
     from .script import RuntimeScriptBridge
+    from .shell import RuntimeShellBridge
+    from .supervised_process import RuntimeSupervisedProcessBridge
     from .workspace import RuntimeWorkspaceBridge
 
 __all__ = [
@@ -28,6 +30,8 @@ __all__ = [
     "RuntimeMemoryBridge",
     "RuntimeSessionBridge",
     "RuntimeScriptBridge",
+    "RuntimeShellBridge",
+    "RuntimeSupervisedProcessBridge",
     "RuntimeWorkspaceBridge",
 ]
 
@@ -73,6 +77,14 @@ def __getattr__(name: str) -> object:
         from .script import RuntimeScriptBridge
 
         return RuntimeScriptBridge
+    if name == "RuntimeShellBridge":
+        from .shell import RuntimeShellBridge
+
+        return RuntimeShellBridge
+    if name == "RuntimeSupervisedProcessBridge":
+        from .supervised_process import RuntimeSupervisedProcessBridge
+
+        return RuntimeSupervisedProcessBridge
     if name == "RuntimeWorkspaceBridge":
         from .workspace import RuntimeWorkspaceBridge
 

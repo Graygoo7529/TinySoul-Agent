@@ -28,5 +28,5 @@ examples = ["Run workspace:scripts/list-inputs.sh against the mirrored Workspace
 parallel_policy = "serial"
 
 [backend]
-kind = "script"
+kind = "supervised_process"
 handler = "script.run_bash"

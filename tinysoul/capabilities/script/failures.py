@@ -10,5 +10,4 @@ class ScriptFailureKind(StrEnum):
 
     CONFIGURATION_FAILED = "script.configuration_failed"
     CONTRACT_VIOLATION = "script.contract_violation"
-    EXECUTION_FAILED = "script.execution_failed"
     INTERNAL_FAILURE = "script.internal_failure"

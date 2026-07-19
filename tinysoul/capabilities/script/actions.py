@@ -14,7 +14,12 @@ from tinysoul.action import (
     ActionResultStage,
 )
 from tinysoul.action.backends import LLMActionTaskRunner
-from tinysoul.action.core.hooks import HookOutcome
+from tinysoul.capabilities.supervised_process import (
+    SupervisedProcessManager,
+    SupervisedProcessObservation,
+    SupervisedProcessOwner,
+)
+from tinysoul.capabilities.supervised_process.errors import SupervisedProcessError
 from tinysoul.context import PromptReferenceError
 from tinysoul.home import (
     AgentHomeContractError,
@@ -36,9 +41,9 @@ from tinysoul.workspace import (
 from .config import ScriptSettings
 from .dependencies import require_script_dependencies
 from .errors import ScriptError, ScriptPolicyError
-from .jobs import ScriptJobManager, ScriptJobObservation
 from .models import ScriptLanguage, ScriptMutation, ScriptSource
 from .policy import ScriptPolicy
+from .process import ScriptProcessPreparer
 from .prompts import ScriptEditPromptBuilder
 from .sources import ScriptSourceResolver
 
@@ -412,7 +417,7 @@ class ScriptRunExecutor(ActionExecutor):
         settings: ScriptSettings,
         resolver: ScriptSourceResolver,
         policy: ScriptPolicy,
-        jobs: ScriptJobManager,
+        jobs: SupervisedProcessManager,
         bus: SignalBus,
         home_bridge: ScriptHomeRuntimeBridge | None,
         workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
@@ -452,8 +457,18 @@ class ScriptRunExecutor(ActionExecutor):
             self._policy.validate(source)
             observation = self._jobs.start(
                 turn_id=execution.framework.turn_id,
-                source=source,
-                args=args,
+                owner=SupervisedProcessOwner.SCRIPT,
+                identity={
+                    "source_link": source.link,
+                    "source_digest": source.digest,
+                    "source_snapshot_digest": source.snapshot_digest,
+                    "language": source.language.value,
+                },
+                prepare=ScriptProcessPreparer(
+                    source=source,
+                    args=args,
+                    settings=self._settings,
+                ),
                 control=context.control,
                 bus=context.signal_bus or self._bus,
             )
@@ -477,7 +492,12 @@ class ScriptRunExecutor(ActionExecutor):
                 "Workspace changed while the Script execution mirror was prepared.",
                 {"reason": "workspace_mirror_changed"},
             )
-        except (ScriptError, AgentHomeContractError, WorkspaceContractError) as exc:
+        except (
+            ScriptError,
+            SupervisedProcessError,
+            AgentHomeContractError,
+            WorkspaceContractError,
+        ) as exc:
             return _failed(
                 execution,
                 "Script execution could not start.",
@@ -495,13 +515,11 @@ class ScriptJobExecutor(ActionExecutor):
         self,
         *,
         operation: str,
-        settings: ScriptSettings,
-        jobs: ScriptJobManager,
+        jobs: SupervisedProcessManager,
         bus: SignalBus,
         workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
     ) -> None:
         self._operation = operation
-        self._settings = settings
         self._jobs = jobs
         self._bus = bus
         self._workspace_bridge = workspace_bridge
@@ -522,7 +540,7 @@ class ScriptJobExecutor(ActionExecutor):
             if self._operation == "wait":
                 wait = execution.call.params.get(
                     "wait_seconds",
-                    self._settings.default_wait_seconds,
+                    self._jobs.settings.default_wait_seconds,
                 )
                 if isinstance(wait, bool) or not isinstance(wait, int):
                     return _failed(
@@ -534,6 +552,7 @@ class ScriptJobExecutor(ActionExecutor):
                     execution,
                     self._jobs.wait(
                         turn_id=execution.framework.turn_id,
+                        owner=SupervisedProcessOwner.SCRIPT,
                         execution_id=execution_id,
                         wait_seconds=wait,
                         control=context.control,
@@ -545,6 +564,7 @@ class ScriptJobExecutor(ActionExecutor):
                     execution,
                     self._jobs.stop(
                         turn_id=execution.framework.turn_id,
+                        owner=SupervisedProcessOwner.SCRIPT,
                         execution_id=execution_id,
                     ),
                 )
@@ -553,7 +573,7 @@ class ScriptJobExecutor(ActionExecutor):
                 cursor = execution.call.params.get("cursor", 0)
                 max_chars = execution.call.params.get(
                     "max_chars",
-                    self._settings.max_candidate_read_chars,
+                    self._jobs.settings.max_candidate_read_chars,
                 )
                 if (
                     path is None
@@ -571,6 +591,7 @@ class ScriptJobExecutor(ActionExecutor):
                     execution,
                     self._jobs.read_candidate(
                         turn_id=execution.framework.turn_id,
+                        owner=SupervisedProcessOwner.SCRIPT,
                         execution_id=execution_id,
                         path=path,
                         cursor=cursor,
@@ -580,6 +601,7 @@ class ScriptJobExecutor(ActionExecutor):
             if self._operation == "apply":
                 applied = self._jobs.apply(
                     turn_id=execution.framework.turn_id,
+                    owner=SupervisedProcessOwner.SCRIPT,
                     execution_id=execution_id,
                 )
                 (context.signal_bus or self._bus).emit(
@@ -596,6 +618,7 @@ class ScriptJobExecutor(ActionExecutor):
                     execution,
                     self._jobs.discard(
                         turn_id=execution.framework.turn_id,
+                        owner=SupervisedProcessOwner.SCRIPT,
                         execution_id=execution_id,
                     ),
                 )
@@ -606,7 +629,7 @@ class ScriptJobExecutor(ActionExecutor):
                 "The job remains available for review or discard.",
                 {"reason": "workspace_apply_conflict"},
             )
-        except (ScriptError, WorkspaceContractError) as exc:
+        except (ScriptError, SupervisedProcessError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script job operation failed.",
@@ -621,39 +644,19 @@ class ScriptJobExecutor(ActionExecutor):
         )
 
 
-class ScriptAnswerGuard:
-    """Prevent a final answer while a Turn still owns an unresolved Script job."""
-
-    def __init__(self, jobs: ScriptJobManager) -> None:
-        self._jobs = jobs
-
-    def check(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> HookOutcome:
-        del context
-        if self._jobs.has_unresolved(execution.framework.turn_id):
-            return HookOutcome.failed(
-                "Resolve the active Script job with wait/stop and apply/discard before answering.",
-                frame_data={"reason": "unresolved_script_job"},
-            )
-        return HookOutcome.success()
-
-
 def register_script_actions(
     builder: ActionEngineBuilder,
     *,
     settings: ScriptSettings,
     resolver: ScriptSourceResolver,
-    jobs: ScriptJobManager,
+    jobs: SupervisedProcessManager,
     workspace: WorkspaceEngine,
     bus: SignalBus,
     llm_action: LLMActionTaskRunner,
     home_bridge: ScriptHomeRuntimeBridge | None = None,
     workspace_bridge: ScriptWorkspaceRuntimeBridge | None = None,
 ) -> ActionEngineBuilder:
-    """Register enabled Script actions and the unresolved-job answer guard."""
+    """Register enabled Script authoring and execution actions."""
 
     require_script_dependencies(settings)
     if not settings.enabled:
@@ -726,14 +729,11 @@ def register_script_actions(
             f"script.{operation}",
             ScriptJobExecutor(
                 operation=operation,
-                settings=settings,
                 jobs=jobs,
                 bus=bus,
                 workspace_bridge=workspace_bridge,
             ),
         )
-    builder.register_execution_hook("script.answer_guard", ScriptAnswerGuard(jobs))
-    builder.use_action_execution_hooks("core.answer", "script.answer_guard")
     return builder
 
 
@@ -799,7 +799,7 @@ def _mutation_payload(
 
 def _observation_result(
     execution: ActionExecution,
-    observation: ScriptJobObservation,
+    observation: SupervisedProcessObservation,
 ) -> ActionResult:
     if observation.timed_out:
         return ActionResult.timeout(

@@ -327,7 +327,7 @@ class ActionBatchRunner:
         for execution in executions:
             if execution.action.backend.kind in {
                 ActionBackendKind.SUBPROCESS,
-                ActionBackendKind.SCRIPT,
+                ActionBackendKind.SUPERVISED_PROCESS,
             }:
                 return max(
                     self._cooperative_cancel_grace_seconds,

@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: in_progress (confirmed design; implementation starts from Stage 1 Shared Supervised Process)
+status: in_progress (Stage 1 Shared Supervised Process and Stage 2 Immediate Shell completed; Stage 3 requires semantic confirmation)
 
 前置计划（已完成）：`20260715-done-agent capabilities stages 1-3 execution plan.md`、`20260718-done-workspace inspection search and analyze execution plan.md`。
 
@@ -21,12 +21,12 @@ status: in_progress (confirmed design; implementation starts from Stage 1 Shared
 5. 监督执行只提供“事务隔离 + 策略检查”，不宣称 OS 硬沙箱。Workspace mirror 是唯一受 TinySoul 提交控制的文件边界，但脚本或命令仍可能访问宿主绝对路径、网络、环境或启动子进程；apply/discard 不能回滚 mirror 以外的副作用。
 6. `tinysoul/action/backends/process.py` 继续是低层 managed process 原语，不注册 Action handler；同步 `subprocess` adapter 和 Turn-scoped `supervised_process` service 都复用它。
 7. `supervised_process` 是 capability 内部共享执行设施，不是模型可见 domain，不建立 Catalog 目录、HOW 或 Link namespace。
-8. 当前代码使用 `backend.kind=script` 和 Script-owned job manager。Stage 1 将直接迁移到 `supervised_process`，不保留 backend kind、配置段或 handler alias 的双轨兼容。
+8. 当前代码统一使用 `backend.kind=supervised_process` 和 shared manager；旧 `script` backend kind、Script-owned job manager 与共用配置键已删除，不保留双轨兼容。
 
 ## 推进路线
 
-1. **Stage 1 Shared Supervised Process**：抽取 Script/Shell 共用的 Turn-scoped 进程、事务、监督和 cleanup 层，并把现有 Script 无行为回归地迁移过去；
-2. **Stage 2 Immediate Shell**：建立独立 `shell` domain，提供 PowerShell、Cmd 与可选 Bash 的即时命令执行及监督收尾；
+1. **Stage 1 Shared Supervised Process（done）**：抽取 Script/Shell 共用的 Turn-scoped 进程、事务、监督和 cleanup 层，并把现有 Script 无行为回归地迁移过去；
+2. **Stage 2 Immediate Shell（done）**：建立独立 `shell` domain，提供 PowerShell、Cmd 与可选 Bash 的即时命令执行及监督收尾；
 3. **Stage 3 Deterministic Utilities**：按真实任务补充数学、时间、编码和结构化格式转换等纯输入输出工具；
 4. **Stage 4 Knowledge Retrieval Enhancements**：实现 Home Backlink，并在数据规模和质量需求成立后增强 Memory 片段检索；
 5. **Stage 5 Connectors And Interaction**：按具体授权与审批边界增加外部服务连接器、导入导出和交互入口。
@@ -97,7 +97,7 @@ Script 只保留 `enabled`、Python/Bash adapter、executable、`max_source_char
 
 - action 参数、状态、owner、execution id、进程退出、资源上限、candidate read、apply 冲突等可修正问题返回稳定局部 ActionResult；
 - Script/Shell 自有配置和依赖错误仍归各自 capability，例如 `script.configuration_failed`、`shell.configuration_failed`；
-- wait pacing、额外 Cycle 判断、Turn cleanup 等非 Action 共用 activity 失败通过 `supervised_process` Runtime bridge 保持共享层归属；
+- wait pacing、额外 Cycle 判断等非 Action 共用 activity 失败通过 `supervised_process` Runtime bridge 保持共享层归属；Turn cleanup 独立尝试所有回收步骤后聚合共享执行层错误，由 Loop 在 `finally` 中形成 Observation，不发起新的恢复控制流；
 - Workspace/Home/Runtime 的 IO、reconciliation、trap 与 invariant failure 保持 owner module 语义，不被泛化成进程业务失败；
 - Catalog/backend/registrar 不一致仍属于 Action 装配失败。
 
@@ -113,6 +113,12 @@ Script 只保留 `enabled`、Python/Bash adapter、executable、`max_source_char
 - 旧 `script-job-*`、`backend.kind=script`、Script-owned activity controller 和重复共用配置全部移除。
 
 测试至少覆盖 backend migration、配置旧键拒绝、Script 全量回归、跨 owner 第二次 run 拒绝、owner 错误操作拒绝、Cycle pacing、Signal predicate、Runtime transfer cleanup、wheel Catalog/template 和隔离安装。
+
+### 1.8 实施结果
+
+`tinysoul.capabilities.supervised_process` 已拥有共享 settings、owner/state models、Turn-scoped manager、最小环境、answer guard 与 non-Action Runtime bridge；manager 通过 capability-owned preparer 接收冻结 Script 入口或固定 Shell argv，不解释源码或命令。`tinysoul.workspace` 继续拥有 mirror/diff/CAS/bundle mutation。Action backend、Catalog 与 process cancellation 已统一为 `supervised_process`，旧 `ScriptJobManager`、`ScriptJobState`、`script-job-*` 和 `[capabilities.script]` 共用监督键已删除。
+
+Script 通过 `ScriptProcessPreparer` 保持 source Link、snapshot digest、policy、promote、显式 apply/discard 和候选观察语义；共享 manager 对 execution id、Turn scope 与 owner 做统一校验，并只为 running job 申请额外 Cycle。共享 answer guard 已覆盖 Script/Shell unresolved job；Turn cleanup 会在 watcher/process/staging 全部尝试后聚合错误并交由 Loop 观察。Script 定向回归、Action/Loop/App 集成和静态类型检查已通过。
 
 ## Stage 2 Immediate Shell
 
@@ -180,6 +186,12 @@ Shell domain HOW 应说明 PowerShell/Cmd/Bash 的选择、workspace mirror、�
 - 长任务 Cycle pacing、同 Turn input/control 唤醒、日志 cursor/candidate read、Turn/Runtime transfer cleanup；
 - App 隔离项目 E2E、全量 pytest、静态类型检查、wheel 构建和隔离安装。
 
+### 2.7 实施结果
+
+`tinysoul.capabilities.shell` 已提供独立 settings/dependency/policy/process/action 分层和八个 Catalog action。PowerShell 使用 fixed non-profile/non-interactive encoded-command argv，Cmd 使用固定 `/D /Q /S /C`，Bash 使用固定 non-profile/non-interactive `-c`；三者都由 `ManagedProcessRunner` 以 `shell=False` 启动，模型不能传 executable、flags、env 或 stdin。
+
+当前项目配置启用 PowerShell/Cmd、关闭 Bash；`tinysoul init` 模板关闭整个 Shell capability，因此 effective Catalog 和 Home mount 都不暴露 Shell。当前项目的 capability domain HOW 使用正式 `home/how_domain/<domain>/DOMAIN.md` Layout；同时修正了 Resource/Web/Script 遗留的扁平 HOW 文件。真实 PowerShell/Cmd、无 diff 自动清理、有 diff apply、失败 retained、working-directory 边界、跨 owner 单 job 与共享 answer guard 测试已通过；全量 pytest、静态类型检查以及 wheel 构建和隔离安装验证均已闭环。
+
 ## Stage 3 Deterministic Utilities
 
 只实施真实任务频繁需要且 Python 标准库或稳定依赖能够确定性完成的 utility。候选包括数学计算、日期/时区转换、编码/hash、JSON/TOML/YAML/CSV 的校验与受控转换。进入实施前需要逐项确认：
@@ -216,4 +228,4 @@ Backlink 是 Home-owned Link 图能力，不放入 Infra 或通用 capability：
 
 ## 当前下一步
 
-从 Stage 1 开始：先建立共享配置/模型/job manager 和 `supervised_process` backend kind，迁移 Script 并完成行为回归；在这一步验收通过后再增加 Shell Catalog、capability、配置、HOW 与平台 smoke。不得在 Stage 1 顺便引入 Shell inline command，也不得在 Stage 2 重写 Script Link authoring 语义。
+Stage 1 与 Stage 2 已完成。下一步在实施 Stage 3 前确认真实 deterministic utility 集合、输入输出协议、business timezone 与 Workspace artifact 边界；不得借 Utilities 引入自由字符串 `eval`、第二套任意命令执行或新的未确认持久状态。

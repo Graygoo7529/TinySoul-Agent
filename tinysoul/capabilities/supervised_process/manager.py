@@ -1,15 +1,13 @@
-"""Turn-scoped supervised Script execution jobs."""
+"""Turn-scoped supervised process jobs shared by Script and Shell."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
-import sys
 from threading import RLock
 from time import monotonic
+from typing import NoReturn, Protocol
 from uuid import uuid4
-from typing import Protocol
 
 from tinysoul.action import ActionExecutionControl
 from tinysoul.action.backends import (
@@ -18,19 +16,18 @@ from tinysoul.action.backends import (
     ManagedProcessRunner,
     ManagedProcessStartError,
 )
-from tinysoul.infra import JsonObject, StagingDirectoryManager
-from tinysoul.infra.filesystem import file_digest
 from tinysoul.context import (
     SIGNAL_INPUT_APPEND,
     ContextError,
     parse_input_append_signal,
 )
+from tinysoul.infra import JsonObject, StagingDirectoryManager
+from tinysoul.loop import LoopError
 from tinysoul.loop.signals import (
     SIGNAL_CONTROL_REQUEST,
     LoopControlKind,
     parse_control_request_signal,
 )
-from tinysoul.loop import LoopError
 from tinysoul.runtime import (
     RunLevel,
     RuntimeException,
@@ -39,51 +36,68 @@ from tinysoul.runtime import (
     SignalWatch,
 )
 from tinysoul.workspace import (
-    WorkspaceManifest,
     WorkspaceMirror,
     WorkspaceMirrorConflict,
     WorkspaceMirrorService,
 )
 
-from .config import ScriptSettings
-from .errors import ScriptContractError, ScriptExecutionError, ScriptStateError
-from .models import ScriptJobState, ScriptLanguage, ScriptSource
+from .config import SupervisedProcessSettings
+from .errors import (
+    SupervisedProcessContractError,
+    SupervisedProcessExecutionError,
+    SupervisedProcessStateError,
+)
+from .models import (
+    SupervisedProcessApply,
+    SupervisedProcessObservation,
+    SupervisedProcessOwner,
+    SupervisedProcessPreparer,
+    SupervisedProcessState,
+)
+
+
+_RESERVED_IDENTITY_KEYS = {
+    "execution_id",
+    "owner",
+    "job_state",
+    "elapsed_seconds",
+    "exit_code",
+    "failure_reason",
+    "stdout",
+    "stderr",
+    "candidates",
+    "candidate_count",
+    "candidates_truncated",
+    "workspace_links",
+    "deleted_links",
+    "workspace_changes",
+    "workspace_revision",
+}
 
 
 @dataclass
-class _ScriptJob:
+class _ProcessJob:
     execution_id: str
     turn_id: str
-    source: ScriptSource
+    owner: SupervisedProcessOwner
+    identity: JsonObject
     staging_root: Path
     mirror: WorkspaceMirror
     process: ManagedProcess
     started_at: float
     deadline: float
     signal_watch: SignalWatch
+    auto_complete_without_changes: bool
     stdout_cursor: int = 0
     stderr_cursor: int = 0
-    state: ScriptJobState = ScriptJobState.RUNNING
+    state: SupervisedProcessState = SupervisedProcessState.RUNNING
     failure_reason: str = ""
     supervision_cycles: int = 0
     next_cycle_at: float = 0.0
 
 
-@dataclass(frozen=True)
-class ScriptJobObservation:
-    payload: JsonObject
-    timed_out: bool = False
-    failed: bool = False
-
-
-@dataclass(frozen=True)
-class ScriptJobApply:
-    payload: JsonObject
-    manifest: WorkspaceManifest
-
-
-class ScriptRuntimeBridge(Protocol):
-    def from_script_error(
+class SupervisedProcessRuntimeBridge(Protocol):
+    def from_supervised_process_error(
         self,
         error: Exception,
         *,
@@ -91,100 +105,103 @@ class ScriptRuntimeBridge(Protocol):
     ) -> RuntimeException: ...
 
 
-class ScriptJobManager:
-    """Own at most one unresolved process job per active Turn."""
+class SupervisedProcessManager:
+    """Own at most one unresolved Script or Shell job per active Turn."""
 
     def __init__(
         self,
         *,
-        settings: ScriptSettings,
+        settings: SupervisedProcessSettings,
         mirror_service: WorkspaceMirrorService,
         staging: StagingDirectoryManager,
         process_runner: ManagedProcessRunner | None = None,
-        runtime_bridge: ScriptRuntimeBridge | None = None,
+        runtime_bridge: SupervisedProcessRuntimeBridge | None = None,
     ) -> None:
         self._settings = settings
         self._mirrors = mirror_service
         self._staging = staging
         self._process_runner = process_runner or ManagedProcessRunner()
         self._runtime_bridge = runtime_bridge
-        self._jobs: dict[str, _ScriptJob] = {}
+        self._jobs: dict[str, _ProcessJob] = {}
         self._by_turn: dict[str, str] = {}
         self._lock = RLock()
+
+    @property
+    def settings(self) -> SupervisedProcessSettings:
+        return self._settings
 
     def start(
         self,
         *,
         turn_id: str,
-        source: ScriptSource,
-        args: tuple[str, ...],
+        owner: SupervisedProcessOwner,
+        identity: JsonObject,
+        prepare: SupervisedProcessPreparer,
         control: ActionExecutionControl,
         bus: SignalBus | None,
-    ) -> ScriptJobObservation:
+        auto_complete_without_changes: bool = False,
+    ) -> SupervisedProcessObservation:
         if not turn_id:
-            raise ScriptContractError("Script run requires a Turn id")
+            raise SupervisedProcessContractError(
+                "Supervised process run requires a Turn id"
+            )
+        if not isinstance(owner, SupervisedProcessOwner):
+            raise SupervisedProcessContractError(
+                "Supervised process owner must be a supported capability"
+            )
+        if not isinstance(identity, dict):
+            raise SupervisedProcessContractError(
+                "Supervised process identity must be a JSON object"
+            )
+        conflicts = _RESERVED_IDENTITY_KEYS.intersection(identity)
+        if conflicts:
+            raise SupervisedProcessContractError(
+                "Supervised process identity uses reserved fields: "
+                + ", ".join(sorted(conflicts))
+            )
         signal_watch = bus.watch() if bus is not None else SignalBus().watch()
         with self._lock:
             if turn_id in self._by_turn:
-                try:
-                    signal_watch.close()
-                except Exception:
-                    pass
-                raise ScriptStateError("The current Turn already has an unresolved Script job")
-            execution_id = f"script_{uuid4().hex}"
+                _close_watch(signal_watch)
+                raise SupervisedProcessStateError(
+                    "The current Turn already has an unresolved process job"
+                )
+            execution_id = f"process_{uuid4().hex}"
             staging_root: Path | None = None
             try:
-                staging_root = self._staging.create("script-job")
+                staging_root = self._staging.create("supervised-process-job")
                 mirror = self._mirrors.create(staging_root / "workspace")
-                if source.link.startswith("workspace:"):
-                    baseline = next(
-                        (item for item in mirror.entries if item.link == source.link),
-                        None,
-                    )
-                    if baseline is None or baseline.digest != source.digest:
-                        raise ScriptContractError(
-                            "Script Workspace source changed after policy validation"
-                        )
-                script_path = self._execution_source(source, staging_root, mirror)
-                if file_digest(script_path) != source.snapshot_digest:
-                    raise ScriptContractError(
-                        "Script source changed after policy validation"
-                    )
+                request = prepare(staging_root, mirror)
+                self._validate_request(request, mirror)
                 process = self._process_runner.start(
-                    ManagedProcessRequest(
-                        argv=self._argv(source.language, script_path, args),
-                        cwd=str(mirror.root),
-                        env=self._environment(mirror.root),
-                        inherit_env=False,
-                    ),
+                    request,
                     capture_root=staging_root / "logs",
                 )
             except Exception as exc:
-                try:
-                    signal_watch.close()
-                except Exception:
-                    pass
+                _close_watch(signal_watch)
                 if staging_root is not None:
                     try:
                         self._staging.cleanup(staging_root)
                     except Exception:
                         pass
-                if isinstance(exc, ScriptContractError):
-                    raise
                 if not isinstance(exc, (OSError, ManagedProcessStartError)):
                     raise
-                raise ScriptExecutionError("Script process could not be started") from exc
+                raise SupervisedProcessExecutionError(
+                    "Supervised process could not be started"
+                ) from exc
             now = monotonic()
-            job = _ScriptJob(
+            job = _ProcessJob(
                 execution_id=execution_id,
                 turn_id=turn_id,
-                source=source,
+                owner=owner,
+                identity=dict(identity),
                 staging_root=staging_root,
                 mirror=mirror,
                 process=process,
                 started_at=now,
                 deadline=now + self._settings.max_runtime_seconds,
                 signal_watch=signal_watch,
+                auto_complete_without_changes=auto_complete_without_changes,
                 next_cycle_at=now + self._settings.cycle_wait_seconds,
             )
             self._jobs[execution_id] = job
@@ -200,22 +217,22 @@ class ScriptJobManager:
         self,
         *,
         turn_id: str,
+        owner: SupervisedProcessOwner,
         execution_id: str,
         wait_seconds: int,
         control: ActionExecutionControl,
         bus: SignalBus | None,
-    ) -> ScriptJobObservation:
-        job = self._job(turn_id, execution_id)
-        if job.state is not ScriptJobState.RUNNING:
-            self._refresh(job)
-            return self._observation(job)
+    ) -> SupervisedProcessObservation:
+        job = self._job(turn_id, owner, execution_id)
+        if job.state is not SupervisedProcessState.RUNNING:
+            return self._observation_and_finalize(job)
         if not (
             self._settings.min_wait_seconds
             <= wait_seconds
             <= self._settings.max_wait_seconds
         ):
-            raise ScriptContractError(
-                "Script wait_seconds is outside the configured boundaries"
+            raise SupervisedProcessContractError(
+                "wait_seconds is outside the configured process boundaries"
             )
         return self._wait_job(
             job,
@@ -224,28 +241,37 @@ class ScriptJobManager:
             bus=bus,
         )
 
-    def stop(self, *, turn_id: str, execution_id: str) -> ScriptJobObservation:
-        job = self._job(turn_id, execution_id)
+    def stop(
+        self,
+        *,
+        turn_id: str,
+        owner: SupervisedProcessOwner,
+        execution_id: str,
+    ) -> SupervisedProcessObservation:
+        job = self._job(turn_id, owner, execution_id)
         self._refresh(job)
-        if job.state is ScriptJobState.RUNNING:
+        if job.state is SupervisedProcessState.RUNNING:
             job.process.terminate()
             job.process.wait(5.0)
-            job.state = ScriptJobState.STOPPED
+            job.state = SupervisedProcessState.STOPPED
             job.failure_reason = "stopped_by_agent"
-        return self._observation(job)
+        return self._observation_and_finalize(job)
 
     def read_candidate(
         self,
         *,
         turn_id: str,
+        owner: SupervisedProcessOwner,
         execution_id: str,
         path: str,
         cursor: int,
         max_chars: int,
     ) -> JsonObject:
-        job = self._job(turn_id, execution_id)
+        job = self._job(turn_id, owner, execution_id)
         if max_chars > self._settings.max_candidate_read_chars:
-            raise ScriptContractError("Script candidate read exceeds its configured limit")
+            raise SupervisedProcessContractError(
+                "Candidate read exceeds its configured limit"
+            )
         text, next_cursor, truncated = self._mirrors.read_candidate(
             job.mirror,
             path,
@@ -254,6 +280,7 @@ class ScriptJobManager:
         )
         return {
             "execution_id": job.execution_id,
+            "owner": job.owner.value,
             "path": path,
             "cursor": cursor,
             "next_cursor": next_cursor,
@@ -266,25 +293,24 @@ class ScriptJobManager:
         self,
         *,
         turn_id: str,
+        owner: SupervisedProcessOwner,
         execution_id: str,
-    ) -> ScriptJobApply:
-        job = self._job(turn_id, execution_id)
+    ) -> SupervisedProcessApply:
+        job = self._job(turn_id, owner, execution_id)
         self._refresh(job)
-        if job.state is not ScriptJobState.READY_TO_APPLY:
-            raise ScriptStateError("Only a successful completed Script job can be applied")
-        try:
-            committed = self._mirrors.commit(
-                job.mirror,
-                owner_turn_id=turn_id,
+        if job.state is not SupervisedProcessState.READY_TO_APPLY:
+            raise SupervisedProcessStateError(
+                "Only a successful process job with changes can be applied"
             )
+        try:
+            committed = self._mirrors.commit(job.mirror, owner_turn_id=turn_id)
         except WorkspaceMirrorConflict:
             raise
         payload: JsonObject = {
+            **job.identity,
             "execution_id": job.execution_id,
+            "owner": job.owner.value,
             "job_state": "applied",
-            "source_link": job.source.link,
-            "source_digest": job.source.digest,
-            "source_snapshot_digest": job.source.snapshot_digest,
             "workspace_links": [
                 item.workspace_link
                 for item in committed.changes
@@ -302,18 +328,26 @@ class ScriptJobManager:
             "workspace_revision": committed.manifest.revision,
         }
         self._remove(job, suppress_cleanup=True)
-        return ScriptJobApply(payload=payload, manifest=committed.manifest)
+        return SupervisedProcessApply(payload=payload, manifest=committed.manifest)
 
-    def discard(self, *, turn_id: str, execution_id: str) -> JsonObject:
-        job = self._job(turn_id, execution_id)
+    def discard(
+        self,
+        *,
+        turn_id: str,
+        owner: SupervisedProcessOwner,
+        execution_id: str,
+    ) -> JsonObject:
+        job = self._job(turn_id, owner, execution_id)
         self._refresh(job)
-        if job.state is ScriptJobState.RUNNING:
-            raise ScriptStateError("A running Script job must be stopped before discard")
+        if job.state is SupervisedProcessState.RUNNING:
+            raise SupervisedProcessStateError(
+                "A running process job must be stopped before discard"
+            )
         payload: JsonObject = {
+            **job.identity,
             "execution_id": job.execution_id,
+            "owner": job.owner.value,
             "job_state": "discarded",
-            "source_link": job.source.link,
-            "source_digest": job.source.digest,
         }
         self._remove(job, suppress_cleanup=True)
         return payload
@@ -322,7 +356,9 @@ class ScriptJobManager:
         with self._lock:
             return turn_id in self._by_turn
 
-    def allow_supervision_cycle(self, turn_id: str) -> bool:
+    def allow_additional_cycle(self, turn_id: str) -> bool:
+        """Grant one bounded Cycle beyond the ordinary Turn limit."""
+
         try:
             with self._lock:
                 execution_id = self._by_turn.get(turn_id)
@@ -330,6 +366,8 @@ class ScriptJobManager:
                     return False
                 job = self._jobs[execution_id]
                 self._refresh(job)
+                if job.state is not SupervisedProcessState.RUNNING:
+                    return False
                 if monotonic() >= job.deadline:
                     return False
                 if job.supervision_cycles >= self._settings.max_supervision_cycles:
@@ -339,17 +377,10 @@ class ScriptJobManager:
         except RuntimeException:
             raise
         except Exception as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.from_script_error(
+            self._raise_runtime(
                 exc,
                 payload={"turn_id": turn_id, "operation": "allow_additional_cycle"},
-            ) from exc
-
-    def allow_additional_cycle(self, turn_id: str) -> bool:
-        """Grant one bounded Cycle beyond the ordinary Turn limit."""
-
-        return self.allow_supervision_cycle(turn_id)
+            )
 
     def wait_before_cycle(self, turn_id: str, *, bus: SignalBus) -> None:
         """Pace adjacent Cycles while the Turn owns a running process."""
@@ -362,7 +393,7 @@ class ScriptJobManager:
                 return
             while True:
                 self._refresh(job)
-                if job.state is not ScriptJobState.RUNNING:
+                if job.state is not SupervisedProcessState.RUNNING:
                     return
                 now = monotonic()
                 remaining = job.next_cycle_at - now
@@ -379,12 +410,10 @@ class ScriptJobManager:
         except RuntimeException:
             raise
         except Exception as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.from_script_error(
+            self._raise_runtime(
                 exc,
                 payload={"turn_id": turn_id, "operation": "wait_before_cycle"},
-            ) from exc
+            )
 
     def cleanup_turn(self, turn_id: str) -> None:
         with self._lock:
@@ -392,14 +421,21 @@ class ScriptJobManager:
             job = self._jobs.get(execution_id) if execution_id else None
         if job is None:
             return
+        first_error: Exception | None = None
         try:
             if job.process.running():
                 job.process.terminate()
                 job.process.wait(5.0)
-        except Exception:
-            pass
-        finally:
-            self._remove(job, suppress_cleanup=True)
+        except Exception as exc:
+            first_error = exc
+        try:
+            self._remove(job)
+        except Exception as exc:
+            first_error = first_error or exc
+        if first_error is not None:
+            raise SupervisedProcessExecutionError(
+                "Supervised process Turn cleanup failed"
+            ) from first_error
 
     def cleanup_all(self) -> None:
         with self._lock:
@@ -409,23 +445,23 @@ class ScriptJobManager:
 
     def _wait_job(
         self,
-        job: _ScriptJob,
+        job: _ProcessJob,
         *,
         wait_seconds: int,
         control: ActionExecutionControl,
         bus: SignalBus | None,
-    ) -> ScriptJobObservation:
+    ) -> SupervisedProcessObservation:
         wait_deadline = monotonic() + wait_seconds
         while True:
             self._refresh(job)
-            if job.state is not ScriptJobState.RUNNING:
-                return self._observation(job)
+            if job.state is not SupervisedProcessState.RUNNING:
+                return self._observation_and_finalize(job)
             if control.is_cancelled() or control.is_expired():
                 job.process.terminate()
                 job.process.wait(5.0)
-                job.state = ScriptJobState.TIMED_OUT
+                job.state = SupervisedProcessState.TIMED_OUT
                 job.failure_reason = control.cancel_reason or "action_cancelled"
-                return self._observation(job)
+                return self._observation_and_finalize(job)
             remaining = wait_deadline - monotonic()
             if remaining <= 0:
                 return self._observation(job)
@@ -441,32 +477,46 @@ class ScriptJobManager:
                 job.next_cycle_at = monotonic()
                 return self._observation(job)
 
-    def _refresh(self, job: _ScriptJob) -> None:
-        if job.state is not ScriptJobState.RUNNING:
+    def _refresh(self, job: _ProcessJob) -> None:
+        if job.state is not SupervisedProcessState.RUNNING:
             return
         stdout_bytes, stderr_bytes = job.process.output_sizes()
         if max(stdout_bytes, stderr_bytes) > self._settings.max_log_bytes:
             job.process.terminate()
             job.process.wait(5.0)
-            job.state = ScriptJobState.FAILED
+            job.state = SupervisedProcessState.FAILED
             job.failure_reason = "log_bytes_limit_exceeded"
             return
         if monotonic() >= job.deadline:
             job.process.terminate()
             job.process.wait(5.0)
-            job.state = ScriptJobState.TIMED_OUT
+            job.state = SupervisedProcessState.TIMED_OUT
             job.failure_reason = "runtime_limit_exceeded"
             return
         exit_code = job.process.exit_code
         if exit_code is None:
             return
-        if exit_code == 0:
-            job.state = ScriptJobState.READY_TO_APPLY
-        else:
-            job.state = ScriptJobState.FAILED
+        if exit_code != 0:
+            job.state = SupervisedProcessState.FAILED
             job.failure_reason = "process_exit_nonzero"
+            return
+        if job.auto_complete_without_changes and not self._mirrors.diff(
+            job.mirror
+        ).candidates:
+            job.state = SupervisedProcessState.COMPLETED
+        else:
+            job.state = SupervisedProcessState.READY_TO_APPLY
 
-    def _observation(self, job: _ScriptJob) -> ScriptJobObservation:
+    def _observation_and_finalize(
+        self,
+        job: _ProcessJob,
+    ) -> SupervisedProcessObservation:
+        observation = self._observation(job)
+        if job.state is SupervisedProcessState.COMPLETED:
+            self._remove(job)
+        return observation
+
+    def _observation(self, job: _ProcessJob) -> SupervisedProcessObservation:
         self._refresh(job)
         stdout = job.process.read_stdout(
             cursor=job.stdout_cursor,
@@ -483,11 +533,10 @@ class ScriptJobManager:
         diff = self._mirrors.diff(job.mirror)
         candidates = diff.candidates[: self._settings.max_candidates]
         payload: JsonObject = {
+            **job.identity,
             "execution_id": job.execution_id,
+            "owner": job.owner.value,
             "job_state": job.state.value,
-            "source_link": job.source.link,
-            "source_digest": job.source.digest,
-            "language": job.source.language.value,
             "elapsed_seconds": max(0.0, monotonic() - job.started_at),
             "exit_code": job.process.exit_code,
             "failure_reason": job.failure_reason,
@@ -515,23 +564,36 @@ class ScriptJobManager:
             "candidate_count": len(diff.candidates),
             "candidates_truncated": len(diff.candidates) > len(candidates),
         }
-        return ScriptJobObservation(
+        return SupervisedProcessObservation(
             payload=payload,
-            timed_out=job.state is ScriptJobState.TIMED_OUT,
-            failed=job.state is ScriptJobState.FAILED,
+            timed_out=job.state is SupervisedProcessState.TIMED_OUT,
+            failed=job.state is SupervisedProcessState.FAILED,
         )
 
-    def _job(self, turn_id: str, execution_id: str) -> _ScriptJob:
+    def _job(
+        self,
+        turn_id: str,
+        owner: SupervisedProcessOwner,
+        execution_id: str,
+    ) -> _ProcessJob:
         if not turn_id:
-            raise ScriptContractError("Script job operation requires a Turn id")
+            raise SupervisedProcessContractError(
+                "Process job operation requires a Turn id"
+            )
         with self._lock:
             effective_id = execution_id or self._by_turn.get(turn_id, "")
             job = self._jobs.get(effective_id)
             if job is None or job.turn_id != turn_id:
-                raise ScriptStateError("Script execution id is not active in this Turn")
+                raise SupervisedProcessStateError(
+                    "Execution id is not active in this Turn"
+                )
+            if job.owner is not owner:
+                raise SupervisedProcessStateError(
+                    "Execution id belongs to another capability"
+                )
             return job
 
-    def _remove(self, job: _ScriptJob, *, suppress_cleanup: bool = False) -> None:
+    def _remove(self, job: _ProcessJob, *, suppress_cleanup: bool = False) -> None:
         first_error: Exception | None = None
         try:
             job.signal_watch.close()
@@ -551,45 +613,58 @@ class ScriptJobManager:
                 if self._by_turn.get(job.turn_id) == job.execution_id:
                     self._by_turn.pop(job.turn_id, None)
         if first_error is not None and not suppress_cleanup:
-            raise ScriptExecutionError("Script job cleanup failed") from first_error
-
-    def _execution_source(
-        self,
-        source: ScriptSource,
-        staging_root: Path,
-        mirror: WorkspaceMirror,
-    ) -> Path:
-        del mirror
-        source_root = staging_root / "source"
-        source_root.mkdir()
-        entry = source_root / f"entry{source.language.suffix}"
-        entry.write_bytes(source.text.encode("utf-8"))
-        return entry
-
-    def _argv(
-        self,
-        language: ScriptLanguage,
-        script_path: Path,
-        args: tuple[str, ...],
-    ) -> tuple[str, ...]:
-        if language is ScriptLanguage.PYTHON:
-            executable = sys.executable
-        else:
-            executable = self._settings.bash.executable or "bash"
-        return executable, str(script_path), *args
+            raise SupervisedProcessExecutionError(
+                "Supervised process job cleanup failed"
+            ) from first_error
 
     @staticmethod
-    def _environment(workspace_root: Path) -> dict[str, str]:
-        allowed = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HOME", "USERPROFILE")
-        env = {name: os.environ[name] for name in allowed if name in os.environ}
-        env.update(
-            {
-                "PYTHONIOENCODING": "utf-8",
-                "PYTHONUNBUFFERED": "1",
-                "TINYSOUL_WORKSPACE": str(workspace_root),
-            }
-        )
-        return env
+    def _validate_request(
+        request: ManagedProcessRequest,
+        mirror: WorkspaceMirror,
+    ) -> None:
+        if not isinstance(request, ManagedProcessRequest):
+            raise SupervisedProcessContractError(
+                "Process preparer must return ManagedProcessRequest"
+            )
+        if request.stdin_text is not None:
+            raise SupervisedProcessContractError(
+                "Supervised processes do not accept interactive stdin"
+            )
+        if request.cwd is None:
+            raise SupervisedProcessContractError(
+                "Supervised process cwd must be inside the Workspace mirror"
+            )
+        try:
+            root = mirror.root.resolve()
+            cwd = Path(request.cwd)
+            if cwd.is_symlink() or not cwd.is_dir():
+                raise SupervisedProcessContractError(
+                    "Supervised process cwd must be an existing directory"
+                )
+            resolved = cwd.resolve()
+        except OSError as exc:
+            raise SupervisedProcessContractError(
+                "Supervised process cwd could not be resolved"
+            ) from exc
+        if resolved != root and root not in resolved.parents:
+            raise SupervisedProcessContractError(
+                "Supervised process cwd must stay inside the Workspace mirror"
+            )
+
+    def _raise_runtime(self, error: Exception, *, payload: JsonObject) -> NoReturn:
+        if self._runtime_bridge is None:
+            raise error
+        raise self._runtime_bridge.from_supervised_process_error(
+            error,
+            payload=payload,
+        ) from error
+
+
+def _close_watch(watch: SignalWatch) -> None:
+    try:
+        watch.close()
+    except Exception:
+        pass
 
 
 def _is_turn_wake_signal(signal: Signal, turn_id: str) -> bool:

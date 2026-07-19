@@ -14,7 +14,9 @@ def test_runtime_bridge_exports_are_lazily_importable() -> None:
         RuntimeLLMBridge,
         RuntimeLoopBridge,
         RuntimeSessionBridge,
+        RuntimeShellBridge,
         RuntimeScriptBridge,
+        RuntimeSupervisedProcessBridge,
     )
 
     assert RuntimeContextBridge.__name__ == "RuntimeContextBridge"
@@ -22,6 +24,11 @@ def test_runtime_bridge_exports_are_lazily_importable() -> None:
     assert RuntimeLoopBridge.__name__ == "RuntimeLoopBridge"
     assert RuntimeSessionBridge.__name__ == "RuntimeSessionBridge"
     assert RuntimeScriptBridge.__name__ == "RuntimeScriptBridge"
+    assert RuntimeShellBridge.__name__ == "RuntimeShellBridge"
+    assert (
+        RuntimeSupervisedProcessBridge.__name__
+        == "RuntimeSupervisedProcessBridge"
+    )
 
 
 def test_runtime_bridge_payload_helpers_keep_stable_fields() -> None:

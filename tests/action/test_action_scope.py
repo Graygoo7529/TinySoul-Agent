@@ -35,7 +35,7 @@ def test_phase1_scope_exposes_domain_control_tool() -> None:
     assert "home" in enum
     assert "workspace" in enum
     assert "script" in enum
-    assert "shell" not in enum
+    assert "shell" in enum
     assert "x-tinysoul-domains" not in tools[0].parameters
 
 

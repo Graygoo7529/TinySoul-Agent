@@ -431,6 +431,60 @@ def test_app_builder_script_dependency_error_is_script_startup_failure(
     assert exc.payload["key"] == "capabilities.dependencies.script.bash"
 
 
+def test_app_builder_supervised_process_config_error_keeps_shared_owner(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(
+        tmp_path,
+        {"capabilities.supervised_process.max_runtime_seconds": 0},
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "supervised_process"
+    assert exc.payload["kind"] == "supervised_process.configuration_failed"
+    assert exc.payload["key"] == "capabilities.supervised_process.max_runtime_seconds"
+
+
+def test_app_builder_shell_dependency_error_is_shell_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(
+        tmp_path,
+        {
+            "capabilities.shell.enabled": True,
+            "capabilities.shell.powershell.enabled": False,
+            "capabilities.shell.cmd.enabled": True,
+            "capabilities.shell.cmd.executable": "tinysoul-missing-cmd-for-test",
+            "capabilities.shell.bash.enabled": False,
+        },
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder()
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "shell"
+    assert exc.payload["kind"] == "shell.configuration_failed"
+    assert exc.payload["key"] == "capabilities.dependencies.shell.cmd"
+
+
 def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
     tmp_path: Path,
 ) -> None:

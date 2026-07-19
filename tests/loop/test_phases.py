@@ -9,6 +9,7 @@ import pytest
 from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends import LLMActionTaskRunner
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
+from tinysoul.capabilities.shell import SHELL_ACTIONS
 from tinysoul.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -690,6 +691,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .disable_actions(
             *SCRIPT_ACTIONS,
+            *SHELL_ACTIONS,
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",
@@ -760,6 +762,7 @@ def _action_engine(
         .register_native("session.history.recall", lambda execution, context: {})
         .disable_actions(
             *SCRIPT_ACTIONS,
+            *SHELL_ACTIONS,
             "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",

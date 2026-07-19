@@ -1,0 +1,31 @@
+name = "shell.run_powershell"
+domain = "shell"
+
+[tool]
+description = "Start a bounded PowerShell command in a transactional Workspace mirror. This is not an OS security sandbox."
+
+[tool.schema]
+type = "object"
+required = ["command"]
+additionalProperties = false
+
+[tool.schema.properties.command]
+type = "string"
+description = "Immediate PowerShell command. It is executed but not echoed in ActionResult."
+
+[tool.schema.properties.working_directory]
+type = "string"
+description = "Optional existing relative directory inside the Workspace mirror; defaults to '.'."
+
+[semantic]
+use_when = ["Need an immediate PowerShell command for a local Workspace task"]
+avoid_when = ["Another Script or Shell job is unresolved", "The logic should be maintained as a reusable Script"]
+effects = ["modifying"]
+examples = ["List files or run a deterministic PowerShell transformation in the mirrored Workspace"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "shell.run_powershell"

@@ -6,9 +6,7 @@ from dataclasses import dataclass
 
 from tinysoul.capabilities.script.errors import (
     ScriptContractError,
-    ScriptExecutionError,
     ScriptPolicyError,
-    ScriptStateError,
 )
 from tinysoul.capabilities.script.failures import ScriptFailureKind
 from tinysoul.infra.config import ConfigError
@@ -21,7 +19,6 @@ from ._payload import config_error_payload, exception_payload, runtime_exception
 SCRIPT_RUNTIME_REASON_MAP: dict[ScriptFailureKind, str] = {
     ScriptFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
     ScriptFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
-    ScriptFailureKind.EXECUTION_FAILED: RUNTIME_TURN_END,
     ScriptFailureKind.INTERNAL_FAILURE: RUNTIME_TURN_END,
 }
 
@@ -52,10 +49,8 @@ class RuntimeScriptBridge:
         payload: JsonObject | None = None,
     ) -> RuntimeException:
         kind = ScriptFailureKind.INTERNAL_FAILURE
-        if isinstance(error, (ScriptContractError, ScriptPolicyError, ScriptStateError)):
+        if isinstance(error, (ScriptContractError, ScriptPolicyError)):
             kind = ScriptFailureKind.CONTRACT_VIOLATION
-        elif isinstance(error, ScriptExecutionError):
-            kind = ScriptFailureKind.EXECUTION_FAILED
         return self.from_failure(
             kind,
             message=str(error),

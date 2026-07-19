@@ -23,5 +23,5 @@ examples = ["Discard a failed Script job after inspecting its logs"]
 parallel_policy = "serial"
 
 [backend]
-kind = "script"
+kind = "supervised_process"
 handler = "script.discard"

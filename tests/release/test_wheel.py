@@ -66,6 +66,9 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
     assert "tinysoul/action/catalog/script/actions/run_python.toml" in names
     assert "tinysoul/action/catalog/script/actions/apply.toml" in names
+    assert "tinysoul/action/catalog/shell/actions/run_powershell.toml" in names
+    assert "tinysoul/action/catalog/shell/actions/run_cmd.toml" in names
+    assert "tinysoul/action/catalog/shell/actions/apply.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
@@ -73,13 +76,21 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/configs/capabilities.resource.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.web.toml" in names
     assert "tinysoul/assets/project/configs/capabilities.script.toml" in names
+    assert "tinysoul/assets/project/configs/capabilities.shell.toml" in names
+    assert (
+        "tinysoul/assets/project/configs/capabilities.supervised_process.toml"
+        in names
+    )
     assert "tinysoul/assets/project/.env.example" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
-    assert "tinysoul/assets/project/home/how_domain/resource.md" in names
-    assert "tinysoul/assets/project/home/how_domain/web.md" in names
-    assert "tinysoul/assets/project/home/how_domain/script.md" in names
+    assert (
+        "tinysoul/assets/project/home/how_domain/resource/DOMAIN.md" in names
+    )
+    assert "tinysoul/assets/project/home/how_domain/web/DOMAIN.md" in names
+    assert "tinysoul/assets/project/home/how_domain/script/DOMAIN.md" in names
+    assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" not in names
     assert (
         "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
     )
@@ -91,7 +102,6 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         "use-tinysoul-context-and-link.md"
     ) in names
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
-    assert not any("/action/catalog/shell/" in name for name in names)
     assert "tinysoul/action/config.py" not in names
     assert "tinysoul/action/backends/script.py" not in names
 
@@ -144,9 +154,25 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     assert (initialized / "configs" / "capabilities.resource.toml").is_file()
     assert (initialized / "configs" / "capabilities.web.toml").is_file()
     assert (initialized / "configs" / "capabilities.script.toml").is_file()
-    assert (initialized / "home" / "how_domain" / "resource.md").is_file()
-    assert (initialized / "home" / "how_domain" / "web.md").is_file()
-    assert (initialized / "home" / "how_domain" / "script.md").is_file()
+    assert (initialized / "configs" / "capabilities.shell.toml").is_file()
+    assert (
+        initialized / "configs" / "capabilities.supervised_process.toml"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_domain" / "resource" / "DOMAIN.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_domain" / "web" / "DOMAIN.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_domain" / "script" / "DOMAIN.md"
+    ).is_file()
+    assert not (
+        initialized / "home" / "how_domain" / "shell" / "DOMAIN.md"
+    ).exists()
+    assert "enabled = false" in (
+        initialized / "configs" / "capabilities.shell.toml"
+    ).read_text(encoding="utf-8")
     assert (
         initialized / "home" / "how_domain" / "workspace" / "DOMAIN.md"
     ).is_file()

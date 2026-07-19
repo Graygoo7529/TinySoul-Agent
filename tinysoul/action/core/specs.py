@@ -32,7 +32,7 @@ class ActionBackendKind(StrEnum):
 
     NATIVE = "native"
     SUBPROCESS = "subprocess"
-    SCRIPT = "script"
+    SUPERVISED_PROCESS = "supervised_process"
     LLM_ACTION = "llm_action"
 
 

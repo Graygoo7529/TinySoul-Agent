@@ -14,6 +14,10 @@ from tinysoul.loop.failures import LoopFailureKind
 from tinysoul.memory.failures import MemoryFailureKind
 from tinysoul.session.failures import SessionFailureKind
 from tinysoul.capabilities.script.failures import ScriptFailureKind
+from tinysoul.capabilities.shell.failures import ShellFailureKind
+from tinysoul.capabilities.supervised_process.failures import (
+    SupervisedProcessFailureKind,
+)
 from tinysoul.workspace.failures import WorkspaceFailureKind
 
 
@@ -30,6 +34,8 @@ from tinysoul.workspace.failures import WorkspaceFailureKind
         ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
         ("script", ScriptFailureKind),
+        ("shell", ShellFailureKind),
+        ("supervised_process", SupervisedProcessFailureKind),
         ("workspace", WorkspaceFailureKind),
     ),
 )

@@ -43,20 +43,6 @@ class ScriptSettings:
     max_source_chars: int = 100_000
     max_args: int = 32
     max_arg_chars: int = 1_000
-    max_mirror_files: int = 100
-    max_mirror_bytes: int = 50 * 1024 * 1024
-    max_mirror_file_bytes: int = 10 * 1024 * 1024
-    max_candidates: int = 100
-    max_candidate_read_chars: int = 12_000
-    max_log_bytes: int = 2 * 1024 * 1024
-    max_log_delta_chars: int = 4_000
-    initial_wait_seconds: int = 10
-    cycle_wait_seconds: int = 30
-    min_wait_seconds: int = 5
-    default_wait_seconds: int = 15
-    max_wait_seconds: int = 60
-    max_runtime_seconds: int = 1_800
-    max_supervision_cycles: int = 32
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -78,20 +64,6 @@ class ScriptSettings:
             "max_source_chars",
             "max_args",
             "max_arg_chars",
-            "max_mirror_files",
-            "max_mirror_bytes",
-            "max_mirror_file_bytes",
-            "max_candidates",
-            "max_candidate_read_chars",
-            "max_log_bytes",
-            "max_log_delta_chars",
-            "initial_wait_seconds",
-            "cycle_wait_seconds",
-            "min_wait_seconds",
-            "default_wait_seconds",
-            "max_wait_seconds",
-            "max_runtime_seconds",
-            "max_supervision_cycles",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -101,52 +73,6 @@ class ScriptSettings:
                     value=value,
                     expected="positive int",
                 )
-        if not (
-            self.min_wait_seconds
-            <= self.default_wait_seconds
-            <= self.max_wait_seconds
-        ):
-            raise ConfigError(
-                "Script wait boundaries are inconsistent",
-                key="capabilities.script.default_wait_seconds",
-                value=self.default_wait_seconds,
-                expected=(
-                    f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
-                ),
-            )
-        if not (
-            self.min_wait_seconds
-            <= self.initial_wait_seconds
-            <= self.max_wait_seconds
-        ):
-            raise ConfigError(
-                "Script initial wait is outside wait boundaries",
-                key="capabilities.script.initial_wait_seconds",
-                value=self.initial_wait_seconds,
-                expected=(
-                    f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
-                ),
-            )
-        if not (
-            self.min_wait_seconds
-            <= self.cycle_wait_seconds
-            <= self.max_wait_seconds
-        ):
-            raise ConfigError(
-                "Script Cycle wait is outside wait boundaries",
-                key="capabilities.script.cycle_wait_seconds",
-                value=self.cycle_wait_seconds,
-                expected=(
-                    f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
-                ),
-            )
-        if self.max_mirror_file_bytes > self.max_mirror_bytes:
-            raise ConfigError(
-                "Script mirror file limit cannot exceed total mirror limit",
-                key="capabilities.script.max_mirror_file_bytes",
-                value=self.max_mirror_file_bytes,
-                expected=f"<= {self.max_mirror_bytes}",
-            )
 
 
 def parse_script_settings(tree: Mapping[str, object]) -> ScriptSettings:
@@ -158,20 +84,6 @@ def parse_script_settings(tree: Mapping[str, object]) -> ScriptSettings:
         "max_source_chars",
         "max_args",
         "max_arg_chars",
-        "max_mirror_files",
-        "max_mirror_bytes",
-        "max_mirror_file_bytes",
-        "max_candidates",
-        "max_candidate_read_chars",
-        "max_log_bytes",
-        "max_log_delta_chars",
-        "initial_wait_seconds",
-        "cycle_wait_seconds",
-        "min_wait_seconds",
-        "default_wait_seconds",
-        "max_wait_seconds",
-        "max_runtime_seconds",
-        "max_supervision_cycles",
     }
     reject_unknown_keys(tree, keys, key="capabilities.script")
     values = {

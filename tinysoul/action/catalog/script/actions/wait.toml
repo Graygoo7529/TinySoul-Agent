@@ -27,5 +27,5 @@ examples = ["Wait 15 seconds for the current Script job"]
 parallel_policy = "serial"
 
 [backend]
-kind = "script"
+kind = "supervised_process"
 handler = "script.wait"

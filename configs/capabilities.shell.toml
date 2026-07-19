@@ -1,0 +1,15 @@
+[capabilities.shell]
+enabled = true
+max_command_chars = 20000
+
+[capabilities.shell.powershell]
+enabled = true
+executable = "powershell"
+
+[capabilities.shell.cmd]
+enabled = true
+executable = "cmd"
+
+[capabilities.shell.bash]
+enabled = false
+executable = "bash"

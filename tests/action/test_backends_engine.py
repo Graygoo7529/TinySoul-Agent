@@ -7,6 +7,7 @@ from time import monotonic, sleep
 import pytest
 
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
+from tinysoul.capabilities.shell import SHELL_ACTIONS
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.backends.process import ManagedProcessRequest, ManagedProcessRunner
 from tinysoul.action.backends.subprocess import SubprocessActionExecutor
@@ -368,6 +369,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("workspace.write", lambda execution, context: {"written": True})
             .disable_actions(
                 *SCRIPT_ACTIONS,
+                *SHELL_ACTIONS,
                 "resource.convert_with_markitdown",
             "resource.convert_with_pypdf",
             "web.discover_pages",

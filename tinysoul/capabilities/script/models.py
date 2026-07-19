@@ -16,14 +16,6 @@ class ScriptLanguage(StrEnum):
         return ".py" if self is ScriptLanguage.PYTHON else ".sh"
 
 
-class ScriptJobState(StrEnum):
-    RUNNING = "running"
-    READY_TO_APPLY = "ready_to_apply"
-    FAILED = "failed"
-    TIMED_OUT = "timed_out"
-    STOPPED = "stopped"
-
-
 @dataclass(frozen=True)
 class ScriptSource:
     link: str

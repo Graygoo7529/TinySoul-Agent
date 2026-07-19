@@ -135,7 +135,7 @@ Stage 3 当前实施映射如下：
 - `tinysoul/capabilities/script/` 已包含 settings/dependency、Workspace/Home source resolver、确定性 source policy、authoring prompt、Action executor 和 Turn-scoped job manager；详细模块语义见 `docs/design/capabilities/script.md`；
 - `tinysoul/action/backends/process.py` 提供可被同步 subprocess 与监督 job 共用的 process-group-owned managed process、命名 capture、增量读取和进程树终止；原 `ControlledProcessRunner` 已改为复用该原语；
 - `tinysoul/workspace/mirror.py` 提供有界 full mirror、候选 diff/read 和逐文件 baseline commit；`WorkspaceEngine.write_bundle` 已支持 delete digest guard，避免检查与删除之间的同路径竞态；
-- package Catalog 已增加 `script` domain 与 11 个 action；默认 `[capabilities.script]` 启用 Python、关闭 Bash，当前项目和 `tinysoul init` 模板都包含同一配置及 `home/how_domain/script.md`；
+- package Catalog 已增加 `script` domain 与 11 个 action；默认 `[capabilities.script]` 启用 Python、关闭 Bash，当前项目和 `tinysoul init` 模板都包含对应配置；domain HOW 后续已由新计划统一校正为 `home/how_domain/script/DOMAIN.md`；
 - AppBuilder 装配 source resolver、mirror service、job manager 和 registrar；TurnRunner 只通过通用 activity controller 请求有限额外 Cycle，并在 Turn 离开时 cleanup，不读取 Script 业务状态；SignalBus 只增加 non-consuming generation wait；
 - 隔离测试覆盖 settings、真实 Python success/failure/stop、显式 apply、同路径冲突、不同路径并发保留、额外 Cycle/cleanup、Catalog/App 和 wheel；Bash 仍按 executable 配置 opt-in，不把开发机存在性硬编码进测试。
 

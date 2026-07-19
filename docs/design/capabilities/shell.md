@@ -2,7 +2,7 @@
 
 ## 状态
 
-status: confirmed, pending implementation
+status: implemented
 
 ## 定位
 

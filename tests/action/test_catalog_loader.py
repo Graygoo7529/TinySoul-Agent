@@ -20,11 +20,19 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("workspace")
     assert catalog.has_domain("home")
     assert catalog.has_domain("memory")
-    assert not catalog.has_domain("shell")
+    assert catalog.has_domain("shell")
     assert catalog.has_domain("script")
     assert (
         catalog.get_action("script.run_python").backend.handler
         == "script.run_python"
+    )
+    assert (
+        catalog.get_action("script.run_python").backend.kind
+        is ActionBackendKind.SUPERVISED_PROCESS
+    )
+    assert (
+        catalog.get_action("shell.run_powershell").backend.kind
+        is ActionBackendKind.SUPERVISED_PROCESS
     )
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"

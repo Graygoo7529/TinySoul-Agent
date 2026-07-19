@@ -10,6 +10,11 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 from .resource.config import ResourceSettings, parse_resource_settings
 from .script.config import ScriptSettings, parse_script_settings
+from .shell.config import ShellSettings, parse_shell_settings
+from .supervised_process.config import (
+    SupervisedProcessSettings,
+    parse_supervised_process_settings,
+)
 from .web.config import WebSettings, parse_web_settings
 
 
@@ -19,6 +24,10 @@ class CapabilitiesSettings:
 
     resource: ResourceSettings = field(default_factory=ResourceSettings)
     script: ScriptSettings = field(default_factory=ScriptSettings)
+    shell: ShellSettings = field(default_factory=ShellSettings)
+    supervised_process: SupervisedProcessSettings = field(
+        default_factory=SupervisedProcessSettings
+    )
     web: WebSettings = field(default_factory=WebSettings)
 
     def __post_init__(self) -> None:
@@ -43,10 +52,28 @@ class CapabilitiesSettings:
                 value=type(self.script).__name__,
                 expected="ScriptSettings",
             )
+        if not isinstance(self.shell, ShellSettings):
+            raise ConfigError(
+                "Shell capability settings are invalid",
+                key="capabilities.shell",
+                value=type(self.shell).__name__,
+                expected="ShellSettings",
+            )
+        if not isinstance(self.supervised_process, SupervisedProcessSettings):
+            raise ConfigError(
+                "Supervised process settings are invalid",
+                key="capabilities.supervised_process",
+                value=type(self.supervised_process).__name__,
+                expected="SupervisedProcessSettings",
+            )
 
 
 def parse_capabilities_settings(tree: Mapping[str, object]) -> CapabilitiesSettings:
-    reject_unknown_keys(tree, {"resource", "script", "web"}, key="capabilities")
+    reject_unknown_keys(
+        tree,
+        {"resource", "script", "shell", "supervised_process", "web"},
+        key="capabilities",
+    )
     value = tree.get("resource")
     if value is None:
         resource_tree: Mapping[str, object] = {}
@@ -83,8 +110,34 @@ def parse_capabilities_settings(tree: Mapping[str, object]) -> CapabilitiesSetti
             value=script_value,
             expected="table",
         )
+    supervised_value = tree.get("supervised_process")
+    if supervised_value is None:
+        supervised_tree: Mapping[str, object] = {}
+    elif isinstance(supervised_value, Mapping):
+        supervised_tree = cast(Mapping[str, object], supervised_value)
+    else:
+        raise ConfigError(
+            "Supervised process configuration must be a table",
+            key="capabilities.supervised_process",
+            value=supervised_value,
+            expected="table",
+        )
+    shell_value = tree.get("shell")
+    if shell_value is None:
+        shell_tree: Mapping[str, object] = {}
+    elif isinstance(shell_value, Mapping):
+        shell_tree = cast(Mapping[str, object], shell_value)
+    else:
+        raise ConfigError(
+            "Shell capability configuration must be a table",
+            key="capabilities.shell",
+            value=shell_value,
+            expected="table",
+        )
     return CapabilitiesSettings(
         resource=parse_resource_settings(resource_tree),
         script=parse_script_settings(script_tree),
+        shell=parse_shell_settings(shell_tree),
+        supervised_process=parse_supervised_process_settings(supervised_tree),
         web=parse_web_settings(web_tree),
     )

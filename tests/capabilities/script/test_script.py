@@ -12,13 +12,24 @@ import pytest
 from tinysoul.action import ActionExecutionControl
 from tinysoul.capabilities import parse_capabilities_settings
 from tinysoul.capabilities.script.config import ScriptSettings
-from tinysoul.capabilities.script.errors import ScriptContractError, ScriptStateError
-from tinysoul.capabilities.script.jobs import ScriptJobManager
-from tinysoul.capabilities.script.models import ScriptJobState, ScriptLanguage, ScriptSource
+from tinysoul.capabilities.script.errors import ScriptContractError
+from tinysoul.capabilities.script.models import ScriptLanguage, ScriptSource
+from tinysoul.capabilities.script.process import ScriptProcessPreparer
 from tinysoul.capabilities.script.sources import ScriptSourceResolver
+from tinysoul.capabilities.supervised_process import (
+    SupervisedProcessManager,
+    SupervisedProcessOwner,
+    SupervisedProcessSettings,
+    SupervisedProcessState,
+)
+from tinysoul.capabilities.supervised_process.errors import (
+    SupervisedProcessExecutionError,
+    SupervisedProcessStateError,
+)
 from tinysoul.context import build_input_append_signal
 from tinysoul.home import AgentHomeEngine
 from tinysoul.infra import StagingDirectoryManager
+from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import (
     RunLevel,
     RunScope,
@@ -27,7 +38,7 @@ from tinysoul.runtime import (
     SignalBus,
     SignalWatch,
 )
-from tinysoul.runtime.bridge import RuntimeScriptBridge
+from tinysoul.runtime.bridge import RuntimeSupervisedProcessBridge
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
     WorkspaceMirrorConflict,
@@ -41,17 +52,28 @@ def test_script_settings_parse_language_and_supervision_limits() -> None:
         {
             "script": {
                 "bash": {"enabled": True, "executable": "custom-bash"},
+            },
+            "supervised_process": {
                 "max_supervision_cycles": 9,
                 "default_wait_seconds": 20,
-            }
+            },
         }
-    ).script
+    )
 
-    assert settings.python.enabled is True
-    assert settings.bash.enabled is True
-    assert settings.bash.executable == "custom-bash"
-    assert settings.max_supervision_cycles == 9
-    assert settings.default_wait_seconds == 20
+    assert settings.script.python.enabled is True
+    assert settings.script.bash.enabled is True
+    assert settings.script.bash.executable == "custom-bash"
+    assert settings.supervised_process.max_supervision_cycles == 9
+    assert settings.supervised_process.default_wait_seconds == 20
+
+
+def test_script_rejects_removed_shared_process_settings() -> None:
+    with pytest.raises(ConfigError) as raised:
+        parse_capabilities_settings(
+            {"script": {"default_wait_seconds": 20}}
+        )
+
+    assert raised.value.key == "capabilities.script.default_wait_seconds"
 
 
 def test_workspace_mirror_commits_diff_and_preserves_other_path(
@@ -123,7 +145,8 @@ def test_python_job_requires_explicit_apply(local_tmp: Path) -> None:
     )
     manager = _jobs(local_tmp, workspace)
 
-    observation = manager.start(
+    observation = _start(
+        manager,
         turn_id="turn_1",
         source=ScriptSource(
             link=record.link,
@@ -131,15 +154,16 @@ def test_python_job_requires_explicit_apply(local_tmp: Path) -> None:
             digest=record.digest,
             language=ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
-        bus=None,
     )
 
-    assert observation.payload["job_state"] == ScriptJobState.READY_TO_APPLY.value
+    assert observation.payload["job_state"] == SupervisedProcessState.READY_TO_APPLY.value
     assert not (workspace.root / "result.txt").exists()
     execution_id = str(observation.payload["execution_id"])
-    applied = manager.apply(turn_id="turn_1", execution_id=execution_id)
+    applied = manager.apply(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+    )
     assert applied.payload["job_state"] == "applied"
     assert workspace.read_text("workspace:result.txt").text == "done"
     assert manager.has_unresolved("turn_1") is False
@@ -153,7 +177,8 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
         owner_turn_id="turn_fail",
     )
     manager = _jobs(local_tmp, workspace)
-    failed = manager.start(
+    failed = _start(
+        manager,
         turn_id="turn_fail",
         source=ScriptSource(
             failed_record.link,
@@ -161,22 +186,28 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
             failed_record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
-        bus=None,
     )
     failed_id = str(failed.payload["execution_id"])
     assert failed.failed is True
-    with pytest.raises(ScriptStateError):
-        manager.apply(turn_id="turn_fail", execution_id=failed_id)
-    manager.discard(turn_id="turn_fail", execution_id=failed_id)
+    with pytest.raises(SupervisedProcessStateError):
+        manager.apply(
+            turn_id="turn_fail",
+            owner=SupervisedProcessOwner.SCRIPT,
+            execution_id=failed_id,
+        )
+    manager.discard(
+        turn_id="turn_fail",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=failed_id,
+    )
 
     stopped_record = workspace.write_text(
         "workspace:scripts/wait.py",
         "import time\ntime.sleep(30)\n",
         owner_turn_id="turn_stop",
     )
-    running = manager.start(
+    running = _start(
+        manager,
         turn_id="turn_stop",
         source=ScriptSource(
             stopped_record.link,
@@ -184,17 +215,26 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
             stopped_record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
-        bus=None,
     )
     running_id = str(running.payload["execution_id"])
-    assert running.payload["job_state"] == ScriptJobState.RUNNING.value
-    stopped = manager.stop(turn_id="turn_stop", execution_id=running_id)
-    assert stopped.payload["job_state"] == ScriptJobState.STOPPED.value
-    with pytest.raises(ScriptStateError):
-        manager.apply(turn_id="turn_stop", execution_id=running_id)
-    manager.discard(turn_id="turn_stop", execution_id=running_id)
+    assert running.payload["job_state"] == SupervisedProcessState.RUNNING.value
+    stopped = manager.stop(
+        turn_id="turn_stop",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=running_id,
+    )
+    assert stopped.payload["job_state"] == SupervisedProcessState.STOPPED.value
+    with pytest.raises(SupervisedProcessStateError):
+        manager.apply(
+            turn_id="turn_stop",
+            owner=SupervisedProcessOwner.SCRIPT,
+            execution_id=running_id,
+        )
+    manager.discard(
+        turn_id="turn_stop",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=running_id,
+    )
 
 
 def test_job_rejects_workspace_source_changed_after_snapshot(local_tmp: Path) -> None:
@@ -222,16 +262,17 @@ def test_job_rejects_workspace_source_changed_after_snapshot(local_tmp: Path) ->
         (ScriptContractError, WorkspaceMirrorConflict),
         match="changed .*Script mirror|changed after policy validation",
     ):
-        manager.start(
+        _start(
+            manager,
             turn_id="turn_1",
             source=source,
-            args=(),
-            control=ActionExecutionControl(),
             bus=_FailingCloseSignalBus(),
         )
 
     assert manager.has_unresolved("turn_1") is False
-    assert not tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
+    assert not tuple(
+        (local_tmp / "runtime" / ".staging").glob("supervised-process-job-*")
+    )
 
 
 def test_promote_writes_the_frozen_source_snapshot(local_tmp: Path) -> None:
@@ -346,8 +387,13 @@ def test_additional_cycle_failure_uses_script_runtime_bridge(
         "import time\ntime.sleep(30)\n",
         owner_turn_id="turn_1",
     )
-    manager = _jobs(local_tmp, workspace, runtime_bridge=RuntimeScriptBridge())
-    running = manager.start(
+    manager = _jobs(
+        local_tmp,
+        workspace,
+        runtime_bridge=RuntimeSupervisedProcessBridge(),
+    )
+    running = _start(
+        manager,
         turn_id="turn_1",
         source=ScriptSource(
             record.link,
@@ -355,9 +401,6 @@ def test_additional_cycle_failure_uses_script_runtime_bridge(
             record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
-        bus=None,
     )
 
     def fail_refresh(_job: object) -> NoReturn:
@@ -367,21 +410,25 @@ def test_additional_cycle_failure_uses_script_runtime_bridge(
     with pytest.raises(RuntimeException) as raised:
         manager.allow_additional_cycle("turn_1")
 
-    assert raised.value.payload["module"] == "script"
-    assert raised.value.payload["kind"] == "script.internal_failure"
+    assert raised.value.payload["module"] == "supervised_process"
+    assert raised.value.payload["kind"] == "supervised_process.internal_failure"
     assert raised.value.payload["operation"] == "allow_additional_cycle"
     monkeypatch.undo()
     manager.stop(
         turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=str(running.payload["execution_id"]),
     )
     manager.discard(
         turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=str(running.payload["execution_id"]),
     )
 
 
-def test_signal_watch_close_failure_does_not_skip_job_cleanup(local_tmp: Path) -> None:
+def test_signal_watch_close_failure_is_aggregated_after_job_cleanup(
+    local_tmp: Path,
+) -> None:
     workspace = _workspace(local_tmp)
     record = workspace.write_text(
         "workspace:scripts/done.py",
@@ -389,7 +436,8 @@ def test_signal_watch_close_failure_does_not_skip_job_cleanup(local_tmp: Path) -
         owner_turn_id="turn_1",
     )
     manager = _jobs(local_tmp, workspace)
-    running = manager.start(
+    _start(
+        manager,
         turn_id="turn_1",
         source=ScriptSource(
             record.link,
@@ -397,16 +445,17 @@ def test_signal_watch_close_failure_does_not_skip_job_cleanup(local_tmp: Path) -
             record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
         bus=_FailingCloseSignalBus(),
     )
-    staging_roots = tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
-
-    manager.discard(
-        turn_id="turn_1",
-        execution_id=str(running.payload["execution_id"]),
+    staging_roots = tuple(
+        (local_tmp / "runtime" / ".staging").glob("supervised-process-job-*")
     )
+
+    with pytest.raises(
+        SupervisedProcessExecutionError,
+        match="Turn cleanup failed",
+    ):
+        manager.cleanup_turn("turn_1")
 
     assert manager.has_unresolved("turn_1") is False
     assert staging_roots and not staging_roots[0].exists()
@@ -423,7 +472,8 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
     )
     manager = _jobs(local_tmp, workspace)
     bus = SignalBus()
-    running = manager.start(
+    running = _start(
+        manager,
         turn_id="turn_1",
         source=ScriptSource(
             record.link,
@@ -431,8 +481,6 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
             record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
         bus=bus,
     )
     execution_id = str(running.payload["execution_id"])
@@ -441,6 +489,7 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
         target=lambda: observations.append(
             manager.wait(
                 turn_id="turn_1",
+                owner=SupervisedProcessOwner.SCRIPT,
                 execution_id=execution_id,
                 wait_seconds=2,
                 control=ActionExecutionControl(),
@@ -478,8 +527,16 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
 
     assert not thread.is_alive()
     assert len(observations) == 1
-    manager.stop(turn_id="turn_1", execution_id=execution_id)
-    manager.discard(turn_id="turn_1", execution_id=execution_id)
+    manager.stop(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+    )
+    manager.discard(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+    )
 
 
 def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
@@ -493,7 +550,8 @@ def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
     )
     manager = _jobs(local_tmp, workspace)
     bus = SignalBus()
-    running = manager.start(
+    running = _start(
+        manager,
         turn_id="turn_1",
         source=ScriptSource(
             record.link,
@@ -501,12 +559,12 @@ def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
             record.digest,
             ScriptLanguage.PYTHON,
         ),
-        args=(),
-        control=ActionExecutionControl(),
         bus=bus,
     )
     execution_id = str(running.payload["execution_id"])
-    staging_roots = tuple((local_tmp / "runtime" / ".staging").glob("script-job-*"))
+    staging_roots = tuple(
+        (local_tmp / "runtime" / ".staging").glob("supervised-process-job-*")
+    )
     assert len(staging_roots) == 1
     assert (staging_roots[0] / "logs" / "stdout.log").is_file()
     assert (staging_roots[0] / "logs" / "stderr.log").is_file()
@@ -516,13 +574,25 @@ def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
     manager.wait_before_cycle("turn_1", bus=bus)
     assert monotonic() - started >= 0.8
 
-    manager.stop(turn_id="turn_1", execution_id=execution_id)
-    manager.discard(turn_id="turn_1", execution_id=execution_id)
+    manager.stop(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+    )
+    manager.discard(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+    )
     assert not staging_roots[0].exists()
 
 
 def _settings() -> ScriptSettings:
-    return ScriptSettings(
+    return ScriptSettings()
+
+
+def _process_settings() -> SupervisedProcessSettings:
+    return SupervisedProcessSettings(
         initial_wait_seconds=1,
         cycle_wait_seconds=1,
         min_wait_seconds=1,
@@ -552,15 +622,41 @@ def _jobs(
     root: Path,
     workspace,
     *,
-    runtime_bridge: RuntimeScriptBridge | None = None,
-) -> ScriptJobManager:
+    runtime_bridge: RuntimeSupervisedProcessBridge | None = None,
+) -> SupervisedProcessManager:
     staging = StagingDirectoryManager(root.resolve())
     staging.prepare()
-    return ScriptJobManager(
-        settings=_settings(),
+    return SupervisedProcessManager(
+        settings=_process_settings(),
         mirror_service=_mirrors(workspace),
         staging=staging,
         runtime_bridge=runtime_bridge,
+    )
+
+
+def _start(
+    manager: SupervisedProcessManager,
+    *,
+    turn_id: str,
+    source: ScriptSource,
+    bus: SignalBus | None = None,
+):
+    return manager.start(
+        turn_id=turn_id,
+        owner=SupervisedProcessOwner.SCRIPT,
+        identity={
+            "source_link": source.link,
+            "source_digest": source.digest,
+            "source_snapshot_digest": source.snapshot_digest,
+            "language": source.language.value,
+        },
+        prepare=ScriptProcessPreparer(
+            source=source,
+            args=(),
+            settings=_settings(),
+        ),
+        control=ActionExecutionControl(),
+        bus=bus,
     )
 
 

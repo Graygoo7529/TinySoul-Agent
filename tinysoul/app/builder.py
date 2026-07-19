@@ -14,10 +14,14 @@ from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.builtins.core import register_core_actions
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
 from tinysoul.capabilities.resource import register_resource_actions
+from tinysoul.capabilities.shell import register_shell_actions
 from tinysoul.capabilities.script import (
-    ScriptJobManager,
     ScriptSourceResolver,
     register_script_actions,
+)
+from tinysoul.capabilities.supervised_process import (
+    SupervisedProcessAnswerGuard,
+    SupervisedProcessManager,
 )
 from tinysoul.capabilities.web import register_web_actions
 from tinysoul.context import (
@@ -105,6 +109,8 @@ from tinysoul.runtime.bridge import (
     RuntimeMemoryBridge,
     RuntimeSessionBridge,
     RuntimeScriptBridge,
+    RuntimeShellBridge,
+    RuntimeSupervisedProcessBridge,
     RuntimeWorkspaceBridge,
 )
 from tinysoul.session import SessionEngine, parse_session_settings
@@ -239,6 +245,8 @@ class TinySoulAppBuilder:
         home_bridge = RuntimeAgentHomeBridge()
         memory_bridge = RuntimeMemoryBridge()
         script_bridge = RuntimeScriptBridge()
+        shell_bridge = RuntimeShellBridge()
+        supervised_process_bridge = RuntimeSupervisedProcessBridge()
         try:
             config = (
                 self._config_env
@@ -273,6 +281,8 @@ class TinySoulAppBuilder:
             capabilities_settings = self._build_capabilities_settings(
                 config,
                 script_bridge,
+                shell_bridge,
+                supervised_process_bridge,
             )
             output_sinks = tuple(self._output_sinks)
             if not output_sinks and app_settings.interactive:
@@ -336,7 +346,7 @@ class TinySoulAppBuilder:
                 context=context,
                 action_how=action_how,
             )
-            script_jobs: ScriptJobManager | None = None
+            process_jobs: SupervisedProcessManager | None = None
             if self._action is not None:
                 action = self._action
             else:
@@ -348,18 +358,22 @@ class TinySoulAppBuilder:
                         message=str(exc),
                         payload={"error_type": type(exc).__name__},
                     ) from exc
-                script_jobs = ScriptJobManager(
-                    settings=capabilities_settings.script,
+                process_jobs = SupervisedProcessManager(
+                    settings=capabilities_settings.supervised_process,
                     mirror_service=WorkspaceMirrorService(
                         workspace,
-                        max_files=capabilities_settings.script.max_mirror_files,
-                        max_total_bytes=capabilities_settings.script.max_mirror_bytes,
+                        max_files=(
+                            capabilities_settings.supervised_process.max_mirror_files
+                        ),
+                        max_total_bytes=(
+                            capabilities_settings.supervised_process.max_mirror_bytes
+                        ),
                         max_file_bytes=(
-                            capabilities_settings.script.max_mirror_file_bytes
+                            capabilities_settings.supervised_process.max_mirror_file_bytes
                         ),
                     ),
                     staging=staging,
-                    runtime_bridge=script_bridge,
+                    runtime_bridge=supervised_process_bridge,
                 )
                 script_resolver = ScriptSourceResolver(
                     workspace=workspace,
@@ -378,13 +392,14 @@ class TinySoulAppBuilder:
                     workspace_bridge=workspace_bridge,
                     action_bridge=action_bridge,
                     script_bridge=script_bridge,
+                    shell_bridge=shell_bridge,
                     llm_action=llm_action,
                     llm=llm,
                     observations=observations,
                     capabilities_settings=capabilities_settings,
                     runtime_env=config.runtime_env,
                     staging=staging,
-                    script_jobs=script_jobs,
+                    process_jobs=process_jobs,
                     script_resolver=script_resolver,
                 )
             try:
@@ -474,7 +489,7 @@ class TinySoulAppBuilder:
                         ),
                     )
                 ),
-                activity_controller=script_jobs,
+                activity_controller=process_jobs,
                 observations=observations,
             )
             daily_lifecycle = DailyLifecycleCoordinator(
@@ -683,6 +698,8 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         script_bridge: RuntimeScriptBridge,
+        shell_bridge: RuntimeShellBridge,
+        supervised_process_bridge: RuntimeSupervisedProcessBridge,
     ) -> CapabilitiesSettings:
         try:
             return config.parse_section(
@@ -694,6 +711,14 @@ class TinySoulAppBuilder:
                 "capabilities.script."
             ):
                 raise script_bridge.from_config_error(exc) from exc
+            if exc.key == "capabilities.supervised_process" or exc.key.startswith(
+                "capabilities.supervised_process."
+            ):
+                raise supervised_process_bridge.from_config_error(exc) from exc
+            if exc.key == "capabilities.shell" or exc.key.startswith(
+                "capabilities.shell."
+            ):
+                raise shell_bridge.from_config_error(exc) from exc
             raise
 
     def _build_context_settings(
@@ -792,13 +817,14 @@ class TinySoulAppBuilder:
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         script_bridge: RuntimeScriptBridge,
+        shell_bridge: RuntimeShellBridge,
         llm_action: LLMActionTaskRunner,
         llm: LLMRunner,
         observations: ObservationEmitter,
         capabilities_settings: CapabilitiesSettings,
         runtime_env: dict[str, str],
         staging: StagingDirectoryManager,
-        script_jobs: ScriptJobManager,
+        process_jobs: SupervisedProcessManager,
         script_resolver: ScriptSourceResolver,
     ) -> ActionEngine:
         try:
@@ -836,7 +862,7 @@ class TinySoulAppBuilder:
                         builder,
                         settings=capabilities_settings.script,
                         resolver=script_resolver,
-                        jobs=script_jobs,
+                        jobs=process_jobs,
                         workspace=workspace,
                         bus=bus,
                         llm_action=llm_action,
@@ -845,6 +871,24 @@ class TinySoulAppBuilder:
                     )
                 except ConfigError as exc:
                     raise script_bridge.from_config_error(exc) from exc
+                try:
+                    register_shell_actions(
+                        builder,
+                        settings=capabilities_settings.shell,
+                        jobs=process_jobs,
+                        bus=bus,
+                        workspace_bridge=workspace_bridge,
+                    )
+                except ConfigError as exc:
+                    raise shell_bridge.from_config_error(exc) from exc
+                builder.register_execution_hook(
+                    "supervised_process.answer_guard",
+                    SupervisedProcessAnswerGuard(process_jobs),
+                )
+                builder.use_action_execution_hooks(
+                    "core.answer",
+                    "supervised_process.answer_guard",
+                )
                 register_home_actions(
                     builder,
                     home=home,

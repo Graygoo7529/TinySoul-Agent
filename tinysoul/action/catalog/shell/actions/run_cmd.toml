@@ -1,0 +1,31 @@
+name = "shell.run_cmd"
+domain = "shell"
+
+[tool]
+description = "Start a bounded Windows Cmd command in a transactional Workspace mirror. This is not an OS security sandbox."
+
+[tool.schema]
+type = "object"
+required = ["command"]
+additionalProperties = false
+
+[tool.schema.properties.command]
+type = "string"
+description = "Immediate Cmd command. It is executed but not echoed in ActionResult."
+
+[tool.schema.properties.working_directory]
+type = "string"
+description = "Optional existing relative directory inside the Workspace mirror; defaults to '.'."
+
+[semantic]
+use_when = ["Need a Windows Cmd built-in or batch-style one-line command"]
+avoid_when = ["Another Script or Shell job is unresolved", "PowerShell or a maintained Script is clearer"]
+effects = ["modifying"]
+examples = ["Run a simple Cmd command in the mirrored Workspace"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "shell.run_cmd"
