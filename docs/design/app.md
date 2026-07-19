@@ -93,7 +93,7 @@ TinySoulAppBuilder 负责：
 - 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
 - preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher、AppCommandGateway、终端输入源、Endpoint service 和内置 scheduler；
-- 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
+- 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Workspace、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
 - 返回 TinySoulApp。
 
 AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。

@@ -21,6 +21,7 @@ from tinysoul.loop import (
     build_control_request_signal,
 )
 from tinysoul.runtime import (
+    ObservationLevel,
     RUNTIME_STARTUP_FAILED,
     RunLevel,
     RuntimeException,
@@ -111,6 +112,85 @@ def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     assert app.input_sources == ()
     assert len(app.services) == 1
     assert app.observations.mode.value == "model"
+
+
+def test_agent_workspace_mutation_reaches_endpoint_event_stream(
+    tmp_path: Path,
+) -> None:
+    note = tmp_path / "runtime" / "workspace" / "note.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("old text", encoding="utf-8")
+    app = (
+        TinySoulAppBuilder(root=tmp_path)
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .with_llm_runner(
+            FakeLLM(
+                (
+                    _tool_result(
+                        ToolCallRecord(
+                            id="select_workspace",
+                            name="select_action_domains",
+                            arguments={"domains": ["workspace"]},
+                            kind=ToolKind.CONTROL,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="patch_note",
+                            name="workspace.patch",
+                            arguments={
+                                "target_link": "workspace:note.md",
+                                "old_text": "old text",
+                                "new_text": "new text",
+                            },
+                            kind=ToolKind.ACTION,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="select_core",
+                            name="select_action_domains",
+                            arguments={"domains": ["core"]},
+                            kind=ToolKind.CONTROL,
+                        )
+                    ),
+                    _tool_result(
+                        ToolCallRecord(
+                            id="answer",
+                            name="core.answer",
+                            arguments={"guide_blocks": [{"text": "done"}]},
+                            kind=ToolKind.ACTION,
+                        )
+                    ),
+                    _json_result({"text": "done"}),
+                )
+            )
+        )
+        .build()
+    )
+
+    outcome = app.run_once("update the note")
+
+    assert outcome.answered is True
+    assert note.read_text(encoding="utf-8") == "new text"
+    assert app.endpoint is not None
+    page = app.endpoint.replay_events(
+        after=0,
+        mode=ObservationLevel.NORMAL,
+        limit=200,
+    )
+    changes = [
+        event
+        for event in page.events
+        if event.name == "workspace.changed"
+        and event.payload["operation"] == "patch"
+    ]
+    assert len(changes) == 1
+    assert changes[0].source == "workspace.engine"
+    assert changes[0].payload["links"] == ["workspace:note.md"]
 
 
 def test_app_builder_run_once_answers_with_real_action_and_context(

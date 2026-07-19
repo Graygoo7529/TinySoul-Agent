@@ -8,10 +8,9 @@ from typing import Protocol
 
 from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
+from tinysoul.loop import DailyLifecycleCoordinator, LoopControlKind
 from tinysoul.loop.errors import LoopError
 from tinysoul.runtime import (
-    ObservationEmitter,
     ObservationLevel,
     RunScope,
     RuntimeGatewayError,
@@ -24,7 +23,6 @@ from tinysoul.workspace import (
     WorkspaceBundleWrite,
     WorkspaceManifest,
     WorkspaceRetention,
-    emit_workspace_changed,
 )
 from tinysoul.workspace.errors import WorkspaceContractError, WorkspaceError
 
@@ -49,9 +47,6 @@ class PendingMaintenanceDecision(Protocol):
 class EndpointAppGateway(Protocol):
     @property
     def active_turn_scope(self) -> RunScope | None: ...
-
-    @property
-    def current_scope(self) -> RunScope: ...
 
     def submit_user_input(
         self,
@@ -106,7 +101,6 @@ class EndpointEngine:
         settings: EndpointSettings,
         events: EndpointEventBuffer,
         gateway: EndpointAppGateway,
-        observations: ObservationEmitter,
         workspace: WorkspaceEngine,
         session: SessionEngine,
         daily_lifecycle: DailyLifecycleCoordinator,
@@ -114,7 +108,6 @@ class EndpointEngine:
         self._settings = settings
         self._events = events
         self._gateway = gateway
-        self._observations = observations
         self._workspace = workspace
         self._session = session
         self._daily = daily_lifecycle
@@ -308,7 +301,7 @@ class EndpointEngine:
         retention: WorkspaceRetention | None,
     ) -> JsonObject:
         try:
-            with self._daily.active_day_lease() as day:
+            with self._daily.active_day_lease():
                 record = self._workspace.write_text(
                     link,
                     text,
@@ -318,12 +311,7 @@ class EndpointEngine:
                     retention=retention,
                 )
                 manifest = self._workspace.load_manifest()
-                self._publish_workspace_change(
-                    operation="write",
-                    day=day,
-                    manifest=manifest,
-                    link=record.link,
-                )
+                self._sync_workspace_change(manifest)
                 return {
                     "record": record.to_json(),
                     "manifest": manifest.to_json(),
@@ -341,7 +329,7 @@ class EndpointEngine:
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._daily.active_day_lease() as day:
+            with self._daily.active_day_lease():
                 item = self._workspace.trash_resource(
                     link,
                     reason="endpoint.delete",
@@ -349,12 +337,7 @@ class EndpointEngine:
                     expected_revision=expected_revision,
                 )
                 manifest = self._workspace.load_manifest()
-                self._publish_workspace_change(
-                    operation="trash",
-                    day=day,
-                    manifest=manifest,
-                    link=item.original.link,
-                )
+                self._sync_workspace_change(manifest)
                 return {
                     "trash": {"ref": item.ref, **item.to_json()},
                     "manifest": manifest.to_json(),
@@ -381,7 +364,7 @@ class EndpointEngine:
                 message="Workspace blob is too large.",
             )
         try:
-            with self._daily.active_day_lease() as day:
+            with self._daily.active_day_lease():
                 result = self._workspace.write_bundle(
                     (
                         WorkspaceBundleWrite(
@@ -395,12 +378,7 @@ class EndpointEngine:
                     expected_revision=expected_revision,
                 )
                 record = result.records[0]
-                self._publish_workspace_change(
-                    operation="write",
-                    day=day,
-                    manifest=result.manifest,
-                    link=record.link,
-                )
+                self._sync_workspace_change(result.manifest)
                 return {
                     "record": record.to_json(),
                     "manifest": result.manifest.to_json(),
@@ -431,18 +409,13 @@ class EndpointEngine:
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._daily.active_day_lease() as day:
+            with self._daily.active_day_lease():
                 record = self._workspace.restore_resource(
                     trash_ref,
                     expected_revision=expected_revision,
                 )
                 manifest = self._workspace.load_manifest()
-                self._publish_workspace_change(
-                    operation="restore",
-                    day=day,
-                    manifest=manifest,
-                    link=record.link,
-                )
+                self._sync_workspace_change(manifest)
                 return {
                     "record": record.to_json(),
                     "manifest": manifest.to_json(),
@@ -476,25 +449,9 @@ class EndpointEngine:
             )
         return {"accepted": True, "decision_id": decision_id}
 
-    def _publish_workspace_change(
-        self,
-        *,
-        operation: str,
-        day: BusinessDay,
-        manifest: WorkspaceManifest,
-        link: str,
-    ) -> None:
+    def _sync_workspace_change(self, manifest: WorkspaceManifest) -> None:
         self._gateway.sync_workspace_context(
             manifest,
-            source="endpoint.workspace",
-        )
-        emit_workspace_changed(
-            self._observations,
-            operation=operation,
-            day=str(day),
-            manifest=manifest,
-            link=link,
-            scope=self._gateway.current_scope,
             source="endpoint.workspace",
         )
 

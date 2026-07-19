@@ -365,7 +365,11 @@ class TinySoulAppBuilder:
                     observations,
                 )
             )
-            workspace = self._build_workspace(config, workspace_bridge)
+            workspace = self._build_workspace(
+                config,
+                workspace_bridge,
+                observations,
+            )
             session = (
                 self._session
                 if self._session is not None
@@ -604,7 +608,6 @@ class TinySoulAppBuilder:
                     settings=self._endpoint_settings,
                     events=endpoint_events,
                     gateway=gateway,
-                    observations=observations,
                     workspace=workspace,
                     session=session,
                     daily_lifecycle=daily_lifecycle,
@@ -738,6 +741,7 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         bridge: RuntimeWorkspaceBridge,
+        observations: ObservationEmitter,
     ) -> WorkspaceEngine:
         try:
             settings = config.parse_section(
@@ -747,7 +751,10 @@ class TinySoulAppBuilder:
                     project_root=self._root,
                 ),
             )
-            return WorkspaceEngineBuilder(settings).build()
+            return WorkspaceEngineBuilder(
+                settings,
+                observations=observations,
+            ).build()
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
         except WorkspaceError as exc:

@@ -139,6 +139,8 @@ WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 
 `context.background.*.payload.entries` 包含当前 top link、content、source、owner 和 evictable，可直接驱动 Top Link 面板。MODEL 事件不含图片原始字节、provider 原始响应、reasoning content、密钥或绝对路径。
 
+`workspace.changed` 是 Manifest cache 的失效通知，payload 为：`operation`、`day`、`previous_revision`、`revision`、`links`、`created_links`、`updated_links`、`removed_links`；只有单个 affected link 时兼容字段 `link` 才非空。operation 当前包括 `initialize`、`reconcile`、`describe`、`write`、`bundle`、`patch`、`trash`、`restore`。该事件由 WorkspaceEngine 在最终成功提交后发布，因此 UI mutation、Agent action、Capability bundle 和公开 reconcile 都使用同一事件；失败、回滚和内部中间 reconciliation 不产生通知。
+
 ## Session 接口
 
 - `GET /v1/session/history`：当前 active day 的有界历史 head；
@@ -181,7 +183,7 @@ Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写�
 
 删除是可恢复 Trash move，不提供直接物理删除。收到 `workspace.conflict` 时保留用户编辑缓冲，重新拉取 Manifest/正文，再由用户决定合并或覆盖，不能自动用新 digest 重试旧正文。
 
-Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；`workspace.changed` 经 ObservationRouter 同时分发到已配置的 Console 与 Endpoint event buffer，不是直接写入 WebSocket buffer。
+Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；Agent action 通过既有 Workspace action projection 同步 Context。`workspace.changed` 经 ObservationRouter 同时分发到已配置的 Console 与 Endpoint event buffer，不是直接写入 WebSocket buffer。前端把该事件作为失效通知：若响应中的 Manifest 尚未覆盖事件的 revision/day，则重新读取 Manifest；sequence gap 时同样回到 Manifest 权威投影，不尝试从事件增量重建完整状态。
 
 ## Maintenance
 

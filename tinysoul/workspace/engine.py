@@ -18,6 +18,7 @@ from tinysoul.infra.filesystem import (
     read_text_prefix,
     resolve_under_root,
 )
+from tinysoul.runtime import NullObservationEmitter, ObservationEmitter
 
 from .config import WorkspaceSettings
 from .errors import (
@@ -37,6 +38,11 @@ from .manifest import (
     WorkspaceRetention,
     WorkspaceResourceKind,
     WorkspaceResourceRecord,
+)
+from .observation import (
+    WorkspaceChange,
+    WorkspaceChangeOperation,
+    emit_workspace_changed,
 )
 from .reconcile import WorkspaceReconcileResult, WorkspaceReconciler
 from .resources import WorkspaceResourceClassifier, image_data_matches
@@ -257,10 +263,12 @@ class WorkspaceEngine:
         settings: WorkspaceSettings,
         manifest_store: WorkspaceManifestStore,
         trash_store: WorkspaceTrashStore | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._settings = settings
         self._manifest_store = manifest_store
         self._trash_store = trash_store or WorkspaceTrashStore(settings.trash_root)
+        self._observations = observations or NullObservationEmitter()
         classifier = WorkspaceResourceClassifier()
         self._reconciler = WorkspaceReconciler(
             settings=settings,
@@ -288,6 +296,7 @@ class WorkspaceEngine:
         """Claim an empty or legacy active root for one explicit business day."""
 
         with self._lock:
+            before = self._manifest_store.load()
             if not isinstance(day, BusinessDay):
                 raise WorkspaceContractError("Workspace day must be a BusinessDay")
             manifest = self._manifest_store.load()
@@ -298,7 +307,13 @@ class WorkspaceEngine:
                 )
             if not manifest.day:
                 self._manifest_store.save(replace(manifest, day=str(day)))
-            return self.reconcile()
+            result = self._reconcile()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.INITIALIZE,
+            before=before,
+            after=result.manifest,
+        )
+        return result
 
     def require_day(self, day: BusinessDay) -> None:
         with self._lock:
@@ -319,7 +334,7 @@ class WorkspaceEngine:
 
         with self._lock:
             self.require_day(day)
-            reconciliation = self.reconcile()
+            reconciliation = self._reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace archive requires complete reconciliation"
@@ -382,11 +397,19 @@ class WorkspaceEngine:
         """Attach a bounded semantic description to the current resource digest."""
 
         with self._lock:
-            return self._set_description(
+            before = self._manifest_store.load()
+            record = self._set_description(
                 link,
                 description,
                 expected_digest=expected_digest,
             )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.DESCRIBE,
+            before=before,
+            after=after,
+        )
+        return record
 
     def _set_description(
         self,
@@ -408,7 +431,7 @@ class WorkspaceEngine:
             raise WorkspaceContractError(
                 "Workspace description requires an expected digest"
             )
-        reconciliation = self.reconcile()
+        reconciliation = self._reconcile()
         if not reconciliation.complete:
             raise WorkspaceReconciliationError(
                 "Workspace description could not complete disk reconciliation"
@@ -946,8 +969,9 @@ class WorkspaceEngine:
         expected_revision: int | None = None,
     ) -> WorkspaceResourceRecord:
         with self._lock:
+            before = self._manifest_store.load()
             self._check_expected_revision(expected_revision)
-            return self._write_text(
+            record = self._write_text(
                 link,
                 text,
                 overwrite=overwrite,
@@ -955,6 +979,13 @@ class WorkspaceEngine:
                 retention=retention,
                 owner_turn_id=owner_turn_id,
             )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.WRITE,
+            before=before,
+            after=after,
+        )
+        return record
 
     def _write_text(
         self,
@@ -1038,6 +1069,7 @@ class WorkspaceEngine:
         """Commit a multi-resource mutation with disk and manifest rollback."""
 
         with self._lock:
+            before = self._manifest_store.load()
             self._check_expected_revision(expected_revision)
             items = tuple(writes)
             if any(not isinstance(item, WorkspaceBundleWrite) for item in items):
@@ -1084,7 +1116,7 @@ class WorkspaceEngine:
                     + sorted(overlap)[0]
                 )
 
-            reconciliation = self.reconcile()
+            reconciliation = self._reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace bundle requires complete reconciliation"
@@ -1145,7 +1177,7 @@ class WorkspaceEngine:
                     atomic_write_bytes(paths[item.link], item.data)
                 for link in delete_values:
                     paths[link].unlink()
-                committed = self.reconcile()
+                committed = self._reconcile()
                 if not committed.complete:
                     raise WorkspaceReconciliationError(
                         "Workspace bundle could not complete disk reconciliation"
@@ -1183,7 +1215,7 @@ class WorkspaceEngine:
                 )
                 if final_manifest != committed.manifest:
                     self._manifest_store.save(final_manifest)
-                return WorkspaceBundleResult(
+                result = WorkspaceBundleResult(
                     manifest=final_manifest,
                     records=tuple(written_records),
                 )
@@ -1199,6 +1231,12 @@ class WorkspaceEngine:
                 raise WorkspaceIOError(
                     f"Workspace bundle mutation failed: {exc}"
                 ) from exc
+        self._emit_change(
+            operation=WorkspaceChangeOperation.BUNDLE,
+            before=before,
+            after=result.manifest,
+        )
+        return result
 
     def patch_text(
         self,
@@ -1209,12 +1247,20 @@ class WorkspaceEngine:
         expected_digest: str = "",
     ) -> WorkspaceResourceRecord:
         with self._lock:
-            return self._patch_text(
+            before = self._manifest_store.load()
+            record = self._patch_text(
                 link,
                 old_text=old_text,
                 new_text=new_text,
                 expected_digest=expected_digest,
             )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.PATCH,
+            before=before,
+            after=after,
+        )
+        return record
 
     def _patch_text(
         self,
@@ -1277,13 +1323,21 @@ class WorkspaceEngine:
         expected_revision: int | None = None,
     ) -> WorkspaceTrashItem:
         with self._lock:
+            before = self._manifest_store.load()
             self._check_expected_revision(expected_revision)
-            return self._trash_resource(
+            item = self._trash_resource(
                 link,
                 reason=reason,
                 source_turn_id=source_turn_id,
                 expected_digest=expected_digest,
             )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.TRASH,
+            before=before,
+            after=after,
+        )
+        return item
 
     def _trash_resource(
         self,
@@ -1320,7 +1374,7 @@ class WorkspaceEngine:
             self._trash_store.discard(item)
             raise WorkspaceIOError(f"Failed to stage workspace trash move: {exc}") from exc
         try:
-            reconciliation = self.reconcile()
+            reconciliation = self._reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace trash could not complete disk reconciliation"
@@ -1331,7 +1385,7 @@ class WorkspaceEngine:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(content, path)
                 self._trash_store.discard(item)
-                self.reconcile()
+                self._reconcile()
                 restored = self._manifest_record(record.link)
                 if restored is not None:
                     self._restore_record_metadata(restored, original=record)
@@ -1350,6 +1404,7 @@ class WorkspaceEngine:
         expected_revision: int | None = None,
     ) -> WorkspaceResourceRecord:
         with self._lock:
+            before = self._manifest_store.load()
             self._check_expected_revision(expected_revision)
             item = self._trash_store.load(trash_ref)
             target = self.path_for(item.original.link)
@@ -1365,7 +1420,7 @@ class WorkspaceEngine:
             except OSError as exc:
                 raise WorkspaceIOError(f"Failed to restore Workspace resource: {exc}") from exc
             try:
-                reconciliation = self.reconcile()
+                reconciliation = self._reconcile()
                 if not reconciliation.complete:
                     raise WorkspaceReconciliationError(
                         "Workspace restore could not complete disk reconciliation"
@@ -1376,17 +1431,23 @@ class WorkspaceEngine:
                     original=item.original,
                 )
                 self._trash_store.discard(item)
-                return record
+                after = self._manifest_store.load()
             except WorkspaceError as exc:
                 try:
                     os.replace(target, content)
-                    self.reconcile()
+                    self._reconcile()
                 except (OSError, WorkspaceError) as rollback_error:
                     raise WorkspaceIOError(
                         "Workspace restore failed and rollback also failed: "
                         f"{rollback_error}"
                     ) from exc
                 raise
+        self._emit_change(
+            operation=WorkspaceChangeOperation.RESTORE,
+            before=before,
+            after=after,
+        )
+        return record
 
     def trash_items(self) -> tuple[WorkspaceTrashItem, ...]:
         with self._lock:
@@ -1547,7 +1608,18 @@ class WorkspaceEngine:
 
     def reconcile(self) -> WorkspaceReconcileResult:
         with self._lock:
-            return self._reconciler.reconcile()
+            before = self._manifest_store.load()
+            result = self._reconcile()
+        if result.complete:
+            self._emit_change(
+                operation=WorkspaceChangeOperation.RECONCILE,
+                before=before,
+                after=result.manifest,
+            )
+        return result
+
+    def _reconcile(self) -> WorkspaceReconcileResult:
+        return self._reconciler.reconcile()
 
     def _record_for(self, path: Path) -> WorkspaceResourceRecord | None:
         return self._reconciler.inspect_record(path)
@@ -1578,7 +1650,7 @@ class WorkspaceEngine:
     ) -> WorkspaceResourceRecord:
         try:
             self._inspect_record(link)
-            reconciliation = self.reconcile()
+            reconciliation = self._reconcile()
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace mutation could not complete disk reconciliation"
@@ -1719,12 +1791,34 @@ class WorkspaceEngine:
                 f"{rollback_error}"
             ) from cause
 
+    def _emit_change(
+        self,
+        *,
+        operation: WorkspaceChangeOperation,
+        before: WorkspaceManifest,
+        after: WorkspaceManifest,
+    ) -> None:
+        emit_workspace_changed(
+            self._observations,
+            change=WorkspaceChange(
+                operation=operation,
+                before=before,
+                after=after,
+            ),
+        )
+
 
 class WorkspaceEngineBuilder:
     """Build a WorkspaceEngine from parsed settings."""
 
-    def __init__(self, settings: WorkspaceSettings) -> None:
+    def __init__(
+        self,
+        settings: WorkspaceSettings,
+        *,
+        observations: ObservationEmitter | None = None,
+    ) -> None:
         self._settings = settings
+        self._observations = observations
 
     def build(self) -> WorkspaceEngine:
         if self._settings.root.exists() and not self._settings.root.is_dir():
@@ -1735,6 +1829,7 @@ class WorkspaceEngineBuilder:
             settings=self._settings,
             manifest_store=WorkspaceManifestStore(self._settings.manifest_path),
             trash_store=trash_store,
+            observations=self._observations,
         )
         engine.load_manifest()
         if recovered:

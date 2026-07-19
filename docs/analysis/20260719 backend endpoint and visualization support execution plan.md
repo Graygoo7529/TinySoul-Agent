@@ -74,7 +74,7 @@ Status: done
 - Observation：`TaskCall.task_id` 贯穿 task/model 事件；Phase2/3 发布结构化 Action call/result；Context 从已提交 Background 条目发布 Top Link/content snapshot/change；ObservationRouter 使用 per-sink mode。
 - Endpoint：新增 settings/errors/failures/Runtime bridge、Engine、有界 sequence event buffer 与延迟导入的 FastAPI/Uvicorn server；HTTP bearer、WebSocket 首帧认证、loopback/随机预绑定端口、OpenAPI、稳定错误 envelope 和 ready handshake 已实现。
 - 接入：`tinysoul serve` 复用正式 AppBuilder；InputDispatcher 增加 typed control；Daily active-day lease 保护 Endpoint Session/Workspace；HomeDecisionBroker 以 decision_id 同时服务终端和 Endpoint。
-- 后续修正：AppCommandGateway 成为 Terminal/Endpoint 统一输入边界，普通 Endpoint input 在 decision pending 时返回 typed conflict；EndpointHost 与 Engine 生命周期拆分；`workspace.changed` 改由 ObservationRouter fan-out；`serve --terminal` 提供显式双入口运行模式。
+- 后续修正：AppCommandGateway 成为 Terminal/Endpoint 统一输入边界，普通 Endpoint input 在 decision pending 时返回 typed conflict；EndpointHost 与 Engine 生命周期拆分；`workspace.changed` 由 WorkspaceEngine 在最终 committed Manifest transition 统一发布并经 ObservationRouter fan-out，覆盖 UI、Agent action、Capability bundle 与公开 reconcile；`serve --terminal` 提供显式双入口运行模式。
 - Workspace：text 与 blob read/write、Manifest revision guard、resource digest guard、Trash/Restore 和 mutation 后 full snapshot 已接入；Context 对更低 revision snapshot 幂等 no-op，对同 revision 冲突保持拒绝。
 - 文档：模块设计位于 `docs/design/endpoint.md`，前端协议位于 `docs/endpoint/frontend integration.md`，App/Context/LLM/Workspace 与根规约已同步。
 - 验证：Endpoint API、真实预绑定 Uvicorn listener、WebSocket、事件分层、Workspace CAS/blob/Trash、producer observation 和 stale snapshot 均有测试；全量 tests 与 ty 类型检查通过。

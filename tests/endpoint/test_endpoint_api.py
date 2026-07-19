@@ -257,6 +257,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
 
 def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None:
     engine, _gateway = _engine(tmp_path)
+    after = engine.events.latest_sequence
     engine.events.write(
         ObservationEvent(
             name="turn.started",
@@ -277,12 +278,12 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
     normal = client.get(
         "/v1/events",
         headers=_auth(),
-        params={"after": 0, "mode": "normal"},
+        params={"after": after, "mode": "normal"},
     ).json()
     assert [event["name"] for event in normal["events"]] == ["turn.started"]
 
     with client.websocket_connect("/v1/events/ws") as websocket:
-        websocket.send_json({"token": TOKEN, "after": 0, "mode": "model"})
+        websocket.send_json({"token": TOKEN, "after": after, "mode": "model"})
         assert websocket.receive_json()["type"] == "authenticated"
         page = websocket.receive_json()
         assert page["type"] == "events"
@@ -313,8 +314,18 @@ def _engine(
     event_max_bytes: int = 1024 * 1024,
 ) -> tuple[EndpointEngine, _EndpointGateway]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
+    gateway = _EndpointGateway()
+    observations = ObservationRouter(
+        mode=ObservationLevel.MODEL,
+        routes=(
+            ObservationRoute(sink=events, mode=ObservationLevel.MODEL),
+            ObservationRoute(sink=gateway, mode=ObservationLevel.MODEL),
+        ),
+    )
     workspace = WorkspaceEngineBuilder(
-        WorkspaceSettings(root=tmp_path / "workspace")
+        WorkspaceSettings(root=tmp_path / "workspace"),
+        observations=observations,
     ).build()
     daily = DailyLifecycleCoordinator(
         archive_root=tmp_path / "archive",
@@ -325,21 +336,11 @@ def _engine(
         DAY,
         now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
-    events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
-    gateway = _EndpointGateway()
-    observations = ObservationRouter(
-        mode=ObservationLevel.MODEL,
-        routes=(
-            ObservationRoute(sink=events, mode=ObservationLevel.MODEL),
-            ObservationRoute(sink=gateway, mode=ObservationLevel.MODEL),
-        ),
-    )
     settings = EndpointSettings(token=TOKEN)
     engine = EndpointEngine(
         settings=settings,
         events=events,
         gateway=gateway,
-        observations=observations,
         workspace=workspace,
         session=session,
         daily_lifecycle=daily,
