@@ -1,5 +1,5 @@
 [llm.tasks.framework]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "glm_5_1", "minimax_m3"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3",  "deepseek_v4", "glm_5_1", "minimax_m3"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -12,7 +12,7 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.llm_action]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3", "deepseek_v4", "minimax_m3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -25,7 +25,7 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.home_maintenance]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3", "deepseek_v4", "minimax_m3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -38,7 +38,7 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.home_search]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3", "deepseek_v4", "minimax_m3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -51,7 +51,7 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.memory_maintenance]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3", "deepseek_v4", "minimax_m3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -64,7 +64,7 @@ max_cycles = 10
 prefer_successful_model_seconds = 600
 
 [llm.tasks.memory_search]
-models = ["gpt_5_5", "kimi_k3", "kimi_k2_7", "deepseek_v4", "minimax_m3", "glm_5_1"]
+models = ["kimi_k2_7", "gpt_5_5", "kimi_k3", "deepseek_v4", "minimax_m3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
