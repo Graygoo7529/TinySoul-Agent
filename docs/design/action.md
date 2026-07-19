@@ -67,9 +67,9 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
-`native` 后端运行在宿主 Python 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native action 通过 `context.control.check_cancelled()` 等方式协作退出，结果收敛为 timeout 且后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `script` 后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
+`native` 后端运行在宿主 Python 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native action 通过 `context.control.check_cancelled()` 等方式协作退出，结果收敛为 timeout 且后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。当前代码使用 `subprocess`/`script`，已确认的下一阶段将 `script` 无 alias 地迁移为 `supervised_process`。
 
-并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，无论它是在正常完成收取阶段还是超时取消 grace 的结果收取阶段出现，runner 都立即进入同一个外层 transfer 分支，对同组未完成 action 请求 `runtime_transfer` 取消：subprocess/script 后端通过 `ActionExecutionControl` 的取消回调终止进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
+并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，无论它是在正常完成收取阶段还是超时取消 grace 的结果收取阶段出现，runner 都立即进入同一个外层 transfer 分支，对同组未完成 action 请求 `runtime_transfer` 取消：进程后端通过 `ActionExecutionControl` 的取消回调终止当前 action 启动或持有的进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
 
 ## 定义结构
 
@@ -206,11 +206,13 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 进程启动、stdin、stdout/stderr 上限、deadline、取消回调和进程树回收由内部 `ControlledProcessRunner` 统一实现。`SubprocessActionExecutor` 负责把 Catalog options 映射为普通 ActionResult；Resource 这类需要在进程前后执行业务 staging/commit 的 executor 可以复用同一 runner，但只能执行固定 worker，不能把模型参数拼成 argv。`subprocess.default` 是通用 executor handler identity，不是配置中的默认命令。
 
-### script
+### supervised_process（已确认，待实施）
 
-`script` backend kind 是需要进程终止语义的 Script capability action 分类，不提供通用 inline-code executor。具体 `script.run_python` / `script.run_bash` handler 由 `tinysoul.capabilities.script` 注册，并由 capability 拥有 source、policy、事务 mirror 和 Turn-scoped job；Action 层只提供可复用 managed process 原语及 runner 的进程取消策略。
+当前实现中的 `script` backend kind 是需要进程终止语义的 Script capability action 分类，不提供通用 inline-code executor。下一阶段将删除 `ActionBackendKind.SCRIPT` 和 Catalog 字符串 `script`，无兼容 alias 地迁移为 `supervised_process`。
 
-`tinysoul/action/backends/process.py` 是不注册到 ActionEngine 的底层生命周期原语，提供 retained process handle、文件 capture、增量读取和进程树终止。`subprocess.py` 在其上提供同步 `ControlledProcessRunner` adapter 与通用 `subprocess.default` Action executor。业务 capability 可直接复用 managed process 或同步 adapter，但不得复制 `Popen`/终止逻辑，也不得因 `backend.kind=script` 假设存在同名通用 handler。
+`subprocess` 与 `supervised_process` 的边界不是使用哪一个解释器，而是进程生命周期：`subprocess` 必须在当前 Action batch 内完成并收敛；`supervised_process` 可以在启动 Action 返回后保留一个 Turn-scoped job，由后续 Cycle 的 wait/stop/read/apply/discard Action 继续监督。每个监督 action 自身仍在所属 batch 内收敛，不引入 ongoing Action。
+
+`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步 adapter 与 `subprocess.default`，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
 
 ### llm_action
 
@@ -334,7 +336,7 @@ tinysoul/capabilities/       # 只有存在真实轻量能力时才建立
 
 `actions/*.toml` 放具体 action 定义。
 
-TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点，不放 Python 业务实现。`backend.kind` 是通用执行方式，例如 `native`、`subprocess`、`script`、`llm_action`；`backend.handler` 是具体 executor 注册键，例如 `core.answer`、`workspace.scan`。
+TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点，不放 Python 业务实现。`backend.kind` 是通用执行方式，例如当前的 `native`、`subprocess`、`script`、`llm_action`；下一阶段将 `script` 替换为 `supervised_process`。`backend.handler` 是具体 executor 注册键，例如 `core.answer`、`workspace.scan`。
 
 ### Python executor 与业务归属
 
@@ -342,7 +344,7 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 
 `actions.py` 是模块与 ActionEngine 的集成边界，不等同于业务逻辑容器。它可以包含 `ActionExecutor` 实现类、模型参数解析、局部失败到 `ActionResult` 的映射、信号发送和 `register_<domain>_actions` registrar。executor 类名仍使用 `*ActionExecutor` 后缀，以明确它们实现 `ActionExecutor` 协议；registrar 使用 `register_<domain>_actions` 命名，例如 `register_core_actions`、`register_workspace_actions`、`register_home_actions`、`register_memory_actions`。真实业务规则应继续下沉到 engine/service/client/evaluator 等文件，避免 `actions.py` 变成业务大杂烩。
 
-轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 domain；subprocess/script backend 作为执行机制存在，不意味着向模型提供通用 shell 或任意脚本 action。
+轻量业务能力不应全部堆入 Action executor 目录，也不必升级为 Workspace 级顶层模块。数学计算、网页搜索等能力在真实 action、边界和测试都明确后放入 `tinysoul/capabilities/<capability>`：业务逻辑放在该能力包的 service/evaluator/client 中，action-facing 代码位于该能力包的 `actions.py`，只负责参数解析、调用业务服务和映射 `ActionResult`，再由 registrar 接入 ActionBuilder。没有真实 capability 时不保留空包或空 domain；进程 backend 作为执行机制存在，不意味着向模型提供通用 shell 或任意脚本 action。Shell 只有在独立 domain、受限 schema、项目启用和专用 handler 都落实后才成为真实 capability。
 
 ### 继承规则
 

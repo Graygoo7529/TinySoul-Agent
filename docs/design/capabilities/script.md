@@ -54,6 +54,19 @@ runtime/.staging/script-job-*/
 
 完整日志不建立 Link、不进入 Workspace Manifest 或 Daily archive。`ManagedProcessRunner` 在 Script 场景使用调用方提供的 `logs/`；同步 subprocess 未提供 capture root 时仍使用自己拥有并清理的系统临时目录。
 
+## 共用执行层迁移（已确认，待实施）
+
+当前实现由 `tinysoul.capabilities.script` 自己拥有 job manager、Turn activity controller 和 `runtime/.staging/script-job-*`，Catalog 使用 `backend.kind=script`。下一阶段会在保持本文件上述 Script 行为不变的前提下完成以下迁移：
+
+- job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 与 cleanup 下沉到 capability-internal `tinysoul.capabilities.supervised_process`；`tinysoul.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
+- `backend.kind=script` 无 alias 地替换为 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 handler，不增加通用 inline executor；
+- staging identity 改为 `runtime/.staging/supervised-process-job-*`；Script job 仍使用 `source/` 保存经 snapshot digest 复核的冻结入口，Shell job 可以不使用该目录；
+- `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；wait/runtime/log/mirror/candidate 共用上限迁到 `[capabilities.supervised_process]`；
+- 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”，后续 action 必须校验 execution id、Turn scope 和 owner，Shell 不能 wait/apply Script job，反之亦然；
+- `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
+
+迁移不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:how/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Maintenance 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 才改由 `supervised_process` Runtime bridge 表达。
+
 ## Workspace 提交
 
 事务镜像记录创建时每个资源的 digest、retention 与 owner Turn。apply 只提交实际 diff：
