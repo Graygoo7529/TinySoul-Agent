@@ -9,6 +9,7 @@ import pytest
 from tinysoul.app import (
     AppOutputError,
     ConsoleOutputSink,
+    ObservationRoute,
     ObservationRouter,
 )
 from tinysoul.runtime import ObservationEvent, ObservationLevel
@@ -80,6 +81,28 @@ def test_observation_router_isolates_and_reports_sink_failure() -> None:
     with pytest.raises(AppOutputError, match="closed output"):
         router.raise_if_failed()
     router.raise_if_failed()
+
+
+def test_observation_router_filters_each_sink_independently() -> None:
+    normal = _RecordingSink()
+    model = _RecordingSink()
+    router = ObservationRouter(
+        mode=ObservationLevel.MODEL,
+        routes=(
+            ObservationRoute(normal, ObservationLevel.NORMAL),
+            ObservationRoute(model, ObservationLevel.MODEL),
+        ),
+    )
+
+    for level in ObservationLevel:
+        router.emit(ObservationEvent(name=level.value, level=level, source="test"))
+
+    assert [event.name for event in normal.events] == ["normal"]
+    assert [event.name for event in model.events] == [
+        "normal",
+        "verbose",
+        "model",
+    ]
 
 
 def test_console_sink_reserves_stdout_for_turn_output() -> None:

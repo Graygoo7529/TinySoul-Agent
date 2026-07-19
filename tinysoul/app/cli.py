@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from secrets import token_urlsafe
 import sys
 
+from tinysoul.endpoint import EndpointError, EndpointReady, EndpointSettings
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.infra.json import dumps_json
 from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.runtime import ObservationLevel, RuntimeException
 
@@ -24,6 +27,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = tuple(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "init":
         return _initialize(arguments[1:])
+    if arguments and arguments[0] == "serve":
+        return _serve(arguments[1:])
 
     parser = _build_parser()
     args = parser.parse_args(arguments)
@@ -80,6 +85,64 @@ def _initialize(argv: Sequence[str]) -> int:
         return 1
     print(f"Initialized TinySoul project at {outcome.root}")
     return 0
+
+
+def _serve(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tinysoul serve",
+        description="Run the authenticated local desktop Endpoint.",
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="project root containing tinysoul.toml (default: current directory)",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--token", default="")
+    parser.add_argument(
+        "--mode",
+        choices=tuple(level.value for level in ObservationLevel),
+        default=ObservationLevel.MODEL.value,
+    )
+    args = parser.parse_args(tuple(argv))
+    root = args.root.resolve()
+    token = args.token or token_urlsafe(32)
+    try:
+        mode = ObservationLevel(args.mode)
+        config = ConfigEnvironment.from_project_root(
+            root,
+            overrides={
+                "app.interactive": True,
+                "app.output.mode": mode.value,
+            },
+        )
+        app_settings = config.parse_section("app", parse_app_settings)
+        endpoint_settings = EndpointSettings(
+            host=args.host,
+            port=args.port,
+            token=token,
+            observation_mode=mode,
+        )
+
+        def ready(value: EndpointReady) -> None:
+            print(dumps_json(value.to_json()), flush=True)
+
+        app = (
+            TinySoulAppBuilder(root)
+            .with_config_environment(config)
+            .with_app_settings(app_settings)
+            .with_endpoint(endpoint_settings, ready=ready)
+            .build()
+        )
+        app.run()
+        return 0
+    except KeyboardInterrupt:
+        return 130
+    except (ConfigError, EndpointError, RuntimeException, AppError) as exc:
+        print(f"tinysoul: {exc}", file=sys.stderr)
+        return 1
 
 
 def _build_parser() -> argparse.ArgumentParser:

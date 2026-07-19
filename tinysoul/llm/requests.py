@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from uuid import uuid4
 
 from tinysoul.runtime import RunScope
 
@@ -103,6 +104,7 @@ class TaskCall:
 
     profile: TaskProfile | str
     messages: MessageStack
+    task_id: str = field(default_factory=lambda: f"task_{uuid4().hex[:12]}")
     tool_scope: ToolScope = field(default_factory=ToolScope)
     prompt_cache: PromptCache | None = None
     settings: CallSettings = field(default_factory=CallSettings)
@@ -116,6 +118,8 @@ class TaskCall:
             raise LLMContractError("TaskCall.profile must be non-empty")
         if not isinstance(self.messages, MessageStack):
             raise LLMContractError("TaskCall.messages must be a MessageStack")
+        if not isinstance(self.task_id, str) or not self.task_id:
+            raise LLMContractError("TaskCall.task_id must be non-empty")
         if not isinstance(self.tool_scope, ToolScope):
             raise LLMContractError("TaskCall.tool_scope must be a ToolScope")
         if self.prompt_cache is not None and not isinstance(

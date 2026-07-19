@@ -159,6 +159,18 @@ class ActionEngine:
 
         return self._renderer.render_model_payload(result)
 
+    def render_call_trace_payload(self, call: ActionCall) -> JsonObject:
+        """Render one normalized action call for external observation."""
+
+        action = self._catalog.get_action(call.action_name)
+        return {
+            "call_id": call.call_id,
+            "action": call.action_name,
+            "domain": action.domain,
+            "sequence": call.sequence,
+            "params": call.params,
+        }
+
     def render_result_trace_payload(self, result: ActionResult) -> JsonObject:
         """Render one action result for trace storage."""
 

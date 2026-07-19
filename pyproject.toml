@@ -27,12 +27,20 @@ tinysoul = "tinysoul.app.cli:main"
 [project.optional-dependencies]
 dev = [
     "crawlee>=1.8,<2",
+    "fastapi>=0.116,<1",
     "pytest",
     "setuptools>=70.1",
     "ty>=0.0.57",
+    "uvicorn>=0.35,<1",
+    "websockets>=15,<16",
 ]
 web-crawl = [
     "crawlee>=1.8,<2",
+]
+desktop = [
+    "fastapi>=0.116,<1",
+    "uvicorn>=0.35,<1",
+    "websockets>=15,<16",
 ]
 
 [tool.setuptools.packages.find]

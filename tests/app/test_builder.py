@@ -8,6 +8,7 @@ import pytest
 from pypdf import PdfWriter
 
 from tinysoul.app import AppSettings, TinySoulAppBuilder
+from tinysoul.endpoint import EndpointSettings
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.requests import TaskCall
@@ -92,6 +93,23 @@ def test_app_builder_cleans_project_capability_staging_on_startup(
     staging = tmp_path / "runtime" / ".staging"
     assert staging.is_dir()
     assert tuple(staging.iterdir()) == ()
+
+
+def test_app_builder_mounts_endpoint_as_input_and_model_output_source(
+    tmp_path: Path,
+) -> None:
+    app = (
+        TinySoulAppBuilder(root=tmp_path)
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .build()
+    )
+
+    assert app.endpoint is not None
+    assert app.input_sources == (app.endpoint,)
+    assert app.observations.mode.value == "model"
 
 
 def test_app_builder_run_once_answers_with_real_action_and_context(

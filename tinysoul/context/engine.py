@@ -18,7 +18,18 @@ from tinysoul.llm.messages import (
     UserMessage,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
-from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
+from tinysoul.runtime import (
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+    Signal,
+    SignalBus,
+    emit_observation,
+    observation_enabled,
+)
 
 from .background import (
     BackgroundContext,
@@ -173,6 +184,7 @@ class ContextEngine:
         trace_recall_max_chars: int,
         compression_trigger_ratio: float,
         compression_target_ratio: float,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._composer = composer
         self._compressor = compressor
@@ -187,6 +199,7 @@ class ContextEngine:
         self._trace_recall_max_chars = trace_recall_max_chars
         self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
+        self._observations = observations or NullObservationEmitter()
         self._scope_builder = ContextControlScopeBuilder()
         self._normalizer = ControlCallNormalizer()
         self._working = WorkingContext()
@@ -289,6 +302,10 @@ class ContextEngine:
                 )
                 seen.add(link)
         self._background.reset_entries(tuple(entries))
+        self._emit_background_observation(
+            name="context.background.snapshot",
+            message="Top-level background context prepared.",
+        )
 
     def complete_preparation(self) -> None:
         self._require_turn()
@@ -356,6 +373,7 @@ class ContextEngine:
             raise ContextContractError(
                 "Context signal batch belongs to a different active Turn"
             )
+        background_before = self._background.links()
         results: list[ControlResult] = []
         working_candidates: list[tuple[int, Signal, str, WorkingPatch]] = []
         workspace_candidates: list[tuple[int, Signal, str, WorkspaceSnapshot]] = []
@@ -453,6 +471,20 @@ class ContextEngine:
             self._apply_trace_append(append)
         for text in input_texts:
             self._inputs.add(text)
+        background_after = self._background.links()
+        if background_after != background_before:
+            before = set(background_before)
+            after = set(background_after)
+            self._emit_background_observation(
+                name="context.background.changed",
+                message="Top-level background context changed.",
+                loaded_links=tuple(
+                    link for link in background_after if link not in before
+                ),
+                evicted_links=tuple(
+                    link for link in background_before if link not in after
+                ),
+            )
         return tuple(sorted(results, key=lambda result: result.sequence))
 
     def merge_pending_inputs(self) -> int:
@@ -478,13 +510,58 @@ class ContextEngine:
         background_report = self._background.evict_for_budget(
             required_chars=remaining
         )
-        return ContextPressureReport(
+        report = ContextPressureReport(
             changed=trace_report.changed or background_report.changed,
             reclaimed_chars=(
                 trace_report.reclaimed_chars + background_report.reclaimed_chars
             ),
             trace=trace_report,
             evicted_background_links=background_report.evicted_links,
+        )
+        if background_report.evicted_links:
+            self._emit_background_observation(
+                name="context.background.changed",
+                message="Top-level background context evicted for budget.",
+                evicted_links=background_report.evicted_links,
+            )
+        return report
+
+    def _emit_background_observation(
+        self,
+        *,
+        name: str,
+        message: str,
+        loaded_links: tuple[str, ...] = (),
+        evicted_links: tuple[str, ...] = (),
+    ) -> None:
+        if not observation_enabled(self._observations, ObservationLevel.VERBOSE):
+            return
+        entries = tuple(self._background.entries())
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.VERBOSE,
+                source="context.engine",
+                scope=RunScope().push(RunLevel.TURN, self._turn_id),
+                message=message,
+                payload={
+                    "turn_id": self._turn_id,
+                    "links": [entry.link for entry in entries],
+                    "loaded_links": list(loaded_links),
+                    "evicted_links": list(evicted_links),
+                    "entries": [
+                        {
+                            "link": entry.link,
+                            "content": entry.content,
+                            "source": entry.source.value,
+                            "owner": entry.owner,
+                            "evictable": entry.evictable,
+                        }
+                        for entry in entries
+                    ],
+                },
+            ),
         )
 
     def inspect_trace(self, ref: str) -> JsonObject:
@@ -844,9 +921,21 @@ class ContextEngineBuilder:
         self._default_entries: list[BackgroundEntry] = []
         self._loadable_entries: dict[str, BackgroundContentLoader] = {}
         self._background_providers: list[BackgroundEntryProvider] = []
+        self._observations: ObservationEmitter = NullObservationEmitter()
 
     def with_journal(self, journal: str) -> "ContextEngineBuilder":
         self._journal = journal
+        return self
+
+    def with_observations(
+        self,
+        observations: ObservationEmitter,
+    ) -> "ContextEngineBuilder":
+        if not hasattr(observations, "enabled") or not hasattr(observations, "emit"):
+            raise ContextContractError(
+                "Context observations must provide enabled() and emit()"
+            )
+        self._observations = observations
         return self
 
     def with_budget_max_image_bytes(
@@ -994,6 +1083,7 @@ class ContextEngineBuilder:
             trace_recall_max_chars=self._trace_recall_max_chars,
             compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
+            observations=self._observations,
         )
 
 

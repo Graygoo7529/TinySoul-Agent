@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import date
 from typing import cast
 
@@ -34,7 +35,26 @@ from tinysoul.context.working import WorkingPatch
 from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
 from tinysoul.llm.reasoning import Reasoning
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.runtime import CyclePhase, RunLevel, RunScope, Signal, SignalBus
+from tinysoul.runtime import (
+    CyclePhase,
+    ObservationEvent,
+    ObservationLevel,
+    RunLevel,
+    RunScope,
+    Signal,
+    SignalBus,
+)
+
+
+@dataclass
+class RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
 
 def _scope(turn_id: str) -> RunScope:
     return (
@@ -510,6 +530,78 @@ def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
     assert engine.working_snapshot()["workspace_resources"] == [
         {"link": "workspace:a.md", "summary": "a"}
     ]
+
+
+def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
+    engine = _engine()
+    scope = _scope(engine.begin_turn("hi"))
+    bus = SignalBus()
+    for revision, link in ((2, "workspace:new.md"), (1, "workspace:old.md")):
+        bus.emit(
+            build_workspace_sync_signal(
+                WorkspaceSnapshot(
+                    revision=revision,
+                    resources=(WorkspaceResource(link=link, summary=link),),
+                ),
+                call_id=f"sync_{revision}",
+                scope=scope,
+                source="workspace.scan",
+            )
+        )
+        assert engine.consume_signals(bus) == ()
+
+    snapshot = engine.working_snapshot()
+    assert snapshot["workspace_revision"] == 2
+    assert snapshot["workspace_resources"] == [
+        {"link": "workspace:new.md", "summary": "workspace:new.md"}
+    ]
+
+
+def test_context_observes_committed_background_entries_with_content() -> None:
+    observations = RecordingObservations()
+    engine = (
+        ContextEngineBuilder(system_text="sys")
+        .with_observations(observations)
+        .add_default_background("home:agent@AGENT", "core rules")
+        .add_loadable_background("home:what@concept/x", "concept body")
+        .build()
+    )
+    scope = _scope(engine.begin_turn("hi"))
+    engine.prepare_default_background(date(2026, 7, 19))
+    bus = SignalBus()
+    bus.emit(
+        Signal(
+            name=SIGNAL_BACKGROUND_PATCH,
+            source="test",
+            scope=scope,
+            payload={
+                "call_id": "load_x",
+                "load_links": ["home:what@concept/x"],
+                "evict_links": [],
+            },
+        )
+    )
+
+    assert engine.consume_signals(bus) == ()
+
+    background_events = [
+        event
+        for event in observations.events
+        if event.name.startswith("context.background.")
+    ]
+    assert [event.name for event in background_events] == [
+        "context.background.snapshot",
+        "context.background.changed",
+    ]
+    entries = background_events[-1].payload["entries"]
+    assert isinstance(entries, list)
+    assert entries[-1] == {
+        "link": "home:what@concept/x",
+        "content": "concept body",
+        "source": "phase1",
+        "owner": "context",
+        "evictable": True,
+    }
 
 
 def test_trace_append_rejects_unknown_kind() -> None:

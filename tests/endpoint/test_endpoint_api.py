@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from fastapi.testclient import TestClient
+import httpx
+import pytest
+
+from tinysoul.app import HomeDecisionBroker
+from tinysoul.endpoint import (
+    EndpointEngine,
+    EndpointEventBuffer,
+    EndpointSettings,
+)
+from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
+from tinysoul.infra.json import JsonObject
+from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
+from tinysoul.runtime import ObservationEvent, ObservationLevel
+from tinysoul.session import SessionEngine, SessionSettings
+from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
+
+
+DAY = BusinessDay.parse("2026-07-19")
+TOKEN = "endpoint-test-token-0000000000000000"
+
+
+def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
+    engine, inputs, controls, _synced = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    assert client.get("/v1/status").status_code == 401
+    preflight = client.options(
+        "/v1/status",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert preflight.status_code == 200
+    status = client.get("/v1/status", headers=_auth()).json()
+    assert status["ready"] is True
+    assert status["active_day"] == str(DAY)
+    history = client.get("/v1/session/history", headers=_auth()).json()
+    assert history["day"] == str(DAY)
+    assert history["items"] == []
+    assert client.get(
+        "/v1/maintenance/decision",
+        headers=_auth(),
+    ).json() == {"pending": False}
+    openapi = client.get("/openapi.json", headers=_auth()).json()
+    assert "/v1/events" in openapi["paths"]
+    assert "/v1/workspace/blob" in openapi["paths"]
+
+    response = client.post(
+        "/v1/input",
+        headers=_auth(),
+        json={"text": "hello", "metadata": {"client_id": "ui"}},
+    )
+    assert response.status_code == 202
+    assert inputs == [("hello", "endpoint", {"client_id": "ui"})]
+
+    response = client.post(
+        "/v1/control",
+        headers=_auth(),
+        json={"kind": "exit_program"},
+    )
+    assert response.status_code == 202
+    assert controls[0][0] is LoopControlKind.EXIT_PROGRAM
+
+
+def test_endpoint_hides_unexpected_exception_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, _inputs, _controls, _synced = _engine(tmp_path)
+
+    def fail_status() -> JsonObject:
+        raise OSError("B:\\private\\workspace")
+
+    monkeypatch.setattr(engine, "status", fail_status)
+    client = TestClient(
+        create_endpoint_app(engine, engine.settings),
+        raise_server_exceptions=False,
+    )
+
+    response = client.get("/v1/status", headers=_auth())
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {
+            "code": "endpoint.internal",
+            "message": "Endpoint request failed.",
+            "details": {"error_type": "OSError"},
+        }
+    }
+    assert "private" not in response.text
+
+
+def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
+    engine, _inputs, _controls, synced = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    manifest = client.get("/v1/workspace/manifest", headers=_auth()).json()
+    revision = manifest["revision"]
+    created = client.put(
+        "/v1/workspace/resource",
+        headers=_auth(),
+        json={
+            "link": "workspace:notes/demo.md",
+            "text": "first",
+            "expected_revision": revision,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    digest = body["record"]["digest"]
+    revision = body["manifest"]["revision"]
+    assert synced[-1].revision == revision
+
+    read = client.get(
+        "/v1/workspace/resource",
+        headers=_auth(),
+        params={"link": "workspace:notes/demo.md"},
+    ).json()
+    assert read["text"] == "first"
+    assert read["digest"] == digest
+
+    stale = client.put(
+        "/v1/workspace/resource",
+        headers=_auth(),
+        json={
+            "link": "workspace:notes/demo.md",
+            "text": "stale",
+            "overwrite": True,
+            "expected_digest": digest,
+            "expected_revision": revision - 1,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "workspace.conflict"
+
+    trashed = client.post(
+        "/v1/workspace/trash",
+        headers=_auth(),
+        json={
+            "link": "workspace:notes/demo.md",
+            "expected_digest": digest,
+            "expected_revision": revision,
+        },
+    )
+    assert trashed.status_code == 200
+    trash = trashed.json()["trash"]
+    revision = trashed.json()["manifest"]["revision"]
+    assert trash["ref"].startswith("trash:workspace/")
+
+    restored = client.post(
+        "/v1/workspace/restore",
+        headers=_auth(),
+        json={"trash_ref": trash["ref"], "expected_revision": revision},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["record"]["link"] == "workspace:notes/demo.md"
+
+
+def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
+    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    revision = client.get(
+        "/v1/workspace/manifest",
+        headers=_auth(),
+    ).json()["revision"]
+    data = b"\x00\x01\x02tiny-soul"
+
+    written = client.put(
+        "/v1/workspace/blob",
+        headers={**_auth(), "Content-Type": "application/octet-stream"},
+        params={
+            "link": "workspace:assets/data.bin",
+            "expected_revision": revision,
+        },
+        content=data,
+    )
+
+    assert written.status_code == 200
+    record = written.json()["record"]
+    assert record["kind"] == "binary"
+    response = client.get(
+        "/v1/workspace/blob",
+        headers=_auth(),
+        params={"link": record["link"]},
+    )
+    assert response.status_code == 200
+    assert response.content == data
+    assert response.headers["x-tinysoul-digest"] == record["digest"]
+
+
+def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None:
+    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    engine.events.write(
+        ObservationEvent(
+            name="turn.started",
+            level=ObservationLevel.NORMAL,
+            source="test",
+        )
+    )
+    engine.events.write(
+        ObservationEvent(
+            name="llm.model.request",
+            level=ObservationLevel.MODEL,
+            source="test",
+            payload={"messages": [{"role": "user", "content": "complete"}]},
+        )
+    )
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    normal = client.get(
+        "/v1/events",
+        headers=_auth(),
+        params={"after": 0, "mode": "normal"},
+    ).json()
+    assert [event["name"] for event in normal["events"]] == ["turn.started"]
+
+    with client.websocket_connect("/v1/events/ws") as websocket:
+        websocket.send_json({"token": TOKEN, "after": 0, "mode": "model"})
+        assert websocket.receive_json()["type"] == "authenticated"
+        page = websocket.receive_json()
+        assert page["type"] == "events"
+        assert [event["name"] for event in page["events"]] == [
+            "turn.started",
+            "llm.model.request",
+        ]
+
+
+def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
+    engine, _inputs, _controls, _synced = _engine(tmp_path)
+    server = EndpointASGIServer(engine=engine, settings=engine.settings)
+    server.start()
+    try:
+        response = httpx.get(
+            f"http://{engine.settings.host}:{server.port}/v1/health",
+            timeout=5.0,
+        )
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+    finally:
+        server.stop()
+
+
+def _engine(
+    tmp_path: Path,
+) -> tuple[
+    EndpointEngine,
+    list[tuple[str, str, JsonObject]],
+    list[tuple[LoopControlKind, str, str, JsonObject]],
+    list[WorkspaceManifest],
+]:
+    session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    workspace = WorkspaceEngineBuilder(
+        WorkspaceSettings(root=tmp_path / "workspace")
+    ).build()
+    daily = DailyLifecycleCoordinator(
+        archive_root=tmp_path / "archive",
+        session=session,
+        workspace=workspace,
+    )
+    daily.ensure_active_day(
+        DAY,
+        now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    events = EndpointEventBuffer(capacity=32, max_bytes=1024 * 1024)
+    inputs: list[tuple[str, str, JsonObject]] = []
+    controls: list[tuple[LoopControlKind, str, str, JsonObject]] = []
+    synced: list[WorkspaceManifest] = []
+    settings = EndpointSettings(token=TOKEN)
+    engine = EndpointEngine(
+        settings=settings,
+        events=events,
+        workspace=workspace,
+        session=session,
+        daily_lifecycle=daily,
+        decisions=HomeDecisionBroker(),
+        submit_input=lambda text, source, metadata: inputs.append(
+            (text, source, metadata)
+        ),
+        request_control=lambda kind, source, text, metadata: controls.append(
+            (kind, source, text, metadata)
+        ),
+        active_turn_scope=lambda: None,
+        sync_workspace=synced.append,
+    )
+    return engine, inputs, controls, synced
+
+
+def _auth() -> dict[str, str]:
+    return {"Authorization": f"Bearer {TOKEN}"}

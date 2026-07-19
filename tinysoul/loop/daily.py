@@ -107,6 +107,48 @@ class DailyTransitionOutcome:
     resumed: bool = False
 
 
+class ActiveDayLease:
+    """Hold Daily rollover exclusion while accessing active-day modules."""
+
+    def __init__(
+        self,
+        *,
+        lock: RLock,
+        session: SessionDailyLifecycle,
+        workspace: WorkspaceDailyLifecycle,
+    ) -> None:
+        self._lock = lock
+        self._session = session
+        self._workspace = workspace
+        self._entered = False
+
+    def __enter__(self) -> BusinessDay:
+        self._lock.acquire()
+        self._entered = True
+        session_day = self._session.active_day
+        workspace_day = self._workspace.active_day
+        if session_day is None or workspace_day is None:
+            self._release()
+            raise LoopInvariantError("Daily active day is not initialized")
+        if session_day != workspace_day:
+            self._release()
+            raise LoopInvariantError("Session and Workspace active days disagree")
+        return session_day
+
+    def __exit__(
+        self,
+        exception_type: object,
+        exception: object,
+        traceback: object,
+    ) -> None:
+        self._release()
+
+    def _release(self) -> None:
+        if self._entered:
+            self._entered = False
+            self._lock.release()
+
+
 class SessionDailyLifecycle(Protocol):
     @property
     def root(self) -> Path:
@@ -164,6 +206,15 @@ class DailyLifecycleCoordinator:
         self._workspace = workspace
         self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
+
+    def active_day_lease(self) -> ActiveDayLease:
+        """Exclude rollover while one caller reads or mutates active-day state."""
+
+        return ActiveDayLease(
+            lock=self._lock,
+            session=self._session,
+            workspace=self._workspace,
+        )
 
     def ensure_active_day(
         self,

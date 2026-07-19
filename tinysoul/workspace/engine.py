@@ -67,6 +67,18 @@ class WorkspaceTextRead:
 
 
 @dataclass(frozen=True)
+class WorkspaceByteRead:
+    """A complete bounded byte resource for external protocol adapters."""
+
+    link: str
+    data: bytes
+    kind: WorkspaceResourceKind
+    media_type: str
+    size: int
+    digest: str
+
+
+@dataclass(frozen=True)
 class WorkspaceImageRead:
     """A complete image resource prepared for an LLM image part."""
 
@@ -568,6 +580,47 @@ class WorkspaceEngine:
             digest=sha256(data).hexdigest(),
         )
 
+    def read_bytes(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        max_bytes: int,
+    ) -> WorkspaceByteRead:
+        """Read one complete resource under an explicit byte limit."""
+
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise WorkspaceContractError("Workspace byte read limit must be positive")
+        with self._lock:
+            record = self._inspect_record(link)
+            if record.size > max_bytes:
+                raise WorkspaceContractError(
+                    f"Workspace resource exceeds the byte read limit: {record.link}"
+                )
+            path = self.path_for(record.link)
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                raise WorkspaceIOError(
+                    f"Failed to read workspace resource bytes: {exc}"
+                ) from exc
+            digest = sha256(data).hexdigest()
+            if (
+                len(data) > max_bytes
+                or len(data) != record.size
+                or digest != record.digest
+            ):
+                raise WorkspaceContractError(
+                    f"Workspace resource changed while being read: {record.link}"
+                )
+            return WorkspaceByteRead(
+                link=record.link,
+                data=data,
+                kind=record.kind,
+                media_type=record.media_type,
+                size=record.size,
+                digest=digest,
+            )
+
     def read_document(
         self,
         link: WorkspaceLink | str,
@@ -890,8 +943,10 @@ class WorkspaceEngine:
         expected_digest: str = "",
         retention: WorkspaceRetention | None = None,
         owner_turn_id: str = "",
+        expected_revision: int | None = None,
     ) -> WorkspaceResourceRecord:
         with self._lock:
+            self._check_expected_revision(expected_revision)
             return self._write_text(
                 link,
                 text,
@@ -978,10 +1033,12 @@ class WorkspaceEngine:
         *,
         delete_links: Sequence[WorkspaceLink | str] = (),
         expected_delete_digests: Mapping[str, str] | None = None,
+        expected_revision: int | None = None,
     ) -> WorkspaceBundleResult:
         """Commit a multi-resource mutation with disk and manifest rollback."""
 
         with self._lock:
+            self._check_expected_revision(expected_revision)
             items = tuple(writes)
             if any(not isinstance(item, WorkspaceBundleWrite) for item in items):
                 raise WorkspaceContractError(
@@ -1216,12 +1273,16 @@ class WorkspaceEngine:
         *,
         reason: str,
         source_turn_id: str = "",
+        expected_digest: str = "",
+        expected_revision: int | None = None,
     ) -> WorkspaceTrashItem:
         with self._lock:
+            self._check_expected_revision(expected_revision)
             return self._trash_resource(
                 link,
                 reason=reason,
                 source_turn_id=source_turn_id,
+                expected_digest=expected_digest,
             )
 
     def _trash_resource(
@@ -1230,8 +1291,13 @@ class WorkspaceEngine:
         *,
         reason: str,
         source_turn_id: str,
+        expected_digest: str,
     ) -> WorkspaceTrashItem:
         inspected = self._inspect_record(link, restore_if_trashed=False)
+        if expected_digest and inspected.digest != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {inspected.link}"
+            )
         manifest_record = self._manifest_record(inspected.link)
         record = (
             manifest_record
@@ -1277,8 +1343,14 @@ class WorkspaceEngine:
             raise
         return item
 
-    def restore_resource(self, trash_ref: str) -> WorkspaceResourceRecord:
+    def restore_resource(
+        self,
+        trash_ref: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> WorkspaceResourceRecord:
         with self._lock:
+            self._check_expected_revision(expected_revision)
             item = self._trash_store.load(trash_ref)
             target = self.path_for(item.original.link)
             self._check_mutable_path(target, link=item.original.link)
@@ -1319,6 +1391,20 @@ class WorkspaceEngine:
     def trash_items(self) -> tuple[WorkspaceTrashItem, ...]:
         with self._lock:
             return self._trash_store.list()
+
+    def _check_expected_revision(self, expected_revision: int | None) -> None:
+        if expected_revision is None:
+            return
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise WorkspaceContractError(
+                "Workspace expected revision must be an integer"
+            )
+        current = self._manifest_store.load().revision
+        if expected_revision != current:
+            raise WorkspaceContractError(
+                "Workspace manifest revision mismatch: "
+                f"expected {expected_revision}, current {current}"
+            )
 
     def prepare_task_input(
         self,

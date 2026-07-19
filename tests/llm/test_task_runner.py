@@ -40,6 +40,7 @@ from tinysoul.runtime.exception import (
     RUNTIME_TURN_END,
     RuntimeException,
 )
+from tinysoul.runtime import ObservationEvent, ObservationLevel
 from tinysoul.llm.tools import (
     ToolCallRecord,
     ToolKind,
@@ -78,6 +79,44 @@ class FakeClock(Clock):
 
     def now(self) -> float:
         return self.current
+
+
+@dataclass
+class RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
+
+
+def test_runner_observations_share_stable_task_id() -> None:
+    provider = FakeProvider(provider_id="fake")
+    observations = RecordingObservations()
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+        observations=observations,
+    )
+    call = TaskCall(
+        profile="framework",
+        messages=MessageStack.of(UserMessage.from_text("hello")),
+        task_id="task_visible",
+    )
+
+    runner.run(call)
+
+    names = [event.name for event in observations.events]
+    assert names[0] == "llm.task.started"
+    assert "llm.model.request" in names
+    assert names[-1] == "llm.task.completed"
+    assert all(
+        event.payload["task_id"] == "task_visible"
+        for event in observations.events
+    )
 
 
 @dataclass

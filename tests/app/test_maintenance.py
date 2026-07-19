@@ -7,7 +7,7 @@ from threading import Event, RLock, Thread
 from tinysoul.app import (
     AppSettings,
     SchedulerSettings,
-    TerminalHomeDecisionBroker,
+    HomeDecisionBroker,
     TinySoulAppBuilder,
 )
 from tinysoul.app.maintenance import MaintenanceDecisionRoute
@@ -39,7 +39,7 @@ class _RecordingObservations:
 
 def test_terminal_home_decision_broker_only_consumes_pending_decision() -> None:
     observations = _RecordingObservations()
-    broker = TerminalHomeDecisionBroker(observations=observations)
+    broker = HomeDecisionBroker(observations=observations)
     decisions: list[HomeMaintenanceDecision | None] = []
     thread = Thread(target=lambda: decisions.append(broker.decide(_change())))
 
@@ -61,7 +61,7 @@ def test_terminal_home_decision_broker_only_consumes_pending_decision() -> None:
 
 def test_terminal_eof_stops_pending_review_and_requests_program_exit() -> None:
     observations = _RecordingObservations()
-    broker = TerminalHomeDecisionBroker(observations=observations)
+    broker = HomeDecisionBroker(observations=observations)
     decisions: list[HomeMaintenanceDecision | None] = []
     thread = Thread(target=lambda: decisions.append(broker.decide(_change())))
     thread.start()
@@ -76,7 +76,7 @@ def test_terminal_eof_stops_pending_review_and_requests_program_exit() -> None:
 
 def test_program_exit_can_stop_pending_manual_review() -> None:
     observations = _RecordingObservations()
-    broker = TerminalHomeDecisionBroker(observations=observations)
+    broker = HomeDecisionBroker(observations=observations)
     decisions: list[HomeMaintenanceDecision | None] = []
     thread = Thread(target=lambda: decisions.append(broker.decide(_change())))
     thread.start()

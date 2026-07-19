@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tinysoul.endpoint import EndpointEngine
 
 from tinysoul.loop import ProgramOutcome, ProgramRunner, TurnOutcome
 
@@ -22,6 +26,7 @@ class TinySoulApp:
     input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
     program_event_sources: tuple[ProgramEventSource, ...] = field(default_factory=tuple)
     observations: ObservationRouter = field(default_factory=ObservationRouter)
+    endpoint: EndpointEngine | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "input_sources", tuple(self.input_sources))

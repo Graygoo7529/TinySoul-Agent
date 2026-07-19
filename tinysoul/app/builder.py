@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from uuid import uuid4
 
 from tinysoul.action import (
     ActionEngine,
@@ -33,6 +35,13 @@ from tinysoul.context import (
 from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.context.actions import register_context_actions
 from tinysoul.context.errors import ContextError
+from tinysoul.endpoint import (
+    EndpointEngine,
+    EndpointEventBuffer,
+    EndpointReady,
+    EndpointRequestError,
+    EndpointSettings,
+)
 from tinysoul.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
@@ -57,6 +66,7 @@ from tinysoul.memory import (
 from tinysoul.memory.errors import MemoryError
 from tinysoul.infra import StagingDirectoryManager, StagingError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.infra.json import JsonObject
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -71,6 +81,7 @@ from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.loop.program import ProgramRunner
+from tinysoul.loop.signals import LoopControlKind
 from tinysoul.loop.maintenance import ProgramMaintenanceRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
@@ -91,6 +102,7 @@ from tinysoul.runtime import (
     RUNTIME_TURN_OUTPUT,
     WORKSPACE_TRASH_RESTORE_REQUIRED,
     ObservationEmitter,
+    ObservationLevel,
     RunLevel,
     RuntimeException,
     RuntimeModuleRunner,
@@ -123,19 +135,21 @@ from tinysoul.session.projection import (
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceEngineBuilder,
+    WorkspaceManifest,
     WorkspaceMirrorService,
     WorkspacePromptReferenceResolver,
     WorkspaceTurnPreparationHandler,
     parse_workspace_settings,
     register_workspace_actions,
+    workspace_snapshot_signal,
 )
 from tinysoul.workspace.errors import WorkspaceError
 
 from .config import AppSettings, parse_app_settings
-from .errors import AppError
-from .inputs import InputCommandParser, InputDispatcher, InputSource
-from .maintenance import TerminalHomeDecisionBroker
-from .outputs import ConsoleOutputSink, ObservationRouter, OutputSink
+from .errors import AppError, AppInvariantError
+from .inputs import InputCommandParser, InputDispatcher, InputEvent, InputSource
+from .maintenance import HomeDecisionBroker
+from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .runtime import TinySoulApp
 from .sources import MaintenanceScheduler, TerminalInputSource
 
@@ -160,6 +174,8 @@ class TinySoulAppBuilder:
         self._input_sources: list[InputSource] = []
         self._turn_completion_handlers: list[TurnCompletionHandler] = []
         self._output_sinks: list[OutputSink] = []
+        self._endpoint_settings: EndpointSettings | None = None
+        self._endpoint_ready: Callable[[EndpointReady], None] | None = None
 
     def with_loop_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
         self._loop_settings = settings
@@ -233,6 +249,16 @@ class TinySoulAppBuilder:
         self._output_sinks.append(sink)
         return self
 
+    def with_endpoint(
+        self,
+        settings: EndpointSettings,
+        *,
+        ready: Callable[[EndpointReady], None] | None = None,
+    ) -> "TinySoulAppBuilder":
+        self._endpoint_settings = settings
+        self._endpoint_ready = ready
+        return self
+
     def build(self) -> TinySoulApp:
         app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
@@ -285,13 +311,41 @@ class TinySoulAppBuilder:
                 supervised_process_bridge,
             )
             output_sinks = tuple(self._output_sinks)
-            if not output_sinks and app_settings.interactive:
+            endpoint_events: EndpointEventBuffer | None = None
+            if (
+                not output_sinks
+                and app_settings.interactive
+                and self._endpoint_settings is None
+            ):
                 output_sinks = (
                     ConsoleOutputSink(max_chars=app_settings.output.model_max_chars),
                 )
+            output_routes = tuple(
+                ObservationRoute(sink=sink, mode=app_settings.output.mode)
+                for sink in output_sinks
+            )
+            if self._endpoint_settings is not None:
+                endpoint_events = EndpointEventBuffer(
+                    capacity=self._endpoint_settings.event_capacity,
+                    max_bytes=self._endpoint_settings.event_bytes,
+                )
+                output_routes = (
+                    *output_routes,
+                    ObservationRoute(
+                        sink=endpoint_events,
+                        mode=self._endpoint_settings.observation_mode,
+                    ),
+                )
             observations = ObservationRouter(
-                mode=app_settings.output.mode,
-                sinks=output_sinks,
+                mode=(
+                    _higher_observation_level(
+                        app_settings.output.mode,
+                        self._endpoint_settings.observation_mode,
+                    )
+                    if self._endpoint_settings is not None
+                    else app_settings.output.mode
+                ),
+                routes=output_routes,
             )
             bus = self._bus if self._bus is not None else SignalBus()
             llm = (
@@ -328,6 +382,7 @@ class TinySoulAppBuilder:
                     context_settings,
                     home,
                     memory,
+                    observations,
                     context_bridge,
                     home_bridge,
                     memory_bridge,
@@ -439,6 +494,7 @@ class TinySoulAppBuilder:
                 retry_limit=loop_settings.phase_retry_limit,
                 domain_how=domain_how,
                 signal_consumer=signal_consumer,
+                observations=observations,
             )
             phase3 = Phase3Unit(
                 context=context,
@@ -446,6 +502,7 @@ class TinySoulAppBuilder:
                 bus=bus,
                 module_runner=module_runner,
                 signal_consumer=signal_consumer,
+                observations=observations,
             )
             cycle_runner = CycleRunner(
                 context=context,
@@ -498,7 +555,7 @@ class TinySoulAppBuilder:
                 workspace=workspace,
                 observations=observations,
             )
-            decision_broker = TerminalHomeDecisionBroker(
+            decision_broker = HomeDecisionBroker(
                 observations=observations,
             )
             maintenance_runner = ProgramMaintenanceRunner(
@@ -535,7 +592,75 @@ class TinySoulAppBuilder:
                 observations=observations,
                 program_scope=program_runner.scope,
             )
+            endpoint: EndpointEngine | None = None
             input_sources = tuple(self._input_sources)
+            if self._endpoint_settings is not None:
+                if endpoint_events is None:
+                    raise AppInvariantError("Endpoint event buffer was not assembled")
+
+                def sync_workspace(manifest: WorkspaceManifest) -> None:
+                    active_scope = turn_runner.active_scope
+                    if active_scope is None:
+                        return
+                    bus.emit(
+                        workspace_snapshot_signal(
+                            manifest,
+                            call_id=f"endpoint_{uuid4().hex[:12]}",
+                            scope=active_scope,
+                            source="endpoint.workspace",
+                        )
+                    )
+
+                def submit_endpoint_input(
+                    text: str,
+                    source: str,
+                    metadata: JsonObject,
+                ) -> None:
+                    try:
+                        dispatcher.submit(
+                            InputEvent(text=text, source=source, metadata=metadata)
+                        )
+                    except AppError as exc:
+                        raise EndpointRequestError(
+                            status_code=409,
+                            code="input.rejected",
+                            message=str(exc),
+                        ) from exc
+
+                def request_endpoint_control(
+                    kind: LoopControlKind,
+                    source: str,
+                    text: str,
+                    metadata: JsonObject,
+                ) -> None:
+                    try:
+                        dispatcher.request_control(
+                            kind,
+                            source=source,
+                            text=text,
+                            metadata=metadata,
+                        )
+                    except AppError as exc:
+                        raise EndpointRequestError(
+                            status_code=409,
+                            code="control.rejected",
+                            message=str(exc),
+                        ) from exc
+
+                endpoint = EndpointEngine(
+                    settings=self._endpoint_settings,
+                    events=endpoint_events,
+                    workspace=workspace,
+                    session=session,
+                    daily_lifecycle=daily_lifecycle,
+                    decisions=decision_broker,
+                    submit_input=submit_endpoint_input,
+                    request_control=request_endpoint_control,
+                    active_turn_scope=lambda: turn_runner.active_scope,
+                    sync_workspace=sync_workspace,
+                    ready=self._endpoint_ready,
+                )
+                input_sources = (*input_sources, endpoint)
             if not input_sources and app_settings.interactive:
                 input_sources = (
                     TerminalInputSource(
@@ -558,6 +683,7 @@ class TinySoulAppBuilder:
                 input_sources=input_sources,
                 program_event_sources=program_event_sources,
                 observations=observations,
+                endpoint=endpoint,
             )
         except ConfigError as exc:
             raise infra_bridge.from_config_error(exc) from exc
@@ -737,6 +863,7 @@ class TinySoulAppBuilder:
         settings: ContextSettings,
         home: AgentHomeEngine,
         memory: MemoryEngine,
+        observations: ObservationEmitter,
         bridge: RuntimeContextBridge,
         home_bridge: RuntimeAgentHomeBridge,
         memory_bridge: RuntimeMemoryBridge,
@@ -745,6 +872,7 @@ class TinySoulAppBuilder:
             builder = (
                 ContextEngineBuilder(system_text=settings.system_text)
                 .with_journal(settings.journal)
+                .with_observations(observations)
                 .with_budget_max_image_bytes(settings.budget_max_image_bytes)
                 .with_trace_heap(
                     chunk_max_chars=settings.trace_chunk_max_chars,
@@ -949,3 +1077,15 @@ class TinySoulAppBuilder:
         )
         registry.register_fallback(EndTurnOrProgramTrapHandler())
         return RuntimeTrap(registry=registry)
+
+
+def _higher_observation_level(
+    left: ObservationLevel,
+    right: ObservationLevel,
+) -> ObservationLevel:
+    rank = {
+        ObservationLevel.NORMAL: 0,
+        ObservationLevel.VERBOSE: 1,
+        ObservationLevel.MODEL: 2,
+    }
+    return left if rank[left] >= rank[right] else right

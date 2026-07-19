@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .action import RuntimeActionBridge
     from .app import RuntimeAppBridge
     from .context import RuntimeContextBridge
+    from .endpoint import RuntimeEndpointBridge
     from .home import RuntimeAgentHomeBridge
     from .infra import RuntimeInfraBridge
     from .llm import RuntimeLLMBridge
@@ -24,6 +25,7 @@ __all__ = [
     "RuntimeAgentHomeBridge",
     "RuntimeAppBridge",
     "RuntimeContextBridge",
+    "RuntimeEndpointBridge",
     "RuntimeInfraBridge",
     "RuntimeLLMBridge",
     "RuntimeLoopBridge",
@@ -49,6 +51,10 @@ def __getattr__(name: str) -> object:
         from .context import RuntimeContextBridge
 
         return RuntimeContextBridge
+    if name == "RuntimeEndpointBridge":
+        from .endpoint import RuntimeEndpointBridge
+
+        return RuntimeEndpointBridge
     if name == "RuntimeAgentHomeBridge":
         from .home import RuntimeAgentHomeBridge
 

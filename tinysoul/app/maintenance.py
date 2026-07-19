@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 from threading import Condition
 from typing import Protocol
+from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
 from tinysoul.runtime import (
@@ -19,6 +21,18 @@ from tinysoul.runtime import (
 )
 
 from .errors import AppInvariantError
+
+
+@dataclass(frozen=True)
+class MaintenanceDecisionSnapshot:
+    """One pending manual Home change exposed to external input adapters."""
+
+    decision_id: str
+    change: HomeMaintenanceChange
+
+    def __post_init__(self) -> None:
+        if not self.decision_id:
+            raise AppInvariantError("Maintenance decision id must be non-empty")
 
 
 class MaintenanceDecisionRoute(StrEnum):
@@ -36,8 +50,8 @@ class MaintenanceDecisionInputRouter(Protocol):
 _UNSET = object()
 
 
-class TerminalHomeDecisionBroker:
-    """Correlate one manual Home decision with terminal input."""
+class HomeDecisionBroker:
+    """Correlate one manual Home decision with an authenticated input adapter."""
 
     def __init__(
         self,
@@ -49,6 +63,8 @@ class TerminalHomeDecisionBroker:
         self._scope = scope or RunScope().push(RunLevel.PROGRAM, "program")
         self._condition = Condition()
         self._pending = False
+        self._decision_id = ""
+        self._change: HomeMaintenanceChange | None = None
         self._decision: object = _UNSET
 
     @property
@@ -66,6 +82,8 @@ class TerminalHomeDecisionBroker:
                     "Manual Home decision broker already has a pending change"
                 )
             self._pending = True
+            self._decision_id = f"decision_{uuid4().hex[:12]}"
+            self._change = change
             self._decision = _UNSET
         self._emit_prompt(change)
         with self._condition:
@@ -74,6 +92,8 @@ class TerminalHomeDecisionBroker:
             value = self._decision
             self._decision = _UNSET
             self._pending = False
+            self._decision_id = ""
+            self._change = None
         if value is None:
             return None
         if not isinstance(value, HomeMaintenanceDecision):
@@ -108,6 +128,40 @@ class TerminalHomeDecisionBroker:
             self._condition.notify_all()
             return True
 
+    def pending_decision(self) -> MaintenanceDecisionSnapshot | None:
+        with self._condition:
+            if (
+                not self._pending
+                or self._decision is not _UNSET
+                or self._change is None
+            ):
+                return None
+            return MaintenanceDecisionSnapshot(
+                decision_id=self._decision_id,
+                change=self._change,
+            )
+
+    def submit_decision(
+        self,
+        decision_id: str,
+        decision: HomeMaintenanceDecision | None,
+    ) -> bool:
+        with self._condition:
+            if (
+                not self._pending
+                or self._decision is not _UNSET
+                or decision_id != self._decision_id
+            ):
+                return False
+            if decision is not None and not isinstance(
+                decision,
+                HomeMaintenanceDecision,
+            ):
+                raise AppInvariantError("Maintenance decision value is invalid")
+            self._decision = decision
+            self._condition.notify_all()
+            return True
+
     def _emit_prompt(self, change: HomeMaintenanceChange) -> None:
         if not observation_enabled(self._observations, ObservationLevel.NORMAL):
             return
@@ -123,6 +177,7 @@ class TerminalHomeDecisionBroker:
                 ),
                 payload={
                     "decision_required": True,
+                    "decision_id": self._decision_id,
                     "change": change.to_review_json(),
                 },
             ),

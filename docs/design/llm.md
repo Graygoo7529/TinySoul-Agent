@@ -198,6 +198,8 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 ## 设计范围
 
+每个 `TaskCall` 具有稳定 task identity。LLMTaskRunner 在 verbose 层发布 task started/completed/failed，并把同一 identity 写入模型尝试和 model request/response Observation；MODEL request 使用 provider-neutral 完整 MessageStack 与 ToolScope 投影，供桌面调试界面关联一次任务的上下文构造，不暴露 provider 原始 payload。
+
 LLM 模块聚焦文本输入、图像输入、JSON 对象输出、模型侧工具语义、推理输出保留、提示缓存意图、模型链重试切换。
 
 LLM 模块承担模型侧工具语义与供应商工具协议的映射，但不承担工具执行、动作调度、状态提交、严格 JSON Schema、文件附件输入、长期文件资源管理、跨供应商文件复用和复杂企业级可靠性机制。流式输出不属于当前核心范围；这些能力若进入项目，应在清楚的模块边界内设计。

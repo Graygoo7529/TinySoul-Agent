@@ -21,6 +21,22 @@ class OutputSink(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class ObservationRoute:
+    """One output sink with an independent maximum observation level."""
+
+    sink: OutputSink
+    mode: ObservationLevel
+
+    def __post_init__(self) -> None:
+        if not hasattr(self.sink, "write"):
+            raise AppContractError("Observation route sink must provide write()")
+        if not isinstance(self.mode, ObservationLevel):
+            raise AppContractError(
+                "Observation route mode must be an ObservationLevel"
+            )
+
+
 class ObservationRouter:
     """Filter observations and fan them out without raising into business code."""
 
@@ -29,13 +45,17 @@ class ObservationRouter:
         *,
         mode: ObservationLevel = ObservationLevel.NORMAL,
         sinks: tuple[OutputSink, ...] = (),
+        routes: tuple[ObservationRoute, ...] = (),
     ) -> None:
         if not isinstance(mode, ObservationLevel):
             raise AppContractError(
                 "ObservationRouter.mode must be an ObservationLevel"
             )
         self._mode = mode
-        self._sinks = tuple(sinks)
+        self._routes = (
+            *(ObservationRoute(sink=sink, mode=mode) for sink in sinks),
+            *tuple(routes),
+        )
         self._disabled: set[int] = set()
         self._failures: list[Exception] = []
         self._lock = RLock()
@@ -51,17 +71,22 @@ class ObservationRouter:
 
     def enabled(self, level: ObservationLevel) -> bool:
         with self._lock:
-            return bool(self._sinks) and _level_rank(level) <= _level_rank(self._mode)
+            return any(
+                _level_rank(level) <= _level_rank(route.mode)
+                for route in self._routes
+            )
 
     def emit(self, event: ObservationEvent) -> None:
         if not self.enabled(event.level):
             return
         with self._lock:
-            for index, sink in enumerate(self._sinks):
+            for index, route in enumerate(self._routes):
                 if index in self._disabled:
                     continue
+                if _level_rank(event.level) > _level_rank(route.mode):
+                    continue
                 try:
-                    sink.write(event)
+                    route.sink.write(event)
                 except Exception as exc:
                     self._disabled.add(index)
                     self._failures.append(exc)

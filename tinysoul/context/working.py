@@ -170,10 +170,8 @@ class WorkingContext:
             incoming = {resource.link: resource for resource in snapshot.resources}
             problem = ""
             if snapshot.revision < revision:
-                problem = (
-                    "Workspace snapshot revision is stale: "
-                    f"current {revision}, received {snapshot.revision}"
-                )
+                problems.append("")
+                continue
             elif snapshot.revision == revision and incoming != resources:
                 problem = (
                     "Workspace snapshot conflicts with the current revision: "
@@ -186,6 +184,8 @@ class WorkingContext:
         return tuple(problems)
 
     def apply_workspace_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        if snapshot.revision < self._workspace_revision:
+            return
         problem = self.check_workspace_sequence((snapshot,))[0]
         if problem:
             raise ContextInvariantError(

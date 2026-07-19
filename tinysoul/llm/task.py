@@ -188,6 +188,40 @@ class LLMTaskRunner:
         )
 
     def run(self, call: TaskCall) -> TaskResult:
+        self._emit(
+            call,
+            "llm.task.started",
+            ObservationLevel.VERBOSE,
+            "LLM task started.",
+            {"profile": call.profile},
+        )
+        try:
+            result = self._run_task(call)
+        except Exception as exc:
+            self._emit(
+                call,
+                "llm.task.failed",
+                ObservationLevel.VERBOSE,
+                "LLM task failed.",
+                {
+                    "profile": call.profile,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
+        self._emit(
+            call,
+            "llm.task.completed",
+            ObservationLevel.VERBOSE,
+            "LLM task completed.",
+            {
+                "profile": call.profile,
+                "status": result.status.value,
+            },
+        )
+        return result
+
+    def _run_task(self, call: TaskCall) -> TaskResult:
         try:
             task = self._tasks.get(call.profile)
             return self._chain_runner.run(
@@ -438,7 +472,7 @@ class LLMTaskRunner:
                 source="llm.task",
                 scope=call.scope,
                 message=message,
-                payload=payload,
+                payload={"task_id": call.task_id, **payload},
             ),
         )
 

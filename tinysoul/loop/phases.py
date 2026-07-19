@@ -41,6 +41,12 @@ from tinysoul.runtime import (
     RuntimeModuleRunner,
     Signal,
     SignalBus,
+    NullObservationEmitter,
+    ObservationEmitter,
+    ObservationEvent,
+    ObservationLevel,
+    emit_observation,
+    observation_enabled,
 )
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
@@ -228,6 +234,7 @@ class Phase2Unit:
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._context = context
         self._action = action
@@ -238,6 +245,7 @@ class Phase2Unit:
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
+        self._observations = observations or NullObservationEmitter()
 
     def run(
         self,
@@ -294,6 +302,7 @@ class Phase2Unit:
                 normalization = self._action.normalize(result.tool_calls)
             except ActionError as exc:
                 raise self._action_bridge.from_action_error(exc) from exc
+            self._observe_action_calls(normalization, scope=scope)
             return Phase2Outcome(normalization=normalization, attempts=attempt)
 
         self._emit_note(
@@ -305,6 +314,27 @@ class Phase2Unit:
             cycle_id=cycle_id,
         )
         return Phase2Outcome(normalization=ActionNormalization(), attempts=self._retry_limit)
+
+    def _observe_action_calls(
+        self,
+        normalization: ActionNormalization,
+        *,
+        scope: RunScope,
+    ) -> None:
+        if not observation_enabled(self._observations, ObservationLevel.VERBOSE):
+            return
+        for call in normalization.calls:
+            emit_observation(
+                self._observations,
+                ObservationEvent(
+                    name="action.call",
+                    level=ObservationLevel.VERBOSE,
+                    source="loop.phase2",
+                    scope=scope,
+                    message=f"Action call prepared: {call.action_name}.",
+                    payload=self._action.render_call_trace_payload(call),
+                ),
+            )
 
     def _emit_decision(
         self,
@@ -393,6 +423,7 @@ class Phase3Unit:
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
+        observations: ObservationEmitter | None = None,
     ) -> None:
         self._context = context
         self._action = action
@@ -402,6 +433,7 @@ class Phase3Unit:
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
+        self._observations = observations or NullObservationEmitter()
 
     def run(
         self,
@@ -441,6 +473,7 @@ class Phase3Unit:
             scope=scope,
             expected_workspace_call_ids=expected_workspace_call_ids,
         )
+        self._observe_action_results(results, scope=scope)
         self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
         phase_results = preparation.phase_results
         answer_results = tuple(
@@ -475,6 +508,30 @@ class Phase3Unit:
             results=results,
             phase_results=phase_results,
         )
+
+    def _observe_action_results(
+        self,
+        results: tuple[ActionResult, ...],
+        *,
+        scope: RunScope,
+    ) -> None:
+        if not observation_enabled(self._observations, ObservationLevel.VERBOSE):
+            return
+        for result in results:
+            emit_observation(
+                self._observations,
+                ObservationEvent(
+                    name="action.result",
+                    level=ObservationLevel.VERBOSE,
+                    source="loop.phase3",
+                    scope=scope,
+                    message=(
+                        f"Action result: {result.action_name} "
+                        f"{result.status.value}."
+                    ),
+                    payload=self._action.render_result_trace_payload(result),
+                ),
+            )
 
     def _consume_action_effects(
         self,

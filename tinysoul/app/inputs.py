@@ -289,7 +289,11 @@ class InputDispatcher:
                 )
                 return
             if turn_active:
-                self._emit_control(LoopControlKind.EXIT_PROGRAM, intent, turn_scope)
+                self._emit_control(
+                    LoopControlKind.EXIT_PROGRAM,
+                    text=intent.text,
+                    scope=turn_scope,
+                )
                 return
             self._program_inputs.put(
                 ProgramInputEvent.exit_program(
@@ -300,7 +304,11 @@ class InputDispatcher:
             )
             return
         if intent.kind is InputIntentKind.STOP_TURN:
-            self._emit_control(LoopControlKind.STOP_TURN, intent, turn_scope)
+            self._emit_control(
+                LoopControlKind.STOP_TURN,
+                text=intent.text,
+                scope=turn_scope,
+            )
             return
         if intent.kind is InputIntentKind.APPEND_INPUT:
             self._bus.emit(
@@ -312,6 +320,52 @@ class InputDispatcher:
             )
             return
         raise AppContractError(f"Unsupported input intent: {intent.kind.value}")
+
+    def request_control(
+        self,
+        kind: LoopControlKind,
+        *,
+        source: str,
+        text: str = "",
+        metadata: JsonObject | None = None,
+    ) -> None:
+        """Submit a typed external control without command-string parsing."""
+
+        if not isinstance(kind, LoopControlKind):
+            raise AppContractError("Input control kind is invalid")
+        if not isinstance(source, str) or not source.strip():
+            raise AppContractError("Input control source must be non-empty")
+        payload = to_json_object(metadata or {})
+        turn_scope = self._active_turn_scope()
+        if kind is LoopControlKind.STOP_TURN:
+            if turn_scope is None:
+                raise AppContractError("No active Turn can be stopped")
+            self._emit_control(kind, text=text, scope=turn_scope)
+            return
+        if kind is not LoopControlKind.EXIT_PROGRAM:
+            raise AppContractError(f"Unsupported input control: {kind.value}")
+        if (
+            self._decision_router is not None
+            and self._decision_router.stop_pending(source=source)
+        ):
+            self._program_inputs.put(
+                ProgramInputEvent.exit_program(
+                    text=text,
+                    source=source,
+                    metadata=payload,
+                )
+            )
+            return
+        if turn_scope is not None:
+            self._emit_control(kind, text=text, scope=turn_scope)
+            return
+        self._program_inputs.put(
+            ProgramInputEvent.exit_program(
+                text=text,
+                source=source,
+                metadata=payload,
+            )
+        )
 
     def _emit_rejected(self, intent: InputIntent) -> None:
         if not observation_enabled(self._observations, ObservationLevel.NORMAL):
@@ -331,7 +385,8 @@ class InputDispatcher:
     def _emit_control(
         self,
         kind: LoopControlKind,
-        intent: InputIntent,
+        *,
+        text: str,
         scope: RunScope | None,
     ) -> None:
         self._bus.emit(
@@ -339,7 +394,7 @@ class InputDispatcher:
                 kind,
                 scope=_require_turn_scope(scope),
                 source="app.inputs",
-                text=intent.text,
+                text=text,
             )
         )
 

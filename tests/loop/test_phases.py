@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -40,6 +41,8 @@ from tinysoul.runtime import (
     RunScope,
     RuntimeException,
     SignalBus,
+    ObservationEvent,
+    ObservationLevel,
 )
 from tinysoul.runtime.bridge import RuntimeMemoryBridge
 from tinysoul.workspace import (
@@ -58,6 +61,17 @@ class FakeLLM:
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
+
+
+@dataclass
+class RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
 
 
 def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
@@ -85,6 +99,7 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
             ),
         )
     )
+    observations = RecordingObservations()
     base_scope = (
         RunScope()
         .push(RunLevel.PROGRAM, "program")
@@ -108,6 +123,7 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         llm=llm,
         bus=bus,
         retry_limit=2,
+        observations=observations,
     ).run(
         selected_domains=phase1.selected_domains,
         scope=phase2_scope,
@@ -115,7 +131,12 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         turn_id=turn_id,
     )
     with pytest.raises(RuntimeException) as raised:
-        Phase3Unit(context=context, action=action, bus=bus).run(
+        Phase3Unit(
+            context=context,
+            action=action,
+            bus=bus,
+            observations=observations,
+        ).run(
             normalization=phase2.normalization,
             scope=phase3_scope,
             cycle_id="cycle_1",
@@ -132,6 +153,15 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         TraceKind.ACTION_RESULT,
     )
     assert all(call.settings.tool_use is ToolUse.REQUIRED for call in llm.calls)
+    action_events = [
+        event for event in observations.events if event.name.startswith("action.")
+    ]
+    assert [event.name for event in action_events] == [
+        "action.call",
+        "action.result",
+    ]
+    assert action_events[0].payload["call_id"] == "answer_1"
+    assert action_events[1].payload["call_id"] == "answer_1"
 
 
 def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:

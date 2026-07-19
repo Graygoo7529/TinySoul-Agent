@@ -184,6 +184,8 @@ Workspace 的明确一致性等级是“单进程单写者、Engine 实例内线
 
 Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；write/patch/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。Reconciler 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
 
+桌面 Endpoint 也复用同一 Engine 实例，不把 active Workspace 暴露给前端文件 API。UI mutation 额外提交 Manifest `expected_revision`，Engine 在同一可重入锁内先校验 revision，再执行原有 resource digest guard 和 mutation；trash 同样要求 digest，restore 要求 revision。Endpoint 在 Daily active-day lease 内调用这些门面，避免请求落入归档与新日初始化之间。
+
 WorkingContext 与 BackgroundContext 不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，优先在 action 内部进行分析、转化为临时 task prompt，或通过显式有界 read/search 返回。read/search 完整 payload 只作为当前 Turn visible overlay，compact payload 才是 canonical trace 和 Session 输入；analyze 的 references 只进入内部 prompt，ActionResult 只保存结论与来源。
 
 ## Infra 依赖

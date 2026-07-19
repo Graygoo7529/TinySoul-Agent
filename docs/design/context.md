@@ -81,6 +81,8 @@ Context 消费的信号协议：
 
 Context 先从 SignalBus 取出一个绑定当前 Turn id 的 `ContextSignalBatch`。消费时逐条校验 signal 的 Turn frame，解析全部载荷，在投影状态上验证 Working/Workspace/Background 序列，并在任何状态修改前调用 lazy background loader 准备全部所需内容；准备阶段若触发 Home copy 或其它 Runtime 恢复，`ContextSignalConsumer` 在 Module frame 下重试同一批次，因此信号不会丢失且状态不会半提交。可行变更随后统一提交，局部失败按原始信号顺序返回。
 
+Workspace full snapshot 允许来自 Action、Turn preparation 和 Endpoint mutation。更低 revision 表示提交顺序落后于 Context 已观察状态，消费时执行幂等 no-op；相同 revision 的不同资源投影仍是冲突；更高 revision 才替换 WorkingContext。Background 默认加载、Phase1 load/evict 与预算驱逐发布 verbose snapshot/change Observation，载荷来自已提交的真实条目并包含 Top Link 与正文，事件不反向修改 Context。
+
 Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep` 和供应商能力决定：OpenAI Responses 只能把加密 reasoning item 作为可回放输入，summary 只是可观察摘要；OpenAI-compatible Chat 供应商若支持历史思考字段，则可在声明保留文本推理内容时回放 `reasoning.content`。Context 不在信号层把这些差异编码为分支。
 
 ## 语境压缩

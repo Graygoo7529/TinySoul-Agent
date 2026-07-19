@@ -26,8 +26,8 @@ from .inputs import (
     InputSink,
     InputSource,
 )
-from .outputs import ConsoleOutputSink, ObservationRouter, OutputSink
-from .maintenance import TerminalHomeDecisionBroker
+from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
+from .maintenance import HomeDecisionBroker, MaintenanceDecisionSnapshot
 from .runtime import TinySoulApp
 from .sources import MaintenanceSchedule, MaintenanceScheduler, TerminalInputSource
 
@@ -49,12 +49,14 @@ __all__ = [
     "InputSink",
     "InputSource",
     "ObservationRouter",
+    "ObservationRoute",
     "OutputSettings",
     "OutputSink",
     "ProjectInitializationOutcome",
     "ProjectInitializer",
     "TerminalInputSource",
-    "TerminalHomeDecisionBroker",
+    "HomeDecisionBroker",
+    "MaintenanceDecisionSnapshot",
     "MaintenanceSchedule",
     "MaintenanceScheduler",
     "SchedulerSettings",
