@@ -1,25 +1,33 @@
 from __future__ import annotations
 
+from base64 import b64decode
 from pathlib import Path
 import shutil
 import sys
+import tomllib
 
 import pytest
 
 from tinysoul.action import (
+    ActionEngine,
+    ActionEngineBuilder,
     ActionCall,
     ActionExecution,
     ActionExecutionContext,
     ActionExecutionControl,
     ActionFramework,
+    ActionResultStatus,
+    builtin_action_catalog_root,
 )
 from tinysoul.action.backends import ManagedProcessRequest
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.capabilities import parse_capabilities_settings
+from tinysoul.capabilities.shell import register_shell_actions
 from tinysoul.capabilities.shell.config import (
     ShellAdapterSettings,
     ShellSettings,
 )
+from tinysoul.capabilities.shell.dependencies import shell_dependency_requirements
 from tinysoul.capabilities.shell.errors import ShellContractError
 from tinysoul.capabilities.shell.models import ShellInterpreter
 from tinysoul.capabilities.shell.policy import ShellPolicy
@@ -30,6 +38,7 @@ from tinysoul.capabilities.shell.process import (
 from tinysoul.capabilities.supervised_process import (
     SupervisedProcessAnswerGuard,
     SupervisedProcessManager,
+    SupervisedProcessObservation,
     SupervisedProcessOwner,
     SupervisedProcessSettings,
     SupervisedProcessState,
@@ -38,9 +47,20 @@ from tinysoul.capabilities.supervised_process import (
 from tinysoul.capabilities.supervised_process.errors import (
     SupervisedProcessStateError,
 )
-from tinysoul.infra import StagingDirectoryManager
-from tinysoul.runtime import RunScope
+from tinysoul.context import ContextEngineBuilder
+from tinysoul.context.trace import TraceKind
+from tinysoul.home import (
+    AgentHomeContractError,
+    AgentHomeEngineBuilder,
+    AgentHomeSettings,
+)
+from tinysoul.infra import JsonObject, StagingDirectoryManager
+from tinysoul.infra.config import ConfigError
+from tinysoul.llm.tools import ToolCallRecord, ToolKind
+from tinysoul.loop import Phase3Unit
+from tinysoul.runtime import CyclePhase, RunLevel, RunScope, SignalBus
 from tinysoul.workspace import (
+    WorkspaceEngine,
     WorkspaceEngineBuilder,
     WorkspaceMirror,
     WorkspaceMirrorService,
@@ -66,6 +86,34 @@ def test_shell_settings_parse_independent_adapters() -> None:
     assert settings.powershell == ShellAdapterSettings(True, "pwsh-test")
     assert settings.cmd == ShellAdapterSettings(False, "cmd-test")
     assert settings.bash == ShellAdapterSettings(True, "bash-test")
+    assert tuple(
+        requirement.id for requirement in shell_dependency_requirements(settings)
+    ) == ("shell.powershell", "shell.bash")
+
+
+def test_shell_settings_reject_unknown_keys_and_project_defaults_are_explicit() -> None:
+    with pytest.raises(ConfigError) as raised:
+        parse_capabilities_settings({"shell": {"unknown": True}})
+    assert raised.value.key == "capabilities.shell.unknown"
+
+    current = tomllib.loads(
+        Path("configs/capabilities.shell.toml").read_text(encoding="utf-8")
+    )["capabilities"]["shell"]
+    template = tomllib.loads(
+        Path("tinysoul/assets/project/configs/capabilities.shell.toml").read_text(
+            encoding="utf-8"
+        )
+    )["capabilities"]["shell"]
+
+    assert current["enabled"] is True
+    assert current["powershell"]["enabled"] is True
+    assert current["cmd"]["enabled"] is True
+    assert current["bash"]["enabled"] is False
+    assert template["enabled"] is False
+    assert all(
+        template[name]["enabled"] is False
+        for name in ("powershell", "cmd", "bash")
+    )
 
 
 def test_shell_policy_and_working_directory_reject_unsafe_structure(
@@ -88,6 +136,79 @@ def test_shell_policy_and_working_directory_reject_unsafe_structure(
             resolve_shell_working_directory(root, value)
 
 
+def test_shell_working_directory_rejects_symbolic_link(local_tmp: Path) -> None:
+    root = local_tmp / "mirror"
+    target = root / "target"
+    link = root / "linked"
+    target.mkdir(parents=True)
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"Directory symlinks are unavailable: {exc}")
+
+    with pytest.raises(ShellContractError, match="symbolic links"):
+        resolve_shell_working_directory(root, "linked")
+
+
+def test_shell_preparers_use_fixed_argv_minimal_env_and_no_stdin(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    mirror = WorkspaceMirrorService(
+        workspace,
+        max_files=100,
+        max_total_bytes=10_000_000,
+        max_file_bytes=1_000_000,
+    ).create(local_tmp / "transaction")
+    command = "Write-Output 'fixed'"
+    adapters = {
+        ShellInterpreter.POWERSHELL: ShellAdapterSettings(True, "pwsh-test"),
+        ShellInterpreter.CMD: ShellAdapterSettings(True, "cmd-test"),
+        ShellInterpreter.BASH: ShellAdapterSettings(True, "bash-test"),
+    }
+
+    requests = {
+        interpreter: ShellProcessPreparer(
+            interpreter=interpreter,
+            adapter=adapter,
+            command=command,
+            working_directory=".",
+        )(local_tmp / "staging", mirror)
+        for interpreter, adapter in adapters.items()
+    }
+
+    powershell = requests[ShellInterpreter.POWERSHELL]
+    assert powershell.argv[:5] == (
+        "pwsh-test",
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+    )
+    assert b64decode(powershell.argv[5]).decode("utf-16-le") == command
+    assert requests[ShellInterpreter.CMD].argv == (
+        "cmd-test",
+        "/D",
+        "/Q",
+        "/S",
+        "/C",
+        command,
+    )
+    assert requests[ShellInterpreter.BASH].argv == (
+        "bash-test",
+        "--noprofile",
+        "--norc",
+        "-c",
+        command,
+    )
+    for request in requests.values():
+        assert request.cwd == str(mirror.root)
+        assert request.inherit_env is False
+        assert request.stdin_text is None
+        assert request.env is not None
+        assert request.env["TINYSOUL_WORKSPACE"] == str(mirror.root)
+
+
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
 def test_powershell_success_without_diff_completes_and_cleans(local_tmp: Path) -> None:
     workspace = _workspace(local_tmp)
@@ -105,7 +226,7 @@ def test_powershell_success_without_diff_completes_and_cleans(local_tmp: Path) -
     assert observation.payload["owner"] == "shell"
     assert "command" not in observation.payload
     assert observation.payload["command_digest"]
-    assert "ok" in observation.payload["stdout"]["text"]
+    assert "ok" in _log_text(observation.payload, "stdout")
     assert manager.has_unresolved("turn_1") is False
     assert not tuple(
         (local_tmp / "runtime" / ".staging").glob("supervised-process-job-*")
@@ -185,8 +306,231 @@ def test_cmd_uses_the_same_supervised_lifecycle(local_tmp: Path) -> None:
     )
 
     assert observation.payload["job_state"] == "completed"
-    assert "cmd-ok" in observation.payload["stdout"]["text"]
+    assert "cmd-ok" in _log_text(observation.payload, "stdout")
     assert manager.has_unresolved("turn_1") is False
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="Bash unavailable")
+def test_bash_opt_in_uses_the_same_supervised_lifecycle(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    manager = _manager(local_tmp, workspace)
+    observation = _start_shell(
+        manager,
+        turn_id="turn_1",
+        interpreter=ShellInterpreter.BASH,
+        executable=shutil.which("bash") or "bash",
+        command="printf 'bash-ok\\n'",
+    )
+
+    assert observation.payload["job_state"] == "completed"
+    assert "bash-ok" in _log_text(observation.payload, "stdout")
+    assert manager.has_unresolved("turn_1") is False
+
+
+def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    timeout_manager = _manager(
+        local_tmp / "timeout",
+        workspace,
+        settings=SupervisedProcessSettings(
+            initial_wait_seconds=1,
+            cycle_wait_seconds=1,
+            min_wait_seconds=1,
+            default_wait_seconds=1,
+            max_wait_seconds=2,
+            max_runtime_seconds=1,
+            max_supervision_cycles=3,
+        ),
+    )
+    timed_out = timeout_manager.start(
+        turn_id="turn_timeout",
+        owner=SupervisedProcessOwner.SHELL,
+        identity={"command_digest": "timeout"},
+        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        control=ActionExecutionControl(),
+        bus=None,
+        auto_complete_without_changes=True,
+    )
+    timeout_id = str(timed_out.payload["execution_id"])
+
+    assert timed_out.timed_out is True
+    assert timed_out.payload["job_state"] == "timed_out"
+    assert timeout_manager.has_unresolved("turn_timeout") is True
+    with pytest.raises(SupervisedProcessStateError):
+        timeout_manager.apply(
+            turn_id="turn_timeout",
+            owner=SupervisedProcessOwner.SHELL,
+            execution_id=timeout_id,
+        )
+    timeout_manager.discard(
+        turn_id="turn_timeout",
+        owner=SupervisedProcessOwner.SHELL,
+        execution_id=timeout_id,
+    )
+
+    stop_manager = _manager(local_tmp / "stop", workspace)
+    running = stop_manager.start(
+        turn_id="turn_stop",
+        owner=SupervisedProcessOwner.SHELL,
+        identity={"command_digest": "stop"},
+        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        control=ActionExecutionControl(),
+        bus=None,
+        auto_complete_without_changes=True,
+    )
+    stop_id = str(running.payload["execution_id"])
+    stopped = stop_manager.stop(
+        turn_id="turn_stop",
+        owner=SupervisedProcessOwner.SHELL,
+        execution_id=stop_id,
+    )
+
+    assert stopped.payload["job_state"] == "stopped"
+    assert stop_manager.has_unresolved("turn_stop") is True
+    stop_manager.discard(
+        turn_id="turn_stop",
+        owner=SupervisedProcessOwner.SHELL,
+        execution_id=stop_id,
+    )
+    assert stop_manager.has_unresolved("turn_stop") is False
+
+
+def test_failed_shell_candidate_can_be_read_then_discarded(local_tmp: Path) -> None:
+    workspace = _workspace(local_tmp)
+    manager = _manager(local_tmp, workspace)
+    failed = manager.start(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SHELL,
+        identity={"command_digest": "candidate"},
+        prepare=_PythonProcessPreparer(
+            "import os\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['TINYSOUL_WORKSPACE'], 'candidate.txt').write_text("
+            "'candidate body', encoding='utf-8')\n"
+            "raise SystemExit(9)\n"
+        ),
+        control=ActionExecutionControl(),
+        bus=None,
+        auto_complete_without_changes=True,
+    )
+    execution_id = str(failed.payload["execution_id"])
+
+    assert failed.failed is True
+    assert failed.payload["candidate_count"] == 1
+    candidate = manager.read_candidate(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SHELL,
+        execution_id=execution_id,
+        path="candidate.txt",
+        cursor=0,
+        max_chars=100,
+    )
+    assert candidate["text"] == "candidate body"
+    manager.discard(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SHELL,
+        execution_id=execution_id,
+    )
+    assert not (workspace.root / "candidate.txt").exists()
+
+
+def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> None:
+    enabled = ShellSettings(
+        enabled=True,
+        powershell=ShellAdapterSettings(True, sys.executable),
+        cmd=ShellAdapterSettings(False, "cmd"),
+        bash=ShellAdapterSettings(False, "bash"),
+    )
+    engine, _, _, _ = _shell_engine(local_tmp / "enabled", enabled)
+    identifiers = engine.action_identifiers()
+
+    assert engine.domain_names() == ("shell",)
+    assert ("shell", "shell.run_powershell") in identifiers
+    assert ("shell", "shell.run_cmd") not in identifiers
+    assert ("shell", "shell.run_bash") not in identifiers
+
+    home_root = local_tmp / "enabled" / "home" / "how_domain" / "shell"
+    home_root.mkdir(parents=True)
+    (home_root / "DOMAIN.md").write_text("shell guidance", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=local_tmp / "enabled" / "home",
+            runtime_root=local_tmp / "enabled" / "runtime" / "home",
+        )
+    ).build()
+    home.reconcile_prompt_mounts(
+        domains=engine.domain_names(),
+        actions=engine.action_identifiers(),
+    )
+    assert home.ensure_runtime_copy(
+        home.parse_link("home:how_domain:shell")
+    ) is True
+    assert home.guidance_for_domain("shell") == "shell guidance"
+
+    disabled_engine, _, _, _ = _shell_engine(
+        local_tmp / "disabled",
+        ShellSettings(enabled=False),
+    )
+    assert "shell" not in disabled_engine.domain_names()
+    (local_tmp / "disabled" / "home").mkdir(parents=True)
+    disabled_home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=local_tmp / "disabled" / "home",
+            runtime_root=local_tmp / "disabled" / "runtime" / "home",
+        )
+    ).build()
+    disabled_home.reconcile_prompt_mounts(
+        domains=disabled_engine.domain_names(),
+        actions=disabled_engine.action_identifiers(),
+    )
+    with pytest.raises(AgentHomeContractError, match="not defined"):
+        disabled_home.guidance_for_domain("shell")
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
+def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
+    settings = ShellSettings(
+        enabled=True,
+        powershell=ShellAdapterSettings(
+            True,
+            shutil.which("powershell") or "powershell",
+        ),
+        cmd=ShellAdapterSettings(False, "cmd"),
+        bash=ShellAdapterSettings(False, "bash"),
+    )
+    engine, manager, _, bus = _shell_engine(local_tmp, settings)
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("run an immediate command")
+    normalization = engine.normalize(
+        (
+            ToolCallRecord(
+                id="shell_1",
+                name="shell.run_powershell",
+                arguments={"command": "Write-Output 'trace-ok'"},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = Phase3Unit(context=context, action=engine, bus=bus).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.results[0].status is ActionResultStatus.SUCCESS
+    assert outcome.results[0].payload["job_state"] == "completed"
+    assert "trace-ok" in _log_text(outcome.results[0].payload, "stdout")
+    assert context.trace_kinds() == (TraceKind.ACTION_RESULT,)
+    assert manager.has_unresolved(turn_id) is False
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
@@ -237,7 +581,7 @@ def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
         turn_id="turn_1",
         owner=SupervisedProcessOwner.SHELL,
         identity={"command_digest": "test-digest"},
-        prepare=_SleepingProcessPreparer(),
+        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
         control=ActionExecutionControl(),
         bus=None,
         auto_complete_without_changes=True,
@@ -279,17 +623,23 @@ def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
     )
 
 
-def _workspace(root: Path):
+def _workspace(root: Path) -> WorkspaceEngine:
     return WorkspaceEngineBuilder(
         WorkspaceSettings(root=(root / "workspace").resolve(), max_files=100)
     ).build()
 
 
-def _manager(root: Path, workspace) -> SupervisedProcessManager:
+def _manager(
+    root: Path,
+    workspace: WorkspaceEngine,
+    *,
+    settings: SupervisedProcessSettings | None = None,
+) -> SupervisedProcessManager:
     staging = StagingDirectoryManager(root.resolve())
     staging.prepare()
     return SupervisedProcessManager(
-        settings=SupervisedProcessSettings(
+        settings=settings
+        or SupervisedProcessSettings(
             initial_wait_seconds=1,
             cycle_wait_seconds=1,
             min_wait_seconds=1,
@@ -308,7 +658,10 @@ def _manager(root: Path, workspace) -> SupervisedProcessManager:
     )
 
 
-class _SleepingProcessPreparer:
+class _PythonProcessPreparer:
+    def __init__(self, source: str) -> None:
+        self._source = source
+
     def __call__(
         self,
         staging_root: Path,
@@ -316,7 +669,7 @@ class _SleepingProcessPreparer:
     ) -> ManagedProcessRequest:
         del staging_root
         return ManagedProcessRequest(
-            argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+            argv=(sys.executable, "-c", self._source),
             cwd=str(mirror.root),
             env=build_supervised_process_environment(mirror.root),
             inherit_env=False,
@@ -330,7 +683,7 @@ def _start_shell(
     interpreter: ShellInterpreter,
     executable: str,
     command: str,
-):
+) -> SupervisedProcessObservation:
     return manager.start(
         turn_id=turn_id,
         owner=SupervisedProcessOwner.SHELL,
@@ -349,3 +702,34 @@ def _start_shell(
         bus=None,
         auto_complete_without_changes=True,
     )
+
+
+def _shell_engine(
+    root: Path,
+    settings: ShellSettings,
+) -> tuple[ActionEngine, SupervisedProcessManager, WorkspaceEngine, SignalBus]:
+    workspace = _workspace(root)
+    manager = _manager(root, workspace)
+    bus = SignalBus()
+    with builtin_action_catalog_root() as catalog_root:
+        catalog = ActionCatalogLoader().load(catalog_root)
+        disabled = tuple(
+            action.name for action in catalog.actions() if action.domain != "shell"
+        )
+        builder = ActionEngineBuilder(catalog_root).disable_actions(*disabled)
+        register_shell_actions(
+            builder,
+            settings=settings,
+            jobs=manager,
+            bus=bus,
+        )
+        engine = builder.build()
+    return engine, manager, workspace, bus
+
+
+def _log_text(payload: JsonObject, stream: str) -> str:
+    projection = payload.get(stream)
+    assert isinstance(projection, dict)
+    text = projection.get("text")
+    assert isinstance(text, str)
+    return text

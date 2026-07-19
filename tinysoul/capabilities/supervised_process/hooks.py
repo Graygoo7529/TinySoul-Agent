@@ -1,7 +1,6 @@
 """Action hooks owned by the shared supervised process lifecycle."""
 
-from tinysoul.action import ActionExecution, ActionExecutionContext
-from tinysoul.action.core.hooks import HookOutcome
+from tinysoul.action import ActionExecution, ActionExecutionContext, HookOutcome
 
 from .manager import SupervisedProcessManager
 

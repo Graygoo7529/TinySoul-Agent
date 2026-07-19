@@ -190,7 +190,7 @@ Shell domain HOW 应说明 PowerShell/Cmd/Bash 的选择、workspace mirror、�
 
 `tinysoul.capabilities.shell` 已提供独立 settings/dependency/policy/process/action 分层和八个 Catalog action。PowerShell 使用 fixed non-profile/non-interactive encoded-command argv，Cmd 使用固定 `/D /Q /S /C`，Bash 使用固定 non-profile/non-interactive `-c`；三者都由 `ManagedProcessRunner` 以 `shell=False` 启动，模型不能传 executable、flags、env 或 stdin。
 
-当前项目配置启用 PowerShell/Cmd、关闭 Bash；`tinysoul init` 模板关闭整个 Shell capability，因此 effective Catalog 和 Home mount 都不暴露 Shell。当前项目的 capability domain HOW 使用正式 `home/how_domain/<domain>/DOMAIN.md` Layout；同时修正了 Resource/Web/Script 遗留的扁平 HOW 文件。真实 PowerShell/Cmd、无 diff 自动清理、有 diff apply、失败 retained、working-directory 边界、跨 owner 单 job 与共享 answer guard 测试已通过；全量 pytest、静态类型检查以及 wheel 构建和隔离安装验证均已闭环。
+当前项目配置启用 PowerShell/Cmd、关闭 Bash；`tinysoul init` 模板关闭整个 Shell capability，因此 effective Catalog 和 Home mount 都不暴露 Shell。当前项目的 capability domain HOW 使用正式 `home/how_domain/<domain>/DOMAIN.md` Layout；同时修正了 Resource/Web/Script 遗留的扁平 HOW 文件。验收现覆盖当前/初始化配置、adapter pruning/dependency、固定 argv 与无 stdin、PowerShell/Cmd 真实短命令、Bash 可用时 opt-in smoke、symlink/working-directory 边界、无 diff 自动清理、有 diff apply、失败/timeout/stop retained、candidate read/discard、跨 owner 单 job、共享 answer guard、effective Catalog/Home mount 以及真实 Phase3 ActionResult 进入 TurnTrace；全量 pytest、静态类型检查以及 wheel 构建和隔离安装验证均已闭环。
 
 ## Stage 3 Deterministic Utilities
 

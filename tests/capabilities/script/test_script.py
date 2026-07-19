@@ -377,7 +377,7 @@ def test_source_resolver_enforces_read_rewrite_and_promote_limits(
     assert home.written_text == ""
 
 
-def test_additional_cycle_failure_uses_script_runtime_bridge(
+def test_additional_cycle_failure_uses_supervised_process_runtime_bridge(
     local_tmp: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

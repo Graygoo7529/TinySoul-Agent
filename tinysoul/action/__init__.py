@@ -11,6 +11,7 @@ from .core.call import (
 from .core.catalog import ActionCatalog
 from .core.errors import ActionContractError, ActionError, ActionInvariantError
 from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor
+from .core.hooks import HookOutcome
 from .core.result import (
     ActionPhaseResult,
     ActionPhaseResultStage,
@@ -82,5 +83,6 @@ __all__ = [
     "ActionContractError",
     "ActionInvariantError",
     "DOMAIN_SELECTION_TOOL",
+    "HookOutcome",
     "builtin_action_catalog_root",
 ]
