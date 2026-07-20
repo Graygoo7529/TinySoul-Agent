@@ -49,12 +49,13 @@ from .models import (
 _MAX_WORKER_STDERR = 8_000
 _MAX_WARNING_CODES = 20
 _WORKER_FAILURE_STRING_FACTS = frozenset(
-    {"error_type", "call_type", "function_name"}
+    {"error_type", "call_type", "content_type", "function_name"}
 )
 _WORKER_FAILURE_BOOL_FACTS = frozenset(
     {"has_reasoning_content", "has_function", "has_arguments"}
 )
 _WORKER_FAILURE_TEXT_LIMIT = 128
+_WORKER_FAILURE_INT_FACTS = frozenset({"status_code"})
 _SAFE_WORKER_ENV = (
     "COMSPEC",
     "PATH",
@@ -463,6 +464,14 @@ def _worker_failure_facts(response: JsonObject) -> JsonObject:
     for name in _WORKER_FAILURE_BOOL_FACTS:
         value = response.get(name)
         if isinstance(value, bool):
+            facts[name] = value
+    for name in _WORKER_FAILURE_INT_FACTS:
+        value = response.get(name)
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 <= value < 1_000
+        ):
             facts[name] = value
     call_index = response.get("call_index")
     if (

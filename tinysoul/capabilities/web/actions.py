@@ -35,6 +35,7 @@ from .errors import (
     WebProcessingError,
     WebProcessTimeout,
     WebWorkerProtocolError,
+    web_failure_payload,
 )
 from .models import (
     WebDiscoveryResult,
@@ -497,6 +498,7 @@ def _failed(
     model_feedback: str,
     frame_data: JsonObject,
 ) -> ActionResult:
+    reason = _failure_reason(frame_data)
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -505,6 +507,7 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
+        payload=web_failure_payload(reason, frame_data),
         model_feedback=model_feedback,
         frame_data=frame_data,
     )
@@ -516,6 +519,7 @@ def _timeout(
     *,
     reason: str,
 ) -> ActionResult:
+    frame_data: JsonObject = {"reason": reason, "executor_leaked": False}
     return ActionResult.timeout(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -523,6 +527,12 @@ def _timeout(
         action_name=execution.call.action_name,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
+        payload=web_failure_payload(reason, frame_data),
         model_feedback=model_feedback,
-        frame_data={"reason": reason, "executor_leaked": False},
+        frame_data=frame_data,
     )
+
+
+def _failure_reason(frame_data: JsonObject) -> str:
+    value = frame_data.get("reason")
+    return value if isinstance(value, str) and value else "web_failure"

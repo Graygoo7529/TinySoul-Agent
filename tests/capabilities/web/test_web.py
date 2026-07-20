@@ -39,10 +39,19 @@ from tinysoul.capabilities.web.config import (
     WebSettings,
 )
 from tinysoul.capabilities.web.dependencies import kimi_search_api_key
-from tinysoul.capabilities.web.errors import WebProcessingError, WebProcessTimeout
+from tinysoul.capabilities.web.errors import (
+    WebFailureDisposition,
+    WebProcessingError,
+    WebProcessTimeout,
+    web_failure_disposition,
+    web_failure_payload,
+)
 from tinysoul.capabilities.web.models import WebExtractor
 from tinysoul.capabilities.web.network import FetchedPage, validate_public_https_url
-from tinysoul.capabilities.web.service import WebCapabilityService
+from tinysoul.capabilities.web.service import (
+    WebCapabilityService,
+    _worker_failure_facts,
+)
 from tinysoul.capabilities.web.worker import (
     _extract_with_defuddle,
     _kimi_search_request_options,
@@ -280,6 +289,101 @@ def test_kimi_search_disables_thinking_only_for_incompatible_models() -> None:
     assert _kimi_search_request_options("kimi-k3") == {}
 
 
+@pytest.mark.parametrize(
+    ("reason", "facts", "expected"),
+    [
+        (
+            "network_request_failed",
+            {},
+            WebFailureDisposition.RETRY_SAME,
+        ),
+        (
+            "http_status_error",
+            {"status_code": 503},
+            WebFailureDisposition.RETRY_SAME,
+        ),
+        (
+            "http_status_error",
+            {"status_code": 404},
+            WebFailureDisposition.CHANGE_REQUEST,
+        ),
+        (
+            "invalid_url",
+            {},
+            WebFailureDisposition.CHANGE_REQUEST,
+        ),
+        (
+            "provider_protocol_invalid",
+            {},
+            WebFailureDisposition.USE_FALLBACK,
+        ),
+        (
+            "provider_request_failed",
+            {"error_type": "RateLimitError"},
+            WebFailureDisposition.RETRY_SAME,
+        ),
+        (
+            "provider_request_failed",
+            {"error_type": "AuthenticationError"},
+            WebFailureDisposition.STOP,
+        ),
+        (
+            "provider_request_failed",
+            {"error_type": "BadRequestError"},
+            WebFailureDisposition.USE_FALLBACK,
+        ),
+        (
+            "credential_unavailable",
+            {},
+            WebFailureDisposition.STOP,
+        ),
+        (
+            "unknown_web_failure",
+            {},
+            WebFailureDisposition.STOP,
+        ),
+    ],
+)
+def test_web_failure_disposition_is_conservative_and_fact_aware(
+    reason: str,
+    facts: dict[str, JsonValue],
+    expected: WebFailureDisposition,
+) -> None:
+    assert web_failure_disposition(reason, facts) is expected
+
+
+def test_web_failure_payload_is_compact_and_model_visible() -> None:
+    assert web_failure_payload(
+        "provider_protocol_invalid",
+        {"call_type": "builtin_function"},
+    ) == {
+        "failure": {
+            "reason": "provider_protocol_invalid",
+            "disposition": "use_fallback",
+        }
+    }
+
+
+def test_worker_failure_facts_keep_only_bounded_classification_data() -> None:
+    assert _worker_failure_facts(
+        to_json_object(
+            {
+                "error_type": "HTTPStatusError",
+                "status_code": 503,
+                "content_type": "application/json",
+                "has_function": True,
+                "provider_response": "must not cross the worker boundary",
+                "oversized_status": 10_000,
+            }
+        )
+    ) == {
+        "error_type": "HTTPStatusError",
+        "content_type": "application/json",
+        "has_function": True,
+        "status_code": 503,
+    }
+
+
 def test_public_https_validation_rejects_private_targets() -> None:
     def private_resolver(*args, **kwargs):
         del args, kwargs
@@ -378,6 +482,12 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     )
 
     assert action_result.status is ActionResultStatus.FAILED
+    assert action_result.payload == {
+        "failure": {
+            "reason": "provider_protocol_invalid",
+            "disposition": "use_fallback",
+        }
+    }
     assert action_result.frame_data == {
         "call_type": "builtin_function",
         "function_name": "$web_search",
@@ -386,6 +496,38 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
         "has_arguments": True,
         "call_index": 0,
         "reason": "provider_protocol_invalid",
+    }
+
+
+def test_kimi_timeout_returns_model_visible_fallback_disposition(
+    local_tmp: Path,
+) -> None:
+    service = WebCapabilityService(
+        workspace=_workspace(local_tmp),
+        settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
+        runtime_env={},
+        staging=_staging(local_tmp),
+        kimi_api_key="search-secret",
+        process_runner=_SearchTimeoutRunner(),
+    )
+
+    result = KimiSearchExecutor(service=service, bus=SignalBus()).execute(
+        _search_execution(),
+        ActionExecutionContext(
+            control=ActionExecutionControl(deadline=monotonic() + 30),
+        ),
+    )
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.payload == {
+        "failure": {
+            "reason": "process_timeout",
+            "disposition": "use_fallback",
+        }
+    }
+    assert result.frame_data == {
+        "reason": "process_timeout",
+        "executor_leaked": False,
     }
 
 
@@ -663,6 +805,16 @@ class _SearchProtocolFailureRunner(ControlledProcessRunner):
                 }
             ),
         )
+
+
+class _SearchTimeoutRunner(ControlledProcessRunner):
+    def run(
+        self,
+        request: ProcessRequest,
+        control: ActionExecutionControl,
+    ) -> ProcessOutcome:
+        del request, control
+        return ProcessOutcome(status=ProcessStatus.TIMED_OUT)
 
 
 class _FetchRunner(ControlledProcessRunner):

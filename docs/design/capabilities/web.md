@@ -31,6 +31,10 @@ Kimi builtin tool round 以 `finish_reason=tool_calls`、精确 `$web_search` �
 
 动态协议失败可以从 worker 返回有界 shape facts，例如 call type、function/name/arguments 是否存在、是否携带 reasoning content；宿主只允许这些字段和稳定 error type 穿过 subprocess 边界。原始 provider response、arguments、reasoning 正文、密钥与 traceback 始终不得进入 ActionResult 或 Trace。模型可见的失败处置语义仍由 Web Action 单独定义，不由 worker 或通用 Action 核心推断。
 
+Web Action 把稳定 failure reason 映射为 capability-owned 模型恢复方向，并在失败或 timeout 的模型可见 payload 中固定返回 `{failure: {reason, disposition}}`。`disposition` 使用 Web 自有 `StrEnum`，只包含 `retry_same`、`change_request`、`use_fallback` 和 `stop`。HTTP 状态和 provider error type 等有界 facts 只用于本地分类与 trace 诊断，不复制进模型 payload。只有明确的暂时网络/DNS、HTTP 408/425/429/5xx 和已知瞬时 provider error 才是 `retry_same`；参数、URL、安全范围和资源上限问题是 `change_request`；provider/extractor 协议和可替代处理失败是 `use_fallback`；凭据、依赖、worker/Workspace 环境失败及未知原因保守为 `stop`。
+
+该协议不实现自动重试、不保存 provider health、不改变 ActionResult 通用类型，也不强制 Loop 转移。Web domain HOW 负责解释模型应如何消费 disposition：原样重试仅允许一次有界瞬时恢复；`change_request` 必须实质修改调用；`use_fallback` 不得重复同一调用；`stop` 在当前 Turn 停止使用受影响能力。已有证据足够时应继续用户目标，而不是为了尝试其它 Web action 继续扩展检索。
+
 ## Page Discovery 边界
 
 `web.discover_pages` 接收 `start_url`、可选 `max_visit_depth` 和有界 path glob include/exclude。它返回 seed 的 title/meta description/H1/canonical，以及去重候选 page 的 URL、depth、visited/candidate/failed 状态、首次来源 URL、anchor text、link title、rel 和访问后可取得的页面 metadata。上述字段是确定性 DOM/HTTP 信号，不包含 LLM 生成的推荐、分类或摘要。
