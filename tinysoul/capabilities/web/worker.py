@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import asyncio
 import json
@@ -20,6 +21,18 @@ from tinysoul.infra import JsonObject, dumps_json, to_json_object
 
 from .errors import WebProcessingError
 from .network import FetchedPage, fetch_public_page
+
+
+_KIMI_SEARCH_TOOL_NAME = "$web_search"
+_KIMI_SEARCH_CALL_TYPES = frozenset({"builtin_function", "function"})
+_KIMI_SHAPE_TEXT_LIMIT = 128
+
+
+@dataclass(frozen=True)
+class _KimiToolRound:
+    assistant_message: JsonObject
+    tool_messages: tuple[JsonObject, ...]
+    search_tokens: int
 
 
 def main() -> int:
@@ -78,7 +91,12 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         },
         {"role": "user", "content": query},
     ]
-    tools = [{"type": "builtin_function", "function": {"name": "$web_search"}}]
+    tools = [
+        {
+            "type": "builtin_function",
+            "function": {"name": _KIMI_SEARCH_TOOL_NAME},
+        }
+    ]
     prompt_tokens = 0
     completion_tokens = 0
     search_tokens = 0
@@ -95,6 +113,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
                 tools=tools,
                 response_format={"type": "json_object"},
                 max_tokens=max_output_tokens,
+                **_kimi_search_request_options(model),
             )
         except OpenAIError as exc:
             raise WebProcessingError(
@@ -113,51 +132,24 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         choice = completion.choices[0]
         message = choice.message
         if choice.finish_reason == "tool_calls":
-            calls = tuple(message.tool_calls or ())
-            if not calls:
-                raise WebProcessingError(
-                    "Kimi Search requested an empty tool round",
-                    reason="provider_protocol_invalid",
-                )
+            assistant_message = to_json_object(
+                message.model_dump(mode="json", exclude_none=True)
+            )
+            tool_round = _parse_kimi_tool_round(assistant_message)
             if _round >= max_tool_rounds:
                 raise WebProcessingError(
                     "Kimi Search exceeded the tool round limit",
                     reason="tool_round_limit_exceeded",
                 )
-            messages.append(message.model_dump(mode="json", exclude_none=True))
-            for call in calls:
-                if call.type != "function":
-                    raise WebProcessingError(
-                        "Kimi Search returned an unsupported tool call shape",
-                        reason="provider_protocol_invalid",
-                    )
-                if call.function.name != "$web_search":
-                    raise WebProcessingError(
-                        "Kimi Search requested an unsupported tool",
-                        reason="provider_protocol_invalid",
-                    )
-                try:
-                    arguments = _json_object(call.function.arguments)
-                except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                    raise WebProcessingError(
-                        "Kimi Search returned invalid tool arguments",
-                        reason="provider_protocol_invalid",
-                    ) from exc
-                search_tokens += _search_token_usage(arguments)
-                if search_tokens > max_search_tokens:
-                    raise WebProcessingError(
-                        "Kimi Search exceeded the configured search token limit",
-                        reason="search_token_limit_exceeded",
-                    )
-                tool_calls += 1
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "name": "$web_search",
-                        "content": dumps_json(arguments),
-                    }
+            search_tokens += tool_round.search_tokens
+            if search_tokens > max_search_tokens:
+                raise WebProcessingError(
+                    "Kimi Search exceeded the configured search token limit",
+                    reason="search_token_limit_exceeded",
                 )
+            tool_calls += len(tool_round.tool_messages)
+            messages.append(tool_round.assistant_message)
+            messages.extend(tool_round.tool_messages)
             continue
         if choice.finish_reason != "stop" or not message.content:
             raise WebProcessingError(
@@ -190,6 +182,127 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
         "Kimi Search ended without a result",
         reason="provider_protocol_invalid",
     )
+
+
+def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
+    facts: JsonObject = {
+        "has_reasoning_content": "reasoning_content" in assistant_message
+    }
+    if assistant_message.get("role") != "assistant":
+        raise WebProcessingError(
+            "Kimi Search returned an invalid assistant tool message",
+            reason="provider_protocol_invalid",
+            payload=facts,
+        )
+    raw_calls = assistant_message.get("tool_calls")
+    if not isinstance(raw_calls, list) or not raw_calls:
+        raise WebProcessingError(
+            "Kimi Search requested an empty tool round",
+            reason="provider_protocol_invalid",
+            payload=facts,
+        )
+    tool_messages: list[JsonObject] = []
+    search_tokens = 0
+    for index, raw_call in enumerate(raw_calls):
+        call_facts = _kimi_call_shape_facts(
+            assistant_message,
+            raw_call,
+            call_index=index,
+        )
+        if not isinstance(raw_call, dict):
+            raise WebProcessingError(
+                "Kimi Search returned an unsupported tool call shape",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            )
+        call_type = raw_call.get("type")
+        function = raw_call.get("function")
+        if call_type not in _KIMI_SEARCH_CALL_TYPES or not isinstance(
+            function,
+            dict,
+        ):
+            raise WebProcessingError(
+                "Kimi Search returned an unsupported tool call shape",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            )
+        call_id = raw_call.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            raise WebProcessingError(
+                "Kimi Search returned an invalid tool call id",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            )
+        if function.get("name") != _KIMI_SEARCH_TOOL_NAME:
+            raise WebProcessingError(
+                "Kimi Search requested an unsupported tool",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            )
+        raw_arguments = function.get("arguments")
+        if not isinstance(raw_arguments, str) or not raw_arguments:
+            raise WebProcessingError(
+                "Kimi Search returned invalid tool arguments",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            )
+        try:
+            arguments = _json_object(raw_arguments)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise WebProcessingError(
+                "Kimi Search returned invalid tool arguments",
+                reason="provider_protocol_invalid",
+                payload=call_facts,
+            ) from exc
+        search_tokens += _search_token_usage(arguments)
+        tool_messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": _KIMI_SEARCH_TOOL_NAME,
+                "content": raw_arguments,
+            }
+        )
+    return _KimiToolRound(
+        assistant_message=assistant_message,
+        tool_messages=tuple(tool_messages),
+        search_tokens=search_tokens,
+    )
+
+
+def _kimi_search_request_options(model: str) -> dict[str, object]:
+    normalized = model.strip().lower()
+    if normalized.startswith(("kimi-k2.5", "kimi-k2.6")):
+        return {"extra_body": {"thinking": {"type": "disabled"}}}
+    return {}
+
+
+def _kimi_call_shape_facts(
+    assistant_message: JsonObject,
+    raw_call: object,
+    *,
+    call_index: int,
+) -> JsonObject:
+    facts: JsonObject = {
+        "call_index": call_index,
+        "has_reasoning_content": "reasoning_content" in assistant_message,
+        "has_function": False,
+        "has_arguments": False,
+    }
+    if not isinstance(raw_call, dict):
+        return facts
+    call_type = raw_call.get("type")
+    if isinstance(call_type, str):
+        facts["call_type"] = call_type[:_KIMI_SHAPE_TEXT_LIMIT]
+    function = raw_call.get("function")
+    if not isinstance(function, dict):
+        return facts
+    facts["has_function"] = True
+    function_name = function.get("name")
+    if isinstance(function_name, str):
+        facts["function_name"] = function_name[:_KIMI_SHAPE_TEXT_LIMIT]
+    facts["has_arguments"] = isinstance(function.get("arguments"), str)
+    return facts
 
 
 def _discover_pages(request: JsonObject) -> JsonObject:

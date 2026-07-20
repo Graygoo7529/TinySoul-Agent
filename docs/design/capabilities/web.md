@@ -19,13 +19,17 @@ Kimi Search 是 Web capability-owned provider 封装，不是 TinySoul LLM task�
 
 - 不读取 Context、MessageStack、Home HOW 或 `[llm]` provider 配置；
 - 独立读取 `[capabilities.web.search_by_kimi]` 和其声明的 `KIMI_SEARCH_API_KEY` 环境变量；
-- 在固定 subprocess worker 内执行 Kimi `$web_search` builtin-function loop；
+- 在固定 subprocess worker 内执行 Kimi `$web_search` builtin-function loop；worker 先把 SDK message 转为动态 JSON，再按 Kimi 协议解释 builtin call，不依赖 OpenAI SDK 面向普通 function 的静态 tool-call 类型；
 - worker 只接收 query、provider endpoint/model 和各项上限，最终把供应商输出校验为 `{answer, results[]}`；
 - `results` 每项固定包含 `title`、`url`、`snippet`，没有 answer/results mode 分支。
 
 Kimi 最终响应先完整校验为 canonical `answer/results`，不在 normalization 阶段按 result 数量或 snippet 长度静默裁剪。`max_result_chars` 是完整 canonical 结果的硬上限，超过时整次 action 局部失败；`max_inline_chars` 只决定交付形态。未超过 inline 上限时完整结果进入 ActionResult；超过 inline 上限时完整 answer/results 写入唯一的 `workspace:web/search/<invoke-id>-<call-id>.md`，ActionResult 返回同一结果的有界 shape-safe preview、完整 `result_count`、`truncated=true`、`see_more_at` 和 usage。preview 可以裁剪 answer、result 数量或 snippet，但所有被裁剪内容都必须存在于 Workspace 文档中。
 
 Kimi Search worker 只获得专用搜索密钥和运行所需的最小进程环境，不继承其它 LLM provider 凭据。provider builtin-function 协议被隔离在 worker 动态边界，供应商协议变化不得扩散到 TinySoul LLM 或 Action 核心。
+
+Kimi builtin tool round 以 `finish_reason=tool_calls`、精确 `$web_search` 名称、非空 call id 和字符串 arguments 共同校验。官方 `builtin_function` 与端点/SDK 可能对同一 `$web_search` 产生的普通 `function` 归一化都可接受，但不能因此接受其它 function。每轮完整 assistant JSON 原样回放，保留存在时的 `reasoning_content` 和供应商扩展字段；tool result 使用供应商返回的原始 arguments 字符串，只另外解析副本执行 JSON 与 search token 上限检查。已知不兼容 `$web_search` thinking 的 K2.5/K2.6 请求显式关闭 thinking，其他模型不增加该 provider option。
+
+动态协议失败可以从 worker 返回有界 shape facts，例如 call type、function/name/arguments 是否存在、是否携带 reasoning content；宿主只允许这些字段和稳定 error type 穿过 subprocess 边界。原始 provider response、arguments、reasoning 正文、密钥与 traceback 始终不得进入 ActionResult 或 Trace。模型可见的失败处置语义仍由 Web Action 单独定义，不由 worker 或通用 Action 核心推断。
 
 ## Page Discovery 边界
 

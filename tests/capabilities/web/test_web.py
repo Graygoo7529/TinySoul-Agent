@@ -45,7 +45,9 @@ from tinysoul.capabilities.web.network import FetchedPage, validate_public_https
 from tinysoul.capabilities.web.service import WebCapabilityService
 from tinysoul.capabilities.web.worker import (
     _extract_with_defuddle,
+    _kimi_search_request_options,
     _normalize_search_result,
+    _parse_kimi_tool_round,
     _read_bounded_json_file,
 )
 from tinysoul.infra.config import ConfigError
@@ -118,6 +120,166 @@ def test_kimi_worker_normalization_preserves_all_results_and_snippets() -> None:
     assert last["snippet"] == long_snippet.strip()
 
 
+@pytest.mark.parametrize("call_type", ["builtin_function", "function"])
+def test_kimi_tool_round_preserves_assistant_and_raw_arguments(
+    call_type: str,
+) -> None:
+    first_arguments = '{ "query": "current topic", "usage": {"total_tokens": 7} }'
+    second_arguments = '{"query":"second source"}'
+    assistant = to_json_object(
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "provider reasoning",
+            "tool_calls": [
+                {
+                    "id": "search_1",
+                    "type": call_type,
+                    "function": {
+                        "name": "$web_search",
+                        "arguments": first_arguments,
+                    },
+                },
+                {
+                    "id": "search_2",
+                    "type": call_type,
+                    "function": {
+                        "name": "$web_search",
+                        "arguments": second_arguments,
+                    },
+                },
+            ],
+        }
+    )
+
+    tool_round = _parse_kimi_tool_round(assistant)
+
+    assert tool_round.assistant_message == assistant
+    assert tool_round.assistant_message["reasoning_content"] == "provider reasoning"
+    assert tool_round.search_tokens == 7
+    assert tool_round.tool_messages == (
+        {
+            "role": "tool",
+            "tool_call_id": "search_1",
+            "name": "$web_search",
+            "content": first_arguments,
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "search_2",
+            "name": "$web_search",
+            "content": second_arguments,
+        },
+    )
+
+
+def test_kimi_tool_round_rejects_unknown_shape_with_bounded_facts() -> None:
+    assistant = to_json_object(
+        {
+            "role": "assistant",
+            "reasoning_content": "provider reasoning",
+            "tool_calls": [
+                {
+                    "id": "search_1",
+                    "type": "custom",
+                    "function": {
+                        "name": "$web_search",
+                        "arguments": "{}",
+                    },
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(WebProcessingError) as error:
+        _parse_kimi_tool_round(assistant)
+
+    assert error.value.reason == "provider_protocol_invalid"
+    assert error.value.payload == {
+        "call_index": 0,
+        "has_reasoning_content": True,
+        "has_function": True,
+        "has_arguments": True,
+        "call_type": "custom",
+        "function_name": "$web_search",
+    }
+
+
+def test_kimi_tool_round_rejects_wrong_tool_and_invalid_arguments() -> None:
+    wrong_tool = to_json_object(
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "search_1",
+                    "type": "builtin_function",
+                    "function": {"name": "other_tool", "arguments": "{}"},
+                }
+            ],
+        }
+    )
+    invalid_arguments = to_json_object(
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "search_1",
+                    "type": "builtin_function",
+                    "function": {
+                        "name": "$web_search",
+                        "arguments": "not-json",
+                    },
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(WebProcessingError, match="unsupported tool"):
+        _parse_kimi_tool_round(wrong_tool)
+    with pytest.raises(WebProcessingError, match="invalid tool arguments"):
+        _parse_kimi_tool_round(invalid_arguments)
+
+
+@pytest.mark.parametrize(
+    ("tool_call", "message"),
+    [
+        (
+            {
+                "type": "builtin_function",
+                "function": {"name": "$web_search", "arguments": "{}"},
+            },
+            "invalid tool call id",
+        ),
+        (
+            {
+                "id": "search_1",
+                "type": "builtin_function",
+                "function": {"name": "$web_search"},
+            },
+            "invalid tool arguments",
+        ),
+    ],
+)
+def test_kimi_tool_round_rejects_missing_required_fields(
+    tool_call: dict[str, object],
+    message: str,
+) -> None:
+    assistant = to_json_object(
+        {"role": "assistant", "tool_calls": [tool_call]}
+    )
+
+    with pytest.raises(WebProcessingError, match=message):
+        _parse_kimi_tool_round(assistant)
+
+
+def test_kimi_search_disables_thinking_only_for_incompatible_models() -> None:
+    disabled = {"extra_body": {"thinking": {"type": "disabled"}}}
+
+    assert _kimi_search_request_options("kimi-k2.5") == disabled
+    assert _kimi_search_request_options("kimi-k2.6-preview") == disabled
+    assert _kimi_search_request_options("kimi-k3") == {}
+
+
 def test_public_https_validation_rejects_private_targets() -> None:
     def private_resolver(*args, **kwargs):
         del args, kwargs
@@ -172,6 +334,59 @@ def test_kimi_search_returns_answer_and_results_without_mode(
     assert result.payload["truncated"] is False
     assert "mode" not in result.payload
     assert workspace.snapshot().resources == ()
+
+
+def test_kimi_worker_failure_preserves_only_safe_shape_facts(
+    local_tmp: Path,
+) -> None:
+    service = WebCapabilityService(
+        workspace=_workspace(local_tmp),
+        settings=WebSettings(search_by_kimi=KimiSearchSettings(enabled=True)),
+        runtime_env={},
+        staging=_staging(local_tmp),
+        kimi_api_key="search-secret",
+        process_runner=_SearchProtocolFailureRunner(),
+    )
+
+    with pytest.raises(WebProcessingError) as error:
+        service.search_by_kimi(
+            query="current topic",
+            invoke_id="invoke/1",
+            call_id="call/1",
+            owner_turn_id="turn_1",
+            control=ActionExecutionControl(deadline=monotonic() + 30),
+        )
+
+    assert error.value.reason == "provider_protocol_invalid"
+    assert error.value.payload == {
+        "call_type": "builtin_function",
+        "function_name": "$web_search",
+        "has_reasoning_content": True,
+        "has_function": True,
+        "has_arguments": True,
+        "call_index": 0,
+    }
+
+    action_result = KimiSearchExecutor(
+        service=service,
+        bus=SignalBus(),
+    ).execute(
+        _search_execution(),
+        ActionExecutionContext(
+            control=ActionExecutionControl(deadline=monotonic() + 30),
+        ),
+    )
+
+    assert action_result.status is ActionResultStatus.FAILED
+    assert action_result.frame_data == {
+        "call_type": "builtin_function",
+        "function_name": "$web_search",
+        "has_reasoning_content": True,
+        "has_function": True,
+        "has_arguments": True,
+        "call_index": 0,
+        "reason": "provider_protocol_invalid",
+    }
 
 
 def test_oversized_kimi_search_spills_complete_answer_and_results(
@@ -418,6 +633,33 @@ class _SearchRunner(ControlledProcessRunner):
                     "answer": self._answer,
                     "results": results,
                     "usage": {"tool_calls": 1},
+                }
+            ),
+        )
+
+
+class _SearchProtocolFailureRunner(ControlledProcessRunner):
+    def run(
+        self,
+        request: ProcessRequest,
+        control: ActionExecutionControl,
+    ) -> ProcessOutcome:
+        del request, control
+        return ProcessOutcome(
+            status=ProcessStatus.COMPLETED,
+            exit_code=1,
+            stdout=json.dumps(
+                {
+                    "ok": False,
+                    "reason": "provider_protocol_invalid",
+                    "message": "Kimi Search returned an unsupported tool call shape",
+                    "call_type": "builtin_function",
+                    "function_name": "$web_search",
+                    "has_reasoning_content": True,
+                    "has_function": True,
+                    "has_arguments": True,
+                    "call_index": 0,
+                    "provider_response": "must not cross the worker boundary",
                 }
             ),
         )

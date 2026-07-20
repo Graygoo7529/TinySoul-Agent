@@ -1,5 +1,5 @@
 [loop]
-max_cycles_per_turn = 8
+max_cycles_per_turn = 20
 phase_retry_limit = 2
 
 [loop.daily]

@@ -48,6 +48,13 @@ from .models import (
 
 _MAX_WORKER_STDERR = 8_000
 _MAX_WARNING_CODES = 20
+_WORKER_FAILURE_STRING_FACTS = frozenset(
+    {"error_type", "call_type", "function_name"}
+)
+_WORKER_FAILURE_BOOL_FACTS = frozenset(
+    {"has_reasoning_content", "has_function", "has_arguments"}
+)
+_WORKER_FAILURE_TEXT_LIMIT = 128
 _SAFE_WORKER_ENV = (
     "COMSPEC",
     "PATH",
@@ -429,6 +436,7 @@ class WebCapabilityService:
                 _optional_string(response, "message")
                 or "Web worker could not complete the request",
                 reason=reason,
+                payload=_worker_failure_facts(response),
             )
         return response
 
@@ -444,6 +452,26 @@ def _require_active(control: ActionExecutionControl) -> None:
             "Web operation deadline expired before Workspace commit",
             reason="deadline_expired",
         )
+
+
+def _worker_failure_facts(response: JsonObject) -> JsonObject:
+    facts: JsonObject = {}
+    for name in _WORKER_FAILURE_STRING_FACTS:
+        value = response.get(name)
+        if isinstance(value, str) and 0 < len(value) <= _WORKER_FAILURE_TEXT_LIMIT:
+            facts[name] = value
+    for name in _WORKER_FAILURE_BOOL_FACTS:
+        value = response.get(name)
+        if isinstance(value, bool):
+            facts[name] = value
+    call_index = response.get("call_index")
+    if (
+        isinstance(call_index, int)
+        and not isinstance(call_index, bool)
+        and 0 <= call_index < 1_000
+    ):
+        facts["call_index"] = call_index
+    return facts
 
 
 def _worker_response(value: str) -> JsonObject:

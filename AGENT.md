@@ -223,6 +223,8 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 
 本轮桌面后端支持已完成：新增 authenticated loopback Endpoint、HTTP/OpenAPI/WebSocket sequence replay、`tinysoul serve` sidecar handshake、per-sink Observation route、LLM task identity、ActionCall/Result 与 Background Top content 事件；Workspace/Session API 经 Daily active-day lease 接入同一业务 Engine，Workspace text/blob mutation 使用 revision+digest CAS 并支持 Trash/Restore，活跃 Turn 的 UI mutation 发布 full snapshot，Context 幂等忽略低 revision。前端对接见 `docs/endpoint/frontend integration.md`，执行记录见 `docs/analysis/20260719 backend endpoint and visualization support execution plan.md`。
 
+本轮 Agent Cycle 有效性改进已完成 Stage 0-1：Loop 代码默认、当前项目配置和 `tinysoul init` 模板的 `max_cycles_per_turn` 统一为 20，不引入 Cycle 预算感知或终局预留机制；Kimi `$web_search` worker 改为在 Web-owned 动态 JSON 边界解释 builtin tool round，完整回放 assistant 扩展字段与原始 arguments，兼容受控的 builtin/function 形态，并对 K2.5/K2.6 显式关闭不兼容的 thinking。worker failure 只向宿主交付 allowlist 后的有界 shape facts。执行方案见 `docs/analysis/20260720 agent cycle effectiveness and provider recovery plan.md`，下一阶段为 Stage 2 capability-owned 失败处置语义。
+
 重构实现纪律：
 
 - 实现必须遵守项目失败处理三层语义与 Runtime 异常体系。新增任何 raise 前，先归类该失败属于局部结果、模块边界异常还是 Runtime 语义异常（见「代码风格」）；不得按个人编码习惯随手抛出 ValueError、RuntimeError 等通用异常表达模块失败。

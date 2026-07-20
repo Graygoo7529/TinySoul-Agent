@@ -47,7 +47,7 @@ class DailySettings:
 class LoopSettings:
     """Runtime settings owned by the loop module."""
 
-    max_cycles_per_turn: int = 8
+    max_cycles_per_turn: int = 20
     phase_retry_limit: int = 2
     daily: DailySettings = field(default_factory=DailySettings)
 

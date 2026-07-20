@@ -31,6 +31,7 @@ def test_loop_daily_config_defaults_to_shanghai_and_top_level_archive(
 ) -> None:
     settings = parse_loop_settings({}, project_root=tmp_path)
 
+    assert settings.max_cycles_per_turn == 20
     assert settings.daily.timezone == "Asia/Shanghai"
     assert settings.daily.archive_root == tmp_path / "archive"
 
