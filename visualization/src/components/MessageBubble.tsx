@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 
 import type { ChatTurn } from "../hooks/useDerivedChat";
@@ -23,7 +24,7 @@ const STATUS_CONFIG: Record<
   failed: { icon: XCircle, color: "var(--danger)", label: "Failed" },
   stopped: { icon: AlertCircle, color: "var(--warning)", label: "Stopped" },
   exhausted: { icon: RefreshCw, color: "var(--warning)", label: "Exhausted" },
-  running: { icon: AlertCircle, color: "var(--accent)", label: "Thinking…" },
+  running: { icon: Loader2, color: "var(--accent)", label: "Running" },
 };
 
 export function MessageBubble({ turn }: MessageBubbleProps) {
@@ -62,26 +63,47 @@ export function MessageBubble({ turn }: MessageBubbleProps) {
             {turn.assistantText ? (
               <div>{turn.assistantText}</div>
             ) : turn.status === "running" ? (
-              <div className="flex items-center gap-2">
-                <span className="animate-pulse">Thinking</span>
-                <span
-                  className="animate-pulse"
-                  style={{ animationDelay: "0.2s" }}
-                >
-                  .
-                </span>
-                <span
-                  className="animate-pulse"
-                  style={{ animationDelay: "0.4s" }}
-                >
-                  .
-                </span>
-                <span
-                  className="animate-pulse"
-                  style={{ animationDelay: "0.6s" }}
-                >
-                  .
-                </span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Loader2
+                    size={16}
+                    className="animate-spin"
+                    style={{ color: "var(--accent)" }}
+                  />
+                  <span className="animate-pulse">Thinking</span>
+                  <span
+                    className="animate-pulse"
+                    style={{ animationDelay: "0.2s" }}
+                  >
+                    .
+                  </span>
+                  <span
+                    className="animate-pulse"
+                    style={{ animationDelay: "0.4s" }}
+                  >
+                    .
+                  </span>
+                  <span
+                    className="animate-pulse"
+                    style={{ animationDelay: "0.6s" }}
+                  >
+                    .
+                  </span>
+                </div>
+                {turn.currentActivity && (
+                  <div
+                    className="text-xs"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {turn.currentActivity.phaseLabel}
+                    {turn.currentActivity.action && (
+                      <span style={{ color: "var(--text-tertiary)" }}>
+                        {" "}
+                        · {turn.currentActivity.action}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-muted">
@@ -105,7 +127,7 @@ function StatusBadge({ status }: { status: string }) {
   const Icon = config.icon;
   return (
     <span className="flex items-center gap-1" style={{ color: config.color }}>
-      <Icon size={11} />
+      <Icon size={11} className={status === "running" ? "animate-spin" : ""} />
       {config.label}
     </span>
   );

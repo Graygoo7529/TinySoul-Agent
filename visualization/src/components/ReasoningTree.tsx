@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Lightbulb, ChevronDown, ChevronRight, Layers, Brain } from "lucide-react";
+import {
+  Lightbulb,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Brain,
+} from "lucide-react";
 
 import type { ChatTurn } from "../hooks/useDerivedChat";
 import { CycleTimeline } from "./CycleTimeline";
@@ -12,10 +18,12 @@ interface ReasoningTreeProps {
 
 export function ReasoningTree({ turn }: ReasoningTreeProps) {
   const [open, setOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"cycles" | "models" | "context">("cycles");
+  const [activeTab, setActiveTab] = useState<"cycles" | "models" | "context">(
+    "cycles",
+  );
 
-  const hasDetails =
-    turn.cycles.length > 0 || turn.modelTasks.length > 0 || turn.workspaceEvents.length > 0;
+  const allTasks = turn.cycles.flatMap((c) => c.phases.flatMap((p) => p.tasks));
+  const hasDetails = turn.cycles.length > 0 || allTasks.length > 0;
 
   if (!hasDetails) return null;
 
@@ -24,10 +32,7 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
       <button className="reasoning-toggle" onClick={() => setOpen(!open)}>
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <Lightbulb size={14} />
-        {open ? "Hide details" : "Show thinking"}
-        <span className="badge badge-subtle">
-          {turn.cycles.length} cycles · {turn.modelTasks.length} model calls
-        </span>
+        {open ? "Hide execution details" : turn.summary}
       </button>
 
       {open && (
@@ -44,14 +49,14 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
               active={activeTab === "models"}
               onClick={() => setActiveTab("models")}
               icon={Brain}
-              label="Model calls"
-              count={turn.modelTasks.length}
+              label="All model calls"
+              count={allTasks.length}
             />
             <TabButton
               active={activeTab === "context"}
               onClick={() => setActiveTab("context")}
               icon={Lightbulb}
-              label="Context"
+              label="Turn context"
               count={turn.topLinks.length + turn.workspaceEvents.length}
             />
           </div>
@@ -60,10 +65,12 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
 
           {activeTab === "models" && (
             <div className="flex flex-col gap-3">
-              {turn.modelTasks.length === 0 && (
-                <div className="text-xs text-muted">No model calls recorded.</div>
+              {allTasks.length === 0 && (
+                <div className="text-xs text-muted">
+                  No model calls recorded.
+                </div>
               )}
-              {turn.modelTasks.map((task) => (
+              {allTasks.map((task) => (
                 <ModelCallDetail key={task.taskId} task={task} />
               ))}
             </div>
@@ -75,7 +82,9 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
                 Top Links · {turn.topLinks.length}
               </div>
               {turn.topLinks.length === 0 && (
-                <div className="text-xs text-muted mb-3">No top links loaded.</div>
+                <div className="text-xs text-muted mb-3">
+                  No top links loaded.
+                </div>
               )}
               {turn.topLinks.map((link) => (
                 <div
@@ -87,11 +96,15 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
                     border: "1px solid var(--border-subtle)",
                   }}
                 >
-                  <div className="font-mono text-xs mb-1" style={{ color: "var(--accent)" }}>
+                  <div
+                    className="font-mono text-xs mb-1"
+                    style={{ color: "var(--accent)" }}
+                  >
                     {link.link}
                   </div>
                   <div className="text-xs text-muted">
-                    source: {link.source} · owner: {link.owner} · evictable: {String(link.evictable)}
+                    source: {link.source} · owner: {link.owner} · evictable:{" "}
+                    {String(link.evictable)}
                   </div>
                 </div>
               ))}
@@ -111,7 +124,9 @@ export function ReasoningTree({ turn }: ReasoningTreeProps) {
                     borderRadius: "var(--radius-md)",
                   }}
                 >
-                  <div className="text-xs font-semibold">{ev.payload.operation as string}</div>
+                  <div className="text-xs font-semibold">
+                    {ev.payload.operation as string}
+                  </div>
                   <div className="json-tree mt-1">
                     <JsonTree value={ev.payload} />
                   </div>

@@ -22,7 +22,6 @@ export function PhaseStepper({ phases }: PhaseStepperProps) {
             <div className="phase-status">
               {status === "running" && "Running…"}
               {status === "completed" && "Done"}
-              {status === "failed" && "Failed"}
               {status === "idle" && "Waiting"}
             </div>
           </div>

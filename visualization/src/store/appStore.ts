@@ -8,6 +8,7 @@
  */
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import type {
   BackendStatus,
@@ -75,70 +76,83 @@ export interface AppState {
   setProjectRoot: (root: string) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  connection: { status: "idle" },
-  status: null,
-  events: [],
-  maxEvents: 2000,
-  workspace: null,
-  workspaceLoading: false,
-  openResource: null,
-  maintenance: null,
-  activeTab: "chat",
-  projectRoot: "B:/WorkSpace/TinySoul-Agent",
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      connection: { status: "idle" },
+      status: null,
+      events: [],
+      maxEvents: 2000,
+      workspace: null,
+      workspaceLoading: false,
+      openResource: null,
+      maintenance: null,
+      activeTab: "chat",
+      projectRoot: "B:/WorkSpace/TinySoul-Agent",
 
-  setConnection: (connection) => set({ connection }),
-  setClient: (client) => set({ client }),
-  setEventStream: (eventStream) => set({ eventStream }),
-  setStatus: (status) => set({ status }),
+      setConnection: (connection) => set({ connection }),
+      setClient: (client) => set({ client }),
+      setEventStream: (eventStream) => set({ eventStream }),
+      setStatus: (status) => set({ status }),
 
-  appendEvents: (events) => {
-    if (events.length === 0) return;
-    set((state) => {
-      const merged = [...state.events, ...events].sort(
-        (a, b) => a.sequence - b.sequence,
-      );
-      const unique = new Map<number, EndpointEvent>();
-      for (const ev of merged) {
-        unique.set(ev.sequence, ev);
-      }
-      const next = Array.from(unique.values());
-      if (next.length > state.maxEvents) {
-        next.splice(0, next.length - state.maxEvents);
-      }
-      return { events: next };
-    });
-  },
+      appendEvents: (events) => {
+        if (events.length === 0) return;
+        set((state) => {
+          const merged = [...state.events, ...events].sort(
+            (a, b) => a.sequence - b.sequence,
+          );
+          const unique = new Map<number, EndpointEvent>();
+          for (const ev of merged) {
+            unique.set(ev.sequence, ev);
+          }
+          const next = Array.from(unique.values());
+          if (next.length > state.maxEvents) {
+            next.splice(0, next.length - state.maxEvents);
+          }
+          return { events: next };
+        });
+      },
 
-  clearEvents: () => set({ events: [] }),
+      clearEvents: () => set({ events: [] }),
 
-  setWorkspace: (workspace, error) =>
-    set({ workspace, workspaceLoading: false, workspaceError: error }),
-  setWorkspaceLoading: (loading) => set({ workspaceLoading: loading }),
+      setWorkspace: (workspace, error) =>
+        set({ workspace, workspaceLoading: false, workspaceError: error }),
+      setWorkspaceLoading: (loading) => set({ workspaceLoading: loading }),
 
-  openWorkspaceResource: (read) =>
-    set({
-      openResource: { link: read.link, read, dirty: false, draft: read.text },
+      openWorkspaceResource: (read) =>
+        set({
+          openResource: {
+            link: read.link,
+            read,
+            dirty: false,
+            draft: read.text,
+          },
+        }),
+
+      updateResourceDraft: (draft) =>
+        set((state) => {
+          if (!state.openResource) return state;
+          return {
+            openResource: {
+              ...state.openResource,
+              draft,
+              dirty: draft !== state.openResource.read.text,
+            },
+          };
+        }),
+
+      closeResource: () => set({ openResource: null }),
+
+      setMaintenance: (maintenance) => set({ maintenance }),
+      setActiveTab: (activeTab) => set({ activeTab }),
+      setProjectRoot: (projectRoot) => set({ projectRoot }),
     }),
-
-  updateResourceDraft: (draft) =>
-    set((state) => {
-      if (!state.openResource) return state;
-      return {
-        openResource: {
-          ...state.openResource,
-          draft,
-          dirty: draft !== state.openResource.read.text,
-        },
-      };
-    }),
-
-  closeResource: () => set({ openResource: null }),
-
-  setMaintenance: (maintenance) => set({ maintenance }),
-  setActiveTab: (activeTab) => set({ activeTab }),
-  setProjectRoot: (projectRoot) => set({ projectRoot }),
-}));
+    {
+      name: "tinysoul-ui-state",
+      partialize: (state) => ({ projectRoot: state.projectRoot }),
+    },
+  ),
+);
 
 /**
  * Derive the current set of loaded top links from background snapshot/change

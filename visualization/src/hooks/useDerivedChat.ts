@@ -4,10 +4,17 @@
  * The backend emits a flat, sequence-ordered stream of observation events.
  * This hook groups them into turns, cycles, phases, actions, and model tasks
  * so the chat UI can present them as a conversation with progressive disclosure.
+ *
+ * Naming follows AGENT.md:
+ *   - User Turn: one user input → final answer.
+ *   - Agent Cycle: one iteration of Phase1 → Phase2 → Phase3.
+ *   - Phase1: update context & decide action domains.
+ *   - Phase2: generate action parameters (action calls).
+ *   - Phase3: execute actions (action results).
  */
 
 import { useMemo } from "react";
-import type { EndpointEvent } from "../types";
+import type { EndpointEvent, ScopeFrame } from "../types";
 
 export type PhaseName = "phase1" | "phase2" | "phase3";
 
@@ -84,29 +91,37 @@ export interface ActionRecord {
   completedAt?: number;
 }
 
-export interface PhaseStep {
-  phase: PhaseName;
-  status: "idle" | "running" | "completed" | "failed";
-  startedAt?: number;
-  completedAt?: number;
-  taskId?: string;
-}
-
-export interface Cycle {
-  cycleId: string;
-  status: "running" | "completed" | "failed";
-  phases: PhaseStep[];
-  actions: ActionRecord[];
-  startedAt: number;
-  completedAt?: number;
-}
-
 export interface TopLinkSnapshot {
   link: string;
   content: string;
   source: string;
   owner: string;
   evictable: boolean;
+}
+
+export interface PhaseStep {
+  phase: PhaseName;
+  title: string;
+  description: string;
+  status: "idle" | "running" | "completed";
+  startedAt?: number;
+  completedAt?: number;
+  tasks: ModelTask[];
+  actions: ActionRecord[];
+  backgroundChanges: {
+    loaded: string[];
+    evicted: string[];
+    currentLinks: string[];
+  };
+  workspaceEvents: EndpointEvent[];
+}
+
+export interface Cycle {
+  cycleId: string;
+  status: "running" | "completed";
+  phases: PhaseStep[];
+  startedAt: number;
+  completedAt?: number;
 }
 
 export interface ChatTurn {
@@ -116,11 +131,16 @@ export interface ChatTurn {
   status?: "answered" | "failed" | "stopped" | "exhausted" | "running";
   failureMessage?: string;
   cycles: Cycle[];
-  modelTasks: ModelTask[];
   topLinks: TopLinkSnapshot[];
   workspaceEvents: EndpointEvent[];
   startedAt: number;
   endedAt?: number;
+  summary: string;
+  currentActivity?: {
+    phase: PhaseName;
+    phaseLabel: string;
+    action?: string;
+  };
 }
 
 export function useDerivedChat(events: EndpointEvent[]): ChatTurn[] {
@@ -129,13 +149,29 @@ export function useDerivedChat(events: EndpointEvent[]): ChatTurn[] {
 
 function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
+  // Track current scope while iterating so we can attribute events without a precise frame.
+  let currentTurnId: string | null = null;
+  let currentCycleId: string | null = null;
+  let currentPhase: PhaseName | null = null;
 
   for (const ev of events) {
     const turnFrame = ev.scope.find((f) => f.level === "turn");
-    const turnId = turnFrame?.name;
-    if (!turnId) {
-      // Global events (program work, daily transitions) are not part of a turn.
-      continue;
+    const cycleFrame = ev.scope.find((f) => f.level === "cycle");
+    const phaseFrame = ev.scope.find((f) => f.level === "phase");
+    const turnId = turnFrame?.name ?? null;
+
+    if (!turnId) continue;
+
+    if (turnId !== currentTurnId) {
+      currentTurnId = turnId;
+      currentCycleId = null;
+      currentPhase = null;
+    }
+    if (cycleFrame) {
+      currentCycleId = cycleFrame.name;
+    }
+    if (phaseFrame && isPhase(phaseFrame.name)) {
+      currentPhase = phaseFrame.name;
     }
 
     const turn = getTurn(turns, turnId, ev.created_at);
@@ -163,10 +199,13 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
     } else if (ev.name === "turn.exhausted") {
       turn.status = "exhausted";
       turn.endedAt = ev.created_at;
-    } else if (ev.name === "loop.phase.started" || ev.name === "loop.phase.completed") {
-      applyPhaseEvent(turn, ev);
+    } else if (
+      ev.name === "loop.phase.started" ||
+      ev.name === "loop.phase.completed"
+    ) {
+      applyPhaseEvent(turn, ev, currentCycleId);
     } else if (ev.name === "action.call") {
-      applyActionCall(turn, ev);
+      applyActionCall(turn, ev, currentCycleId, currentPhase);
     } else if (ev.name === "action.result") {
       applyActionResult(turn, ev);
     } else if (
@@ -174,63 +213,83 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
       ev.name === "llm.task.completed" ||
       ev.name === "llm.task.failed"
     ) {
-      applyTaskLifecycle(turn, ev);
+      applyTaskLifecycle(turn, ev, currentCycleId, currentPhase);
     } else if (ev.name === "llm.model.request") {
-      applyModelRequest(turn, ev);
+      applyModelRequest(turn, ev, currentCycleId, currentPhase);
     } else if (ev.name === "llm.model.response") {
       applyModelResponse(turn, ev);
-    } else if (ev.name === "context.background.snapshot" || ev.name === "context.background.changed") {
-      applyBackgroundSnapshot(turn, ev);
+    } else if (
+      ev.name === "context.background.snapshot" ||
+      ev.name === "context.background.changed"
+    ) {
+      applyBackgroundEvent(turn, ev, currentCycleId, currentPhase);
     } else if (ev.name === "workspace.changed") {
-      turn.workspaceEvents.push(ev);
+      applyWorkspaceEvent(turn, ev, currentCycleId, currentPhase);
     }
   }
 
-  // Mark turns without terminal event as running.
   for (const turn of turns.values()) {
     if (!turn.status) {
       turn.status = "running";
     }
-    // Sort cycles and actions by time.
     turn.cycles.sort((a, b) => a.startedAt - b.startedAt);
     for (const cycle of turn.cycles) {
-      cycle.actions.sort((a, b) => a.startedAt - b.startedAt);
+      cycle.phases.sort((a, b) => orderPhase(a.phase) - orderPhase(b.phase));
+      for (const phase of cycle.phases) {
+        phase.actions.sort((a, b) => a.startedAt - b.startedAt);
+        phase.tasks.sort(
+          (a, b) => (a.request?.attempt ?? 0) - (b.request?.attempt ?? 0),
+        );
+      }
+      // Mark cycle completed if phase3 completed.
+      const phase3 = cycle.phases.find((p) => p.phase === "phase3");
+      if (phase3?.status === "completed") {
+        cycle.status = "completed";
+        cycle.completedAt = phase3.completedAt;
+      }
     }
-    turn.modelTasks.sort((a, b) => {
-      const ar = a.request?.attempt ?? 0;
-      const br = b.request?.attempt ?? 0;
-      return ar - br;
-    });
+    turn.summary = computeTurnSummary(turn);
+    if (turn.status === "running") {
+      turn.currentActivity = computeCurrentActivity(turn);
+    }
   }
 
   return Array.from(turns.values()).sort((a, b) => a.startedAt - b.startedAt);
 }
 
-function getTurn(turns: Map<string, ChatTurn>, turnId: string, startedAt: number): ChatTurn {
+function getTurn(
+  turns: Map<string, ChatTurn>,
+  turnId: string,
+  startedAt: number,
+): ChatTurn {
   let turn = turns.get(turnId);
   if (!turn) {
     turn = {
       turnId,
       userMessages: [],
       cycles: [],
-      modelTasks: [],
       topLinks: [],
       workspaceEvents: [],
       startedAt,
+      summary: "",
     };
     turns.set(turnId, turn);
   }
   return turn;
 }
 
-function getCycle(turn: ChatTurn, cycleId: string, createdAt: number): Cycle {
+function getCycle(
+  turn: ChatTurn,
+  cycleId: string | null,
+  createdAt: number,
+): Cycle | null {
+  if (!cycleId) return null;
   let cycle = turn.cycles.find((c) => c.cycleId === cycleId);
   if (!cycle) {
     cycle = {
       cycleId,
       status: "running",
       phases: [],
-      actions: [],
       startedAt: createdAt,
     };
     turn.cycles.push(cycle);
@@ -238,40 +297,52 @@ function getCycle(turn: ChatTurn, cycleId: string, createdAt: number): Cycle {
   return cycle;
 }
 
-function applyPhaseEvent(turn: ChatTurn, ev: EndpointEvent) {
-  const cycleFrame = ev.scope.find((f) => f.level === "cycle");
-  const cycleId = cycleFrame?.name;
-  if (!cycleId) return;
+function getPhase(cycle: Cycle, phaseName: PhaseName): PhaseStep {
+  let phase = cycle.phases.find((p) => p.phase === phaseName);
+  if (!phase) {
+    phase = {
+      phase: phaseName,
+      title: phaseTitle(phaseName),
+      description: phaseDescription(phaseName),
+      status: "idle",
+      tasks: [],
+      actions: [],
+      backgroundChanges: { loaded: [], evicted: [], currentLinks: [] },
+      workspaceEvents: [],
+    };
+    cycle.phases.push(phase);
+  }
+  return phase;
+}
+
+function applyPhaseEvent(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+) {
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (!cycle) return;
 
   const phaseName = ev.payload?.phase as PhaseName;
-  if (!phaseName) return;
+  if (!isPhase(phaseName)) return;
 
-  const cycle = getCycle(turn, cycleId, ev.created_at);
-  let step = cycle.phases.find((p) => p.phase === phaseName);
-  if (!step) {
-    step = { phase: phaseName, status: "idle" };
-    cycle.phases.push(step);
-  }
+  const phase = getPhase(cycle, phaseName);
 
   if (ev.name === "loop.phase.started") {
-    step.status = "running";
-    step.startedAt = ev.created_at;
+    phase.status = "running";
+    phase.startedAt = ev.created_at;
   } else if (ev.name === "loop.phase.completed") {
-    step.status = ev.payload?.ended === false ? "failed" : "completed";
-    step.completedAt = ev.created_at;
-    cycle.completedAt = ev.created_at;
-    // Only mark cycle completed if all phases are done.
-    if (cycle.phases.every((p) => p.status === "completed" || p.status === "failed")) {
-      cycle.status = cycle.phases.some((p) => p.status === "failed") ? "failed" : "completed";
-    }
+    phase.status = "completed";
+    phase.completedAt = ev.created_at;
   }
 }
 
-function applyActionCall(turn: ChatTurn, ev: EndpointEvent) {
-  const cycleFrame = ev.scope.find((f) => f.level === "cycle");
-  const cycleId = cycleFrame?.name;
-  if (!cycleId) return;
-
+function applyActionCall(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
   const payload = ev.payload as {
     call_id?: string;
     action?: string;
@@ -283,7 +354,12 @@ function applyActionCall(turn: ChatTurn, ev: EndpointEvent) {
   if (!callId) return;
 
   const cycle = getCycle(turn, cycleId, ev.created_at);
-  cycle.actions.push({
+  if (!cycle) return;
+
+  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase2";
+  const phase = getPhase(cycle, phaseName);
+
+  phase.actions.push({
     callId,
     action: payload.action || "unknown",
     domain: payload.domain || "unknown",
@@ -305,28 +381,41 @@ function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
   if (!callId) return;
 
   for (const cycle of turn.cycles) {
-    const action = cycle.actions.find((a) => a.callId === callId);
-    if (action) {
-      action.result = {
-        status: payload.status || "unknown",
-        stage: payload.stage || "unknown",
-        feedback: payload.feedback,
-        payload: payload.payload,
-      };
-      action.completedAt = ev.created_at;
-      return;
+    for (const phase of cycle.phases) {
+      const action = phase.actions.find((a) => a.callId === callId);
+      if (action) {
+        action.result = {
+          status: payload.status || "unknown",
+          stage: payload.stage || "unknown",
+          feedback: payload.feedback,
+          payload: payload.payload,
+        };
+        action.completedAt = ev.created_at;
+        return;
+      }
     }
   }
 }
 
-function applyTaskLifecycle(turn: ChatTurn, ev: EndpointEvent) {
+function applyTaskLifecycle(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
   const taskId = ev.payload?.task_id as string | undefined;
   if (!taskId) return;
 
-  let task = turn.modelTasks.find((t) => t.taskId === taskId);
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (!cycle) return;
+
+  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
+  const phase = getPhase(cycle, phaseName);
+
+  let task = phase.tasks.find((t) => t.taskId === taskId);
   if (!task) {
     task = { taskId, status: "running" };
-    turn.modelTasks.push(task);
+    phase.tasks.push(task);
   }
 
   task.profile = (ev.payload?.profile as string) || task.profile;
@@ -339,14 +428,25 @@ function applyTaskLifecycle(turn: ChatTurn, ev: EndpointEvent) {
   }
 }
 
-function applyModelRequest(turn: ChatTurn, ev: EndpointEvent) {
+function applyModelRequest(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
   const taskId = ev.payload?.task_id as string | undefined;
   if (!taskId) return;
 
-  let task = turn.modelTasks.find((t) => t.taskId === taskId);
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (!cycle) return;
+
+  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
+  const phase = getPhase(cycle, phaseName);
+
+  let task = phase.tasks.find((t) => t.taskId === taskId);
   if (!task) {
     task = { taskId, status: "running" };
-    turn.modelTasks.push(task);
+    phase.tasks.push(task);
   }
 
   const payload = ev.payload as Partial<ModelRequest>;
@@ -366,35 +466,194 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
   const taskId = ev.payload?.task_id as string | undefined;
   if (!taskId) return;
 
-  let task = turn.modelTasks.find((t) => t.taskId === taskId);
-  if (!task) {
-    task = { taskId, status: "running" };
-    turn.modelTasks.push(task);
+  for (const cycle of turn.cycles) {
+    for (const phase of cycle.phases) {
+      const task = phase.tasks.find((t) => t.taskId === taskId);
+      if (task) {
+        const payload = ev.payload as Partial<ModelResponse>;
+        task.response = {
+          model_id: payload.model_id || "unknown",
+          provider_id: payload.provider_id || "unknown",
+          answer_text: payload.answer_text,
+          tool_calls: payload.tool_calls,
+          usage: payload.usage,
+          metadata: payload.metadata,
+          reasoning: payload.reasoning,
+        };
+        return;
+      }
+    }
   }
-
-  const payload = ev.payload as Partial<ModelResponse>;
-  task.response = {
-    model_id: payload.model_id || "unknown",
-    provider_id: payload.provider_id || "unknown",
-    answer_text: payload.answer_text,
-    tool_calls: payload.tool_calls,
-    usage: payload.usage,
-    metadata: payload.metadata,
-    reasoning: payload.reasoning,
-  };
 }
 
-function applyBackgroundSnapshot(turn: ChatTurn, ev: EndpointEvent) {
+function applyBackgroundEvent(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
   const payload = ev.payload as {
+    links?: string[];
+    loaded_links?: string[];
     evicted_links?: string[];
     entries?: TopLinkSnapshot[];
   };
 
+  // Update global turn-level top links.
   for (const link of payload.evicted_links || []) {
     turn.topLinks = turn.topLinks.filter((e) => e.link !== link);
   }
-  for (const entry of payload.entries || []) {
-    turn.topLinks = turn.topLinks.filter((e) => e.link !== entry.link);
-    turn.topLinks.push(entry);
+  if (payload.entries) {
+    for (const entry of payload.entries) {
+      turn.topLinks = turn.topLinks.filter((e) => e.link !== entry.link);
+      turn.topLinks.push(entry);
+    }
   }
+
+  // Attribute background changes to Phase1 if available.
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (cycle) {
+    const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
+    const targetPhase = phaseName === "phase1" ? phaseName : "phase1";
+    const phase = getPhase(cycle, targetPhase);
+    for (const link of payload.loaded_links || []) {
+      if (!phase.backgroundChanges.loaded.includes(link)) {
+        phase.backgroundChanges.loaded.push(link);
+      }
+    }
+    for (const link of payload.evicted_links || []) {
+      if (!phase.backgroundChanges.evicted.includes(link)) {
+        phase.backgroundChanges.evicted.push(link);
+      }
+    }
+    phase.backgroundChanges.currentLinks = turn.topLinks.map((e) => e.link);
+  }
+}
+
+function applyWorkspaceEvent(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
+  turn.workspaceEvents.push(ev);
+
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (cycle) {
+    const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase3";
+    const targetPhase = phaseName === "phase3" ? phaseName : "phase3";
+    const phase = getPhase(cycle, targetPhase);
+    phase.workspaceEvents.push(ev);
+  }
+}
+
+function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
+  const latestCycle = turn.cycles[turn.cycles.length - 1];
+  if (!latestCycle) return undefined;
+
+  // Find the rightmost phase that is running or has any activity.
+  const activePhase = [...latestCycle.phases]
+    .reverse()
+    .find(
+      (p) =>
+        p.status === "running" || p.actions.length > 0 || p.tasks.length > 0,
+    );
+
+  if (!activePhase) return undefined;
+
+  const latestAction = activePhase.actions[activePhase.actions.length - 1];
+  return {
+    phase: activePhase.phase,
+    phaseLabel: phaseTitle(activePhase.phase),
+    action: latestAction?.action,
+  };
+}
+
+function computeTurnSummary(turn: ChatTurn): string {
+  const cycleCount = turn.cycles.length;
+  let actionCount = 0;
+  let successCount = 0;
+  let failedCount = 0;
+  const domains = new Set<string>();
+  const families = new Set<string>();
+
+  for (const cycle of turn.cycles) {
+    for (const phase of cycle.phases) {
+      for (const action of phase.actions) {
+        actionCount++;
+        domains.add(action.domain);
+        families.add(actionFamily(action.action));
+        if (action.result?.status === "success") successCount++;
+        else if (action.result?.status === "failed") failedCount++;
+      }
+    }
+  }
+
+  const parts: string[] = [];
+  if (cycleCount > 0)
+    parts.push(`${cycleCount} cycle${cycleCount > 1 ? "s" : ""}`);
+  if (actionCount > 0)
+    parts.push(`${actionCount} action${actionCount > 1 ? "s" : ""}`);
+  if (domains.size > 0)
+    parts.push(`domains: ${Array.from(domains).join(", ")}`);
+  if (families.size > 0)
+    parts.push(`families: ${Array.from(families).join(", ")}`);
+  if (successCount > 0) parts.push(`${successCount} succeeded`);
+  if (failedCount > 0) parts.push(`${failedCount} failed`);
+
+  if (parts.length === 0) {
+    return turn.status === "running" ? "Thinking…" : "Completed";
+  }
+  return parts.join(" · ");
+}
+
+function actionFamily(action: string): string {
+  if (action.startsWith("workspace.")) return "workspace";
+  if (action.startsWith("script.")) return "script";
+  if (action.startsWith("shell.")) return "shell";
+  if (action.startsWith("home.")) return "home";
+  if (action.startsWith("memory.")) return "memory";
+  if (action.startsWith("web.")) return "web";
+  if (action.startsWith("context.")) return "context";
+  if (action.startsWith("supervised_process.")) return "process";
+  if (action === "core.answer") return "answer";
+  return "other";
+}
+
+function phaseTitle(phase: PhaseName): string {
+  switch (phase) {
+    case "phase1":
+      return "Context & Domain Selection";
+    case "phase2":
+      return "Action Planning";
+    case "phase3":
+      return "Action Execution";
+  }
+}
+
+function phaseDescription(phase: PhaseName): string {
+  switch (phase) {
+    case "phase1":
+      return "Update context and decide which action domains to use.";
+    case "phase2":
+      return "Generate concrete action calls within the selected domains.";
+    case "phase3":
+      return "Execute the planned actions and collect results.";
+  }
+}
+
+function isPhase(value: string): value is PhaseName {
+  return value === "phase1" || value === "phase2" || value === "phase3";
+}
+
+function phaseFromScope(scope: ScopeFrame[]): PhaseName | null {
+  const frame = scope.find((f) => f.level === "phase");
+  if (frame && isPhase(frame.name)) {
+    return frame.name;
+  }
+  return null;
+}
+
+function orderPhase(phase: PhaseName): number {
+  return { phase1: 1, phase2: 2, phase3: 3 }[phase];
 }

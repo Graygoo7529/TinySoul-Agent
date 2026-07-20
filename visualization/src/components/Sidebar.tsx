@@ -9,7 +9,11 @@ const ITEMS: { id: AppTab; label: string; icon: React.ElementType }[] = [
   { id: "session", label: "History", icon: History },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenSettings?: () => void;
+}
+
+export function Sidebar({ onOpenSettings }: SidebarProps) {
   const { activeTab, setActiveTab, connection } = useAppStore();
   const disabled = connection.status !== "connected";
 
@@ -32,7 +36,11 @@ export function Sidebar() {
         );
       })}
       <div style={{ flex: 1 }} />
-      <button className="sidebar-item" title="Settings">
+      <button
+        className="sidebar-item"
+        title="Settings"
+        onClick={onOpenSettings}
+      >
         <Settings size={20} />
         <span>Settings</span>
       </button>

@@ -47,10 +47,10 @@ export function ModelCallDetail({ task }: ModelCallDetailProps) {
           )}
           {task.request?.messages && (
             <div className="mb-3">
-              <div className="text-xs font-semibold text-muted mb-2">Messages</div>
-              {task.request.messages.map((msg, idx) => (
-                <MessageView key={idx} message={msg} />
-              ))}
+              <div className="text-xs font-semibold text-muted mb-2">
+                Context Construction
+              </div>
+              <ContextSections messages={task.request.messages} />
             </div>
           )}
           {task.request?.tools && task.request.tools.length > 0 && (
@@ -63,8 +63,12 @@ export function ModelCallDetail({ task }: ModelCallDetailProps) {
           )}
           {task.response && (
             <div>
-              <div className="text-xs font-semibold text-muted mb-2">Response</div>
-              <div className="model-message-body">{task.response.answer_text}</div>
+              <div className="text-xs font-semibold text-muted mb-2">
+                Response
+              </div>
+              <div className="model-message-body">
+                {task.response.answer_text}
+              </div>
               {task.response.reasoning?.summary && (
                 <div className="mt-2 text-xs text-muted">
                   reasoning: {task.response.reasoning.summary}
@@ -83,9 +87,143 @@ export function ModelCallDetail({ task }: ModelCallDetailProps) {
   );
 }
 
+interface ContextSectionsProps {
+  messages: ModelMessage[];
+}
+
+function ContextSections({ messages }: ContextSectionsProps) {
+  const sections = groupMessagesBySection(messages);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {sections.map((section, idx) => (
+        <ContextSection key={idx} section={section} />
+      ))}
+    </div>
+  );
+}
+
+interface ContextSectionData {
+  title: string;
+  color: string;
+  messages: ModelMessage[];
+}
+
+function groupMessagesBySection(
+  messages: ModelMessage[],
+): ContextSectionData[] {
+  const groups = new Map<string, ModelMessage[]>();
+  for (const msg of messages) {
+    const key = sectionKey(msg);
+    const list = groups.get(key) ?? [];
+    list.push(msg);
+    groups.set(key, list);
+  }
+
+  const order = [
+    "identity",
+    "input",
+    "background",
+    "working",
+    "trace",
+    "task",
+    "decision",
+    "action_result",
+    "other",
+  ];
+  const result: ContextSectionData[] = [];
+  for (const key of order) {
+    const list = groups.get(key);
+    if (list) {
+      result.push({ ...sectionMeta(key), messages: list });
+    }
+  }
+  return result;
+}
+
+function sectionKey(msg: ModelMessage): string {
+  const label = msg.label?.toLowerCase() || "";
+  if (label.includes("identity") || msg.role === "system") return "identity";
+  if (label.includes("input")) return "input";
+  if (label.includes("background")) return "background";
+  if (label.includes("working")) return "working";
+  if (label.includes("trace")) return "trace";
+  if (label.includes("task") || label.includes("prompt")) return "task";
+  if (label.includes("decision")) return "decision";
+  if (label.includes("action_result") || msg.role === "tool_result")
+    return "action_result";
+  return "other";
+}
+
+function sectionMeta(key: string): { title: string; color: string } {
+  switch (key) {
+    case "identity":
+      return { title: "System Identity", color: "#a371f7" };
+    case "input":
+      return { title: "User Inputs", color: "#58a6ff" };
+    case "background":
+      return { title: "Background Context", color: "#3fb950" };
+    case "working":
+      return { title: "Working Context", color: "#d29922" };
+    case "trace":
+      return { title: "Turn Trace", color: "#f85149" };
+    case "task":
+      return { title: "Task Prompt", color: "#39c5cf" };
+    case "decision":
+      return { title: "Assistant Decision", color: "#58a6ff" };
+    case "action_result":
+      return { title: "Action Results", color: "#6b7280" };
+    default:
+      return { title: "Other", color: "#6b7280" };
+  }
+}
+
+function ContextSection({ section }: { section: ContextSectionData }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--radius-md)",
+        overflow: "hidden",
+        background: "var(--bg-elevated)",
+        borderLeft: `3px solid ${section.color}`,
+      }}
+    >
+      <div
+        className="p-2 flex items-center justify-between cursor-pointer"
+        style={{ background: "var(--surface)" }}
+        onClick={() => setOpen(!open)}
+      >
+        <span
+          className="font-semibold text-xs"
+          style={{ color: section.color }}
+        >
+          {section.title}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="badge badge-subtle">{section.messages.length}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </div>
+      </div>
+      {open && (
+        <div
+          className="p-2"
+          style={{ borderTop: "1px solid var(--border-subtle)" }}
+        >
+          {section.messages.map((msg, idx) => (
+            <MessageView key={idx} message={msg} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageView({ message }: { message: ModelMessage }) {
   return (
-    <div className="model-message">
+    <div className="model-message" style={{ padding: "8px 0" }}>
       <div className="model-message-role">
         {message.role} {message.label ? `· ${message.label}` : ""}
       </div>
@@ -122,7 +260,8 @@ function MessagePart({ part }: { part: ModelMessage["parts"][number] }) {
   if (part.type === "image") {
     return (
       <div className="text-xs text-muted">
-        image · {part.mime_type} · {part.size} bytes · {part.digest?.slice(0, 12)}…
+        image · {part.mime_type} · {part.size} bytes ·{" "}
+        {part.digest?.slice(0, 12)}…
       </div>
     );
   }

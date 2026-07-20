@@ -8,7 +8,7 @@ Requirements:
 
 - Node.js 20+
 - pnpm
-- Rust 1.77+ (for Tauri)
+- Rust 1.97+ (for Tauri)
 - `tinysoul` on PATH (the backend sidecar)
 
 Install dependencies:
@@ -23,7 +23,7 @@ Run in development mode:
 pnpm tauri dev
 ```
 
-The frontend window will open first; confirm the project root and click **Start Backend** to spawn `tinysoul serve`.
+The frontend window will open first. Confirm the project root in **Settings** and click **Start Backend** to spawn `tinysoul serve`.
 
 > The backend executable must be on PATH as `tinysoul` (or `tinysoul.exe` on Windows). For this project you can install it with `pip install -e .` from the repository root.
 
@@ -38,8 +38,8 @@ pnpm tauri build
 - `src-tauri/src/lib.rs` — Tauri Rust shell. Spawns `tinysoul serve`, captures the `endpoint.ready` handshake, and exposes `start_backend` / `stop_backend` commands.
 - `src/api/tinysoul.ts` — HTTP client for the Endpoint API.
 - `src/api/events.ts` — WebSocket event stream manager with reconnection and gap detection.
-- `src/store/appStore.ts` — Zustand store for connection state, events, workspace cache, and UI selections.
-- `src/hooks/useDerivedChat.ts` — Derives conversation turns, cycles, phases, actions, and model tasks from the raw event stream.
+- `src/store/appStore.ts` — Zustand store for connection state, events, workspace cache, UI selections, and persisted project root.
+- `src/hooks/useDerivedChat.ts` — Derives conversation turns, cycles, phases, actions, and model tasks from the raw event stream following AGENT.md semantics.
 - `src/components/` — React UI components.
 
 ## Design
@@ -48,7 +48,7 @@ The UI follows a "conversation first, progressive disclosure" pattern:
 
 - Chat is a single message history between the user and the agent.
 - Each assistant message can expand to reveal its internal execution.
-- Cycles, phases, action calls/results, and full model message stacks are nested behind clickable sections.
+- Execution details follow AGENT.md semantics: **Turn → Cycle → Phase → Action/Result → LLM Context**.
 - The event stream always runs at `model` level; the frontend decides how much to surface.
 
 ## Features
@@ -56,10 +56,27 @@ The UI follows a "conversation first, progressive disclosure" pattern:
 ### Chat
 
 - Conversation-style history with user and assistant bubbles.
-- Expandable "Show thinking" section per assistant message with tabs for:
-  - **Cycles** — Phase 1/2/3 stepper and action details.
-  - **Model calls** — Full LLM task message stack, tools, and provider responses.
-  - **Context** — Loaded top links and workspace events for the turn.
+- Live activity indicator while a turn is running (current phase and action).
+- Expandable execution details per assistant message with tabs for:
+  - **Cycles** — Agent cycles with Phase 1/2/3 cards.
+  - **Model calls** — Full LLM task message stack grouped by semantic context section, tools, and provider responses.
+  - **Turn context** — Loaded top links and workspace events for the turn.
+- Robust status normalization so `success`, `completed`, `failed`, `timeout`, and pending states render correctly.
+
+### Action Execution Cards
+
+Phase 3 action results are rendered as mock computer UIs:
+
+- **Document editing** — `workspace.write`, `workspace.rewrite`, `workspace.patch`, and `script.write` show a file preview with line count and save status.
+- **Script execution** — `script.run_*` actions render a code-terminal view with language, arguments, stdout, stderr, and exit code.
+- **Shell commands** — `shell.run_*` actions render a terminal window with the command, working directory, output, and exit code.
+- **Long-running processes** — supervised process results show job state, elapsed time, execution id, stdout/stderr, and candidate changes.
+- Each card still exposes the raw action payload and result JSON for advanced debugging.
+
+### Background Context
+
+- A global **Background Context** side panel shows the currently loaded top links independent of any turn.
+- Links are updated from `context.background.snapshot` / `context.background.changed` events and are evicted as the backend decides.
 
 ### Workspace
 
@@ -73,8 +90,14 @@ The UI follows a "conversation first, progressive disclosure" pattern:
 - List today’s turns with status and summary.
 - Recall canonical turn traces.
 
+### Settings
+
+- Project root directory is persisted across restarts.
+- The root can be changed from the Settings dialog; the new value is used the next time the backend is started.
+
 ## Notes
 
 - The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/workspace`, Session, Home, or Memory directly.
 - The backend executable name is `tinysoul` (or `tinysoul.exe` on Windows). For production distribution it should be bundled as a Tauri sidecar.
+- The default window is intentionally compact (720×520) for a user-level desktop assistant.
 - Assumed or missing backend capabilities that could extend the UI are recorded in `docs/missing-capabilities.md` and `docs/design-v2.md`.
