@@ -28,7 +28,10 @@ from tinysoul.llm.requests import (
 from tinysoul.llm.responses import (
     JsonAnswer,
     RawResponse,
+    ResponseStopReason,
     AnswerFormat,
+    TaskFailureReason,
+    TaskFailureScope,
     TaskResultStatus,
     TaskResult,
 )
@@ -1051,6 +1054,42 @@ def test_runner_returns_failure_result_for_json_parse_error() -> None:
     assert result.failure is not None
     assert result.failure.model_feedback is not None
     assert "Failed to parse model response as JSON object" in result.failure.model_feedback
+
+
+def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
+    class TruncatedProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.requests.append(request)
+            return RawResponse(
+                answer_text='{"text":"partial',
+                model_id=request.model.id,
+                provider_id=self.provider_id,
+                stop_reason=ResponseStopReason.OUTPUT_LIMIT,
+            )
+
+    provider = TruncatedProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(profile="framework", model_ids=("a",)),
+            max_output_tokens=2048,
+        ),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("write")),
+        )
+    )
+
+    assert result.status is TaskResultStatus.FAILURE
+    assert result.failure is not None
+    assert result.failure.reason is TaskFailureReason.OUTPUT_LIMIT_REACHED
+    assert result.failure.scope is TaskFailureScope.OUTPUT
+    assert result.failure.constraint == {"max_output_tokens": 2048}
+    assert result.failure.frame_data == {}
 
 
 def test_model_chain_exhaustion_becomes_runtime_reason() -> None:

@@ -16,6 +16,7 @@ from tinysoul.runtime import (
 )
 
 from .backends.native import NativeActionFunction, NativeFunctionExecutor
+from .backends.llm_action import LLMActionBackendOptionsValidator
 from .backends.subprocess import SubprocessBackendOptionsValidator, SubprocessActionExecutor
 from .core.call import (
     ActionBatch,
@@ -38,6 +39,7 @@ from .core.hooks import (
 )
 from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
 from .core.result import ActionPhaseResult, ActionResult
+from .core.specs import ActionBackendKind
 from .core.runner import ActionBatchRunner
 from .core.scope import (
     DOMAIN_SELECTION_TOOL,
@@ -313,6 +315,9 @@ class ActionEngineBuilder:
     def build(self) -> ActionEngine:
         catalog = ActionCatalogLoader(
             backend_options_validators=self._backend_options_validators,
+            backend_kind_options_validators={
+                ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
+            },
         ).load(self._catalog_root)
         unknown_disabled = self._disabled_actions - {
             action.name for action in catalog.actions()

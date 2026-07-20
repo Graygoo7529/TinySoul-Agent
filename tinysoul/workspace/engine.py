@@ -1177,7 +1177,9 @@ class WorkspaceEngine:
                     atomic_write_bytes(paths[item.link], item.data)
                 for link in delete_values:
                     paths[link].unlink()
-                committed = self._reconcile()
+                committed = self._reconcile(
+                    force_digest_links=tuple(item.link for item in items)
+                )
                 if not committed.complete:
                     raise WorkspaceReconciliationError(
                         "Workspace bundle could not complete disk reconciliation"
@@ -1618,8 +1620,14 @@ class WorkspaceEngine:
             )
         return result
 
-    def _reconcile(self) -> WorkspaceReconcileResult:
-        return self._reconciler.reconcile()
+    def _reconcile(
+        self,
+        *,
+        force_digest_links: Sequence[str] = (),
+    ) -> WorkspaceReconcileResult:
+        return self._reconciler.reconcile(
+            force_digest_links=force_digest_links,
+        )
 
     def _record_for(self, path: Path) -> WorkspaceResourceRecord | None:
         return self._reconciler.inspect_record(path)
@@ -1649,8 +1657,7 @@ class WorkspaceEngine:
         previous: bytes | None,
     ) -> WorkspaceResourceRecord:
         try:
-            self._inspect_record(link)
-            reconciliation = self._reconcile()
+            reconciliation = self._reconcile(force_digest_links=(link,))
             if not reconciliation.complete:
                 raise WorkspaceReconciliationError(
                     "Workspace mutation could not complete disk reconciliation"

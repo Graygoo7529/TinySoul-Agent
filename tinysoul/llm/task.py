@@ -46,9 +46,13 @@ from .requests import (
 )
 from .responses import (
     AnswerFormat,
+    RawResponse,
     ResponseInterpretError,
+    ResponseStopReason,
     ResponseInterpreter,
     TaskFailure,
+    TaskFailureReason,
+    TaskFailureScope,
     TaskResult,
 )
 from .tools import ToolUse
@@ -396,6 +400,15 @@ class LLMTaskRunner:
                     "Provider-neutral model response.",
                     task_response_observation(response),
                 )
+            completion_failure = _completion_failure(
+                response,
+                max_output_tokens=settings.max_output_tokens,
+            )
+            if completion_failure is not None:
+                return TaskResult.failure_result(
+                    raw_response=response,
+                    failure=completion_failure,
+                )
             try:
                 return self._interpreter.interpret(
                     response,
@@ -408,6 +421,8 @@ class LLMTaskRunner:
                     raw_response=response,
                     failure=TaskFailure(
                         model_feedback=str(exc),
+                        reason=TaskFailureReason.INVALID_OUTPUT_PROTOCOL,
+                        scope=TaskFailureScope.OUTPUT_PROTOCOL,
                         frame_data={
                             "task_profile": task.profile,
                             "model_id": model.id,
@@ -524,6 +539,36 @@ class LLMTaskRunner:
         task: TaskSpec,
     ) -> CallSettings:
         return task.settings.override_with(call.settings)
+
+
+def _completion_failure(
+    response: RawResponse,
+    *,
+    max_output_tokens: int | None,
+) -> TaskFailure | None:
+    if response.stop_reason is ResponseStopReason.OUTPUT_LIMIT:
+        constraint: JsonObject = {}
+        if max_output_tokens is not None:
+            constraint["max_output_tokens"] = max_output_tokens
+        return TaskFailure(
+            model_feedback="Model generation reached its output token limit.",
+            reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+            scope=TaskFailureScope.OUTPUT,
+            constraint=constraint,
+        )
+    if response.stop_reason is ResponseStopReason.CONTENT_FILTER:
+        return TaskFailure(
+            model_feedback="Model generation was stopped by a content filter.",
+            reason=TaskFailureReason.CONTENT_FILTERED,
+            scope=TaskFailureScope.OUTPUT,
+        )
+    if response.stop_reason is ResponseStopReason.INCOMPLETE:
+        return TaskFailure(
+            model_feedback="Model generation ended before producing a complete response.",
+            reason=TaskFailureReason.INCOMPLETE_RESPONSE,
+            scope=TaskFailureScope.OUTPUT,
+        )
+    return None
 
 
 def _effective_max_output_tokens(

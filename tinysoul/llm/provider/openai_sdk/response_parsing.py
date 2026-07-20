@@ -7,6 +7,7 @@ import json
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallIdMapper, ToolCallRecord
+from tinysoul.llm.responses import ResponseStopReason
 
 from ..base import ProviderError, ProviderErrorKind
 from .common import get_attr, model_dump_mapping
@@ -29,6 +30,21 @@ def responses_text(response: object) -> str:
                         texts.append(text)
         return "\n".join(texts)
     return ""
+
+
+def responses_stop_reason(response: object) -> ResponseStopReason:
+    status = get_attr(response, "status")
+    if status == "completed":
+        return ResponseStopReason.COMPLETE
+    if status != "incomplete":
+        return ResponseStopReason.UNKNOWN
+    details = get_attr(response, "incomplete_details")
+    reason = get_attr(details, "reason")
+    if reason in {"max_output_tokens", "max_tokens"}:
+        return ResponseStopReason.OUTPUT_LIMIT
+    if reason in {"content_filter", "content_filtered"}:
+        return ResponseStopReason.CONTENT_FILTER
+    return ResponseStopReason.INCOMPLETE
 
 
 def responses_tool_calls(
@@ -122,6 +138,22 @@ def first_choice_message(response: object) -> object:
     if not isinstance(choices, list) or not choices:
         raise ProviderError("Provider response has no choices", kind=ProviderErrorKind.PARSE)
     return get_attr(choices[0], "message")
+
+
+def chat_stop_reason(response: object) -> ResponseStopReason:
+    choices = get_attr(response, "choices")
+    if not isinstance(choices, list) or not choices:
+        return ResponseStopReason.UNKNOWN
+    reason = get_attr(choices[0], "finish_reason")
+    if reason == "stop":
+        return ResponseStopReason.COMPLETE
+    if reason in {"tool_calls", "function_call"}:
+        return ResponseStopReason.TOOL_CALLS
+    if reason == "length":
+        return ResponseStopReason.OUTPUT_LIMIT
+    if reason == "content_filter":
+        return ResponseStopReason.CONTENT_FILTER
+    return ResponseStopReason.UNKNOWN
 
 
 def message_text(message: object) -> str:
@@ -227,12 +259,14 @@ def chat_reasoning_content(message: object) -> str | None:
 __all__ = [
     "append_text_parts",
     "chat_reasoning_content",
+    "chat_stop_reason",
     "chat_tool_calls",
     "first_choice_message",
     "message_text",
     "parse_tool_arguments",
     "responses_encrypted_reasoning_items",
     "responses_reasoning_summary",
+    "responses_stop_reason",
     "responses_text",
     "responses_tool_calls",
 ]

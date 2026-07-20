@@ -45,9 +45,18 @@ def test_load_builtin_catalog() -> None:
     write = catalog.get_action("workspace.write")
     assert write.backend.kind is ActionBackendKind.LLM_ACTION
     assert write.runtime.timeout_seconds == 90.0
+    assert write.backend.options == {
+        "max_output_tokens": 16384,
+        "max_output_chars": 50000,
+    }
     rewrite = catalog.get_action("workspace.rewrite")
     assert rewrite.backend.kind is ActionBackendKind.LLM_ACTION
     assert rewrite.runtime.timeout_seconds == 90.0
+    assert rewrite.backend.options == write.backend.options
+    assert catalog.get_action("script.write").backend.options == {
+        "max_output_tokens": 16384,
+        "max_output_chars": 100000,
+    }
     assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 90.0
     assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0

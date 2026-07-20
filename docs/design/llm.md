@@ -70,15 +70,15 @@ MessageStack 可以在 Phase3 action-internal LLM task 构造时包含当前 Pha
 
 回答格式表达任务是否需要助手回答，以及回答应按纯文本还是 JSON 对象解释。工具使用策略表达本次调用是否禁用工具、允许工具调用，或要求模型至少生成一次工具调用。二者不是互斥关系：同一次任务结果可以同时包含助手回答和工具调用，也可以只包含回答或只包含工具调用。
 
-供应商适配层先把模型调用结果归一化为统一模型响应。统一模型响应保留模型可见回答、模型侧工具调用、可选推理信息、用量、元数据和供应商原始响应信息，但不表达某个任务如何解释这些内容。
+供应商适配层先把模型调用结果归一化为统一模型响应。统一模型响应保留模型可见回答、模型侧工具调用、可选推理信息、用量、元数据、供应商原始响应信息和 provider-neutral `stop_reason`，但不表达某个任务如何解释这些内容。`stop_reason` 稳定区分正常完成、工具调用、输出上限、内容过滤、其它未完成与未知状态；供应商私有 finish/status 字符串只在适配层解释。
 
 供应商响应解析应区分“模型输出不满足任务协议”和“供应商响应结构无法解释”。例如模型没有按任务要求返回必需工具调用，属于任务解释失败，可以形成局部 `TaskResult` 反馈；但供应商响应已经声明存在 function/tool call，却缺少工具名、调用 id、函数参数结构或出现 TinySoul 当前不支持的工具调用类型，则属于 provider 响应归一化失败，应以 `ProviderError(PARSE)` 表达，并由模型链切换与 Runtime bridge 按 provider 失败路径处理。
 
 任务层再依据回答格式和工具使用策略解释统一模型响应。供应商原生 tool call 不携带 TinySoul 的 Control/Action 所有权；`ResponseInterpreter` 必须按本次可见 `ToolScope` 的同名 `ToolSpec.kind` 回填分类，并拒绝供应商或测试输入中与 scope 冲突的 kind。这样 Phase1/Phase2 的真实供应商响应与内存 FakeLLM 使用同一分类边界。任务结果同时保留统一模型响应、解释后的助手回答和解释后的工具调用，使调用方可以区分“模型返回了什么”和“该任务从返回中解释出了什么”。调用方应以任务结果中的助手回答和工具调用作为业务主入口，统一模型响应主要用于调试、追踪、重放和供应商差异分析。
 
-任务结果需要表达成功和失败两种完成态。成功结果提供解释后的回答和工具调用；失败结果表示模型调用本身已经返回，但这次输出无法满足任务解释协议。失败结果当前不再细分失败类型，而是通过 `model_feedback` 提供面向模型的简短错误反馈，并通过框架内部数据供上层参考。面向模型的反馈只描述本轮输出为什么不满足要求，不携带完整消息栈；完整消息栈仍由上层语境模块按当前状态重新构造。
+任务结果需要表达成功和失败两种完成态。成功结果提供解释后的回答和工具调用；失败结果表示模型调用本身已经返回，但这次输出无法满足任务解释协议。`TaskFailure` 使用 LLM-owned `reason`、`scope` 和可选 `constraint` 表达稳定恢复事实，并以 `model_feedback` 提供简短错误反馈；`frame_data` 只承载有界诊断，不作为调用方解释 reason/scope 的协议。面向模型的反馈只描述本轮输出为什么不满足要求，不携带完整消息栈；完整消息栈仍由上层语境模块按当前状态重新构造。
 
-任务失败结果属于 LLM 模块的局部结果，不表示运行时控制流必须改变。典型场景包括模型返回内容无法按任务要求解释、未返回必需工具调用、返回了不在工具作用域内的工具调用，或 JSON 对象回答无法解析。调用方可以把任务失败结果记录到当前 phase 轨迹，或把其中的模型反馈加入下一次任务提示，让模型在后续调用中修正输出。
+任务失败结果属于 LLM 模块的局部结果，不表示运行时控制流必须改变。典型场景包括模型返回内容无法按任务要求解释、未返回必需工具调用、返回了不在工具作用域内的工具调用、JSON 对象回答无法解析，或 provider 明确声明本次生成因输出上限、内容过滤或其它未完成状态而停止。停止原因在回答解释前检查，因此截断的 JSON 或文本不能被误当作完整业务输出。调用方可以把稳定失败事实映射到自己的局部恢复协议，但 LLM 模块不自动重试一次已经成功返回却不满足输出协议的响应。
 
 LLM 模块需要改变运行控制流的失败应通过 Runtime bridge 进入 Trap，而不是伪装成任务失败结果。典型场景包括模型链耗尽、供应商不可恢复失败、任务调用契约错误、配置错误和模块内部错误。进入 Runtime bridge 的 payload 只携带模块名、稳定失败类型和必要摘要；原始异常链只用于日志和调试，不成为上下文或 payload 协议。
 
@@ -111,6 +111,8 @@ JSON Schema 不属于当前核心回答格式。严格 schema 支持涉及供应
 ## 模型上下文窗口
 
 每个已配置模型必须声明正整数 `context_window_tokens`。LLM 在每次候选模型调用前，以完整 MessageStack、可见工具 schema、选择约束、reasoning/tool replay、图片、请求结构开销和有效 `max_output_tokens` 预留估算窗口占用。当前 provider-neutral estimator 使用序列化 UTF-8 字节作为确定性的保守 token 上界；供应商明确返回 context-limit 错误时，适配层以 `ProviderErrorKind.CONTEXT_LIMIT` 进入同一容量失败路径，作为本地估算的权威兜底。
+
+`max_output_tokens` 始终是本次 provider 生成的 token 上限，同时参与上下文窗口输出预留；它不是 ActionResult、TurnTrace 或 Session 的字符预算。具体调用方可以显式覆盖 task profile 的该值，例如完整文档或脚本生成使用动作级 generation budget。生成成功后的业务工件大小、ActionResult 投影和 Context trace 生命周期分别由拥有该工件的 action/capability、Action Catalog 和 Context 负责，不能共用一个 `max_output_tokens` 假装表达三种边界。
 
 Context 配置的 `compression_trigger_ratio` 是硬运行水位。占用严格超过 `context_window_tokens * compression_trigger_ratio` 时不调用 provider；占用恰好等于水位仍允许调用。容量 payload 保留 message/non-message/output 分项、消息字符投影和 provider 是否实际拒绝请求，供 Runtime 压力恢复按 `compression_target_ratio` 计算字符回收量。
 

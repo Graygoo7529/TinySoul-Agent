@@ -50,6 +50,7 @@ def task_response_observation(response: RawResponse) -> JsonObject:
     payload: JsonObject = {
         "model_id": response.model_id,
         "provider_id": response.provider_id,
+        "stop_reason": response.stop_reason.value,
         "answer_text": response.answer_text,
         "tool_calls": [_tool_call_payload(call) for call in response.tool_calls],
     }

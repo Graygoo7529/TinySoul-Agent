@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionControl
 from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.core.specs import ActionBackendSpec
 from tinysoul.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.context.errors import ContextError
+from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.errors import TaskCancelled
 from tinysoul.llm.requests import (
@@ -19,7 +22,14 @@ from tinysoul.llm.requests import (
     TaskCancellation,
     TaskProfile,
 )
-from tinysoul.llm.responses import AnswerFormat, JsonAnswer, TaskResult, TaskResultStatus
+from tinysoul.llm.responses import (
+    AnswerFormat,
+    JsonAnswer,
+    TaskResult,
+    TaskResultStatus,
+    TaskFailureReason,
+    TextAnswer,
+)
 from tinysoul.llm.tools import ToolUse
 from tinysoul.runtime import CONTEXT_COMPRESSION_REQUIRED, RuntimeException
 from tinysoul.runtime.bridge import RuntimeContextBridge
@@ -54,6 +64,30 @@ class EmptyActionHowProvider:
 
     def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
         return ActionHow()
+
+
+@dataclass(frozen=True)
+class LLMActionBackendOptions:
+    """Validated per-action generation and artifact limits."""
+
+    max_output_tokens: int | None = None
+    max_output_chars: int | None = None
+
+
+class LLMActionFailureDisposition(StrEnum):
+    """Model-facing recovery direction for one LLM action failure."""
+
+    RETRY_SAME = "retry_same"
+    CHANGE_REQUEST = "change_request"
+    USE_FALLBACK = "use_fallback"
+    STOP = "stop"
+
+
+class LLMActionBackendOptionsValidator:
+    """Validate llm_action backend options while loading the Catalog."""
+
+    def validate(self, backend: ActionBackendSpec, *, key: str) -> None:
+        parse_llm_action_options(backend.options, key=key)
 
 
 class LLMActionTaskRunner:
@@ -98,7 +132,92 @@ class LLMActionTaskRunner:
     ) -> JsonObject | ActionResult:
         """Run one JSON-object LLM action task and normalize local failures."""
 
+        result = self._run(
+            execution=execution,
+            prompt=prompt,
+            answer_format=AnswerFormat.JSON_OBJECT,
+            subject=subject,
+            control=control,
+        )
+        if isinstance(result, ActionResult):
+            return result
+        if not isinstance(result.answer, JsonAnswer):
+            return _failure(
+                execution,
+                feedback=f"{subject} did not return a JSON object.",
+                reason="missing_json_answer",
+                scope="llm.output_protocol",
+                disposition=LLMActionFailureDisposition.RETRY_SAME,
+            )
+        return result.answer.value
+
+    def run_text(
+        self,
+        *,
+        execution: ActionExecution,
+        prompt: TaskPrompt,
+        subject: str,
+        control: ActionExecutionControl | None = None,
+    ) -> str | ActionResult:
+        """Run one complete text-artifact task without returning it to Context."""
+
+        result = self._run(
+            execution=execution,
+            prompt=prompt,
+            answer_format=AnswerFormat.TEXT,
+            subject=subject,
+            control=control,
+        )
+        if isinstance(result, ActionResult):
+            return result
+        if not isinstance(result.answer, TextAnswer):
+            return _failure(
+                execution,
+                feedback=f"{subject} did not return text.",
+                reason="missing_text_answer",
+                scope="llm.output_protocol",
+                disposition=LLMActionFailureDisposition.RETRY_SAME,
+            )
+        text = result.answer.text
+        if not text:
+            return _failure(
+                execution,
+                feedback=f"{subject} returned an empty text artifact.",
+                reason="empty_text_artifact",
+                scope="action.artifact",
+                disposition=LLMActionFailureDisposition.RETRY_SAME,
+            )
+        options = _execution_options(execution)
+        if isinstance(options, ActionResult):
+            return options
+        if options.max_output_chars is not None and len(text) > options.max_output_chars:
+            return _failure(
+                execution,
+                feedback=(
+                    f"{subject} exceeded its artifact character limit of "
+                    f"{options.max_output_chars}."
+                ),
+                reason="artifact_too_large",
+                scope="action.artifact",
+                disposition=LLMActionFailureDisposition.CHANGE_REQUEST,
+                constraint={"max_output_chars": options.max_output_chars},
+                frame_data={"observed_chars": len(text)},
+            )
+        return text
+
+    def _run(
+        self,
+        *,
+        execution: ActionExecution,
+        prompt: TaskPrompt,
+        answer_format: AnswerFormat,
+        subject: str,
+        control: ActionExecutionControl | None,
+    ) -> TaskResult | ActionResult:
         prompt = self.prompt_with_how(prompt, execution=execution)
+        options = _execution_options(execution)
+        if isinstance(options, ActionResult):
+            return options
         cancellation = (
             TaskCancellation(
                 cancelled=control.is_cancelled,
@@ -116,8 +235,9 @@ class LLMActionTaskRunner:
                     profile=TaskProfile.LLM_ACTION,
                     messages=self._context.compose(prompt),
                     settings=CallSettings(
-                        answer_format=AnswerFormat.JSON_OBJECT,
+                        answer_format=answer_format,
                         tool_use=ToolUse.DISABLED,
+                        max_output_tokens=options.max_output_tokens,
                     ),
                     scope=execution.framework.scope,
                     context_overflow_policy=(
@@ -167,14 +287,97 @@ class LLMActionTaskRunner:
             feedback = f"{subject} output did not satisfy its protocol."
             if result.failure is not None and result.failure.model_feedback:
                 feedback = result.failure.model_feedback
-            return _failed(execution, feedback, {"reason": "task_failure"})
-        if not isinstance(result.answer, JsonAnswer):
-            return _failed(
-                execution,
-                f"{subject} did not return a JSON object.",
-                {"reason": "missing_json_answer"},
+            failure = result.failure
+            reason = (
+                failure.reason.value
+                if failure is not None
+                else TaskFailureReason.TASK_FAILURE.value
             )
-        return result.answer.value
+            scope = failure.scope.value if failure is not None else "llm.task"
+            return _failure(
+                execution,
+                feedback=feedback,
+                reason=reason,
+                scope=scope,
+                disposition=_failure_disposition(reason),
+                constraint=failure.constraint if failure is not None else None,
+                frame_data=failure.frame_data if failure is not None else None,
+            )
+        return result
+
+
+def parse_llm_action_options(
+    options: JsonObject,
+    *,
+    key: str,
+) -> LLMActionBackendOptions:
+    allowed = {"max_output_tokens", "max_output_chars"}
+    unknown = sorted(name for name in options if name not in allowed)
+    if unknown:
+        raise ConfigError(
+            "Unsupported llm_action backend option",
+            key=f"{key}.{unknown[0]}",
+            value=options[unknown[0]],
+            expected=", ".join(sorted(allowed)),
+        )
+    return LLMActionBackendOptions(
+        max_output_tokens=_positive_int_option(
+            options,
+            "max_output_tokens",
+            key=key,
+        ),
+        max_output_chars=_positive_int_option(
+            options,
+            "max_output_chars",
+            key=key,
+        ),
+    )
+
+
+def _execution_options(
+    execution: ActionExecution,
+) -> LLMActionBackendOptions | ActionResult:
+    try:
+        return parse_llm_action_options(
+            execution.action.backend.options,
+            key=f"ActionBackendSpec({execution.action.name}).backend.options",
+        )
+    except ConfigError as exc:
+        return _failure(
+            execution,
+            feedback="LLM action backend options are invalid.",
+            reason="invalid_backend_options",
+            scope="action.configuration",
+            disposition=LLMActionFailureDisposition.STOP,
+            frame_data={"error_type": type(exc).__name__, "key": exc.key},
+        )
+
+
+def _positive_int_option(
+    options: JsonObject,
+    name: str,
+    *,
+    key: str,
+) -> int | None:
+    value = options.get(name)
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    raise ConfigError(
+        "llm_action backend option must be a positive integer",
+        key=f"{key}.{name}",
+        value=value,
+        expected="positive int",
+    )
+
+
+def _failure_disposition(reason: str) -> LLMActionFailureDisposition:
+    if reason in {"invalid_output_protocol", "incomplete_response"}:
+        return LLMActionFailureDisposition.RETRY_SAME
+    if reason in {"output_limit_reached", "content_filtered"}:
+        return LLMActionFailureDisposition.CHANGE_REQUEST
+    return LLMActionFailureDisposition.USE_FALLBACK
 
 
 def _protected_resource_links(execution: ActionExecution) -> tuple[str, ...]:
@@ -219,11 +422,23 @@ def with_action_how(prompt: TaskPrompt, how: ActionHow) -> TaskPrompt:
     )
 
 
-def _failed(
+def _failure(
     execution: ActionExecution,
-    model_feedback: str,
-    frame_data: JsonObject,
+    *,
+    feedback: str,
+    reason: str,
+    scope: str,
+    disposition: LLMActionFailureDisposition,
+    constraint: JsonObject | None = None,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
+    failure: JsonObject = {
+        "reason": reason,
+        "scope": scope,
+        "disposition": disposition.value,
+    }
+    if constraint:
+        failure["constraint"] = constraint
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -232,6 +447,7 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
-        frame_data=frame_data,
+        model_feedback=feedback,
+        payload={"failure": failure},
+        frame_data={**(frame_data or {}), "reason": reason, "scope": scope},
     )

@@ -51,8 +51,7 @@ class ScriptEditPromptBuilder:
             output_blocks=(
                 PromptBlock.from_text(
                     "task_prompt:output:script_source",
-                    "# Expected Output\n"
-                    "Return a JSON object with one string field named 'text'.",
+                    "# Expected Output\nReturn only the complete script source text.",
                 ),
             ),
         )
@@ -86,8 +85,7 @@ class ScriptEditPromptBuilder:
             output_blocks=(
                 PromptBlock.from_text(
                     "task_prompt:output:script_source",
-                    "# Expected Output\n"
-                    "Return a JSON object with one string field named 'text'.",
+                    "# Expected Output\nReturn only the complete script source text.",
                 ),
             ),
         )

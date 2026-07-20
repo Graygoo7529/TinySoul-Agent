@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 import os
 from pathlib import Path
 from threading import Barrier
@@ -31,10 +32,20 @@ from tinysoul.infra.config import ConfigError
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import ImagePart, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.responses import (
+    AnswerFormat,
+    JsonAnswer,
+    RawResponse,
+    TaskFailure,
+    TaskFailureReason,
+    TaskFailureScope,
+    TaskResult,
+    TextAnswer,
+)
 from tinysoul.loop import BusinessDay, TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
+import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.workspace import (
     WorkspaceContractError,
     WorkspaceAnalysisSettings,
@@ -179,22 +190,36 @@ class FakeLLMRunner:
         self,
         answer: JsonObject | None = None,
         on_run: Callable[[], None] | None = None,
+        failure: TaskFailure | None = None,
     ) -> None:
         self.calls: list[TaskCall] = []
         self.answer = answer or {"text": "new text"}
         self.on_run = on_run
+        self.failure = failure
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         if self.on_run is not None:
             self.on_run()
+        raw_response = RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+        )
+        if self.failure is not None:
+            return TaskResult.failure_result(
+                raw_response=raw_response,
+                failure=self.failure,
+            )
+        if call.settings.answer_format is AnswerFormat.TEXT:
+            text = self.answer.get("text")
+            assert isinstance(text, str)
+            answer = TextAnswer(text)
+        else:
+            answer = JsonAnswer(self.answer)
         return TaskResult.success(
-            raw_response=RawResponse(
-                answer_text="{}",
-                model_id="fake",
-                provider_id="fake",
-            ),
-            answer=JsonAnswer(self.answer),
+            raw_response=raw_response,
+            answer=answer,
             tool_calls=(),
         )
 
@@ -1276,6 +1301,48 @@ def test_workspace_patch_text_replaces_exact_match(tmp_path: Path) -> None:
     assert record.digest != before.digest
 
 
+def test_workspace_patch_refreshes_digest_when_size_and_mtime_are_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("old", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    before = engine.reconcile().manifest.resources[0]
+    before_stat = target.stat()
+    atomic_write = workspace_engine_module.atomic_write_text
+
+    def write_with_preserved_mtime(path: Path, text: str) -> None:
+        atomic_write(path, text)
+        os.utime(
+            path,
+            ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns),
+        )
+
+    monkeypatch.setattr(
+        workspace_engine_module,
+        "atomic_write_text",
+        write_with_preserved_mtime,
+    )
+
+    record = engine.patch_text(
+        "workspace:a.md",
+        old_text="old",
+        new_text="new",
+        expected_digest=before.digest,
+    )
+
+    assert record.size == before.size
+    assert record.mtime_ns == before.mtime_ns
+    assert record.digest == sha256(b"new").hexdigest()
+    assert record.digest != before.digest
+
+
 def test_workspace_patch_text_rejects_ambiguous_or_stale_patch(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("same same", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
@@ -1640,6 +1707,52 @@ def test_workspace_write_executor_generates_text_inside_action(
     )
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:a.md"
+
+
+def test_workspace_write_output_limit_does_not_commit_partial_artifact(
+    tmp_path: Path,
+) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+    failure = TaskFailure(
+        model_feedback="Model generation reached its output token limit.",
+        reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+        scope=TaskFailureScope.OUTPUT,
+        constraint={"max_output_tokens": 16384},
+    )
+    execution = _execution(
+        "workspace.write",
+        {
+            "target_link": "workspace:partial.md",
+            "instruction": "Create a complete report.",
+        },
+    )
+
+    result = WorkspaceWriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner(failure=failure),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.payload["failure"] == {
+        "reason": "output_limit_reached",
+        "scope": "llm.output",
+        "disposition": "change_request",
+        "constraint": {"max_output_tokens": 16384},
+    }
+    assert not (tmp_path / "partial.md").exists()
+    assert bus.consume_namespace("context") == ()
 
 def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")

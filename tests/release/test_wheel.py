@@ -97,6 +97,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/how_action/workspace/read.md" in names
     assert "tinysoul/assets/project/home/how_action/workspace/search_text.md" in names
     assert "tinysoul/assets/project/home/how_action/workspace/analyze.md" in names
+    assert "tinysoul/assets/project/home/how_action/workspace/write.md" in names
     assert "tinysoul/assets/project/home/how_action/workspace/rewrite.md" in names
     assert (
         "tinysoul/assets/project/home/how/tinysoul-docs/references/"
@@ -185,6 +186,9 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     ).is_file()
     assert (
         initialized / "home" / "how_action" / "workspace" / "analyze.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_action" / "workspace" / "write.md"
     ).is_file()
     assert (
         initialized / "home" / "how_action" / "workspace" / "rewrite.md"

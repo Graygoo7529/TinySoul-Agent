@@ -165,21 +165,14 @@ class ScriptAuthoringExecutor(ActionExecutor):
             if mapped is not None:
                 return mapped
             raise
-        payload = self._llm_action.run_json(
+        text = self._llm_action.run_text(
             execution=execution,
             prompt=prompt,
             subject=f"Script {self._mode} LLM task",
             control=context.control,
         )
-        if isinstance(payload, ActionResult):
-            return payload
-        text = payload.get("text")
-        if not isinstance(text, str):
-            return _failed(
-                execution,
-                "Script authoring task must return a JSON string field named 'text'.",
-                {"reason": "invalid_script_source"},
-            )
+        if isinstance(text, ActionResult):
+            return text
         try:
             source = ScriptSource(params.target_link, text, "", language)
             self._policy.validate(source)

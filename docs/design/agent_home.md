@@ -198,7 +198,7 @@ Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home �
 
 Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
-运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、稳定失败必须改变恢复路径、权威 mutation/apply 结果与必要验证的边界，以及目标完成后及时执行唯一 `core.answer`。domain HOW 只解释同一 action domain 内的选择、恢复和收束方式，例如 Web failure disposition 或 Shell apply/discard。action HOW 只约束一个带内部 LLM task 的具体 action，例如 `workspace.rewrite` 对截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action HOW 中重复维护。
+运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、结构化失败必须按 scope/disposition 有界恢复、权威 mutation/apply 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及目标完成后及时执行唯一 `core.answer`。同一 reason/scope 的 `retry_same` 最多允许一次不变重试；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain HOW 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 Shell apply/discard。action HOW 只约束一个带内部 LLM task 的具体 action，例如 `workspace.write/rewrite` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action HOW 中重复维护。
 
 这些内容属于模型决策与生成约束，不是第二套 Loop 状态机、Action hook 或自动重试器。core 不接收剩余 Cycle 数，HOW 不直接执行 action，也不根据文本改变 Runtime 控制流。需要硬保证的 schema、deadline、事务提交、取消和失败类型仍由 Action、Workspace、Web、supervised process 与 Loop 的代码协议负责；HOW 只帮助模型在这些结构化结果之上选择有效下一步。
 

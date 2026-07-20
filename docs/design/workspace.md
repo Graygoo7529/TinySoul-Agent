@@ -174,6 +174,8 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 
 这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。`workspace.write`、`workspace.rewrite` 与 `workspace.analyze` 都显式使用 90 秒 action deadline，使 prompt 构造、模型请求、模型链内有界重试/切换、结果解释和 Workspace 提交共享同一个取消边界；普通 Workspace action 继续继承 domain 的 30 秒默认值。该 action 级 deadline 只扩大嵌套 LLM 工作的正常运行窗口，不增加 LLM 重试次数，也不改变失败分层：deadline 到期仍收敛为局部 ActionResult，且 cancellation contract 阻止 action-internal LLM 在超时后继续重试或提交。
 
+`workspace.write/rewrite` 的 action-internal task 使用纯文本回答作为完整 UTF-8 工件，不再要求 `{"text": ...}` JSON wrapper。Catalog 为两者声明动作级 `max_output_tokens=16384` generation budget 与 `max_output_chars=50000` artifact acceptance bound；provider 明确报告输出上限、其它未完成状态，或完整文本超过 artifact bound 时，executor 返回带 scope/disposition 的局部失败且不写入文件、不发布 Workspace snapshot。文本工件只在 executor 内传给 `WorkspaceEngine.write_text`，成功 ActionResult 仍只返回资源元数据，因此扩大生成预算不会扩大 TurnTrace/Session 正文。
+
 每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
 
 ## Context 接入
@@ -186,7 +188,7 @@ WorkspaceEngine 不依赖 Context 类型。`workspace/projection.py` 是 Workspa
 
 Workspace 的明确一致性等级是“单进程单写者、Engine 实例内线性化”。没有外部文件写入者时，同一 Engine 的公开读写按锁获取顺序观察完整操作；数据文件原子替换和 Manifest 原子替换各自不会暴露半写文件。二者不是一个跨文件系统事务：内容提交后 Manifest 提交失败时，Engine 尝试用操作前字节回滚；Trash/restore 使用 prepare、原子移动、reconcile、commit marker，并由启动 reconciliation 修复未完成移动。
 
-Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；write/patch/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。Reconciler 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
+Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一致性。`expected_digest` 是基于操作前实际字节计算的乐观前置条件，而不是锁住外部写入者的 CAS；write/patch/description 会读取真实字节校验，因而即使外部修改刻意保持 size/mtime，也不会仅依赖缓存摘要接受旧 expected digest，但外部进程仍可能在校验后再次写入。普通 read 也不保证在外部并发写入下正文与返回元数据来自同一快照。普通 Reconciler scan 使用 size/mtime 复用既有 digest，并在提交前复核候选状态；Workspace-owned single/bundle mutation 明确把已写 Link 交给 Reconciler 强制重算 digest，因此即使原子替换后的 size 与 `mtime_ns` 恰好都未变化，成功结果和 Manifest 仍绑定新字节。外部写入若同时伪造相同 size/mtime，可能到后续强制读取或元数据变化时才被发现。因此支持的强语义要求 active Workspace 只有 TinySoul 一个 writer；无法约束外部写入时，一致性是 best-effort 并应由调用环境额外协调。
 
 桌面 Endpoint 也复用同一 Engine 实例，不把 active Workspace 暴露给前端文件 API。UI mutation 额外提交 Manifest `expected_revision`，Engine 在同一可重入锁内先校验 revision，再执行原有 resource digest guard 和 mutation；trash 同样要求 digest，restore 要求 revision。Endpoint 在 Daily active-day lease 内调用这些门面，避免请求落入归档与新日初始化之间。Endpoint 不重复发布 Workspace event，只在自身 mutation 成功后通过 Gateway 协调活跃 Turn 的 Context snapshot。
 

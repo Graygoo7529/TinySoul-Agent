@@ -746,21 +746,14 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 f"Workspace write failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        payload = self._llm_action.run_json(
+        text = self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace write LLM task",
             control=context.control,
         )
-        if isinstance(payload, ActionResult):
-            return payload
-        text = payload.get("text")
-        if not isinstance(text, str):
-            return _failed(
-                execution,
-                "Workspace write LLM task must return a JSON object with string field 'text'.",
-                {"reason": "invalid_write_text"},
-            )
+        if isinstance(text, ActionResult):
+            return text
         try:
             record = self._workspace.write_text(
                 target_link,
@@ -1072,21 +1065,14 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 f"Workspace rewrite failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        payload = self._llm_action.run_json(
+        text = self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
             control=context.control,
         )
-        if isinstance(payload, ActionResult):
-            return payload
-        text = payload.get("text")
-        if not isinstance(text, str):
-            return _failed(
-                execution,
-                "Workspace rewrite LLM task must return a JSON object with string field 'text'.",
-                {"reason": "invalid_rewrite_text"},
-            )
+        if isinstance(text, ActionResult):
+            return text
         try:
             record = self._workspace.write_text(
                 target_link,

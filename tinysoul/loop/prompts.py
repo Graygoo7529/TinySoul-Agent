@@ -29,7 +29,20 @@ def phase1_task_prompt(
 ) -> TaskPrompt:
     sections = [
         "You are in TinySoul Phase1.",
-        "Update context only when useful, then select one or more action domains.",
+        (
+            "Before selecting action domains, reconcile existing WorkingContext "
+            "milestones and todos with authoritative ActionResults already visible "
+            "in the current Context."
+        ),
+        (
+            "When real task state changed, call update_working in this same Phase1 "
+            "response; do not leave completed work pending or in_progress, and do "
+            "not mark a failed or merely attempted action done."
+        ),
+        (
+            "Before selecting core to finish, mark every current-goal todo done or "
+            "cancelled unless no todos were created."
+        ),
         "The action domain selection is mandatory for this phase.",
     ]
     if feedback:
@@ -53,7 +66,9 @@ def phase1_task_prompt(
                 (
                     "# Expected Output\n"
                     "Call select_action_domains with at least one valid domain. "
-                    "You may also call context control tools."
+                    "Call update_working in the same response whenever existing task "
+                    "state needs reconciliation; other context control tools remain "
+                    "optional."
                 ),
             ),
         ),

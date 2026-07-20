@@ -165,6 +165,52 @@ Shell domain HOW 保持显式 apply/discard 协议，并补充：apply 成功是
 
 实现完成后运行完整 pytest、类型检查、wheel 构建和隔离安装验证。
 
+### Follow-up：`turn_91e3e0a9` 输出完整性与状态一致性
+
+#### Stage 6：分离生成、工件与 Context 结果边界
+
+状态：done
+
+真实记录表明 `max_output_tokens` 达到上限后，provider 返回的部分 `workspace.write` 内容被当作可解释输出继续处理；同时 write/rewrite 通过 JSON `text` 字段承载整篇正文，使完整工件还承担 JSON 转义和 wrapper 开销。修复保持三个边界独立：
+
+- LLM `RawResponse` 新增 provider-neutral `stop_reason`；OpenAI Responses 的 `incomplete_details.reason` 与 Chat Completions 的 `finish_reason` 在适配层归一化；
+- LLM Task 在回答解释前拒绝 `output_limit`、`content_filter` 和其它明确 incomplete 响应，部分文本/JSON 不进入业务提交；
+- `max_output_tokens` 只表达 provider generation budget，并继续参与 context-window output reservation；
+- `LLMActionTaskRunner` 分为 `run_json` 与 `run_text`。Workspace/Script write/rewrite 使用完整纯文本工件，结构化推理/回答 action 保留 JSON；
+- `llm_action` Catalog options 统一支持并校验 `max_output_tokens` 与 `max_output_chars`。Workspace write/rewrite 使用 `16384/50000`，Script write/rewrite 使用 `16384/100000`；
+- 完整文本只在 Phase3 executor 内交 owner mutation/policy，成功或失败 ActionResult 都不把工件正文写入 Context。Workspace 提交仍只返回 Link/digest/size/revision 等元数据。
+
+这不是把 ActionResult 截断上限改名：generation、artifact acceptance、ActionResult projection/trace lifecycle 分属 LLM、action owner 和 Action/Context，代码与文档均按该所有权实现。
+
+#### Stage 7：稳定失败 scope/disposition
+
+状态：done
+
+LLM 局部失败不再要求调用方从诊断 `frame_data` 猜测原因。`TaskFailure` 现在拥有稳定 `reason`、`scope` 和可选 `constraint`；`frame_data` 只保留诊断。`llm_action` 将其映射为模型可见 `{failure: {reason, scope, disposition, constraint?}}`：
+
+- `retry_same`：同一 reason/scope 最多一次有界原样重试；
+- `change_request`：必须改变 scope 指出的限制条件，例如减小工件或改用真实不同的输出路径；
+- `use_fallback`：必须改变 backend/output contract/limiting condition，不能只换 action 名称或 domain；
+- `stop`：当前配置边界不可继续。
+
+该协议只提供下一 Cycle 的决策事实，不增加 action 自动重试器、Cycle 预算感知或跨 Turn provider health。runtime/package core、Workspace/Shell domain HOW 和 Workspace write/rewrite action HOW 已同步；write HOW 是 Catalog 派生的既有合法 prompt mount，不增加新的 capability。
+
+#### Stage 8：Phase1 WorkingContext 即时对账
+
+状态：done
+
+Phase1 prompt 现在要求在 domain selection 前基于当前可见权威 ActionResult 对账既有 milestones/todos，并在同一次 Phase1 响应中调用 `update_working`。完成项不能继续 pending/in_progress，失败或仅尝试过的 action 不能标记 done，选择 `core` 前当前目标 todo 必须终态或从未创建。现有 Phase1 pipeline 已经把 control calls 归一化为一个 Context signal batch 并在返回前消费，因此无需增加第二套状态机或 action-side todo mutation；新增真实 Program/Turn/Cycle/Phase scope 测试验证下一步 domain selection 返回时 WorkingContext 已一致。
+
+#### Stage 9：本地回归
+
+状态：done
+
+LLM/Action/Workspace/Script/Loop/Home 聚焦测试、wheel 构建与隔离初始化验收、类型检查均通过。完整 pytest 在当前 Windows 环境使用单一 pytest temp root 时因残留进程/既有 temp root ACL 产生级联 setup `PermissionError`；按 action、app/endpoint/release、capabilities、context/home/memory/session/workspace、infra/llm/loop/runtime 使用独立 writable basetemp 后覆盖全部 `tests/` 并通过。
+
+分组回归同时稳定暴露了 Workspace-owned mutation 的既有 metadata 缺陷：同长度文本在文件系统时间戳粒度内快速原子替换时，普通 reconciliation 可能按相同 size/mtime 复用旧 digest。修复在 mutation 所有权边界把明确写入的 Link 传给 Reconciler 强制重算 digest；普通外部 scan 保留缓存优化。新增测试固定保留旧 `mtime_ns` 并验证 patch 返回/Manifest digest 绑定新字节，Workspace 全模块与状态模块整组均通过。这保证文本工件成功 ActionResult 返回的 metadata 是真实提交事实。
+
+Stage 5 中 opt-in 真实 Kimi 与真实 App smoke 仍需独立外部环境验证；本地回归不替代真实供应商验收。
+
 ## 明确不做
 
 - 不向模型暴露剩余 Cycle 数；

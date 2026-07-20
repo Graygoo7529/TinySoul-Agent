@@ -26,10 +26,12 @@ from .common import (
 )
 from .payloads import apply_tools_kwargs, to_chat_messages, to_responses_input
 from .response_parsing import (
+    chat_stop_reason,
     chat_tool_calls,
     first_choice_message,
     message_text,
     responses_text,
+    responses_stop_reason,
     responses_tool_calls,
 )
 from .tool_names import ProviderToolNameMap
@@ -101,6 +103,7 @@ class OpenAIResponsesAdapter:
                 name_map=name_map,
             ),
             reasoning=self._behavior.responses_output_reasoning(response),
+            stop_reason=responses_stop_reason(response),
             usage=model_dump_mapping(get_attr(response, "usage")),
             metadata=response_metadata(response),
             provider_payload=to_json_object(model_dump_mapping(response)),
@@ -177,6 +180,7 @@ class OpenAICompatibleChatAdapter:
                 name_map=name_map,
             ),
             reasoning=self._behavior.chat_output_reasoning(message),
+            stop_reason=chat_stop_reason(response),
             usage=model_dump_mapping(get_attr(response, "usage")),
             metadata=response_metadata(response),
             provider_payload=to_json_object(model_dump_mapping(response)),

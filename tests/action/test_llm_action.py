@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import pytest
 
-from tinysoul.action.backends.llm_action import ActionHow, LLMActionTaskRunner
+from tinysoul.action.backends.llm_action import (
+    ActionHow,
+    LLMActionTaskRunner,
+    parse_llm_action_options,
+)
 from tinysoul.action.builtins.core import CoreAnswerActionExecutor, CoreReasonActionExecutor
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
 from tinysoul.action.core.executor import ActionExecutionControl
-from tinysoul.action.core.result import ActionResultStatus
+from tinysoul.action.core.result import ActionResult, ActionResultStatus
 from tinysoul.action.core.specs import (
     ActionBackendKind,
     ActionBackendSpec,
@@ -20,9 +24,20 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.context import ContextEngineBuilder, PromptBlock, TaskPrompt
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.config import ConfigError
 from tinysoul.llm.messages import TextPart
 from tinysoul.llm.requests import TaskCall
-from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
+from tinysoul.llm.responses import (
+    AnswerFormat,
+    JsonAnswer,
+    RawResponse,
+    ResponseStopReason,
+    TaskFailure,
+    TaskFailureReason,
+    TaskFailureScope,
+    TaskResult,
+    TextAnswer,
+)
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     RunLevel,
@@ -36,22 +51,37 @@ class FakeLLMRunner:
         self,
         answer: JsonObject | None = None,
         runtime_error: RuntimeException | None = None,
+        failure: TaskFailure | None = None,
     ) -> None:
         self.calls: list[TaskCall] = []
         self.answer = answer or {"ok": True}
         self.runtime_error = runtime_error
+        self.failure = failure
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         if self.runtime_error is not None:
             raise self.runtime_error
+        raw_response = RawResponse(
+            answer_text="{}",
+            model_id="fake",
+            provider_id="fake",
+            stop_reason=ResponseStopReason.COMPLETE,
+        )
+        if self.failure is not None:
+            return TaskResult.failure_result(
+                raw_response=raw_response,
+                failure=self.failure,
+            )
+        if call.settings.answer_format is AnswerFormat.TEXT:
+            text = self.answer.get("text")
+            assert isinstance(text, str)
+            answer = TextAnswer(text)
+        else:
+            answer = JsonAnswer(self.answer)
         return TaskResult.success(
-            raw_response=RawResponse(
-                answer_text="{}",
-                model_id="fake",
-                provider_id="fake",
-            ),
-            answer=JsonAnswer(self.answer),
+            raw_response=raw_response,
+            answer=answer,
             tool_calls=(),
         )
 
@@ -250,6 +280,108 @@ def test_llm_action_context_pressure_carries_active_resource_links() -> None:
     ]
 
 
+def test_llm_action_text_artifact_uses_action_limits() -> None:
+    context = ContextEngineBuilder(system_text="system").build()
+    context.begin_turn("write a document")
+    llm = FakeLLMRunner({"text": "complete artifact"})
+    runner = LLMActionTaskRunner(llm_runner=llm, context=context)
+    execution = _execution(
+        "core.reason",
+        {},
+        options={"max_output_tokens": 16384, "max_output_chars": 100},
+    )
+
+    result = runner.run_text(
+        execution=execution,
+        prompt=TaskPrompt(
+            guide_blocks=(PromptBlock.from_text("guide", "write"),),
+        ),
+        subject="Artifact task",
+    )
+
+    assert result == "complete artifact"
+    assert llm.calls[0].settings.answer_format is AnswerFormat.TEXT
+    assert llm.calls[0].settings.max_output_tokens == 16384
+
+
+def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
+    context = ContextEngineBuilder(system_text="system").build()
+    context.begin_turn("write a document")
+    runner = LLMActionTaskRunner(
+        llm_runner=FakeLLMRunner({"text": "too long"}),
+        context=context,
+    )
+    execution = _execution(
+        "core.reason",
+        {},
+        options={"max_output_chars": 4},
+    )
+
+    result = runner.run_text(
+        execution=execution,
+        prompt=TaskPrompt(
+            guide_blocks=(PromptBlock.from_text("guide", "write"),),
+        ),
+        subject="Artifact task",
+    )
+
+    assert isinstance(result, ActionResult)
+    assert result.payload == {
+        "failure": {
+            "reason": "artifact_too_large",
+            "scope": "action.artifact",
+            "disposition": "change_request",
+            "constraint": {"max_output_chars": 4},
+        }
+    }
+    assert result.frame_data["observed_chars"] == 8
+
+
+def test_llm_action_output_limit_preserves_recovery_scope() -> None:
+    context = ContextEngineBuilder(system_text="system").build()
+    context.begin_turn("write a document")
+    failure = TaskFailure(
+        model_feedback="Model generation reached its output token limit.",
+        reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+        scope=TaskFailureScope.OUTPUT,
+        constraint={"max_output_tokens": 2048},
+    )
+    runner = LLMActionTaskRunner(
+        llm_runner=FakeLLMRunner(failure=failure),
+        context=context,
+    )
+
+    result = runner.run_text(
+        execution=_execution("core.reason", {}),
+        prompt=TaskPrompt(
+            guide_blocks=(PromptBlock.from_text("guide", "write"),),
+        ),
+        subject="Artifact task",
+    )
+
+    assert isinstance(result, ActionResult)
+    assert result.payload["failure"] == {
+        "reason": "output_limit_reached",
+        "scope": "llm.output",
+        "disposition": "change_request",
+        "constraint": {"max_output_tokens": 2048},
+    }
+
+
+def test_llm_action_backend_options_reject_unknown_or_invalid_limits() -> None:
+    assert parse_llm_action_options(
+        {"max_output_tokens": 8, "max_output_chars": 16},
+        key="action.backend.options",
+    ).max_output_chars == 16
+    with pytest.raises(ConfigError, match="Unsupported llm_action backend option"):
+        parse_llm_action_options({"legacy": 1}, key="action.backend.options")
+    with pytest.raises(ConfigError, match="positive integer"):
+        parse_llm_action_options(
+            {"max_output_tokens": 0},
+            key="action.backend.options",
+        )
+
+
 def _text_for_label(call: TaskCall, label: str) -> str:
     for message in call.messages.messages:
         if message.label != label:
@@ -264,6 +396,7 @@ def _execution(
     params: JsonObject,
     *,
     handler: str = "core.reason",
+    options: JsonObject | None = None,
 ) -> ActionExecution:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="core", description="Core."),),
@@ -286,6 +419,7 @@ def _execution(
                 backend=ActionBackendSpec(
                     kind=ActionBackendKind.LLM_ACTION,
                     handler=handler,
+                    options=options or {},
                 ),
             ),
         ),

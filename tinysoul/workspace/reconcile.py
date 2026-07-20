@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -120,14 +121,19 @@ class WorkspaceReconciler:
         self._manifest_store = manifest_store
         self._classifier = classifier
 
-    def reconcile(self) -> WorkspaceReconcileResult:
+    def reconcile(
+        self,
+        *,
+        force_digest_links: Collection[str] = (),
+    ) -> WorkspaceReconcileResult:
         try:
             self._settings.root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise WorkspaceIOError(f"Failed to prepare workspace root: {exc}") from exc
         current = self._manifest_store.load()
         discovery = self._discover(
-            {record.link: record for record in current.resources}
+            {record.link: record for record in current.resources},
+            force_digest_links=frozenset(force_digest_links),
         )
         if self._incomplete(discovery):
             return self._incomplete_result(current, discovery)
@@ -181,6 +187,8 @@ class WorkspaceReconciler:
     def _discover(
         self,
         current_records: dict[str, WorkspaceResourceRecord],
+        *,
+        force_digest_links: frozenset[str],
     ) -> _WorkspaceDiscovery:
         root = self._settings.root
         ignored = set(self._settings.ignore_dirs)
@@ -210,9 +218,8 @@ class WorkspaceReconciler:
                     continue
                 try:
                     relative = path.relative_to(root).as_posix()
-                    previous = current_records.get(
-                        str(WorkspaceLink.from_relative_path(relative))
-                    )
+                    link_value = str(WorkspaceLink.from_relative_path(relative))
+                    previous = current_records.get(link_value)
                 except (ValueError, WorkspaceContractError):
                     skipped.append(
                         WorkspaceDiscoverySkip(
@@ -221,7 +228,11 @@ class WorkspaceReconciler:
                         )
                     )
                     continue
-                build = self._record_for(path, previous=previous)
+                build = self._record_for(
+                    path,
+                    previous=previous,
+                    force_digest=link_value in force_digest_links,
+                )
                 if build.record is not None:
                     resources.append(build.record)
                 elif build.skip_kind is not None:
@@ -242,6 +253,7 @@ class WorkspaceReconciler:
         path: Path,
         *,
         previous: WorkspaceResourceRecord | None,
+        force_digest: bool = False,
     ) -> _WorkspaceRecordBuild:
         try:
             relative = path.relative_to(self._settings.root).as_posix()
@@ -261,7 +273,8 @@ class WorkspaceReconciler:
 
         classification = self._classifier.classify(path)
         if (
-            previous is not None
+            not force_digest
+            and previous is not None
             and previous.size == stat.st_size
             and previous.mtime_ns == stat.st_mtime_ns
         ):

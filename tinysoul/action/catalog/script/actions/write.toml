@@ -43,3 +43,7 @@ parallel_policy = "serial"
 [backend]
 kind = "llm_action"
 handler = "script.write"
+
+[backend.options]
+max_output_tokens = 16384
+max_output_chars = 100000

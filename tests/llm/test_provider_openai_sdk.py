@@ -33,7 +33,7 @@ from tinysoul.llm.provider.openai_sdk import (
     OpenAIResponsesAdapter,
 )
 from tinysoul.llm.reasoning import Reasoning
-from tinysoul.llm.responses import AnswerFormat
+from tinysoul.llm.responses import AnswerFormat, ResponseStopReason
 from tinysoul.llm.tools import (
     ToolCallRecord,
     ToolKind,
@@ -52,6 +52,50 @@ class FakeCreateClient:
     def create(self, **kwargs: object) -> object:
         self.calls.append(kwargs)
         return self.response
+
+
+def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
+    responses = OpenAIResponsesAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=FakeCreateClient(
+            response=SimpleNamespace(
+                output_text="partial",
+                output=[],
+                usage={},
+                status="incomplete",
+                incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+            )
+        ),
+    )
+    chat = OpenAICompatibleChatAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=FakeCreateClient(
+            response=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="partial"),
+                        finish_reason="length",
+                    )
+                ],
+                usage={},
+            )
+        ),
+    )
+    request = ProviderRequest(
+        model=_model(provider_id="openai", provider_model="test"),
+        messages=MessageStack.of(UserMessage.from_text("write")),
+        answer_format=AnswerFormat.TEXT,
+    )
+
+    assert responses.invoke(request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
+    chat_request = ProviderRequest(
+        model=_model(provider_id="kimi", provider_model="test"),
+        messages=request.messages,
+        answer_format=AnswerFormat.TEXT,
+    )
+    assert chat.invoke(chat_request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
 
 
 def test_openai_responses_adapter_maps_request_payload() -> None:

@@ -22,6 +22,17 @@ class AnswerFormat(StrEnum):
     JSON_OBJECT = "json_object"
 
 
+class ResponseStopReason(StrEnum):
+    """Provider-neutral reason why response generation stopped."""
+
+    COMPLETE = "complete"
+    TOOL_CALLS = "tool_calls"
+    OUTPUT_LIMIT = "output_limit"
+    CONTENT_FILTER = "content_filter"
+    INCOMPLETE = "incomplete"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class RawResponse:
     """Provider-normalized raw model response."""
@@ -31,6 +42,7 @@ class RawResponse:
     provider_id: str
     tool_calls: tuple[ToolCallRecord, ...] = field(default_factory=tuple)
     reasoning: Reasoning | None = None
+    stop_reason: ResponseStopReason = ResponseStopReason.UNKNOWN
     usage: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
     provider_payload: JsonObject | None = None
@@ -49,6 +61,10 @@ class RawResponse:
         )
         if self.reasoning is not None and not isinstance(self.reasoning, Reasoning):
             raise LLMContractError("RawResponse.reasoning must be Reasoning or None")
+        if not isinstance(self.stop_reason, ResponseStopReason):
+            raise LLMContractError(
+                "RawResponse.stop_reason must be a ResponseStopReason"
+            )
         object.__setattr__(
             self,
             "usage",
@@ -94,14 +110,46 @@ class TaskResultStatus(StrEnum):
     FAILURE = "failure"
 
 
+class TaskFailureReason(StrEnum):
+    """Stable reason for a locally recoverable LLM task failure."""
+
+    TASK_FAILURE = "task_failure"
+    INVALID_OUTPUT_PROTOCOL = "invalid_output_protocol"
+    OUTPUT_LIMIT_REACHED = "output_limit_reached"
+    CONTENT_FILTERED = "content_filtered"
+    INCOMPLETE_RESPONSE = "incomplete_response"
+
+
+class TaskFailureScope(StrEnum):
+    """Stable limiting condition that a caller must change or recover."""
+
+    TASK = "llm.task"
+    OUTPUT = "llm.output"
+    OUTPUT_PROTOCOL = "llm.output_protocol"
+
+
 @dataclass(frozen=True)
 class TaskFailure:
-    """Feedback and frame data for a failed task result."""
+    """Stable recovery facts and diagnostics for a failed task result."""
 
     model_feedback: str | None = None
+    reason: TaskFailureReason = TaskFailureReason.TASK_FAILURE
+    scope: TaskFailureScope = TaskFailureScope.TASK
+    constraint: JsonObject = field(default_factory=dict)
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.reason, TaskFailureReason):
+            raise LLMContractError(
+                "TaskFailure.reason must be a TaskFailureReason"
+            )
+        if not isinstance(self.scope, TaskFailureScope):
+            raise LLMContractError("TaskFailure.scope must be a TaskFailureScope")
+        object.__setattr__(
+            self,
+            "constraint",
+            _json_object(self.constraint, field="TaskFailure.constraint"),
+        )
         object.__setattr__(
             self,
             "frame_data",

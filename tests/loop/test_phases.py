@@ -496,6 +496,126 @@ def test_phase1_retries_invalid_domain_selection() -> None:
     assert outcome.attempts == 2
 
 
+def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("finish current work")
+    action = _action_engine()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+
+    Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=SignalBus(),
+        retry_limit=1,
+    ).run(
+        scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+
+    prompt = _message_stack_text(llm.calls[0].messages)
+    assert "reconcile existing WorkingContext" in prompt
+    assert "call update_working in this same Phase1 response" in prompt
+    assert "mark every current-goal todo done or cancelled" in prompt
+
+
+def test_phase1_applies_working_reconciliation_before_returning() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("finish current work")
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_workspace",
+                    name="select_action_domains",
+                    arguments={"domains": ["workspace"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="start_report",
+                    name="update_working",
+                    arguments={
+                        "set_todos": [
+                            {
+                                "key": "report",
+                                "content": "Write the report",
+                                "status": "in_progress",
+                            }
+                        ]
+                    },
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                ),
+                ToolCallRecord(
+                    id="finish_report",
+                    name="update_working",
+                    arguments={
+                        "set_todos": [
+                            {
+                                "key": "report",
+                                "content": "Write the report",
+                                "status": "done",
+                            }
+                        ]
+                    },
+                    kind=ToolKind.CONTROL,
+                ),
+            ),
+        )
+    )
+    turn_scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+    )
+    unit = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        retry_limit=1,
+    )
+
+    outcome_1 = unit.run(
+        scope=turn_scope.push(RunLevel.CYCLE, "cycle_1").push(
+            RunLevel.PHASE, CyclePhase.PHASE1.value
+        ),
+        cycle_id="cycle_1",
+    )
+    outcome = unit.run(
+        scope=turn_scope.push(RunLevel.CYCLE, "cycle_2").push(
+            RunLevel.PHASE, CyclePhase.PHASE1.value
+        ),
+        cycle_id="cycle_2",
+    )
+
+    assert outcome_1.selected_domains == ("workspace",)
+    assert outcome.selected_domains == ("core",)
+    assert context.working_snapshot()["todos"] == [
+        {"key": "report", "content": "Write the report", "status": "done"}
+    ]
+
+
 def test_phase1_maps_loop_scope_failure_to_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

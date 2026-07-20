@@ -321,7 +321,7 @@ class WorkspaceEditPromptBuilder:
                 output_blocks=(
                     PromptBlock.from_text(
                         "task_prompt:output:workspace_write",
-                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
+                        "# Expected Output\nReturn only the complete UTF-8 text artifact.",
                     ),
                 ),
             ),
@@ -363,7 +363,7 @@ class WorkspaceEditPromptBuilder:
                 output_blocks=(
                     PromptBlock.from_text(
                         "task_prompt:output:workspace_rewrite",
-                        "# Expected Output\nReturn a JSON object with a string field 'text'.",
+                        "# Expected Output\nReturn only the complete UTF-8 text artifact.",
                     ),
                 ),
             ),

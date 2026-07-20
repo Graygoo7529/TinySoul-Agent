@@ -103,7 +103,7 @@ Loop 只消费精确的 `loop.control.request` 信号，不按 `loop.` namespace
 
 Phase1 的工具作用域由 context 的语境控制工具与 action 的域选择工具合并而成。域选择是必选输出，语境整理是可选输出；这通过 TinySoul 的强制工具选择语义表达——工具使用策略要求工具调用，且结果必须包含域选择调用，同时允许包含其他控制调用。
 
-Phase1 的 LLM Task 使用 `framework` profile，并在单次 TaskCall 中显式覆盖为工具必选调用。模型返回后：语境类控制调用交 context 归一化为状态信号；域选择调用解析为已选 domain 集合，非法域名转为局部反馈。Phase1 结束时统一触发 context 的批量可行信号消费。模型输出不满足任务协议时（含缺失必选域选择），以局部结果反馈进入有限次重试；局部策略耗尽后按失败边界处理。
+Phase1 的 LLM Task 使用 `framework` profile，并在单次 TaskCall 中显式覆盖为工具必选调用。Phase1 prompt 要求先把当前可见的权威 ActionResult 与既有 WorkingContext milestones/todos 对账：真实任务状态变化时，在选择 domain 的同一次响应中调用 `update_working`；完成项不能继续 pending/in_progress，失败或仅尝试过的项不能标记 done，选择 `core` 收束前当前目标 todo 必须已终态或从未建立。模型返回后，语境类控制调用与域选择调用仍作为一个逻辑步骤处理：前者交 context 归一化为状态信号，后者解析为已选 domain 集合，Phase1 返回前统一触发批量可行信号消费。因此 Phase2 观察到的 WorkingContext 与 Phase1 决策一致，不依赖下一 Cycle 补记。模型输出不满足任务协议时（含缺失必选域选择），以局部结果反馈进入有限次重试；局部策略耗尽后按失败边界处理。
 
 ### Phase2：生成行动参数
 

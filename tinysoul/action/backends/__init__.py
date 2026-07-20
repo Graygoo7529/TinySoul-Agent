@@ -5,7 +5,10 @@ from .llm_action import (
     ActionHowProvider,
     EmptyActionHowProvider,
     LLMActionModelRunner,
+    LLMActionBackendOptions,
+    LLMActionBackendOptionsValidator,
     LLMActionTaskRunner,
+    parse_llm_action_options,
 )
 from .native import NativeFunctionExecutor
 from .process import (
@@ -29,7 +32,10 @@ __all__ = [
     "ActionHowProvider",
     "EmptyActionHowProvider",
     "LLMActionModelRunner",
+    "LLMActionBackendOptions",
+    "LLMActionBackendOptionsValidator",
     "LLMActionTaskRunner",
+    "parse_llm_action_options",
     "NativeFunctionExecutor",
     "ManagedProcess",
     "ManagedProcessRequest",

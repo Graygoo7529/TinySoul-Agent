@@ -158,10 +158,15 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     home.ensure_runtime_copy(
         home.parse_link("home:how_action:workspace/rewrite")
     )
+    home.ensure_runtime_copy(home.parse_link("home:how_action:workspace/write"))
     domain_guidance = HomeDomainHowProvider(home).guidance_for(("web", "shell"))
     action_guidance = HomeActionHowProvider(home).guidance_for(
         domain="workspace",
         action_name="workspace.rewrite",
+    )
+    write_guidance = HomeActionHowProvider(home).guidance_for(
+        domain="workspace",
+        action_name="workspace.write",
     )
 
     assert "failure.disposition" in domain_guidance[0]
@@ -171,6 +176,8 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     assert any("complete replacement" in item for item in action_guidance.action)
     assert any("`truncated` metadata" in item for item in action_guidance.action)
     assert any("`workspace:` Links" in item for item in action_guidance.action)
+    assert any("complete UTF-8 text artifact" in item for item in write_guidance.action)
+    assert any("public URLs" in item for item in write_guidance.action)
 
 
 def _initialized_home(tmp_path: Path) -> tuple[Path, AgentHomeEngine]:
