@@ -1,58 +1,65 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle2, Loader2 } from "lucide-react";
 
-import type { PhaseStep } from "../hooks/useDerivedChat";
+import type { PhaseStep, ModelTask } from "../hooks/useDerivedChat";
 import { ActionCard } from "./ActionCard";
 import { ModelCallDetail } from "./ModelCallDetail";
 import { JsonTree } from "./JsonTree";
+import { DomainChip } from "./CycleTimeline";
 
 interface PhaseCardProps {
   phase: PhaseStep;
 }
 
 export function PhaseCard({ phase }: PhaseCardProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(phase.status === "running");
   const statusColor =
-    phase.status === "completed" ? "var(--success)" : phase.status === "running" ? "var(--accent)" : "var(--text-tertiary)";
+    phase.status === "completed"
+      ? "var(--success)"
+      : phase.status === "running"
+        ? "var(--accent)"
+        : "var(--text-tertiary)";
+  const StatusIcon = phase.status === "completed" ? CheckCircle2 : Loader2;
 
   return (
-    <div
-      className="mb-3"
-      style={{
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "var(--radius-md)",
-        overflow: "hidden",
-        background: "var(--bg-elevated)",
-      }}
-    >
-      <div
-        className="p-3 flex items-center justify-between cursor-pointer"
-        style={{ background: "var(--surface)" }}
-        onClick={() => setOpen(!open)}
-      >
+    <div className="phase-card">
+      <div className="phase-card-header" onClick={() => setOpen(!open)}>
         <div className="flex items-center gap-3">
           <PhaseBadge phase={phase.phase} />
           <div>
-            <div className="font-semibold text-sm">{phase.title}</div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm">{phase.title}</span>
+              <span
+                className="badge badge-subtle"
+                style={{ color: statusColor }}
+              >
+                <StatusIcon
+                  size={11}
+                  className={phase.status === "running" ? "animate-spin" : ""}
+                />
+                {phase.status}
+              </span>
+            </div>
             <div className="text-xs text-muted">{phase.description}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {phase.actions.length > 0 && (
-            <span className="badge badge-subtle">{phase.actions.length} actions</span>
+            <span className="badge badge-subtle">
+              {phase.actions.length} actions
+            </span>
           )}
           {phase.tasks.length > 0 && (
-            <span className="badge badge-subtle">{phase.tasks.length} LLM calls</span>
+            <span className="badge badge-subtle">
+              {phase.tasks.length} LLM calls
+            </span>
           )}
-          <span className="badge badge-subtle" style={{ color: statusColor }}>
-            {phase.status}
-          </span>
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </div>
       </div>
 
       {open && (
-        <div className="p-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div className="phase-card-body">
           {phase.phase === "phase1" && <Phase1Details phase={phase} />}
           {phase.phase === "phase2" && <Phase2Details phase={phase} />}
           {phase.phase === "phase3" && <Phase3Details phase={phase} />}
@@ -68,6 +75,7 @@ function PhaseBadge({ phase }: { phase: PhaseStep["phase"] }) {
     phase2: "#d29922",
     phase3: "#3fb950",
   };
+  const number = phase === "phase1" ? "1" : phase === "phase2" ? "2" : "3";
   return (
     <div
       className="flex items-center justify-center font-bold text-xs"
@@ -80,148 +88,258 @@ function PhaseBadge({ phase }: { phase: PhaseStep["phase"] }) {
         border: `1px solid ${colors[phase]}44`,
       }}
     >
-      {phase === "phase1" ? "1" : phase === "phase2" ? "2" : "3"}
+      {number}
     </div>
   );
 }
 
 function Phase1Details({ phase }: { phase: PhaseStep }) {
+  const selectedDomains = extractSelectedDomains(phase);
+  const hasChanges =
+    phase.backgroundChanges.loaded.length > 0 ||
+    phase.backgroundChanges.evicted.length > 0;
+
   return (
-    <div className="flex flex-col gap-3">
-      {(phase.backgroundChanges.loaded.length > 0 || phase.backgroundChanges.evicted.length > 0) && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">Context Changes</div>
-          {phase.backgroundChanges.loaded.length > 0 && (
-            <div className="mb-1">
-              <span className="text-xs text-success">Loaded:</span>{" "}
-              <span className="text-xs">
-                {phase.backgroundChanges.loaded.map((link) => (
-                  <span key={link} className="font-mono" style={{ color: "var(--accent)" }}>
-                    {link}
-                    {"; "}
-                  </span>
-                ))}
-              </span>
+    <div className="flex flex-col gap-4">
+      <div className="phase-runtime-step">
+        <div
+          className="phase-runtime-dot"
+          style={{ background: "var(--accent)" }}
+        />
+        <div className="flex-1">
+          <div className="font-semibold text-xs mb-2">Update context</div>
+          {!hasChanges ? (
+            <div className="text-xs text-muted">
+              No background context changes.
             </div>
-          )}
-          {phase.backgroundChanges.evicted.length > 0 && (
-            <div>
-              <span className="text-xs text-danger">Evicted:</span>{" "}
-              <span className="text-xs">
-                {phase.backgroundChanges.evicted.map((link) => (
-                  <span key={link} className="font-mono" style={{ color: "var(--text-tertiary)" }}>
-                    {link}
-                    {"; "}
-                  </span>
-                ))}
-              </span>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {phase.backgroundChanges.loaded.length > 0 && (
+                <ContextChangeList
+                  title="Loaded"
+                  items={phase.backgroundChanges.loaded}
+                  color="var(--success)"
+                />
+              )}
+              {phase.backgroundChanges.evicted.length > 0 && (
+                <ContextChangeList
+                  title="Evicted"
+                  items={phase.backgroundChanges.evicted}
+                  color="var(--text-tertiary)"
+                />
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
+
+      <div className="phase-runtime-step">
+        <div
+          className="phase-runtime-dot"
+          style={{ background: "var(--warning)" }}
+        />
+        <div className="flex-1">
+          <div className="font-semibold text-xs mb-2">
+            Select action domains
+          </div>
+          {selectedDomains.length === 0 ? (
+            <div className="text-xs text-muted">
+              No domain selection recorded.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {selectedDomains.map((domain) => (
+                <DomainChip key={domain} domain={domain} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {phase.tasks.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">LLM Tasks</div>
-          <div className="flex flex-col gap-2">
-            {phase.tasks.map((task) => (
-              <ModelCallDetail key={task.taskId} task={task} />
-            ))}
-          </div>
-        </div>
+        <TaskList tasks={phase.tasks} title="Reasoning" />
       )}
     </div>
   );
 }
 
 function Phase2Details({ phase }: { phase: PhaseStep }) {
-  const domains = Array.from(new Set(phase.actions.map((a) => a.domain)));
+  const plannedActions = phase.actions;
 
   return (
-    <div className="flex flex-col gap-3">
-      {domains.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">Selected Domains</div>
-          <div className="flex gap-1 flex-wrap">
-            {domains.map((domain) => (
-              <span key={domain} className="badge badge-accent">
-                {domain}
-              </span>
-            ))}
+    <div className="flex flex-col gap-4">
+      <div className="phase-runtime-step">
+        <div
+          className="phase-runtime-dot"
+          style={{ background: "var(--accent)" }}
+        />
+        <div className="flex-1">
+          <div className="font-semibold text-xs mb-2">
+            Generate action calls
           </div>
+          {plannedActions.length === 0 ? (
+            <div className="text-xs text-muted">No actions planned.</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {plannedActions.map((action) => (
+                <ActionCard
+                  key={action.callId}
+                  action={action}
+                  mode="planned"
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
-
-      {phase.actions.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">Planned Actions</div>
-          <div className="flex flex-col gap-2">
-            {phase.actions.map((action) => (
-              <ActionCard key={action.callId} action={action} />
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
 
       {phase.tasks.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">LLM Tasks</div>
-          <div className="flex flex-col gap-2">
-            {phase.tasks.map((task) => (
-              <ModelCallDetail key={task.taskId} task={task} />
-            ))}
-          </div>
-        </div>
+        <TaskList tasks={phase.tasks} title="Planning model calls" />
       )}
     </div>
   );
 }
 
 function Phase3Details({ phase }: { phase: PhaseStep }) {
-  return (
-    <div className="flex flex-col gap-3">
-      {phase.actions.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">Execution Results</div>
-          <div className="flex flex-col gap-2">
-            {phase.actions.map((action) => (
-              <ActionCard key={action.callId} action={action} />
-            ))}
-          </div>
-        </div>
-      )}
+  const executed = phase.actions.filter((a) => a.result);
+  const pending = phase.actions.filter((a) => !a.result);
 
-      {phase.workspaceEvents.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">Workspace Changes</div>
-          {phase.workspaceEvents.map((ev, idx) => (
-            <div
-              key={idx}
-              className="p-2 mb-2"
-              style={{
-                background: "var(--surface)",
-                borderRadius: "var(--radius-md)",
-              }}
-            >
-              <div className="text-xs font-semibold">{ev.payload.operation as string}</div>
-              <div className="json-tree mt-1">
-                <JsonTree value={ev.payload} />
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="phase-runtime-step">
+        <div
+          className="phase-runtime-dot"
+          style={{ background: "var(--success)" }}
+        />
+        <div className="flex-1">
+          <div className="font-semibold text-xs mb-2">Execute actions</div>
+          {executed.length === 0 && pending.length === 0 && (
+            <div className="text-xs text-muted">No actions executed.</div>
+          )}
+          {executed.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {executed.map((action) => (
+                <ActionCard key={action.callId} action={action} />
+              ))}
+            </div>
+          )}
+          {pending.length > 0 && (
+            <div className="mt-2">
+              <div className="text-xs text-muted mb-2">
+                Waiting ({pending.length})
+              </div>
+              <div className="flex flex-col gap-2">
+                {pending.map((action) => (
+                  <ActionCard key={action.callId} action={action} />
+                ))}
               </div>
             </div>
-          ))}
+          )}
+        </div>
+      </div>
+
+      {phase.workspaceEvents.length > 0 && (
+        <div className="phase-runtime-step">
+          <div
+            className="phase-runtime-dot"
+            style={{ background: "var(--info)" }}
+          />
+          <div className="flex-1">
+            <div className="font-semibold text-xs mb-2">Workspace effects</div>
+            {phase.workspaceEvents.map((ev, idx) => (
+              <div key={idx} className="workspace-change-card">
+                <div className="text-xs font-semibold">
+                  {String(ev.payload.operation || ev.name)}
+                </div>
+                <div className="json-tree mt-1">
+                  <JsonTree value={ev.payload} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {phase.tasks.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-muted mb-2">LLM Tasks</div>
-          <div className="flex flex-col gap-2">
-            {phase.tasks.map((task) => (
-              <ModelCallDetail key={task.taskId} task={task} />
-            ))}
-          </div>
-        </div>
+        <TaskList tasks={phase.tasks} title="Execution model calls" />
       )}
     </div>
   );
+}
+
+function ContextChangeList({
+  title,
+  items,
+  color,
+}: {
+  title: string;
+  items: string[];
+  color: string;
+}) {
+  return (
+    <div className="context-change-list">
+      <span className="text-xs" style={{ color, fontWeight: 600 }}>
+        {title}
+      </span>
+      <div className="flex flex-wrap gap-1 mt-1">
+        {items.map((link) => (
+          <span
+            key={link}
+            className="font-mono text-xs"
+            style={{ color: "var(--accent)" }}
+          >
+            {link}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TaskList({ tasks, title }: { tasks: ModelTask[]; title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="phase-runtime-step">
+      <div
+        className="phase-runtime-dot"
+        style={{ background: "var(--text-tertiary)" }}
+      />
+      <div className="flex-1">
+        <div
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => setOpen(!open)}
+        >
+          <div className="font-semibold text-xs">{title}</div>
+          <div className="flex items-center gap-1">
+            <span className="badge badge-subtle">{tasks.length}</span>
+            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </div>
+        </div>
+        {open && (
+          <div className="flex flex-col gap-2 mt-2">
+            {tasks.map((task) => (
+              <ModelCallDetail key={task.taskId} task={task} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function extractSelectedDomains(phase: PhaseStep): string[] {
+  const domains = new Set<string>();
+  for (const task of phase.tasks) {
+    const calls = task.response?.tool_calls as
+      Array<{ name?: string; arguments?: { domains?: string[] } }> | undefined;
+    for (const call of calls || []) {
+      if (
+        call.name === "select_action_domains" &&
+        Array.isArray(call.arguments?.domains)
+      ) {
+        for (const d of call.arguments.domains) domains.add(d);
+      }
+    }
+  }
+  return Array.from(domains);
 }

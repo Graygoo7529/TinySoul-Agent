@@ -13,6 +13,7 @@ import {
   XCircle,
   Loader2,
   AlertCircle,
+  ListTree,
 } from "lucide-react";
 
 import type { ActionRecord } from "../hooks/useDerivedChat";
@@ -20,38 +21,37 @@ import { JsonTree } from "./JsonTree";
 
 interface ActionCardProps {
   action: ActionRecord;
+  mode?: "executed" | "planned";
 }
 
-export function ActionCard({ action }: ActionCardProps) {
+export function ActionCard({ action, mode = "executed" }: ActionCardProps) {
   const [open, setOpen] = useState(false);
   const family = actionFamily(action.action);
   const Icon = family.icon;
-  const status = normalizeStatus(action.result?.status);
+  const isPlanned = mode === "planned";
+  const normalized = normalizeStatus(action.result?.status);
+  const status = isPlanned ? "planned" : normalized;
   const statusColor =
     status === "success"
       ? "var(--success)"
       : status === "failed"
         ? "var(--danger)"
-        : "var(--warning)";
+        : status === "planned"
+          ? "var(--text-tertiary)"
+          : "var(--warning)";
   const StatusIcon =
     status === "success"
       ? CheckCircle2
       : status === "failed"
         ? XCircle
-        : Loader2;
+        : status === "planned"
+          ? ListTree
+          : Loader2;
 
   const display = actionDisplay(action);
 
   return (
-    <div
-      className="action-row"
-      style={{
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "var(--radius-md)",
-        overflow: "hidden",
-        background: "var(--surface)",
-      }}
-    >
+    <div className="action-row">
       <div
         className="p-3 flex items-center justify-between cursor-pointer"
         onClick={() => setOpen(!open)}

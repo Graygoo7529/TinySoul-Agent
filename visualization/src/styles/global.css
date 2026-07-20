@@ -1052,3 +1052,242 @@ button {
 .font-semibold {
     font-weight: 600;
 }
+
+/* V3 redesign: refined execution trace */
+
+/* Reasoning tree */
+.reasoning-tree-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+}
+
+/* Cycle cards */
+.cycle-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-sm);
+    transition:
+        box-shadow 0.2s ease,
+        border-color 0.2s ease;
+}
+
+.cycle-card:hover {
+    border-color: var(--border);
+}
+
+.cycle-header {
+    padding: 12px 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    gap: 12px;
+}
+
+.cycle-header:hover {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent);
+}
+
+.cycle-body {
+    padding: 16px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Domain chips */
+.domain-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Phase stepper */
+.phase-stepper {
+    display: flex;
+    gap: 10px;
+}
+
+.phase-step {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.phase-step.running {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+}
+
+.phase-step.completed {
+    border-color: var(--success);
+    background: var(--success-soft);
+}
+
+.phase-step.idle {
+    opacity: 0.7;
+}
+
+.phase-name {
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.phase-status {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 3px;
+}
+
+/* Phase timeline */
+.phase-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+}
+
+.phase-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s ease;
+}
+
+.phase-card:hover {
+    border-color: var(--border);
+}
+
+.phase-card-header {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+    gap: 12px;
+}
+
+.phase-card-header:hover {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+}
+
+.phase-card-body {
+    padding: 16px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Runtime step inside phase */
+.phase-runtime-step {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.phase-runtime-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: 6px;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.05);
+}
+
+.context-change-list {
+    padding: 10px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.workspace-change-card {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.workspace-change-card:last-child {
+    margin-bottom: 0;
+}
+
+/* Action cards (mock computer) */
+.action-row {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.action-row:hover {
+    border-color: var(--border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Model call cards */
+.model-call {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+}
+
+.model-call-header {
+    padding: 10px 12px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.model-call-body {
+    padding: 12px;
+}
+
+/* JSON tree readability */
+.json-tree {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+/* Utility for ml-auto */
+.ml-auto {
+    margin-left: auto;
+}

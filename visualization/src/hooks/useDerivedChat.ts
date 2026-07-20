@@ -199,6 +199,17 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
     } else if (ev.name === "turn.exhausted") {
       turn.status = "exhausted";
       turn.endedAt = ev.created_at;
+    } else if (ev.name === "turn.completed") {
+      const completedStatus = (ev.payload?.status as string) || "answered";
+      if (
+        completedStatus === "answered" ||
+        completedStatus === "failed" ||
+        completedStatus === "stopped" ||
+        completedStatus === "exhausted"
+      ) {
+        turn.status = completedStatus;
+      }
+      turn.endedAt = ev.created_at;
     } else if (
       ev.name === "loop.phase.started" ||
       ev.name === "loop.phase.completed"
@@ -251,6 +262,8 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
     turn.summary = computeTurnSummary(turn);
     if (turn.status === "running") {
       turn.currentActivity = computeCurrentActivity(turn);
+    } else {
+      turn.currentActivity = undefined;
     }
   }
 
@@ -372,6 +385,9 @@ function applyActionCall(
 function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
   const payload = ev.payload as {
     call_id?: string;
+    action?: string;
+    domain?: string;
+    sequence?: number;
     status?: string;
     stage?: string;
     feedback?: string;
@@ -380,20 +396,61 @@ function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
   const callId = payload.call_id;
   if (!callId) return;
 
+  // Results are emitted during Phase3 execution. Find the planned action in
+  // Phase2 and mirror it into Phase3 so the UI can show "planned in Phase2" and
+  // "executed in Phase3" as distinct runtime stages.
+  let planned: ActionRecord | undefined;
   for (const cycle of turn.cycles) {
     for (const phase of cycle.phases) {
       const action = phase.actions.find((a) => a.callId === callId);
       if (action) {
-        action.result = {
-          status: payload.status || "unknown",
-          stage: payload.stage || "unknown",
-          feedback: payload.feedback,
-          payload: payload.payload,
-        };
-        action.completedAt = ev.created_at;
-        return;
+        planned = action;
+        break;
       }
     }
+    if (planned) break;
+  }
+
+  const result: ActionRecord["result"] = {
+    status: payload.status || "unknown",
+    stage: payload.stage || "unknown",
+    feedback: payload.feedback,
+    payload: payload.payload,
+  };
+
+  if (planned) {
+    // Keep the planned Phase2 record untouched and create an executed Phase3 record.
+    const cycle = turn.cycles.find((c) =>
+      c.phases.some((p) => p.actions.includes(planned!)),
+    );
+    if (cycle) {
+      const phase3 = getPhase(cycle, "phase3");
+      phase3.actions.push({
+        ...planned,
+        result,
+        completedAt: ev.created_at,
+      });
+      return;
+    }
+  }
+
+  // Fallback if the matching action.call was not observed.
+  const cycleFrame = ev.scope.find((f) => f.level === "cycle");
+  const cycle = cycleFrame
+    ? getCycle(turn, cycleFrame.name, ev.created_at)
+    : null;
+  if (cycle) {
+    const phase3 = getPhase(cycle, "phase3");
+    phase3.actions.push({
+      callId,
+      action: payload.action || "unknown",
+      domain: payload.domain || "unknown",
+      sequence: payload.sequence ?? 0,
+      params: {},
+      startedAt: ev.created_at,
+      result,
+      completedAt: ev.created_at,
+    });
   }
 }
 
@@ -571,22 +628,36 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
 
 function computeTurnSummary(turn: ChatTurn): string {
   const cycleCount = turn.cycles.length;
+  const uniqueActions = new Map<
+    string,
+    { action: ActionRecord; phase: PhaseName }
+  >();
+
+  for (const cycle of turn.cycles) {
+    // Prefer executed Phase3 records over planned Phase2 records so the summary
+    // reflects runtime outcomes without double counting.
+    for (const phase of cycle.phases) {
+      for (const action of phase.actions) {
+        const existing = uniqueActions.get(action.callId);
+        if (!existing || orderPhase(phase.phase) > orderPhase(existing.phase)) {
+          uniqueActions.set(action.callId, { action, phase: phase.phase });
+        }
+      }
+    }
+  }
+
   let actionCount = 0;
   let successCount = 0;
   let failedCount = 0;
   const domains = new Set<string>();
   const families = new Set<string>();
 
-  for (const cycle of turn.cycles) {
-    for (const phase of cycle.phases) {
-      for (const action of phase.actions) {
-        actionCount++;
-        domains.add(action.domain);
-        families.add(actionFamily(action.action));
-        if (action.result?.status === "success") successCount++;
-        else if (action.result?.status === "failed") failedCount++;
-      }
-    }
+  for (const { action } of uniqueActions.values()) {
+    actionCount++;
+    domains.add(action.domain);
+    families.add(actionFamily(action.action));
+    if (action.result?.status === "success") successCount++;
+    else if (action.result?.status === "failed") failedCount++;
   }
 
   const parts: string[] = [];
@@ -594,10 +665,7 @@ function computeTurnSummary(turn: ChatTurn): string {
     parts.push(`${cycleCount} cycle${cycleCount > 1 ? "s" : ""}`);
   if (actionCount > 0)
     parts.push(`${actionCount} action${actionCount > 1 ? "s" : ""}`);
-  if (domains.size > 0)
-    parts.push(`domains: ${Array.from(domains).join(", ")}`);
-  if (families.size > 0)
-    parts.push(`families: ${Array.from(families).join(", ")}`);
+  if (domains.size > 0) parts.push(`${Array.from(domains).join(", ")}`);
   if (successCount > 0) parts.push(`${successCount} succeeded`);
   if (failedCount > 0) parts.push(`${failedCount} failed`);
 
