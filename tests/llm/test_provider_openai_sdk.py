@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import pytest
 
@@ -666,6 +666,163 @@ def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> N
     assert "tools" not in client.calls[0]
 
 
+def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() -> None:
+    encrypted_item: JsonObject = {
+        "id": "rs_tool_turn",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "opaque-state",
+    }
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    unresolved_call = ToolCallRecord(
+        id="call_unresolved_reasoning",
+        name="core.answer",
+        arguments={},
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_parts(
+                    reasoning=Reasoning(encrypted_items=(encrypted_item,)),
+                    tool_calls=(unresolved_call,),
+                ),
+                UserMessage.from_text("Return JSON."),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            tool_use=ToolUse.DISABLED,
+            provider_options={"reasoning_keep": "encrypted"},
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Return JSON."}],
+        }
+    ]
+
+
+def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    first_call = ToolCallRecord(id="call_first", name="workspace.scan", arguments={})
+    second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                UserMessage.from_text("first"),
+                AssistantMessage.from_tool_calls(first_call, second_call),
+                ToolResultMessage.from_json(
+                    call_id=first_call.id,
+                    tool_name=first_call.name,
+                    value={"ok": True},
+                ),
+                UserMessage.from_text("second"),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_use=ToolUse.OPTIONAL,
+            tool_scope=ToolScope(
+                tools=(
+                    ToolSpec(
+                        name="workspace.scan",
+                        description="Scan",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                    ToolSpec(
+                        name="workspace.read",
+                        description="Read",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                )
+            ),
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "first"}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "second"}],
+        },
+    ]
+
+
+def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
+    message = SimpleNamespace(content="done", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    first_call = ToolCallRecord(id="call_first", name="workspace.scan", arguments={})
+    second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model="kimi-for-coding-highspeed",
+            ),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(first_call, second_call),
+                ToolResultMessage.from_json(
+                    call_id=first_call.id,
+                    tool_name="workspace.read",
+                    value={"wrong": True},
+                ),
+                UserMessage.from_text("continue"),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_use=ToolUse.OPTIONAL,
+            tool_scope=ToolScope(
+                tools=(
+                    ToolSpec(
+                        name="workspace.scan",
+                        description="Scan",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                    ToolSpec(
+                        name="workspace.read",
+                        description="Read",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                )
+            ),
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {"role": "user", "content": "continue"},
+    ]
+
+
 def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -882,6 +1039,32 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
     assert response.answer_text == '{"ok": true}'
     assert response.reasoning is not None
     assert response.reasoning.content == "thinking"
+
+
+def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model="kimi-for-coding-highspeed",
+            ),
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            answer_format=AnswerFormat.TEXT,
+            timeout_seconds=3.5,
+        )
+    )
+
+    assert client.calls[0]["timeout"] == pytest.approx(3.5)
 
 
 def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
@@ -1132,11 +1315,6 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
     )
 
     assert client.calls[0]["messages"] == [
-        {
-            "role": "assistant",
-            "content": "",
-            "reasoning_content": "decision reasoning",
-        },
         {"role": "user", "content": "Return the final answer as JSON."},
     ]
     assert "tools" not in client.calls[0]
@@ -1192,6 +1370,167 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
             ),
         },
         {"role": "user", "content": "Return the final answer as JSON."},
+    ]
+    assert "tools" not in client.calls[0]
+
+
+@pytest.mark.parametrize(
+    ("adapter_type", "provider_id", "provider_model"),
+    (
+        (DeepSeekProviderAdapter, "deepseek", "deepseek-v4-pro"),
+        (GlmProviderAdapter, "glm", "glm-5.1"),
+        (MiniMaxProviderAdapter, "minimax", "MiniMax-M3"),
+        (KimiProviderAdapter, "kimi_coding", "kimi-for-coding-highspeed"),
+    ),
+)
+def test_chat_adapters_replay_multiple_complete_tool_turns(
+    adapter_type: Callable[..., OpenAICompatibleChatAdapter],
+    provider_id: str,
+    provider_model: str,
+) -> None:
+    message = SimpleNamespace(content="done", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = adapter_type(
+        provider=_provider(provider_id, ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    first_call = ToolCallRecord(
+        id="call_first",
+        name="workspace.scan",
+        arguments={"query": "one"},
+    )
+    second_call = ToolCallRecord(
+        id="call_second",
+        name="workspace.read",
+        arguments={"link": "workspace:one.md"},
+    )
+    third_call = ToolCallRecord(
+        id="call_third",
+        name="workspace.scan",
+        arguments={"query": "two"},
+    )
+    tools = (
+        ToolSpec(
+            name="workspace.scan",
+            description="Scan",
+            parameters={"type": "object"},
+            kind=ToolKind.ACTION,
+        ),
+        ToolSpec(
+            name="workspace.read",
+            description="Read",
+            parameters={"type": "object"},
+            kind=ToolKind.ACTION,
+        ),
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id=provider_id, provider_model=provider_model),
+            messages=MessageStack.of(
+                UserMessage.from_text("first turn"),
+                AssistantMessage.from_tool_calls(first_call, second_call),
+                ToolResultMessage.from_json(
+                    call_id=first_call.id,
+                    tool_name=first_call.name,
+                    value={"scan": True},
+                ),
+                ToolResultMessage.from_json(
+                    call_id=second_call.id,
+                    tool_name=second_call.name,
+                    value={"read": True},
+                ),
+                AssistantMessage.from_text("first result"),
+                UserMessage.from_text("second turn"),
+                AssistantMessage.from_tool_calls(third_call),
+                ToolResultMessage.from_json(
+                    call_id=third_call.id,
+                    tool_name=third_call.name,
+                    value={"scan": True},
+                ),
+                UserMessage.from_text("final prompt"),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_scope=ToolScope(tools=tools),
+            tool_use=ToolUse.OPTIONAL,
+        )
+    )
+
+    messages = _message_payloads(client.calls[0]["messages"])
+    first_tool_calls = _message_payloads(messages[1]["tool_calls"])
+    third_tool_calls = _message_payloads(messages[6]["tool_calls"])
+    assert [item["role"] for item in messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "assistant",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert [
+        _mapping_payload(item["function"])["name"] for item in first_tool_calls
+    ] == ["workspace_scan", "workspace_read"]
+    assert messages[2]["tool_call_id"] == "call_first"
+    assert messages[3]["tool_call_id"] == "call_second"
+    assert _mapping_payload(third_tool_calls[0]["function"])["name"] == "workspace_scan"
+    assert messages[7]["tool_call_id"] == "call_third"
+
+
+@pytest.mark.parametrize(
+    ("adapter_type", "provider_id", "provider_model"),
+    (
+        (DeepSeekProviderAdapter, "deepseek", "deepseek-v4-pro"),
+        (GlmProviderAdapter, "glm", "glm-5.1"),
+        (MiniMaxProviderAdapter, "minimax", "MiniMax-M3"),
+        (KimiProviderAdapter, "kimi_coding", "kimi-for-coding-highspeed"),
+    ),
+)
+def test_chat_adapters_project_disabled_tool_history(
+    adapter_type: Callable[..., OpenAICompatibleChatAdapter],
+    provider_id: str,
+    provider_model: str,
+) -> None:
+    message = SimpleNamespace(content="done", tool_calls=[])
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = adapter_type(
+        provider=_provider(provider_id, ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    call = ToolCallRecord(id="call_disabled", name="workspace.scan", arguments={})
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id=provider_id, provider_model=provider_model),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(call),
+                ToolResultMessage.from_json(
+                    call_id=call.id,
+                    tool_name=call.name,
+                    value={"ok": True},
+                ),
+                UserMessage.from_text("continue"),
+            ),
+            answer_format=AnswerFormat.TEXT,
+            tool_use=ToolUse.DISABLED,
+        )
+    )
+
+    messages = _message_payloads(client.calls[0]["messages"])
+    assert messages == [
+        {
+            "role": "user",
+            "content": "Tool result for workspace.scan:\n```json\n{\"ok\":true}\n```",
+        },
+        {"role": "user", "content": "continue"},
     ]
     assert "tools" not in client.calls[0]
 
@@ -2544,4 +2883,10 @@ def _message_payloads(value: object) -> list[dict[str, object]]:
             raise AssertionError("Expected message payload mapping")
         result.append({str(key): payload for key, payload in item.items()})
     return result
+
+
+def _mapping_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise AssertionError("Expected nested mapping payload")
+    return {str(key): payload for key, payload in value.items()}
 

@@ -7,6 +7,7 @@ from tinysoul.action.builtins.core import CoreAnswerActionExecutor, CoreReasonAc
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.executor import ActionExecutionContext
+from tinysoul.action.core.executor import ActionExecutionControl
 from tinysoul.action.core.result import ActionResultStatus
 from tinysoul.action.core.specs import (
     ActionBackendKind,
@@ -127,6 +128,30 @@ def test_llm_action_reports_unsupported_reference_link() -> None:
 
     assert result.status is ActionResultStatus.FAILED
     assert result.frame_data["reason"] == "unsupported_reference_link"
+    assert llm.calls == []
+
+
+def test_llm_action_cancellation_stops_before_nested_task() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    llm = FakeLLMRunner()
+    control = ActionExecutionControl()
+    control.request_cancel("timeout")
+    executor = CoreAnswerActionExecutor(
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
+    )
+
+    result = executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            handler="core.answer",
+        ),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.frame_data["reason"] == "timeout"
     assert llm.calls == []
 
 

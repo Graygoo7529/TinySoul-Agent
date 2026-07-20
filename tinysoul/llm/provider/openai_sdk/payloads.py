@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Mapping
+from dataclasses import dataclass
 import json
 from typing import Protocol
 
@@ -84,8 +85,8 @@ def to_responses_input(
     name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    complete_tool_call_ids = _complete_tool_call_ids(request.messages.messages)
-    for message in request.messages.messages:
+    replay_plan = _tool_replay_plan(request.messages.messages)
+    for index, message in enumerate(request.messages.messages):
         if isinstance(message, ToolResultMessage):
             if request.tool_use is ToolUse.DISABLED:
                 items.append(
@@ -103,7 +104,7 @@ def to_responses_input(
                     }
                 )
                 continue
-            if message.call_id not in complete_tool_call_ids:
+            if index not in replay_plan.result_indices:
                 continue
             items.append(
                 to_responses_tool_result(
@@ -117,17 +118,15 @@ def to_responses_input(
             replayed_tool_calls = (
                 ()
                 if request.tool_use is ToolUse.DISABLED
-                else tuple(
-                    tool_call
-                    for tool_call in message.tool_calls
-                    if tool_call.id in complete_tool_call_ids
-                )
+                or index not in replay_plan.assistant_indices
+                else message.tool_calls
             )
-            for reasoning_item in behavior.responses_input_reasoning(
-                message,
-                request.provider_options,
-            ):
-                items.append({key: value for key, value in reasoning_item.items()})
+            if not message.tool_calls or replayed_tool_calls:
+                for reasoning_item in behavior.responses_input_reasoning(
+                    message,
+                    request.provider_options,
+                ):
+                    items.append({key: value for key, value in reasoning_item.items()})
             rendered = renderer.render(message.parts)
             if message.parts:
                 items.append(
@@ -170,8 +169,8 @@ def to_chat_messages(
     name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    complete_tool_call_ids = _complete_tool_call_ids(request.messages.messages)
-    for message in request.messages.messages:
+    replay_plan = _tool_replay_plan(request.messages.messages)
+    for index, message in enumerate(request.messages.messages):
         if isinstance(message, ToolResultMessage):
             if request.tool_use is ToolUse.DISABLED:
                 items.append(
@@ -184,7 +183,7 @@ def to_chat_messages(
                     }
                 )
                 continue
-            if message.call_id not in complete_tool_call_ids:
+            if index not in replay_plan.result_indices:
                 continue
             items.append(
                 to_chat_tool_result(
@@ -207,13 +206,16 @@ def to_chat_messages(
             replayed_tool_calls = (
                 ()
                 if request.tool_use is ToolUse.DISABLED
-                else tuple(
-                    tool_call
-                    for tool_call in message.tool_calls
-                    if tool_call.id in complete_tool_call_ids
-                )
+                or index not in replay_plan.assistant_indices
+                else message.tool_calls
             )
-            if not message.parts and reasoning_content is None and not replayed_tool_calls:
+            if message.tool_calls and not replayed_tool_calls:
+                reasoning_content = None
+            if (
+                not message.parts
+                and reasoning_content is None
+                and not replayed_tool_calls
+            ):
                 continue
         item: dict[str, object] = {
             "role": chat_role(message),
@@ -455,19 +457,60 @@ def tool_result_text(
     )
 
 
-def _complete_tool_call_ids(messages: tuple[Message, ...]) -> frozenset[str]:
-    assistant_call_ids = {
-        call.id
-        for message in messages
-        if isinstance(message, AssistantMessage)
-        for call in message.tool_calls
-    }
-    result_call_ids = {
-        message.call_id
-        for message in messages
-        if isinstance(message, ToolResultMessage)
-    }
-    return frozenset(assistant_call_ids & result_call_ids)
+@dataclass(frozen=True)
+class _ToolReplayPlan:
+    """Indices of complete, ordered provider-native tool turns."""
+
+    assistant_indices: frozenset[int]
+    result_indices: frozenset[int]
+
+
+def _tool_replay_plan(messages: tuple[Message, ...]) -> _ToolReplayPlan:
+    assistant_indices: set[int] = set()
+    result_indices: set[int] = set()
+    for index, message in enumerate(messages):
+        if not isinstance(message, AssistantMessage) or not message.tool_calls:
+            continue
+        calls_by_id: dict[str, ToolCallRecord] = {}
+        duplicate_call_id = False
+        for call in message.tool_calls:
+            if call.id in calls_by_id:
+                duplicate_call_id = True
+                break
+            calls_by_id[call.id] = call
+        if duplicate_call_id:
+            continue
+
+        candidate_results: list[tuple[int, ToolResultMessage]] = []
+        cursor = index + 1
+        while cursor < len(messages):
+            candidate = messages[cursor]
+            if not isinstance(candidate, ToolResultMessage):
+                break
+            candidate_results.append((cursor, candidate))
+            cursor += 1
+        if len(candidate_results) != len(calls_by_id):
+            continue
+        result_by_id: dict[str, tuple[int, ToolResultMessage]] = {}
+        for result_index, result in candidate_results:
+            if result.call_id in result_by_id:
+                break
+            result_by_id[result.call_id] = (result_index, result)
+        if len(result_by_id) != len(calls_by_id):
+            continue
+        if set(result_by_id) != set(calls_by_id):
+            continue
+        if any(
+            calls_by_id[call_id].name != result.tool_name
+            for call_id, (_, result) in result_by_id.items()
+        ):
+            continue
+        assistant_indices.add(index)
+        result_indices.update(result_index for result_index, _ in candidate_results)
+    return _ToolReplayPlan(
+        assistant_indices=frozenset(assistant_indices),
+        result_indices=frozenset(result_indices),
+    )
 
 
 def responses_role(message: Message) -> str:

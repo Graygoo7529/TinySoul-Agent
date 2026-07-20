@@ -169,6 +169,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
             execution=execution,
             prompt=prompt,
             subject=f"Script {self._mode} LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload

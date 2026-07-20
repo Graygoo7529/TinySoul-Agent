@@ -66,6 +66,7 @@ class CoreReasonActionExecutor:
             execution=execution,
             prompt=parse.prompt,
             subject="Core reason LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload
@@ -98,6 +99,7 @@ class CoreAnswerActionExecutor:
             execution=execution,
             prompt=parse.prompt,
             subject="Answer LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload

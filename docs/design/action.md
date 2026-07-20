@@ -230,7 +230,7 @@ Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide 
 
 嵌套 LLM task 固定要求 JSON object 输出，并禁用模型侧工具调用；成功时 JSON object 作为 action payload 返回，Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或非 JSON object 输出都收敛为 execute 阶段的 `ActionResult`。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Catalog 中 `backend.kind = "llm_action"` 只表达执行方式，`backend.handler = "core.reason"` / `"core.answer"` 表达具体执行落点。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 是 workspace 业务 LLM action，使用 `target_link` 与 `reference_links` 在 action 内部加载目标和参考正文并生成完整写入文本；`workspace.analyze` 只接受 Phase2 已选择的明确 text Links 与 intent，要求所有 references 完整且在 owner budget 内后执行一次 LLM task，返回有界 answer 和经过 executor 验证的来源定位，不修改 Workspace。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
 
-`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。它的超时仍由外层 action runner 管理；后端自身不能强制中断已经进入供应商调用的网络请求，因此这类 action 应配置覆盖一次模型切换/重试窗口的合理 timeout，并避免承担需要硬停止语义的任务。Core 域默认使用 60 秒，而不是过短的 10 秒 deadline，以减少 provider 暂时失败时出现 leaked executor。
+`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入，LLM runner 在重试、切换和 provider 调用前检查取消，并把剩余 deadline 映射为 provider request timeout；provider adapter 必须尊重该 timeout。取消在 provider 调用边界收敛为 Action timeout，避免已超时任务继续启动下一次模型尝试。Core 域默认使用 60 秒，但该值不是对供应商不可中断网络请求的硬停止保证。
 
 ## 组装入口
 

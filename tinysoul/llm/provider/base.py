@@ -48,6 +48,7 @@ class ProviderRequest:
     temperature: float | None = None
     max_output_tokens: int | None = None
     provider_options: Mapping[str, object] | None = None
+    timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, ModelSpec):
@@ -82,6 +83,14 @@ class ProviderRequest:
         ):
             raise LLMContractError(
                 "ProviderRequest.max_output_tokens must be a positive integer or None"
+            )
+        if self.timeout_seconds is not None and (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or self.timeout_seconds <= 0
+        ):
+            raise LLMContractError(
+                "ProviderRequest.timeout_seconds must be a positive number or None"
             )
         if self.provider_options is not None:
             options: dict[str, object] = {}

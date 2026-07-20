@@ -28,6 +28,8 @@ def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
     max_output_tokens = effective_max_output_tokens(request, overrides=overrides)
     if max_output_tokens is not None:
         kwargs["max_output_tokens"] = max_output_tokens
+    if request.timeout_seconds is not None:
+        kwargs["timeout"] = request.timeout_seconds
     return kwargs
 
 

@@ -6,14 +6,17 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from tinysoul.action.core.call import ActionExecution
+from tinysoul.action.core.executor import ActionExecutionControl
 from tinysoul.action.core.result import ActionResult, ActionResultStage
 from tinysoul.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
+from tinysoul.llm.errors import TaskCancelled
 from tinysoul.llm.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
+    TaskCancellation,
     TaskProfile,
 )
 from tinysoul.llm.responses import AnswerFormat, JsonAnswer, TaskResult, TaskResultStatus
@@ -91,11 +94,23 @@ class LLMActionTaskRunner:
         execution: ActionExecution,
         prompt: TaskPrompt,
         subject: str,
+        control: ActionExecutionControl | None = None,
     ) -> JsonObject | ActionResult:
         """Run one JSON-object LLM action task and normalize local failures."""
 
         prompt = self.prompt_with_how(prompt, execution=execution)
+        cancellation = (
+            TaskCancellation(
+                cancelled=control.is_cancelled,
+                remaining_seconds=control.remaining_seconds,
+                reason=lambda: control.cancel_reason,
+            )
+            if control is not None
+            else None
+        )
         try:
+            if cancellation is not None:
+                cancellation.check()
             result = self._llm_runner.run(
                 TaskCall(
                     profile=TaskProfile.LLM_ACTION,
@@ -108,7 +123,25 @@ class LLMActionTaskRunner:
                     context_overflow_policy=(
                         ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
                     ),
+                    cancellation=cancellation,
                 )
+            )
+        except TaskCancelled as exc:
+            return ActionResult.timeout(
+                call_id=execution.call.call_id,
+                invoke_id=execution.framework.invoke_id,
+                batch_id=execution.framework.batch_id,
+                action_name=execution.call.action_name,
+                sequence=execution.call.sequence,
+                domain=execution.framework.domain,
+                model_feedback="Action stopped after cancellation was requested.",
+                frame_data={
+                    "reason": str(exc) or "cancelled",
+                    "cancel_requested": True,
+                    "executor_started": True,
+                    "executor_leaked": False,
+                    "late_success": False,
+                },
             )
         except RuntimeException as exc:
             if exc.reason != CONTEXT_COMPRESSION_REQUIRED:

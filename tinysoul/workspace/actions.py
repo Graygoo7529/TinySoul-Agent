@@ -455,6 +455,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             execution=execution,
             prompt=prompt,
             subject="Workspace analyze LLM task",
+            control=context.control,
         )
         if isinstance(value, ActionResult):
             return value
@@ -592,6 +593,7 @@ class WorkspaceDescribeExecutor(ActionExecutor):
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace describe LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload
@@ -748,6 +750,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace write LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload
@@ -1073,6 +1076,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
+            control=context.control,
         )
         if isinstance(payload, ActionResult):
             return payload

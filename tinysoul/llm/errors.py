@@ -13,3 +13,7 @@ class LLMContractError(LLMError):
 
 class LLMInvariantError(LLMError):
     """Raised when an internal LLM invariant is violated."""
+
+
+class TaskCancelled(LLMError):
+    """Raised when an owning execution boundary cancels an LLM task."""

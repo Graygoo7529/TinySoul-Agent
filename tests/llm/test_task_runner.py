@@ -23,6 +23,7 @@ from tinysoul.llm.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
+    TaskCancellation,
 )
 from tinysoul.llm.responses import (
     JsonAnswer,
@@ -32,6 +33,7 @@ from tinysoul.llm.responses import (
     TaskResult,
 )
 from tinysoul.llm.failures import LLMFailureKind
+from tinysoul.llm.errors import TaskCancelled
 from tinysoul.llm.task import (
     LLMTaskRunner,
 )
@@ -117,6 +119,70 @@ def test_runner_observations_share_stable_task_id() -> None:
         event.payload["task_id"] == "task_visible"
         for event in observations.events
     )
+
+
+def test_runner_passes_action_remaining_timeout_to_provider_request() -> None:
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
+    )
+    runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            cancellation=TaskCancellation(
+                cancelled=lambda: False,
+                remaining_seconds=lambda: 12.5,
+                reason=lambda: "",
+            ),
+        )
+    )
+
+    assert provider.requests[0].timeout_seconds == pytest.approx(12.5)
+
+
+def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
+    state = {"cancelled": False}
+
+    @dataclass
+    class CancellingProvider(FakeProvider):
+        def invoke(self, request: ProviderRequest) -> RawResponse:
+            self.calls.append(request.model.id)
+            state["cancelled"] = True
+            raise ProviderError("temporary failure", kind=ProviderErrorKind.TRANSIENT)
+
+    provider = CancellingProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=_models("a", "b"),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("a", "b"),
+                retry_policy=RetryPolicy(
+                    max_retries_per_model=2,
+                    max_cycles=10,
+                ),
+            )
+        ),
+    )
+
+    with pytest.raises(TaskCancelled, match="timeout"):
+        runner.run(
+            TaskCall(
+                profile="framework",
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                cancellation=TaskCancellation(
+                    cancelled=lambda: state["cancelled"],
+                    remaining_seconds=lambda: 10.0,
+                    reason=lambda: "timeout",
+                ),
+            )
+        )
+
+    assert provider.calls == ["a"]
 
 
 @dataclass

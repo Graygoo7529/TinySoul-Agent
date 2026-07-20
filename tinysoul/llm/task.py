@@ -16,7 +16,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
-from .errors import LLMContractError, LLMError
+from .errors import LLMContractError, LLMError, TaskCancelled
 from .failures import LLMFailureKind
 from .context_window import (
     ModelContextPolicy,
@@ -223,6 +223,7 @@ class LLMTaskRunner:
 
     def _run_task(self, call: TaskCall) -> TaskResult:
         try:
+            _check_cancellation(call)
             task = self._tasks.get(call.profile)
             return self._chain_runner.run(
                 task.chain,
@@ -249,6 +250,8 @@ class LLMTaskRunner:
                 exc,
                 payload=self._model_chain_exhausted_payload(call, exc),
             ) from exc
+        except TaskCancelled:
+            raise
         except LLMContractError as exc:
             raise self._runtime_bridge.from_exception(
                 LLMFailureKind.CONTRACT_VIOLATION,
@@ -290,6 +293,7 @@ class LLMTaskRunner:
         )
 
     def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
+        _check_cancellation(call)
         model = self._models.get(model_id)
         settings = self._resolve_settings(call, task)
         answer_format = settings.answer_format
@@ -316,6 +320,7 @@ class LLMTaskRunner:
         last_error: ProviderError | None = None
 
         for attempt in range(task.chain.retry_policy.max_retries_per_model):
+            _check_cancellation(call)
             if attempt > 0:
                 self._emit(
                     call,
@@ -330,6 +335,7 @@ class LLMTaskRunner:
                     },
                 )
                 self._sleeper.sleep(task.chain.retry_policy.retry_wait_seconds)
+                _check_cancellation(call)
             if observation_enabled(self._observations, ObservationLevel.MODEL):
                 request_payload = task_request_observation(
                     call.messages,
@@ -352,6 +358,7 @@ class LLMTaskRunner:
                     request_payload,
                 )
             try:
+                _check_cancellation(call)
                 response = provider.invoke(
                     ProviderRequest(
                         model=model,
@@ -363,6 +370,7 @@ class LLMTaskRunner:
                         temperature=settings.temperature,
                         max_output_tokens=settings.max_output_tokens,
                         provider_options=dict(model.provider_options.values),
+                        timeout_seconds=_remaining_seconds(call),
                     )
                 )
             except ProviderError as exc:
@@ -477,6 +485,8 @@ class LLMTaskRunner:
         )
 
     def _classify_chain_error(self, error: Exception) -> ChainErrorDisposition:
+        if isinstance(error, TaskCancelled):
+            return ChainErrorDisposition.ABORT
         if isinstance(error, RuntimeException):
             return ChainErrorDisposition.ABORT
         if isinstance(error, ModelContextPressureError):
@@ -524,3 +534,20 @@ def _effective_max_output_tokens(
     if override is not None:
         return override
     return settings.max_output_tokens or 0
+
+
+def _check_cancellation(call: TaskCall) -> None:
+    if call.cancellation is not None:
+        call.cancellation.check()
+
+
+def _remaining_seconds(call: TaskCall) -> float | None:
+    if call.cancellation is None:
+        return None
+    remaining = call.cancellation.remaining_seconds()
+    if remaining is None:
+        return None
+    if remaining <= 0:
+        call.cancellation.check()
+        raise TaskCancelled("deadline_expired")
+    return remaining

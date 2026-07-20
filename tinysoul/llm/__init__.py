@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .cache import PromptCache
-from .errors import LLMContractError, LLMError, LLMInvariantError
+from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
 from .messages import (
     AssistantMessage,
     ImagePart,
@@ -31,6 +31,7 @@ from .requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
+    TaskCancellation,
     TaskProfile,
 )
 from .responses import (
@@ -107,6 +108,7 @@ __all__ = [
     "ReasoningKeep",
     "SystemMessage",
     "TaskCall",
+    "TaskCancellation",
     "TaskCallValidator",
     "TaskFailure",
     "TaskProfile",

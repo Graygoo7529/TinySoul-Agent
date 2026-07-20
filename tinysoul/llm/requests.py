@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
@@ -9,7 +10,7 @@ from uuid import uuid4
 from tinysoul.runtime import RunScope
 
 from .cache import PromptCache
-from .errors import LLMContractError
+from .errors import LLMContractError, TaskCancelled
 from .messages import MessageStack
 from .models import ModelCapability
 from .responses import AnswerFormat
@@ -32,6 +33,38 @@ class ModelContextOverflowPolicy(StrEnum):
 
     END_TURN = "end_turn"
     RECOMPOSE_CONTEXT = "recompose_context"
+
+
+@dataclass(frozen=True)
+class TaskCancellation:
+    """Cancellation/deadline hooks supplied by an owning execution boundary."""
+
+    cancelled: Callable[[], bool]
+    remaining_seconds: Callable[[], float | None]
+    reason: Callable[[], str]
+
+    def __post_init__(self) -> None:
+        if not callable(self.cancelled):
+            raise LLMContractError("TaskCancellation.cancelled must be callable")
+        if not callable(self.remaining_seconds):
+            raise LLMContractError(
+                "TaskCancellation.remaining_seconds must be callable"
+            )
+        if not callable(self.reason):
+            raise LLMContractError("TaskCancellation.reason must be callable")
+
+    def check(self) -> None:
+        remaining = self.remaining_seconds()
+        if not self.cancelled() and (remaining is None or remaining > 0):
+            return
+        reason = self.reason()
+        if not reason:
+            reason = (
+                "deadline_expired"
+                if remaining is not None and remaining <= 0
+                else "cancelled"
+            )
+        raise TaskCancelled(reason)
 
 
 @dataclass(frozen=True)
@@ -112,6 +145,7 @@ class TaskCall:
     context_overflow_policy: ModelContextOverflowPolicy = (
         ModelContextOverflowPolicy.END_TURN
     )
+    cancellation: TaskCancellation | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, (TaskProfile, str)) or not self.profile:
@@ -139,4 +173,11 @@ class TaskCall:
             raise LLMContractError(
                 "TaskCall.context_overflow_policy must be "
                 "ModelContextOverflowPolicy"
+            )
+        if self.cancellation is not None and not isinstance(
+            self.cancellation,
+            TaskCancellation,
+        ):
+            raise LLMContractError(
+                "TaskCall.cancellation must be TaskCancellation or None"
             )
