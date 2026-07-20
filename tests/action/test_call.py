@@ -230,6 +230,33 @@ def test_build_execution_batch_from_calls() -> None:
     assert batch.executions[0].framework.timeout_seconds == 30.0
 
 
+@pytest.mark.parametrize("action_name", ["workspace.write", "workspace.rewrite"])
+def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
+    preparation = ActionExecutionBuilder().prepare_batch(
+        (
+            ActionCall(
+                "call_1",
+                action_name,
+                {
+                    "target_link": "workspace:docs/plan.md",
+                    "instruction": "Improve the document.",
+                },
+                1,
+            ),
+        ),
+        catalog=catalog,
+        scope=RunScope(),
+        batch_id="batch_1",
+    )
+
+    assert preparation.results == ()
+    assert preparation.phase_results == ()
+    execution = preparation.batch.executions[0]
+    assert execution.framework.domain == "workspace"
+    assert execution.framework.timeout_seconds == 90.0
+
+
 def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
     preparation = ActionExecutionBuilder().prepare_batch(
         (

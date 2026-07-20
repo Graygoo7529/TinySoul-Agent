@@ -45,6 +45,7 @@ effects = ["modifying"]
 examples = ["Generate a plan at workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 
 [runtime]
+timeout_seconds = 90
 parallel_policy = "serial"
 
 [runtime.hooks]

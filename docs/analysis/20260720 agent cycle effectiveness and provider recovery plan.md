@@ -27,7 +27,7 @@
 
 ### Workspace rewrite
 
-- `workspace.write` 和 `workspace.rewrite` 都是 action-internal LLM task，当前继承 Workspace domain 的 30 秒超时。
+- `workspace.write` 和 `workspace.rewrite` 都是 action-internal LLM task；真实记录发生时二者继承 Workspace domain 的 30 秒超时。
 - Workspace 普通 prompt reference 按 `max_read_chars=4000` 为每个资源加载有界前缀，并明确标记 `truncated`。真实记录中的目标与两个 references 总量约为 1.2 万字符，不是把 79 KB Nature 页面完整送入模型。
 - `llm_action` profile 允许 provider 重试和模型切换。30 秒 action deadline 同时覆盖 prompt 构造、模型请求、重试/切换等待、结果解释和 Workspace 提交，无法稳定覆盖正常 LLM edit 生命周期。
 - `workspace.analyze` 已使用 90 秒 action timeout；write/rewrite 与其同属需要嵌套 LLM 的 Workspace action，应显式拥有自己的超时，而不是继承面向一般 Workspace action 的域默认值。
@@ -108,13 +108,15 @@ ActionResult 的 `payload` 只承载模型需要的 reason/disposition；详细�
 
 ### Stage 3：调整 Workspace LLM action 运行边界
 
-状态：pending
+状态：done
 
 - 为 `workspace.write` 与 `workspace.rewrite` 分别配置显式 `timeout_seconds = 90`；
 - 保留 Workspace domain 30 秒默认值，避免所有普通读写 action 无差别扩大超时；
 - 保留当前每资源 4000 字符的 prompt reference 边界和 `truncated` 标记；不新增 range/reference selector 或第二套 source budget；
 - timeout 仍是局部 ActionResult，不转成 Runtime 全局失败；
 - rewrite 超时后的 guidance 要求改变执行方式，不重复相同调用。允许使用精确 `workspace.patch`，或在完整目标确实已由模型构造且 Shell policy 允许时使用事务 Shell；不得把 Shell 描述为绕过 Workspace 一致性机制的直接写盘方式。
+
+实施结果：package-owned Catalog 已对 write/rewrite 显式设置 90 秒；Catalog loader 测试同时确认 analyze 为 90 秒且 read/patch 仍为 30 秒，ExecutionBuilder 测试确认 Phase3 自包含 `ActionFramework` 实际携带 write/rewrite 的 90 秒 deadline。未增加 Workspace 配置、Python 分支或 LLM retry 设置。
 
 ### Stage 4：补充 Agent 与 HOW 行为规约
 

@@ -44,6 +44,13 @@ def test_load_builtin_catalog() -> None:
     assert reason.backend.handler == "core.reason"
     write = catalog.get_action("workspace.write")
     assert write.backend.kind is ActionBackendKind.LLM_ACTION
+    assert write.runtime.timeout_seconds == 90.0
+    rewrite = catalog.get_action("workspace.rewrite")
+    assert rewrite.backend.kind is ActionBackendKind.LLM_ACTION
+    assert rewrite.runtime.timeout_seconds == 90.0
+    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 90.0
+    assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
+    assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
     assert (
         catalog.get_action("context.trace.recall").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE

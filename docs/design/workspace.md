@@ -172,7 +172,9 @@ reconciliation 达到文件数量上限或出现非内部资源读取失败时�
 - `workspace.trash.list`：列出 Trash ref、原链接、摘要、原因和来源 Turn，不返回文件正文；
 - `workspace.rewrite`：接收 `target_link`、`instruction` 和可选 `reference_links`，在 action 内部加载目标与参考正文，调用 LLM 生成完整替换文本并写回目标资源；
 
-这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
+这些 action 使用 `target_link` 参数表达实际变更对象。小幅确定性修改由 `workspace.patch` 执行；完整文本生成由 write/rewrite 的 action-internal LLM task 完成。`workspace.write`、`workspace.rewrite` 与 `workspace.analyze` 都显式使用 90 秒 action deadline，使 prompt 构造、模型请求、模型链内有界重试/切换、结果解释和 Workspace 提交共享同一个取消边界；普通 Workspace action 继续继承 domain 的 30 秒默认值。该 action 级 deadline 只扩大嵌套 LLM 工作的正常运行窗口，不增加 LLM 重试次数，也不改变失败分层：deadline 到期仍收敛为局部 ActionResult，且 cancellation contract 阻止 action-internal LLM 在超时后继续重试或提交。
+
+每个成功 action 最终执行完整 reconciliation，以原子 Manifest 作为磁盘投影，再发布同 revision、同资源全集的 `context.workspace.sync`；成功结果只返回元数据，不返回正文。执行失败优先收敛为 ActionResult，且不发布同步信号；RuntimeException 由 Action runner 原样传播到 Module/Trap。
 
 ## Context 接入
 
