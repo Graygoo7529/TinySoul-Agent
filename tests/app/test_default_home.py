@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path, PurePosixPath
 import re
 
+from tinysoul.action import builtin_action_catalog_root
+from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.app import ProjectInitializer
 from tinysoul.context import (
     CONTROL_EVICT_BACKGROUND,
@@ -17,6 +19,8 @@ from tinysoul.home import (
     AgentHomeEngineBuilder,
     AgentHomeSettings,
     HomeBackgroundEntryProvider,
+    HomeActionHowProvider,
+    HomeDomainHowProvider,
     HomeResourceLink,
     HomeTopLink,
 )
@@ -133,6 +137,40 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
 
     assert context.consume_signals(bus) == ()
     assert context.background_links() == (*catalog.default_links, *targets)
+
+
+def test_packaged_default_home_provides_stage4_behavior_guidance(
+    tmp_path: Path,
+) -> None:
+    root, home = _initialized_home(tmp_path)
+    with builtin_action_catalog_root() as catalog_root:
+        catalog = ActionCatalogLoader().load(catalog_root)
+    home.reconcile_prompt_mounts(
+        domains=tuple(domain.name for domain in catalog.domains()),
+        actions=tuple((action.domain, action.name) for action in catalog.actions()),
+    )
+    core = (root / "home" / "agent" / "AGENT.md").read_text(encoding="utf-8")
+    assert "Make each Agent Cycle advance" in core
+    assert "authoritative successful mutation or apply ActionResult" in core
+
+    for domain in ("web", "shell", "workspace"):
+        home.ensure_runtime_copy(home.parse_link(f"home:how_domain:{domain}"))
+    home.ensure_runtime_copy(
+        home.parse_link("home:how_action:workspace/rewrite")
+    )
+    domain_guidance = HomeDomainHowProvider(home).guidance_for(("web", "shell"))
+    action_guidance = HomeActionHowProvider(home).guidance_for(
+        domain="workspace",
+        action_name="workspace.rewrite",
+    )
+
+    assert "failure.disposition" in domain_guidance[0]
+    assert "stable public URLs" in domain_guidance[0]
+    assert "`shell.apply` is the authoritative Workspace commit" in domain_guidance[1]
+    assert any("workspace.read" in item for item in action_guidance.domain)
+    assert any("complete replacement" in item for item in action_guidance.action)
+    assert any("`truncated` metadata" in item for item in action_guidance.action)
+    assert any("`workspace:` Links" in item for item in action_guidance.action)
 
 
 def _initialized_home(tmp_path: Path) -> tuple[Path, AgentHomeEngine]:

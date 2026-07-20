@@ -142,7 +142,7 @@ home/
   how/tinysoul-docs/references/use-tinysoul-context-and-link.md
 ```
 
-core 作为简洁的身份、行为规约和前向 Top Link 索引；user 保存稳定用户事实；WHAT 分别定义 TinySoul entity、Context/Link 和 Daily Lifecycle；WHY 直接以问题命名；`tinysoul-docs` 是通用文档导航 HOW，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。模板不声明 Backlink、Memory 片段检索、shell/script 或文档转换等尚未进入 Action Catalog 的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
+core 作为简洁的身份、行为规约和前向 Top Link 索引；user 保存稳定用户事实；WHAT 分别定义 TinySoul entity、Context/Link 和 Daily Lifecycle；WHY 直接以问题命名；`tinysoul-docs` 是通用文档导航 HOW，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。core 不静态宣称 Shell、Script、文档转换等具体能力是否可用；进入 Action Catalog 的能力可以拥有局部 domain/action HOW，而实际启用状态仍由 capability 配置与 Action 装配决定。模板不声明 Backlink、Memory 片段检索等尚未实现的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
 
 ## Actual Home 与 Runtime Home
 
@@ -197,6 +197,10 @@ Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语�
 Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home 提供 `HomeDomainHowProvider`，接收 Phase1 已选择的 action domain，映射为 `home:how_domain:<domain>`，读取对应 `DOMAIN.md` 并返回适合 Phase2 task prompt 的短文本片段。
 
 Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
+
+运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、稳定失败必须改变恢复路径、权威 mutation/apply 结果与必要验证的边界，以及目标完成后及时执行唯一 `core.answer`。domain HOW 只解释同一 action domain 内的选择、恢复和收束方式，例如 Web failure disposition 或 Shell apply/discard。action HOW 只约束一个带内部 LLM task 的具体 action，例如 `workspace.rewrite` 对截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action HOW 中重复维护。
+
+这些内容属于模型决策与生成约束，不是第二套 Loop 状态机、Action hook 或自动重试器。core 不接收剩余 Cycle 数，HOW 不直接执行 action，也不根据文本改变 Runtime 控制流。需要硬保证的 schema、deadline、事务提交、取消和失败类型仍由 Action、Workspace、Web、supervised process 与 Loop 的代码协议负责；HOW 只帮助模型在这些结构化结果之上选择有效下一步。
 
 Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部自动加载机制：Phase2 自动加载 domain HOW；Phase3 中带内部 LLM task 的 action 同时自动加载 domain HOW 与 action HOW。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 HOW，Loop 与 Action 也不感知 Agent Home 的目录结构。
 

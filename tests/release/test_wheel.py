@@ -90,13 +90,14 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     )
     assert "tinysoul/assets/project/home/how_domain/web/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/script/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" not in names
+    assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" in names
     assert (
         "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
     )
     assert "tinysoul/assets/project/home/how_action/workspace/read.md" in names
     assert "tinysoul/assets/project/home/how_action/workspace/search_text.md" in names
     assert "tinysoul/assets/project/home/how_action/workspace/analyze.md" in names
+    assert "tinysoul/assets/project/home/how_action/workspace/rewrite.md" in names
     assert (
         "tinysoul/assets/project/home/how/tinysoul-docs/references/"
         "use-tinysoul-context-and-link.md"
@@ -167,9 +168,9 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     assert (
         initialized / "home" / "how_domain" / "script" / "DOMAIN.md"
     ).is_file()
-    assert not (
+    assert (
         initialized / "home" / "how_domain" / "shell" / "DOMAIN.md"
-    ).exists()
+    ).is_file()
     assert "enabled = false" in (
         initialized / "configs" / "capabilities.shell.toml"
     ).read_text(encoding="utf-8")
@@ -184,5 +185,8 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     ).is_file()
     assert (
         initialized / "home" / "how_action" / "workspace" / "analyze.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_action" / "workspace" / "rewrite.md"
     ).is_file()
     assert (initialized / "memory").is_dir()
