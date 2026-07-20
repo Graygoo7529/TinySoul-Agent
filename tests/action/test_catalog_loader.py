@@ -37,7 +37,7 @@ def test_load_builtin_catalog() -> None:
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"
-    assert answer.runtime.timeout_seconds == 10.0
+    assert answer.runtime.timeout_seconds == 60.0
     assert answer.runtime.parallel_policy is ActionParallelPolicy.SERIAL
     assert answer.backend.handler == "core.answer"
     reason = catalog.get_action("core.reason")

@@ -525,6 +525,147 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
+def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            output_text="",
+            output=[
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="provider_call_1",
+                    name="workspace_scan",
+                    arguments="{}",
+                )
+            ],
+            usage={},
+        )
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    tool = ToolSpec(
+        name="workspace.scan",
+        description="Scan the workspace",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(UserMessage.from_text("scan")),
+            answer_format=AnswerFormat.NONE,
+            tool_scope=ToolScope(tools=(tool,)),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tools"] == [
+        {
+            "type": "function",
+            "name": "workspace_scan",
+            "description": "Scan the workspace",
+            "parameters": {"type": "object"},
+        }
+    ]
+    assert response.tool_calls[0].name == "workspace.scan"
+
+
+def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    unresolved_call = ToolCallRecord(
+        id="call_unresolved",
+        name="core.answer",
+        arguments={},
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(unresolved_call),
+                UserMessage.from_text("Return the final answer as JSON."),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            tool_use=ToolUse.DISABLED,
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "Return the final answer as JSON."}
+            ],
+        }
+    ]
+    assert "tools" not in client.calls[0]
+
+
+def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
+    )
+    adapter = OpenAIProviderAdapter(
+        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        api_key="key",
+        responses=client,
+    )
+    completed_call = ToolCallRecord(
+        id="call_completed",
+        name="core.answer",
+        arguments={},
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(completed_call),
+                ToolResultMessage.from_json(
+                    call_id="call_completed",
+                    tool_name="core.answer",
+                    value={"ok": True},
+                ),
+                UserMessage.from_text("Return the final answer as JSON."),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            tool_use=ToolUse.DISABLED,
+        )
+    )
+
+    assert client.calls[0]["input"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        "Tool result for core.answer:\n"
+                        '```json\n{"ok":true}\n```'
+                    ),
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "Return the final answer as JSON."}
+            ],
+        },
+    ]
+    assert "tools" not in client.calls[0]
+
+
 def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -878,8 +1019,14 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
     )
     tool_call = ToolCallRecord(
         id="provider_call_1",
-        name="read_file",
+        name="workspace.scan",
         arguments={"path": "workspace:doc.md"},
+    )
+    tool = ToolSpec(
+        name="workspace.scan",
+        description="Scan the workspace",
+        parameters={"type": "object"},
+        kind=ToolKind.ACTION,
     )
 
     adapter.invoke(
@@ -892,12 +1039,12 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
                 ),
                 ToolResultMessage.from_json(
                     call_id="provider_call_1",
-                    tool_name="read_file",
+                    tool_name="workspace.scan",
                     value={"ok": True},
                 ),
             ),
             answer_format=AnswerFormat.TEXT,
-            tool_scope=ToolScope(tools=(_tool(),)),
+            tool_scope=ToolScope(tools=(tool,)),
             tool_use=ToolUse.OPTIONAL,
             provider_options={
                 "reasoning_keep": "content",
@@ -916,7 +1063,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
                     "id": "provider_call_1",
                     "type": "function",
                     "function": {
-                        "name": "read_file",
+                        "name": "workspace_scan",
                         "arguments": '{"path":"workspace:doc.md"}',
                     },
                 }
@@ -926,10 +1073,127 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
             "role": "tool",
             "tool_call_id": "provider_call_1",
             "content": '```json\n{"ok":true}\n```',
-            "name": "read_file",
+            "name": "workspace_scan",
+        }
+    ]
+    assert client.calls[0]["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "workspace_scan",
+                "description": "Scan the workspace",
+                "parameters": {"type": "object"},
+            },
         }
     ]
     assert client.calls[0]["reasoning_effort"] == "max"
+
+
+def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
+    message = SimpleNamespace(
+        content='{"text":"\u4f60\u597d"}',
+        reasoning_content="answer reasoning",
+        tool_calls=[],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    unresolved_call = ToolCallRecord(
+        id="tool_5EPQk3dnZPdE13NVvWmuVd1S",
+        name="core.answer",
+        arguments={"guide_blocks": [{"text": "Answer the user."}]},
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model="kimi-for-coding-highspeed",
+            ),
+            messages=MessageStack.of(
+                AssistantMessage.from_parts(
+                    reasoning="decision reasoning",
+                    tool_calls=(unresolved_call,),
+                ),
+                UserMessage.from_text("Return the final answer as JSON."),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            tool_use=ToolUse.DISABLED,
+            provider_options={
+                "thinking": "enabled",
+                "reasoning_keep": "content",
+            },
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "decision reasoning",
+        },
+        {"role": "user", "content": "Return the final answer as JSON."},
+    ]
+    assert "tools" not in client.calls[0]
+
+
+def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
+    message = SimpleNamespace(
+        content='{"text":"\u4f60\u597d"}',
+        reasoning_content="answer reasoning",
+        tool_calls=[],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+    completed_call = ToolCallRecord(
+        id="tool_5EPQk3dnZPdE13NVvWmuVd1S",
+        name="core.answer",
+        arguments={"guide_blocks": [{"text": "Answer the user."}]},
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="kimi_coding",
+                provider_model="kimi-for-coding-highspeed",
+            ),
+            messages=MessageStack.of(
+                AssistantMessage.from_tool_calls(completed_call),
+                ToolResultMessage.from_json(
+                    call_id=completed_call.id,
+                    tool_name=completed_call.name,
+                    value={"ok": True},
+                ),
+                UserMessage.from_text("Return the final answer as JSON."),
+            ),
+            answer_format=AnswerFormat.JSON_OBJECT,
+            tool_use=ToolUse.DISABLED,
+            provider_options={"thinking": "enabled"},
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {
+            "role": "user",
+            "content": (
+                "Tool result for core.answer:\n"
+                '```json\n{"ok":true}\n```'
+            ),
+        },
+        {"role": "user", "content": "Return the final answer as JSON."},
+    ]
+    assert "tools" not in client.calls[0]
 
 
 def test_chat_adapter_maps_forced_tool_choice() -> None:
@@ -1654,11 +1918,72 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_kimi_adapter_validates_tool_names_and_count() -> None:
+def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
+    message = SimpleNamespace(
+        content="",
+        tool_calls=[
+            SimpleNamespace(
+                id="call_1",
+                type="function",
+                function=SimpleNamespace(name="core_answer", arguments="{}"),
+            )
+        ],
+    )
+    client = FakeCreateClient(
+        response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
+    )
+    adapter = KimiProviderAdapter(
+        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        api_key="key",
+        completions=client,
+    )
+
+    response = adapter.invoke(
+        ProviderRequest(
+            model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
+            messages=MessageStack.of(UserMessage.from_text("answer")),
+            answer_format=AnswerFormat.NONE,
+            tool_scope=ToolScope(
+                tools=(
+                    ToolSpec(
+                        name="core.answer",
+                        description="Answer the user",
+                        parameters={"type": "object"},
+                        kind=ToolKind.ACTION,
+                    ),
+                ),
+            ),
+            tool_use=ToolUse.REQUIRED,
+        )
+    )
+
+    assert client.calls[0]["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "core_answer",
+                "description": "Answer the user",
+                "parameters": {"type": "object"},
+            },
+        }
+    ]
+    assert response.tool_calls[0].name == "core.answer"
+
+
+def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
     adapter = KimiProviderAdapter(
         provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=FakeCreateClient(response=object()),
+    )
+    tools = tuple(
+        ToolSpec(
+            name=f"tool_{index}",
+            description="Tool",
+            parameters={"type": "object"},
+            kind=ToolKind.ACTION,
+        )
+        for index in range(129)
     )
 
     with pytest.raises(ProviderError) as exc:
@@ -1666,17 +1991,9 @@ def test_kimi_adapter_validates_tool_names_and_count() -> None:
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
-                answer_format=AnswerFormat.TEXT,
-                tool_scope=ToolScope(
-                    tools=(
-                        ToolSpec(
-                            name="1bad",
-                            description="bad",
-                            parameters={"type": "object"},
-                            kind=ToolKind.ACTION,
-                        ),
-                    ),
-                ),
+                answer_format=AnswerFormat.NONE,
+                tool_scope=ToolScope(tools=tools),
+                tool_use=ToolUse.OPTIONAL,
             )
         )
 

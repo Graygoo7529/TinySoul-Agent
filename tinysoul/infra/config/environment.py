@@ -173,7 +173,7 @@ class ConfigEnvironment:
                 expected="dataclass type",
             )
 
-        defaults = self._default_field_names(settings_type)
+        defaults = {field.name for field in fields(settings_type)}
         type_hints = get_type_hints(settings_type)
         raw_values: dict[str, tuple[object, str]] = {}
         prefix = f"{section}."
@@ -219,11 +219,6 @@ class ConfigEnvironment:
                 source=source_name,
             )
         return settings_type(**kwargs)
-
-    @staticmethod
-    def _default_field_names(settings_type: type[object]) -> set[str]:
-        return {field.name for field in fields(settings_type)}
-
 
 def _set_dotted_value(
     tree: dict[str, object],

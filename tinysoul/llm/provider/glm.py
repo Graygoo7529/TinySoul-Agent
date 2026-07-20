@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import re
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
@@ -24,11 +23,6 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
 
     def validate_tools(self, request: ProviderRequest) -> None:
         for tool in request.tool_scope.visible_tools():
-            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", tool.name):
-                raise ProviderError(
-                    f"Invalid GLM tool name: {tool.name}",
-                    kind=ProviderErrorKind.CONFIG,
-                )
             if tool.parameters.get("type") != "object":
                 raise ProviderError(
                     "GLM tool parameters root type must be object",

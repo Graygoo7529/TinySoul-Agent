@@ -133,9 +133,9 @@ def test_llm_config_parses_project_config_files() -> None:
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
+        "kimi_k2_7",
         "gpt_5_5",
         "kimi_k3",
-        "kimi_k2_7",
         "deepseek_v4",
         "glm_5_1",
         "minimax_m3",

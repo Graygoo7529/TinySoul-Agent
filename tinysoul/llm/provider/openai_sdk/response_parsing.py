@@ -10,6 +10,7 @@ from tinysoul.llm.tools import ToolCallIdMapper, ToolCallRecord
 
 from ..base import ProviderError, ProviderErrorKind
 from .common import get_attr, model_dump_mapping
+from .tool_names import ProviderToolNameMap
 
 
 def responses_text(response: object) -> str:
@@ -34,6 +35,7 @@ def responses_tool_calls(
     response: object,
     *,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> tuple[ToolCallRecord, ...]:
     output = get_attr(response, "output")
     if not isinstance(output, list):
@@ -56,15 +58,16 @@ def responses_tool_calls(
                 "Responses function call is missing a valid call_id",
                 kind=ProviderErrorKind.PARSE,
             )
+        tinysoul_name = name_map.to_tinysoul_name(name)
         parsed_arguments = parse_tool_arguments(arguments)
         records.append(
             ToolCallRecord(
                 id=id_mapper.to_tinysoul_id(
                     call_id,
                     index=index,
-                    tool_name=name,
+                    tool_name=tinysoul_name,
                 ),
-                name=name,
+                name=tinysoul_name,
                 arguments=parsed_arguments,
             )
         )
@@ -139,6 +142,7 @@ def chat_tool_calls(
     message: object,
     *,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> tuple[ToolCallRecord, ...]:
     tool_calls = get_attr(message, "tool_calls")
     if not isinstance(tool_calls, list):
@@ -170,14 +174,15 @@ def chat_tool_calls(
                 "Chat tool call function is missing a valid name",
                 kind=ProviderErrorKind.PARSE,
             )
+        tinysoul_name = name_map.to_tinysoul_name(name)
         records.append(
             ToolCallRecord(
                 id=id_mapper.to_tinysoul_id(
                     call_id,
                     index=index,
-                    tool_name=name,
+                    tool_name=tinysoul_name,
                 ),
-                name=name,
+                name=tinysoul_name,
                 arguments=parse_tool_arguments(arguments),
             )
         )

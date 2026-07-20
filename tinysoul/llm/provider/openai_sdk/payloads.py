@@ -32,6 +32,7 @@ from tinysoul.llm.tools import (
 )
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
+from .tool_names import ProviderToolNameMap
 
 
 class OpenAIAdapterBehaviorProtocol(Protocol):
@@ -80,10 +81,30 @@ def to_responses_input(
     behavior: OpenAIAdapterBehaviorProtocol,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
+    complete_tool_call_ids = _complete_tool_call_ids(request.messages.messages)
     for message in request.messages.messages:
         if isinstance(message, ToolResultMessage):
+            if request.tool_use is ToolUse.DISABLED:
+                items.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": tool_result_text(
+                                    message,
+                                    renderer=renderer,
+                                ),
+                            }
+                        ],
+                    }
+                )
+                continue
+            if message.call_id not in complete_tool_call_ids:
+                continue
             items.append(
                 to_responses_tool_result(
                     message,
@@ -93,6 +114,15 @@ def to_responses_input(
             )
             continue
         if isinstance(message, AssistantMessage):
+            replayed_tool_calls = (
+                ()
+                if request.tool_use is ToolUse.DISABLED
+                else tuple(
+                    tool_call
+                    for tool_call in message.tool_calls
+                    if tool_call.id in complete_tool_call_ids
+                )
+            )
             for reasoning_item in behavior.responses_input_reasoning(
                 message,
                 request.provider_options,
@@ -109,9 +139,13 @@ def to_responses_input(
                         ),
                     }
                 )
-            for tool_call in message.tool_calls:
+            for tool_call in replayed_tool_calls:
                 items.append(
-                    to_responses_function_call(tool_call, id_mapper=id_mapper)
+                    to_responses_function_call(
+                        tool_call,
+                        id_mapper=id_mapper,
+                        name_map=name_map,
+                    )
                 )
             continue
         rendered = renderer.render(message.parts)
@@ -133,35 +167,69 @@ def to_chat_messages(
     behavior: OpenAIAdapterBehaviorProtocol,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
+    complete_tool_call_ids = _complete_tool_call_ids(request.messages.messages)
     for message in request.messages.messages:
         if isinstance(message, ToolResultMessage):
+            if request.tool_use is ToolUse.DISABLED:
+                items.append(
+                    {
+                        "role": "user",
+                        "content": tool_result_text(
+                            message,
+                            renderer=renderer,
+                        ),
+                    }
+                )
+                continue
+            if message.call_id not in complete_tool_call_ids:
+                continue
             items.append(
                 to_chat_tool_result(
                     message,
                     behavior=behavior,
                     renderer=renderer,
                     id_mapper=id_mapper,
+                    name_map=name_map,
                 )
             )
             continue
         rendered = renderer.render(message.parts)
-        item: dict[str, object] = {
-            "role": chat_role(message),
-            "content": to_chat_content(rendered),
-        }
+        reasoning_content = None
+        replayed_tool_calls: tuple[ToolCallRecord, ...] = ()
         if isinstance(message, AssistantMessage):
             reasoning_content = behavior.chat_input_reasoning(
                 message,
                 request.provider_options,
             )
+            replayed_tool_calls = (
+                ()
+                if request.tool_use is ToolUse.DISABLED
+                else tuple(
+                    tool_call
+                    for tool_call in message.tool_calls
+                    if tool_call.id in complete_tool_call_ids
+                )
+            )
+            if not message.parts and reasoning_content is None and not replayed_tool_calls:
+                continue
+        item: dict[str, object] = {
+            "role": chat_role(message),
+            "content": to_chat_content(rendered),
+        }
+        if isinstance(message, AssistantMessage):
             if reasoning_content is not None:
                 item["reasoning_content"] = reasoning_content
-            if message.tool_calls:
+            if replayed_tool_calls:
                 item["tool_calls"] = [
-                    to_chat_tool_call(tool_call, id_mapper=id_mapper)
-                    for tool_call in message.tool_calls
+                    to_chat_tool_call(
+                        tool_call,
+                        id_mapper=id_mapper,
+                        name_map=name_map,
+                    )
+                    for tool_call in replayed_tool_calls
                 ]
         items.append(item)
     return items
@@ -225,6 +293,7 @@ def apply_tools_kwargs(
     *,
     api_style: ProviderApiStyle,
     behavior: OpenAIAdapterBehaviorProtocol,
+    name_map: ProviderToolNameMap,
 ) -> None:
     if (
         request.tool_scope.selection.forced_name is not None
@@ -241,7 +310,11 @@ def apply_tools_kwargs(
         return
     behavior.validate_tool_choice(request)
     kwargs["tools"] = [
-        behavior.tool_payload(tool, api_style=api_style) for tool in tools
+        behavior.tool_payload(
+            name_map.to_provider_tool(tool),
+            api_style=api_style,
+        )
+        for tool in tools
     ]
     tool_choice = behavior.tool_choice_payload(request, api_style=api_style)
     if tool_choice is not None:
@@ -279,12 +352,13 @@ def to_chat_tool_call(
     tool_call: ToolCallRecord,
     *,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> dict[str, object]:
     return {
         "id": id_mapper.to_provider_id(tool_call.id),
         "type": "function",
         "function": {
-            "name": tool_call.name,
+            "name": name_map.to_provider_name(tool_call.name),
             "arguments": json.dumps(
                 tool_call.arguments,
                 ensure_ascii=False,
@@ -300,6 +374,7 @@ def to_chat_tool_result(
     behavior: OpenAIAdapterBehaviorProtocol,
     renderer: MessageContentRenderer,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> dict[str, object]:
     item: dict[str, object] = {
         "role": "tool",
@@ -307,7 +382,7 @@ def to_chat_tool_result(
         "content": tool_result_content(message, renderer=renderer),
     }
     if behavior.include_chat_tool_result_name():
-        item["name"] = message.tool_name
+        item["name"] = name_map.to_provider_name(message.tool_name)
     return item
 
 
@@ -315,11 +390,12 @@ def to_responses_function_call(
     tool_call: ToolCallRecord,
     *,
     id_mapper: ToolCallIdMapper,
+    name_map: ProviderToolNameMap,
 ) -> dict[str, object]:
     return {
         "type": "function_call",
         "call_id": id_mapper.to_provider_id(tool_call.id),
-        "name": tool_call.name,
+        "name": name_map.to_provider_name(tool_call.name),
         "arguments": json.dumps(
             tool_call.arguments,
             ensure_ascii=False,
@@ -364,6 +440,34 @@ def tool_result_content(
     if message.status is ToolResultStatus.OK:
         return text
     return f"status: {message.status.value}\n\n{text}"
+
+
+def tool_result_text(
+    message: ToolResultMessage,
+    *,
+    renderer: MessageContentRenderer,
+) -> str:
+    """Render a tool result as ordinary context when native tools are disabled."""
+
+    return (
+        f"Tool result for {message.tool_name}:\n"
+        f"{tool_result_content(message, renderer=renderer)}"
+    )
+
+
+def _complete_tool_call_ids(messages: tuple[Message, ...]) -> frozenset[str]:
+    assistant_call_ids = {
+        call.id
+        for message in messages
+        if isinstance(message, AssistantMessage)
+        for call in message.tool_calls
+    }
+    result_call_ids = {
+        message.call_id
+        for message in messages
+        if isinstance(message, ToolResultMessage)
+    }
+    return frozenset(assistant_call_ids & result_call_ids)
 
 
 def responses_role(message: Message) -> str:

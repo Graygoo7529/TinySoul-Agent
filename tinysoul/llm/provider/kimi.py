@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import re
 
 from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import AssistantMessage, Message
@@ -31,11 +30,6 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                 kind=ProviderErrorKind.CONFIG,
             )
         for tool in tools:
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", tool.name):
-                raise ProviderError(
-                    f"Invalid Kimi tool name: {tool.name}",
-                    kind=ProviderErrorKind.CONFIG,
-                )
             parameters_type = tool.parameters.get("type")
             if parameters_type != "object":
                 raise ProviderError(

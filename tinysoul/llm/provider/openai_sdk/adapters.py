@@ -32,6 +32,7 @@ from .response_parsing import (
     responses_text,
     responses_tool_calls,
 )
+from .tool_names import ProviderToolNameMap
 
 
 class OpenAIResponsesAdapter:
@@ -63,6 +64,7 @@ class OpenAIResponsesAdapter:
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         configured_options = provider_options(request.provider_options)
+        name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)
         self._behavior.apply_prompt_cache(kwargs, request)
@@ -71,12 +73,14 @@ class OpenAIResponsesAdapter:
             behavior=self._behavior,
             renderer=self._renderer,
             id_mapper=self._id_mapper,
+            name_map=name_map,
         )
         apply_tools_kwargs(
             kwargs,
             request,
             api_style=ProviderApiStyle.OPENAI_RESPONSES,
             behavior=self._behavior,
+            name_map=name_map,
         )
         if uses_native_json_output(request):
             kwargs["text"] = {"format": {"type": "json_object"}}
@@ -91,7 +95,11 @@ class OpenAIResponsesAdapter:
             answer_text=responses_text(response),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            tool_calls=responses_tool_calls(response, id_mapper=self._id_mapper),
+            tool_calls=responses_tool_calls(
+                response,
+                id_mapper=self._id_mapper,
+                name_map=name_map,
+            ),
             reasoning=self._behavior.responses_output_reasoning(response),
             usage=model_dump_mapping(get_attr(response, "usage")),
             metadata=response_metadata(response),
@@ -128,6 +136,7 @@ class OpenAICompatibleChatAdapter:
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         configured_options = provider_options(request.provider_options)
+        name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)
         self._behavior.apply_prompt_cache(kwargs, request)
@@ -136,12 +145,14 @@ class OpenAICompatibleChatAdapter:
             behavior=self._behavior,
             renderer=self._renderer,
             id_mapper=self._id_mapper,
+            name_map=name_map,
         )
         apply_tools_kwargs(
             kwargs,
             request,
             api_style=ProviderApiStyle.OPENAI_CHAT,
             behavior=self._behavior,
+            name_map=name_map,
         )
         max_output_tokens = kwargs.pop("max_output_tokens", None)
         if max_output_tokens is not None:
@@ -160,7 +171,11 @@ class OpenAICompatibleChatAdapter:
             answer_text=message_text(message),
             model_id=request.model.id,
             provider_id=self.provider_id,
-            tool_calls=chat_tool_calls(message, id_mapper=self._id_mapper),
+            tool_calls=chat_tool_calls(
+                message,
+                id_mapper=self._id_mapper,
+                name_map=name_map,
+            ),
             reasoning=self._behavior.chat_output_reasoning(message),
             usage=model_dump_mapping(get_attr(response, "usage")),
             metadata=response_metadata(response),
