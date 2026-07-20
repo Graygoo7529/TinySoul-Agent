@@ -5,7 +5,7 @@ import { useAppStore } from "../store/appStore";
 import type { SessionHistoryItem, SessionRecall } from "../types";
 import { formatTime } from "../utils/format";
 
-export function SessionPanel() {
+export function SessionView() {
   const { client } = useAppStore();
   const [items, setItems] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,40 +39,36 @@ export function SessionPanel() {
   };
 
   return (
-    <div className="workspace-layout">
-      <div className="workspace-tree">
+    <div className="session-view">
+      <div className="workspace-sidebar">
         <div className="panel h-full">
           <div className="panel-header">
             <span className="flex items-center gap-2">
               <History size={14} />
               Today&apos;s Turns
             </span>
-            <button className="btn btn-sm" onClick={() => void load()} disabled={loading}>
-              <RefreshCw size={12} className={loading ? "spin" : ""} />
+            <button className="btn btn-sm btn-ghost" onClick={() => void load()} disabled={loading}>
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
           <div className="panel-body resource-list">
             {items.length === 0 && <div className="text-muted text-xs">No turns recorded yet.</div>}
             {items.map((item) => (
-              <div
-                key={item.ref}
-                className="resource-item"
-                onClick={() => void onRecall(item.ref)}
-              >
+              <div key={item.ref} className="resource-item" onClick={() => void onRecall(item.ref)}>
                 <div className="resource-info">
                   <div className="resource-link">{item.turn_id.slice(-8)}</div>
                   <div className="resource-summary">
                     {formatTime(item.started_at)} · {item.status} · {item.summary || "No summary"}
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-muted" />
+                <ChevronRight size={14} className="text-tertiary" />
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="workspace-editor">
+      <div className="workspace-main">
         <div className="panel h-full">
           <div className="panel-header">
             <span className="flex items-center gap-2">
@@ -84,7 +80,7 @@ export function SessionPanel() {
             {recall ? (
               <textarea
                 className="textarea"
-                style={{ height: "100%", border: "none", borderRadius: 0 }}
+                style={{ height: "100%", border: "none", borderRadius: 0, background: "var(--bg)" }}
                 value={recall.text}
                 readOnly
               />

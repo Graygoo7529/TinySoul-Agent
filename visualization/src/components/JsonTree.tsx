@@ -1,7 +1,3 @@
-/**
- * A minimal read-only JSON renderer.
- */
-
 interface JsonTreeProps {
   value: unknown;
   depth?: number;

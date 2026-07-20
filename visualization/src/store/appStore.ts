@@ -14,7 +14,6 @@ import type {
   ConnectionInfo,
   EndpointEvent,
   MaintenanceDecision,
-  ObservationLevel,
   TopLinkEntry,
   WorkspaceManifest,
   WorkspaceTextRead,
@@ -57,9 +56,6 @@ export interface AppState {
 
   // UI
   activeTab: "chat" | "workspace" | "session";
-  observationMode: ObservationLevel;
-  selectedTaskId: string | null;
-  selectedTopLink: string | null;
   projectRoot: string;
 
   // Actions
@@ -76,13 +72,10 @@ export interface AppState {
   closeResource: () => void;
   setMaintenance: (maintenance: MaintenanceDecision | null) => void;
   setActiveTab: (tab: "chat" | "workspace" | "session") => void;
-  setObservationMode: (mode: ObservationLevel) => void;
-  setSelectedTaskId: (id: string | null) => void;
-  setSelectedTopLink: (link: string | null) => void;
   setProjectRoot: (root: string) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set) => ({
   connection: { status: "idle" },
   status: null,
   events: [],
@@ -92,9 +85,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   openResource: null,
   maintenance: null,
   activeTab: "chat",
-  observationMode: "verbose",
-  selectedTaskId: null,
-  selectedTopLink: null,
   projectRoot: "B:/WorkSpace/TinySoul-Agent",
 
   setConnection: (connection) => set({ connection }),
@@ -147,12 +137,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setMaintenance: (maintenance) => set({ maintenance }),
   setActiveTab: (activeTab) => set({ activeTab }),
-  setObservationMode: (observationMode) => {
-    set({ observationMode });
-    get().eventStream?.setMode(observationMode);
-  },
-  setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
-  setSelectedTopLink: (selectedTopLink) => set({ selectedTopLink }),
   setProjectRoot: (projectRoot) => set({ projectRoot }),
 }));
 

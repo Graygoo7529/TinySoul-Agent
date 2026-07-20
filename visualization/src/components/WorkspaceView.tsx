@@ -17,26 +17,17 @@ import type { TrashItem, WorkspaceResourceRecord } from "../types";
 
 const TEXT_KINDS = new Set(["text", "markdown", "script"]);
 
-export function WorkspacePanel() {
+export function WorkspaceView() {
   const store = useAppStore();
   const { workspace, workspaceLoading, workspaceError, openResource } = store;
-  const {
-    refresh,
-    readText,
-    saveText,
-    createResource,
-    deleteResource,
-    listTrash,
-    restoreResource,
-  } = useWorkspace();
+  const { refresh, readText, saveText, createResource, deleteResource, listTrash, restoreResource } =
+    useWorkspace();
 
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [newLink, setNewLink] = useState("workspace:");
   const [newContent, setNewContent] = useState("");
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
-  const [activeTreeTab, setActiveTreeTab] = useState<"resources" | "trash">(
-    "resources",
-  );
+  const [activeTab, setActiveTab] = useState<"files" | "trash">("files");
 
   useEffect(() => {
     if (store.connection.status === "connected") {
@@ -45,19 +36,14 @@ export function WorkspacePanel() {
   }, [store.connection.status]);
 
   useEffect(() => {
-    if (activeTreeTab === "trash") {
+    if (activeTab === "trash") {
       void listTrash().then(setTrashItems);
     }
-  }, [activeTreeTab, workspace?.revision]);
+  }, [activeTab, workspace?.revision]);
 
   const onSave = async () => {
     if (!openResource) return;
-    await saveText(
-      openResource.link,
-      openResource.draft,
-      true,
-      openResource.read.digest,
-    );
+    await saveText(openResource.link, openResource.draft, true, openResource.read.digest);
   };
 
   const onCreate = async () => {
@@ -72,19 +58,16 @@ export function WorkspacePanel() {
     ? {
         total: workspace.resources.length,
         size: workspace.resources.reduce((acc, r) => acc + r.size, 0),
-        byKind: workspace.resources.reduce(
-          (acc, r) => {
-            acc[r.kind] = (acc[r.kind] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>,
-        ),
+        byKind: workspace.resources.reduce((acc, r) => {
+          acc[r.kind] = (acc[r.kind] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
       }
     : null;
 
   return (
-    <div className="workspace-layout">
-      <div className="workspace-tree">
+    <div className="workspace-view">
+      <div className="workspace-sidebar">
         <div className="panel h-full">
           <div className="panel-header">
             <span className="flex items-center gap-2">
@@ -93,92 +76,68 @@ export function WorkspacePanel() {
             </span>
             <div className="flex gap-2">
               <button
-                className="btn btn-sm"
+                className="btn btn-sm btn-ghost"
                 onClick={() => void refresh()}
                 disabled={workspaceLoading}
               >
-                <RefreshCw
-                  size={12}
-                  className={workspaceLoading ? "spin" : ""}
-                />
+                <RefreshCw size={12} className={workspaceLoading ? "animate-spin" : ""} />
               </button>
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={() => setShowNewDialog(true)}
-              >
+              <button className="btn btn-sm btn-primary" onClick={() => setShowNewDialog(true)}>
                 <FilePlus size={12} />
               </button>
             </div>
           </div>
-          <div
-            className="panel-body"
-            style={{ padding: 0, display: "flex", flexDirection: "column" }}
-          >
+          <div className="panel-body" style={{ padding: 0 }}>
             {summary && (
-              <div
-                className="flex gap-2 p-3 border-b"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div className="badge badge-normal">{summary.total} files</div>
-                <div className="badge badge-normal">
-                  {formatSize(summary.size)}
-                </div>
+              <div className="flex gap-2 p-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                <span className="badge badge-subtle">{summary.total} files</span>
+                <span className="badge badge-subtle">{formatSize(summary.size)}</span>
                 {Object.entries(summary.byKind).map(([kind, count]) => (
-                  <div key={kind} className="badge badge-normal">
+                  <span key={kind} className="badge badge-subtle">
                     {kind} {count}
-                  </div>
+                  </span>
                 ))}
               </div>
             )}
-            <div className="tabs p-2">
+            <div className="tabs p-3">
               <button
-                className={`tab ${activeTreeTab === "resources" ? "active" : ""}`}
-                onClick={() => setActiveTreeTab("resources")}
+                className={`tab ${activeTab === "files" ? "active" : ""}`}
+                onClick={() => setActiveTab("files")}
               >
-                Resources
+                Files
               </button>
               <button
-                className={`tab ${activeTreeTab === "trash" ? "active" : ""}`}
-                onClick={() => setActiveTreeTab("trash")}
+                className={`tab ${activeTab === "trash" ? "active" : ""}`}
+                onClick={() => setActiveTab("trash")}
               >
                 Trash
               </button>
             </div>
-            <div
-              className="resource-list p-2"
-              style={{ flex: 1, overflowY: "auto" }}
-            >
-              {workspaceError && (
-                <div className="text-danger text-xs">{workspaceError}</div>
+            <div className="resource-list p-2" style={{ flex: 1, overflowY: "auto" }}>
+              {workspaceError && <div className="text-danger text-xs">{workspaceError}</div>}
+              {activeTab === "files" && workspace?.resources.length === 0 && (
+                <div className="text-muted text-xs p-2">Workspace is empty.</div>
               )}
-              {activeTreeTab === "resources" &&
-                workspace?.resources.length === 0 && (
-                  <div className="text-muted text-xs">Workspace is empty.</div>
-                )}
-              {activeTreeTab === "resources" &&
+              {activeTab === "files" &&
                 workspace?.resources.map((resource) => (
                   <ResourceItem
                     key={resource.link}
                     resource={resource}
                     active={openResource?.link === resource.link}
                     onOpen={() => void readText(resource.link)}
-                    onDelete={() =>
-                      void deleteResource(resource.link, resource.digest || "")
-                    }
+                    onDelete={() => void deleteResource(resource.link, resource.digest || "")}
                   />
                 ))}
-              {activeTreeTab === "trash" && trashItems.length === 0 && (
-                <div className="text-muted text-xs">Trash is empty.</div>
+              {activeTab === "trash" && trashItems.length === 0 && (
+                <div className="text-muted text-xs p-2">Trash is empty.</div>
               )}
-              {activeTreeTab === "trash" &&
+              {activeTab === "trash" &&
                 trashItems.map((item) => (
                   <TrashItemRow
                     key={item.ref}
                     item={item}
                     onRestore={() =>
-                      void restoreResource(item.ref).then(
-                        () => void listTrash().then(setTrashItems),
-                      )
+                      void restoreResource(item.ref).then(() => void listTrash().then(setTrashItems))
                     }
                   />
                 ))}
@@ -187,7 +146,7 @@ export function WorkspacePanel() {
         </div>
       </div>
 
-      <div className="workspace-editor">
+      <div className="workspace-main">
         <div className="panel h-full">
           <div className="panel-header">
             <span className="flex items-center gap-2">
@@ -195,10 +154,10 @@ export function WorkspacePanel() {
               {openResource ? openResource.link : "Select a resource"}
             </span>
             {openResource && (
-              <div className="flex gap-2">
+              <div className="flex items-center gap-3">
                 <span className="text-xs text-muted">
-                  {formatSize(openResource.read.size)} ·{" "}
-                  {shorten(openResource.read.digest)}
+                  {formatSize(openResource.read.size)} · {shorten(openResource.read.digest)}
+                  {openResource.dirty && <span className="badge badge-accent ml-2">modified</span>}
                 </span>
                 <button
                   className="btn btn-sm btn-primary"
@@ -215,7 +174,7 @@ export function WorkspacePanel() {
             {openResource ? (
               <textarea
                 className="textarea"
-                style={{ height: "100%", border: "none", borderRadius: 0 }}
+                style={{ height: "100%", border: "none", borderRadius: 0, background: "var(--bg)" }}
                 value={openResource.draft}
                 onChange={(e) => store.updateResourceDraft(e.target.value)}
                 spellCheck={false}
@@ -225,7 +184,7 @@ export function WorkspacePanel() {
                 <div className="empty-state-icon">
                   <FolderOpen size={48} />
                 </div>
-                <div>Select a resource from the tree to view or edit.</div>
+                <div>Select a resource from the sidebar to view or edit.</div>
               </div>
             )}
           </div>
@@ -235,9 +194,7 @@ export function WorkspacePanel() {
       {showNewDialog && (
         <div
           className="modal-overlay"
-          onClick={(e) =>
-            e.target === e.currentTarget && setShowNewDialog(false)
-          }
+          onClick={(e) => e.target === e.currentTarget && setShowNewDialog(false)}
         >
           <div className="modal">
             <div className="modal-header">New Workspace Resource</div>
@@ -287,19 +244,11 @@ interface ResourceItemProps {
   onDelete: () => void;
 }
 
-function ResourceItem({
-  resource,
-  active,
-  onOpen,
-  onDelete,
-}: ResourceItemProps) {
-  const isText =
-    TEXT_KINDS.has(resource.kind) || resource.media_type.startsWith("text/");
+function ResourceItem({ resource, active, onOpen, onDelete }: ResourceItemProps) {
+  const isText = TEXT_KINDS.has(resource.kind) || resource.media_type.startsWith("text/");
   return (
     <div className={`resource-item ${active ? "active" : ""}`} onClick={onOpen}>
-      <span className="text-muted">
-        {isText ? <FileText size={14} /> : <ImageIcon size={14} />}
-      </span>
+      <span className="resource-icon">{isText ? <FileText size={16} /> : <ImageIcon size={16} />}</span>
       <div className="resource-info">
         <div className="resource-link" title={resource.link}>
           {resource.link}
@@ -310,7 +259,7 @@ function ResourceItem({
       </div>
       <div className="resource-actions">
         <button
-          className="btn btn-sm btn-danger"
+          className="btn btn-sm btn-danger btn-icon"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
@@ -324,17 +273,11 @@ function ResourceItem({
   );
 }
 
-function TrashItemRow({
-  item,
-  onRestore,
-}: {
-  item: TrashItem;
-  onRestore: () => void;
-}) {
+function TrashItemRow({ item, onRestore }: { item: TrashItem; onRestore: () => void }) {
   return (
     <div className="resource-item">
-      <span className="text-muted">
-        <Trash2 size={14} />
+      <span className="resource-icon">
+        <Trash2 size={16} />
       </span>
       <div className="resource-info">
         <div className="resource-link" title={item.link}>
@@ -345,7 +288,7 @@ function TrashItemRow({
         </div>
       </div>
       <div className="resource-actions" style={{ opacity: 1 }}>
-        <button className="btn btn-sm" onClick={onRestore} title="Restore">
+        <button className="btn btn-sm btn-ghost btn-icon" onClick={onRestore} title="Restore">
           <RotateCcw size={12} />
         </button>
       </div>

@@ -1,0 +1,41 @@
+import { MessageSquare, FolderOpen, History, Settings } from "lucide-react";
+
+import { useAppStore } from "../store/appStore";
+import type { AppTab } from "../types";
+
+const ITEMS: { id: AppTab; label: string; icon: React.ElementType }[] = [
+  { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "workspace", label: "Files", icon: FolderOpen },
+  { id: "session", label: "History", icon: History },
+];
+
+export function Sidebar() {
+  const { activeTab, setActiveTab, connection } = useAppStore();
+  const disabled = connection.status !== "connected";
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-logo">TS</div>
+      {ITEMS.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            className={`sidebar-item ${activeTab === item.id ? "active" : ""}`}
+            onClick={() => setActiveTab(item.id)}
+            disabled={disabled}
+            title={item.label}
+          >
+            <Icon size={20} />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+      <div style={{ flex: 1 }} />
+      <button className="sidebar-item" title="Settings">
+        <Settings size={20} />
+        <span>Settings</span>
+      </button>
+    </aside>
+  );
+}

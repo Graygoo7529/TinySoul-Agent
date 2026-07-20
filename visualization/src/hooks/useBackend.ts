@@ -1,7 +1,9 @@
 /**
  * Hook that wires the Tauri sidecar command, HTTP client, and WebSocket
- * event stream into the app store. It exposes a single `start(projectRoot)`
- * action and reacts to observation mode changes.
+ * event stream into the app store.
+ *
+ * The event stream always subscribes at `model` level so the UI has the full
+ * execution context available for progressive disclosure in the chat view.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -10,7 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 import { useAppStore } from "../store/appStore";
-import type { ConnectionInfo, EndpointEvent } from "../types";
+import type { ConnectionInfo } from "../types";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -40,7 +42,7 @@ export function useBackend() {
         const stream = new TinySoulEventStream(
           info,
           status.latest_event_sequence,
-          store.observationMode,
+          "model",
           {
             onMessage: (msg) => {
               if (msg.type === "events") {
@@ -118,71 +120,5 @@ export function useBackend() {
     };
   }, [store.connection.status, store.client, store.setStatus]);
 
-  // Re-subscribe the event stream when observation mode changes.
-  useEffect(() => {
-    store.eventStream?.setMode(store.observationMode);
-  }, [store.observationMode, store.eventStream]);
-
   return { start, stop };
-}
-
-/**
- * Group events into turns for the chat view.
- */
-export interface TurnGroup {
-  turnId: string;
-  events: EndpointEvent[];
-  startedAt?: number;
-  output?: string;
-  status?: string;
-}
-
-export function useTurnGroups(events: EndpointEvent[]): TurnGroup[] {
-  const groups = new Map<string, EndpointEvent[]>();
-  for (const ev of events) {
-    const turnFrame = ev.scope.find((f) => f.level === "turn");
-    const turnId = turnFrame?.name ?? "global";
-    const list = groups.get(turnId) ?? [];
-    list.push(ev);
-    groups.set(turnId, list);
-  }
-
-  return Array.from(groups.entries())
-    .map(([turnId, evs]) => {
-      evs.sort((a, b) => a.sequence - b.sequence);
-      const started = evs.find((e) => e.name === "turn.started");
-      const output = evs.find((e) => e.name === "turn.output");
-      const terminal = evs.find((e) =>
-        [
-          "turn.answered",
-          "turn.exhausted",
-          "turn.stopped",
-          "turn.failed",
-        ].includes(e.name),
-      );
-      return {
-        turnId,
-        events: evs,
-        startedAt: started?.created_at,
-        output: output
-          ? String(output.payload?.text || output.message)
-          : undefined,
-        status: terminal?.name.replace("turn.", ""),
-      };
-    })
-    .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
-}
-
-/**
- * Collect LLM task IDs visible in the event stream.
- */
-export function useTaskIds(events: EndpointEvent[]): string[] {
-  const ids = new Set<string>();
-  for (const ev of events) {
-    const taskId = ev.payload?.task_id;
-    if (taskId && typeof taskId === "string") {
-      ids.add(taskId);
-    }
-  }
-  return Array.from(ids);
 }

@@ -1,23 +1,15 @@
 import { useEffect } from "react";
 
-import { Layout } from "./components/Layout";
-import { ChatPanel } from "./components/ChatPanel";
-import { WorkspacePanel } from "./components/WorkspacePanel";
-import { SessionPanel } from "./components/SessionPanel";
+import { AppShell } from "./components/AppShell";
+import { ChatView } from "./components/ChatView";
+import { WorkspaceView } from "./components/WorkspaceView";
+import { SessionView } from "./components/SessionView";
 import { MaintenanceDialog } from "./components/MaintenanceDialog";
 import { useBackend } from "./hooks/useBackend";
 import { useAppStore } from "./store/appStore";
 
 function AppContent() {
-  const {
-    activeTab,
-    connection,
-    status,
-    setMaintenance,
-    projectRoot,
-    setProjectRoot,
-  } = useAppStore();
-  const { start } = useBackend();
+  const { activeTab, connection, status, setMaintenance } = useAppStore();
 
   // Poll maintenance decisions.
   useEffect(() => {
@@ -36,45 +28,55 @@ function AppContent() {
   }, [status?.maintenance_decision_pending, connection.info, setMaintenance]);
 
   if (connection.status !== "connected") {
-    return (
-      <div className="empty-state">
-        <div className="empty-state-icon">⚡</div>
-        <h2>TinySoul is not running</h2>
-        <p className="text-muted mt-1">
-          Start the local backend to view the conversation and workspace.
-        </p>
-        {connection.status === "error" && (
-          <p className="text-danger text-xs mt-2 max-w-md">
-            {connection.error}
-          </p>
-        )}
-        <div className="flex flex-col gap-2 mt-4 w-full max-w-md">
-          <label className="text-xs text-muted text-left">Project root</label>
-          <input
-            className="input"
-            value={projectRoot}
-            onChange={(e) => setProjectRoot(e.target.value)}
-            disabled={connection.status === "connecting"}
-          />
-          <button
-            className="btn btn-primary"
-            onClick={() => void start(projectRoot)}
-            disabled={connection.status === "connecting"}
-          >
-            Start Backend
-          </button>
-        </div>
-      </div>
-    );
+    return <DisconnectedScreen />;
   }
 
   return (
     <>
-      {activeTab === "chat" && <ChatPanel />}
-      {activeTab === "workspace" && <WorkspacePanel />}
-      {activeTab === "session" && <SessionPanel />}
+      {activeTab === "chat" && <ChatView />}
+      {activeTab === "workspace" && <WorkspaceView />}
+      {activeTab === "session" && <SessionView />}
       <MaintenanceDialog />
     </>
+  );
+}
+
+function DisconnectedScreen() {
+  const { connection, projectRoot, setProjectRoot } = useAppStore();
+  const { start } = useBackend();
+
+  return (
+    <div className="empty-state">
+      <div className="empty-state-icon">
+        <span style={{ fontSize: 56 }}>⚡</span>
+      </div>
+      <h2 style={{ margin: "0 0 8px", color: "var(--text)" }}>
+        TinySoul is not running
+      </h2>
+      <p className="text-sm">
+        Start the local backend to view the conversation, workspace, and session
+        history.
+      </p>
+      {connection.status === "error" && (
+        <p className="text-danger text-xs mt-2 max-w-md">{connection.error}</p>
+      )}
+      <div className="flex flex-col gap-2 mt-4 w-full max-w-md">
+        <label className="text-xs text-muted text-left">Project root</label>
+        <input
+          className="input"
+          value={projectRoot}
+          onChange={(e) => setProjectRoot(e.target.value)}
+          disabled={connection.status === "connecting"}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={() => void start(projectRoot)}
+          disabled={connection.status === "connecting"}
+        >
+          Start Backend
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -83,12 +85,12 @@ function App() {
   const { projectRoot } = useAppStore();
 
   return (
-    <Layout
+    <AppShell
       onStart={() => void start(projectRoot)}
       onStop={() => void stop(false)}
     >
       <AppContent />
-    </Layout>
+    </AppShell>
   );
 }
 
