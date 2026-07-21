@@ -1,5 +1,13 @@
 # TinySoul Desktop Endpoint Frontend Integration
 
+> 本文件以已经实现的后端为事实源，描述 `Backend -> Endpoint -> Frontend` 的稳定接入契约，不作为前端完成记录。当前前端尚未闭环的消费行为由 `visualization/docs/plans/20260721-plan-endpoint-frontend-consistency.md` 跟踪。
+
+## 契约层级
+
+1. **Backend owner**：AppCommandGateway 统一接收 Terminal 与 Endpoint 命令；WorkspaceEngine、SessionEngine、DailyLifecycleCoordinator、Program/Loop、Context 和 LLM 各自拥有业务状态与事件语义；ObservationRouter 负责按 sink level 扇出旁路事件。
+2. **Endpoint adapter**：EndpointEngine 复用同一 Gateway 和业务 Engine，在 Daily active-day lease 内提供 REST facade；authenticated loopback HTTP/WebSocket 只负责协议校验、错误映射与有界 Observation replay，不建立第二份业务状态或控制流。
+3. **Frontend consumer**：前端把 REST 投影视为持久业务事实，把 Observation 视为有序的运行时通知与临时执行轨迹；前端不得直接读取业务目录，也不得从事件反向重建或提交后端状态。
+
 ## 技术选择
 
 桌面壳使用 **Tauri 2 + React + TypeScript**。Tauri 只负责窗口和读取 App-owned 连接描述；它不启动、持有或停止 Python 进程。React 不直接使用 Tauri filesystem API 访问 `runtime/workspace`、Session、Home 或 Memory。
@@ -37,12 +45,13 @@ tinysoul start --root <project-root> --mode normal
 
 ## 鉴权与通用规则
 
-基址为 `http://127.0.0.1:<port>`。除 `GET /v1/health` 外，所有 HTTP 请求都必须携带：
+基址为 `http://127.0.0.1:<port>`。除 `GET /v1/health` 和 CORS `OPTIONS` 外，所有 HTTP 请求都必须携带：
 
 ```http
 Authorization: Bearer <token>
-Content-Type: application/json
 ```
+
+带 JSON body 的请求使用 `Content-Type: application/json`；`PUT /v1/workspace/blob` 使用 `application/octet-stream`；GET 请求不要求 Content-Type。当前 Endpoint 会在解析 body 前拒绝声明的 `Content-Length` 超过 `max_request_bytes` 的请求，blob facade 还会校验实际 bytes 长度。调用方必须发送准确的 Content-Length；该限制不应被表述为对缺少 Content-Length 的流式传输提供硬配额。
 
 HTTP 错误统一为：
 
@@ -58,7 +67,7 @@ HTTP 错误统一为：
 
 - `401`：token 缺失或错误；
 - `409`：Program 尚未完成 active-day 初始化、Maintenance decision 待处理、控制与当前状态冲突，或 Workspace revision/digest 过期；
-- `413`：请求超过 Endpoint body 上限；
+- `413`：声明的请求长度超过 Endpoint body 上限，或 Workspace blob 实际长度超过上限；
 - `422`：请求 schema 或 Session recall 参数无效；
 - `500`：模块 I/O 或内部失败，正文不暴露绝对路径、traceback 或原始异常。
 
@@ -84,7 +93,13 @@ HTTP 错误统一为：
 {"accepted": true, "command_id": "command_123", "kind": "start_turn", "state": "queued"}
 ```
 
-空闲时输入进入新的 User Turn；Turn 活跃时追加到当前 Turn。`app.command.accepted` 是跨 Terminal/前端同步用户输入的权威事件，`turn.started.payload.request_id` 把初始输入关联到实际 Turn。Maintenance decision pending 时返回 `409 maintenance.decision_required`，普通文本不会解决 decision。
+`command_id` 可省略或传空字符串，此时由后端生成；非空值不得超过 128 个字符。该入口使用与 Terminal 相同的 `InputCommandParser`：
+
+- 普通输入在空闲时进入新的 User Turn，在 Turn 活跃时追加到当前 Turn；
+- `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]` 排入 Program Maintenance；
+- App 配置中的退出命令会请求退出 Program；Turn 活跃时，配置中的停止命令会请求停止当前 Turn。
+
+因此 `/v1/input` 是统一命令入口，而不是保证把任意字符串都当作对话正文的 raw-text API。明确的 UI 按钮仍应使用 `/v1/control` 和 `/v1/maintenance` typed API，避免在前端复制命令解析规则。`app.command.accepted/rejected` 是跨 Terminal/前端同步命令的权威事件，`turn.started.payload.request_id` 把初始输入关联到实际 Turn。Maintenance decision pending 时所有 Endpoint user input 返回 `409 maintenance.decision_required`；`apply/discard/stop` 只能通过带 `decision_id` 的 typed decision API 解决，不由该入口解释。
 
 ### 控制
 
@@ -108,15 +123,17 @@ HTTP 补拉：
 GET /v1/events?after=0&mode=model&limit=200
 ```
 
-响应包含 `events`、`next_sequence` 和 `gap`。`gap=true` 表示 `after` 早于内存 replay window，前端应清空临时执行视图，并通过 status、Session、Workspace REST 重新取得权威投影。
+响应包含 `events`、`next_sequence` 和 `gap`。`gap=true` 表示 `after` 早于内存 replay window。Endpoint 只报告缺口，不为前端维护恢复 checkpoint；前端应清空 event-derived 临时执行视图，并重新读取自己缓存或正在展示的 REST 权威投影，包括 status、Maintenance、Workspace，以及已加载的 Session history。
 
 WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 
 ```json
-{"token": "...", "after": 120, "mode": "model"}
+{"token": "...", "after": 0, "mode": "model"}
 ```
 
-首次连接使用 `after=0`，以免跳过启动 Maintenance 提示。认证成功帧包含 instance/project identity；随后收到 `events` page 或 `heartbeat`。断线重连使用客户端最后提交到 store 的 sequence。raw store 以 `(instance_id, sequence)` 去重；gap 后清理临时执行视图，并重新读取 Maintenance、Session 和 Workspace 权威投影。
+首次连接使用 `after=0`，以免跳过启动 Maintenance 提示。认证成功帧包含 instance/project identity；随后收到 `events` page 或 `heartbeat`。每个 authenticated instance 拥有独立 sequence 空间：前端先按 `instance_id` 隔离或清空 store，再在同一 instance 内按 sequence 排序、去重和续传，不能把不同进程的相同 sequence 当作同一事件。断线重连使用最后成功提交到当前 instance store 的 sequence。
+
+Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapshot。发生 gap 时，窗口外的这部分临时事实无法恢复；前端必须将执行视图标记为不完整，直到后续事件或下一次 `context.background.snapshot` 建立新基线，不能伪造连续轨迹。Workspace 编辑草稿属于本地未提交状态，gap 恢复不得清除它。
 
 事件 envelope：
 
@@ -144,9 +161,9 @@ WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 - verbose：`turn.started`、`loop.phase.started/completed`、`llm.task.started/completed/failed`、`action.call`、`action.result`、`context.background.snapshot/changed`；
 - model：`llm.model.request/response`。同一次 LLM Task 的全部事件都带相同 `payload.task_id`；request 中的 `messages` 和 `tools` 是完整 provider-neutral 构造结果。
 
-`context.background.*.payload.entries` 包含当前 top link、content、source、owner 和 evictable，可直接驱动 Top Link 面板。MODEL 事件不含图片原始字节、provider 原始响应、reasoning content、密钥或绝对路径。
+`context.background.*.payload.entries` 包含当前 top link、content、source、owner 和 evictable，可直接驱动 Top Link 面板。MODEL payload 执行结构化裁剪：图片原始字节替换为大小/MIME/digest，远程图片 URL 去除凭证、query 和 fragment，reasoning content 与 provider 原始 payload 不输出。普通 text、JSON part、tool arguments、模型 answer 和归一化 response metadata 会按 provider-neutral 结构保留，因此仍可能包含用户提交的密钥、绝对路径或其它敏感业务文本；可信本地前端不得把 MODEL 事件写入持久 store、日志或遥测。
 
-`workspace.changed` 是 Manifest cache 的失效通知，payload 为：`operation`、`day`、`previous_revision`、`revision`、`links`、`created_links`、`updated_links`、`removed_links`；只有单个 affected link 时兼容字段 `link` 才非空。operation 当前包括 `initialize`、`reconcile`、`describe`、`write`、`bundle`、`patch`、`trash`、`restore`。该事件由 WorkspaceEngine 在最终成功提交后发布，因此 UI mutation、Agent action、Capability bundle 和公开 reconcile 都使用同一事件；失败、回滚和内部中间 reconciliation 不产生通知。
+`workspace.changed` 是 Manifest cache 的失效通知，payload 为：`operation`、`day`、`previous_revision`、`revision`、`links`、`created_links`、`updated_links`、`removed_links`；只有单个 affected link 时兼容字段 `link` 才非空。operation 当前包括 `initialize`、`reconcile`、`describe`、`write`、`bundle`、`patch`、`trash`、`restore`。该事件由 WorkspaceEngine 在最终成功提交后发布，因此 UI mutation、Agent action、Capability bundle 和公开 reconcile 都使用同一事件；失败、回滚和内部中间 reconciliation 不产生通知。前端必须比较 event day/revision 与本地 Manifest：本地投影落后时重新读取 Manifest，但不得用刷新结果覆盖未提交的编辑草稿。
 
 ## Session 接口
 
@@ -190,7 +207,7 @@ Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写�
 
 删除是可恢复 Trash move，不提供直接物理删除。收到 `workspace.conflict` 时保留用户编辑缓冲，重新拉取 Manifest/正文，再由用户决定合并或覆盖，不能自动用新 digest 重试旧正文。
 
-Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；Agent action 通过既有 Workspace action projection 同步 Context。`workspace.changed` 经 ObservationRouter 同时分发到已配置的 Console 与 Endpoint event buffer，不是直接写入 WebSocket buffer。前端把该事件作为失效通知：若响应中的 Manifest 尚未覆盖事件的 revision/day，则重新读取 Manifest；sequence gap 时同样回到 Manifest 权威投影，不尝试从事件增量重建完整状态。
+Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agent action 共享同一个 WorkspaceEngine。UI mutation 在活跃 Turn 中还会发布完整 Workspace snapshot；Agent action 通过既有 Workspace action projection 同步 Context。`workspace.changed` 经 ObservationRouter 同时分发到已配置的 Console 与 Endpoint event buffer，不是直接写入 WebSocket buffer。事件只负责失效通知：前端通过 Manifest REST 收敛，不从事件增量重建完整 Workspace；sequence gap 时遵循同一规则。
 
 ## Maintenance
 
