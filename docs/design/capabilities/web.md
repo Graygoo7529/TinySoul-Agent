@@ -27,7 +27,9 @@ Kimi 最终响应先完整校验为 canonical `answer/results`，不在 normaliz
 
 Kimi Search worker 只获得专用搜索密钥和运行所需的最小进程环境，不继承其它 LLM provider 凭据。provider builtin-function 协议被隔离在 worker 动态边界，供应商协议变化不得扩散到 TinySoul LLM 或 Action 核心。
 
-Kimi builtin tool round 以 `finish_reason=tool_calls`、精确 `$web_search` 名称、非空 call id 和字符串 arguments 共同校验。官方 `builtin_function` 与端点/SDK 可能对同一 `$web_search` 产生的普通 `function` 归一化都可接受，但不能因此接受其它 function。每轮完整 assistant JSON 原样回放，保留存在时的 `reasoning_content` 和供应商扩展字段；tool result 使用供应商返回的原始 arguments 字符串，只另外解析副本执行 JSON 与 search token 上限检查。已知不兼容 `$web_search` thinking 的 K2.5/K2.6 请求显式关闭 thinking，其他模型不增加该 provider option。
+Kimi builtin tool round 以 `finish_reason=tool_calls`、精确 `$web_search` 名称、非空 call id 和字符串 arguments 共同校验。官方 `builtin_function` 与端点/SDK 可能对同一 `$web_search` 产生的普通 `function` 归一化都可接受，但不能因此接受其它 function。每轮完整 assistant JSON 原样回放，保留存在时的 `reasoning_content` 和供应商扩展字段；tool result 使用供应商返回的原始 arguments 字符串，只另外解析副本执行 JSON 与 search token 上限检查。
+
+Kimi Search 的 capability-owned 执行契约固定为非思考搜索，默认模型为 `kimi-k2.6`。worker 的每一轮 provider 请求都显式发送 `thinking={type=disabled}`，不根据模型名在运行时猜测是否关闭；配置边界只接受已知支持该参数的 `kimi-k2.5` 与 `kimi-k2.6` 精确标识，并拒绝始终推理或兼容性未知的模型。`model` 仍保留为 capability 配置，不与 TinySoul `[llm]` 的 Kimi 模型选择或 reasoning 策略联动。该约束是 Search 对成本、延迟和协议形态的稳定选择，不声称 K2.6 永远不能在 thinking 模式使用 `$web_search`。
 
 动态协议失败可以从 worker 返回有界 shape facts，例如 call type、function/name/arguments 是否存在、是否携带 reasoning content；宿主只允许这些字段和稳定 error type 穿过 subprocess 边界。原始 provider response、arguments、reasoning 正文、密钥与 traceback 始终不得进入 ActionResult 或 Trace。模型可见的失败处置语义仍由 Web Action 单独定义，不由 worker 或通用 Action 核心推断。
 

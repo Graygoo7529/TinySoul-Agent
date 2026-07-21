@@ -56,6 +56,10 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     )["llm"]["models"]
     assert models["kimi_k2_7"]["provider_model"] == "kimi-for-coding-highspeed"
     assert models["kimi_k3"]["provider_model"] == "k3"
+    web = tomllib.loads(
+        (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
+    )["capabilities"]["web"]
+    assert web["search_by_kimi"]["model"] == "kimi-k2.6"
 
 
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(

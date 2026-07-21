@@ -15,6 +15,8 @@ DEFAULT_MAX_EXCERPT_CHARS = 600
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_REDIRECTS = 5
 DEFAULT_USER_AGENT = "TinySoul-Agent/0.1"
+DEFAULT_KIMI_SEARCH_MODEL = "kimi-k2.6"
+_KIMI_SEARCH_NO_THINKING_MODELS = frozenset({"kimi-k2.5", "kimi-k2.6"})
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,7 @@ class KimiSearchSettings:
     enabled: bool = False
     base_url: str = "https://api.moonshot.cn/v1"
     api_key_env: str = "KIMI_SEARCH_API_KEY"
-    model: str = "kimi-k3"
+    model: str = DEFAULT_KIMI_SEARCH_MODEL
     max_query_chars: int = 4_000
     max_result_chars: int = 100_000
     max_inline_chars: int = 12_000
@@ -44,6 +46,13 @@ class KimiSearchSettings:
             _non_empty_string(
                 getattr(self, name),
                 key=f"capabilities.web.search_by_kimi.{name}",
+            )
+        if self.model not in _KIMI_SEARCH_NO_THINKING_MODELS:
+            raise ConfigError(
+                "Kimi Search model does not support the required no-thinking protocol",
+                key="capabilities.web.search_by_kimi.model",
+                value=self.model,
+                expected="kimi-k2.5 or kimi-k2.6",
             )
         for name in (
             "max_query_chars",

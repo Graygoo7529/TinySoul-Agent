@@ -18,12 +18,12 @@
 
 ### Kimi builtin search
 
-- 当前 Web capability 使用独立 `kimi-k3`、`https://api.moonshot.cn/v1` 和 `$web_search` builtin-function loop，不复用 TinySoul LLM provider。
+- 当前 Web capability 使用独立 `kimi-k2.6`、`https://api.moonshot.cn/v1` 和 `$web_search` builtin-function loop，不复用 TinySoul LLM provider。
 - 官方文档仍以 `type=builtin_function`、`name=$web_search` 表达内置搜索，并要求把 assistant tool-call 消息与匹配的 tool result 完整回放。
-- 官方 K2.6 文档额外要求多轮工具调用保留 `reasoning_content`，并声明 thinking 模式暂不兼容 `$web_search`。当前项目使用 `kimi-k3`，不能把 K2.6 约束直接硬编码为所有模型规则，但 worker 必须保留供应商返回的扩展字段。
+- 官方 Web Search 页与 K2.6 参数页对 thinking 搜索的当前兼容性描述存在版本差异，但二者都确认 K2.5/K2.6 支持显式非思考模式；K3 则始终推理。TinySoul 因此把“搜索不使用 thinking”定义为 capability-owned 稳定契约，而不是根据供应商页面状态动态切换。
 - 本地 `openai 2.36.0` 的标准 ChatCompletion tool-call 类型只稳定声明普通 `function`/`custom` 形态。真实运行却收到了可被 SDK 构造、但 `call.type != function` 的 Kimi builtin call。因此 Kimi worker 不能依赖标准 OpenAI tool-call 静态类型解释供应商扩展协议。
-- 当前 worker 已把完整 assistant message 追加到下一轮，但随后通过标准 typed call 读取并只接受 `call.type == function`；这是此次 `unsupported tool call shape` 的直接代码原因。
-- worker failure response 包含稳定 `reason`，但 Web Action 当前把 failure facts 放在 `frame_data`，模型可见 ActionResult 只有 feedback 字符串，无法明确区分同配置可重试与不可重试失败。
+- 真实记录发生时的 worker 已把完整 assistant message 追加到下一轮，但随后通过标准 typed call 读取并只接受 `call.type == function`；这是此次 `unsupported tool call shape` 的直接代码原因。
+- 当时的 worker failure response 包含稳定 `reason`，但 Web Action 把 failure facts 放在 `frame_data`，模型可见 ActionResult 只有 feedback 字符串，无法明确区分同配置可重试与不可重试失败。
 
 ### Workspace rewrite
 
@@ -77,8 +77,10 @@
 3. assistant message 必须原样保留所有供应商扩展字段并进入下一轮，包括存在时的 `reasoning_content`。不得自行重建为仅含 content/tool_calls 的缩减消息。
 4. tool result 的 `content` 使用供应商返回的原始 arguments 字符串；可以另外解析一份 JSON 用于 search token 上限校验，但不能把重新序列化后的 JSON 当作协议回放正文。
 5. 不在本轮迁移 Formula/Fiber `moonshot/web-search:latest`。该协议与 `$web_search` 不同，且官方文档仍声明联网搜索处于升级状态；若未来采用，应新增清晰 action/provider adapter，而不是在现有 worker 中增加模式分支。
-6. K2.6 thinking 约束按配置的实际 model 做显式校验；不能因当前项目使用 `kimi-k3` 而增加无意义字段，也不能允许已知不兼容组合启动后反复失败。
+6. Search 默认与当前项目统一使用 `kimi-k2.6`，worker 每轮请求都显式关闭 thinking；配置边界只接受支持非思考模式的 `kimi-k2.5` 与 `kimi-k2.6` 精确标识，不能让 K3 或兼容性未知的模型进入运行时再失败。该规则不改变通用 `[llm]` 的 Kimi reasoning 配置。
 7. worker 协议错误只返回有界、无敏感信息的 shape facts，例如 call type、是否存在 function/name/arguments、是否存在 reasoning content；不返回原始响应、搜索内容、密钥或 traceback。
+
+后续配置一致性修复已完成：`KimiSearchSettings` 无配置默认值、当前项目配置和 `tinysoul init` 模板统一为 `kimi-k2.6`；worker 移除按模型名前缀决定请求参数的分支，所有 `$web_search` round 固定关闭 thinking；真实 API smoke 改为加载项目 effective capability 配置，不再手工构造另一套测试设置。
 
 ### Stage 2：提供 capability-owned 失败处置语义
 
@@ -160,7 +162,7 @@ Shell domain HOW 保持显式 apply/discard 协议，并补充：apply 成功是
 7. Web Action 模型反馈包含稳定 reason/disposition，trace 保留有界诊断；
 8. `workspace.write`、`workspace.rewrite` 为 90 秒，其他 Workspace action 保持原边界；
 9. package Home 与项目 Home 的 core/HOW 内容一致，wheel 和 `tinysoul init` 包含对应文件；
-10. opt-in 真实 Kimi search smoke 使用当前配置完成 answer/results；
+10. opt-in 真实 Kimi search smoke 加载当前 effective capability 配置，确认 `kimi-k2.6` 在无 thinking 请求下完成 answer/results；
 11. 使用与 `turn_f5a4d54c` 相同目标的真实 App smoke，在 20 Cycle 上限内完成资料获取、修改、必要验证和唯一 `core.answer`，且不重复相同稳定失败。
 
 实现完成后运行完整 pytest、类型检查、wheel 构建和隔离安装验证。
@@ -209,7 +211,7 @@ LLM/Action/Workspace/Script/Loop/Home 聚焦测试、wheel 构建与隔离初始
 
 分组回归同时稳定暴露了 Workspace-owned mutation 的既有 metadata 缺陷：同长度文本在文件系统时间戳粒度内快速原子替换时，普通 reconciliation 可能按相同 size/mtime 复用旧 digest。修复在 mutation 所有权边界把明确写入的 Link 传给 Reconciler 强制重算 digest；普通外部 scan 保留缓存优化。新增测试固定保留旧 `mtime_ns` 并验证 patch 返回/Manifest digest 绑定新字节，Workspace 全模块与状态模块整组均通过。这保证文本工件成功 ActionResult 返回的 metadata 是真实提交事实。
 
-Stage 5 中 opt-in 真实 Kimi 与真实 App smoke 仍需独立外部环境验证；本地回归不替代真实供应商验收。
+Stage 5 中 Kimi 默认值、非思考请求参数、模型兼容性拒绝和初始化模板已有本地回归；opt-in 真实 Kimi 与真实 App smoke 仍需独立外部环境验证，本地回归不替代真实供应商验收。
 
 ## 明确不做
 

@@ -71,7 +71,6 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
             "web": {
                 "search_by_kimi": {
                     "enabled": True,
-                    "model": "kimi-k3",
                     "max_output_tokens": 4_096,
                 },
                 "fetch_with_defuddle": {"enabled": True},
@@ -82,6 +81,7 @@ def test_web_config_parses_independent_kimi_search_and_fetch_actions() -> None:
 
     assert settings.search_by_kimi.enabled is True
     assert settings.search_by_kimi.api_key_env == "KIMI_SEARCH_API_KEY"
+    assert settings.search_by_kimi.model == "kimi-k2.6"
     assert settings.search_by_kimi.max_output_tokens == 4_096
     assert settings.fetch_with_defuddle.enabled is True
     assert settings.fetch_with_trafilatura.enabled is False
@@ -94,6 +94,26 @@ def test_web_config_rejects_obsolete_search_mode() -> None:
         )
 
     assert error.value.key == "capabilities.web.search_by_kimi.mode"
+
+
+def test_web_config_accepts_supported_no_thinking_kimi_model() -> None:
+    settings = parse_capabilities_settings(
+        {"web": {"search_by_kimi": {"model": "kimi-k2.5"}}}
+    ).web
+
+    assert settings.search_by_kimi.model == "kimi-k2.5"
+
+
+@pytest.mark.parametrize("model", ["kimi-k3", "kimi-k2.6-preview"])
+def test_web_config_rejects_kimi_model_without_no_thinking_protocol(
+    model: str,
+) -> None:
+    with pytest.raises(ConfigError) as error:
+        parse_capabilities_settings(
+            {"web": {"search_by_kimi": {"model": model}}}
+        )
+
+    assert error.value.key == "capabilities.web.search_by_kimi.model"
 
 
 def test_enabled_kimi_search_requires_independent_credential() -> None:
@@ -281,12 +301,10 @@ def test_kimi_tool_round_rejects_missing_required_fields(
         _parse_kimi_tool_round(assistant)
 
 
-def test_kimi_search_disables_thinking_only_for_incompatible_models() -> None:
-    disabled = {"extra_body": {"thinking": {"type": "disabled"}}}
-
-    assert _kimi_search_request_options("kimi-k2.5") == disabled
-    assert _kimi_search_request_options("kimi-k2.6-preview") == disabled
-    assert _kimi_search_request_options("kimi-k3") == {}
+def test_kimi_search_always_disables_thinking() -> None:
+    assert _kimi_search_request_options() == {
+        "extra_body": {"thinking": {"type": "disabled"}}
+    }
 
 
 @pytest.mark.parametrize(

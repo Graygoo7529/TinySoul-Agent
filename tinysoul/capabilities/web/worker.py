@@ -113,7 +113,7 @@ def _search_by_kimi(request: JsonObject) -> JsonObject:
                 tools=tools,
                 response_format={"type": "json_object"},
                 max_tokens=max_output_tokens,
-                **_kimi_search_request_options(model),
+                **_kimi_search_request_options(),
             )
         except OpenAIError as exc:
             raise WebProcessingError(
@@ -270,11 +270,8 @@ def _parse_kimi_tool_round(assistant_message: JsonObject) -> _KimiToolRound:
     )
 
 
-def _kimi_search_request_options(model: str) -> dict[str, object]:
-    normalized = model.strip().lower()
-    if normalized.startswith(("kimi-k2.5", "kimi-k2.6")):
-        return {"extra_body": {"thinking": {"type": "disabled"}}}
-    return {}
+def _kimi_search_request_options() -> dict[str, object]:
+    return {"extra_body": {"thinking": {"type": "disabled"}}}
 
 
 def _kimi_call_shape_facts(
