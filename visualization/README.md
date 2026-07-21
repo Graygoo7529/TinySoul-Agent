@@ -63,11 +63,11 @@ The UI follows a "conversation first, progressive disclosure" pattern:
 
 - Conversation-style history with user and assistant bubbles.
 - Live activity indicator while a turn is running (current phase and action).
-- Expandable execution details per assistant message with tabs for:
-  - **Cycles** — Agent cycles with Phase 1/2/3 cards.
-  - **Model calls** — Full LLM task message stack grouped by semantic context section, tools, and provider responses.
-  - **Turn context** — Loaded top links and workspace events for the turn.
-- Robust status normalization so `success`, `completed`, `failed`, `timeout`, and pending states render correctly.
+- Expandable execution trace per assistant message following **Turn → Cycle → Phase → Action/Result → LLM Context**.
+- **Cycles** — Each cycle shows selected domains, a Phase stepper, and Phase cards.
+- **Phase cards** — Phase1 context/domain selection, Phase2 planned actions, Phase3 executed results and workspace effects.
+- **LLM Context** — Nested inside each Phase, grouped by semantic sections (identity, inputs, background, working, trace, task, decision, action results).
+- Robust status normalization so `success`, `completed`, `failed`, `timeout`, `planned`, and `running` states render correctly.
 
 ### Action Execution Cards
 
@@ -106,4 +106,5 @@ Phase 3 action results are rendered as mock computer UIs:
 - The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/workspace`, Session, Home, or Memory directly.
 - The backend is owned by the visible Terminal that ran `tinysoul start`; closing the frontend only disconnects it.
 - The default window is intentionally compact (720×520) for a user-level desktop assistant.
-- Assumed or missing backend capabilities that could extend the UI are recorded in `docs/missing-capabilities.md` and `docs/design-v2.md`.
+- Design documents are in `docs/design/`; completed plans and active execution plans are in `docs/plans/`.
+- Future backend capabilities that could extend the UI are recorded in `docs/plans/20260721-plan-future-backend-capabilities.md`.
