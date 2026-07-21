@@ -132,7 +132,7 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 - 旧设计、旧测试和旧调用方式只作为理解历史意图的材料，不应成为保留模糊边界或兼容不清晰接口的理由。若旧测试与当前清晰架构冲突，应修改或删除旧测试，而不是用兼容层维持旧假设。
 - 设计时应先检查现有设计、类别和边界，优先考虑复用或修改已有结构。只有在现有结构无法清晰表达新职责时，才引入新的类型、方法或模块，避免产生边界重复的抽象。
 - 无需为了兼容历史结构而牺牲清晰度。必要时可以修改测试、删除旧假设、修改函数签名、重构架构，以保持项目清晰干净，干净地清除历史遗留问题。
-- 设计应保持整体一致性：模块职责、对象关系、控制流、错误处理和状态模型必须能相互解释，不应各自独立演化。
+- 设计应保持整体一致性：模块职责、对象关系、控制流、错误处理和状态模型必须能相互解释，不应各自独立演化。明确现有设计思路和整体设计意图，关注架构清晰、功能明确、一致干净的业务实现，进行深入分析、设计与规划。
 - 基础的、公共的能力应放在通用目录或基础设施模块中，而不是放进某个业务模块。业务模块只保留自身语义，避免 JSON 边界、HTTP 客户端、序列化、通用校验等公共设施被局部模块私有化后重复出现。
 - 架构设计要有长期视角，但实现必须落在真实功能上。不要因为当前规模小而采用短视结构，也不要预留没有实际功能的类型、接口或抽象。
 - TinySoul 是个人项目，应优先服务真实能力和日常使用体验，不为工程完备性引入沉重的降级链路、复杂治理或企业级可靠性机制；但轻量不等于短视，模块边界、对象关系和能力模型必须从长远考虑想清楚，不能用阶段划分作为短视设计或临时补丁的理由。
@@ -206,31 +206,34 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。
 
+- 用户对接：每次产生修改后阐述本轮改动了哪些文件，以及提供用于 commit 的文本内容
+
+
 ## 当前任务
-彻底地重构 reference\tinysoul_v1。注意，这次重构不是简单的改造原有代码，而是把原有代码和设计思路作为思路，重新干净地去设计和实现每个模块。原有项目代码已经迁移到目录 reference\tinysoul_v1 中。重构应按模块边界逐步推进，不必一对一克隆旧的逻辑，并优先考虑更清晰的设计思路。
 
-当前进度：infra、runtime、llm、action、context、loop、app 已完成本轮核心架构与生命周期闭环；配置环境保留 main/include 来源诊断，各模块统一拒绝未知键；LLM provider 显式区分端点身份、adapter 和 enabled 状态，并在响应解释边界按当前 ToolScope 为供应商 tool call 回填 Control/Action kind。Session 已覆盖显式 business day、不可变 record、幂等 Turn 提交、确定性 summary、orphan reconciliation、归档前图恢复、只读 archive snapshot，以及为 Memory Maintenance 按需递归 Summary 图并按 Turn 开始时间稳定交付的专用 facts projection。Workspace 已覆盖 schema v3 day manifest、资源分类、digest 绑定描述、完整 reconciliation、write/rewrite/patch/delete、活动日 Trash 和 workspace/trash 日归档；一致性等级明确为单进程单写者、Engine 实例内线性化，并已增加受限 document read、可回滚 bundle mutation、delete digest guard 和共享 supervised process transaction mirror。Agent Home 已覆盖跨日 overlay、统一 effective top catalog/read、runtime-only top/tombstone、渐进资源与 `home.top.*` mutation、Action Catalog 派生 prompt mount、仅通用 HOW runtime 可用的 `SKILL_MEMORY.md`、WHAT/WHY/HOW search、严格 HOW YAML frontmatter、每 Turn自动 HOW metadata Background catalog、`load_background` 正文加载和无持久 review/apply 状态的 Home Maintenance；Agent/WHAT/WHY 顶层 Link 使用无后缀逻辑路径并由 Layout 映射 `.md` 文件，WHAT 分类属于 Link，通用 HOW 与 prompt mount 保留框架 identity。Home provider 每 Turn 自动加载不可逐出的 core 与存在时不可逐出的 user 正文，开放字符串数组形式的 `load_background` 支持从当前 Context 已暴露 Link 一次加载多个 Top content，不向模型枚举完整 effective catalog。Memory 已独立为 `tinysoul.memory`，持久根和配置为默认顶层 `memory/` 与 `[memory]`，稳定 Link 为 `memory:YYYY-MM-DD`，提供自由结构单日 consolidation、按日候选 search、精确 recall、专用 reranker、Action domain、Runtime bridge 与精确昨日 Background provider。Program 启动与每项 work 先做 Daily preflight，启动提示 active Home diff 与昨日 Memory eligibility，命令在活跃 Turn 中仍进入 Program queue，App-owned decision broker 提供人工逐项确认，内置 scheduler 以业务时区午夜、`00:05`、`00:15` 依次投递 rollover、Home 和昨日 Memory；Daily/Home/Memory 的恢复、分层 Observation 与无网络生命周期 E2E 已完成，Program Maintenance failure 只暴露稳定 failure facts，不透传原始异常 message。Stage 8 已将 Action Catalog 改为 wheel 内只读 package resource，删除项目 catalog path 和空 shell/script/capabilities 结构；新增 package-owned 可编辑 configs/Home 项目模板、无 provider 参数且拒绝覆盖的 `tinysoul init`、顶层空 `memory/` 初始化、README、wheel 隔离安装验证、local fake-provider CLI E2E 和显式 opt-in 的真实 provider App/CLI smoke。默认 Home 已提供 core/user、TinySoul entity、Context/Link 与 Daily Lifecycle concepts、问题式 WHY、`tinysoul-docs` 通用 HOW 和真实 progressive reference；package-data、初始化、隔离内容验证与 wheel 已闭环。旧能力扩展已完成 Resource、Web、Workspace inspection 与 Script Stage 1-3；新能力计划 Stage 1 已完成 Shared Supervised Process、`backend.kind=supervised_process`、共享配置/manager/Runtime bridge 和 Script 无回归迁移，Stage 2 已完成 Immediate Shell 的 PowerShell/Cmd/Bash adapters、八个 action、事务收尾、effective Catalog、当前项目/初始化配置和正式 domain HOW Layout。执行计划 `docs/analysis/20260713-done-agent home daily lifecycle execution plan.md`、`docs/analysis/20260715-done-default agent home content plan.md`、`docs/analysis/20260715-done-home top link identity refactor plan.md`、`docs/analysis/20260715-done-memory link identity refactor plan.md` 与 `docs/analysis/20260715-done-agent capabilities stages 1-3 execution plan.md` 已完成；当前能力扩展按 `docs/analysis/20260719 agent supervised execution and capability expansion plan.md` 推进，下一阶段为实施前确认 Stage 3 Deterministic Utilities。每完成一个模块或重要切面，应同步补充「项目规约」中该模块的运行方式规约，并更新本节进度。
+当前任务已从核心模块重构转入 TinySoul 整体应用构建与优化。`reference/tinysoul_v1` 只作为历史设计与行为参考；当前代码、模块设计文档和已完成执行记录才是实现事实。后续工作不得使用兼容层、重复状态或跨模块捷径。
 
-本轮 Workspace inspection 已完成：Action Catalog result trace policy 统一 standard/foldable 生命周期，Context/Session 只持久化 foldable compact canonical payload；Workspace 新增显式有界 range/cursor read、确定性 file/directory/workspace literal search，以及只分析 Phase2 明确多 Link 的一次性 `workspace.analyze`。后续审查已修复 Unicode casefold 原文坐标、将显式折叠统一为 overlay 语义，并补齐真实 Phase3 trace 生命周期、可复现 dev 构建依赖和 clean-source wheel 验收。执行记录见 `docs/analysis/20260718-done-workspace inspection search and analyze execution plan.md`。
+### 已完成基础
 
-能力扩展 Stage 2B 已完成：`web.discover_pages` 已覆盖 Crawlee action-scoped 调度、TinySoul 公开 HTTPS/robots 边界、默认 seed-only 候选发现、可选有界递归、确定性页面信号、interaction inline/Workspace JSON spill、Catalog/HOW、可选依赖和隔离验收。Stage 3 Code And Script Execution、后续 Shared Supervised Process 与 Immediate Shell 也已完成；下一步确认真实 deterministic utility 集合及其输入输出边界。
+- Runtime、LLM、Action、Context、Loop、App 已形成完整 User Turn、Agent Cycle、Phase、Action、Trap 和 Program 生命周期；provider、tool protocol、context window、deadline、失败 scope/disposition 与输出完整性边界已经闭环。
+- Session、Workspace、Agent Home、Memory 与 Daily Lifecycle 已拥有各自持久化、Link、投影、Maintenance、reconciliation 和失败语义；Workspace 保持单进程单写者、Engine 实例内线性化，并通过 revision/digest CAS、Trash 和 transaction mirror 管理变更。
+- Resource、Web、Script、Shared Supervised Process 与 Shell capability 已完成，Action Catalog、HOW、配置裁剪、事务提交和 Turn cleanup 均接入正式 AppBuilder。
+- CLI、`tinysoul serve`、AppCommandGateway、ObservationRouter、authenticated Endpoint 和 `visualization/` Tauri/React 前端骨架已经可用。历史实现与验收保存在 `docs/analysis/*-done-*.md`，不再在本节重复维护逐阶段日志。
 
-本轮新增模型上下文窗口与硬水位闭环：所有已配置模型要求有效 `context_window_tokens`，每个候选调用前按 Context 的 `compression_trigger_ratio` 执行保守容量预检；Context-built Task 超水位时中止整个 LLM Task，经原有 Trap 按 `compression_target_ratio` 尽力回收并由上层整体重建，Home/Memory 内部 Task 超限直接结束当前流程。该闭环不维护跨模型容量 checkpoint，不为同一 LLM Task 生成按模型区分的 MessageStack，也不改变 TurnTrace/Background/Workspace 压缩顺序。
+### 当前目标
 
-本轮修复了 provider 工具协议边界：Action Catalog 的 dotted action identity 保持不变，OpenAI SDK 形态适配器在单次请求内建立 provider-safe 名称映射，覆盖工具定义、assistant tool-call 历史、Chat tool-result name 和响应解码；provider-native 历史按有序 assistant turn 原子回放，只有全部 call/result 在 ID、名称与位置上完整匹配时才发送。工具禁用的 Phase3 嵌套 task 将 ToolResultMessage 转为普通上下文，并跳过当前未完成 Phase2 tool turn 及其 provider-native reasoning。Kimi/GLM 只校验映射后无法消除的真实能力约束；Action control 通过 LLM cancellation contract 阻止超时后继续重试，并把剩余 deadline 传给 provider SDK。Core Action deadline 为 60 秒，但不宣称替代不可中断调用的硬停止语义。
+构建可持续使用的 TinySoul 桌面应用，围绕真实用户工作流优化前后端协作、运行可靠性和交互质量。
 
-能力扩展 Stage 3A-3E 已完成：Script authoring/promote、Python 默认/Bash opt-in、事务 Workspace mirror、显式 apply/discard、Turn-scoped 监督 job、source snapshot/digest、运行中 Cycle 强制 pacing、精确 Signal 唤醒、统一 job logs staging、异常所有权、answer guard 和结束清理均已闭环。其共用执行机制现已迁入 `supervised_process`，独立 Shell capability 也已提供即时 PowerShell/Cmd/Bash 与同一事务监督协议；Script 的 Link-only authoring 语义未改变，二者都不被描述为硬沙箱。
 
-本轮桌面后端支持已完成：新增 authenticated loopback Endpoint、HTTP/OpenAPI/WebSocket sequence replay、`tinysoul serve` sidecar handshake、per-sink Observation route、LLM task identity、ActionCall/Result 与 Background Top content 事件；Workspace/Session API 经 Daily active-day lease 接入同一业务 Engine，Workspace text/blob mutation 使用 revision+digest CAS 并支持 Trash/Restore，活跃 Turn 的 UI mutation 发布 full snapshot，Context 幂等忽略低 revision。前端对接见 `docs/endpoint/frontend integration.md`，执行记录见 `docs/analysis/20260719 backend endpoint and visualization support execution plan.md`。
+### 推进顺序
 
-本轮 Agent Cycle 有效性改进已完成 Stage 0-4：Loop 代码默认、当前项目配置和 `tinysoul init` 模板的 `max_cycles_per_turn` 统一为 20，不引入 Cycle 预算感知或终局预留机制；Kimi `$web_search` worker 改为在 Web-owned 动态 JSON 边界解释 builtin tool round，完整回放 assistant 扩展字段与原始 arguments，兼容受控的 builtin/function 形态。Kimi Search 的代码默认、当前项目和项目模板统一为 `kimi-k2.6`，每轮请求固定关闭 thinking，配置边界拒绝不能满足非思考契约的模型；该策略不影响通用 `[llm]` Kimi reasoning。worker failure 只向宿主交付 allowlist 后的有界 facts；Web-owned executor failure/timeout 现在向模型返回 capability-owned `{failure: {reason, disposition}}`，由 Web HOW 约束 `retry_same`、`change_request`、`use_fallback` 和 `stop` 的恢复行为，不引入自动重试或跨 Turn provider state。Workspace `write/rewrite` 现与 `analyze` 一样显式使用 90 秒 action deadline，普通 Workspace action 仍继承 30 秒；超时继续作为局部 ActionResult，并通过既有 LLM cancellation contract 阻止超时后重试或提交。runtime/package core、Web/Shell domain HOW 和新增 `workspace.rewrite` action HOW 已按通用原则、域内选择和具体生成约束分层完成，提示规约不建立第二套 Loop/Action 控制机制。执行方案见 `docs/analysis/20260720 agent cycle effectiveness and provider recovery plan.md`，下一阶段为 Stage 5 完整发布与真实运行验收。
+当前实施进度可参照 docs\analysis 中的执行计划；已完成计划标记为 done；有含糊不明确的决策点/待确认的设计语义即时与用户讨论确认；即时将确认的设计语义，实施前明确的执行事项写入执行计划；即时维护执行计划，保持有限活跃的执行计划与计划更新
 
-针对 `turn_91e3e0a9` 的后续完整性修复已实施：LLM 统一响应现在携带 provider-neutral stop reason，明确输出上限/内容过滤/未完成响应在任务解释前形成局部失败，部分 JSON/文本不得提交；`max_output_tokens` 只表达 provider generation budget，`llm_action` Catalog 另以 `max_output_chars` 表达文本工件边界。`LLMActionTaskRunner` 已分离结构化 `run_json` 与完整工件 `run_text`，Workspace/Script write/rewrite 使用纯文本工件在 Phase3 owner 内提交，ActionResult 继续只返回元数据而不把正文写入 Context。Workspace-owned single/bundle mutation 会强制刷新已写 Link 的 digest，即使 size/mtime 未变化，成功 metadata 仍绑定真实新字节。LLM `TaskFailure` 以稳定 reason/scope/constraint 取代从诊断字典猜测恢复事实，`llm_action` 映射统一 disposition；core/HOW 约束相同 reason/scope 的原样重试最多一次，fallback 必须改变真实 limiting condition。Phase1 现在要求依据权威 ActionResult 在同次 control response 更新 WorkingContext，并在返回 domain selection 前通过既有 signal batch 提交，不增加第二套状态机或 Cycle 预算感知。完整记录继续维护于同一执行方案的 Follow-up Stage 6-9。
+### 实现纪律
 
-重构实现纪律：
-
-- 实现必须遵守项目失败处理三层语义与 Runtime 异常体系。新增任何 raise 前，先归类该失败属于局部结果、模块边界异常还是 Runtime 语义异常（见「代码风格」）；不得按个人编码习惯随手抛出 ValueError、RuntimeError 等通用异常表达模块失败。
-- 新模块的失败语义、组装入口、动态边界处理应对照已完成模块的既有模式（failures.py、bridge、Engine/Builder、加载期校验器），不自行发明平行机制。
+- 保持模块所有权和三层失败语义。新增失败必须先归类为局部结果、模块边界异常或 Runtime 语义异常，不得用裸 `ValueError`、`RuntimeError` 或宽泛异常掩盖归属。
+- 不预先建设通用插件平台、万能 Gateway、任意文件 API 或第二套 Loop/Action 状态机。
+- 每完成一个应用阶段，同步更新 `docs/design/`、`docs/endpoint/`、前端协议文档、对应 `-done-` 执行记录和本节当前状态。
 
 ## 工作经验
 

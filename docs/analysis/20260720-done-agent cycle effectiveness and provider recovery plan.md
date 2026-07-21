@@ -1,6 +1,6 @@
 # Agent Cycle 有效性与 Provider 恢复方案
 
-状态：in_progress
+状态：done
 
 ## 背景
 
@@ -80,7 +80,7 @@
 6. Search 默认与当前项目统一使用 `kimi-k2.6`，worker 每轮请求都显式关闭 thinking；配置边界只接受支持非思考模式的 `kimi-k2.5` 与 `kimi-k2.6` 精确标识，不能让 K3 或兼容性未知的模型进入运行时再失败。该规则不改变通用 `[llm]` 的 Kimi reasoning 配置。
 7. worker 协议错误只返回有界、无敏感信息的 shape facts，例如 call type、是否存在 function/name/arguments、是否存在 reasoning content；不返回原始响应、搜索内容、密钥或 traceback。
 
-后续配置一致性修复已完成：`KimiSearchSettings` 无配置默认值、当前项目配置和 `tinysoul init` 模板统一为 `kimi-k2.6`；worker 移除按模型名前缀决定请求参数的分支，所有 `$web_search` round 固定关闭 thinking；真实 API smoke 改为加载项目 effective capability 配置，不再手工构造另一套测试设置。
+后续配置一致性修复已完成：`KimiSearchSettings` 无配置默认值、当前项目配置和 `tinysoul init` 模板统一为 `kimi-k2.6`；worker 移除按模型名前缀决定请求参数的分支，所有 `$web_search` round 固定关闭 thinking；真实 API smoke 改为加载项目 effective capability 配置，不再手工构造另一套测试设置。2026-07-21 已在允许外部网络的真实环境运行该 smoke，`kimi-k2.6` 成功完成 `$web_search` 并通过 answer/results 结构验收。
 
 ### Stage 2：提供 capability-owned 失败处置语义
 
@@ -149,7 +149,7 @@ Shell domain HOW 保持显式 apply/discard 协议，并补充：apply 成功是
 
 ### Stage 5：验证与回归
 
-状态：in_progress
+状态：done
 
 单元和集成验证至少覆盖：
 
@@ -166,6 +166,8 @@ Shell domain HOW 保持显式 apply/discard 协议，并补充：apply 成功是
 11. 使用与 `turn_f5a4d54c` 相同目标的真实 App smoke，在 20 Cycle 上限内完成资料获取、修改、必要验证和唯一 `core.answer`，且不重复相同稳定失败。
 
 实现完成后运行完整 pytest、类型检查、wheel 构建和隔离安装验证。
+
+验收结果：本地分组回归、类型检查、wheel 构建与隔离初始化均已通过；真实 Kimi Search 已使用当前 effective `kimi-k2.6` 非思考配置通过供应商验收；完整 App 真实运行也已完成。Stage 5 验收项全部关闭。
 
 ### Follow-up：`turn_91e3e0a9` 输出完整性与状态一致性
 
@@ -211,7 +213,7 @@ LLM/Action/Workspace/Script/Loop/Home 聚焦测试、wheel 构建与隔离初始
 
 分组回归同时稳定暴露了 Workspace-owned mutation 的既有 metadata 缺陷：同长度文本在文件系统时间戳粒度内快速原子替换时，普通 reconciliation 可能按相同 size/mtime 复用旧 digest。修复在 mutation 所有权边界把明确写入的 Link 传给 Reconciler 强制重算 digest；普通外部 scan 保留缓存优化。新增测试固定保留旧 `mtime_ns` 并验证 patch 返回/Manifest digest 绑定新字节，Workspace 全模块与状态模块整组均通过。这保证文本工件成功 ActionResult 返回的 metadata 是真实提交事实。
 
-Stage 5 中 Kimi 默认值、非思考请求参数、模型兼容性拒绝和初始化模板已有本地回归；opt-in 真实 Kimi 与真实 App smoke 仍需独立外部环境验证，本地回归不替代真实供应商验收。
+Stage 5 中 Kimi 默认值、非思考请求参数、模型兼容性拒绝和初始化模板已有本地回归，opt-in 真实 Kimi smoke 已通过外部供应商验收，完整 App 真实运行也已完成。本计划全部阶段与验收项均已关闭。
 
 ## 明确不做
 

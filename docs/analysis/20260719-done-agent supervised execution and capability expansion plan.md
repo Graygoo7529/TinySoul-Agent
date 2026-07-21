@@ -2,7 +2,9 @@
 
 ## 状态
 
-status: in_progress (Stage 1 Shared Supervised Process and Stage 2 Immediate Shell completed; Stage 3 requires semantic confirmation)
+status: done
+
+本计划以 Stage 1 Shared Supervised Process 和 Stage 2 Immediate Shell 的完成为关闭边界。原 Stage 3-5 没有在本计划中实施，也不视为已经批准的开发承诺；这些候选方向及其进入门槛已提取到 `20260721 application integration next stage plan.md`。
 
 前置计划（已完成）：`20260715-done-agent capabilities stages 1-3 execution plan.md`、`20260718-done-workspace inspection search and analyze execution plan.md`。
 
@@ -27,9 +29,9 @@ status: in_progress (Stage 1 Shared Supervised Process and Stage 2 Immediate She
 
 1. **Stage 1 Shared Supervised Process（done）**：抽取 Script/Shell 共用的 Turn-scoped 进程、事务、监督和 cleanup 层，并把现有 Script 无行为回归地迁移过去；
 2. **Stage 2 Immediate Shell（done）**：建立独立 `shell` domain，提供 PowerShell、Cmd 与可选 Bash 的即时命令执行及监督收尾；
-3. **Stage 3 Deterministic Utilities**：按真实任务补充数学、时间、编码和结构化格式转换等纯输入输出工具；
-4. **Stage 4 Knowledge Retrieval Enhancements**：实现 Home Backlink，并在数据规模和质量需求成立后增强 Memory 片段检索；
-5. **Stage 5 Connectors And Interaction**：按具体授权与审批边界增加外部服务连接器、导入导出和交互入口。
+3. **Stage 3 Deterministic Utilities（extracted）**：按真实任务补充数学、时间、编码和结构化格式转换等纯输入输出工具；
+4. **Stage 4 Knowledge Retrieval Enhancements（extracted）**：实现 Home Backlink，并在数据规模和质量需求成立后增强 Memory 片段检索；
+5. **Stage 5 Connectors And Interaction（extracted）**：按具体授权与审批边界增加外部服务连接器、导入导出和交互入口。
 
 Stage 1 与 Stage 2 的语义已经确认，可以连续实施。Stage 3-5 只保留方向和进入门槛，实施前仍需针对真实 action 集合确认。
 
@@ -226,6 +228,6 @@ Backlink 是 Home-owned Link 图能力，不放入 Infra 或通用 capability：
 - registrar、Catalog handler、backend kind、业务 service 与 Runtime bridge 所有权一致；
 - 模块测试、Phase2/Phase3 集成、App 隔离工作流和发布验证闭环。
 
-## 当前下一步
+## 关闭结果
 
-Stage 1 与 Stage 2 已完成。下一步在实施 Stage 3 前确认真实 deterministic utility 集合、输入输出协议、business timezone 与 Workspace artifact 边界；不得借 Utilities 引入自由字符串 `eval`、第二套任意命令执行或新的未确认持久状态。
+Stage 1 与 Stage 2 已完成并通过模块、集成、全量测试、类型检查、wheel 和隔离安装验收。本文件作为已完成的监督执行与 Shell 能力历史记录关闭。Deterministic Utilities、Home Backlink、Memory 片段检索和 Connectors 仍需真实场景与语义确认，统一由 `20260721 application integration next stage plan.md` 管理；不得借 Utilities 引入自由字符串 `eval`、第二套任意命令执行或新的未确认持久状态。

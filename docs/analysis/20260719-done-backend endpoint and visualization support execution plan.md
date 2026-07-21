@@ -78,3 +78,7 @@ Status: done
 - Workspace：text 与 blob read/write、Manifest revision guard、resource digest guard、Trash/Restore 和 mutation 后 full snapshot 已接入；Context 对更低 revision snapshot 幂等 no-op，对同 revision 冲突保持拒绝。
 - 文档：模块设计位于 `docs/design/endpoint.md`，前端协议位于 `docs/endpoint/frontend integration.md`，App/Context/LLM/Workspace 与根规约已同步。
 - 验证：Endpoint API、真实预绑定 Uvicorn listener、WebSocket、事件分层、Workspace CAS/blob/Trash、producer observation 和 stale snapshot 均有测试；全量 tests 与 ty 类型检查通过。
+
+## 关闭说明
+
+本计划的后端基础能力已经完成并关闭。原验收中的 ETag 表述由显式 `expected_revision + expected_digest` CAS 协议替代，不再要求增加平行 HTTP ETag 机制。OpenAPI TypeScript 生成、HTTP input 到 Program/WebSocket 的完整 E2E、慢消费者专项验证、typed Maintenance 发起、Home/Workspace 扩展查询和 Tauri sidecar 发布属于后续应用集成工作，统一提取到 `20260721 application integration next stage plan.md`。

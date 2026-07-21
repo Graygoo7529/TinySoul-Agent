@@ -145,4 +145,4 @@ Stage 1 closure audit 已完成：PDF 图片/附件提取不会吞掉 asset coun
 
 Stage 2 已完成 Kimi Search、同源页面发现、Defuddle/Trafilatura fetch、inline/spill、依赖检测、公开 HTTPS 边界、Workspace artifact 与发布验证。Stage 3A-3E 已完成源码 snapshot 身份、Home/Workspace Link authoring、显式 promote、事务 mirror、Turn-scoped job、Cycle pacing、信号过滤、日志 staging、apply/discard、异常清理和发布验证。
 
-截至本计划关闭时，当前代码仍以 `backend.kind=script` 和 Script-owned job manager 表达监督执行。这是本计划的已实现终点，不是后续共享执行层的最终命名。已确认的 `supervised_process` 迁移、独立 Shell domain、Utilities、Knowledge Retrieval 和 Connectors 从 `docs/analysis/20260719 agent supervised execution and capability expansion plan.md` 继续推进。
+截至本计划关闭时，当前代码仍以 `backend.kind=script` 和 Script-owned job manager 表达监督执行。这是本计划的已实现终点，不是后续共享执行层的最终命名。后续完成的 `supervised_process` 迁移和独立 Shell domain 记录于 `docs/analysis/20260719-done-agent supervised execution and capability expansion plan.md`；Utilities、Knowledge Retrieval 和 Connectors 候选方向已转入 `docs/analysis/20260721 application integration next stage plan.md`。
