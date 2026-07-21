@@ -19,14 +19,14 @@
 ### Workspace Search and Analysis
 
 - 原需求：`GET /v1/workspace/search`、`GET /v1/workspace/analyze`、`GET /v1/workspace/summary`。
-- 迁移至：`../plans/20260721-plan-workspace-directory-markdown-editor.md`。
-- 原因：搜索、分析与 Markdown 即时编辑器共同构成下一阶段工作区体验的核心。
+- 迁移至：`../plans/20260721-plan-workspace-remaining-backend-features.md`。
+- 原因：搜索、分析与 Markdown 即时编辑器共同构成下一阶段工作区体验的核心；前端纯实现部分已完成，见 `20260721-done-workspace-directory-markdown-editor.md`。
 
 ### Binary Resource UX
 
 - 原需求：`POST /v1/workspace/blob/upload`（multipart 拖拽上传）、`GET /v1/workspace/preview?link=...`（图片缩略图）。
-- 迁移至：`../plans/20260721-plan-workspace-directory-markdown-editor.md`。
-- 原因：目录树 + 编辑器阶段需要更自然的二进制资源上传与预览。
+- 迁移至：`../plans/20260721-plan-workspace-remaining-backend-features.md`。
+- 原因：目录树 + 编辑器阶段需要更自然的二进制资源上传与预览；前端纯实现部分已完成，见 `20260721-done-workspace-directory-markdown-editor.md`。
 
 ## 已迁移到未来能力计划
 

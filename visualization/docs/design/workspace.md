@@ -31,9 +31,12 @@ Workspace 视图让使用者浏览、创建、编辑和恢复当日工作区中�
 
 ## 下一步演进方向
 
-当前为扁平资源列表 + 简单文本编辑器。下一阶段的改进计划见 `../plans/20260721-plan-workspace-directory-markdown-editor.md`：
+当前已实现目录树 + Markdown 分屏即时编辑器 + 二进制资源预览。前端纯实现部分见 `../plans/20260721-done-workspace-directory-markdown-editor.md`。
 
-- 目录树形结构替代扁平列表。
-- Markdown 即时编辑器（同步滚动预览或分屏）。
+仍需后端接口支持的能力见 `../plans/20260721-plan-workspace-remaining-backend-features.md`：
+
 - 工作区全文搜索与 AI 分析入口。
-- 拖拽上传二进制资源。
+- 后端摘要接口 `/v1/workspace/summary`。
+- 拖拽上传二进制资源（multipart 上传）。
+- 图片缩略图预览 `/v1/workspace/preview`。
+- 右键目录操作语义（新建/删除/重命名文件夹）。

@@ -34,7 +34,8 @@ export function AppShell({ onConnect, children }: AppShellProps) {
                 title="Maintenance"
               >
                 <Wrench size={14} />
-                {maintenanceStatus?.availability.home_pending || maintenanceStatus?.availability.memory_pending
+                {maintenanceStatus?.availability.home_pending ||
+                maintenanceStatus?.availability.memory_pending
                   ? "Maintenance available"
                   : "Maintenance"}
               </button>
@@ -55,10 +56,13 @@ export function AppShell({ onConnect, children }: AppShellProps) {
             >
               <Settings size={14} />
             </button>
-            {connection.status === "connecting" ? (
+            {connection.status === "connecting" ||
+            connection.status === "initializing" ? (
               <button className="btn btn-sm" disabled>
                 <Loader2 size={14} className="animate-spin" />
-                Connecting
+                {connection.status === "initializing"
+                  ? "Initializing"
+                  : "Connecting"}
               </button>
             ) : !isConnected ? (
               <button className="btn btn-primary btn-sm" onClick={onConnect}>

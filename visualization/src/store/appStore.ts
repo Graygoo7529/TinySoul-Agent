@@ -24,7 +24,13 @@ import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 
 export interface ConnectionState {
-  status: "idle" | "connecting" | "connected" | "not_running" | "error";
+  status:
+    | "idle"
+    | "connecting"
+    | "initializing"
+    | "connected"
+    | "not_running"
+    | "error";
   error?: string;
   info?: ConnectionInfo;
 }
@@ -51,6 +57,7 @@ export interface AppState {
   workspace: WorkspaceManifest | null;
   workspaceLoading: boolean;
   workspaceError?: string;
+  workspaceConflict: boolean;
   openResource: OpenResource | null;
 
   // Maintenance
@@ -60,6 +67,7 @@ export interface AppState {
   // UI
   activeTab: "chat" | "workspace" | "session";
   projectRoot: string;
+  eventStreamInterrupted: boolean;
 
   // Actions
   setConnection: (connection: ConnectionState) => void;
@@ -70,6 +78,8 @@ export interface AppState {
   clearEvents: () => void;
   setWorkspace: (workspace: WorkspaceManifest | null, error?: string) => void;
   setWorkspaceLoading: (loading: boolean) => void;
+  setWorkspaceConflict: (conflict: boolean) => void;
+  setEventStreamInterrupted: (interrupted: boolean) => void;
   openWorkspaceResource: (read: WorkspaceTextRead) => void;
   updateResourceDraft: (draft: string) => void;
   closeResource: () => void;
@@ -88,11 +98,13 @@ export const useAppStore = create<AppState>()(
       maxEvents: 2000,
       workspace: null,
       workspaceLoading: false,
+      workspaceConflict: false,
       openResource: null,
       maintenance: null,
       maintenanceStatus: null,
       activeTab: "chat",
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
+      eventStreamInterrupted: false,
 
       setConnection: (connection) => set({ connection }),
       setClient: (client) => set({ client }),
@@ -122,6 +134,9 @@ export const useAppStore = create<AppState>()(
       setWorkspace: (workspace, error) =>
         set({ workspace, workspaceLoading: false, workspaceError: error }),
       setWorkspaceLoading: (loading) => set({ workspaceLoading: loading }),
+      setWorkspaceConflict: (workspaceConflict) => set({ workspaceConflict }),
+      setEventStreamInterrupted: (eventStreamInterrupted) =>
+        set({ eventStreamInterrupted }),
 
       openWorkspaceResource: (read) =>
         set({
@@ -149,6 +164,7 @@ export const useAppStore = create<AppState>()(
 
       setMaintenance: (maintenance) => set({ maintenance }),
       setMaintenanceStatus: (maintenanceStatus) => set({ maintenanceStatus }),
+
       setActiveTab: (activeTab) => set({ activeTab }),
       setProjectRoot: (projectRoot) => set({ projectRoot }),
     }),

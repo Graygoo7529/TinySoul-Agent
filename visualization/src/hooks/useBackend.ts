@@ -37,7 +37,13 @@ export function useBackend() {
         status.instance_id !== info.instance_id ||
         status.project_identity !== info.project_identity
       ) {
-        throw new Error("TinySoul instance identity does not match this project");
+        throw new Error(
+          "TinySoul instance identity does not match this project",
+        );
+      }
+      if (!status.ready) {
+        store.setConnection({ status: "initializing", info });
+        return;
       }
       if (store.connection.info?.instance_id !== info.instance_id) {
         store.clearEvents();
@@ -67,31 +73,38 @@ export function useBackend() {
           if (message.type !== "events") return;
           if (message.gap) {
             current.clearEvents();
+            current.setEventStreamInterrupted(true);
             void recoverAuthoritativeState(nextClient);
           }
           current.appendEvents(message.events);
+          const names = new Set(message.events.map((event) => event.name));
           if (
-            message.events.some(
-              (event) =>
-                event.name === "program.maintenance.available" ||
-                event.name === "program.work.started" ||
-                event.name === "program.work.completed" ||
-                event.name === "program.work.failed" ||
-                event.name === "home.maintenance.decision.required" ||
-                event.name === "home.maintenance.decision.resolved",
-            )
+            names.has("turn.started") ||
+            names.has("context.background.snapshot")
+          ) {
+            current.setEventStreamInterrupted(false);
+          }
+          if (names.has("workspace.changed")) {
+            void handleWorkspaceChanged(nextClient, message.events);
+          }
+          if (
+            names.has("program.maintenance.available") ||
+            names.has("program.work.started") ||
+            names.has("program.work.completed") ||
+            names.has("program.work.failed") ||
+            names.has("home.maintenance.decision.required") ||
+            names.has("home.maintenance.decision.resolved")
           ) {
             void refreshMaintenance(nextClient);
           }
-          if (
-            message.events.some(
-              (event) => event.name === "home.maintenance.decision.resolved",
-            )
-          ) {
+          if (names.has("home.maintenance.decision.resolved")) {
             current.setMaintenance(null);
           }
         },
-        onError: (error) => console.error("Event stream error:", error),
+        onError: (error) => {
+          // Avoid logging MODEL payload which may contain sensitive data.
+          console.error("Event stream error:", error.name, error.message);
+        },
         onClose: (wasClean) => {
           if (!wasClean) console.warn("Event stream closed unexpectedly");
         },
@@ -104,6 +117,7 @@ export function useBackend() {
     }
   }, []);
 
+  // Poll status while connected.
   useEffect(() => {
     if (connectionStatus !== "connected" || !client) {
       if (pollRef.current) {
@@ -141,6 +155,15 @@ export function useBackend() {
     };
   }, [connectionStatus, client]);
 
+  // Retry initializing backend until it reports ready.
+  useEffect(() => {
+    if (connectionStatus !== "initializing") return;
+    const store = useAppStore.getState();
+    const root = store.projectRoot;
+    const timer = setInterval(() => void connect(root), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [connectionStatus, connect]);
+
   return { connect };
 }
 
@@ -149,7 +172,9 @@ async function refreshMaintenance(client: TinySoulClient) {
     const maintenance = await client.maintenanceStatus();
     const store = useAppStore.getState();
     store.setMaintenanceStatus(maintenance);
-    store.setMaintenance(maintenance.decision.pending ? maintenance.decision : null);
+    store.setMaintenance(
+      maintenance.decision.pending ? maintenance.decision : null,
+    );
   } catch (error) {
     console.error("Maintenance status recovery failed:", error);
   }
@@ -166,8 +191,53 @@ async function recoverAuthoritativeState(client: TinySoulClient) {
     store.setStatus(status);
     store.setWorkspace(workspace);
     store.setMaintenanceStatus(maintenance);
-    store.setMaintenance(maintenance.decision.pending ? maintenance.decision : null);
+    store.setMaintenance(
+      maintenance.decision.pending ? maintenance.decision : null,
+    );
   } catch (error) {
     console.error("Endpoint state recovery failed:", error);
+  }
+}
+
+async function handleWorkspaceChanged(
+  client: TinySoulClient,
+  events: { name: string; payload: Record<string, unknown> }[],
+) {
+  const store = useAppStore.getState();
+  const local = store.workspace;
+  let needsRefresh = false;
+  for (const event of events) {
+    if (event.name !== "workspace.changed") continue;
+    const payload = event.payload as {
+      day?: string;
+      revision?: number;
+      previous_revision?: number;
+    };
+    if (!local) {
+      needsRefresh = true;
+      break;
+    }
+    if (payload.day && payload.day !== local.day) {
+      needsRefresh = true;
+      break;
+    }
+    if (
+      typeof payload.revision === "number" &&
+      payload.revision > local.revision
+    ) {
+      needsRefresh = true;
+      break;
+    }
+  }
+  if (!needsRefresh) return;
+  try {
+    const manifest = await client.workspaceManifest();
+    store.setWorkspace(manifest);
+    const open = store.openResource;
+    if (open && !manifest.resources.some((r) => r.link === open.link)) {
+      store.closeResource();
+    }
+  } catch (error) {
+    console.error("Workspace manifest refresh failed:", error);
   }
 }

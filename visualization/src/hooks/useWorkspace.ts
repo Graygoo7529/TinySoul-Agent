@@ -4,12 +4,20 @@
 
 import { useCallback } from "react";
 
-import { useAppStore } from "../store/appStore";
+import { useAppStore, type AppState } from "../store/appStore";
+import { TinySoulApiError, TinySoulClient } from "../api/tinysoul";
 import type {
   TrashItem,
   WorkspaceResourceRecord,
   WorkspaceTextRead,
 } from "../types";
+
+function isConflictError(err: unknown): boolean {
+  if (err instanceof TinySoulApiError) {
+    return err.status === 409 || err.code.toLowerCase().includes("conflict");
+  }
+  return false;
+}
 
 export function useWorkspace() {
   const store = useAppStore();
@@ -21,6 +29,7 @@ export function useWorkspace() {
     try {
       const manifest = await client.workspaceManifest();
       store.setWorkspace(manifest);
+      store.setWorkspaceConflict(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       store.setWorkspace(null, message);
@@ -33,6 +42,7 @@ export function useWorkspace() {
       try {
         const read = await client.readWorkspaceText(link);
         store.openWorkspaceResource(read);
+        store.setWorkspaceConflict(false);
         return read;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -59,6 +69,7 @@ export function useWorkspace() {
           expected_revision: store.workspace.revision,
         });
         store.setWorkspace(response.manifest);
+        store.setWorkspaceConflict(false);
         store.openWorkspaceResource({
           link: response.record.link,
           text,
@@ -67,6 +78,12 @@ export function useWorkspace() {
           digest: response.record.digest || expectedDigest,
         });
       } catch (err) {
+        if (isConflictError(err)) {
+          store.setWorkspaceConflict(true);
+          // Refresh manifest and current baseline so the user can decide.
+          void refreshOpenResource(client, store);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         store.setWorkspace(null, message);
       }
@@ -91,7 +108,13 @@ export function useWorkspace() {
           retention,
         });
         store.setWorkspace(response.manifest);
+        store.setWorkspaceConflict(false);
       } catch (err) {
+        if (isConflictError(err)) {
+          store.setWorkspaceConflict(true);
+          void refreshManifestOnly(client, store);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         store.setWorkspace(null, message);
       }
@@ -109,10 +132,16 @@ export function useWorkspace() {
           expected_revision: store.workspace.revision,
         });
         store.setWorkspace(response.manifest);
+        store.setWorkspaceConflict(false);
         if (store.openResource?.link === link) {
           store.closeResource();
         }
       } catch (err) {
+        if (isConflictError(err)) {
+          store.setWorkspaceConflict(true);
+          void refreshManifestOnly(client, store);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         store.setWorkspace(null, message);
       }
@@ -141,7 +170,13 @@ export function useWorkspace() {
           expected_revision: store.workspace.revision,
         });
         store.setWorkspace(response.manifest);
+        store.setWorkspaceConflict(false);
       } catch (err) {
+        if (isConflictError(err)) {
+          store.setWorkspaceConflict(true);
+          void refreshManifestOnly(client, store);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         store.setWorkspace(null, message);
       }
@@ -158,4 +193,35 @@ export function useWorkspace() {
     listTrash,
     restoreResource,
   };
+}
+
+async function refreshManifestOnly(client: TinySoulClient, store: AppState) {
+  try {
+    const manifest = await client.workspaceManifest();
+    store.setWorkspace(manifest);
+  } catch (error) {
+    console.error("Workspace manifest refresh failed:", error);
+  }
+}
+
+async function refreshOpenResource(client: TinySoulClient, store: AppState) {
+  const draft = store.openResource?.draft;
+  try {
+    const [manifest, read] = await Promise.all([
+      client.workspaceManifest(),
+      store.openResource
+        ? client.readWorkspaceText(store.openResource.link)
+        : Promise.resolve(undefined),
+    ]);
+    store.setWorkspace(manifest);
+    if (store.openResource && read) {
+      // Update baseline digest but keep the user's draft for conflict resolution.
+      store.openWorkspaceResource({ ...read });
+      if (draft !== undefined) {
+        store.updateResourceDraft(draft);
+      }
+    }
+  } catch (error) {
+    console.error("Workspace conflict refresh failed:", error);
+  }
 }
