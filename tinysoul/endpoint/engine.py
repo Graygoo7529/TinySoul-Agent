@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
+from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.loop import DailyLifecycleCoordinator, LoopControlKind
-from tinysoul.loop.errors import LoopError
+from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
+from tinysoul.loop.errors import LoopContractError, LoopError
+from tinysoul.loop.maintenance import MaintenanceAvailability
 from tinysoul.runtime import (
     ObservationLevel,
     RunScope,
@@ -44,6 +46,14 @@ class PendingMaintenanceDecision(Protocol):
     def change(self) -> HomeMaintenanceChange: ...
 
 
+class EndpointCommandReceipt(Protocol):
+    def to_json(self) -> JsonObject: ...
+
+
+class EndpointMaintenanceStatus(Protocol):
+    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability: ...
+
+
 class EndpointAppGateway(Protocol):
     @property
     def active_turn_scope(self) -> RunScope | None: ...
@@ -54,7 +64,8 @@ class EndpointAppGateway(Protocol):
         *,
         source: str,
         metadata: JsonObject,
-    ) -> None: ...
+        command_id: str | None = None,
+    ) -> EndpointCommandReceipt: ...
 
     def request_control(
         self,
@@ -63,7 +74,17 @@ class EndpointAppGateway(Protocol):
         source: str,
         text: str,
         metadata: JsonObject,
-    ) -> None: ...
+    ) -> EndpointCommandReceipt: ...
+
+    def request_maintenance(
+        self,
+        kind: str,
+        *,
+        target_day: BusinessDay | None,
+        source: str,
+        metadata: JsonObject,
+        command_id: str | None = None,
+    ) -> EndpointCommandReceipt: ...
 
     def pending_maintenance_decision(
         self,
@@ -73,6 +94,9 @@ class EndpointAppGateway(Protocol):
         self,
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
+        *,
+        source: str = "api",
+        command_id: str = "",
     ) -> bool: ...
 
     def sync_workspace_context(
@@ -104,6 +128,7 @@ class EndpointEngine:
         workspace: WorkspaceEngine,
         session: SessionEngine,
         daily_lifecycle: DailyLifecycleCoordinator,
+        maintenance: EndpointMaintenanceStatus | None = None,
     ) -> None:
         self._settings = settings
         self._events = events
@@ -111,6 +136,7 @@ class EndpointEngine:
         self._workspace = workspace
         self._session = session
         self._daily = daily_lifecycle
+        self._maintenance = maintenance
 
     @property
     def settings(self) -> EndpointSettings:
@@ -134,6 +160,8 @@ class EndpointEngine:
         pending = self._gateway.pending_maintenance_decision()
         return {
             "protocol_version": 1,
+            "instance_id": self._settings.instance_id,
+            "project_identity": self._settings.project_identity,
             "ready": bool(active_day),
             "active_day": active_day,
             "turn_active": turn_scope is not None,
@@ -143,7 +171,13 @@ class EndpointEngine:
             "maintenance_decision_pending": pending is not None,
         }
 
-    def submit_user_input(self, text: str, metadata: JsonObject) -> JsonObject:
+    def submit_user_input(
+        self,
+        text: str,
+        metadata: JsonObject,
+        *,
+        command_id: str = "",
+    ) -> JsonObject:
         if not isinstance(text, str) or not text.strip():
             raise EndpointRequestError(
                 status_code=422,
@@ -151,10 +185,11 @@ class EndpointEngine:
                 message="Input text must be non-empty.",
             )
         try:
-            self._gateway.submit_user_input(
+            receipt = self._gateway.submit_user_input(
                 text,
                 source="endpoint",
                 metadata=to_json_object(metadata),
+                command_id=command_id or None,
             )
         except RuntimeInputBlockedError as exc:
             raise EndpointRequestError(
@@ -168,23 +203,28 @@ class EndpointEngine:
                 code="input.rejected",
                 message=str(exc),
             ) from exc
-        return {"accepted": True}
+        return receipt.to_json()
 
     def submit_control(
         self,
         kind: EndpointControlKind,
         metadata: JsonObject,
+        *,
+        command_id: str = "",
     ) -> JsonObject:
         loop_kind = {
             EndpointControlKind.STOP_TURN: LoopControlKind.STOP_TURN,
             EndpointControlKind.EXIT_PROGRAM: LoopControlKind.EXIT_PROGRAM,
         }[kind]
         try:
-            self._gateway.request_control(
+            receipt = self._gateway.request_control(
                 loop_kind,
                 source="endpoint",
                 text=kind.value,
-                metadata=metadata,
+                metadata={
+                    **to_json_object(metadata),
+                    **({"command_id": command_id} if command_id else {}),
+                },
             )
         except RuntimeGatewayError as exc:
             raise EndpointRequestError(
@@ -192,7 +232,59 @@ class EndpointEngine:
                 code="control.rejected",
                 message=str(exc),
             ) from exc
-        return {"accepted": True, "kind": kind.value}
+        return receipt.to_json()
+
+    def request_maintenance(
+        self,
+        *,
+        kind: str,
+        target_day: str,
+        metadata: JsonObject,
+        command_id: str = "",
+    ) -> JsonObject:
+        if kind not in {"home", "memory"}:
+            raise EndpointRequestError(
+                status_code=422,
+                code="maintenance.kind_invalid",
+                message="Maintenance kind must be home or memory.",
+            )
+        day = None
+        if target_day:
+            if kind != "memory":
+                raise EndpointRequestError(
+                    status_code=422,
+                    code="maintenance.target_day_invalid",
+                    message="Only Memory Maintenance accepts target_day.",
+                )
+            try:
+                day = BusinessDay.parse(target_day)
+            except LoopContractError as exc:
+                raise EndpointRequestError(
+                    status_code=422,
+                    code="maintenance.target_day_invalid",
+                    message="Maintenance target_day must use YYYY-MM-DD.",
+                ) from exc
+        try:
+            receipt = self._gateway.request_maintenance(
+                kind,
+                target_day=day,
+                source="endpoint",
+                metadata=to_json_object(metadata),
+                command_id=command_id or None,
+            )
+        except RuntimeInputBlockedError as exc:
+            raise EndpointRequestError(
+                status_code=409,
+                code="maintenance.decision_required",
+                message=str(exc),
+            ) from exc
+        except RuntimeGatewayError as exc:
+            raise EndpointRequestError(
+                status_code=409,
+                code="maintenance.rejected",
+                message=str(exc),
+            ) from exc
+        return receipt.to_json()
 
     def replay_events(
         self,
@@ -435,19 +527,53 @@ class EndpointEngine:
             "change": pending.change.to_review_json(),
         }
 
+    def maintenance_status(self) -> JsonObject:
+        try:
+            with self._daily.active_day_lease() as day:
+                availability = (
+                    self._maintenance.availability(day).to_json()
+                    if self._maintenance is not None
+                    else {
+                        "home_pending": False,
+                        "home_change_count": 0,
+                        "home_skill_memory_count": 0,
+                        "memory_pending": False,
+                        "memory_day": "",
+                    }
+                )
+        except LoopError as exc:
+            raise _not_ready(exc) from exc
+        return {
+            "availability": availability,
+            "decision": self.maintenance_decision(),
+        }
+
     def resolve_maintenance_decision(
         self,
         *,
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
+        command_id: str = "",
     ) -> JsonObject:
-        if not self._gateway.resolve_maintenance_decision(decision_id, decision):
+        command_id = command_id or f"command_{uuid4().hex}"
+        if not self._gateway.resolve_maintenance_decision(
+            decision_id,
+            decision,
+            source="endpoint",
+            command_id=command_id,
+        ):
             raise EndpointRequestError(
                 status_code=409,
                 code="maintenance.decision_stale",
                 message="Maintenance decision is no longer pending.",
             )
-        return {"accepted": True, "decision_id": decision_id}
+        return {
+            "accepted": True,
+            "command_id": command_id,
+            "kind": "maintenance_decision",
+            "state": "resolved",
+            "decision_id": decision_id,
+        }
 
     def _sync_workspace_change(self, manifest: WorkspaceManifest) -> None:
         self._gateway.sync_workspace_context(

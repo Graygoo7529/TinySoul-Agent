@@ -29,9 +29,11 @@ export function ChatView() {
   const send = async () => {
     if (!client || !text.trim()) return;
     try {
+      const commandId = randomId();
       await client.submitInput({
         text: text.trim(),
-        metadata: { client_message_id: randomId() },
+        command_id: commandId,
+        metadata: { client_message_id: commandId },
       });
       setText("");
     } catch (err) {
@@ -42,7 +44,7 @@ export function ChatView() {
   const stop = async () => {
     if (!client) return;
     try {
-      await client.submitControl({ kind: "stop_turn" });
+      await client.submitControl({ kind: "stop_turn", command_id: randomId() });
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }

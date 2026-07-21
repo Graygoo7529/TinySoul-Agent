@@ -39,6 +39,23 @@ class _FakeApp:
         return SimpleNamespace()
 
 
+class _FakeLease:
+    def __init__(self, root: Path) -> None:
+        self.identity = SimpleNamespace(
+            instance_id="instance_test",
+            project_identity="project_test",
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def publish(self, _ready):
+        return None
+
+
 class _FakeBuilder:
     def __init__(self, root: Path, app: _FakeApp) -> None:
         self.root = root
@@ -86,9 +103,11 @@ def test_cli_once_uses_config_overrides_and_console_sink(
 
     monkeypatch.setattr(cli.ConfigEnvironment, "from_project_root", from_project_root)
     monkeypatch.setattr(cli, "TinySoulAppBuilder", lambda root: builder)
+    monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
     result = cli.main(
         [
+            "start",
             "--root",
             str(tmp_path),
             "--mode",
@@ -121,10 +140,11 @@ def test_cli_once_returns_nonzero_without_final_answer(
     )
     monkeypatch.setattr(cli, "TinySoulAppBuilder", lambda root: builder)
 
-    assert cli.main(["--root", str(tmp_path), "--once", "hello"]) == 1
+    monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
+    assert cli.main(["start", "--root", str(tmp_path), "--once", "hello"]) == 1
 
 
-def test_cli_serve_can_attach_terminal_without_changing_endpoint_mode(
+def test_cli_start_attaches_terminal_and_model_endpoint(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -138,18 +158,14 @@ def test_cli_serve_can_attach_terminal_without_changing_endpoint_mode(
 
     monkeypatch.setattr(cli.ConfigEnvironment, "from_project_root", from_project_root)
     monkeypatch.setattr(cli, "TinySoulAppBuilder", lambda root: builder)
+    monkeypatch.setattr(cli, "ProjectInstanceLease", _FakeLease)
 
     result = cli.main(
         [
-            "serve",
+            "start",
             "--root",
             str(tmp_path),
-            "--token",
-            "x" * 32,
             "--mode",
-            "model",
-            "--terminal",
-            "--terminal-mode",
             "verbose",
         ]
     )
@@ -160,7 +176,8 @@ def test_cli_serve_can_attach_terminal_without_changing_endpoint_mode(
         "app.output.mode": "verbose",
     }
     assert builder.endpoint_settings is not None
-    assert builder.endpoint_settings.observation_mode is ObservationLevel.MODEL
+    assert builder.endpoint_settings.instance_id == "instance_test"
+    assert builder.endpoint_settings.project_identity == "project_test"
     assert len(builder.input_sources) == 1
     assert builder.sink_max_chars == 321
     assert app.run_count == 1

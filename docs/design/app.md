@@ -74,13 +74,13 @@ Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，
 - `verbose` 在 normal 之上增加 Program、Turn、Phase、模型尝试、Action batch、Runtime trap、Daily transition started 和 Home/Memory Maintenance 细节事件；
 - `model` 在 verbose 之上增加 provider-neutral 的模型请求与归一化响应。
 
-MODEL 事件可能包含完整文本 prompt 和模型回答，只应在明确需要诊断时开启。图片字节只记录长度、MIME 与 digest，远程图片 URL 去掉 query/fragment，data URL 被替换为 redacted 标记；推理只保留 summary 和 encrypted item digest，不输出 reasoning content、加密项原文或 provider 原始 payload。Console 渲染再按 `app.output.model_max_chars` 限制单条诊断文本。
+MODEL 事件可能包含完整文本 prompt 和模型回答；Console 只应在明确需要诊断时选择 model，Endpoint 则固定捕获该层级供可信本地前端渐进展示。图片字节只记录长度、MIME 与 digest，远程图片 URL 去掉 query/fragment，data URL 被替换为 redacted 标记；推理只保留 summary 和 encrypted item digest，不输出 reasoning content、加密项原文或 provider 原始 payload。Console 渲染再按 `app.output.model_max_chars` 限制单条诊断文本。
 
 `OutputSink.write` 属于外部 I/O 边界。单个 sink 失败后由 router 禁用并记录，不能反向打断 Turn、修改 Session/Workspace 提交或伪装成 Runtime 控制异常；`TinySoulApp.run()` / `run_once()` 在业务边界结束后把累计失败报告为 `AppOutputError`。`ConsoleOutputSink` 只把已完成 completion 提交的最终回答写到 stdout；failed/exhausted/stopped 和 verbose/model 诊断写到 stderr，便于脚本分别消费结果和诊断。
 
-`tinysoul` console script 是正式 App 入口。无子命令时默认从当前目录加载项目配置并启动终端输入源和已启用 scheduler；`--root` 选择项目根，`--mode normal|verbose|model` 覆盖输出详细度，`--once TEXT` 关闭交互输入、不开启 scheduler 并只执行一个 User Turn。`--once` 只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1；启动/配置失败也返回 1，键盘中断返回 130。CLI 使用同一 AppBuilder/Console sink，不建立第二套运行流程。
+`tinysoul start` 是正式交互 App 入口。它从 `--root` 或当前目录加载项目配置，在同一 AppBuilder 中启动 Terminal input、Console sink、scheduler 和 authenticated Endpoint；`--mode normal|verbose|model` 只覆盖 Terminal Console route，Endpoint route 始终为 model。`tinysoul start --once TEXT` 关闭交互输入、scheduler 和 Endpoint，只执行一个 User Turn，但仍持有同一项目进程 lease；只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1。无子命令和 `serve` 不构成并行运行入口。
 
-`tinysoul init [DIRECTORY]` 是唯一新增子命令。`ProjectInitializer` 从已安装包读取可编辑项目模板，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。命令不接收 `--provider`，模板内全部 provider 默认 disabled；用户通过 TOML 与 `.env`/进程环境启用 provider，未配置时 LLM parser 以“task 没有 enabled provider model”的清晰配置错误阻止 App 启动。模板包含 `tinysoul.toml`、configs、默认 Home、`.env.example`、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。
+`tinysoul init [DIRECTORY]` 是独立项目初始化命令。`ProjectInitializer` 从已安装包读取可编辑项目模板，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。命令不接收 `--provider`，模板内全部 provider 默认 disabled；用户通过 TOML 与 `.env`/进程环境启用 provider。模板包含 `tinysoul.toml`、configs、默认 Home、`.env.example`、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。
 
 ## 装配入口
 
@@ -108,13 +108,13 @@ AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared 
 
 AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
 
-人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日。`HomeDecisionBroker` 为 Home Maintenance 提供带 decision identity 的共享 typed channel；终端只在存在 pending change 时消费精确 `apply/discard/stop`，Endpoint 只能通过带 decision_id 的 typed API 提交决策，pending 期间的普通 Endpoint input 返回冲突。EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。
+人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日；Endpoint 以结构化 Maintenance request 表达相同意图。`HomeDecisionBroker` 为 Home Maintenance 提供带 decision identity 的共享 typed channel；终端只在存在 pending change 时消费精确 `apply/discard/stop`，Endpoint 只能通过带 decision_id 的 typed API 提交决策，pending 期间的普通 Endpoint input 返回冲突。`home.maintenance.decision.required/resolved` 经 ObservationRouter 同时通知 Console 与前端，第一个有效 decision 获胜；EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。
 
-`tinysoul serve` 使用同一 AppBuilder 启动 authenticated loopback Endpoint。EndpointEngine 是无生命周期的 application facade，EndpointHost 作为 AppService 延迟加载并启停 ASGI server；有界 event buffer 只作为 ObservationRouter sink。默认 headless 模式的 stdout 只交付一次 ready handshake；`--terminal --terminal-mode <level>` 可显式同时挂载 Terminal input 和 Console sink，此时 ready 信息写 stderr。两种入口共享同一 Gateway、Program 和业务模块。
+`ProjectInstanceLease` 在 AppBuilder 构建业务 Engine 前持有规范化项目根对应的 OS 排他锁。Endpoint 监听成功后，lease 在当前用户运行目录原子发布连接描述，包含 project/instance identity、PID、loopback host、随机端口、进程 token 和协议版本；正常退出时删除描述并释放锁。重复 `start` 必须在任何第二个 WorkspaceEngine 出现前失败。EndpointEngine 是无生命周期的 application facade，EndpointHost 作为 AppService 延迟加载并启停 ASGI server；有界 event buffer 只作为固定 MODEL 的 ObservationRouter sink。
 
 `app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
 
-这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Program normal 输出固定 `program.maintenance.available` 和每项 work 的唯一 `program.work.completed/failed`；Daily normal terminal 由 Loop owner 发布，Home/Memory 只发布 verbose Maintenance 细节。AppBuilder 已独立构建 MemoryEngine，并注入 Memory actions、Background provider、reranker、Runtime bridge、Observation emitter 与 ProgramMaintenanceRunner。
+这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Program normal 输出固定 `program.maintenance.available`、`program.work.started` 和每项 work 的唯一 `program.work.completed/failed`；外部命令由 App 发布 `app.command.accepted/rejected`，并以 request identity 关联 Turn 或 work。Daily normal terminal 由 Loop owner 发布，Home/Memory 继续发布 verbose Maintenance 细节。
 
 Stage 7 的无网络 App E2E 关闭 scheduler，以注入的受控 BusinessClock 和直接投递的 typed Program event 验证同一正式装配链：旧日 Turn 写 Home overlay，Program 启动补做 Daily archive，再独立执行 Home/Memory Maintenance，后续 Turn 自动获得昨日 MEMORY，并通过真实 Memory action search/recall 较早日期。fake LLM 只替换 provider runner，不替换 App/Loop/Home/Memory/Session/Action/Context 业务门面。
 

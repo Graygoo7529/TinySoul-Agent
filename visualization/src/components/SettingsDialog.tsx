@@ -49,8 +49,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </button>
           </div>
           <p className="text-xs text-muted mt-2">
-            This directory is passed to the backend via <code>--root</code>.
-            Changes take effect the next time the backend is started.
+            TinySoul connects to the running instance for this project root.
           </p>
         </div>
         <div className="modal-footer">

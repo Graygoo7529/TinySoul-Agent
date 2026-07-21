@@ -9,7 +9,12 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from tinysoul.app import HomeDecisionBroker, ObservationRoute, ObservationRouter
+from tinysoul.app import (
+    CommandReceipt,
+    HomeDecisionBroker,
+    ObservationRoute,
+    ObservationRouter,
+)
 from tinysoul.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
@@ -64,9 +69,19 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     response = client.post(
         "/v1/input",
         headers=_auth(),
-        json={"text": "hello", "metadata": {"client_id": "ui"}},
+        json={
+            "text": "hello",
+            "metadata": {"client_id": "ui"},
+            "command_id": "command_ui",
+        },
     )
     assert response.status_code == 202
+    assert response.json() == {
+        "accepted": True,
+        "command_id": "command_ui",
+        "kind": "start_turn",
+        "state": "queued",
+    }
     assert gateway.inputs == [("hello", "endpoint", {"client_id": "ui"})]
 
     response = client.post(
@@ -76,6 +91,19 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     )
     assert response.status_code == 202
     assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
+
+    maintenance = client.get("/v1/maintenance", headers=_auth()).json()
+    assert maintenance["availability"]["home_pending"] is False
+    response = client.post(
+        "/v1/maintenance",
+        headers=_auth(),
+        json={"kind": "memory", "target_day": "2026-07-18", "command_id": "work_ui"},
+    )
+    assert response.status_code == 202
+    assert response.json()["command_id"] == "work_ui"
+    assert gateway.maintenance_requests == [
+        ("memory", BusinessDay.parse("2026-07-18"), "endpoint")
+    ]
 
 
 def test_endpoint_hides_unexpected_exception_details(
@@ -284,7 +312,9 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
 
     with client.websocket_connect("/v1/events/ws") as websocket:
         websocket.send_json({"token": TOKEN, "after": after, "mode": "model"})
-        assert websocket.receive_json()["type"] == "authenticated"
+        authenticated = websocket.receive_json()
+        assert authenticated["type"] == "authenticated"
+        assert authenticated["instance_id"] == engine.settings.instance_id
         page = websocket.receive_json()
         assert page["type"] == "events"
         assert [event["name"] for event in page["events"]] == [
@@ -358,6 +388,9 @@ class _EndpointGateway:
     synced: list[WorkspaceManifest] = field(default_factory=list)
     observed: list[ObservationEvent] = field(default_factory=list)
     block_input: bool = False
+    maintenance_requests: list[tuple[str, BusinessDay | None, str]] = field(
+        default_factory=list
+    )
 
     @property
     def active_turn_scope(self) -> RunScope | None:
@@ -373,10 +406,12 @@ class _EndpointGateway:
         *,
         source: str,
         metadata: JsonObject,
-    ) -> None:
+        command_id: str | None = None,
+    ) -> CommandReceipt:
         if self.block_input:
             raise RuntimeInputBlockedError("Maintenance decision is pending")
         self.inputs.append((text, source, metadata))
+        return CommandReceipt(True, command_id or "command_test", "start_turn", "queued")
 
     def request_control(
         self,
@@ -385,8 +420,31 @@ class _EndpointGateway:
         source: str,
         text: str,
         metadata: JsonObject,
-    ) -> None:
+    ) -> CommandReceipt:
         self.controls.append((kind, source, text, metadata))
+        return CommandReceipt(
+            True,
+            str(metadata.get("command_id", "command_test")),
+            kind.value,
+            "queued",
+        )
+
+    def request_maintenance(
+        self,
+        kind: str,
+        *,
+        target_day,
+        source: str,
+        metadata: JsonObject,
+        command_id: str | None = None,
+    ) -> CommandReceipt:
+        self.maintenance_requests.append((kind, target_day, source))
+        return CommandReceipt(
+            True,
+            command_id or "command_maintenance",
+            f"{kind}_maintenance",
+            "queued",
+        )
 
     def pending_maintenance_decision(self):
         return self.decisions.pending_decision()
@@ -395,8 +453,16 @@ class _EndpointGateway:
         self,
         decision_id: str,
         decision,
+        *,
+        source: str = "api",
+        command_id: str = "",
     ) -> bool:
-        return self.decisions.submit_decision(decision_id, decision)
+        return self.decisions.submit_decision(
+            decision_id,
+            decision,
+            source=source,
+            command_id=command_id,
+        )
 
     def sync_workspace_context(
         self,

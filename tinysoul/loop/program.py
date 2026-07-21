@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from queue import Queue
 from threading import RLock
+from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
@@ -59,6 +60,7 @@ class ProgramInputEvent:
     mode: ProgramWorkMode | None = None
     target_day: BusinessDay | None = None
     metadata: JsonObject = field(default_factory=dict)
+    request_id: str = field(default_factory=lambda: f"request_{uuid4().hex}")
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ProgramInputKind):
@@ -95,6 +97,9 @@ class ProgramInputEvent:
                 "Only Memory Maintenance input can carry target_day"
             )
         object.__setattr__(self, "metadata", to_json_object(self.metadata))
+        if not isinstance(self.request_id, str) or not self.request_id.strip():
+            raise LoopContractError("Program input request_id must be non-empty")
+        object.__setattr__(self, "request_id", self.request_id.strip())
 
     @classmethod
     def start_turn(
@@ -103,12 +108,14 @@ class ProgramInputEvent:
         *,
         source: str = "",
         metadata: JsonObject | None = None,
+        request_id: str = "",
     ) -> "ProgramInputEvent":
         return cls(
             kind=ProgramInputKind.START_TURN,
             text=text,
             source=source,
             metadata=metadata or {},
+            request_id=request_id or f"request_{uuid4().hex}",
         )
 
     @classmethod
@@ -118,12 +125,14 @@ class ProgramInputEvent:
         text: str = "",
         source: str = "",
         metadata: JsonObject | None = None,
+        request_id: str = "",
     ) -> "ProgramInputEvent":
         return cls(
             kind=ProgramInputKind.EXIT_PROGRAM,
             text=text,
             source=source,
             metadata=metadata or {},
+            request_id=request_id or f"request_{uuid4().hex}",
         )
 
     @classmethod
@@ -132,11 +141,13 @@ class ProgramInputEvent:
         *,
         source: str = "",
         metadata: JsonObject | None = None,
+        request_id: str = "",
     ) -> "ProgramInputEvent":
         return cls(
             kind=ProgramInputKind.DAILY_ROLLOVER,
             source=source,
             metadata=metadata or {},
+            request_id=request_id or f"request_{uuid4().hex}",
         )
 
     @classmethod
@@ -146,12 +157,14 @@ class ProgramInputEvent:
         mode: ProgramWorkMode,
         source: str = "",
         metadata: JsonObject | None = None,
+        request_id: str = "",
     ) -> "ProgramInputEvent":
         return cls(
             kind=ProgramInputKind.HOME_MAINTENANCE,
             mode=mode,
             source=source,
             metadata=metadata or {},
+            request_id=request_id or f"request_{uuid4().hex}",
         )
 
     @classmethod
@@ -162,6 +175,7 @@ class ProgramInputEvent:
         target_day: BusinessDay | None = None,
         source: str = "",
         metadata: JsonObject | None = None,
+        request_id: str = "",
     ) -> "ProgramInputEvent":
         return cls(
             kind=ProgramInputKind.MEMORY_MAINTENANCE,
@@ -169,6 +183,7 @@ class ProgramInputEvent:
             target_day=target_day,
             source=source,
             metadata=metadata or {},
+            request_id=request_id or f"request_{uuid4().hex}",
         )
 
 
@@ -251,13 +266,21 @@ class ProgramRunner:
     def input_queue(self) -> Queue[ProgramInputEvent]:
         return self._input_queue
 
-    def run_once(self, user_input: str) -> TurnOutcome:
+    def run_once(
+        self,
+        user_input: str,
+        *,
+        request_id: str = "",
+        source: str = "",
+    ) -> TurnOutcome:
         with self._work_lock:
             business_day = self._ensure_active_day()
             return self._turn_runner.run(
                 user_input,
                 business_day=business_day,
                 scope=self._scope,
+                request_id=request_id,
+                input_source=source,
             )
 
     def run(self) -> ProgramOutcome:
@@ -289,7 +312,13 @@ class ProgramRunner:
                     self._ensure_active_day()
                 continue
             if event.kind is ProgramInputKind.START_TURN:
-                outcomes.append(self.run_once(event.text))
+                outcomes.append(
+                    self.run_once(
+                        event.text,
+                        request_id=event.request_id,
+                        source=event.source,
+                    )
+                )
                 turn_count += 1
                 transfer = outcomes[-1].transfer
                 if transfer is not None and transfer.target.level is RunLevel.PROGRAM:
@@ -307,10 +336,11 @@ class ProgramRunner:
                             work_count=work_count,
                         )
                 continue
+            self._emit_work_started(event)
             work = self._run_maintenance(event)
             works.append(work)
             work_count += 1
-            self._emit_work(work)
+            self._emit_work(work, request_id=event.request_id)
 
     def _ensure_active_day(self) -> BusinessDay:
         now = self._business_clock.now()
@@ -385,12 +415,28 @@ class ProgramRunner:
             level=ObservationLevel.NORMAL,
         )
 
-    def _emit_work(self, outcome: ProgramWorkOutcome) -> None:
+    def _emit_work_started(self, event: ProgramInputEvent) -> None:
+        payload: JsonObject = {
+            "request_id": event.request_id,
+            "kind": event.kind.value,
+            "mode": event.mode.value if event.mode is not None else "",
+            "source": event.source,
+        }
+        if event.target_day is not None:
+            payload["target_day"] = str(event.target_day)
+        self._emit(
+            "program.work.started",
+            f"Program work {event.kind.value} started.",
+            payload,
+            level=ObservationLevel.NORMAL,
+        )
+
+    def _emit_work(self, outcome: ProgramWorkOutcome, *, request_id: str) -> None:
         failed = outcome.status is ProgramWorkStatus.FAILED
         self._emit(
             "program.work.failed" if failed else "program.work.completed",
             f"Program work {outcome.kind.value} finished with {outcome.status.value}.",
-            outcome.to_json(),
+            {"request_id": request_id, **outcome.to_json()},
             level=ObservationLevel.NORMAL,
         )
 
@@ -403,6 +449,7 @@ class ProgramRunner:
                     "input": event.text,
                     "source": event.source,
                     "metadata": event.metadata,
+                    "request_id": event.request_id,
                 },
             ),
             self._scope,

@@ -39,6 +39,7 @@ from tinysoul.runtime import (
 class _FakeTurnRunner:
     inputs: list[str] = field(default_factory=list)
     days: list[BusinessDay] = field(default_factory=list)
+    requests: list[tuple[str, str]] = field(default_factory=list)
 
     def run(
         self,
@@ -46,9 +47,12 @@ class _FakeTurnRunner:
         *,
         business_day: BusinessDay,
         scope: RunScope,
+        request_id: str = "",
+        input_source: str = "",
     ) -> TurnOutcome:
         self.inputs.append(user_input)
         self.days.append(business_day)
+        self.requests.append((request_id, input_source))
         return TurnOutcome(
             summary=None,
             business_day=business_day,
@@ -196,6 +200,7 @@ def test_program_runner_exit_event_ends_program_without_turn() -> None:
             text="bye",
             source="test",
             metadata={"reason": "unit"},
+            request_id="command_exit",
         )
     )
     outcome = runner.run()
@@ -207,6 +212,7 @@ def test_program_runner_exit_event_ends_program_without_turn() -> None:
         "input": "bye",
         "source": "test",
         "metadata": {"reason": "unit"},
+        "request_id": "command_exit",
     }
 
 

@@ -10,7 +10,13 @@
 import type { ConnectionInfo, EndpointEvent, ObservationLevel } from "../types";
 
 export type EventStreamMessage =
-  | { type: "authenticated"; protocol_version: number; next_sequence: number }
+  | {
+      type: "authenticated";
+      protocol_version: number;
+      instance_id: string;
+      project_identity: string;
+      next_sequence: number;
+    }
   | { type: "events"; events: EndpointEvent[]; next_sequence: number; gap: boolean }
   | { type: "heartbeat"; next_sequence: number };
 
@@ -54,7 +60,7 @@ export class TinySoulEventStream {
         const data = JSON.parse(event.data as string) as EventStreamMessage;
         if (data.type === "events") {
           this.after = data.next_sequence;
-        } else if (data.type === "heartbeat" || data.type === "authenticated") {
+        } else if (data.type === "heartbeat") {
           this.after = data.next_sequence;
         }
         this.callbacks.onMessage(data);

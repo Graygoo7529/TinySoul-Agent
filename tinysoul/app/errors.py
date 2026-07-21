@@ -19,5 +19,9 @@ class AppInitializationError(AppError):
     """Raised when an empty project target cannot be initialized."""
 
 
+class AppInstanceError(AppError):
+    """Raised when the project application instance cannot be owned."""
+
+
 class AppOutputError(AppError):
     """Raised at the app boundary after an output sink has failed."""

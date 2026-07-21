@@ -329,14 +329,14 @@ class TinySoulAppBuilder:
                     *output_routes,
                     ObservationRoute(
                         sink=endpoint_events,
-                        mode=self._endpoint_settings.observation_mode,
+                        mode=ObservationLevel.MODEL,
                     ),
                 )
             observations = ObservationRouter(
                 mode=(
                     _higher_observation_level(
                         app_settings.output.mode,
-                        self._endpoint_settings.observation_mode,
+                        ObservationLevel.MODEL,
                     )
                     if self._endpoint_settings is not None
                     else app_settings.output.mode
@@ -611,6 +611,7 @@ class TinySoulAppBuilder:
                     workspace=workspace,
                     session=session,
                     daily_lifecycle=daily_lifecycle,
+                    maintenance=maintenance_runner,
                 )
                 services = (
                     EndpointHost(

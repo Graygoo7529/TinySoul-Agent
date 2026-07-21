@@ -25,15 +25,14 @@ The Workspace tab currently reads the manifest and individual resources. Additio
 - `POST /v1/workspace/blob/upload` (multipart/form-data) would make drag-and-drop file uploads simpler than the current `PUT /v1/workspace/blob` with `application/octet-stream`.
 - Preview URLs for image blobs (`GET /v1/workspace/preview?link=...`) would let the UI render thumbnails without loading full blobs into memory.
 
-## Sidecar / Lifecycle
+## Instance Metadata
 
-- A `GET /v1/backend/info` endpoint returning version, supported protocol versions, and enabled capabilities would let the frontend adapt its UI before invoking commands.
-- A configurable sidecar executable path (env var or Tauri config) so the frontend does not rely solely on `tinysoul` being on PATH.
+- A capability manifest in `GET /v1/status` could let the frontend hide controls that are unavailable in the effective Action Catalog. The existing project/instance identity and protocol version already cover connection validation.
 
 ## Maintenance
 
 - Maintenance decisions currently expose only one pending change at a time. A list view of all pending Home changes (`GET /v1/maintenance/decisions`) would support batch review in the UI.
-- Progress events for long-running Home / Memory Maintenance work would let the frontend show a progress bar instead of waiting for the terminal `program.work.completed` event.
+- More granular progress facts inside a long-running Home or Memory item could support a determinate progress view. Generic request, started, decision, and completed/failed events are already available.
 
 ## Model Observability
 

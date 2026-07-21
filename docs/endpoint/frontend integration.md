@@ -2,38 +2,38 @@
 
 ## 技术选择
 
-桌面壳推荐使用 **Tauri 2 + React + TypeScript**。Tauri 只负责进程、窗口、系统托盘和安装包能力，Python TinySoul 作为 sidecar 运行；React 不直接使用 Tauri filesystem API 访问 `runtime/workspace`、Session、Home 或 Memory。Electron 仍可作为不具备 Rust/Tauri 构建环境时的替代壳，但前端协议与本页不变。
+桌面壳使用 **Tauri 2 + React + TypeScript**。Tauri 只负责窗口和读取 App-owned 连接描述；它不启动、持有或停止 Python 进程。React 不直接使用 Tauri filesystem API 访问 `runtime/workspace`、Session、Home 或 Memory。
 
 前端状态分为两类：
 
 - 对话与执行状态由 Endpoint Observation event 构建，只保存在 UI store；
 - Workspace/Session 以 REST 读取当前权威投影，mutation 成功后用响应中的新 Manifest 替换缓存。
 
-## 启动与关闭
+## 启动、发现与关闭
 
-Tauri sidecar 启动命令：
+用户在可见 Terminal 中启动唯一后端：
 
 ```text
-tinysoul serve --root <project-root> --host 127.0.0.1 --port 0 --mode model
+tinysoul start --root <project-root> --mode normal
 ```
 
-进程成功监听后，stdout 输出且只输出一行 ready JSON：
+`--mode` 只控制该 Terminal 的 Console 输出，Endpoint 始终捕获 model。后端在构建业务 Engine 前持有项目级进程 lease；Endpoint ready 后在当前用户运行目录原子写入连接描述：
 
 ```json
 {
-  "type": "endpoint.ready",
+  "schema_version": 1,
   "protocol_version": 1,
+  "instance_id": "instance_...",
+  "project_root": "...",
+  "project_identity": "sha256-of-canonical-root",
+  "pid": 1234,
   "host": "127.0.0.1",
   "port": 49152,
   "token": "process-local-bearer-token"
 }
 ```
 
-`port=0` 使用预绑定 socket 取得空闲端口。未显式传入 `--token` 时后端生成进程级 token，并通过 child stdout 交给父进程；不要把 token 写入 localStorage、日志或 URL。前端退出时调用 `POST /v1/control` 提交 `exit_program`，等待 sidecar 正常退出；超时后才由 Tauri 收尾子进程。
-
-调试时可使用 `tinysoul serve ... --terminal --terminal-mode verbose` 同时启用 stdin/Console；该模式把 ready JSON 写入 stderr，不适合作为桌面 sidecar handshake。默认不带 `--terminal` 的 serve 仍是 headless 模式。
-
-生产安装包需要携带真实 CPython 环境及 TinySoul desktop extra，不能只把当前入口冻结为不完整的单文件解释器，因为 Script Python action 使用当前 Python executable。desktop extra 包含 FastAPI、Uvicorn 和 WebSockets。
+前端根据规范化项目根计算 project identity，通过 Tauri 读取对应描述，再以 authenticated status 校验 instance/project identity。没有有效描述时只展示推荐启动命令和重试按钮，不唤起 Terminal。token 只保存在 Tauri/React 当前内存，不写入 localStorage、日志或 URL。前端关闭只断开；后端由拥有它的 Terminal 通过 `exit` 或 EOF 结束，并清理连接描述。第二个相同项目的 `tinysoul start` 在构建第二个 WorkspaceEngine 前失败。
 
 ## 鉴权与通用规则
 
@@ -72,33 +72,40 @@ HTTP 错误统一为：
 
 ```json
 {
-  "text": "请分析当前工作区",
+  "text": "analyze the workspace",
+  "command_id": "command_123",
   "metadata": {"client_message_id": "msg_123"}
 }
 ```
 
-返回 `202 {"accepted": true}`。空闲时输入进入新的 User Turn；Turn 活跃时输入按现有 InputDispatcher 语义追加到当前 Turn。Maintenance decision pending 时返回 `409 maintenance.decision_required`，普通文本（包括 `apply`、`discard`、`stop`）不会解决该 decision。
+返回 `202` command receipt：
+
+```json
+{"accepted": true, "command_id": "command_123", "kind": "start_turn", "state": "queued"}
+```
+
+空闲时输入进入新的 User Turn；Turn 活跃时追加到当前 Turn。`app.command.accepted` 是跨 Terminal/前端同步用户输入的权威事件，`turn.started.payload.request_id` 把初始输入关联到实际 Turn。Maintenance decision pending 时返回 `409 maintenance.decision_required`，普通文本不会解决 decision。
 
 ### 控制
 
 `POST /v1/control`
 
 ```json
-{"kind": "stop_turn", "metadata": {}}
+{"kind": "stop_turn", "command_id": "command_456", "metadata": {}}
 ```
 
-`kind` 只能是 `stop_turn` 或 `exit_program`。这是 typed control，不应由前端模拟 `/stop` 或 `/exit` 文本。
+`kind` 只能是 `stop_turn` 或 `exit_program`。桌面 UI 通常只使用 `stop_turn`；前端关闭不得提交 `exit_program`。
 
 ### 状态
 
-`GET /v1/status` 返回 active day、Turn 是否活跃、Workspace/Session revision、最新 event sequence 和 Maintenance decision pending 状态。`ready=false` 时应继续展示连接状态并重试，不能访问本地目录绕过 Daily 初始化。
+`GET /v1/status` 返回 instance/project identity、active day、Turn 是否活跃、Workspace/Session revision、最新 event sequence 和 Maintenance decision pending 状态。identity 与连接描述不一致时必须断开；`ready=false` 时继续重试，不能访问本地目录绕过 Daily 初始化。
 
 ## Observation 事件
 
 HTTP 补拉：
 
 ```text
-GET /v1/events?after=120&mode=verbose&limit=200
+GET /v1/events?after=0&mode=model&limit=200
 ```
 
 响应包含 `events`、`next_sequence` 和 `gap`。`gap=true` 表示 `after` 早于内存 replay window，前端应清空临时执行视图，并通过 status、Session、Workspace REST 重新取得权威投影。
@@ -109,7 +116,7 @@ WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 {"token": "...", "after": 120, "mode": "model"}
 ```
 
-认证成功先收到 `authenticated`，随后收到 `events` page 或 `heartbeat`。断线重连使用客户端最后提交到 store 的 sequence 作为 `after`。
+首次连接使用 `after=0`，以免跳过启动 Maintenance 提示。认证成功帧包含 instance/project identity；随后收到 `events` page 或 `heartbeat`。断线重连使用客户端最后提交到 store 的 sequence。raw store 以 `(instance_id, sequence)` 去重；gap 后清理临时执行视图，并重新读取 Maintenance、Session 和 Workspace 权威投影。
 
 事件 envelope：
 
@@ -133,7 +140,7 @@ WebSocket 地址为 `/v1/events/ws`。连接后 5 秒内发送首帧：
 
 主要 UI 映射：
 
-- normal：`turn.output`、Turn terminal、Daily/Program work 与 `workspace.changed`；
+- normal：`app.command.accepted/rejected`、`turn.output`、Turn terminal、Maintenance availability/decision、Program work 与 `workspace.changed`；
 - verbose：`turn.started`、`loop.phase.started/completed`、`llm.task.started/completed/failed`、`action.call`、`action.result`、`context.background.snapshot/changed`；
 - model：`llm.model.request/response`。同一次 LLM Task 的全部事件都带相同 `payload.task_id`；request 中的 `messages` 和 `tools` 是完整 provider-neutral 构造结果。
 
@@ -187,7 +194,9 @@ Endpoint 的 Workspace/Session 请求持有 Daily active-day lease，且与 Agen
 
 ## Maintenance
 
+- `GET /v1/maintenance`：取得当前 Home/Memory availability 与 pending decision 权威快照；
+- `POST /v1/maintenance`：提交 `kind=home|memory`、可选 Memory `target_day`、`command_id` 与 metadata，返回 command receipt；
 - `GET /v1/maintenance/decision`：取得当前 pending decision_id 和 Home change；
-- `POST /v1/maintenance/decision`：提交 decision_id 以及 `apply`、`discard` 或 `stop`。
+- `POST /v1/maintenance/decision`：提交 decision_id、command_id 以及 `apply`、`discard` 或 `stop`。
 
-decision_id 防止旧对话框确认后续 change。`409 maintenance.decision_stale` 时关闭旧对话框并重新获取 pending 状态；`409 maintenance.decision_required` 时保持输入草稿并先展示当前 decision。
+`program.maintenance.available` 只表示存在可运行工作；`program.work.started/completed/failed` 使用 request identity 关联请求；`home.maintenance.decision.required/resolved` 表示人工决策生命周期。decision_id 防止旧对话框确认后续 change；Terminal 和前端同时提交时第一个有效 decision 生效，另一端从 resolved Observation 收敛。`409 maintenance.decision_stale` 时关闭旧对话框并重新获取状态；`409 maintenance.decision_required` 时保持输入草稿并先展示当前 decision。

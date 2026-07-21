@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject
-from tinysoul.loop import LoopControlKind
+from tinysoul.loop import BusinessDay, LoopControlKind
 from tinysoul.runtime import (
     RunLevel,
     RunScope,
@@ -18,7 +18,13 @@ from tinysoul.runtime import (
 from tinysoul.workspace import WorkspaceManifest, workspace_snapshot_signal
 
 from .errors import AppError
-from .inputs import InputDispatcher, InputEvent, InputSink
+from .inputs import (
+    CommandReceipt,
+    InputDispatcher,
+    InputEvent,
+    InputSink,
+    MaintenanceRequestKind,
+)
 from .maintenance import (
     HomeDecisionBroker,
     MaintenanceDecisionRoute,
@@ -55,21 +61,25 @@ class AppCommandGateway(InputSink):
     def current_scope(self) -> RunScope:
         return self.active_turn_scope or self._program_scope
 
-    def submit(self, event: InputEvent) -> None:
+    def submit(self, event: InputEvent) -> CommandReceipt:
         """Submit one trusted interactive line, including local decisions."""
 
-        route = self._decisions.route(event.text, source=event.source)
+        route = self._decisions.route(
+            event.text,
+            source=event.source,
+            command_id=event.command_id,
+        )
         if route is MaintenanceDecisionRoute.CONSUMED:
-            return
+            return CommandReceipt(True, event.command_id, "maintenance_decision", "resolved")
         if route is MaintenanceDecisionRoute.CONSUMED_AND_EXIT:
             self._dispatcher.request_control(
                 LoopControlKind.EXIT_PROGRAM,
                 source=event.source,
                 text=event.text,
-                metadata=event.metadata,
+                metadata={**event.metadata, "command_id": event.command_id},
             )
-            return
-        self._dispatcher.submit(event)
+            return CommandReceipt(True, event.command_id, "exit_program", "signaled")
+        return self._dispatcher.submit(event)
 
     def submit_user_input(
         self,
@@ -77,14 +87,20 @@ class AppCommandGateway(InputSink):
         *,
         source: str,
         metadata: JsonObject,
-    ) -> None:
+        command_id: str | None = None,
+    ) -> CommandReceipt:
         """Submit ordinary text without interpreting maintenance decisions."""
 
-        self.submit_user_event(
-            InputEvent(text=text, source=source, metadata=metadata)
+        return self.submit_user_event(
+            InputEvent(
+                text=text,
+                source=source,
+                metadata=metadata,
+                command_id=command_id or f"command_{uuid4().hex}",
+            )
         )
 
-    def submit_user_event(self, event: InputEvent) -> None:
+    def submit_user_event(self, event: InputEvent) -> CommandReceipt:
         """Submit one normalized ordinary input event."""
 
         if self._decisions.pending_decision() is not None:
@@ -92,7 +108,7 @@ class AppCommandGateway(InputSink):
                 "A Maintenance decision must be resolved before submitting input"
             )
         try:
-            self._dispatcher.submit(event)
+            return self._dispatcher.submit(event)
         except AppError as exc:
             raise RuntimeGatewayError(str(exc)) from exc
 
@@ -103,15 +119,41 @@ class AppCommandGateway(InputSink):
         source: str,
         text: str = "",
         metadata: JsonObject | None = None,
-    ) -> None:
+    ) -> CommandReceipt:
         if kind is LoopControlKind.EXIT_PROGRAM:
             self._decisions.stop_pending(source=source)
         try:
-            self._dispatcher.request_control(
+            payload = dict(metadata or {})
+            payload.setdefault("command_id", f"command_{uuid4().hex}")
+            return self._dispatcher.request_control(
                 kind,
                 source=source,
                 text=text,
+                metadata=payload,
+            )
+        except AppError as exc:
+            raise RuntimeGatewayError(str(exc)) from exc
+
+    def request_maintenance(
+        self,
+        kind: str,
+        *,
+        target_day: BusinessDay | None,
+        source: str,
+        metadata: JsonObject,
+        command_id: str | None = None,
+    ) -> CommandReceipt:
+        if self._decisions.pending_decision() is not None:
+            raise RuntimeInputBlockedError(
+                "A Maintenance decision must be resolved before submitting work"
+            )
+        try:
+            return self._dispatcher.request_maintenance(
+                MaintenanceRequestKind(kind),
+                target_day=target_day,
+                source=source,
                 metadata=metadata,
+                command_id=command_id or f"command_{uuid4().hex}",
             )
         except AppError as exc:
             raise RuntimeGatewayError(str(exc)) from exc
@@ -125,8 +167,16 @@ class AppCommandGateway(InputSink):
         self,
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
+        *,
+        source: str = "api",
+        command_id: str = "",
     ) -> bool:
-        return self._decisions.submit_decision(decision_id, decision)
+        return self._decisions.submit_decision(
+            decision_id,
+            decision,
+            source=source,
+            command_id=command_id,
+        )
 
     def sync_workspace_context(
         self,

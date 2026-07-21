@@ -9,12 +9,15 @@
 import type {
   BackendError,
   BackendStatus,
+  CommandReceipt,
   ConnectionInfo,
   ControlRequest,
   EndpointEvent,
   InputRequest,
   MaintenanceDecision,
   MaintenanceDecisionRequest,
+  MaintenanceRequest,
+  MaintenanceStatus,
   SessionHistory,
   SessionRecall,
   TrashItem,
@@ -100,12 +103,12 @@ export class TinySoulClient {
     return this.request<BackendStatus>("GET", "/v1/status");
   }
 
-  async submitInput(request: InputRequest): Promise<{ accepted: boolean }> {
-    return this.request<{ accepted: boolean }>("POST", "/v1/input", { body: request });
+  async submitInput(request: InputRequest): Promise<CommandReceipt> {
+    return this.request<CommandReceipt>("POST", "/v1/input", { body: request });
   }
 
-  async submitControl(request: ControlRequest): Promise<{ accepted: boolean; kind: string }> {
-    return this.request<{ accepted: boolean; kind: string }>("POST", "/v1/control", {
+  async submitControl(request: ControlRequest): Promise<CommandReceipt> {
+    return this.request<CommandReceipt>("POST", "/v1/control", {
       body: request,
     });
   }
@@ -223,8 +226,16 @@ export class TinySoulClient {
     return this.request<MaintenanceDecision>("GET", "/v1/maintenance/decision");
   }
 
-  async resolveMaintenanceDecision(request: MaintenanceDecisionRequest): Promise<{ accepted: boolean }> {
-    return this.request<{ accepted: boolean }>("POST", "/v1/maintenance/decision", {
+  async maintenanceStatus(): Promise<MaintenanceStatus> {
+    return this.request<MaintenanceStatus>("GET", "/v1/maintenance");
+  }
+
+  async requestMaintenance(request: MaintenanceRequest): Promise<CommandReceipt> {
+    return this.request<CommandReceipt>("POST", "/v1/maintenance", { body: request });
+  }
+
+  async resolveMaintenanceDecision(request: MaintenanceDecisionRequest): Promise<CommandReceipt> {
+    return this.request<CommandReceipt>("POST", "/v1/maintenance/decision", {
       body: request,
     });
   }

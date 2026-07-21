@@ -149,6 +149,7 @@ export function useDerivedChat(events: EndpointEvent[]): ChatTurn[] {
 
 function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
+  const pendingInputs = new Map<string, string>();
   // Track current scope while iterating so we can attribute events without a precise frame.
   let currentTurnId: string | null = null;
   let currentCycleId: string | null = null;
@@ -159,6 +160,23 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
     const cycleFrame = ev.scope.find((f) => f.level === "cycle");
     const phaseFrame = ev.scope.find((f) => f.level === "phase");
     const turnId = turnFrame?.name ?? null;
+
+    if (ev.name === "app.command.accepted") {
+      const commandId = ev.payload?.command_id;
+      const kind = ev.payload?.kind;
+      const text = ev.payload?.text;
+      if (
+        typeof commandId === "string" &&
+        typeof text === "string" &&
+        kind === "start_turn"
+      ) {
+        pendingInputs.set(commandId, text);
+      }
+      if (turnId && typeof text === "string" && kind === "append_input") {
+        const turn = getTurn(turns, turnId, ev.created_at);
+        if (!turn.userMessages.includes(text)) turn.userMessages.push(text);
+      }
+    }
 
     if (!turnId) continue;
 
@@ -176,7 +194,11 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
 
     const turn = getTurn(turns, turnId, ev.created_at);
 
-    if (ev.name === "context.input.append") {
+    if (ev.name === "turn.started") {
+      const requestId = ev.payload?.request_id;
+      const text = typeof requestId === "string" ? pendingInputs.get(requestId) : undefined;
+      if (text && !turn.userMessages.includes(text)) turn.userMessages.push(text);
+    } else if (ev.name === "context.input.append") {
       const text = ev.payload?.text;
       if (typeof text === "string" && !turn.userMessages.includes(text)) {
         turn.userMessages.push(text);

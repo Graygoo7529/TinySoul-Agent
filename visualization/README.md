@@ -9,7 +9,7 @@ Requirements:
 - Node.js 20+
 - pnpm
 - Rust 1.97+ (for Tauri)
-- `tinysoul` on PATH (the backend sidecar)
+- `tinysoul` on PATH
 
 Install dependencies:
 
@@ -23,7 +23,13 @@ Run in development mode:
 pnpm tauri dev
 ```
 
-The frontend window will open first. Confirm the project root in **Settings** and click **Start Backend** to spawn `tinysoul serve`.
+Start TinySoul in a visible Terminal, then open the frontend:
+
+```bash
+tinysoul start --root <project-root> --mode normal
+```
+
+The frontend discovers that project instance automatically. When no instance is available it shows the recommended command and a retry action; it never starts or stops the backend.
 
 > The backend executable must be on PATH as `tinysoul` (or `tinysoul.exe` on Windows). For this project you can install it with `pip install -e .` from the repository root.
 
@@ -35,7 +41,7 @@ pnpm tauri build
 
 ## Architecture
 
-- `src-tauri/src/lib.rs` — Tauri Rust shell. Spawns `tinysoul serve`, captures the `endpoint.ready` handshake, and exposes `start_backend` / `stop_backend` commands.
+- `src-tauri/src/lib.rs` — Tauri Rust boundary that locates and validates the App-owned project connection record.
 - `src/api/tinysoul.ts` — HTTP client for the Endpoint API.
 - `src/api/events.ts` — WebSocket event stream manager with reconnection and gap detection.
 - `src/store/appStore.ts` — Zustand store for connection state, events, workspace cache, UI selections, and persisted project root.
@@ -93,11 +99,11 @@ Phase 3 action results are rendered as mock computer UIs:
 ### Settings
 
 - Project root directory is persisted across restarts.
-- The root can be changed from the Settings dialog; the new value is used the next time the backend is started.
+- The root can be changed from the Settings dialog and reconnects to that project's running instance.
 
 ## Notes
 
 - The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/workspace`, Session, Home, or Memory directly.
-- The backend executable name is `tinysoul` (or `tinysoul.exe` on Windows). For production distribution it should be bundled as a Tauri sidecar.
+- The backend is owned by the visible Terminal that ran `tinysoul start`; closing the frontend only disconnects it.
 - The default window is intentionally compact (720×520) for a user-level desktop assistant.
 - Assumed or missing backend capabilities that could extend the UI are recorded in `docs/missing-capabilities.md` and `docs/design-v2.md`.

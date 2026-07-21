@@ -1,75 +1,45 @@
-"""Console entry point for a configured TinySoul application."""
+"""TinySoul command-line entry points."""
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 from pathlib import Path
 from secrets import token_urlsafe
 import sys
+from collections.abc import Sequence
 
-from tinysoul.endpoint import EndpointError, EndpointReady, EndpointSettings
-from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.infra.json import dumps_json
-from tinysoul.loop import TurnOutcomeStatus
+from tinysoul.endpoint import EndpointError, EndpointSettings
+from tinysoul.infra import ConfigEnvironment, ConfigError
 from tinysoul.runtime import ObservationLevel, RuntimeException
 
 from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
+from .initializer import ProjectInitializer
+from .instance import ProjectInstanceLease
 from .outputs import ConsoleOutputSink
 from .sources import TerminalInputSource
-from .initializer import ProjectInitializer
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run TinySoul interactively or execute exactly one user turn."""
-
-    arguments = tuple(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] == "init":
-        return _initialize(arguments[1:])
-    if arguments and arguments[0] == "serve":
-        return _serve(arguments[1:])
-
-    parser = _build_parser()
-    args = parser.parse_args(arguments)
-    root = args.root.resolve()
-    overrides: dict[str, object] = {
-        "app.interactive": args.once is None,
-    }
-    if args.mode is not None:
-        overrides["app.output.mode"] = args.mode
-
+    args = tuple(sys.argv[1:] if argv is None else argv)
+    if args and args[0] == "init":
+        return _init(args[1:])
+    if args and args[0] == "start":
+        return _start(args[1:])
+    parser = argparse.ArgumentParser(prog="tinysoul")
+    parser.add_argument("command", choices=("start", "init"))
     try:
-        config = ConfigEnvironment.from_project_root(root, overrides=overrides)
-        app_settings = config.parse_section("app", parse_app_settings)
-        sink = ConsoleOutputSink(
-            max_chars=app_settings.output.model_max_chars,
-        )
-        app = (
-            TinySoulAppBuilder(root)
-            .with_config_environment(config)
-            .with_app_settings(app_settings)
-            .with_output_sink(sink)
-            .build()
-        )
-        if args.once is not None:
-            outcome = app.run_once(args.once)
-            return 0 if outcome.status is TurnOutcomeStatus.ANSWERED else 1
-        else:
-            app.run()
-        return 0
-    except KeyboardInterrupt:
-        return 130
-    except (ConfigError, RuntimeException, AppError) as exc:
-        print(f"tinysoul: {exc}", file=sys.stderr)
-        return 1
+        parser.parse_args(args)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 2
+    return 2
 
 
-def _initialize(argv: Sequence[str]) -> int:
+def _init(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="tinysoul init",
-        description="Initialize an editable TinySoul project.",
+        description="Create a TinySoul project from packaged editable templates.",
     )
     parser.add_argument(
         "directory",
@@ -78,7 +48,7 @@ def _initialize(argv: Sequence[str]) -> int:
         default=Path.cwd(),
         help="new or empty project directory (default: current directory)",
     )
-    args = parser.parse_args(argv)
+    args = parser.parse_args(tuple(argv))
     try:
         outcome = ProjectInitializer().initialize(args.directory)
     except AppError as exc:
@@ -88,10 +58,10 @@ def _initialize(argv: Sequence[str]) -> int:
     return 0
 
 
-def _serve(argv: Sequence[str]) -> int:
+def _start(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="tinysoul serve",
-        description="Run the authenticated local desktop Endpoint.",
+        prog="tinysoul start",
+        description="Run TinySoul with Terminal input and the desktop Endpoint.",
     )
     parser.add_argument(
         "--root",
@@ -99,97 +69,58 @@ def _serve(argv: Sequence[str]) -> int:
         default=Path.cwd(),
         help="project root containing tinysoul.toml (default: current directory)",
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--token", default="")
     parser.add_argument(
         "--mode",
         choices=tuple(level.value for level in ObservationLevel),
-        default=ObservationLevel.MODEL.value,
+        help="Terminal output detail: normal, verbose, or model",
     )
     parser.add_argument(
-        "--terminal",
-        action="store_true",
-        help="also attach terminal input and console output",
-    )
-    parser.add_argument(
-        "--terminal-mode",
-        choices=tuple(level.value for level in ObservationLevel),
-        default=ObservationLevel.NORMAL.value,
-        help="terminal observation detail when --terminal is enabled",
+        "--once",
+        metavar="TEXT",
+        help="run one User Turn without opening an interactive Endpoint",
     )
     args = parser.parse_args(tuple(argv))
     root = args.root.resolve()
-    token = args.token or token_urlsafe(32)
+    overrides: dict[str, object] = {
+        "app.interactive": args.once is None,
+    }
+    if args.mode is not None:
+        overrides["app.output.mode"] = args.mode
+
     try:
-        mode = ObservationLevel(args.mode)
-        terminal_mode = ObservationLevel(args.terminal_mode)
-        config = ConfigEnvironment.from_project_root(
-            root,
-            overrides={
-                "app.interactive": True,
-                "app.output.mode": terminal_mode.value,
-            },
-        )
-        app_settings = config.parse_section("app", parse_app_settings)
-        endpoint_settings = EndpointSettings(
-            host=args.host,
-            port=args.port,
-            token=token,
-            observation_mode=mode,
-        )
-
-        def ready(value: EndpointReady) -> None:
-            stream = sys.stderr if args.terminal else sys.stdout
-            print(dumps_json(value.to_json()), file=stream, flush=True)
-
-        builder = (
-            TinySoulAppBuilder(root)
-            .with_config_environment(config)
-            .with_app_settings(app_settings)
-            .with_endpoint(endpoint_settings, ready=ready)
-        )
-        if args.terminal:
-            builder = builder.with_input_source(
-                TerminalInputSource(
-                    eof_command=app_settings.input_commands.exit_commands[0],
+        with ProjectInstanceLease(root) as lease:
+            config = ConfigEnvironment.from_project_root(root, overrides=overrides)
+            app_settings = config.parse_section("app", parse_app_settings)
+            builder = (
+                TinySoulAppBuilder(root)
+                .with_config_environment(config)
+                .with_app_settings(app_settings)
+                .with_output_sink(
+                    ConsoleOutputSink(max_chars=app_settings.output.model_max_chars)
                 )
-            ).with_output_sink(
-                ConsoleOutputSink(max_chars=app_settings.output.model_max_chars)
             )
-        app = builder.build()
-        app.run()
-        return 0
+            if args.once is None:
+                endpoint_settings = EndpointSettings(
+                    token=token_urlsafe(32),
+                    instance_id=lease.identity.instance_id,
+                    project_identity=lease.identity.project_identity,
+                )
+                builder = (
+                    builder.with_endpoint(endpoint_settings, ready=lease.publish)
+                    .with_input_source(
+                        TerminalInputSource(
+                            eof_command=app_settings.input_commands.exit_commands[0]
+                        )
+                    )
+                )
+            app = builder.build()
+            if args.once is not None:
+                outcome = app.run_once(args.once)
+                return 0 if outcome.status.value == "answered" else 1
+            app.run()
+            return 0
     except KeyboardInterrupt:
         return 130
     except (ConfigError, EndpointError, RuntimeException, AppError) as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="tinysoul",
-        description="Run the TinySoul agent from a project configuration.",
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path.cwd(),
-        help="project root containing tinysoul.toml (default: current directory)",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=tuple(level.value for level in ObservationLevel),
-        help="output detail: normal, verbose, or model",
-    )
-    parser.add_argument(
-        "--once",
-        metavar="TEXT",
-        help="run one user turn instead of starting the interactive console",
-    )
-    return parser
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

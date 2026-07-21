@@ -9,6 +9,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
+from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -42,7 +43,13 @@ class MaintenanceDecisionRoute(StrEnum):
 
 
 class MaintenanceDecisionInputRouter(Protocol):
-    def route(self, text: str, *, source: str) -> MaintenanceDecisionRoute: ...
+    def route(
+        self,
+        text: str,
+        *,
+        source: str,
+        command_id: str = "",
+    ) -> MaintenanceDecisionRoute: ...
 
     def stop_pending(self, *, source: str) -> bool: ...
 
@@ -100,33 +107,53 @@ class HomeDecisionBroker:
             raise AppInvariantError("Manual Home decision broker resolved invalid data")
         return value
 
-    def route(self, text: str, *, source: str) -> MaintenanceDecisionRoute:
+    def route(
+        self,
+        text: str,
+        *,
+        source: str,
+        command_id: str = "",
+    ) -> MaintenanceDecisionRoute:
         normalized = text.strip().casefold()
         with self._condition:
             if not self._pending or self._decision is not _UNSET:
                 return MaintenanceDecisionRoute.NOT_CONSUMED
             if source == "terminal.eof":
                 self._decision = None
+                decision_id = self._decision_id
                 self._condition.notify_all()
-                return MaintenanceDecisionRoute.CONSUMED_AND_EXIT
-            if normalized == HomeMaintenanceDecision.APPLY.value:
+                route = MaintenanceDecisionRoute.CONSUMED_AND_EXIT
+                resolved = "stop"
+            elif normalized == HomeMaintenanceDecision.APPLY.value:
                 self._decision = HomeMaintenanceDecision.APPLY
+                decision_id = self._decision_id
+                route = MaintenanceDecisionRoute.CONSUMED
+                resolved = HomeMaintenanceDecision.APPLY.value
             elif normalized == HomeMaintenanceDecision.DISCARD.value:
                 self._decision = HomeMaintenanceDecision.DISCARD
+                decision_id = self._decision_id
+                route = MaintenanceDecisionRoute.CONSUMED
+                resolved = HomeMaintenanceDecision.DISCARD.value
             elif normalized == "stop":
                 self._decision = None
+                decision_id = self._decision_id
+                route = MaintenanceDecisionRoute.CONSUMED
+                resolved = "stop"
             else:
                 return MaintenanceDecisionRoute.NOT_CONSUMED
             self._condition.notify_all()
-            return MaintenanceDecisionRoute.CONSUMED
+        self._emit_resolved(decision_id, resolved, source, command_id)
+        return route
 
     def stop_pending(self, *, source: str) -> bool:
         with self._condition:
             if not self._pending or self._decision is not _UNSET:
                 return False
             self._decision = None
+            decision_id = self._decision_id
             self._condition.notify_all()
-            return True
+        self._emit_resolved(decision_id, "stop", source, "")
+        return True
 
     def pending_decision(self) -> MaintenanceDecisionSnapshot | None:
         with self._condition:
@@ -145,6 +172,9 @@ class HomeDecisionBroker:
         self,
         decision_id: str,
         decision: HomeMaintenanceDecision | None,
+        *,
+        source: str = "api",
+        command_id: str = "",
     ) -> bool:
         with self._condition:
             if (
@@ -159,8 +189,10 @@ class HomeDecisionBroker:
             ):
                 raise AppInvariantError("Maintenance decision value is invalid")
             self._decision = decision
+            resolved = decision.value if decision is not None else "stop"
             self._condition.notify_all()
-            return True
+        self._emit_resolved(decision_id, resolved, source, command_id)
+        return True
 
     def _emit_prompt(self, change: HomeMaintenanceChange) -> None:
         if not observation_enabled(self._observations, ObservationLevel.NORMAL):
@@ -168,7 +200,7 @@ class HomeDecisionBroker:
         emit_observation(
             self._observations,
             ObservationEvent(
-                name="program.maintenance.available",
+                name="home.maintenance.decision.required",
                 level=ObservationLevel.NORMAL,
                 source="app.maintenance",
                 scope=self._scope,
@@ -180,5 +212,33 @@ class HomeDecisionBroker:
                     "decision_id": self._decision_id,
                     "change": change.to_review_json(),
                 },
+            ),
+        )
+
+    def _emit_resolved(
+        self,
+        decision_id: str,
+        decision: str,
+        source: str,
+        command_id: str,
+    ) -> None:
+        if not observation_enabled(self._observations, ObservationLevel.NORMAL):
+            return
+        payload: JsonObject = {
+            "decision_id": decision_id,
+            "decision": decision,
+            "source": source,
+        }
+        if command_id:
+            payload["command_id"] = command_id
+        emit_observation(
+            self._observations,
+            ObservationEvent(
+                name="home.maintenance.decision.resolved",
+                level=ObservationLevel.NORMAL,
+                source="app.maintenance",
+                scope=self._scope,
+                message=f"Home Maintenance decision resolved as {decision}.",
+                payload=payload,
             ),
         )

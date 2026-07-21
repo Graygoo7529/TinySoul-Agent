@@ -33,6 +33,7 @@ class InputRequest(BaseModel):
 
     text: str = Field(min_length=1)
     metadata: dict[str, object] = Field(default_factory=dict)
+    command_id: str = Field(default="", max_length=128)
 
 
 class ControlRequest(BaseModel):
@@ -40,6 +41,16 @@ class ControlRequest(BaseModel):
 
     kind: Literal["stop_turn", "exit_program"]
     metadata: dict[str, object] = Field(default_factory=dict)
+    command_id: str = Field(default="", max_length=128)
+
+
+class MaintenanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["home", "memory"]
+    target_day: str = ""
+    metadata: dict[str, object] = Field(default_factory=dict)
+    command_id: str = Field(default="", max_length=128)
 
 
 class WorkspaceWriteRequest(BaseModel):
@@ -73,6 +84,7 @@ class MaintenanceDecisionRequest(BaseModel):
 
     decision_id: str = Field(min_length=1)
     decision: Literal["apply", "discard", "stop"]
+    command_id: str = Field(default="", max_length=128)
 
 
 def create_endpoint_app(
@@ -158,13 +170,31 @@ def create_endpoint_app(
 
     @app.post("/v1/input", status_code=202)
     async def submit_input(body: InputRequest) -> JsonObject:
-        return engine.submit_user_input(body.text, to_json_object(body.metadata))
+        return engine.submit_user_input(
+            body.text,
+            to_json_object(body.metadata),
+            command_id=body.command_id,
+        )
 
     @app.post("/v1/control", status_code=202)
     async def submit_control(body: ControlRequest) -> JsonObject:
         return engine.submit_control(
             EndpointControlKind(body.kind),
             to_json_object(body.metadata),
+            command_id=body.command_id,
+        )
+
+    @app.get("/v1/maintenance")
+    async def maintenance_status() -> JsonObject:
+        return engine.maintenance_status()
+
+    @app.post("/v1/maintenance", status_code=202)
+    async def request_maintenance(body: MaintenanceRequest) -> JsonObject:
+        return engine.request_maintenance(
+            kind=body.kind,
+            target_day=body.target_day,
+            metadata=to_json_object(body.metadata),
+            command_id=body.command_id,
         )
 
     @app.get("/v1/events")
@@ -275,6 +305,7 @@ def create_endpoint_app(
         return engine.resolve_maintenance_decision(
             decision_id=body.decision_id,
             decision=decision,
+            command_id=body.command_id,
         )
 
     @app.websocket("/v1/events/ws")
@@ -295,6 +326,8 @@ def create_endpoint_app(
                 {
                     "type": "authenticated",
                     "protocol_version": 1,
+                    "instance_id": settings.instance_id,
+                    "project_identity": settings.project_identity,
                     "next_sequence": engine.events.latest_sequence,
                 }
             )

@@ -1,23 +1,24 @@
 import { useState } from "react";
-import { Power, Loader2, BookOpen, Settings } from "lucide-react";
+import { RefreshCw, Loader2, BookOpen, Settings, Wrench } from "lucide-react";
 
 import { useAppStore } from "../store/appStore";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { BackgroundPanel } from "./BackgroundPanel";
 import { SettingsDialog } from "./SettingsDialog";
+import { MaintenancePanel } from "./MaintenancePanel";
 
 interface AppShellProps {
-  onStart: () => void;
-  onStop: () => void;
+  onConnect: () => void;
   children: React.ReactNode;
 }
 
-export function AppShell({ onStart, onStop, children }: AppShellProps) {
-  const { connection } = useAppStore();
+export function AppShell({ onConnect, children }: AppShellProps) {
+  const { connection, maintenanceStatus } = useAppStore();
   const isConnected = connection.status === "connected";
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
 
   return (
     <div className="app-shell">
@@ -26,6 +27,18 @@ export function AppShell({ onStart, onStop, children }: AppShellProps) {
         <header className="app-header">
           <div className="app-title">TinySoul</div>
           <div className="app-header-actions">
+            {isConnected && (
+              <button
+                className={`btn btn-sm ${maintenanceStatus?.availability.home_pending || maintenanceStatus?.availability.memory_pending ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setMaintenanceOpen(true)}
+                title="Maintenance"
+              >
+                <Wrench size={14} />
+                {maintenanceStatus?.availability.home_pending || maintenanceStatus?.availability.memory_pending
+                  ? "Maintenance available"
+                  : "Maintenance"}
+              </button>
+            )}
             {isConnected && (
               <button
                 className={`btn btn-sm ${backgroundOpen ? "btn-primary" : "btn-ghost"}`}
@@ -42,22 +55,17 @@ export function AppShell({ onStart, onStop, children }: AppShellProps) {
             >
               <Settings size={14} />
             </button>
-            {isConnected ? (
-              <button className="btn btn-danger btn-sm" onClick={onStop}>
-                <Power size={14} />
-                Stop Backend
-              </button>
-            ) : connection.status === "connecting" ? (
+            {connection.status === "connecting" ? (
               <button className="btn btn-sm" disabled>
                 <Loader2 size={14} className="animate-spin" />
-                Starting…
+                Connecting
               </button>
-            ) : (
-              <button className="btn btn-primary btn-sm" onClick={onStart}>
-                <Power size={14} />
-                Start Backend
+            ) : !isConnected ? (
+              <button className="btn btn-primary btn-sm" onClick={onConnect}>
+                <RefreshCw size={14} />
+                Connect
               </button>
-            )}
+            ) : null}
           </div>
         </header>
         <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -81,6 +89,10 @@ export function AppShell({ onStart, onStop, children }: AppShellProps) {
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <MaintenancePanel
+        open={maintenanceOpen}
+        onClose={() => setMaintenanceOpen(false)}
       />
     </div>
   );

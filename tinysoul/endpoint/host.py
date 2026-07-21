@@ -28,6 +28,8 @@ class EndpointReady:
     host: str
     port: int
     token: str
+    instance_id: str
+    project_identity: str
     protocol_version: int = 1
 
     def to_json(self) -> JsonObject:
@@ -37,6 +39,8 @@ class EndpointReady:
             "host": self.host,
             "port": self.port,
             "token": self.token,
+            "instance_id": self.instance_id,
+            "project_identity": self.project_identity,
         }
 
 
@@ -83,6 +87,8 @@ class EndpointHost:
                         host=self._settings.host,
                         port=server.port,
                         token=self._settings.token,
+                        instance_id=self._settings.instance_id,
+                        project_identity=self._settings.project_identity,
                     )
                 )
         except Exception as exc:

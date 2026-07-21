@@ -66,9 +66,12 @@ def test_terminal_home_decision_broker_only_consumes_pending_decision() -> None:
     assert thread.is_alive() is False
     assert decisions == [HomeMaintenanceDecision.APPLY]
     prompt = observations.events[0]
-    assert prompt.name == "program.maintenance.available"
+    assert prompt.name == "home.maintenance.decision.required"
     assert prompt.level is ObservationLevel.NORMAL
     assert prompt.payload["decision_required"] is True
+    resolved = observations.events[1]
+    assert resolved.name == "home.maintenance.decision.resolved"
+    assert resolved.payload["decision"] == "apply"
 
 
 def test_terminal_eof_stops_pending_review_and_requests_program_exit() -> None:

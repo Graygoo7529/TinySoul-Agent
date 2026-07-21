@@ -139,6 +139,8 @@ class TurnRunner:
         *,
         business_day: BusinessDay,
         scope: RunScope,
+        request_id: str = "",
+        input_source: str = "",
     ) -> TurnOutcome:
         if not isinstance(business_day, BusinessDay):
             raise self._loop_bridge.from_loop_error(
@@ -163,7 +165,11 @@ class TurnRunner:
                 "turn.started",
                 ObservationLevel.VERBOSE,
                 "Turn started.",
-                {"turn_id": turn_id},
+                {
+                    "turn_id": turn_id,
+                    "request_id": request_id,
+                    "input_source": input_source,
+                },
             )
             preparation = self._run_preparation(
                 turn_id=turn_id,

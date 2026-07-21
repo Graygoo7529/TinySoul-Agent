@@ -105,6 +105,34 @@ def test_observation_router_filters_each_sink_independently() -> None:
     ]
 
 
+def test_observation_router_broadcasts_command_and_decision_feedback() -> None:
+    terminal = _RecordingSink()
+    endpoint = _RecordingSink()
+    router = ObservationRouter(
+        mode=ObservationLevel.MODEL,
+        routes=(
+            ObservationRoute(terminal, ObservationLevel.NORMAL),
+            ObservationRoute(endpoint, ObservationLevel.MODEL),
+        ),
+    )
+    for name in (
+        "app.command.accepted",
+        "home.maintenance.decision.required",
+        "home.maintenance.decision.resolved",
+    ):
+        router.emit(
+            ObservationEvent(
+                name=name,
+                level=ObservationLevel.NORMAL,
+                source="test",
+            )
+        )
+
+    assert [event.name for event in terminal.events] == [
+        event.name for event in endpoint.events
+    ]
+
+
 def test_console_sink_reserves_stdout_for_turn_output() -> None:
     stdout = StringIO()
     stderr = StringIO()

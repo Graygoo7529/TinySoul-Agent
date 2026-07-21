@@ -52,7 +52,7 @@ def test_initialized_project_runs_cli_through_fake_openai_provider(
     with _fake_provider() as server:
         _configure_fake_provider(root, port=server.server_port)
 
-        result = cli.main(["--root", str(root), "--once", "say hello"])
+        result = cli.main(["start", "--root", str(root), "--once", "say hello"])
 
     captured = capsys.readouterr()
     assert result == 0, captured.err

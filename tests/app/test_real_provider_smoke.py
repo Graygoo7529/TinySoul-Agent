@@ -24,6 +24,7 @@ def test_configured_real_provider_completes_one_cli_turn() -> None:
 
     result = cli.main(
         [
+            "start",
             "--root",
             str(root),
             "--once",

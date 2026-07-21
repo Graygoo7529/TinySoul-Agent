@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from io import StringIO
 from threading import Event
 
-from tinysoul.app import InputEvent, TerminalInputSource
+from tinysoul.app import CommandReceipt, InputEvent, TerminalInputSource
 
 
 @dataclass
@@ -12,10 +12,11 @@ class _RecordingInputSink:
     events: list[InputEvent] = field(default_factory=list)
     eof_received: Event = field(default_factory=Event)
 
-    def submit(self, event: InputEvent) -> None:
+    def submit(self, event: InputEvent) -> CommandReceipt:
         self.events.append(event)
         if event.source == "terminal.eof":
             self.eof_received.set()
+        return CommandReceipt(True, event.command_id, "test", "accepted")
 
 
 def test_terminal_eof_submits_configured_program_exit() -> None:

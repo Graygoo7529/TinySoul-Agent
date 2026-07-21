@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from ipaddress import ip_address
-
-from tinysoul.runtime import ObservationLevel
+from uuid import uuid4
 
 from .errors import EndpointContractError
 
@@ -17,7 +16,8 @@ class EndpointSettings:
     host: str = "127.0.0.1"
     port: int = 0
     token: str = ""
-    observation_mode: ObservationLevel = ObservationLevel.MODEL
+    instance_id: str = ""
+    project_identity: str = ""
     event_capacity: int = 2000
     event_bytes: int = 32 * 1024 * 1024
     max_request_bytes: int = 8 * 1024 * 1024
@@ -41,10 +41,12 @@ class EndpointSettings:
             raise EndpointContractError(
                 "Endpoint bearer token must contain at least 32 characters"
             )
-        if not isinstance(self.observation_mode, ObservationLevel):
-            raise EndpointContractError(
-                "Endpoint observation_mode must be an ObservationLevel"
-            )
+        instance_id = self.instance_id or f"instance_{uuid4().hex}"
+        if not isinstance(instance_id, str) or not instance_id.strip():
+            raise EndpointContractError("Endpoint instance_id must be non-empty")
+        if not isinstance(self.project_identity, str):
+            raise EndpointContractError("Endpoint project_identity must be text")
+        object.__setattr__(self, "instance_id", instance_id.strip())
         for name in (
             "event_capacity",
             "event_bytes",

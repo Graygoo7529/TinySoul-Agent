@@ -15,13 +15,13 @@ cd my-agent
 `tinysoul init` copies editable configuration and Home templates into a new or empty directory. It does not select a provider and never overwrites a non-empty directory. Enable at least one provider in `configs/llm.providers.toml`, put its key in `.env`, and run:
 
 ```powershell
-tinysoul
+tinysoul start --root . --mode normal
 ```
 
 For one non-interactive turn:
 
 ```powershell
-tinysoul --root . --once "Summarize today's work"
+tinysoul start --root . --once "Summarize today's work"
 ```
 
 The Action Catalog is versioned package data and is not copied into projects. Project configuration, Agent Home, Memory, runtime state, and archives remain project-owned.

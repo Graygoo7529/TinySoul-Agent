@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 
 import { useAppStore } from "../store/appStore";
+import { randomId } from "../utils/randomId";
 import { JsonTree } from "./JsonTree";
 
 export function MaintenanceDialog() {
@@ -14,6 +15,7 @@ export function MaintenanceDialog() {
       await client.resolveMaintenanceDecision({
         decision_id: maintenance.decision_id,
         decision,
+        command_id: randomId(),
       });
       setMaintenance(null);
     } catch (err) {

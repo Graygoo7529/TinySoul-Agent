@@ -12,13 +12,21 @@ from .errors import (
     AppContractError,
     AppError,
     AppInitializationError,
+    AppInstanceError,
     AppInvariantError,
     AppOutputError,
 )
 from .gateway import AppCommandGateway
 from .initializer import ProjectInitializationOutcome, ProjectInitializer
+from .instance import (
+    AppInstanceIdentity,
+    ProjectInstanceLease,
+    instance_directory,
+    project_identity_for,
+)
 from .failures import AppFailureKind
 from .inputs import (
+    CommandReceipt,
     InputCommandParser,
     InputDispatcher,
     InputEvent,
@@ -26,6 +34,7 @@ from .inputs import (
     InputIntentKind,
     InputSink,
     InputSource,
+    MaintenanceRequestKind,
 )
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .maintenance import HomeDecisionBroker, MaintenanceDecisionSnapshot
@@ -38,12 +47,15 @@ __all__ = [
     "AppError",
     "AppFailureKind",
     "AppInitializationError",
+    "AppInstanceError",
+    "AppInstanceIdentity",
     "AppInvariantError",
     "AppOutputError",
     "AppSettings",
     "AppCommandGateway",
     "AppService",
     "ConsoleOutputSink",
+    "CommandReceipt",
     "InputCommandParser",
     "InputCommandSettings",
     "InputDispatcher",
@@ -52,12 +64,14 @@ __all__ = [
     "InputIntentKind",
     "InputSink",
     "InputSource",
+    "MaintenanceRequestKind",
     "ObservationRouter",
     "ObservationRoute",
     "OutputSettings",
     "OutputSink",
     "ProjectInitializationOutcome",
     "ProjectInitializer",
+    "ProjectInstanceLease",
     "TerminalInputSource",
     "HomeDecisionBroker",
     "MaintenanceDecisionSnapshot",
@@ -67,4 +81,6 @@ __all__ = [
     "TinySoulApp",
     "TinySoulAppBuilder",
     "parse_app_settings",
+    "instance_directory",
+    "project_identity_for",
 ]

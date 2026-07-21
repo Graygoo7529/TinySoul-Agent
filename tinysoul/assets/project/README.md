@@ -3,7 +3,7 @@
 This directory is an editable TinySoul project. Configure at least one provider in `configs/llm.providers.toml`, put its API key in `.env`, and then run:
 
 ```powershell
-tinysoul
+tinysoul start --root . --mode normal
 ```
 
 All providers are disabled in the generated template. TinySoul reports a configuration error until at least one provider used by the configured task models is enabled.

@@ -15,6 +15,7 @@ import type {
   ConnectionInfo,
   EndpointEvent,
   MaintenanceDecision,
+  MaintenanceStatus,
   TopLinkEntry,
   WorkspaceManifest,
   WorkspaceTextRead,
@@ -23,7 +24,7 @@ import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 
 export interface ConnectionState {
-  status: "idle" | "connecting" | "connected" | "error";
+  status: "idle" | "connecting" | "connected" | "not_running" | "error";
   error?: string;
   info?: ConnectionInfo;
 }
@@ -54,6 +55,7 @@ export interface AppState {
 
   // Maintenance
   maintenance: MaintenanceDecision | null;
+  maintenanceStatus: MaintenanceStatus | null;
 
   // UI
   activeTab: "chat" | "workspace" | "session";
@@ -72,6 +74,7 @@ export interface AppState {
   updateResourceDraft: (draft: string) => void;
   closeResource: () => void;
   setMaintenance: (maintenance: MaintenanceDecision | null) => void;
+  setMaintenanceStatus: (status: MaintenanceStatus | null) => void;
   setActiveTab: (tab: "chat" | "workspace" | "session") => void;
   setProjectRoot: (root: string) => void;
 }
@@ -87,6 +90,7 @@ export const useAppStore = create<AppState>()(
       workspaceLoading: false,
       openResource: null,
       maintenance: null,
+      maintenanceStatus: null,
       activeTab: "chat",
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
 
@@ -144,6 +148,7 @@ export const useAppStore = create<AppState>()(
       closeResource: () => set({ openResource: null }),
 
       setMaintenance: (maintenance) => set({ maintenance }),
+      setMaintenanceStatus: (maintenanceStatus) => set({ maintenanceStatus }),
       setActiveTab: (activeTab) => set({ activeTab }),
       setProjectRoot: (projectRoot) => set({ projectRoot }),
     }),

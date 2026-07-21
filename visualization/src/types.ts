@@ -31,10 +31,15 @@ export interface BackendReady {
   host: string;
   port: number;
   token: string;
+  instance_id: string;
+  project_identity: string;
+  project_root: string;
 }
 
 export interface BackendStatus {
   protocol_version: number;
+  instance_id: string;
+  project_identity: string;
   ready: boolean;
   active_day: string;
   turn_active: boolean;
@@ -138,11 +143,38 @@ export interface MaintenanceDecision {
 export interface ControlRequest {
   kind: "stop_turn" | "exit_program";
   metadata?: Record<string, unknown>;
+  command_id?: string;
 }
 
 export interface InputRequest {
   text: string;
   metadata?: Record<string, unknown>;
+  command_id?: string;
+}
+
+export interface CommandReceipt {
+  accepted: boolean;
+  command_id: string;
+  kind: string;
+  state: string;
+}
+
+export interface MaintenanceRequest {
+  kind: "home" | "memory";
+  target_day?: string;
+  metadata?: Record<string, unknown>;
+  command_id?: string;
+}
+
+export interface MaintenanceStatus {
+  availability: {
+    home_pending: boolean;
+    home_change_count: number;
+    home_skill_memory_count: number;
+    memory_pending: boolean;
+    memory_day: string;
+  };
+  decision: MaintenanceDecision;
 }
 
 export interface WorkspaceWriteRequest {
@@ -168,6 +200,7 @@ export interface WorkspaceRestoreRequest {
 export interface MaintenanceDecisionRequest {
   decision_id: string;
   decision: "apply" | "discard" | "stop";
+  command_id?: string;
 }
 
 export interface ConnectionInfo {
@@ -175,6 +208,9 @@ export interface ConnectionInfo {
   port: number;
   token: string;
   protocol_version: number;
+  instance_id: string;
+  project_identity: string;
+  project_root: string;
 }
 
 export interface TopLinkEntry {

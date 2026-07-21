@@ -87,7 +87,7 @@ def test_initialized_project_reports_clear_unconfigured_provider_error(
     root = tmp_path / "agent"
     assert cli.main(["init", str(root)]) == 0
 
-    result = cli.main(["--root", str(root), "--once", "hello"])
+    result = cli.main(["start", "--root", str(root), "--once", "hello"])
 
     captured = capsys.readouterr()
     assert result == 1
