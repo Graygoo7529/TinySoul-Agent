@@ -82,6 +82,18 @@ MODEL 事件可能包含完整文本 prompt 和模型回答；Console 只应在�
 
 `tinysoul init [DIRECTORY]` 是独立项目初始化命令。`ProjectInitializer` 从已安装包读取公共模板与所选 config profile，确定性合成为普通项目结构，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。`--config-profile standard|development` 只选择初始 `configs/` 与 `.env.example`，默认 standard；standard 的 provider 全部 disabled 且 host-sensitive capability 使用安全默认值，development 保存项目维护者已启用但不含凭据的开发配置。profile 不安装依赖或 executable，不进入生成项目，也不成为 ConfigEnvironment 的运行时来源。命令不接收 `--provider`。公共模板包含 `tinysoul.toml`、唯一默认 Home、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。生成后 configs/Home 完全归项目所有，package 更新不自动修改已有项目。
 
+### 项目模板维护
+
+源码仓库不再同时充当可运行项目。初始化资源只在 `tinysoul/assets/project/` 维护：公共资源位于目录根和 `home/`，profile-owned 资源分别位于 `config_profiles/standard/` 与 `config_profiles/development/`。仓库根不得重新出现用于开发运行的 configs/Home 镜像；真实运行和 provider smoke 使用外部初始化项目。
+
+模板变更遵循以下一致性规则：
+
+- 默认 Home 的 AGENT、WHAT、WHY、通用 HOW、domain HOW、action HOW 及渐进资源只修改共享 `project/home/`；Home 不按 profile 分叉。运行中 Home Maintenance 提交的是具体项目的 actual Home，不会更新 package template；需要改进未来项目的默认内容时必须另行修改 assets。
+- 两套 config profile 都是完整快照，不是 overlay。配置 schema、模块 section、模型定义或 include 文件发生增删改时，应同时审查两套 profile，并保持相同的相对 TOML 文件集合；standard 与 development 只在明确记录的 enabled、provider、模型选择和其它开发取值上分化。
+- standard 必须保持可分发的安全初始状态；development 可以反映维护者的当前非敏感开发选择，但不能包含 `.env`、密钥、本机绝对路径、runtime 或 archive。每套 `.env.example` 只列出该 profile 所引用的变量名和空值。
+- `tinysoul.toml` 的 include 必须能覆盖两套 profile 的完整文件形状。新增目录深度、文件类型或资源类别时同时更新 setuptools package-data；普通同层 TOML/Markdown 增删仍须由 wheel 测试证明实际进入安装包。
+- initializer 与 wheel 验收必须覆盖默认 standard、显式 development、内部 `config_profiles/` 不泄漏、共享 Home 内容一致、两套 configs 文件形状一致，以及 clean-source wheel 隔离安装。已初始化项目只能作为真实运行验收对象，不能复制回来覆盖模板。
+
 ## 装配入口
 
 TinySoulAppBuilder 负责：

@@ -32,6 +32,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写和
 
 `tinysoul init --config-profile` 属于 App-owned 的初始化期文件选择，不是新的配置来源。standard/development profile 在项目创建前各自提供一套完整配置，initializer 只物化其中一套为普通 `configs/` 与 `.env.example`；生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
 
+profile 文件由 package project template 拥有，但其中各 section 的语义仍归对应业务模块。模块新增、删除、重命名配置键或拆分 TOML 文件时，开发者必须同步审查 `config_profiles/standard/configs` 与 `config_profiles/development/configs`：两者保持相同相对文件集合、相同 section/schema 形状并各自通过模块 parser，值差异只能表达已确认的初始化策略。代码默认值不通过复制 profile 推导，profile 也不能替代模块默认值或校验。profile 引用的 credential/专用环境变量名必须出现在同 profile 的 `.env.example` 中，但真实值永不进入模板。该同步责任属于源码维护与发布验收，不属于 ConfigEnvironment 运行时。
+
 ## 可写配置
 
 项目需要适合人阅读和编辑的配置文件，承担长期、非敏感配置的存储角色。

@@ -11,6 +11,7 @@ from tinysoul.app import (
     ProjectInitializer,
 )
 from tinysoul.app import cli
+from tinysoul.infra.config import parse_dotenv
 
 
 def test_cli_init_copies_editable_project_without_provider_selection(
@@ -129,6 +130,13 @@ def test_project_config_profiles_share_home_and_complete_config_shape(
     assert set(_tree_snapshot(standard / "configs")) == set(
         _tree_snapshot(development / "configs")
     )
+    for root in (standard, development):
+        example = parse_dotenv(
+            (root / ".env.example").read_text(encoding="utf-8")
+        )
+        assert example
+        assert set(example.values()) == {""}
+        assert set(example) == _config_environment_references(root / "configs")
 
 
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
@@ -169,3 +177,38 @@ def _tree_snapshot(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+def _config_environment_references(root: Path) -> set[str]:
+    references: set[str] = set()
+    for path in sorted(root.rglob("*.toml")):
+        references.update(
+            _environment_references(
+                tomllib.loads(path.read_text(encoding="utf-8"))
+            )
+        )
+    return references
+
+
+def _environment_references(value: object) -> set[str]:
+    if isinstance(value, dict):
+        references: set[str] = set()
+        for key, child in value.items():
+            if isinstance(key, str) and key.endswith("_env"):
+                assert isinstance(child, str) and child
+                references.add(child)
+                continue
+            if isinstance(key, str) and key.endswith("_envs"):
+                assert isinstance(child, list)
+                for item in child:
+                    assert isinstance(item, str) and item
+                    references.add(item)
+                continue
+            references.update(_environment_references(child))
+        return references
+    if isinstance(value, list):
+        references: set[str] = set()
+        for item in value:
+            references.update(_environment_references(item))
+        return references
+    return set()

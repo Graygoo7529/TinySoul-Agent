@@ -144,6 +144,10 @@ home/
 
 core 作为简洁的身份、行为规约和前向 Top Link 索引；user 保存稳定用户事实；WHAT 分别定义 TinySoul entity、Context/Link 和 Daily Lifecycle；WHY 直接以问题命名；`tinysoul-docs` 是通用文档导航 HOW，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。core 不静态宣称 Shell、Script、文档转换等具体能力是否可用；进入 Action Catalog 的能力可以拥有局部 domain/action HOW，而实际启用状态仍由 capability 配置与 Action 装配决定。模板不声明 Backlink、Memory 片段检索等尚未实现的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
 
+默认 Home 的唯一源码位置是 `tinysoul/assets/project/home/`，并由 standard/development 两种初始化共享；仓库根不保留第二份 Home，config profile 也不得包含 Home 副本。新增或调整框架概念、通用使用说明、domain/action 行为约束时，应在这里同步维护对应 AGENT/WHAT/WHY/HOW 文档，并继续遵守本设计的 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删 domain/action 时必须审查共享默认 Home 中相关 HOW 是否仍然真实；缺少可选 guidance 合法，但不得留下宣称不存在 action 的陈旧内容。
+
+package template 与已初始化项目之间没有双向同步。项目运行中的 runtime Home 和 Home Maintenance 只更新该项目的 actual `home/`；它们既不会写回 assets，也不能成为默认内容的事实源。反之，wheel 升级后的模板变化也不会覆盖已有项目。默认 Home 变更必须通过 initializer/Context/Home 集成测试和 clean-source wheel 资源检查，新增更深目录或新文件类型时还要同步审查 setuptools package-data glob。
+
 ## Actual Home 与 Runtime Home
 
 Agent Home 分为 actual Home 和跨日 runtime Home：
