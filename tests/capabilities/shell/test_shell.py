@@ -8,6 +8,7 @@ import tomllib
 
 import pytest
 
+from tinysoul.app import ProjectConfigProfile, ProjectInitializer
 from tinysoul.action import (
     ActionEngine,
     ActionEngineBuilder,
@@ -91,27 +92,38 @@ def test_shell_settings_parse_independent_adapters() -> None:
     ) == ("shell.powershell", "shell.bash")
 
 
-def test_shell_settings_reject_unknown_keys_and_project_defaults_are_explicit() -> None:
+def test_shell_settings_reject_unknown_keys_and_project_profiles_are_explicit(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(ConfigError) as raised:
         parse_capabilities_settings({"shell": {"unknown": True}})
     assert raised.value.key == "capabilities.shell.unknown"
 
-    current = tomllib.loads(
-        Path("configs/capabilities.shell.toml").read_text(encoding="utf-8")
+    standard_root = tmp_path / "standard"
+    development_root = tmp_path / "development"
+    ProjectInitializer().initialize(standard_root)
+    ProjectInitializer().initialize(
+        development_root,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
+    standard = tomllib.loads(
+        (standard_root / "configs" / "capabilities.shell.toml").read_text(
+            encoding="utf-8"
+        )
     )["capabilities"]["shell"]
-    template = tomllib.loads(
-        Path("tinysoul/assets/project/configs/capabilities.shell.toml").read_text(
+    development = tomllib.loads(
+        (development_root / "configs" / "capabilities.shell.toml").read_text(
             encoding="utf-8"
         )
     )["capabilities"]["shell"]
 
-    assert current["enabled"] is True
-    assert current["powershell"]["enabled"] is True
-    assert current["cmd"]["enabled"] is True
-    assert current["bash"]["enabled"] is False
-    assert template["enabled"] is False
+    assert development["enabled"] is True
+    assert development["powershell"]["enabled"] is True
+    assert development["cmd"]["enabled"] is True
+    assert development["bash"]["enabled"] is False
+    assert standard["enabled"] is False
     assert all(
-        template[name]["enabled"] is False
+        standard[name]["enabled"] is False
         for name in ("powershell", "cmd", "bash")
     )
 

@@ -30,6 +30,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写和
 
 项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/memory/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中；Memory 使用独立 `configs/memory.toml` 的 `[memory]` section，Home parser 不接受旧 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
 
+`tinysoul init --config-profile` 属于 App-owned 的初始化期文件选择，不是新的配置来源。standard/development profile 在项目创建前各自提供一套完整配置，initializer 只物化其中一套为普通 `configs/` 与 `.env.example`；生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
+
 ## 可写配置
 
 项目需要适合人阅读和编辑的配置文件，承担长期、非敏感配置的存储角色。

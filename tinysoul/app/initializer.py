@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import Path, PurePosixPath
@@ -12,6 +13,15 @@ import tempfile
 from .errors import AppContractError, AppInitializationError, AppInvariantError
 
 _INITIAL_PROJECT_DIRECTORIES = ("memory",)
+_COMMON_TEMPLATE_ENTRIES = (".gitignore", "README.md", "home", "tinysoul.toml")
+_CONFIG_PROFILES_DIRECTORY = "config_profiles"
+
+
+class ProjectConfigProfile(StrEnum):
+    """Packaged configuration sets available during project initialization."""
+
+    STANDARD = "standard"
+    DEVELOPMENT = "development"
 
 
 @dataclass(frozen=True)
@@ -20,6 +30,7 @@ class ProjectInitializationOutcome:
 
     root: Path
     file_count: int
+    config_profile: ProjectConfigProfile
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path) or not self.root.is_absolute():
@@ -30,14 +41,23 @@ class ProjectInitializationOutcome:
             or self.file_count <= 0
         ):
             raise AppInvariantError("Initialized project must contain files")
+        if not isinstance(self.config_profile, ProjectConfigProfile):
+            raise AppInvariantError("Initialized project config profile is invalid")
 
 
 class ProjectInitializer:
     """Copy the package-owned project template into one empty target."""
 
-    def initialize(self, target: Path) -> ProjectInitializationOutcome:
+    def initialize(
+        self,
+        target: Path,
+        *,
+        config_profile: ProjectConfigProfile = ProjectConfigProfile.STANDARD,
+    ) -> ProjectInitializationOutcome:
         if not isinstance(target, Path):
             raise AppContractError("Project initialization target must be a path")
+        if not isinstance(config_profile, ProjectConfigProfile):
+            raise AppContractError("Project config profile is invalid")
         expanded = target.expanduser()
         if expanded.is_symlink():
             raise AppContractError(
@@ -63,7 +83,7 @@ class ProjectInitializer:
         template = files("tinysoul.assets").joinpath("project")
         if not template.is_dir():
             raise AppInvariantError("Packaged TinySoul project template is missing")
-        resources = _template_files(template)
+        resources = _project_template_files(template, config_profile=config_profile)
         if not resources:
             raise AppInvariantError("Packaged TinySoul project template is empty")
 
@@ -103,7 +123,69 @@ class ProjectInitializer:
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
 
-        return ProjectInitializationOutcome(root=root, file_count=len(resources))
+        return ProjectInitializationOutcome(
+            root=root,
+            file_count=len(resources),
+            config_profile=config_profile,
+        )
+
+
+def _project_template_files(
+    root: Traversable,
+    *,
+    config_profile: ProjectConfigProfile,
+) -> tuple[tuple[PurePosixPath, Traversable], ...]:
+    resources: list[tuple[PurePosixPath, Traversable]] = []
+    for name in _COMMON_TEMPLATE_ENTRIES:
+        entry = root.joinpath(name)
+        relative = PurePosixPath(name)
+        if entry.is_dir():
+            resources.extend(_template_files(entry, relative))
+        elif entry.is_file():
+            resources.append((relative, entry))
+        else:
+            raise AppInvariantError(
+                f"Packaged TinySoul common template entry is missing: {name}"
+            )
+
+    profile_root = root.joinpath(
+        _CONFIG_PROFILES_DIRECTORY,
+        config_profile.value,
+    )
+    if not profile_root.is_dir():
+        raise AppInvariantError(
+            f"Packaged TinySoul config profile is missing: {config_profile.value}"
+        )
+    profile_resources = _template_files(profile_root)
+    if not profile_resources:
+        raise AppInvariantError(
+            f"Packaged TinySoul config profile is empty: {config_profile.value}"
+        )
+    resources.extend(profile_resources)
+
+    by_path: dict[PurePosixPath, Traversable] = {}
+    for relative, resource in resources:
+        if relative in by_path:
+            raise AppInvariantError(
+                f"Packaged TinySoul template path is duplicated: {relative}"
+            )
+        by_path[relative] = resource
+    required = (
+        PurePosixPath(".env.example"),
+        PurePosixPath(".gitignore"),
+        PurePosixPath("README.md"),
+        PurePosixPath("tinysoul.toml"),
+    )
+    for relative in required:
+        if relative not in by_path:
+            raise AppInvariantError(
+                f"Packaged TinySoul template entry is missing: {relative}"
+            )
+    if not any(relative.parts[0] == "configs" for relative in by_path):
+        raise AppInvariantError("Packaged TinySoul config profile has no configs")
+    if not any(relative.parts[0] == "home" for relative in by_path):
+        raise AppInvariantError("Packaged TinySoul common template has no Home")
+    return tuple((relative, by_path[relative]) for relative in sorted(by_path))
 
 
 def _template_files(

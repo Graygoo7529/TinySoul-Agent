@@ -15,7 +15,7 @@ from tinysoul.runtime import ObservationLevel, RuntimeException
 from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
-from .initializer import ProjectInitializer
+from .initializer import ProjectConfigProfile, ProjectInitializer
 from .instance import ProjectInstanceLease
 from .outputs import ConsoleOutputSink
 from .sources import TerminalInputSource
@@ -48,13 +48,26 @@ def _init(argv: Sequence[str]) -> int:
         default=Path.cwd(),
         help="new or empty project directory (default: current directory)",
     )
+    parser.add_argument(
+        "--config-profile",
+        type=ProjectConfigProfile,
+        choices=tuple(ProjectConfigProfile),
+        default=ProjectConfigProfile.STANDARD,
+        help="initial configuration set: standard or development (default: standard)",
+    )
     args = parser.parse_args(tuple(argv))
     try:
-        outcome = ProjectInitializer().initialize(args.directory)
+        outcome = ProjectInitializer().initialize(
+            args.directory,
+            config_profile=args.config_profile,
+        )
     except AppError as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
-    print(f"Initialized TinySoul project at {outcome.root}")
+    print(
+        f"Initialized TinySoul project at {outcome.root} "
+        f"(config profile: {outcome.config_profile.value})"
+    )
     return 0
 
 

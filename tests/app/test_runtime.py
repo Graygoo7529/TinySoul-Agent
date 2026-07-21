@@ -11,6 +11,7 @@ from tinysoul.app import (
     AppSettings,
     InputEvent,
     InputSink,
+    ProjectInitializer,
     TinySoulAppBuilder,
 )
 from tinysoul.infra.config import ConfigEnvironment
@@ -81,7 +82,7 @@ class _RecordingService:
 def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
@@ -106,7 +107,7 @@ def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     service = _RecordingService()
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     built = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -129,7 +130,7 @@ def test_tinysoul_app_stops_started_sources_when_later_start_fails(
     first = _SubmittingSource(())
     failing = _FailingStartSource()
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -152,7 +153,7 @@ def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
     failing = _FailingStopSource((InputEvent("exit", source="unit"),))
     second = _SubmittingSource(())
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -170,7 +171,7 @@ def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
 
 def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -186,12 +187,14 @@ def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
 
 
 def _test_config(tmp_path: Path) -> ConfigEnvironment:
+    project_root = tmp_path / ".config-project"
+    ProjectInitializer().initialize(project_root)
     home_root = tmp_path / "home"
     agent_path = home_root / "agent" / "AGENT.md"
     agent_path.parent.mkdir(parents=True, exist_ok=True)
     agent_path.write_text("# Test Agent\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(
-        root=Path.cwd(),
+        root=project_root,
         overrides={
             "app.interactive": False,
             "home.root": str(home_root),

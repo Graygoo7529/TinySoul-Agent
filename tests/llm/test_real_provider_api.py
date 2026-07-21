@@ -276,7 +276,14 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
 
 
 def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, ProviderAdapter]:
-    environment = ConfigEnvironment.from_project_root(Path("."))
+    configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
+    if not configured_root:
+        pytest.fail(
+            "TINYSOUL_REAL_PROJECT_ROOT must name an initialized, configured project"
+        )
+    environment = ConfigEnvironment.from_project_root(
+        Path(configured_root).expanduser().resolve()
+    )
     config = LLMConfigParser().parse(environment.section_tree("llm"))
     model = config.models.get(model_id)
     provider = config.provider(model.provider_id)

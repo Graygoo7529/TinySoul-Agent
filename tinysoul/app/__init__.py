@@ -17,7 +17,11 @@ from .errors import (
     AppOutputError,
 )
 from .gateway import AppCommandGateway
-from .initializer import ProjectInitializationOutcome, ProjectInitializer
+from .initializer import (
+    ProjectConfigProfile,
+    ProjectInitializationOutcome,
+    ProjectInitializer,
+)
 from .instance import (
     AppInstanceIdentity,
     ProjectInstanceLease,
@@ -70,6 +74,7 @@ __all__ = [
     "OutputSettings",
     "OutputSink",
     "ProjectInitializationOutcome",
+    "ProjectConfigProfile",
     "ProjectInitializer",
     "ProjectInstanceLease",
     "TerminalInputSource",

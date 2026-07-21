@@ -13,6 +13,7 @@ from tinysoul.app import (
     InputCommandParser,
     InputDispatcher,
     InputEvent,
+    ProjectInitializer,
     SchedulerSettings,
     HomeDecisionBroker,
     TinySoulAppBuilder,
@@ -155,7 +156,7 @@ def test_app_manual_home_maintenance_reviews_and_applies_runtime_diff(
     home.write_top("home:why@manual", "committed after review")
     sink = _DecisionSink()
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(config)
         .with_app_settings(
             AppSettings(
@@ -233,11 +234,13 @@ class _UnusedLLM:
 
 
 def _test_config(tmp_path: Path) -> ConfigEnvironment:
+    project_root = tmp_path / ".config-project"
+    ProjectInitializer().initialize(project_root)
     agent = tmp_path / "home" / "agent" / "AGENT.md"
     agent.parent.mkdir(parents=True)
     agent.write_text("# Test Agent\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(
-        root=Path.cwd(),
+        root=project_root,
         overrides={
             "app.interactive": False,
             "home.root": str(tmp_path / "home"),

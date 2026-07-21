@@ -27,7 +27,7 @@ tinysoul/app/
     scheduler.py     # typed Program event scheduler
 ```
 
-可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；只读 Action Catalog 位于 `tinysoul/action/catalog/`。App 初始化前者，但不复制或改写后者。
+可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；只读 Action Catalog 位于 `tinysoul/action/catalog/`。项目模板只保存一份 README、`.gitignore`、`tinysoul.toml` 与 Home，并保存完整、彼此独立的 standard/development config profile。App 初始化前者，但不复制或改写 Action Catalog。
 
 App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app 装配或输入边界失败映射为 Runtime 可理解的启动失败或控制流失败。
 
@@ -80,7 +80,7 @@ MODEL 事件可能包含完整文本 prompt 和模型回答；Console 只应在�
 
 `tinysoul start` 是正式交互 App 入口。它从 `--root` 或当前目录加载项目配置，在同一 AppBuilder 中启动 Terminal input、Console sink、scheduler 和 authenticated Endpoint；`--mode normal|verbose|model` 只覆盖 Terminal Console route，Endpoint route 始终为 model。`tinysoul start --once TEXT` 关闭交互输入、scheduler 和 Endpoint，只执行一个 User Turn，但仍持有同一项目进程 lease；只有 `TurnOutcomeStatus.ANSWERED` 返回 0，exhausted/stopped/failed 均返回 1。无子命令和 `serve` 不构成并行运行入口。
 
-`tinysoul init [DIRECTORY]` 是独立项目初始化命令。`ProjectInitializer` 从已安装包读取可编辑项目模板，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。命令不接收 `--provider`，模板内全部 provider 默认 disabled；用户通过 TOML 与 `.env`/进程环境启用 provider。模板包含 `tinysoul.toml`、configs、默认 Home、`.env.example`、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。
+`tinysoul init [DIRECTORY]` 是独立项目初始化命令。`ProjectInitializer` 从已安装包读取公共模板与所选 config profile，确定性合成为普通项目结构，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。`--config-profile standard|development` 只选择初始 `configs/` 与 `.env.example`，默认 standard；standard 的 provider 全部 disabled 且 host-sensitive capability 使用安全默认值，development 保存项目维护者已启用但不含凭据的开发配置。profile 不安装依赖或 executable，不进入生成项目，也不成为 ConfigEnvironment 的运行时来源。命令不接收 `--provider`。公共模板包含 `tinysoul.toml`、唯一默认 Home、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。生成后 configs/Home 完全归项目所有，package 更新不自动修改已有项目。
 
 ## 装配入口
 

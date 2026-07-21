@@ -5,7 +5,11 @@ import tomllib
 
 import pytest
 
-from tinysoul.app import AppContractError, ProjectInitializer
+from tinysoul.app import (
+    AppContractError,
+    ProjectConfigProfile,
+    ProjectInitializer,
+)
 from tinysoul.app import cli
 
 
@@ -22,7 +26,9 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert not (root / "configs" / "action.toml").exists()
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
+    assert (root / "README.md").is_file()
     assert (root / "memory").is_dir()
+    assert not (root / "config_profiles").exists()
     skill = root / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
     assert (root / "home" / "agent" / "user" / "user.md").is_file()
@@ -62,6 +68,69 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert web["search_by_kimi"]["model"] == "kimi-k2.6"
 
 
+def test_cli_init_development_profile_copies_enabled_development_config(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "agent"
+
+    result = cli.main(
+        ["init", str(root), "--config-profile", "development"]
+    )
+
+    assert result == 0
+    providers = tomllib.loads(
+        (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")
+    )["llm"]["providers"]
+    assert providers["sublyx_proxy"] == {
+        "enabled": True,
+        "adapter": "openai",
+        "api_style": "openai_responses",
+        "base_url": "https://api.sublyx.org/v1",
+        "api_key_envs": ["SUBLYX_API_KEY"],
+    }
+    assert providers["kimi_coding"]["enabled"] is True
+    shell = tomllib.loads(
+        (root / "configs" / "capabilities.shell.toml").read_text(encoding="utf-8")
+    )["capabilities"]["shell"]
+    assert shell["enabled"] is True
+    assert shell["powershell"]["enabled"] is True
+    assert shell["cmd"]["enabled"] is True
+    web = tomllib.loads(
+        (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
+    )["capabilities"]["web"]
+    assert web["search_by_kimi"]["enabled"] is True
+    assert web["discover_pages"]["enabled"] is True
+    assert web["fetch_with_defuddle"]["enabled"] is True
+    tasks = tomllib.loads(
+        (root / "configs" / "llm.tasks.toml").read_text(encoding="utf-8")
+    )["llm"]["tasks"]
+    assert tasks["framework"]["models"][0] == "kimi_k2_7"
+    assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    assert not (root / "config_profiles").exists()
+
+
+def test_project_config_profiles_share_home_and_complete_config_shape(
+    tmp_path: Path,
+) -> None:
+    standard = tmp_path / "standard"
+    development = tmp_path / "development"
+
+    standard_outcome = ProjectInitializer().initialize(standard)
+    development_outcome = ProjectInitializer().initialize(
+        development,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
+
+    assert standard_outcome.config_profile is ProjectConfigProfile.STANDARD
+    assert development_outcome.config_profile is ProjectConfigProfile.DEVELOPMENT
+    assert _tree_snapshot(standard / "home") == _tree_snapshot(development / "home")
+    assert set(_tree_snapshot(standard / "configs")) == set(
+        _tree_snapshot(development / "configs")
+    )
+
+
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     tmp_path: Path,
 ) -> None:
@@ -92,3 +161,11 @@ def test_initialized_project_reports_clear_unconfigured_provider_error(
     captured = capsys.readouterr()
     assert result == 1
     assert "Task has no models from enabled providers" in captured.err
+
+
+def _tree_snapshot(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }

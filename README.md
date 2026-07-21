@@ -18,6 +18,16 @@ cd my-agent
 tinysoul start --root . --mode normal
 ```
 
+The default `standard` config profile keeps every provider disabled and host-sensitive optional capabilities off. Repository maintainers can initialize the packaged development configuration explicitly:
+
+```powershell
+tinysoul init my-agent-dev --config-profile development
+```
+
+The development profile contains enabled provider/capability settings but no credentials and does not install optional distributions or host executables. After initialization, the selected configuration and the shared Home copy are owned entirely by that project.
+
+The source checkout is not itself an initialized TinySoul project. Keep runtime development and real-provider smoke tests in an external directory created by `tinysoul init`, and pass that directory through `--root` or `TINYSOUL_REAL_PROJECT_ROOT` as appropriate.
+
 For one non-interactive turn:
 
 ```powershell

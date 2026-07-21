@@ -24,6 +24,12 @@ ENV/
 # Local references
 reference
 
+# The repository root is not an initialized TinySoul project
+/configs/
+/home/
+/tinysoul.toml
+/.env.example
+
 # Runtime and demo outputs
 /runtime/
 /archive/

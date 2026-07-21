@@ -1,5 +1,0 @@
-# Workspace
-
-Use `workspace.read` when an exact text Link and relevant 1-based line range are known. Use `workspace.search_text` to locate a literal term in an explicit file, directory prefix, or the current Workspace before reading a narrower range. Use `workspace.analyze` only after selecting the exact text Links whose complete contents fit the analysis budget. Workspace inspection is read-only; use write, patch, rewrite, delete, or restore actions for mutations.
-
-`workspace.write` and `workspace.rewrite` generate complete text artifacts inside the action and return only committed resource metadata to Context. If their structured failure reports `output_limit_reached` or `artifact_too_large`, change the requested artifact scale or use a genuinely different execution mechanism; changing only the instruction wording, target name, or another action that uses the same limiting output path is not a fallback. An `invalid_output_protocol/retry_same` permits one bounded unchanged retry, then requires a different path if it recurs.

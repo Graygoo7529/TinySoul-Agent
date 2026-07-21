@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from tinysoul.app import ProjectConfigProfile, ProjectInitializer
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.config import LLMConfigParser, ProviderAdapterKind, ProviderApiStyle
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -14,8 +15,13 @@ from tinysoul.llm.responses import AnswerFormat
 from tinysoul.llm.tools import ToolUse
 
 
-def test_llm_config_parses_project_config_files() -> None:
-    environment = ConfigEnvironment.from_project_root(Path("."))
+def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
+    root = tmp_path / "development-project"
+    ProjectInitializer().initialize(
+        root,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
+    environment = ConfigEnvironment.from_project_root(root)
 
     config = LLMConfigParser().parse(environment.section_tree("llm"))
 

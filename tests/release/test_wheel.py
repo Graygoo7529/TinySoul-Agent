@@ -72,16 +72,16 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
-    assert "tinysoul/assets/project/configs/home.toml" in names
-    assert "tinysoul/assets/project/configs/capabilities.resource.toml" in names
-    assert "tinysoul/assets/project/configs/capabilities.web.toml" in names
-    assert "tinysoul/assets/project/configs/capabilities.script.toml" in names
-    assert "tinysoul/assets/project/configs/capabilities.shell.toml" in names
-    assert (
-        "tinysoul/assets/project/configs/capabilities.supervised_process.toml"
-        in names
-    )
-    assert "tinysoul/assets/project/.env.example" in names
+    for profile in ("standard", "development"):
+        profile_root = f"tinysoul/assets/project/config_profiles/{profile}"
+        assert f"{profile_root}/configs/home.toml" in names
+        assert f"{profile_root}/configs/capabilities.resource.toml" in names
+        assert f"{profile_root}/configs/capabilities.web.toml" in names
+        assert f"{profile_root}/configs/capabilities.script.toml" in names
+        assert f"{profile_root}/configs/capabilities.shell.toml" in names
+        assert f"{profile_root}/configs/capabilities.supervised_process.toml" in names
+        assert f"{profile_root}/.env.example" in names
+    assert "tinysoul/assets/project/README.md" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
@@ -126,6 +126,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         text=True,
     )
     initialized = tmp_path / "initialized"
+    development = tmp_path / "development"
     isolated_environment = {
         **environment,
         "PYTHONPATH": str(installed),
@@ -138,7 +139,15 @@ from tinysoul.app.cli import main
 with builtin_action_catalog_root() as root:
     catalog = ActionCatalogLoader().load(root)
 assert catalog.has_domain("core")
-raise SystemExit(main(["init", {str(initialized)!r}]))
+assert main(["init", {str(initialized)!r}]) == 0
+raise SystemExit(
+    main([
+        "init",
+        {str(development)!r},
+        "--config-profile",
+        "development",
+    ])
+)
 """
     subprocess.run(
         (sys.executable, "-c", script),
@@ -150,6 +159,8 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
     )
 
     assert (initialized / "tinysoul.toml").is_file()
+    assert (initialized / "README.md").is_file()
+    assert not (initialized / "config_profiles").exists()
     assert (
         initialized / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     ).is_file()
@@ -194,3 +205,14 @@ raise SystemExit(main(["init", {str(initialized)!r}]))
         initialized / "home" / "how_action" / "workspace" / "rewrite.md"
     ).is_file()
     assert (initialized / "memory").is_dir()
+    assert (development / "README.md").is_file()
+    assert not (development / "config_profiles").exists()
+    assert (development / "home" / "agent" / "AGENT.md").read_bytes() == (
+        initialized / "home" / "agent" / "AGENT.md"
+    ).read_bytes()
+    assert "enabled = true" in (
+        development / "configs" / "capabilities.shell.toml"
+    ).read_text(encoding="utf-8")
+    assert "sublyx_proxy" in (
+        development / "configs" / "llm.providers.toml"
+    ).read_text(encoding="utf-8")

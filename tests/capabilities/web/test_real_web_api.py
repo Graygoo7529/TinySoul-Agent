@@ -25,7 +25,14 @@ pytestmark = pytest.mark.skipif(
 def test_real_kimi_search_returns_answer_and_structured_results(
     local_tmp: Path,
 ) -> None:
-    environment = ConfigEnvironment.from_project_root(Path.cwd())
+    configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
+    if not configured_root:
+        pytest.fail(
+            "TINYSOUL_REAL_PROJECT_ROOT must name an initialized, configured project"
+        )
+    environment = ConfigEnvironment.from_project_root(
+        Path(configured_root).expanduser().resolve()
+    )
     settings = parse_capabilities_settings(
         environment.section_tree("capabilities")
     ).web

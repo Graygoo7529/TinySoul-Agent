@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pypdf import PdfWriter
 
-from tinysoul.app import AppSettings, TinySoulAppBuilder
+from tinysoul.app import AppSettings, ProjectInitializer, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra.json import JsonObject
@@ -198,7 +198,7 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
 ) -> None:
     recorder = _CompletionRecorder()
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
@@ -252,7 +252,7 @@ def test_app_builder_runs_resource_conversion_through_real_action_chain(
     with source.open("wb") as handle:
         writer.write(handle)
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
@@ -322,7 +322,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
         {"workspace.root": str(workspace_root)},
     )
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(config)
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
@@ -360,7 +360,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
 
 def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -400,7 +400,7 @@ def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> 
         )
     )
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_signal_bus(bus)
@@ -449,7 +449,7 @@ def test_app_builder_home_config_error_is_home_startup_failure(tmp_path: Path) -
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -469,7 +469,7 @@ def test_app_builder_workspace_config_error_is_workspace_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -489,7 +489,7 @@ def test_app_builder_script_config_error_is_script_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -516,7 +516,7 @@ def test_app_builder_script_dependency_error_is_script_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -540,7 +540,7 @@ def test_app_builder_supervised_process_config_error_keeps_shared_owner(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -570,7 +570,7 @@ def test_app_builder_shell_dependency_error_is_shell_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -598,7 +598,7 @@ def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -614,7 +614,7 @@ def test_app_builder_does_not_map_programming_errors_to_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     builder = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -634,7 +634,7 @@ def test_app_builder_loop_config_error_is_loop_startup_failure(tmp_path: Path) -
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -652,7 +652,7 @@ def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> 
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_loop_settings(LoopSettings())
             .with_llm_runner(FakeLLM(()))
@@ -670,7 +670,7 @@ def test_app_builder_llm_config_error_is_llm_startup_failure(tmp_path: Path) -> 
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder()
+            TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_loop_settings(LoopSettings())
@@ -712,6 +712,8 @@ def _test_config(
     tmp_path: Path,
     overrides: dict[str, object] | None = None,
 ) -> ConfigEnvironment:
+    project_root = tmp_path / ".config-project"
+    ProjectInitializer().initialize(project_root)
     home_root = tmp_path / "home"
     agent_path = home_root / "agent" / "AGENT.md"
     agent_path.parent.mkdir(parents=True, exist_ok=True)
@@ -727,4 +729,4 @@ def _test_config(
     }
     if overrides is not None:
         values.update(overrides)
-    return ConfigEnvironment.from_project_root(root=Path.cwd(), overrides=values)
+    return ConfigEnvironment.from_project_root(root=project_root, overrides=values)

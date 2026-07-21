@@ -13,6 +13,7 @@ import tinysoul.context.trace as trace_module
 from tinysoul.app import (
     AppSettings,
     OutputSettings,
+    ProjectInitializer,
     SchedulerSettings,
     TinySoulAppBuilder,
 )
@@ -145,7 +146,7 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
         encoding="utf-8",
     )
     app = (
-        TinySoulAppBuilder()
+        TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(
             AppSettings(
@@ -349,12 +350,14 @@ def _json_result(value: JsonObject) -> TaskResult:
 
 
 def _test_config(tmp_path: Path) -> ConfigEnvironment:
+    project_root = tmp_path / ".config-project"
+    ProjectInitializer().initialize(project_root)
     home_root = tmp_path / "home"
     agent_path = home_root / "agent" / "AGENT.md"
     agent_path.parent.mkdir(parents=True, exist_ok=True)
     agent_path.write_text("# Test Agent\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(
-        root=Path.cwd(),
+        root=project_root,
         overrides={
             "app.interactive": False,
             "home.root": str(home_root),
