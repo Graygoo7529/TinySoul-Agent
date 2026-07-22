@@ -23,7 +23,7 @@ A User Turn may contain multiple Agent Cycles. Each Cycle first updates Context 
 
 ## Context
 
-Context is constructed for each model task from the current UserInputs, BackgroundContext, WorkingContext, TurnTraceContext, and task prompt. Background holds loaded durable knowledge. WorkingContext holds task state and Workspace resource descriptions. TurnTraceContext holds current-Turn decisions and action feedback.
+Context is constructed for each model task from the current UserInputs, BackgroundContext, TurnTraceContext, WorkingContext, and task prompt. Background holds loaded durable knowledge. TurnTraceContext holds current-Turn decisions and action feedback. The later WorkingContext holds the current materialized task state and Workspace resource descriptions.
 
 Top-level Home content can enter Background. A Link is not its body: use `load_background` for one or more relevant Top Links already exposed in the current Context. Progressive Home resources, Memory search or recall results, and action results belong in TurnTrace rather than Background. Workspace Links remain resource handles until an owning action resolves them.
 
@@ -33,6 +33,10 @@ Session and Workspace follow the Business Day lifecycle. Runtime Home changes re
 
 ## Home Index
 
+- <home:agent@context/background> explains visible Background content and Top Link loading.
+- <home:agent@context/turn-trace> explains current-Turn interaction history and trace links.
+- <home:agent@context/working> explains current materialized task state and its Trace anchor.
+- <home:agent@context/workspace> explains Workspace resource handles and current projections.
 - <home:agent@user/user> contains stable user facts and preferences and is automatically loaded when present.
 - <home:what@entity/tiny-soul> defines TinySoul as an entity.
 - <home:what@concept/context-and-links> defines Context ownership and Link destinations.

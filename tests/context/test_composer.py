@@ -17,6 +17,7 @@ from tinysoul.context.working import WorkingContext
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
+    JsonPart,
     SystemMessage,
     TextPart,
     ToolResultMessage,
@@ -82,8 +83,8 @@ def test_compose_section_order_and_labels() -> None:
         "user_input",
         "background:journal",
         "background:home:what@concept/x",
-        "working",
         "phase_note",
+        "working",
         "task_prompt:guide:phase",
         "task_prompt:guide:domain_how:1",
         "task_prompt:input:details",
@@ -92,6 +93,12 @@ def test_compose_section_order_and_labels() -> None:
     ]
     assert isinstance(stack.messages[0], SystemMessage)
     assert all(isinstance(message, UserMessage) for message in stack.messages[1:])
+    working_part = stack.messages[5].parts[0]
+    assert isinstance(working_part, JsonPart)
+    assert working_part.value["as_of_trace"] == {
+        "ref": "turn:trace@detached",
+        "canonical_revision": 1,
+    }
     task_message = stack.messages[-5]
     assert isinstance(task_message, UserMessage)
     part = task_message.parts[0]

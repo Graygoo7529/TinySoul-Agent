@@ -46,6 +46,16 @@ from .search import (
 )
 
 
+_DEFAULT_BACKGROUND_TOP_LINKS = (
+    HomeTopLink("agent", "AGENT"),
+    HomeTopLink("agent", "context/background"),
+    HomeTopLink("agent", "context/turn-trace"),
+    HomeTopLink("agent", "context/working"),
+    HomeTopLink("agent", "context/workspace"),
+    HomeTopLink("agent", "user/user"),
+)
+
+
 @dataclass(frozen=True)
 class HomeBackgroundEntry:
     """A background entry provided by Agent Home."""
@@ -147,15 +157,22 @@ class AgentHomeEngine:
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
 
-    def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
-        core = HomeTopLink("agent", "AGENT")
-        links = [core]
-        user = HomeTopLink("agent", "user/user")
-        if self._resolve_top_relative(user) is not None:
-            links.append(user)
+    def default_background_links(self) -> tuple[str, ...]:
+        """Return the effective, explicitly allowlisted default Agent tops."""
+
+        core = _DEFAULT_BACKGROUND_TOP_LINKS[0]
+        if self._resolve_top_relative(core) is None:
+            raise AgentHomeContractError("Agent Home core background is missing")
         return tuple(
-            HomeBackgroundEntry(link=str(link), content=self.read_top(link))
-            for link in links
+            str(link)
+            for link in _DEFAULT_BACKGROUND_TOP_LINKS
+            if self._resolve_top_relative(link) is not None
+        )
+
+    def default_background_entries(self) -> tuple[HomeBackgroundEntry, ...]:
+        return tuple(
+            HomeBackgroundEntry(link=link, content=self.read_top(link))
+            for link in self.default_background_links()
         )
 
     def loadable_background_links(self) -> tuple[str, ...]:

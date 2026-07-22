@@ -50,16 +50,16 @@ class HomeBackgroundEntryProvider:
     def catalog(self, business_day: date) -> BackgroundCatalog:
         try:
             links = self.home.loadable_background_links()
+            defaults = self.home.default_background_links()
             skills = self.home.skill_metadata()
         except AgentHomeError as exc:
             raise self.runtime_bridge.from_home_error(exc) from exc
-        core = "home:agent@AGENT"
-        if core not in links:
+        if any(link not in links for link in defaults):
             raise self.runtime_bridge.from_home_error(
-                AgentHomeContractError("Agent Home core background is missing")
+                AgentHomeContractError(
+                    "Agent Home default background is absent from the top catalog"
+                )
             )
-        user = "home:agent@user/user"
-        defaults = (core, user) if user in links else (core,)
         return BackgroundCatalog(
             owner="home",
             default_links=defaults,

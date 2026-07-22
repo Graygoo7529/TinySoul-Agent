@@ -30,7 +30,7 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### WorkingContext
 
-本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 只验证和渲染资源句柄，不读取 workspace 文件内容。
+本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 只验证和渲染资源句柄，不读取 workspace 文件内容。WorkingContext 在 MessageStack 中位于 TurnTraceHeap 之后，是当前组装边界的物化状态；模型可见 Working 消息附加 `as_of_trace {ref, canonical_revision}`，但该临时组装元数据不写入 WorkingContext 状态或 TurnSummary。
 
 ### TurnTraceHeap
 
@@ -38,23 +38,25 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。
 
+TurnTraceHeap 提供组装时只读锚点：`ref` 是当前 Turn 的 `turn:trace@<turn_id>` head，`canonical_revision` 等于 canonical append 数。append 增加 revision；hot-to-cold 压缩、branch 合并和 visible overlay fold 都不改变 revision。锚点表达 Working 在同次组装中观察到的 Trace 边界，不表达 Working 变更的唯一因果来源，因为 Phase1 control、Workspace sync 或 Endpoint mutation 可以在不追加 Trace 的情况下更新 Working。
+
 ### PendingInputs
 
 本轮用户输入列表，包含初始输入与轮中追加输入。追加输入先进入列表暂存，由 loop 在安全边界触发合并：合并时只标记为已合并，不写入 TurnTrace。已合并输入作为独立的 UserInputs section 渲染为 user role messages，位置紧随 system identity。列表保留全量记录并进入 TurnSummary。当前不维护跨 Turn 的原始输入历史；后续若需要跨 Turn 回放，应先归纳为 BackgroundContext 或 memory，而不是把历史输入追加到当前 TurnTrace。
 
 ## MessageStack 构造
 
-MessageStackComposer 按区段构造 MessageStack，顺序从稳定到易变：
+MessageStackComposer 按语义依赖与变更形态构造 MessageStack：
 
 1. system 段：Agent 身份与规约；
 2. UserInputs 段：本 Turn 的已合并用户输入，通常在整个 Turn 内稳定，除非用户追加输入；
 3. SessionBackground 段：Turn preparation 后固定；
 4. 通用 Phase1 Background 段：每 Turn 从 Home、Memory 等 provider 重建，先渲染 provider 目录 metadata，再渲染默认/自动正文；Phase1 可调整本 Turn 动态正文条目；
-5. WorkingContext 段：低频变化；
-6. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
+5. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
+6. WorkingContext 段：携带当前物化状态和同次组装生成的 Trace 锚点；
 7. task prompt overlay：每次 LLM Task 不同。
 
-这个顺序保证跨 LLM Task 的消息前缀尽量稳定，服务供应商提示缓存。
+这个顺序先给出本轮已经发生的交互，再给出当前物化状态，最后给出本次任务。正常 Trace 增长是 append-only，旧 Trace 仍可构成下一请求的稳定前缀；Working 是原位替换快照，把它放在 Trace 后可以避免 todo、milestone 或 Workspace 投影变化使整段既有 Trace 失去提示缓存。Background 等替换型前置规约仍保留在交互之前，因为它们定义如何解释后续内容。
 
 BackgroundContext、WorkingContext、UserInputs 与 task prompt overlay 均渲染为 user role messages；只有 identity 使用 system role。这样 system role 专注于最高层身份与框架规约，其他由 TinySoul 构造的状态段都作为本次模型任务的显式输入提供给模型。Provider 若对后置 system message 支持不同，不需要影响 Context 的语义顺序。
 
@@ -64,7 +66,7 @@ composer 在构造时统计各 section 的文本字符和图片字节，但不�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的 core/user 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 
@@ -91,11 +93,11 @@ Reasoning 的后续回放由 LLM 模块依据模型配置中的 `reasoning_keep`
 
 1. LLM 候选模型预检超过 `compression_trigger_ratio` 硬水位时，Context-built Task 中止本次模型链并映射为语境压缩 Runtime 原因；composer 的图片字节硬预算仍可进入相同原因；
 2. `ContextPressureRecovery` 依据模型窗口、message/non-message/output token 分项、消息字符投影与 `compression_target_ratio` 计算回收量；图片单独超限不会触发 Workspace 文件删除；
-3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；Home core 与存在时的自动 user 正文都不逐出；
+3. 首先折叠已召回 overlay，再按完整 Cycle 把旧热轨迹移入可恢复 heap node；其次逐出 Phase1 动态 Background，仍不足时逐出自动昨日 Memory；Home 默认 Agent Top 正文都不逐出；
 4. 仍不足时，Workspace 只把显式标记为 `ephemeral` 或 `turn`、且未被当前 action `target_link`/`reference_links` 保护的资源移动到可恢复 Trash，并立即用新 Manifest 全量同步 WorkingContext；批次中途失败回滚已移动项，同步失败也尝试 restore；
 5. 只有确实回收了可见字符才重试当前 Module/Phase；没有进展或恢复失败则结束 Turn，避免无效重试循环。
 
-模型容量异常携带当前候选模型、窗口、水位、输入/output token 估算和消息字符投影；Composer 的图片预算异常继续携带各 section 的字符数和图片字节数。UserInputs、SessionBackground、不可逐出的 Home core/user、WorkingContext 和 task prompt 不会被裁剪；自动昨日 Memory 属于可回收 Background。回收后 Runtime 重试当前 Module 或 Phase，由上层重新 compose 整个 LLM Task；Context 不维护按模型区分的 MessageStack。
+模型容量异常携带当前候选模型、窗口、水位、输入/output token 估算和消息字符投影；Composer 的图片预算异常继续携带各 section 的字符数和图片字节数。UserInputs、SessionBackground、不可逐出的 Home 默认 Agent Top、WorkingContext 和 task prompt 不会被裁剪；自动昨日 Memory 属于可回收 Background。回收后 Runtime 重试当前 Module 或 Phase，由上层重新 compose 整个 LLM Task；Context 不维护按模型区分的 MessageStack。
 
 ## 失败与异常边界
 

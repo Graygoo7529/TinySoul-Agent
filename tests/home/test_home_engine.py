@@ -92,6 +92,7 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
     ).build()
     cases = {
         "home:agent@AGENT": "agent/AGENT.md",
+        "home:agent@context/turn-trace": "agent/context/turn-trace.md",
         "home:agent@user/user": "agent/user/user.md",
         "home:what@entity/tiny-soul": "what/entity/tiny-soul.md",
         "home:what@concept/daily-lifecycle": (
@@ -289,13 +290,18 @@ def test_home_background_provider_catalog_does_not_materialize_core(
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
 
 
-def test_home_background_provider_automatically_loads_effective_user(
+def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
     tmp_path: Path,
 ) -> None:
     agent = tmp_path / "home" / "agent"
+    extra = agent / "context" / "extra.md"
+    working = agent / "context" / "working.md"
     user = agent / "user" / "user.md"
+    working.parent.mkdir(parents=True)
     user.parent.mkdir(parents=True)
     (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
+    extra.write_text("on-demand rules", encoding="utf-8")
+    working.write_text("working rules", encoding="utf-8")
     user.write_text("user facts", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
@@ -309,15 +315,19 @@ def test_home_background_provider_automatically_loads_effective_user(
 
     assert catalog.default_links == (
         "home:agent@AGENT",
+        "home:agent@context/working",
         "home:agent@user/user",
     )
     assert catalog.evictable_default_links == ()
+    assert "home:agent@context/extra" in catalog.loadable_links
+    assert "home:agent@context/extra" not in catalog.default_links
     assert not (tmp_path / "runtime" / "home" / "agent").exists()
 
     home.delete_top("home:agent@user/user")
 
     assert provider.catalog(date(2026, 7, 15)).default_links == (
         "home:agent@AGENT",
+        "home:agent@context/working",
     )
 
 

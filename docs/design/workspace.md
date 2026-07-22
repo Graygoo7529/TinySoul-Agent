@@ -80,11 +80,11 @@ Workspace manifest 记录资源摘要，而不是资源内容。一个资源记�
 - `retention`：`ephemeral`、`turn`、`day` 或 `persistent`；
 - `owner_turn_id`：产生该资源的 Turn，可用于生命周期回收和审计。
 
-投影到 Context 时只提交轻量信息。当前 WorkingContext 已有 `WorkspaceResource(link, summary)`，Workspace 模块可以先投影为这两个字段；后续如需 size、kind、mtime，应先扩展 Context 的资源摘要协议，而不是把完整 manifest 塞进 trace。
+投影到 Context 时只提交轻量信息。当前 WorkingContext 已有 `WorkspaceResource(link, summary)`，Workspace 模块可以先投影为这两个字段；后续如需 size、kind、mtime，应先扩展 Context 的资源摘要协议，而不是把完整 manifest 塞进 trace。模型 MessageStack 先渲染 TurnTrace、再渲染 Working，因此该资源投影是交互历史之后的当前状态；Working 消息的 `as_of_trace` 只标记同次组装边界，不改变 Workspace revision 的所有权。
 
 ## Manifest
 
-Manifest 是 workspace 的当前资源索引和轻量语义描述层。磁盘是内容事实源；Manifest 只在完整 reconciliation 后原子提交；WorkingContext workspace 段是相同 revision 的 Turn 内投影。它用于：
+Manifest 是 workspace 的当前资源索引和轻量语义描述层。磁盘是内容事实源；Manifest 只在完整 reconciliation 后原子提交；WorkingContext workspace 段是相同 revision 的 Turn 内投影，并在模型输入中位于可能引用旧 Workspace revision 的 TurnTrace 之后。它用于：
 
 - 避免每次 Phase 都扫描全目录；
 - 识别资源新增、修改、删除；

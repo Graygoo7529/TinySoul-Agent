@@ -9,6 +9,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import Message, UserMessage
 
 from .errors import ContextInvariantError
+from .trace import TraceAnchor
 
 
 class TodoStatus(StrEnum):
@@ -226,8 +227,16 @@ class WorkingContext:
             "workspace_revision": self._workspace_revision,
         }
 
-    def render_messages(self) -> tuple[Message, ...]:
-        return (UserMessage.from_json(self.to_json(), label="working"),)
+    def render_messages(self, *, trace_anchor: TraceAnchor) -> tuple[Message, ...]:
+        return (
+            UserMessage.from_json(
+                {
+                    "as_of_trace": trace_anchor.to_json(),
+                    **self.to_json(),
+                },
+                label="working",
+            ),
+        )
 
 
 def _apply_patch_to_projection(

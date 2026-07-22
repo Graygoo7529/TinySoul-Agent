@@ -147,6 +147,22 @@ def test_working_patch_rejects_conflicting_and_duplicate_operations() -> None:
     assert "duplicate todo remove key" in working.check_patch(duplicate)
 
 
+def test_working_message_is_anchored_without_changing_persisted_state() -> None:
+    working = WorkingContext()
+    trace = TurnTraceHeap(turn_id="turn_anchor")
+    trace.append_phase_note("observed")
+
+    message = working.render_messages(trace_anchor=trace.anchor())[0]
+    part = message.parts[0]
+
+    assert isinstance(part, JsonPart)
+    assert part.value["as_of_trace"] == {
+        "ref": "turn:trace@turn_anchor",
+        "canonical_revision": 1,
+    }
+    assert "as_of_trace" not in working.to_json()
+
+
 def test_working_patch_sequence_validates_projected_state() -> None:
     working = WorkingContext()
     problems = working.check_patch_sequence(
@@ -191,12 +207,14 @@ def test_trace_compaction_keeps_canonical_entries_and_exposes_heap_head() -> Non
     trace = TurnTraceHeap(min_hot_entries=2)
     for index in range(6):
         trace.append_phase_note(f"note {index}")
+    anchor = trace.anchor()
     report = trace.compact(required_chars=1)
     assert report.changed is True
     assert report.compacted_count == 4
     assert len(trace.entries()) == 6
     assert len(trace.hot_entries()) == 2
     assert trace.render_messages()[0].label == "trace_heap_head"
+    assert trace.anchor() == anchor
 
     again = trace.compact(required_chars=1)
     assert again.changed is False
@@ -210,6 +228,7 @@ def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
     report = trace.compact(required_chars=1)
     assert report.compacted_count == 3
     head = trace.inspect(trace.head_ref())
+    assert head["canonical_revision"] == 4
     roots = head["roots"]
     assert isinstance(roots, list)
     assert roots
@@ -274,11 +293,13 @@ def test_trace_recall_overlay_folds_back_to_origin_pointer() -> None:
         origin_refs=("session:turn/old",),
     )
 
+    anchor = trace.anchor()
     assert trace.render_messages()[0] == full
     report = trace.compact(required_chars=0)
     assert report.folded_overlay_count == 1
     assert trace.render_messages()[0] == compact
     assert trace.entries()[0].origin_refs == ("session:turn/old",)
+    assert trace.anchor() == anchor
 
 
 def test_pending_inputs_merge_lifecycle() -> None:

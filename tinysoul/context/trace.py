@@ -129,6 +129,28 @@ class TraceCompactionReport:
 
 
 @dataclass(frozen=True)
+class TraceAnchor:
+    """One composition-time position in the canonical Turn trace."""
+
+    ref: str
+    canonical_revision: int
+
+    def __post_init__(self) -> None:
+        if not self.ref:
+            raise ContextInvariantError("TraceAnchor.ref must be non-empty")
+        if self.canonical_revision < 0:
+            raise ContextInvariantError(
+                "TraceAnchor.canonical_revision cannot be negative"
+            )
+
+    def to_json(self) -> JsonObject:
+        return {
+            "ref": self.ref,
+            "canonical_revision": self.canonical_revision,
+        }
+
+
+@dataclass(frozen=True)
 class TraceRecallPage:
     """One stable page from an immutable trace leaf."""
 
@@ -205,6 +227,12 @@ class TurnTraceHeap:
 
     def head_ref(self) -> str:
         return f"turn:trace@{self._turn_id}"
+
+    def anchor(self) -> TraceAnchor:
+        return TraceAnchor(
+            ref=self.head_ref(),
+            canonical_revision=len(self._entries),
+        )
 
     def append_decision(
         self,
@@ -469,6 +497,7 @@ class TurnTraceHeap:
         return to_json_object(
             {
                 "ref": self.head_ref(),
+                "canonical_revision": len(self._entries),
                 "note": "Earlier TurnTrace entries are available through this heap head.",
                 "roots": [
                     self._nodes[node_id].to_header(turn_id=self._turn_id)
