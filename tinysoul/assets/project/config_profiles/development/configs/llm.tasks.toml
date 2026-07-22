@@ -1,6 +1,10 @@
 [llm.tasks.framework]
 models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4"]
 required_capabilities = ["text_input"]
+# Profile defaults only.
+# Loop Phase1/Phase2 override:
+#   answer_format = "none"
+#   tool_use = "required"
 answer_format = "json_object"
 tool_use = "disabled"
 temperature = 0.6
