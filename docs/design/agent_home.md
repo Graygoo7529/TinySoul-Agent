@@ -136,7 +136,6 @@ home/
   agent/context/background.md
   agent/context/turn-trace.md
   agent/context/working.md
-  agent/context/workspace.md
   agent/user/user.md
   what/entity/tiny-soul.md
   what/concept/context-and-links.md

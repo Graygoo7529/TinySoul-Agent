@@ -51,7 +51,6 @@ _DEFAULT_BACKGROUND_TOP_LINKS = (
     HomeTopLink("agent", "context/background"),
     HomeTopLink("agent", "context/turn-trace"),
     HomeTopLink("agent", "context/working"),
-    HomeTopLink("agent", "context/workspace"),
     HomeTopLink("agent", "user/user"),
 )
 

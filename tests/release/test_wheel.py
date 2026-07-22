@@ -85,7 +85,6 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/agent/context/background.md" in names
     assert "tinysoul/assets/project/home/agent/context/turn-trace.md" in names
     assert "tinysoul/assets/project/home/agent/context/working.md" in names
-    assert "tinysoul/assets/project/home/agent/context/workspace.md" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names

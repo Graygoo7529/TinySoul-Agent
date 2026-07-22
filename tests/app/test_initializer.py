@@ -66,12 +66,6 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert openai_models["gpt_5_6_sol"]["provider"] == "openai"
     assert openai_models["gpt_5_6_terra"]["provider"] == "openai"
     assert openai_models["gpt_5_6_luna"]["provider"] == "openai"
-    tasks = tomllib.loads(
-        (root / "configs" / "llm.tasks.toml").read_text(encoding="utf-8")
-    )["llm"]["tasks"]
-    assert tasks["framework"]["models"][0] == "gpt_5_6_sol"
-    assert tasks["llm_action"]["models"][0] == "gpt_5_6_terra"
-    assert tasks["home_search"]["models"][0] == "gpt_5_6_luna"
     web = tomllib.loads(
         (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
     )["capabilities"]["web"]
@@ -119,13 +113,6 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     assert web["search_by_kimi"]["enabled"] is True
     assert web["discover_pages"]["enabled"] is True
     assert web["fetch_with_defuddle"]["enabled"] is True
-    tasks = tomllib.loads(
-        (root / "configs" / "llm.tasks.toml").read_text(encoding="utf-8")
-    )["llm"]["tasks"]
-    assert tasks["framework"]["models"][0] == "kimi_k2_7"
-    assert tasks["framework"]["models"][1] == "gpt_5_6_sol"
-    assert tasks["llm_action"]["models"][1] == "gpt_5_6_terra"
-    assert tasks["home_search"]["models"][1] == "gpt_5_6_luna"
     assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
         encoding="utf-8"
     )

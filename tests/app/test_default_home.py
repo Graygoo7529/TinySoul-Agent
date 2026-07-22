@@ -33,7 +33,6 @@ _EXPECTED_TOP_LINKS = {
     "home:agent@context/background",
     "home:agent@context/turn-trace",
     "home:agent@context/working",
-    "home:agent@context/workspace",
     "home:agent@user/user",
     "home:how@tinysoul-docs",
     "home:what@concept/context-and-links",
@@ -88,7 +87,6 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
         "home:agent@context/background",
         "home:agent@context/turn-trace",
         "home:agent@context/working",
-        "home:agent@context/workspace",
         "home:agent@user/user",
     )
     assert catalog.evictable_default_links == ()
@@ -125,7 +123,6 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     assert "background:home:agent@context/background" in initial_labels
     assert "background:home:agent@context/turn-trace" in initial_labels
     assert "background:home:agent@context/working" in initial_labels
-    assert "background:home:agent@context/workspace" in initial_labels
     assert "background:home:agent@user/user" in initial_labels
     assert "background:home:what@entity/tiny-soul" not in initial_labels
     assert "background:home:why@why-is-updating-home-important" not in initial_labels

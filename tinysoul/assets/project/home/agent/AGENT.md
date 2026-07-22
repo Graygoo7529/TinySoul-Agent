@@ -35,8 +35,7 @@ Session and Workspace follow the Business Day lifecycle. Runtime Home changes re
 
 - <home:agent@context/background> explains visible Background content and Top Link loading.
 - <home:agent@context/turn-trace> explains current-Turn interaction history and trace links.
-- <home:agent@context/working> explains current materialized task state and its Trace anchor.
-- <home:agent@context/workspace> explains Workspace resource handles and current projections.
+- <home:agent@context/working> explains current materialized task state, its Trace anchor, and Workspace resource Links and projections.
 - <home:agent@user/user> contains stable user facts and preferences and is automatically loaded when present.
 - <home:what@entity/tiny-soul> defines TinySoul as an entity.
 - <home:what@concept/context-and-links> defines Context ownership and Link destinations.

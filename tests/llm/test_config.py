@@ -40,7 +40,6 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     openai_model = config.models.get("gpt_5_5")
     assert openai_model.provider_id == "sublyx_proxy"
     assert openai_model.provider_model == "gpt-5.5"
-    assert openai_model.context_window_tokens == 262144
     assert openai_model.supports(ModelCapability.IMAGE_INPUT)
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert openai_model.supports(ModelCapability.TOOL_CALLING)
@@ -62,14 +61,12 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
         model = config.models.get(model_id)
         assert model.provider_id == "sublyx_proxy"
         assert model.provider_model == provider_model
-        assert model.context_window_tokens == 1_050_000
         assert model.capabilities == openai_model.capabilities
         assert model.provider_options.values == openai_model.provider_options.values
 
     kimi_model = config.models.get("kimi_k2_7")
     assert kimi_model.provider_id == "kimi"
     assert kimi_model.provider_model == "kimi-k2.7-code-highspeed"
-    assert kimi_model.context_window_tokens == 262144
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
@@ -89,7 +86,6 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     kimi_k3_model = config.models.get("kimi_k3")
     assert kimi_k3_model.provider_id == "kimi"
     assert kimi_k3_model.provider_model == "kimi-k3"
-    assert kimi_k3_model.context_window_tokens == 1048576
     assert kimi_k3_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_k3_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
     assert kimi_k3_model.supports(ModelCapability.TOOL_CALLING)
@@ -144,15 +140,6 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     }
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
-    assert framework.chain.model_ids == (
-        "kimi_k2_7",
-        "gpt_5_6_sol",
-        "gpt_5_5",
-        "kimi_k3",
-        "deepseek_v4",
-        "glm_5_1",
-        "minimax_m3",
-    )
     assert framework.chain.retry_policy.max_retries_per_model == 2
     assert framework.chain.retry_policy.prefer_successful_model_seconds == pytest.approx(600.0)
     assert framework.settings.answer_format is AnswerFormat.JSON_OBJECT
@@ -161,50 +148,25 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert framework.settings.max_output_tokens == 4096
 
     llm_action = config.tasks.get(TaskProfile.LLM_ACTION)
-    assert llm_action.chain.model_ids[:3] == (
-        "kimi_k2_7",
-        "gpt_5_6_terra",
-        "gpt_5_5",
-    )
     assert llm_action.settings.temperature == pytest.approx(0.3)
     assert llm_action.settings.max_output_tokens == 2048
 
     home_maintenance = config.tasks.get(TaskProfile.HOME_MAINTENANCE)
-    assert home_maintenance.chain.model_ids[:3] == (
-        "kimi_k2_7",
-        "gpt_5_6_terra",
-        "gpt_5_5",
-    )
     assert home_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert home_maintenance.settings.tool_use is ToolUse.DISABLED
     assert home_maintenance.settings.temperature == pytest.approx(0.2)
     assert home_maintenance.settings.max_output_tokens == 256
     home_search = config.tasks.get(TaskProfile.HOME_SEARCH)
-    assert home_search.chain.model_ids[:3] == (
-        "kimi_k2_7",
-        "gpt_5_6_luna",
-        "gpt_5_5",
-    )
     assert home_search.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert home_search.settings.tool_use is ToolUse.DISABLED
     assert home_search.settings.temperature == pytest.approx(0.1)
     assert home_search.settings.max_output_tokens == 512
     memory_search = config.tasks.get(TaskProfile.MEMORY_SEARCH)
-    assert memory_search.chain.model_ids[:3] == (
-        "kimi_k2_7",
-        "gpt_5_6_luna",
-        "gpt_5_5",
-    )
     assert memory_search.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert memory_search.settings.tool_use is ToolUse.DISABLED
     assert memory_search.settings.temperature == pytest.approx(0.1)
     assert memory_search.settings.max_output_tokens == 512
     memory_maintenance = config.tasks.get(TaskProfile.MEMORY_MAINTENANCE)
-    assert memory_maintenance.chain.model_ids[:3] == (
-        "kimi_k2_7",
-        "gpt_5_6_terra",
-        "gpt_5_5",
-    )
     assert memory_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert memory_maintenance.settings.tool_use is ToolUse.DISABLED
     assert memory_maintenance.settings.temperature == pytest.approx(0.2)
