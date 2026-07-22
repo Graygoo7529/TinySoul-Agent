@@ -1,6 +1,6 @@
 [llm.models.kimi_k2_7]
-provider = "kimi_coding"
-provider_model = "kimi-for-coding-highspeed"
+provider = "kimi"
+provider_model = "kimi-k2.7-code-highspeed"
 context_window_tokens = 262144
 capabilities = [
   "text_input",
@@ -19,8 +19,8 @@ thinking = "enabled"
 temperature = 1.0
 
 [llm.models.kimi_k3]
-provider = "kimi_coding"
-provider_model = "k3"
+provider = "kimi"
+provider_model = "kimi-k3"
 context_window_tokens = 1048576
 capabilities = [
   "text_input",

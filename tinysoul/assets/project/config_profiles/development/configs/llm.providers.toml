@@ -26,13 +26,6 @@ api_style = "openai_chat"
 base_url = "https://api.moonshot.cn/v1"
 api_key_envs = ["MOONSHOT_API_KEY"]
 
-[llm.providers.kimi_coding]
-enabled = true
-adapter = "kimi"
-api_style = "openai_chat"
-base_url = "https://api.kimi.com/coding/v1"
-api_key_envs = ["KIMI_CODING_API_KEY"]
-
 [llm.providers.glm]
 enabled = true
 adapter = "glm"
