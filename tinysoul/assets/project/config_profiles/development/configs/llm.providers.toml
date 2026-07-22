@@ -20,7 +20,7 @@ base_url = "https://api.deepseek.com"
 api_key_envs = ["DEEPSEEK_API_KEY"]
 
 [llm.providers.kimi]
-enabled = false
+enabled = true
 adapter = "kimi"
 api_style = "openai_chat"
 base_url = "https://api.moonshot.cn/v1"
