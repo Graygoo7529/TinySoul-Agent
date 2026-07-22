@@ -114,7 +114,12 @@ def responses_encrypted_reasoning_items(response: object) -> tuple[JsonObject, .
         encrypted_content = get_attr(item, "encrypted_content")
         if item_type != "reasoning" or not isinstance(encrypted_content, str):
             continue
-        items.append(to_json_object(model_dump_mapping(item)))
+        dumped_item = model_dump_mapping(item)
+        items.append(
+            to_json_object(
+                {key: value for key, value in dumped_item.items() if value is not None}
+            )
+        )
     return tuple(items)
 
 

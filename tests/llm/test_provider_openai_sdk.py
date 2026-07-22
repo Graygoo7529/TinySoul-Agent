@@ -259,16 +259,25 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
 
 
 def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
-    encrypted_item: JsonObject = {
+    provider_item: JsonObject = {
         "id": "rs_1",
         "type": "reasoning",
         "summary": [{"type": "summary_text", "text": "summary"}],
+        "content": [],
+        "encrypted_content": "encrypted-state",
+        "status": None,
+    }
+    replayable_item: JsonObject = {
+        "id": "rs_1",
+        "type": "reasoning",
+        "summary": [{"type": "summary_text", "text": "summary"}],
+        "content": [],
         "encrypted_content": "encrypted-state",
     }
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="done",
-            output=[encrypted_item],
+            output=[provider_item],
             usage={},
         )
     )
@@ -289,7 +298,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
     assert response.reasoning is not None
     assert response.reasoning.summary == "summary"
     assert response.reasoning.content is None
-    assert response.reasoning.encrypted_items == (encrypted_item,)
+    assert response.reasoning.encrypted_items == (replayable_item,)
 
 
 def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
