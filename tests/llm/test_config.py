@@ -29,14 +29,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_provider.api_style is ProviderApiStyle.OPENAI_CHAT
     assert kimi_provider.base_url == "https://api.moonshot.cn/v1"
     assert kimi_provider.api_key_envs == ("MOONSHOT_API_KEY",)
-    assert kimi_provider.enabled is False
-
-    kimi_coding_provider = config.provider("kimi_coding")
-    assert kimi_coding_provider.api_style is ProviderApiStyle.OPENAI_CHAT
-    assert kimi_coding_provider.adapter is ProviderAdapterKind.KIMI
-    assert kimi_coding_provider.base_url == "https://api.kimi.com/coding/v1"
-    assert kimi_coding_provider.api_key_envs == ("KIMI_CODING_API_KEY",)
-    assert kimi_coding_provider.enabled is True
+    assert kimi_provider.adapter is ProviderAdapterKind.KIMI
+    assert kimi_provider.enabled is True
 
     proxy_provider = config.provider("sublyx_proxy")
     assert proxy_provider.enabled is True
@@ -60,9 +54,21 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
         "reasoning_summary": "auto",
     }
 
+    for model_id, provider_model in (
+        ("gpt_5_6_sol", "gpt-5.6-sol"),
+        ("gpt_5_6_terra", "gpt-5.6-terra"),
+        ("gpt_5_6_luna", "gpt-5.6-luna"),
+    ):
+        model = config.models.get(model_id)
+        assert model.provider_id == "sublyx_proxy"
+        assert model.provider_model == provider_model
+        assert model.context_window_tokens == 1_050_000
+        assert model.capabilities == openai_model.capabilities
+        assert model.provider_options.values == openai_model.provider_options.values
+
     kimi_model = config.models.get("kimi_k2_7")
-    assert kimi_model.provider_id == "kimi_coding"
-    assert kimi_model.provider_model == "kimi-for-coding-highspeed"
+    assert kimi_model.provider_id == "kimi"
+    assert kimi_model.provider_model == "kimi-k2.7-code-highspeed"
     assert kimi_model.context_window_tokens == 262144
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.TOOL_CALLING)
@@ -81,8 +87,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_model.provider_options.request_overrides().max_output_tokens is None
 
     kimi_k3_model = config.models.get("kimi_k3")
-    assert kimi_k3_model.provider_id == "kimi_coding"
-    assert kimi_k3_model.provider_model == "k3"
+    assert kimi_k3_model.provider_id == "kimi"
+    assert kimi_k3_model.provider_model == "kimi-k3"
     assert kimi_k3_model.context_window_tokens == 1048576
     assert kimi_k3_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_k3_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
@@ -140,6 +146,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     framework = config.tasks.get(TaskProfile.FRAMEWORK)
     assert framework.chain.model_ids == (
         "kimi_k2_7",
+        "gpt_5_6_sol",
         "gpt_5_5",
         "kimi_k3",
         "deepseek_v4",
@@ -154,25 +161,50 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert framework.settings.max_output_tokens == 4096
 
     llm_action = config.tasks.get(TaskProfile.LLM_ACTION)
+    assert llm_action.chain.model_ids[:3] == (
+        "kimi_k2_7",
+        "gpt_5_6_terra",
+        "gpt_5_5",
+    )
     assert llm_action.settings.temperature == pytest.approx(0.3)
     assert llm_action.settings.max_output_tokens == 2048
 
     home_maintenance = config.tasks.get(TaskProfile.HOME_MAINTENANCE)
+    assert home_maintenance.chain.model_ids[:3] == (
+        "kimi_k2_7",
+        "gpt_5_6_terra",
+        "gpt_5_5",
+    )
     assert home_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert home_maintenance.settings.tool_use is ToolUse.DISABLED
     assert home_maintenance.settings.temperature == pytest.approx(0.2)
     assert home_maintenance.settings.max_output_tokens == 256
     home_search = config.tasks.get(TaskProfile.HOME_SEARCH)
+    assert home_search.chain.model_ids[:3] == (
+        "kimi_k2_7",
+        "gpt_5_6_luna",
+        "gpt_5_5",
+    )
     assert home_search.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert home_search.settings.tool_use is ToolUse.DISABLED
     assert home_search.settings.temperature == pytest.approx(0.1)
     assert home_search.settings.max_output_tokens == 512
     memory_search = config.tasks.get(TaskProfile.MEMORY_SEARCH)
+    assert memory_search.chain.model_ids[:3] == (
+        "kimi_k2_7",
+        "gpt_5_6_luna",
+        "gpt_5_5",
+    )
     assert memory_search.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert memory_search.settings.tool_use is ToolUse.DISABLED
     assert memory_search.settings.temperature == pytest.approx(0.1)
     assert memory_search.settings.max_output_tokens == 512
     memory_maintenance = config.tasks.get(TaskProfile.MEMORY_MAINTENANCE)
+    assert memory_maintenance.chain.model_ids[:3] == (
+        "kimi_k2_7",
+        "gpt_5_6_terra",
+        "gpt_5_5",
+    )
     assert memory_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert memory_maintenance.settings.tool_use is ToolUse.DISABLED
     assert memory_maintenance.settings.temperature == pytest.approx(0.2)

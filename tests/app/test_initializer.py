@@ -49,20 +49,29 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
     assert providers["kimi"]["api_key_envs"] == ["MOONSHOT_API_KEY"]
-    assert providers["kimi_coding"] == {
-        "enabled": False,
-        "adapter": "kimi",
-        "api_style": "openai_chat",
-        "base_url": "https://api.kimi.com/coding/v1",
-        "api_key_envs": ["KIMI_CODING_API_KEY"],
-    }
     models = tomllib.loads(
         (root / "configs" / "llm.models" / "kimi.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert models["kimi_k2_7"]["provider_model"] == "kimi-for-coding-highspeed"
-    assert models["kimi_k3"]["provider_model"] == "k3"
+    assert models["kimi_k2_7"]["provider"] == "kimi"
+    assert models["kimi_k2_7"]["provider_model"] == "kimi-k2.7-code-highspeed"
+    assert models["kimi_k3"]["provider"] == "kimi"
+    assert models["kimi_k3"]["provider_model"] == "kimi-k3"
+    openai_models = tomllib.loads(
+        (root / "configs" / "llm.models" / "openai.toml").read_text(
+            encoding="utf-8"
+        )
+    )["llm"]["models"]
+    assert openai_models["gpt_5_6_sol"]["provider"] == "openai"
+    assert openai_models["gpt_5_6_terra"]["provider"] == "openai"
+    assert openai_models["gpt_5_6_luna"]["provider"] == "openai"
+    tasks = tomllib.loads(
+        (root / "configs" / "llm.tasks.toml").read_text(encoding="utf-8")
+    )["llm"]["tasks"]
+    assert tasks["framework"]["models"][0] == "gpt_5_6_sol"
+    assert tasks["llm_action"]["models"][0] == "gpt_5_6_terra"
+    assert tasks["home_search"]["models"][0] == "gpt_5_6_luna"
     web = tomllib.loads(
         (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
     )["capabilities"]["web"]
@@ -89,7 +98,15 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         "base_url": "https://api.sublyx.org/v1",
         "api_key_envs": ["SUBLYX_API_KEY"],
     }
-    assert providers["kimi_coding"]["enabled"] is True
+    assert providers["kimi"]["enabled"] is True
+    openai_models = tomllib.loads(
+        (root / "configs" / "llm.models" / "openai.toml").read_text(
+            encoding="utf-8"
+        )
+    )["llm"]["models"]
+    assert openai_models["gpt_5_6_sol"]["provider"] == "sublyx_proxy"
+    assert openai_models["gpt_5_6_terra"]["provider"] == "sublyx_proxy"
+    assert openai_models["gpt_5_6_luna"]["provider"] == "sublyx_proxy"
     shell = tomllib.loads(
         (root / "configs" / "capabilities.shell.toml").read_text(encoding="utf-8")
     )["capabilities"]["shell"]
@@ -106,6 +123,9 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         (root / "configs" / "llm.tasks.toml").read_text(encoding="utf-8")
     )["llm"]["tasks"]
     assert tasks["framework"]["models"][0] == "kimi_k2_7"
+    assert tasks["framework"]["models"][1] == "gpt_5_6_sol"
+    assert tasks["llm_action"]["models"][1] == "gpt_5_6_terra"
+    assert tasks["home_search"]["models"][1] == "gpt_5_6_luna"
     assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
         encoding="utf-8"
     )
