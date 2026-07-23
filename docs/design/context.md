@@ -36,7 +36,7 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整 canonical record，同时维护“热条目 + 冷节点头部”的可见投影。foldable ActionResult 额外持有只在当前 Turn 可见的完整 overlay；Context 压缩或 `context.trace.fold` 会统一移除所有这类 overlay，并报告 `folded_overlay_count`，不会修改 canonical ToolResult envelope。压缩随后可按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。
 
-recall 使用包含 `entry_index/char_offset/entry_digest` 的服务端 continuation cursor，返回 requested/effective 字符预算、显式 entry indexes、coverage、remaining、page_complete 与 next cursor。普通条目保持原子；单条 canonical JSON 超过 hard limit 时，才按 Unicode 字符边界返回 digest 绑定的 oversized chunk，条目完整前 cursor 不前进。最终响应的 canonical JSON 字符数不得超过生效预算，配置上限必须容纳最小分页 wrapper。recall 自身使用同一 foldable projection，不建立专用折叠分支。
+recall 使用包含 `entry_index/char_offset/entry_digest` 的服务端 continuation cursor，返回 requested/effective 字符与条目预算、显式 entry indexes、coverage、remaining、page_complete 与 next cursor；`max_entries=1` 用于已知 index 的精确恢复。普通条目保持原子；单条 canonical JSON 超过 hard character limit 时，才按 Unicode 字符边界返回 digest 绑定的 oversized chunk，条目完整前 cursor 不前进。最终响应的 canonical JSON 字符数不得超过生效预算，配置上限必须容纳最小分页 wrapper。Infra pager 只报告通用结构化 reason/constraint；Context 把 ref/leaf/cursor 请求问题转换为 `ContextTraceRequestError`，Action executor 只将该类型映射为局部 failure，Context invariant/budget 等其它错误继续经 Runtime bridge。recall 自身使用同一 foldable projection，不建立专用折叠分支。
 
 每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。`trace_summary` 只保存计数视图；`trace_digest` 固定为对 canonical trace 稳定 JSON 的 `sha256:<64hex>`，两者不可混用。
 
@@ -117,7 +117,7 @@ Context 维护 Turn 内内存态语境。Turn 结束时产出可 JSON 化的 Tur
 
 ## 组装入口
 
-ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压力回收服务；它只向上层暴露 compose、control scope、信号消费、trace inspect/recall/fold、TurnSummary、异常放弃 Turn 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 在装配边界校验背景链接冲突、预算、heap chunk、branch factor、热条目下限、召回上限和压缩目标比例。Context action registrar 采用惰性公共导出，避免 Context 核心包反向 eager import Action 装配层。
+ContextEngine 是 Context 面向 loop 的装配门面，聚合状态持有者、composer、控制工具构建、归一化、信号消费、输入合并与压力回收服务；它只向上层暴露 compose、control scope、信号消费、trace inspect/recall/fold、TurnSummary、异常放弃 Turn 与只读快照/摘要，不暴露可变状态持有者。ContextEngineBuilder 在装配边界校验背景链接冲突、预算、heap chunk、branch factor、热条目下限、召回字符/条目上限和压缩目标比例。Context action registrar 采用惰性公共导出，App 为其注入同一 `RuntimeContextBridge`，避免 Context 核心包反向 eager import Action 装配层。
 
 ## 设计范围
 

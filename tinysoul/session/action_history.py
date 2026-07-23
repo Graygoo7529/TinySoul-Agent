@@ -234,11 +234,30 @@ def project_turn_actions(
         if len(call_group) == 1 and len(result_group) == 1:
             call = call_group[0]
             result = result_group[0]
-            issue = (
-                ActionPairingIssue.NAME_MISMATCH
-                if call.action_name != result.action_name
-                else None
-            )
+            if call.action_name != result.action_name:
+                pending.append(
+                    (
+                        call.trace_index,
+                        _detail(
+                            occurrence,
+                            call=call,
+                            issue=ActionPairingIssue.NAME_MISMATCH,
+                        ),
+                    )
+                )
+                occurrence += 1
+                pending.append(
+                    (
+                        result.trace_index,
+                        _detail(
+                            occurrence,
+                            result=result,
+                            issue=ActionPairingIssue.NAME_MISMATCH,
+                        ),
+                    )
+                )
+                occurrence += 1
+                continue
             pending.append(
                 (
                     min(call.trace_index, result.trace_index),
@@ -246,7 +265,6 @@ def project_turn_actions(
                         occurrence,
                         call=call,
                         result=result,
-                        issue=issue,
                     ),
                 )
             )

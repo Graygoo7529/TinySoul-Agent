@@ -12,6 +12,7 @@ from tinysoul.infra.paging import (
     MIN_JSON_PAGE_CHARS,
     JsonPageCursor,
     JsonPageError,
+    JsonPageFailureReason,
     page_json_sequence,
 )
 from tinysoul.llm.messages import (
@@ -53,7 +54,12 @@ from .controls import (
     ControlResult,
     ControlResultStage,
 )
-from .errors import ContextContractError, ContextInvariantError
+from .errors import (
+    ContextContractError,
+    ContextInvariantError,
+    ContextTraceFailureReason,
+    ContextTraceRequestError,
+)
 from .prompts import TaskPrompt
 from .providers import (
     BackgroundCatalog,
@@ -196,6 +202,7 @@ class ContextEngine:
         loadable_entries: dict[str, BackgroundContentLoader],
         background_providers: tuple[BackgroundEntryProvider, ...],
         trace_recall_max_chars: int,
+        trace_recall_max_entries: int,
         compression_trigger_ratio: float,
         compression_target_ratio: float,
         observations: ObservationEmitter | None = None,
@@ -211,6 +218,7 @@ class ContextEngine:
         self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
         self._business_day: date | None = None
         self._trace_recall_max_chars = trace_recall_max_chars
+        self._trace_recall_max_entries = trace_recall_max_entries
         self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
         self._observations = observations or NullObservationEmitter()
@@ -593,23 +601,48 @@ class ContextEngine:
         ref: str,
         *,
         max_chars: int | None = None,
+        max_entries: int | None = None,
         cursor: JsonObject | None = None,
     ) -> JsonObject:
         self._require_turn()
         if max_chars is not None and (
-            isinstance(max_chars, bool) or max_chars <= 0
+            isinstance(max_chars, bool)
+            or not isinstance(max_chars, int)
+            or max_chars <= 0
         ):
-            raise ContextContractError("Trace recall max_chars must be positive")
+            raise ContextTraceRequestError(
+                ContextTraceFailureReason.INVALID_MAX_CHARS,
+                "Trace recall max_chars must be positive",
+                constraint={"max_chars": max_chars},
+            )
+        if max_entries is not None and (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            raise ContextTraceRequestError(
+                ContextTraceFailureReason.INVALID_MAX_ENTRIES,
+                "Trace recall max_entries must be positive",
+                constraint={"max_entries": max_entries},
+            )
         try:
             page_cursor = JsonPageCursor.from_json(cursor)
         except JsonPageError as exc:
-            raise ContextContractError(str(exc)) from exc
+            raise _context_page_error(exc, ref=ref) from exc
         limit = (
             self._trace_recall_max_chars
             if max_chars is None
             else min(max_chars, self._trace_recall_max_chars)
         )
         requested = self._trace_recall_max_chars if max_chars is None else max_chars
+        entry_limit = (
+            self._trace_recall_max_entries
+            if max_entries is None
+            else min(max_entries, self._trace_recall_max_entries)
+        )
+        requested_entries = (
+            self._trace_recall_max_entries if max_entries is None else max_entries
+        )
         entries = tuple(
             _trace_entry_record(entry)
             for entry in self._trace.recall_entries(ref)
@@ -631,10 +664,12 @@ class ContextEngine:
                 cursor_unit="trace_entry",
                 cursor=page_cursor,
                 max_chars=limit,
+                max_entries=entry_limit,
                 requested_max_chars=requested,
+                requested_max_entries=requested_entries,
             )
         except JsonPageError as exc:
-            raise ContextContractError(str(exc)) from exc
+            raise _context_page_error(exc, ref=ref) from exc
 
     def fold_trace_overlays(self) -> int:
         self._require_turn()
@@ -954,6 +989,7 @@ class ContextEngineBuilder:
         self._trace_branch_factor = 4
         self._trace_min_hot_entries = 2
         self._trace_recall_max_chars = 8000
+        self._trace_recall_max_entries = 50
         self._compression_trigger_ratio = 0.80
         self._compression_target_ratio = 0.50
         self._default_entries: list[BackgroundEntry] = []
@@ -1018,6 +1054,19 @@ class ContextEngineBuilder:
                 "Trace recall max_chars must leave room for paging metadata"
             )
         self._trace_recall_max_chars = max_chars
+        return self
+
+    def with_trace_recall_max_entries(
+        self,
+        max_entries: int,
+    ) -> "ContextEngineBuilder":
+        if (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            raise ContextContractError("Trace recall max_entries must be positive")
+        self._trace_recall_max_entries = max_entries
         return self
 
     def with_compression_target_ratio(
@@ -1125,6 +1174,7 @@ class ContextEngineBuilder:
             loadable_entries=loadable,
             background_providers=tuple(self._background_providers),
             trace_recall_max_chars=self._trace_recall_max_chars,
+            trace_recall_max_entries=self._trace_recall_max_entries,
             compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
             observations=self._observations,
@@ -1156,6 +1206,36 @@ def _message_action_names(message: Message) -> tuple[str, ...]:
     if isinstance(message, ToolResultMessage):
         return (message.tool_name,)
     return ()
+
+
+def _context_page_error(
+    error: JsonPageError,
+    *,
+    ref: str,
+) -> ContextTraceRequestError:
+    reason_map = {
+        JsonPageFailureReason.INVALID_CURSOR: ContextTraceFailureReason.INVALID_CURSOR,
+        JsonPageFailureReason.CURSOR_OUT_OF_RANGE: (
+            ContextTraceFailureReason.CURSOR_OUT_OF_RANGE
+        ),
+        JsonPageFailureReason.ENTRY_OFFSET_OUT_OF_RANGE: (
+            ContextTraceFailureReason.ENTRY_OFFSET_OUT_OF_RANGE
+        ),
+        JsonPageFailureReason.ENTRY_DIGEST_MISMATCH: (
+            ContextTraceFailureReason.ENTRY_DIGEST_MISMATCH
+        ),
+        JsonPageFailureReason.PAGE_BUDGET_TOO_SMALL: (
+            ContextTraceFailureReason.PAGE_BUDGET_TOO_SMALL
+        ),
+    }
+    reason = reason_map.get(error.reason)
+    if reason is None:
+        raise ContextInvariantError("Unexpected Context paging failure") from error
+    return ContextTraceRequestError(
+        reason,
+        str(error),
+        constraint={"ref": ref, **error.constraint},
+    )
 
 
 def _trace_records(trace: TurnTraceHeap) -> tuple[JsonObject, ...]:

@@ -250,6 +250,38 @@ Domain HOW、Catalog 和 workspace write/rewrite Action HOW 必须声明：instr
 
 完成后运行完整 pytest、`ty` 类型检查、wheel build 和 standard/development 隔离初始化验证。仅在 Endpoint/frontend 消费契约实际变化时运行 TypeScript/Vite 构建。
 
+## Review Follow-up Stage 9：Pager 与三层失败边界
+
+状态：done
+
+复审确认原 Stage 4 尚有两个实现缺口：`max_entries` 只存在于计划，没有进入 pager/配置/Catalog/API；Session 首屏把完整派生 Background 放进不可分页 base metadata，合法记录可能在常用 `max_chars=4000` 下整体失败。修复语义如下：
+
+- Infra pager 同时执行 requested/effective max chars 与 max entries，字符预算始终优先，`max_entries=1` 支持已知 trace index；
+- 通用 pager 以 enum reason 和 JSON-safe constraint 报告 cursor、digest、offset、limit 与 metadata budget 失败，不解释 owner/ref；
+- Context/Session 将通用失败映射为各自 typed request error；只有该类型可由 action executor 转为 `ActionLocalFailure`；
+- Context/Session I/O、budget 和 invariant 不再被宽泛 catch 压平，经 App 注入的所属 Runtime bridge 处理；Context invariant 明确映射为 internal failure；
+- Session 首屏尽力携带派生 Background；超限时明确返回 `background_state.reason=page_budget` 并继续交付 canonical trace，不建立 Background cursor。后续页使用 `reason=continuation`；
+- standard/development profile 同步 `trace_recall_max_entries` 与 `recall_max_entries`，两套配置保持相同文件和 key 形状。
+
+## Review Follow-up Stage 10：Projection 与 Hook failure 单一来源
+
+状态：done
+
+- Action call/result name mismatch 拆为两个按真实 action 归属的异常 occurrence；一次 mismatch 的 `pairing_issue_count=2`，by-action status/failure 不再错误记到 call action；
+- `session.history.inspect` 的直接 Turn item复用同一 projector 输出 `action_outcome_summary`，summary item仍不聚合 descendant counts；
+- `HookOutcome` 直接携带 `ActionLocalFailure`；pipeline 对普通拒绝沿用 owner reason/scope/constraint，只把 hook identity 放在 frame data；
+- Supervised Process answer guard 直接报告 `unresolved_supervised_process_job`，不再使用通用 `execution_hook_rejected` 加 `frame_data.reason` 表达两份失败事实。
+
+## Review Follow-up Stage 11：Endpoint、Frontend 与发布验收
+
+状态：done
+
+- Endpoint Session recall 增加 `max_entries`，typed request error 映射为稳定 `422 session.<reason>`，其它 Session failure 使用安全通用 `500`；
+- 前端 Session 类型以真实 Manifest head 为准，cursor 原样回传，消费双限制和 Background omission，不在前端重建 projector；
+- Catalog 与 Session Domain HOW 描述 exact-index、双限制和 Background omission；Context/Session native actions 仍无 Action HOW；
+- wheel/init 明确断言 Session actions catalog、Session Domain HOW、Core Answer HOW 存在，且不存在 Session Action HOW；
+- 新增 hard budget、exact entry、typed error、name mismatch、inspect projector、Endpoint OpenAPI/error 和前端 build 回归。
+
 ## 完成标准
 
 - Action failure 只有一个 typed source，renderer 只投影，不从 payload/frame_data 猜语义。
@@ -271,4 +303,6 @@ Domain HOW、Catalog 和 workspace write/rewrite Action HOW 必须声明：instr
 - hard pager 通过完整响应字符预算、Unicode oversized chunk、digest/offset continuation、coverage/remaining/page_complete 验收；
 - Workspace target-absent 与 reference 并发变化均以 `source_changed` 拒绝提交；
 - Endpoint/前端 Session recall 已同步结构化 continuation cursor，并通过 TypeScript/Vite build；
-- `python -m pytest tests -q`、`ty check`、wheel build、wheel 隔离安装及 standard/development 初始化均通过。两套初始化文件形状一致，新 Catalog/HOW/config 资源已进入 wheel。
+- Review Follow-up 已补齐 Context/Session `max_entries` 全链路、结构化 request failure、Session Background 显式省略、inspect 同源 outcome summary、name mismatch 真实归属与 Hook failure 单一来源；Session Store 继续只表达底层契约和持久化错误，面向调用方的 invalid/unknown ref 只在 Session Engine 请求边界形成；
+- Endpoint 使用稳定 `422 session.<reason>` 交付可修正 Session 请求，前端类型和 Session view 消费真实 Manifest head、双限制与 `background_state`，不在客户端重建 projector；
+- `python -m pytest tests -p no:cacheprovider -q` 全量通过（22 项按条件跳过），`ty check`、`git diff --check` 与 `npm run build` 通过；全量测试已覆盖 wheel build、wheel 隔离安装及 standard/development 初始化，两套初始化文件形状一致，新 Catalog/HOW/config 资源已进入 wheel。

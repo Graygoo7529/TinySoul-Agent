@@ -16,7 +16,7 @@ from tinysoul.context import (
     canonical_trace_digest,
 )
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.loop import BusinessDay, TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope
 from tinysoul.session import (
@@ -205,6 +205,33 @@ def test_action_projector_preserves_orphan_result_location() -> None:
     assert detail.phase == "phase3"
 
 
+def test_action_projector_splits_name_mismatch_by_real_action() -> None:
+    trace = (
+        _decision_entry("call_mismatch", "workspace.scan", {}),
+        _result_entry("call_mismatch", "workspace.read", {"link": "workspace:a"}),
+    )
+
+    projection = project_turn_actions(
+        trace,
+        expected_digest=canonical_trace_digest(trace),
+    )
+
+    assert len(projection.details) == 2
+    assert projection.pairing_issue_count == 2
+    assert projection.unmatched_call_count == 1
+    assert projection.unmatched_result_count == 1
+    assert [item.action_name for item in projection.details] == [
+        "workspace.scan",
+        "workspace.read",
+    ]
+    by_action = {item["action"]: item for item in projection.by_action()}
+    assert by_action["workspace.scan"]["calls"] == 1
+    assert by_action["workspace.scan"]["results"] == 0
+    assert by_action["workspace.read"]["calls"] == 0
+    assert by_action["workspace.read"]["results"] == 1
+    assert by_action["workspace.read"]["success"] == 1
+
+
 def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) -> None:
     settings = replace(_settings(tmp_path), recall_max_chars=1800)
     session = _engine(settings)
@@ -246,6 +273,63 @@ def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) ->
     coverage = second["entry_coverage"]
     assert isinstance(coverage, list)
     assert coverage[0] == next_entry_index
+
+
+def test_session_recall_honors_exact_entry_limit(tmp_path: Path) -> None:
+    session = _engine(_settings(tmp_path))
+    trace: tuple[JsonObject, ...] = tuple(
+        {"entry_id": f"entry_{index}", "detail": f"value {index}"}
+        for index in range(3)
+    )
+    _record_turn(
+        session,
+        summary=TurnSummary(
+            turn_id="turn_exact_entry",
+            inputs=({"input_id": "input_1", "text": "page", "merged": True},),
+            trace=trace,
+            trace_digest=canonical_trace_digest(trace),
+        ),
+        output={"text": "done"},
+        exhausted=False,
+    )
+
+    page = session.recall_history(
+        "session:turn/turn_exact_entry",
+        max_entries=1,
+        cursor={"entry_index": 1, "char_offset": 0},
+    )
+
+    assert page["requested_max_entries"] == 1
+    assert page["effective_max_entries"] == 1
+    assert page["returned_entry_indexes"] == [1]
+    assert page["trace"] == [trace[1]]
+
+
+def test_session_recall_omits_oversized_derived_background(tmp_path: Path) -> None:
+    session = _engine(_settings(tmp_path))
+    references = [f"workspace:doc/{index}-" + "x" * 120 for index in range(40)]
+    output = to_json_object({"text": "answer", "references": references})
+    _record_turn(
+        session,
+        summary=_summary("turn_large_background", ask="remember this"),
+        output=output,
+        exhausted=False,
+    )
+
+    page = session.recall_history(
+        "session:turn/turn_large_background",
+        max_chars=4000,
+    )
+
+    assert "background" not in page
+    background_state = page["background_state"]
+    assert isinstance(background_state, dict)
+    assert background_state["included"] is False
+    assert background_state["reason"] == "page_budget"
+    char_count = background_state["char_count"]
+    assert isinstance(char_count, int)
+    assert char_count > 4000
+    assert len(dumps_json(page)) <= 4000
 
 
 def test_session_record_turn_is_idempotent_for_identical_completion(

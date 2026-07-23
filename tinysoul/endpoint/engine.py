@@ -19,7 +19,7 @@ from tinysoul.runtime import (
     RuntimeInputBlockedError,
 )
 from tinysoul.session import SessionEngine
-from tinysoul.session.errors import SessionContractError, SessionError
+from tinysoul.session.errors import SessionError, SessionHistoryRequestError
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceBundleWrite,
@@ -309,6 +309,7 @@ class EndpointEngine:
         ref: str,
         *,
         max_chars: int | None,
+        max_entries: int | None,
         cursor: JsonObject | None,
     ) -> JsonObject:
         try:
@@ -316,6 +317,7 @@ class EndpointEngine:
                 return self._session.recall_history(
                     ref,
                     max_chars=max_chars,
+                    max_entries=max_entries,
                     cursor=cursor,
                 )
         except LoopError as exc:
@@ -607,11 +609,12 @@ def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
 
 
 def _session_error(error: SessionError) -> EndpointRequestError:
-    if isinstance(error, SessionContractError):
+    if isinstance(error, SessionHistoryRequestError):
         return EndpointRequestError(
             status_code=422,
-            code="session.invalid_request",
+            code=f"session.{error.reason.value}",
             message=str(error),
+            details=error.constraint,
         )
     return EndpointRequestError(
         status_code=500,

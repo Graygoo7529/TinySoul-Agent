@@ -31,6 +31,8 @@ from .errors import (
     ContextContractError,
     ContextError,
     ContextInvariantError,
+    ContextTraceFailureReason,
+    ContextTraceRequestError,
 )
 from .prompts import PromptBlock, TaskPrompt
 from .preparation import ContextTurnPreparationHandler
@@ -80,6 +82,8 @@ __all__ = [
     "ContextEngineBuilder",
     "ContextError",
     "ContextInvariantError",
+    "ContextTraceFailureReason",
+    "ContextTraceRequestError",
     "ContextSignalBatch",
     "ContextSettings",
     "ContextSection",

@@ -17,6 +17,10 @@ description = "A leaf turn:trace node reference returned by context.trace.inspec
 type = "integer"
 description = "Optional maximum recalled character count."
 
+[tool.schema.properties.max_entries]
+type = "integer"
+description = "Optional maximum complete trace entries returned by this page. Use 1 for an exact trace index."
+
 [tool.schema.properties.cursor]
 type = "object"
 description = "Optional continuation cursor returned verbatim by an earlier recall."

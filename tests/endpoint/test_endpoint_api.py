@@ -65,6 +65,20 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     openapi = client.get("/openapi.json", headers=_auth()).json()
     assert "/v1/events" in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]
+    recall_parameters = openapi["paths"]["/v1/session/recall"]["get"]["parameters"]
+    assert any(item["name"] == "max_entries" for item in recall_parameters)
+
+    unknown = client.get(
+        "/v1/session/recall",
+        headers=_auth(),
+        params={"ref": "session:turn/missing", "max_entries": 1},
+    )
+    assert unknown.status_code == 422
+    assert unknown.json()["error"] == {
+        "code": "session.unknown_ref",
+        "message": "Unknown Session history ref",
+        "details": {"ref": "session:turn/missing"},
+    }
 
     response = client.post(
         "/v1/input",

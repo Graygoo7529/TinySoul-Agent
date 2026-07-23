@@ -742,12 +742,15 @@ def test_compress_via_engine() -> None:
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    page = engine.recall_trace(ref)
+    page = engine.recall_trace(ref, max_entries=1)
     source = page["source"]
     assert isinstance(source, dict)
     assert source["owner"] == "context"
     assert source["turn_id"] == turn_id
     assert source["trace_digest"] == engine.trace_digest()
+    assert page["requested_max_entries"] == 1
+    assert page["effective_max_entries"] == 1
+    assert page["returned_entry_count"] == 1
 
 
 def test_abort_turn_discards_active_state() -> None:

@@ -20,6 +20,7 @@ import uvicorn
 
 from tinysoul.home import HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.paging import MIN_JSON_PAGE_CHARS
 from tinysoul.runtime import ObservationLevel
 from tinysoul.workspace import WorkspaceRetention
 
@@ -212,7 +213,8 @@ def create_endpoint_app(
     @app.get("/v1/session/recall")
     async def session_recall(
         ref: str = Query(min_length=1),
-        max_chars: int | None = Query(default=None, ge=1),
+        max_chars: int | None = Query(default=None, ge=MIN_JSON_PAGE_CHARS),
+        max_entries: int | None = Query(default=None, ge=1),
         cursor_entry_index: int = Query(default=0, ge=0),
         cursor_char_offset: int = Query(default=0, ge=0),
         cursor_entry_digest: str = Query(default=""),
@@ -223,7 +225,12 @@ def create_endpoint_app(
         }
         if cursor_entry_digest:
             cursor["entry_digest"] = cursor_entry_digest
-        return engine.session_recall(ref, max_chars=max_chars, cursor=cursor)
+        return engine.session_recall(
+            ref,
+            max_chars=max_chars,
+            max_entries=max_entries,
+            cursor=cursor,
+        )
 
     @app.get("/v1/workspace/manifest")
     async def workspace_manifest() -> JsonObject:

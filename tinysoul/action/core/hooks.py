@@ -29,11 +29,19 @@ class HookOutcome:
     """Outcome for one hook check."""
 
     ok: bool
-    model_feedback: str = ""
+    failure: ActionLocalFailure | None = None
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
+        if self.ok and self.failure is not None:
+            raise ActionInvariantError("A successful hook cannot carry a failure")
+        if not self.ok and self.failure is None:
+            raise ActionInvariantError("A rejected hook requires a local failure")
+
+    @property
+    def model_feedback(self) -> str:
+        return self.failure.feedback if self.failure is not None else ""
 
     @classmethod
     def success(cls) -> "HookOutcome":
@@ -44,11 +52,23 @@ class HookOutcome:
         cls,
         model_feedback: str,
         *,
+        reason: str = "hook_rejected",
+        scope: str = "action.hook",
+        disposition: ActionFailureDisposition = (
+            ActionFailureDisposition.CHANGE_REQUEST
+        ),
+        constraint: JsonObject | None = None,
         frame_data: JsonObject | None = None,
     ) -> "HookOutcome":
         return cls(
             ok=False,
-            model_feedback=model_feedback,
+            failure=ActionLocalFailure(
+                reason=reason,
+                scope=scope,
+                disposition=disposition,
+                feedback=model_feedback,
+                constraint=constraint or {},
+            ),
             frame_data=frame_data or {},
         )
 
@@ -95,6 +115,8 @@ class SchemaNormalizeHook:
         except ActionSchemaValidationError as exc:
             return HookOutcome.failed(
                 str(exc),
+                reason="invalid_action_params",
+                scope="action.schema",
                 frame_data={"error_type": type(exc).__name__},
             )
         return HookOutcome.success()
@@ -271,11 +293,10 @@ class ActionNormalizeHookPipeline:
                 },
             )
         if not outcome.ok:
+            assert outcome.failure is not None
             return _normalize_hook_failure(
                 item,
-                reason="normalize_hook_rejected",
-                model_feedback=outcome.model_feedback
-                or f"Action normalize hook failed: {name}",
+                failure=outcome.failure,
                 frame_data={"hook": name, **outcome.frame_data},
             )
         return None
@@ -327,11 +348,10 @@ class ActionExecutionHookPipeline:
                     },
                 )
             if not outcome.ok:
+                assert outcome.failure is not None
                 return _execution_hook_failure(
                     execution,
-                    reason="execution_hook_rejected",
-                    model_feedback=outcome.model_feedback
-                    or f"Action execution hook failed: {name}",
+                    failure=outcome.failure,
                     frame_data={"hook": name, **outcome.frame_data},
                 )
         return None
@@ -340,21 +360,23 @@ class ActionExecutionHookPipeline:
 def _normalize_hook_failure(
     item: ActionNormalizeInput,
     *,
-    model_feedback: str,
-    reason: str,
+    model_feedback: str | None = None,
+    reason: str | None = None,
+    failure: ActionLocalFailure | None = None,
     frame_data: JsonObject,
 ) -> ActionResult:
+    local_failure = _pipeline_failure(
+        failure,
+        reason=reason,
+        scope="action.normalize_hook",
+        model_feedback=model_feedback,
+    )
     return ActionResult.failed(
         call_id=item.tool_call.id,
         action_name=item.tool_call.name,
         stage=ActionResultStage.NORMALIZE,
         sequence=item.sequence,
-        failure=ActionLocalFailure(
-            reason=reason,
-            scope="action.normalize_hook",
-            disposition=ActionFailureDisposition.CHANGE_REQUEST,
-            feedback=model_feedback,
-        ),
+        failure=local_failure,
         frame_data=frame_data,
     )
 
@@ -362,10 +384,17 @@ def _normalize_hook_failure(
 def _execution_hook_failure(
     execution: ActionExecution,
     *,
-    model_feedback: str,
-    reason: str,
+    model_feedback: str | None = None,
+    reason: str | None = None,
+    failure: ActionLocalFailure | None = None,
     frame_data: JsonObject,
 ) -> ActionResult:
+    local_failure = _pipeline_failure(
+        failure,
+        reason=reason,
+        scope="action.execution_hook",
+        model_feedback=model_feedback,
+    )
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -374,13 +403,31 @@ def _execution_hook_failure(
         stage=ActionResultStage.HOOK,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        failure=ActionLocalFailure(
-            reason=reason,
-            scope="action.execution_hook",
-            disposition=ActionFailureDisposition.CHANGE_REQUEST,
-            feedback=model_feedback,
-        ),
+        failure=local_failure,
         frame_data=frame_data,
+    )
+
+
+def _pipeline_failure(
+    failure: ActionLocalFailure | None,
+    *,
+    reason: str | None,
+    scope: str,
+    model_feedback: str | None,
+) -> ActionLocalFailure:
+    if failure is not None:
+        if reason is not None or model_feedback is not None:
+            raise ActionInvariantError(
+                "A hook failure cannot combine an owner failure with pipeline facts"
+            )
+        return failure
+    if not reason or not model_feedback:
+        raise ActionInvariantError("A pipeline-owned hook failure requires facts")
+    return ActionLocalFailure(
+        reason=reason,
+        scope=scope,
+        disposition=ActionFailureDisposition.CHANGE_REQUEST,
+        feedback=model_feedback,
     )
 
 

@@ -8,3 +8,4 @@ trace_chunk_max_chars = 12000
 trace_branch_factor = 4
 trace_min_hot_entries = 2
 trace_recall_max_chars = 8000
+trace_recall_max_entries = 50

@@ -22,6 +22,7 @@ class ContextSettings:
     trace_branch_factor: int = 4
     trace_min_hot_entries: int = 2
     trace_recall_max_chars: int = 8000
+    trace_recall_max_entries: int = 50
 
     def __post_init__(self) -> None:
         if not self.system_text:
@@ -71,6 +72,7 @@ class ContextSettings:
                 expected="non-negative int",
             )
         _require_positive(self.trace_recall_max_chars, "trace_recall_max_chars")
+        _require_positive(self.trace_recall_max_entries, "trace_recall_max_entries")
         if self.trace_recall_max_chars < MIN_JSON_PAGE_CHARS:
             raise ConfigError(
                 "Context trace_recall_max_chars must leave room for paging metadata",
@@ -93,6 +95,7 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "trace_branch_factor",
             "trace_min_hot_entries",
             "trace_recall_max_chars",
+            "trace_recall_max_entries",
         },
         key="context",
     )
@@ -137,6 +140,11 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             tree,
             "trace_recall_max_chars",
             default=ContextSettings.trace_recall_max_chars,
+        ),
+        trace_recall_max_entries=_required_optional_int(
+            tree,
+            "trace_recall_max_entries",
+            default=ContextSettings.trace_recall_max_entries,
         ),
     )
 

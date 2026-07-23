@@ -19,7 +19,7 @@ runtime/session/
 
 `turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态、确定性 `action_history` 和用于恢复排序的 `recorded_at_ns`。Record schema 直接使用 v3，不读取或迁移 v1/v2。TurnSummary 的 `trace_summary` 是有界计数视图，`trace_digest` 是 canonical trace 稳定 JSON 的 SHA-256；写入、加载和 reconciliation 均重算校验。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态、trace identity 与 `action_outcome_summary`；配置 allowlist 仍只选择少量 Action detail 进入自动背景。summary record 保存被合并节点的完整头部和子引用，不合并子 Turn 的 Action counts，也不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
 
-`TurnActionProjector` 只扫描 canonical trace 中 Phase2 decision 的 Action ToolCall 与 Phase3 action_result 的 canonical Action envelope，排除 Control、reasoning 和 phase note。它按 call id 分组，只有唯一 call/result 且 action name 一致才形成有效 pair；missing/orphan/duplicate/name mismatch 都显式报告。投影包含 trace indexes、status/stage、typed failure、全 Turn counts、by-action 状态计数、failure groups、`scan_complete` 与 `pairing_complete`，不复制 raw arguments 或业务 payload。record、Background、inspect、actions 与 reconciliation 复用同一 projector，派生摘要不是第二事实源。
+`TurnActionProjector` 只扫描 canonical trace 中 Phase2 decision 的 Action ToolCall 与 Phase3 action_result 的 canonical Action envelope，排除 Control、reasoning 和 phase note。它按 call id 分组，只有唯一 call/result 且 action name 一致才形成有效 pair；missing/orphan/duplicate/name mismatch 都显式报告。name mismatch 拆为 call action 与 result action 两个异常 occurrence，状态和 failure 始终归到实际 result action；`pairing_issue_count` 因此统计异常 occurrence 而不是 call-id group。投影包含 trace indexes、status/stage、typed failure、全 Turn counts、by-action 状态计数、failure groups、`scan_complete` 与 `pairing_complete`，不复制 raw arguments 或业务 payload。record、Background、inspect、actions 与 reconciliation 复用同一 projector；inspect 的直接 Turn item携带 outcome summary，summary item不聚合子节点 Action counts，派生摘要不是第二事实源。
 
 Session 不读取 `date.today()`，也不拥有 archive root 配置。Program 在 work 边界传入唯一 `BusinessDay`；日切时 Loop coordinator 先要求 Session 完成 reconciliation，再把 active root 移到统一 pending archive 的 `session/`，最后与 Workspace 一起打开新日。Home 不参与这一 Business Day 事务。Manifest 和 record 使用稳定 JSON 与原子写入；day 不匹配、损坏或归档目标冲突显式失败，不静默重建。
 
@@ -29,9 +29,9 @@ Session 的 `background_max_chars` 是跨 Turn 历史头部预算。当可见 it
 
 恢复是分层、显式和有界的：
 
-- `session.history.inspect` 返回当日 Manifest 头部及 `session:turn/...`、`session:summary/...` refs；
+- `session.history.inspect` 返回当日 Manifest 头部及 `session:turn/...`、`session:summary/...` refs；直接 Turn item携带同源 Action outcome summary，summary item只提供 child refs；
 - `session.history.actions` 只接受具体 Turn ref，summary 始终覆盖完整 Turn，details 按 occurrence 分页并返回 trace indexes、coverage、remaining 和 page_complete；精确业务内容再用 trace index 驱动 recall；
-- `session.history.recall` 读取一个 Turn 或 summary record；summary 以 `summary_child` 分页，Turn trace 以 `trace_entry` 分页。两者共享 hard character pager，返回 requested/effective budget、entry coverage、remaining、page_complete 和 digest-bound oversized continuation；首个 Turn page携带 background，后续页只携带稳定 source metadata；
+- `session.history.recall` 读取一个 Turn 或 summary record；summary 以 `summary_child` 分页，Turn trace 以 `trace_entry` 分页。两者共享 immutable JSON sequence 的字符/条目硬分页器，返回 requested/effective limits、entry coverage、remaining、page_complete 和 digest-bound oversized continuation；`max_entries=1` 精确读取已知 index。首个 page 只在硬字符预算允许时携带派生 Background，超限时返回 `background_state {included:false, reason:"page_budget", char_count}` 而不让 canonical recall 失败；后续页以 `reason="continuation"` 明确不重复 Background；
 - recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史召回递归放大当前 TurnTraceHeap。
 
 ## Turn 生命周期
@@ -61,4 +61,4 @@ Memory Maintenance 只消费上述 typed projection；Session 不解释 MEMORY �
 
 ## 失败边界
 
-Session 参数和 ref 不合规使用 `SessionContractError`，持久化与归档失败使用 `SessionIOError`，内部状态破坏使用 `SessionInvariantError`。bridge 分别映射为 contract、I/O 和 internal failure，不把持久图损坏误报为调用方契约错误。跨模块边界统一经 `SessionFailureKind` 和 `RuntimeSessionBridge` 转为少量 Runtime 原因：启动配置/初始化失败结束 Program，Turn preparation/completion 期间失败结束当前 Turn。AppBuilder 只负责构建 Session、注册 action 和安装 preparation/completion adapters，不读取或修改 Session 文件。
+Session 历史 owner/ref/kind/limit/cursor 可修正请求使用带稳定 reason/scope/constraint 的 `SessionHistoryRequestError`，Action executor 与 Endpoint 分别把它映射为局部 failure 和安全 `422`。其它公共契约仍使用 `SessionContractError`，持久化与归档失败使用 `SessionIOError`，内部状态破坏使用 `SessionInvariantError`；后三类不得被 history action 压平为普通 recall/actions failure。bridge 分别映射为 contract、I/O 和 internal failure，不把持久图损坏误报为调用方请求。跨模块边界统一经 `SessionFailureKind` 和 `RuntimeSessionBridge` 转为少量 Runtime 原因：启动配置/初始化失败结束 Program，Turn preparation/completion 及 action 期间的非局部失败结束当前 Turn。AppBuilder 只负责构建 Session、注入同一 Runtime bridge、注册 action 和安装 preparation/completion adapters，不读取或修改 Session 文件。

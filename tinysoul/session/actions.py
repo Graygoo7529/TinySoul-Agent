@@ -14,35 +14,47 @@ from tinysoul.action import (
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject
+from tinysoul.runtime.bridge import RuntimeSessionBridge
 
 from .engine import SessionEngine
-from .errors import SessionError
+from .errors import (
+    SessionError,
+    SessionHistoryFailureReason,
+    SessionHistoryRequestError,
+)
 
 
 def register_session_actions(
     builder: ActionEngineBuilder,
     *,
     session: SessionEngine,
+    runtime_bridge: RuntimeSessionBridge,
 ) -> ActionEngineBuilder:
     return (
         builder.register_executor(
             "session.history.inspect",
-            SessionHistoryInspectExecutor(session),
+            SessionHistoryInspectExecutor(session, runtime_bridge=runtime_bridge),
         )
         .register_executor(
             "session.history.recall",
-            SessionHistoryRecallExecutor(session),
+            SessionHistoryRecallExecutor(session, runtime_bridge=runtime_bridge),
         )
         .register_executor(
             "session.history.actions",
-            SessionHistoryActionsExecutor(session),
+            SessionHistoryActionsExecutor(session, runtime_bridge=runtime_bridge),
         )
     )
 
 
 class SessionHistoryInspectExecutor(ActionExecutor):
-    def __init__(self, session: SessionEngine) -> None:
+    def __init__(
+        self,
+        session: SessionEngine,
+        *,
+        runtime_bridge: RuntimeSessionBridge,
+    ) -> None:
         self._session = session
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -52,16 +64,18 @@ class SessionHistoryInspectExecutor(ActionExecutor):
         try:
             return _success(execution, self._session.inspect_history())
         except SessionError as exc:
-            return _failed(
-                execution,
-                f"Session history inspection failed: {exc}",
-                reason="inspect_failed",
-            )
+            raise self._runtime_bridge.from_session_error(exc) from exc
 
 
 class SessionHistoryRecallExecutor(ActionExecutor):
-    def __init__(self, session: SessionEngine) -> None:
+    def __init__(
+        self,
+        session: SessionEngine,
+        *,
+        runtime_bridge: RuntimeSessionBridge,
+    ) -> None:
         self._session = session
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -73,7 +87,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "session.history.recall requires a non-empty ref",
-                reason="invalid_ref",
+                reason=SessionHistoryFailureReason.INVALID_REF.value,
             )
         max_chars = execution.call.params.get("max_chars")
         if max_chars is not None and (
@@ -84,27 +98,37 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "session.history.recall max_chars must be a positive integer",
-                reason="invalid_max_chars",
+                reason=SessionHistoryFailureReason.INVALID_MAX_CHARS.value,
+            )
+        max_entries = execution.call.params.get("max_entries")
+        if max_entries is not None and (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            return _failed(
+                execution,
+                "session.history.recall max_entries must be a positive integer",
+                reason=SessionHistoryFailureReason.INVALID_MAX_ENTRIES.value,
             )
         cursor = execution.call.params.get("cursor")
         if cursor is not None and not isinstance(cursor, dict):
             return _failed(
                 execution,
                 "session.history.recall cursor must be a continuation object",
-                reason="invalid_cursor",
+                reason=SessionHistoryFailureReason.INVALID_CURSOR.value,
             )
         try:
             payload = self._session.recall_history(
                 ref,
                 max_chars=max_chars,
+                max_entries=max_entries,
                 cursor=cursor,
             )
+        except SessionHistoryRequestError as exc:
+            return _failed_request(execution, exc)
         except SessionError as exc:
-            return _failed(
-                execution,
-                f"Session history recall failed: {exc}",
-                reason="recall_failed",
-            )
+            raise self._runtime_bridge.from_session_error(exc) from exc
         return _success(
             execution,
             payload,
@@ -120,8 +144,14 @@ class SessionHistoryRecallExecutor(ActionExecutor):
 
 
 class SessionHistoryActionsExecutor(ActionExecutor):
-    def __init__(self, session: SessionEngine) -> None:
+    def __init__(
+        self,
+        session: SessionEngine,
+        *,
+        runtime_bridge: RuntimeSessionBridge,
+    ) -> None:
         self._session = session
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -159,12 +189,10 @@ class SessionHistoryActionsExecutor(ActionExecutor):
                 cursor=cursor,
                 max_items=max_items,
             )
+        except SessionHistoryRequestError as exc:
+            return _failed_request(execution, exc)
         except SessionError as exc:
-            return _failed(
-                execution,
-                f"Session action history failed: {exc}",
-                reason="actions_failed",
-            )
+            raise self._runtime_bridge.from_session_error(exc) from exc
         return _success(
             execution,
             payload,
@@ -200,7 +228,27 @@ def _success(
     )
 
 
-def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> ActionResult:
+def _failed_request(
+    execution: ActionExecution,
+    error: SessionHistoryRequestError,
+) -> ActionResult:
+    return _failed(
+        execution,
+        str(error),
+        reason=error.reason.value,
+        scope=error.scope,
+        constraint=error.constraint,
+    )
+
+
+def _failed(
+    execution: ActionExecution,
+    feedback: str,
+    *,
+    reason: str,
+    scope: str = "session.history",
+    constraint: JsonObject | None = None,
+) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -211,8 +259,9 @@ def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> Action
         domain=execution.framework.domain,
         failure=ActionLocalFailure(
             reason=reason,
-            scope="session.history",
+            scope=scope,
             disposition=ActionFailureDisposition.CHANGE_REQUEST,
             feedback=feedback,
+            constraint=constraint or {},
         ),
     )

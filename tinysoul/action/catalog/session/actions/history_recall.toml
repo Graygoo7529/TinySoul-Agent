@@ -17,6 +17,10 @@ description = "A session:turn or session:summary ref."
 type = "integer"
 description = "Optional maximum recalled character count."
 
+[tool.schema.properties.max_entries]
+type = "integer"
+description = "Optional maximum complete trace entries or summary child refs returned by this page. Use 1 for an exact index."
+
 [tool.schema.properties.cursor]
 type = "object"
 description = "Optional continuation cursor returned verbatim by an earlier recall."

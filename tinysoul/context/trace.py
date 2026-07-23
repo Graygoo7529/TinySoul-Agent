@@ -19,7 +19,12 @@ from tinysoul.llm.messages import (
 )
 from tinysoul.runtime import CyclePhase
 
-from .errors import ContextContractError, ContextInvariantError
+from .errors import (
+    ContextContractError,
+    ContextInvariantError,
+    ContextTraceFailureReason,
+    ContextTraceRequestError,
+)
 
 
 def canonical_trace_digest(trace: tuple[JsonObject, ...]) -> str:
@@ -384,8 +389,10 @@ class TurnTraceHeap:
 
         node = self._node_for_ref(ref)
         if node.kind is not TraceHeapNodeKind.LEAF:
-            raise ContextContractError(
-                "Trace recall requires a leaf ref; inspect the branch first"
+            raise ContextTraceRequestError(
+                ContextTraceFailureReason.REF_NOT_LEAF,
+                "Trace recall requires a leaf ref; inspect the branch first",
+                constraint={"ref": ref},
             )
         by_id = {entry.entry_id: entry for entry in self._entries}
         return tuple(by_id[entry_id] for entry_id in node.entry_ids)
@@ -538,11 +545,19 @@ class TurnTraceHeap:
     def _node_for_ref(self, ref: str) -> TraceHeapNode:
         prefix = f"turn:trace/{self._turn_id}/"
         if not ref.startswith(prefix):
-            raise ContextContractError(f"Trace ref does not belong to this Turn: {ref}")
+            raise ContextTraceRequestError(
+                ContextTraceFailureReason.INVALID_REF,
+                "Trace ref does not belong to the active Turn",
+                constraint={"ref": ref},
+            )
         node_id = ref[len(prefix) :]
         node = self._nodes.get(node_id)
         if node is None:
-            raise ContextContractError(f"Unknown trace heap ref: {ref}")
+            raise ContextTraceRequestError(
+                ContextTraceFailureReason.UNKNOWN_REF,
+                "Unknown Context trace ref",
+                constraint={"ref": ref},
+            )
         return node
 
 

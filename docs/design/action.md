@@ -119,7 +119,7 @@ execution hook 发生在 Phase3，用于检查 ActionExecution 是否可以真�
 
 hook 只做输入检查、上下文约束和可执行性裁剪，不执行真实动作。
 
-hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。
+hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。普通拒绝由 `HookOutcome.failure` 直接携带完整 `ActionLocalFailure`，pipeline 只补充 hook identity 等 frame data，不能以通用 rejected reason 覆盖 owner failure，也不能在 frame data 重复 reason。注册缺失和 hook 实现异常由 pipeline 自己产生稳定 failure。
 
 这里的 hook 失败只指普通拒绝、注册缺失或实现异常。hook 抛出的 `RuntimeException` 与 `RuntimeTransferInterrupt` 已经表达全局恢复或运行转移，normalize/execution hook pipeline 必须原样传播，不能降级为局部 ActionResult。
 

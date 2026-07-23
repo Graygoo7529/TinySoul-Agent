@@ -82,8 +82,10 @@ class RuntimeContextBridge:
                 payload=budget_payload,
             )
         kind = ContextFailureKind.INTERNAL_FAILURE
-        if isinstance(error, (ContextContractError, ContextInvariantError)):
+        if isinstance(error, ContextContractError):
             kind = ContextFailureKind.CONTRACT_VIOLATION
+        elif isinstance(error, ContextInvariantError):
+            kind = ContextFailureKind.INTERNAL_FAILURE
         return self.from_exception(kind, error, payload=payload)
 
     def startup_failure(

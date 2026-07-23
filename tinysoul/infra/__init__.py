@@ -47,6 +47,7 @@ from .paging import (
     MIN_JSON_PAGE_CHARS,
     JsonPageCursor,
     JsonPageError,
+    JsonPageFailureReason,
     page_json_sequence,
 )
 
@@ -68,6 +69,7 @@ __all__ = [
     "JsonObject",
     "JsonPageCursor",
     "JsonPageError",
+    "JsonPageFailureReason",
     "JsonScalar",
     "JsonTypeError",
     "JsonValue",

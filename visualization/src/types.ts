@@ -111,14 +111,29 @@ export interface TrashItem {
 }
 
 export interface SessionHistoryItem {
+  item_id: string;
   ref: string;
-  turn_id: string;
-  started_at: number;
-  status: string;
-  summary?: string;
+  kind: "turn" | "summary";
+  char_count: number;
+  child_refs: string[];
+  action_outcome_summary?: {
+    call_count: number;
+    result_count: number;
+    success_count: number;
+    failed_count: number;
+    timeout_count: number;
+    unmatched_call_count: number;
+    unmatched_result_count: number;
+    pairing_issue_count: number;
+    scan_complete: boolean;
+    pairing_complete: boolean;
+  };
 }
 
 export interface SessionHistory {
+  revision: number;
+  day: string;
+  estimated_chars: number;
   items: SessionHistoryItem[];
 }
 
@@ -139,11 +154,18 @@ export interface SessionRecall {
   remaining_entry_count: number;
   requested_max_chars: number;
   effective_max_chars: number;
+  requested_max_entries: number;
+  effective_max_entries: number;
   cursor: SessionCursor;
   next_cursor: SessionCursor | null;
   page_complete: boolean;
   truncated: boolean;
   background?: Record<string, unknown>;
+  background_state: {
+    included: boolean;
+    reason?: "page_budget" | "continuation";
+    char_count: number;
+  };
   source?: Record<string, unknown>;
   trace?: Record<string, unknown>[];
   child_refs?: string[];

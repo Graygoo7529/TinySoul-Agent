@@ -14,37 +14,49 @@ from tinysoul.action import (
     ActionTraceProjection,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.runtime.bridge import RuntimeContextBridge
 
 from .engine import ContextEngine
-from .errors import ContextError
+from .errors import (
+    ContextError,
+    ContextTraceFailureReason,
+    ContextTraceRequestError,
+)
 
 
 def register_context_actions(
     builder: ActionEngineBuilder,
     *,
     context: ContextEngine,
+    runtime_bridge: RuntimeContextBridge,
 ) -> ActionEngineBuilder:
     """Register TurnTrace heap actions."""
 
     return (
         builder.register_executor(
             "context.trace.inspect",
-            ContextTraceInspectExecutor(context),
+            ContextTraceInspectExecutor(context, runtime_bridge=runtime_bridge),
         )
         .register_executor(
             "context.trace.recall",
-            ContextTraceRecallExecutor(context),
+            ContextTraceRecallExecutor(context, runtime_bridge=runtime_bridge),
         )
         .register_executor(
             "context.trace.fold",
-            ContextTraceFoldExecutor(context),
+            ContextTraceFoldExecutor(context, runtime_bridge=runtime_bridge),
         )
     )
 
 
 class ContextTraceInspectExecutor(ActionExecutor):
-    def __init__(self, context: ContextEngine) -> None:
+    def __init__(
+        self,
+        context: ContextEngine,
+        *,
+        runtime_bridge: RuntimeContextBridge,
+    ) -> None:
         self._context = context
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -60,14 +72,22 @@ class ContextTraceInspectExecutor(ActionExecutor):
             )
         try:
             payload = self._context.inspect_trace(ref)
+        except ContextTraceRequestError as exc:
+            return _failed_request(execution, exc)
         except ContextError as exc:
-            return _failed(execution, f"Trace inspect failed: {exc}", reason="inspect_failed")
+            raise self._runtime_bridge.from_context_error(exc) from exc
         return _success(execution, payload)
 
 
 class ContextTraceRecallExecutor(ActionExecutor):
-    def __init__(self, context: ContextEngine) -> None:
+    def __init__(
+        self,
+        context: ContextEngine,
+        *,
+        runtime_bridge: RuntimeContextBridge,
+    ) -> None:
         self._context = context
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -79,7 +99,7 @@ class ContextTraceRecallExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "context.trace.recall requires a non-empty ref",
-                reason="invalid_ref",
+                reason=ContextTraceFailureReason.INVALID_REF.value,
             )
         max_chars = execution.call.params.get("max_chars")
         if max_chars is not None and (
@@ -90,23 +110,37 @@ class ContextTraceRecallExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "context.trace.recall max_chars must be a positive integer",
-                reason="invalid_max_chars",
+                reason=ContextTraceFailureReason.INVALID_MAX_CHARS.value,
+            )
+        max_entries = execution.call.params.get("max_entries")
+        if max_entries is not None and (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            return _failed(
+                execution,
+                "context.trace.recall max_entries must be a positive integer",
+                reason=ContextTraceFailureReason.INVALID_MAX_ENTRIES.value,
             )
         cursor = execution.call.params.get("cursor")
         if cursor is not None and not isinstance(cursor, dict):
             return _failed(
                 execution,
                 "context.trace.recall cursor must be a continuation object",
-                reason="invalid_cursor",
+                reason=ContextTraceFailureReason.INVALID_CURSOR.value,
             )
         try:
             payload = self._context.recall_trace(
                 ref,
                 max_chars=max_chars,
+                max_entries=max_entries,
                 cursor=cursor,
             )
+        except ContextTraceRequestError as exc:
+            return _failed_request(execution, exc)
         except ContextError as exc:
-            return _failed(execution, f"Trace recall failed: {exc}", reason="recall_failed")
+            raise self._runtime_bridge.from_context_error(exc) from exc
         return _success(
             execution,
             payload,
@@ -123,8 +157,14 @@ class ContextTraceRecallExecutor(ActionExecutor):
 
 
 class ContextTraceFoldExecutor(ActionExecutor):
-    def __init__(self, context: ContextEngine) -> None:
+    def __init__(
+        self,
+        context: ContextEngine,
+        *,
+        runtime_bridge: RuntimeContextBridge,
+    ) -> None:
         self._context = context
+        self._runtime_bridge = runtime_bridge
 
     def execute(
         self,
@@ -134,7 +174,7 @@ class ContextTraceFoldExecutor(ActionExecutor):
         try:
             folded = self._context.fold_trace_overlays()
         except ContextError as exc:
-            return _failed(execution, f"Trace fold failed: {exc}", reason="fold_failed")
+            raise self._runtime_bridge.from_context_error(exc) from exc
         return _success(execution, {"folded_overlay_count": folded})
 
 
@@ -161,7 +201,27 @@ def _success(
     )
 
 
-def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> ActionResult:
+def _failed_request(
+    execution: ActionExecution,
+    error: ContextTraceRequestError,
+) -> ActionResult:
+    return _failed(
+        execution,
+        str(error),
+        reason=error.reason.value,
+        scope=error.scope,
+        constraint=error.constraint,
+    )
+
+
+def _failed(
+    execution: ActionExecution,
+    feedback: str,
+    *,
+    reason: str,
+    scope: str = "context.trace",
+    constraint: JsonObject | None = None,
+) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -172,8 +232,9 @@ def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> Action
         domain=execution.framework.domain,
         failure=ActionLocalFailure(
             reason=reason,
-            scope="context.trace",
+            scope=scope,
             disposition=ActionFailureDisposition.CHANGE_REQUEST,
             feedback=feedback,
+            constraint=constraint or {},
         ),
     )

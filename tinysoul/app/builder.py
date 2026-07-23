@@ -444,6 +444,8 @@ class TinySoulAppBuilder:
                     memory=memory,
                     home_bridge=home_bridge,
                     memory_bridge=memory_bridge,
+                    context_bridge=context_bridge,
+                    session_bridge=session_bridge,
                     workspace_bridge=workspace_bridge,
                     action_bridge=action_bridge,
                     script_bridge=script_bridge,
@@ -849,6 +851,7 @@ class TinySoulAppBuilder:
                     min_hot_entries=settings.trace_min_hot_entries,
                 )
                 .with_trace_recall_max_chars(settings.trace_recall_max_chars)
+                .with_trace_recall_max_entries(settings.trace_recall_max_entries)
                 .with_compression_trigger_ratio(settings.compression_trigger_ratio)
                 .with_compression_target_ratio(settings.compression_target_ratio)
                 .add_background_provider(
@@ -911,6 +914,8 @@ class TinySoulAppBuilder:
         memory: MemoryEngine,
         home_bridge: RuntimeAgentHomeBridge,
         memory_bridge: RuntimeMemoryBridge,
+        context_bridge: RuntimeContextBridge,
+        session_bridge: RuntimeSessionBridge,
         workspace_bridge: RuntimeWorkspaceBridge,
         action_bridge: RuntimeActionBridge,
         script_bridge: RuntimeScriptBridge,
@@ -928,8 +933,16 @@ class TinySoulAppBuilder:
             with builtin_action_catalog_root() as catalog_root:
                 builder = ActionEngineBuilder(catalog_root)
                 builder.with_observations(observations)
-                register_context_actions(builder, context=context)
-                register_session_actions(builder, session=session)
+                register_context_actions(
+                    builder,
+                    context=context,
+                    runtime_bridge=context_bridge,
+                )
+                register_session_actions(
+                    builder,
+                    session=session,
+                    runtime_bridge=session_bridge,
+                )
                 register_workspace_actions(
                     builder,
                     workspace=workspace,

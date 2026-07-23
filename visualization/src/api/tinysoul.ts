@@ -128,11 +128,13 @@ export class TinySoulClient {
     ref: string,
     cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
     maxChars?: number,
+    maxEntries?: number,
   ): Promise<SessionRecall> {
     return this.request<SessionRecall>("GET", "/v1/session/recall", {
       query: {
         ref,
         max_chars: maxChars,
+        max_entries: maxEntries,
         cursor_entry_index: cursor.entry_index,
         cursor_char_offset: cursor.char_offset,
         cursor_entry_digest: cursor.entry_digest,

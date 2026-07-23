@@ -167,8 +167,10 @@ Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapsh
 
 ## Session 接口
 
-- `GET /v1/session/history`：当前 active day 的有界历史 head；
-- `GET /v1/session/recall?ref=<session-ref>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000`：按 ref 分页召回不可变记录。客户端必须原样回传 `next_cursor` 的三个字段；普通 entry 以 index 前进，oversized entry 在完成前以 digest/character offset 续读。响应携带 requested/effective budget、source、coverage、remaining 和 page_complete，最终 JSON 不超过 effective max chars。
+- `GET /v1/session/history`：当前 active day 的有界历史 head；直接 Turn item包含 `action_outcome_summary`，summary item只包含 `child_refs`，前端不得聚合 summary 子节点的 Action counts；
+- `GET /v1/session/recall?ref=<session-ref>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000&max_entries=50`：按 ref 分页召回不可变记录。客户端必须原样回传 `next_cursor` 的三个字段；普通 entry 以 index 前进，oversized entry 在完成前以 digest/character offset 续读；读取一个已知 trace index 时提交 `max_entries=1`。响应同时携带 `requested/effective_max_chars`、`requested/effective_max_entries`、source、coverage、remaining 和 page_complete，最终 JSON 不超过 effective max chars；
+- 首页派生 Background 只有在字符预算允许时才位于 `background`。`background_state.included=false, reason=page_budget` 表示 Background 被明确省略而 canonical trace 仍可读取；`reason=continuation` 表示后续页不重复 Background。前端应按该状态展示，而不是把它解释为请求失败；
+- owner/ref/kind/limit/cursor 可修正错误返回 `422`，错误码使用 `session.<reason>`，`details` 只携带稳定 constraint，例如 `entry_index`、`entry_count` 或 ref；Session I/O/invariant 返回安全通用 `500 session.failed`，不包含 store path 和原始异常消息。
 
 Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写回 Session，也不应把 recall 结果当作 Workspace 文件。
 

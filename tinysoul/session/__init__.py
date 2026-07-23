@@ -16,6 +16,8 @@ from .engine import SessionArchiveSnapshot, SessionEngine
 from .errors import (
     SessionContractError,
     SessionError,
+    SessionHistoryFailureReason,
+    SessionHistoryRequestError,
     SessionIOError,
     SessionInvariantError,
 )
@@ -29,6 +31,8 @@ __all__ = [
     "SessionArchiveSnapshot",
     "SessionEngine",
     "SessionError",
+    "SessionHistoryFailureReason",
+    "SessionHistoryRequestError",
     "SessionFailureKind",
     "SessionIOError",
     "SessionInvariantError",

@@ -621,7 +621,9 @@ def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
     )
 
     assert outcome.ok is False
-    assert outcome.frame_data["reason"] == "unresolved_supervised_process_job"
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "unresolved_supervised_process_job"
+    assert outcome.failure.scope == "supervised_process.answer_guard"
     execution_id = str(running.payload["execution_id"])
     manager.stop(
         turn_id="turn_1",

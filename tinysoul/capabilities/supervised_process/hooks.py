@@ -20,6 +20,7 @@ class SupervisedProcessAnswerGuard:
         if self._jobs.has_unresolved(execution.framework.turn_id):
             return HookOutcome.failed(
                 "Resolve the active process job before answering.",
-                frame_data={"reason": "unresolved_supervised_process_job"},
+                reason="unresolved_supervised_process_job",
+                scope="supervised_process.answer_guard",
             )
         return HookOutcome.success()

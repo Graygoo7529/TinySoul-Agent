@@ -18,6 +18,7 @@ class SessionSettings:
     summary_target_ratio: float = 0.40
     min_recent_turns: int = 2
     recall_max_chars: int = 8000
+    recall_max_entries: int = 50
     actions_page_max_items: int = 50
     background_action_names: tuple[str, ...] = ("core.reason",)
     background_max_actions_per_turn: int = 3
@@ -42,6 +43,7 @@ class SessionSettings:
         for name in {
             "background_max_chars",
             "recall_max_chars",
+            "recall_max_entries",
             "actions_page_max_items",
             "background_max_actions_per_turn",
         }:
@@ -120,6 +122,7 @@ def parse_session_settings(
             "summary_target_ratio",
             "min_recent_turns",
             "recall_max_chars",
+            "recall_max_entries",
             "actions_page_max_items",
             "background_action_names",
             "background_max_actions_per_turn",
@@ -133,6 +136,7 @@ def parse_session_settings(
         summary_target_ratio=_float(tree, "summary_target_ratio", 0.40),
         min_recent_turns=_int(tree, "min_recent_turns", 2),
         recall_max_chars=_int(tree, "recall_max_chars", 8000),
+        recall_max_entries=_int(tree, "recall_max_entries", 50),
         actions_page_max_items=_int(tree, "actions_page_max_items", 50),
         background_action_names=_strings(
             tree,

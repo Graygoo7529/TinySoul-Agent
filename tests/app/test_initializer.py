@@ -34,6 +34,9 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
     assert (root / "home" / "agent" / "user" / "user.md").is_file()
     assert (root / "home" / "what" / "entity" / "tiny-soul.md").is_file()
+    assert (root / "home" / "how_domain" / "session" / "DOMAIN.md").is_file()
+    assert (root / "home" / "how_action" / "core" / "answer.md").is_file()
+    assert not (root / "home" / "how_action" / "session").exists()
     assert (
         root
         / "home"
@@ -70,6 +73,14 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
     )["capabilities"]["web"]
     assert web["search_by_kimi"]["model"] == "kimi-k2.6"
+    context = tomllib.loads(
+        (root / "configs" / "context.toml").read_text(encoding="utf-8")
+    )["context"]
+    session = tomllib.loads(
+        (root / "configs" / "session.toml").read_text(encoding="utf-8")
+    )["session"]
+    assert context["trace_recall_max_entries"] == 50
+    assert session["recall_max_entries"] == 50
 
 
 def test_cli_init_development_profile_copies_enabled_development_config(
