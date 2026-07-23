@@ -48,3 +48,4 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+docs/chat/
