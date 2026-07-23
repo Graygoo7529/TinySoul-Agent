@@ -168,7 +168,7 @@ Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapsh
 ## Session 接口
 
 - `GET /v1/session/history`：当前 active day 的有界历史 head；
-- `GET /v1/session/recall?ref=<session-ref>&cursor=0&max_chars=8000`：按 ref 分页召回不可变记录。
+- `GET /v1/session/recall?ref=<session-ref>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000`：按 ref 分页召回不可变记录。客户端必须原样回传 `next_cursor` 的三个字段；普通 entry 以 index 前进，oversized entry 在完成前以 digest/character offset 续读。响应携带 requested/effective budget、source、coverage、remaining 和 page_complete，最终 JSON 不超过 effective max chars。
 
 Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写回 Session，也不应把 recall 结果当作 Workspace 文件。
 

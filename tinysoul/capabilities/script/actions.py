@@ -10,6 +10,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
@@ -143,7 +145,8 @@ class ScriptAuthoringExecutor(ActionExecutor):
                     return _failed(
                         execution,
                         "Script target digest mismatch.",
-                        {"reason": "digest_mismatch", "link": params.target_link},
+                        reason="digest_mismatch",
+                        frame_data={"link": params.target_link},
                     )
             if self._mode == "rewrite":
                 if existing is None:
@@ -215,14 +218,15 @@ class ScriptAuthoringExecutor(ActionExecutor):
                 trash_ref=exc.trash_ref,
             ) from exc
         if isinstance(exc, PromptReferenceError):
-            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
         if isinstance(exc, ScriptPolicyError):
-            return _failed(execution, str(exc), {"reason": "script_policy_rejected"})
+            return _failed(execution, str(exc), reason="script_policy_rejected")
         if isinstance(exc, (ScriptError, AgentHomeContractError, WorkspaceContractError)):
             return _failed(
                 execution,
                 "Script source could not be written.",
-                {"reason": "script_source_failed", "error_type": type(exc).__name__},
+                reason="script_source_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         _raise_owner_error(
             exc,
@@ -263,13 +267,13 @@ class ScriptPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script patch parameters are invalid.",
-                {"reason": "invalid_patch"},
+                reason="invalid_patch",
             )
         if not isinstance(expected, str):
             return _failed(
                 execution,
                 "Script expected_digest must be text.",
-                {"reason": "invalid_digest"},
+                reason="invalid_digest",
             )
         try:
             current = self._resolver.read(target)
@@ -277,13 +281,13 @@ class ScriptPatchExecutor(ActionExecutor):
                 return _failed(
                     execution,
                     "Script target digest mismatch.",
-                    {"reason": "digest_mismatch"},
+                    reason="digest_mismatch",
                 )
             if current.text.count(old_text) != 1:
                 return _failed(
                     execution,
                     "Script patch old_text must occur exactly once.",
-                    {"reason": "ambiguous_patch"},
+                    reason="ambiguous_patch",
                 )
             candidate = ScriptSource(
                 current.link,
@@ -315,7 +319,8 @@ class ScriptPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script patch failed.",
-                {"reason": "script_patch_failed", "error_type": type(exc).__name__},
+                reason="script_patch_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         except AgentHomeError as exc:
             _raise_home_error(exc, self._home_bridge)
@@ -355,13 +360,13 @@ class ScriptPromoteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script promote parameters are invalid.",
-                {"reason": "invalid_promote"},
+                reason="invalid_promote",
             )
         if not isinstance(expected_source, str) or not isinstance(expected_target, str):
             return _failed(
                 execution,
                 "Script promote digest guards must be text.",
-                {"reason": "invalid_digest"},
+                reason="invalid_digest",
             )
         try:
             source_snapshot = self._resolver.read(source)
@@ -391,7 +396,8 @@ class ScriptPromoteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script promote failed.",
-                {"reason": "script_promote_failed", "error_type": type(exc).__name__},
+                reason="script_promote_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         except AgentHomeError as exc:
             _raise_home_error(exc, self._home_bridge)
@@ -436,7 +442,7 @@ class ScriptRunExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script run parameters are invalid.",
-                {"reason": "invalid_run"},
+                reason="invalid_run",
             )
         if len(args) > self._settings.max_args or any(
             len(arg) > self._settings.max_arg_chars for arg in args
@@ -444,7 +450,7 @@ class ScriptRunExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script arguments exceed configured boundaries.",
-                {"reason": "args_limit"},
+                reason="args_limit",
             )
         try:
             source = self._resolver.read(source_link, language=self._language)
@@ -484,7 +490,7 @@ class ScriptRunExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Workspace changed while the Script execution mirror was prepared.",
-                {"reason": "workspace_mirror_changed"},
+                reason="workspace_mirror_changed",
             )
         except (
             ScriptError,
@@ -495,7 +501,9 @@ class ScriptRunExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script execution could not start.",
-                {"reason": "script_start_failed", "error_type": type(exc).__name__},
+                reason="script_start_failed",
+                disposition=ActionFailureDisposition.STOP,
+                frame_data={"error_type": type(exc).__name__},
             )
         except AgentHomeError as exc:
             _raise_home_error(exc, self._home_bridge)
@@ -528,7 +536,7 @@ class ScriptJobExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Script job action requires execution_id.",
-                {"reason": "missing_execution_id"},
+                reason="missing_execution_id",
             )
         try:
             if self._operation == "wait":
@@ -540,7 +548,7 @@ class ScriptJobExecutor(ActionExecutor):
                     return _failed(
                         execution,
                         "Script wait_seconds must be an integer.",
-                        {"reason": "invalid_wait"},
+                        reason="invalid_wait",
                     )
                 return _observation_result(
                     execution,
@@ -579,7 +587,7 @@ class ScriptJobExecutor(ActionExecutor):
                     return _failed(
                         execution,
                         "Script candidate read parameters are invalid.",
-                        {"reason": "invalid_candidate_read"},
+                        reason="invalid_candidate_read",
                     )
                 return _success(
                     execution,
@@ -621,20 +629,22 @@ class ScriptJobExecutor(ActionExecutor):
                 execution,
                 "Script apply conflicts with a concurrently changed Workspace path. "
                 "The job remains available for review or discard.",
-                {"reason": "workspace_apply_conflict"},
+                reason="workspace_apply_conflict",
             )
         except (ScriptError, SupervisedProcessError, WorkspaceContractError) as exc:
             return _failed(
                 execution,
                 "Script job operation failed.",
-                {"reason": "script_job_failed", "error_type": type(exc).__name__},
+                reason="script_job_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         except WorkspaceError as exc:
             _raise_workspace_error(exc, self._workspace_bridge)
         return _failed(
             execution,
             "Script job operation is unavailable.",
-            {"reason": "unknown_job_operation"},
+            reason="unknown_job_operation",
+            disposition=ActionFailureDisposition.STOP,
         )
 
 
@@ -745,13 +755,13 @@ def _authoring_params(
         return _failed(
             execution,
             "Script authoring parameters are invalid.",
-            {"reason": "invalid_authoring"},
+            reason="invalid_authoring",
         )
     if not isinstance(expected, str) or not isinstance(overwrite, bool):
         return _failed(
             execution,
             "Script authoring guards are invalid.",
-            {"reason": "invalid_authoring_guard"},
+            reason="invalid_authoring_guard",
         )
     return _AuthoringParams(
         target,
@@ -803,17 +813,22 @@ def _observation_result(
             action_name=execution.call.action_name,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            model_feedback=(
-                "Script job reached a configured timeout and must be discarded."
+            failure=ActionLocalFailure(
+                reason="script_job_timeout",
+                scope="script.execution",
+                disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                feedback=(
+                    "Script job reached a configured timeout and must be discarded."
+                ),
             ),
             payload=observation.payload,
-            frame_data={"reason": "script_job_timeout", "executor_leaked": False},
+            frame_data={"executor_leaked": False},
         )
     if observation.failed:
         return _failed(
             execution,
             "Script process failed. Candidate output remains inspectable but cannot be applied.",
-            {"reason": "script_process_failed"},
+            reason="script_process_failed",
             payload=observation.payload,
         )
     return _success(execution, observation.payload)
@@ -850,8 +865,10 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
 def _failed(
     execution: ActionExecution,
     feedback: str,
-    frame_data: JsonObject,
     *,
+    reason: str,
+    disposition: ActionFailureDisposition = ActionFailureDisposition.CHANGE_REQUEST,
+    frame_data: JsonObject | None = None,
     payload: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
@@ -862,7 +879,12 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="script.action",
+            disposition=disposition,
+            feedback=feedback,
+        ),
         frame_data=frame_data,
         payload=payload,
     )

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from tinysoul.context import TurnSummary
+from tinysoul.context import TurnSummary, canonical_trace_digest
 from tinysoul.loop import BusinessDay
 from tinysoul.session import SessionEngine, SessionSettings
 
@@ -38,7 +38,8 @@ def test_memory_projection_recursively_expands_summary_to_unique_turn_facts(
                 ),
                 working={"milestone": f"milestone {index}"},
                 background_links=("home:agent@AGENT",),
-                trace_digest={"entry_count": index + 1},
+                trace_summary={"entry_count": 0},
+                trace_digest=canonical_trace_digest(()),
             ),
             output={
                 "text": f"complete answer {index} " + "x" * 700,
@@ -71,7 +72,8 @@ def test_memory_projection_recursively_expands_summary_to_unique_turn_facts(
     assert first.working == {"milestone": "milestone 1"}
     assert first.answer.endswith("x" * 700)
     assert first.references == ("home:agent@AGENT",)
-    assert first.trace_digest == {"entry_count": 2}
+    assert first.trace_summary == {"entry_count": 0}
+    assert first.trace_digest == canonical_trace_digest(())
     assert "trace" not in first.to_json()
 
 

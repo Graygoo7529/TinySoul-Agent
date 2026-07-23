@@ -11,6 +11,7 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
@@ -35,7 +36,7 @@ from .errors import (
     WebProcessingError,
     WebProcessTimeout,
     WebWorkerProtocolError,
-    web_failure_payload,
+    web_failure_disposition,
 )
 from .models import (
     WebDiscoveryResult,
@@ -95,7 +96,7 @@ class KimiSearchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "Kimi Web Search requires a non-empty 'query'.",
-                {"reason": "invalid_query"},
+                reason="invalid_query",
             )
         try:
             result = self._service.search_by_kimi(
@@ -108,24 +109,25 @@ class KimiSearchExecutor(ActionExecutor):
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
         except WebWorkerProtocolError:
             return _failed(
                 execution,
                 "Kimi Web Search returned an invalid bounded result.",
-                {"reason": "worker_protocol_invalid"},
+                reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
                 "Kimi Web Search staging could not be completed.",
-                {"reason": "staging_failed"},
+                reason="staging_failed",
             )
         except (WebContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
                 "Kimi Web Search could not be completed.",
-                {"reason": "web_search_failed", "error_type": type(exc).__name__},
+                reason="web_search_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         _emit_search_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
@@ -175,24 +177,25 @@ class WebFetchExecutor(ActionExecutor):
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
         except WebWorkerProtocolError:
             return _failed(
                 execution,
                 "Web fetch returned an invalid staged result.",
-                {"reason": "worker_protocol_invalid"},
+                reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
                 "Web fetch staging could not be completed.",
-                {"reason": "staging_failed"},
+                reason="staging_failed",
             )
         except (WebContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
                 "Web fetch could not be completed.",
-                {"reason": "web_fetch_failed", "error_type": type(exc).__name__},
+                reason="web_fetch_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         _emit_fetch_snapshot(execution, context, self._bus, result)
         return _success(execution, _fetch_payload(result))
@@ -232,24 +235,25 @@ class WebDiscoveryExecutor(ActionExecutor):
         except WebProcessTimeout as exc:
             return _timeout(execution, str(exc), reason=exc.reason)
         except WebProcessingError as exc:
-            return _failed(execution, str(exc), {**exc.payload, "reason": exc.reason})
+            return _failed(execution, str(exc), reason=exc.reason, frame_data=exc.payload)
         except WebWorkerProtocolError:
             return _failed(
                 execution,
                 "Web page discovery returned an invalid bounded result.",
-                {"reason": "worker_protocol_invalid"},
+                reason="worker_protocol_invalid",
             )
         except StagingError:
             return _failed(
                 execution,
                 "Web page discovery staging could not be completed.",
-                {"reason": "staging_failed"},
+                reason="staging_failed",
             )
         except (WebContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
                 "Web page discovery could not be completed.",
-                {"reason": "web_discovery_failed", "error_type": type(exc).__name__},
+                reason="web_discovery_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         _emit_discovery_snapshot(execution, context, self._bus, result)
         return _success(execution, result.payload)
@@ -334,28 +338,28 @@ def _fetch_params(execution: ActionExecution) -> _FetchParams | ActionResult:
         return _failed(
             execution,
             f"{execution.call.action_name} requires a non-empty 'url'.",
-            {"reason": "invalid_url"},
+            reason="invalid_url",
         )
     target_link = execution.call.params.get("target_link")
     if not isinstance(target_link, str) or not target_link:
         return _failed(
             execution,
             f"{execution.call.action_name} requires a non-empty 'target_link'.",
-            {"reason": "invalid_target_link"},
+            reason="invalid_target_link",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return _failed(
             execution,
             "Web fetch overwrite must be boolean.",
-            {"reason": "invalid_overwrite"},
+            reason="invalid_overwrite",
         )
     expected = execution.call.params.get("expected_target_digest", "")
     if not isinstance(expected, str):
         return _failed(
             execution,
             "Web fetch expected_target_digest must be a string.",
-            {"reason": "invalid_expected_target_digest"},
+            reason="invalid_expected_target_digest",
         )
     return _FetchParams(
         url=url,
@@ -373,7 +377,7 @@ def _discovery_params(
         return _failed(
             execution,
             "Web page discovery requires a non-empty 'start_url'.",
-            {"reason": "invalid_start_url"},
+            reason="invalid_start_url",
         )
     max_visit_depth = execution.call.params.get("max_visit_depth", 0)
     if (
@@ -384,7 +388,7 @@ def _discovery_params(
         return _failed(
             execution,
             "Web page discovery max_visit_depth must be a non-negative integer.",
-            {"reason": "invalid_visit_depth"},
+            reason="invalid_visit_depth",
         )
     include_globs = _string_tuple_param(execution, "include_globs")
     if isinstance(include_globs, ActionResult):
@@ -411,7 +415,7 @@ def _string_tuple_param(
         return _failed(
             execution,
             f"Web page discovery {name} must be an array of non-empty strings.",
-            {"reason": "invalid_path_globs"},
+            reason="invalid_path_globs",
         )
     return tuple(cast(list[str], value))
 
@@ -496,9 +500,11 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
-    frame_data: JsonObject,
+    *,
+    reason: str,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
-    reason = _failure_reason(frame_data)
+    diagnostics = frame_data or {}
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -507,9 +513,13 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        payload=web_failure_payload(reason, frame_data),
-        model_feedback=model_feedback,
-        frame_data=frame_data,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="web.execution",
+            disposition=web_failure_disposition(reason, diagnostics),
+            feedback=model_feedback,
+        ),
+        frame_data=diagnostics,
     )
 
 
@@ -519,7 +529,7 @@ def _timeout(
     *,
     reason: str,
 ) -> ActionResult:
-    frame_data: JsonObject = {"reason": reason, "executor_leaked": False}
+    frame_data: JsonObject = {"executor_leaked": False}
     return ActionResult.timeout(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -527,12 +537,11 @@ def _timeout(
         action_name=execution.call.action_name,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        payload=web_failure_payload(reason, frame_data),
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="web.execution",
+            disposition=web_failure_disposition(reason, frame_data),
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )
-
-
-def _failure_reason(frame_data: JsonObject) -> str:
-    value = frame_data.get("reason")
-    return value if isinstance(value, str) and value else "web_failure"

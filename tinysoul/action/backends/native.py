@@ -8,7 +8,11 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionCancelled, ActionExecutionContext
-from tinysoul.action.core.result import ActionResult
+from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+)
 
 NativeActionFunction = Callable[[ActionExecution, ActionExecutionContext], JsonObject]
 
@@ -34,9 +38,14 @@ class NativeFunctionExecutor:
                 action_name=execution.call.action_name,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback="Action stopped after cancellation was requested.",
+                failure=ActionLocalFailure(
+                    reason="cancelled",
+                    scope="native.execution",
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                    feedback="Action stopped after cancellation was requested.",
+                ),
                 frame_data={
-                    "reason": str(exc) or "cancelled",
+                    "cancel_reason": str(exc) or "cancelled",
                     "cancel_requested": True,
                     "executor_started": True,
                     "executor_leaked": False,

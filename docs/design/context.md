@@ -34,9 +34,11 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### TurnTraceHeap
 
-本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整 canonical record，同时维护“热条目 + 冷节点头部”的可见投影。foldable ActionResult 额外持有只在当前 Turn 可见的完整 overlay；Context 压缩或 `context.trace.fold` 会统一移除所有这类 overlay，并报告 `folded_overlay_count`，不会修改 compact canonical message。压缩随后可按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。recall 使用 zero-based continuation cursor；响应包含 `next_cursor` 与 `truncated`，调用额度会被配置的 `trace_recall_max_chars` 限制，因此同一不可变 leaf 可以分段继续探索。轨迹条目保持原子，不在消息 JSON 中间切断。recall 自身也使用同一 foldable projection，不建立专用折叠分支。
+本轮行为轨迹的规范存储。`TurnTraceHeap` 对 `TraceEntry` 保持 append-only 的完整 canonical record，同时维护“热条目 + 冷节点头部”的可见投影。foldable ActionResult 额外持有只在当前 Turn 可见的完整 overlay；Context 压缩或 `context.trace.fold` 会统一移除所有这类 overlay，并报告 `folded_overlay_count`，不会修改 canonical ToolResult envelope。压缩随后可按完整 Cycle 边界把旧热条目移动到 leaf node；多个 leaf 可按 branch factor 合并为 branch node。模型通过 `context.trace.inspect` 从 `turn:trace@<turn_id>` 或 branch ref 逐层检查，通过 `context.trace.recall` 有界召回 leaf。
 
-每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。
+recall 使用包含 `entry_index/char_offset/entry_digest` 的服务端 continuation cursor，返回 requested/effective 字符预算、显式 entry indexes、coverage、remaining、page_complete 与 next cursor。普通条目保持原子；单条 canonical JSON 超过 hard limit 时，才按 Unicode 字符边界返回 digest 绑定的 oversized chunk，条目完整前 cursor 不前进。最终响应的 canonical JSON 字符数不得超过生效预算，配置上限必须容纳最小分页 wrapper。recall 自身使用同一 foldable projection，不建立专用折叠分支。
+
+每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。`trace_summary` 只保存计数视图；`trace_digest` 固定为对 canonical trace 稳定 JSON 的 `sha256:<64hex>`，两者不可混用。
 
 TurnTraceHeap 提供组装时只读锚点：`ref` 是当前 Turn 的 `turn:trace@<turn_id>` head，`canonical_revision` 等于 canonical append 数。append 增加 revision；hot-to-cold 压缩、branch 合并和 visible overlay fold 都不改变 revision。锚点表达 Working 在同次组装中观察到的 Trace 边界，不表达 Working 变更的唯一因果来源，因为 Phase1 control、Workspace sync 或 Endpoint mutation 可以在不追加 Trace 的情况下更新 Working。
 
@@ -66,7 +68,7 @@ composer 在构造时统计各 section 的文本字符和图片字节，但不�
 
 ## 语境控制工具与信号
 
-Context 定义 Phase1 可见的语境控制工具（Control Tools）：更新工作台（里程碑与待办）、加载 provider catalog 中的顶层内容、逐出可逐出条目。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
+Context 定义 Phase1 可见的语境控制工具（Control Tools）：`set_milestone`、`remove_milestone`、`set_todo`、`remove_todo`，以及加载 provider catalog 顶层内容、逐出可逐出条目。四个 Working controls 每次只表达一个完整操作，ToolSpec required 字段与 normalizer 的正常输入完全一致；同一 Phase1 的多个调用按 sequence 投影验证，再作为一个 signal batch 原子消费。内部 `WorkingPatch` 仍可批量提交，但不暴露为允许空 patch 的模型工具。`load_background.links` 是支持一次加载多个 Top content 的开放字符串数组，不使用完整 effective catalog 作为 JSON Schema `enum`。模型从当前 MessageStack 中已出现的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 感知 Link；Context 不解析任意正文建立额外曝光状态，只在提交前依据内部 provider catalog 校验 Link 存在、可加载且尚未加载。全部历史 Memory 不进入可加载 catalog；Context 中的 `<memory:YYYY-MM-DD>` 只提示模型使用 `memory.recall`。控制工具与 action 模块的域选择工具并列进入 Phase1 的工具作用域；域选择是 Phase1 的必选输出，语境控制是可选输出。
 
 模型返回的 Control Tool Calls 不直接修改状态。ControlCallNormalizer 负责校验与归一化：合规调用转为状态信号，不合规调用收敛为局部结果（ControlResult），供上层记录并反馈模型。这一模式与 action 模块的行动调用归一化保持同构。
 

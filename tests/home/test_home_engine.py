@@ -481,7 +481,8 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     )
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "invalid_max_chars"
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_max_chars"
 
 
 def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(

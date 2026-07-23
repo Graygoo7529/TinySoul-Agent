@@ -450,7 +450,8 @@ def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
     )
 
     assert result.status is ActionResultStatus.TIMEOUT
-    assert result.frame_data["reason"] == "runtime_transfer"
+    assert result.failure is not None
+    assert result.failure.reason == "runtime_transfer"
     assert workspace.snapshot() == before
     assert not (workspace.root / "converted" / "blank.md").exists()
     assert bus.consume() == ()
@@ -487,7 +488,8 @@ def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
     )
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "worker_protocol_invalid"
+    assert result.failure is not None
+    assert result.failure.reason == "worker_protocol_invalid"
     assert workspace.snapshot() == before
     assert bus.consume() == ()
 

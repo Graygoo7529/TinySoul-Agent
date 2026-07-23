@@ -19,6 +19,7 @@ import type {
   MaintenanceRequest,
   MaintenanceStatus,
   SessionHistory,
+  SessionCursor,
   SessionRecall,
   TrashItem,
   WorkspaceBlobHeaders,
@@ -123,9 +124,19 @@ export class TinySoulClient {
     return this.request<SessionHistory>("GET", "/v1/session/history");
   }
 
-  async sessionRecall(ref: string, cursor = 0, maxChars?: number): Promise<SessionRecall> {
+  async sessionRecall(
+    ref: string,
+    cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
+    maxChars?: number,
+  ): Promise<SessionRecall> {
     return this.request<SessionRecall>("GET", "/v1/session/recall", {
-      query: { ref, cursor, max_chars: maxChars },
+      query: {
+        ref,
+        max_chars: maxChars,
+        cursor_entry_index: cursor.entry_index,
+        cursor_char_offset: cursor.char_offset,
+        cursor_entry_digest: cursor.entry_digest,
+      },
     });
   }
 

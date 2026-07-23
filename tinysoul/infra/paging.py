@@ -1,0 +1,291 @@
+"""Hard character-budget paging for immutable JSON sequences."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from hashlib import sha256
+
+from .json import JsonObject, JsonValue, dumps_json, to_json_object, to_json_value
+
+
+class JsonPageError(Exception):
+    """A paging request cannot be represented within its contract."""
+
+
+MIN_JSON_PAGE_CHARS = 1024
+
+
+@dataclass(frozen=True)
+class JsonPageCursor:
+    """Stable position in an immutable JSON sequence."""
+
+    entry_index: int = 0
+    char_offset: int = 0
+    entry_digest: str = ""
+
+    def __post_init__(self) -> None:
+        for name in ("entry_index", "char_offset"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise JsonPageError(f"JSON page cursor {name} must be non-negative")
+        if self.char_offset and not _is_digest(self.entry_digest):
+            raise JsonPageError(
+                "An oversized-entry cursor requires a sha256 entry digest"
+            )
+        if not self.char_offset and self.entry_digest:
+            raise JsonPageError(
+                "A whole-entry cursor cannot carry an entry digest"
+            )
+
+    @classmethod
+    def from_json(cls, value: object) -> "JsonPageCursor":
+        if value is None:
+            return cls()
+        if not isinstance(value, dict):
+            raise JsonPageError("JSON page cursor must be an object")
+        if set(value) - {"entry_index", "char_offset", "entry_digest"}:
+            raise JsonPageError("JSON page cursor contains unknown fields")
+        entry_index = value.get("entry_index", 0)
+        char_offset = value.get("char_offset", 0)
+        entry_digest = value.get("entry_digest", "")
+        if isinstance(entry_index, bool) or not isinstance(entry_index, int):
+            raise JsonPageError("JSON page cursor entry_index must be an integer")
+        if isinstance(char_offset, bool) or not isinstance(char_offset, int):
+            raise JsonPageError("JSON page cursor char_offset must be an integer")
+        if not isinstance(entry_digest, str):
+            raise JsonPageError("JSON page cursor entry_digest must be a string")
+        return cls(
+            entry_index=entry_index,
+            char_offset=char_offset,
+            entry_digest=entry_digest,
+        )
+
+    def to_json(self) -> JsonObject:
+        value: JsonObject = {
+            "entry_index": self.entry_index,
+            "char_offset": self.char_offset,
+        }
+        if self.entry_digest:
+            value["entry_digest"] = self.entry_digest
+        return value
+
+
+def page_json_sequence(
+    values: tuple[JsonValue, ...],
+    *,
+    base: JsonObject,
+    item_field: str,
+    cursor_unit: str,
+    cursor: JsonPageCursor,
+    max_chars: int,
+    requested_max_chars: int | None = None,
+) -> JsonObject:
+    """Build one page whose final canonical JSON never exceeds *max_chars*."""
+
+    if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars <= 0:
+        raise JsonPageError("JSON page max_chars must be positive")
+    requested = max_chars if requested_max_chars is None else requested_max_chars
+    if (
+        isinstance(requested, bool)
+        or not isinstance(requested, int)
+        or requested <= 0
+    ):
+        raise JsonPageError("JSON page requested_max_chars must be positive")
+    if not item_field or not cursor_unit:
+        raise JsonPageError("JSON page field and cursor unit must be non-empty")
+    if item_field in base:
+        raise JsonPageError("JSON page item field collides with base metadata")
+    items = tuple(to_json_value(value) for value in values)
+    if cursor.entry_index > len(items):
+        raise JsonPageError("JSON page cursor exceeds the sequence")
+    if cursor.char_offset and cursor.entry_index >= len(items):
+        raise JsonPageError("Oversized-entry cursor exceeds the sequence")
+
+    empty = _page_value(
+        base=base,
+        item_field=item_field,
+        items=(),
+        cursor_unit=cursor_unit,
+        entry_count=len(items),
+        cursor=cursor,
+        next_cursor=None,
+        coverage=(cursor.entry_index, cursor.entry_index),
+        requested_max_chars=requested,
+        effective_max_chars=max_chars,
+    )
+    if len(dumps_json(empty)) > max_chars:
+        raise JsonPageError("JSON page budget is too small for paging metadata")
+    if cursor.entry_index == len(items):
+        return empty
+    if cursor.char_offset:
+        return _oversized_page(
+            items,
+            base=base,
+            item_field=item_field,
+            cursor_unit=cursor_unit,
+            cursor=cursor,
+            max_chars=max_chars,
+            requested_max_chars=requested,
+        )
+
+    selected: list[JsonValue] = []
+    index = cursor.entry_index
+    while index < len(items):
+        next_index = index + 1
+        next_cursor = (
+            JsonPageCursor(entry_index=next_index)
+            if next_index < len(items)
+            else None
+        )
+        candidate = _page_value(
+            base=base,
+            item_field=item_field,
+            items=tuple((*selected, items[index])),
+            cursor_unit=cursor_unit,
+            entry_count=len(items),
+            cursor=cursor,
+            next_cursor=next_cursor,
+            coverage=(cursor.entry_index, next_index),
+            requested_max_chars=requested,
+            effective_max_chars=max_chars,
+        )
+        if len(dumps_json(candidate)) > max_chars:
+            if not selected:
+                return _oversized_page(
+                    items,
+                    base=base,
+                    item_field=item_field,
+                    cursor_unit=cursor_unit,
+                    cursor=cursor,
+                    max_chars=max_chars,
+                    requested_max_chars=requested,
+                )
+            break
+        selected.append(items[index])
+        index = next_index
+
+    next_cursor = JsonPageCursor(entry_index=index) if index < len(items) else None
+    return _page_value(
+        base=base,
+        item_field=item_field,
+        items=tuple(selected),
+        cursor_unit=cursor_unit,
+        entry_count=len(items),
+        cursor=cursor,
+        next_cursor=next_cursor,
+        coverage=(cursor.entry_index, index),
+        requested_max_chars=requested,
+        effective_max_chars=max_chars,
+    )
+
+
+def _oversized_page(
+    items: tuple[JsonValue, ...],
+    *,
+    base: JsonObject,
+    item_field: str,
+    cursor_unit: str,
+    cursor: JsonPageCursor,
+    max_chars: int,
+    requested_max_chars: int,
+) -> JsonObject:
+    serialized = dumps_json(items[cursor.entry_index])
+    digest = f"sha256:{sha256(serialized.encode('utf-8')).hexdigest()}"
+    if cursor.entry_digest and cursor.entry_digest != digest:
+        raise JsonPageError("Oversized-entry cursor digest no longer matches")
+    if cursor.char_offset > len(serialized):
+        raise JsonPageError("Oversized-entry cursor offset exceeds the entry")
+    low = cursor.char_offset + 1
+    high = len(serialized)
+    best: JsonObject | None = None
+    while low <= high:
+        stop = (low + high) // 2
+        next_cursor = (
+            JsonPageCursor(
+                entry_index=cursor.entry_index,
+                char_offset=stop,
+                entry_digest=digest,
+            )
+            if stop < len(serialized)
+            else (
+                JsonPageCursor(entry_index=cursor.entry_index + 1)
+                if cursor.entry_index + 1 < len(items)
+                else None
+            )
+        )
+        candidate = _page_value(
+            base=base,
+            item_field=item_field,
+            items=(),
+            cursor_unit=cursor_unit,
+            entry_count=len(items),
+            cursor=cursor,
+            next_cursor=next_cursor,
+            coverage=(
+                cursor.entry_index,
+                cursor.entry_index + (1 if stop == len(serialized) else 0),
+            ),
+            requested_max_chars=requested_max_chars,
+            effective_max_chars=max_chars,
+            oversized_entry={
+                "entry_index": cursor.entry_index,
+                "entry_digest": digest,
+                "encoding": "canonical_json",
+                "char_offset": cursor.char_offset,
+                "next_char_offset": stop,
+                "serialized_chars": len(serialized),
+                "text": serialized[cursor.char_offset:stop],
+            },
+        )
+        if len(dumps_json(candidate)) <= max_chars:
+            best = candidate
+            low = stop + 1
+        else:
+            high = stop - 1
+    if best is None:
+        raise JsonPageError(
+            "JSON page budget is too small for one oversized-entry character"
+        )
+    return best
+
+
+def _page_value(
+    *,
+    base: JsonObject,
+    item_field: str,
+    items: tuple[JsonValue, ...],
+    cursor_unit: str,
+    entry_count: int,
+    cursor: JsonPageCursor,
+    next_cursor: JsonPageCursor | None,
+    coverage: tuple[int, int],
+    requested_max_chars: int,
+    effective_max_chars: int,
+    oversized_entry: JsonObject | None = None,
+) -> JsonObject:
+    value: JsonObject = {
+        **to_json_object(base),
+        "cursor_unit": cursor_unit,
+        "entry_count": entry_count,
+        "returned_entry_count": coverage[1] - coverage[0],
+        "returned_entry_indexes": list(range(coverage[0], coverage[1])),
+        "entry_coverage": [coverage[0], coverage[1]],
+        "remaining_entry_count": entry_count - coverage[1],
+        "requested_max_chars": requested_max_chars,
+        "effective_max_chars": effective_max_chars,
+        "cursor": cursor.to_json(),
+        "next_cursor": next_cursor.to_json() if next_cursor is not None else None,
+        "page_complete": next_cursor is None,
+        "truncated": next_cursor is not None,
+        item_field: list(items),
+    }
+    if oversized_entry is not None:
+        value["oversized_entry"] = oversized_entry
+    return to_json_object(value)
+
+
+def _is_digest(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)

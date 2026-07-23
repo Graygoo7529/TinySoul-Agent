@@ -13,7 +13,12 @@ from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.executor import ActionExecutionContext, ActionExecutionControl
 from tinysoul.action.core.specs import ActionBackendSpec
-from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+)
 
 from .process import (
     ManagedProcessRequest,
@@ -202,8 +207,9 @@ class SubprocessActionExecutor:
             return _execution_failure(
                 execution,
                 "Subprocess action backend options are invalid.",
+                reason="invalid_backend_options",
+                disposition=ActionFailureDisposition.STOP,
                 frame_data={
-                    "reason": "invalid_backend_options",
                     "error_type": type(exc).__name__,
                     "key": exc.key,
                 },
@@ -258,7 +264,7 @@ def run_process_action(
         return _timeout_result(
             execution,
             "Action timed out before subprocess started.",
-            frame_data={"reason": "deadline_expired"},
+            reason="deadline_expired",
         )
     outcome = (runner or ControlledProcessRunner()).run(
         ProcessRequest(
@@ -275,8 +281,9 @@ def run_process_action(
         return _execution_failure(
             execution,
             f"Subprocess action failed to start: {outcome.error_message}",
+            reason="process_start_failed",
+            disposition=ActionFailureDisposition.STOP,
             frame_data={
-                "reason": "process_start_failed",
                 "error_type": outcome.error_type,
             },
         )
@@ -285,16 +292,18 @@ def run_process_action(
         return _timeout_result(
             execution,
             "Subprocess action timed out.",
+            reason="process_timeout",
             payload=payload,
-            frame_data={"reason": "process_timeout", "executor_leaked": False},
+            frame_data={"executor_leaked": False},
         )
     if outcome.status is ProcessStatus.CANCELLED:
         return _timeout_result(
             execution,
             "Subprocess action stopped after cancellation was requested.",
+            reason="cancelled",
             payload=payload,
             frame_data={
-                "reason": context.control.cancel_reason or "cancelled",
+                "cancel_reason": context.control.cancel_reason or "cancelled",
                 "executor_leaked": False,
             },
         )
@@ -311,8 +320,8 @@ def run_process_action(
     return _execution_failure(
         execution,
         f"Subprocess action exited with code {outcome.exit_code}.",
+        reason="process_exit_nonzero",
         payload=payload,
-        frame_data={"reason": "process_exit_nonzero"},
     )
 
 
@@ -458,6 +467,8 @@ def _execution_failure(
     execution: ActionExecution,
     model_feedback: str,
     *,
+    reason: str,
+    disposition: ActionFailureDisposition = ActionFailureDisposition.CHANGE_REQUEST,
     payload: JsonObject | None = None,
     frame_data: JsonObject | None = None,
 ) -> ActionResult:
@@ -469,7 +480,12 @@ def _execution_failure(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="subprocess.execution",
+            disposition=disposition,
+            feedback=model_feedback,
+        ),
         payload=payload,
         frame_data=frame_data,
     )
@@ -479,6 +495,7 @@ def _timeout_result(
     execution: ActionExecution,
     model_feedback: str,
     *,
+    reason: str,
     payload: JsonObject | None = None,
     frame_data: JsonObject | None = None,
 ) -> ActionResult:
@@ -489,7 +506,12 @@ def _timeout_result(
         action_name=execution.call.action_name,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="subprocess.execution",
+            disposition=ActionFailureDisposition.RETRY_SAME,
+            feedback=model_feedback,
+        ),
         payload=payload,
         frame_data=frame_data,
     )

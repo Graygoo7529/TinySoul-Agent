@@ -8,7 +8,10 @@ if TYPE_CHECKING:
 from .controls import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
-    CONTROL_UPDATE_WORKING,
+    CONTROL_REMOVE_MILESTONE,
+    CONTROL_REMOVE_TODO,
+    CONTROL_SET_MILESTONE,
+    CONTROL_SET_TODO,
     ControlNormalization,
     ControlResult,
     ControlResultStage,
@@ -57,6 +60,7 @@ from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
 from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
 from .compress import ContextPressureReport
+from .trace import canonical_trace_digest, is_canonical_trace_digest
 
 __all__ = [
     "ContextBudgetReport",
@@ -66,7 +70,10 @@ __all__ = [
     "BackgroundEntryProvider",
     "CONTROL_EVICT_BACKGROUND",
     "CONTROL_LOAD_BACKGROUND",
-    "CONTROL_UPDATE_WORKING",
+    "CONTROL_REMOVE_MILESTONE",
+    "CONTROL_REMOVE_TODO",
+    "CONTROL_SET_MILESTONE",
+    "CONTROL_SET_TODO",
     "ContextBudgetError",
     "ContextContractError",
     "ContextEngine",
@@ -106,6 +113,8 @@ __all__ = [
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",
     "build_workspace_sync_signal",
+    "canonical_trace_digest",
+    "is_canonical_trace_digest",
     "parse_context_settings",
     "parse_input_append_signal",
     "register_context_actions",

@@ -594,22 +594,20 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        messages = self._action.to_tool_result_messages(results)
+        rendered_results = self._action.render_tool_results(results)
         signals: list[Signal] = []
-        for result, message in zip(results, messages):
-            projection = result.trace_projection
+        for rendered in rendered_results:
+            visible = rendered.visible_message
+            canonical = rendered.canonical_message
             signals.append(
                 build_trace_action_result_signal(
-                    message,
+                    visible,
                     scope=scope,
                     source="loop.phase3",
                     cycle_id=cycle_id,
-                    origin_refs=(
-                        projection.origin_refs if projection is not None else ()
-                    ),
-                    compact_payload=(
-                        projection.compact_payload
-                        if projection is not None else None
+                    origin_refs=rendered.origin_refs,
+                    canonical_message=(
+                        canonical if canonical is not visible else None
                     ),
                 )
             )

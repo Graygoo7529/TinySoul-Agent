@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.paging import MIN_JSON_PAGE_CHARS
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,13 @@ class ContextSettings:
                 expected="non-negative int",
             )
         _require_positive(self.trace_recall_max_chars, "trace_recall_max_chars")
+        if self.trace_recall_max_chars < MIN_JSON_PAGE_CHARS:
+            raise ConfigError(
+                "Context trace_recall_max_chars must leave room for paging metadata",
+                key="context.trace_recall_max_chars",
+                value=self.trace_recall_max_chars,
+                expected=f"int >= {MIN_JSON_PAGE_CHARS}",
+            )
 
 
 def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:

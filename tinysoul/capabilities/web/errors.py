@@ -2,18 +2,8 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
-from tinysoul.infra import JsonObject, to_json_object
-
-
-class WebFailureDisposition(StrEnum):
-    """Model-facing recovery direction for one Web action failure."""
-
-    RETRY_SAME = "retry_same"
-    CHANGE_REQUEST = "change_request"
-    USE_FALLBACK = "use_fallback"
-    STOP = "stop"
+from tinysoul.action import ActionFailureDisposition
+from tinysoul.infra import JsonObject
 
 
 _CHANGE_REQUEST_REASONS = frozenset(
@@ -130,7 +120,7 @@ class WebProcessTimeout(WebError):
 def web_failure_disposition(
     reason: str,
     facts: JsonObject | None = None,
-) -> WebFailureDisposition:
+) -> ActionFailureDisposition:
     """Classify one stable Web failure without exposing implementation errors."""
 
     normalized = reason.strip() if isinstance(reason, str) else ""
@@ -142,45 +132,24 @@ def web_failure_disposition(
             and not isinstance(status_code, bool)
             and (status_code in {408, 425, 429} or 500 <= status_code <= 599)
         ):
-            return WebFailureDisposition.RETRY_SAME
-        return WebFailureDisposition.CHANGE_REQUEST
+            return ActionFailureDisposition.RETRY_SAME
+        return ActionFailureDisposition.CHANGE_REQUEST
     if normalized == "provider_request_failed":
         error_type = safe_facts.get("error_type")
         if (
             isinstance(error_type, str)
             and error_type in _TRANSIENT_PROVIDER_ERROR_TYPES
         ):
-            return WebFailureDisposition.RETRY_SAME
+            return ActionFailureDisposition.RETRY_SAME
         if isinstance(error_type, str) and error_type in _STOP_PROVIDER_ERROR_TYPES:
-            return WebFailureDisposition.STOP
-        return WebFailureDisposition.USE_FALLBACK
+            return ActionFailureDisposition.STOP
+        return ActionFailureDisposition.USE_FALLBACK
     if normalized in _RETRY_SAME_REASONS:
-        return WebFailureDisposition.RETRY_SAME
+        return ActionFailureDisposition.RETRY_SAME
     if normalized in _CHANGE_REQUEST_REASONS:
-        return WebFailureDisposition.CHANGE_REQUEST
+        return ActionFailureDisposition.CHANGE_REQUEST
     if normalized in _USE_FALLBACK_REASONS:
-        return WebFailureDisposition.USE_FALLBACK
+        return ActionFailureDisposition.USE_FALLBACK
     if normalized in _STOP_REASONS:
-        return WebFailureDisposition.STOP
-    return WebFailureDisposition.STOP
-
-
-def web_failure_payload(
-    reason: str,
-    facts: JsonObject | None = None,
-) -> JsonObject:
-    """Return the compact model-visible failure and recovery protocol."""
-
-    normalized = (
-        reason.strip()
-        if isinstance(reason, str) and reason.strip()
-        else "web_failure"
-    )
-    return to_json_object(
-        {
-            "failure": {
-                "reason": normalized,
-                "disposition": web_failure_disposition(normalized, facts).value,
-            }
-        }
-    )
+        return ActionFailureDisposition.STOP
+    return ActionFailureDisposition.STOP

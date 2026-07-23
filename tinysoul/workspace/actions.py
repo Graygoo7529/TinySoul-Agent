@@ -10,6 +10,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
     ActionTraceProjection,
@@ -23,11 +25,13 @@ from tinysoul.runtime import RuntimeException, SignalBus
 from .engine import (
     WorkspaceAnalysisBudgetFailure,
     WorkspaceEngine,
+    WorkspaceResourceState,
     WorkspaceTextRangeResult,
 )
 from .errors import (
     WorkspaceContractError,
     WorkspaceError,
+    WorkspaceSourceChanged,
     WorkspaceTrashRestoreRequired,
 )
 from .manifest import WorkspaceResourceRecord, WorkspaceRetention
@@ -264,14 +268,14 @@ class WorkspaceReadExecutor(ActionExecutor):
                 {"reason": "workspace_read_failed", "error_type": type(exc).__name__},
             )
         payload = _text_range_payload(result)
-        compact_payload = {key: value for key, value in payload.items() if key != "text"}
-        compact_payload["folded"] = True
+        canonical_payload = {key: value for key, value in payload.items() if key != "text"}
+        canonical_payload["folded"] = True
         return _success(
             execution,
             payload,
             trace_projection=ActionTraceProjection(
                 origin_refs=(result.link,),
-                compact_payload=compact_payload,
+                canonical_payload=canonical_payload,
             ),
         )
 
@@ -345,8 +349,8 @@ class WorkspaceSearchTextExecutor(ActionExecutor):
                 {"reason": "workspace_search_failed", "error_type": type(exc).__name__},
             )
         payload = result.to_json()
-        compact_payload = result.to_json(include_text=False)
-        compact_payload["folded"] = True
+        canonical_payload = result.to_json(include_text=False)
+        canonical_payload["folded"] = True
         origin_refs = tuple(
             dict.fromkeys(
                 [
@@ -360,7 +364,7 @@ class WorkspaceSearchTextExecutor(ActionExecutor):
             payload,
             trace_projection=ActionTraceProjection(
                 origin_refs=origin_refs,
-                compact_payload=compact_payload,
+                canonical_payload=canonical_payload,
             ),
         )
 
@@ -707,28 +711,30 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            target_exists = self._workspace.write_target_exists(target_link)
-            if target_exists and not overwrite:
+            prompt_build = self._prompt_builder.build_write(
+                target_link=target_link,
+                instruction=instruction,
+                reference_links=reference_links,
+                overwrite=overwrite,
+            )
+            target_version = prompt_build.read_set.target
+            if (
+                target_version.state is WorkspaceResourceState.PRESENT
+                and not overwrite
+            ):
                 return _failed(
                     execution,
                     f"Workspace write target already exists: {target_link}",
                     {"reason": "target_exists", "link": target_link},
                 )
-            prompt_build = self._prompt_builder.build_write(
-                target_link=target_link,
-                instruction=instruction,
-                reference_links=reference_links,
-                include_target=target_exists,
-                overwrite=overwrite,
-            )
             if expected_digest:
-                if not target_exists:
+                if target_version.state is WorkspaceResourceState.ABSENT:
                     return _failed(
                         execution,
                         f"Workspace write target does not exist for digest check: {target_link}",
                         {"reason": "missing_digest_target", "link": target_link},
                     )
-                if prompt_build.target_digest != expected_digest:
+                if target_version.digest != expected_digest:
                     return _failed(
                         execution,
                         f"Workspace write target digest mismatch: {target_link}",
@@ -755,11 +761,11 @@ class WorkspaceWriteExecutor(ActionExecutor):
         if isinstance(text, ActionResult):
             return text
         try:
-            record = self._workspace.write_text(
+            record = self._workspace.commit_edit_text(
                 target_link,
                 text,
+                read_set=prompt_build.read_set,
                 overwrite=overwrite,
-                expected_digest=expected_digest or prompt_build.target_digest,
                 retention=retention,
                 owner_turn_id=execution.framework.turn_id,
             )
@@ -770,6 +776,20 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 link=exc.link,
                 trash_ref=exc.trash_ref,
             ) from exc
+        except WorkspaceSourceChanged as exc:
+            return _failed(
+                execution,
+                f"Workspace write source changed before commit: {exc.link}",
+                {
+                    "reason": "source_changed",
+                    "link": exc.link,
+                    "expected_state": exc.expected_state,
+                    "actual_state": exc.actual_state,
+                    "expected_digest": exc.expected_digest,
+                    "actual_digest": exc.actual_digest,
+                },
+                disposition=ActionFailureDisposition.RETRY_SAME,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -785,6 +805,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
         )
         result_payload = _record_payload(record)
         result_payload["written"] = True
+        result_payload["prompt_sources"] = prompt_build.read_set.to_json()
         return _success(execution, result_payload)
 
 class WorkspacePatchExecutor(ActionExecutor):
@@ -1074,11 +1095,11 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         if isinstance(text, ActionResult):
             return text
         try:
-            record = self._workspace.write_text(
+            record = self._workspace.commit_edit_text(
                 target_link,
                 text,
+                read_set=prompt_build.read_set,
                 overwrite=True,
-                expected_digest=expected_digest or prompt_build.target_digest,
             )
         except WorkspaceTrashRestoreRequired as exc:
             if self._runtime_bridge is None:
@@ -1087,6 +1108,20 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 link=exc.link,
                 trash_ref=exc.trash_ref,
             ) from exc
+        except WorkspaceSourceChanged as exc:
+            return _failed(
+                execution,
+                f"Workspace rewrite source changed before commit: {exc.link}",
+                {
+                    "reason": "source_changed",
+                    "link": exc.link,
+                    "expected_state": exc.expected_state,
+                    "actual_state": exc.actual_state,
+                    "expected_digest": exc.expected_digest,
+                    "actual_digest": exc.actual_digest,
+                },
+                disposition=ActionFailureDisposition.RETRY_SAME,
+            )
         except WorkspaceError as exc:
             return _failed(
                 execution,
@@ -1102,6 +1137,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         )
         result_payload = _record_payload(record)
         result_payload["rewritten"] = True
+        result_payload["prompt_sources"] = prompt_build.read_set.to_json()
         return _success(execution, result_payload)
 
 def _required_link(execution: ActionExecution) -> str | None:
@@ -1120,8 +1156,9 @@ def _string_list_param(value: object) -> tuple[str, ...] | None:
     for item in value:
         if not isinstance(item, str) or not item:
             return None
-        if item not in result:
-            result.append(item)
+        if item in result:
+            return None
+        result.append(item)
     return tuple(result)
 
 
@@ -1266,10 +1303,27 @@ def _analysis_budget_payload(failure: WorkspaceAnalysisBudgetFailure) -> JsonObj
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
-    frame_data: JsonObject,
+    failure_data: JsonObject,
     *,
     payload: JsonObject | None = None,
+    disposition: ActionFailureDisposition = ActionFailureDisposition.CHANGE_REQUEST,
 ) -> ActionResult:
+    reason_value = failure_data.get("reason")
+    reason = (
+        reason_value
+        if isinstance(reason_value, str) and reason_value
+        else "workspace_action_failed"
+    )
+    constraint = {
+        key: value
+        for key, value in failure_data.items()
+        if key not in {"reason", "error_type"}
+    }
+    diagnostics = (
+        {"error_type": failure_data["error_type"]}
+        if "error_type" in failure_data
+        else {}
+    )
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -1278,7 +1332,13 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="workspace.action",
+            disposition=disposition,
+            feedback=model_feedback,
+            constraint=constraint,
+        ),
         payload=payload,
-        frame_data=frame_data,
+        frame_data=diagnostics,
     )

@@ -10,6 +10,7 @@ export function SessionView() {
   const [items, setItems] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [recall, setRecall] = useState<SessionRecall | null>(null);
+  const [selectedRef, setSelectedRef] = useState<string | null>(null);
 
   const load = async () => {
     if (!client) return;
@@ -31,8 +32,18 @@ export function SessionView() {
   const onRecall = async (ref: string) => {
     if (!client) return;
     try {
-      const data = await client.sessionRecall(ref, 0, 4000);
+      const data = await client.sessionRecall(ref, undefined, 4000);
+      setSelectedRef(ref);
       setRecall(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const onNextPage = async () => {
+    if (!client || !selectedRef || !recall?.next_cursor) return;
+    try {
+      setRecall(await client.sessionRecall(selectedRef, recall.next_cursor, 4000));
     } catch (err) {
       console.error(err);
     }
@@ -75,13 +86,19 @@ export function SessionView() {
               <History size={14} />
               Recall
             </span>
+            {recall?.next_cursor && (
+              <button className="btn btn-sm btn-ghost" onClick={() => void onNextPage()}>
+                Next page
+                <ChevronRight size={12} />
+              </button>
+            )}
           </div>
           <div className="panel-body" style={{ padding: 0 }}>
             {recall ? (
               <textarea
                 className="textarea"
                 style={{ height: "100%", border: "none", borderRadius: 0, background: "var(--bg)" }}
-                value={recall.text}
+                value={JSON.stringify(recall, null, 2)}
                 readOnly
               />
             ) : (

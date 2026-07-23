@@ -118,8 +118,9 @@ def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
     results = runner._run_group(scheduled, ActionExecutionContext()).results
 
     assert results[0].status is ActionResultStatus.TIMEOUT
+    assert results[0].failure is not None
+    assert results[0].failure.reason == "deadline_before_start"
     assert results[0].frame_data == {
-        "reason": "deadline_before_start",
         "cancel_requested": False,
         "executor_started": False,
         "executor_leaked": False,
@@ -261,7 +262,8 @@ def test_subprocess_executor_kills_timed_out_process() -> None:
     results = ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
 
     assert results[0].status is ActionResultStatus.TIMEOUT
-    assert results[0].frame_data["reason"] == "process_timeout"
+    assert results[0].failure is not None
+    assert results[0].failure.reason == "process_timeout"
 
 
 def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
@@ -356,6 +358,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("session.history.actions", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})
@@ -405,7 +408,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     assert batch_preparation.results == ()
     assert results[0].status is ActionResultStatus.SUCCESS
     assert results[0].payload == {"text": "done"}
-    assert engine.to_tool_result_messages(results)[0].tool_name == "core.answer"
+    assert engine.render_tool_results(results)[0].visible_message.tool_name == "core.answer"
     assert engine.render_result_trace_payload(results[0])["action"] == "core.answer"
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tinysoul.context import is_canonical_trace_digest
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.loop.day import BusinessDay
 
@@ -26,8 +27,10 @@ class SessionMemoryFact:
     answer: str = ""
     references: tuple[str, ...] = field(default_factory=tuple)
     actions: tuple[JsonObject, ...] = field(default_factory=tuple)
+    action_history: JsonObject = field(default_factory=dict)
     exhausted: bool = False
-    trace_digest: JsonObject = field(default_factory=dict)
+    trace_summary: JsonObject = field(default_factory=dict)
+    trace_digest: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.ref, str) or not self.ref.startswith("session:turn/"):
@@ -60,7 +63,16 @@ class SessionMemoryFact:
             tuple(to_json_object(action) for action in actions),
         )
         object.__setattr__(self, "working", to_json_object(self.working))
-        object.__setattr__(self, "trace_digest", to_json_object(self.trace_digest))
+        object.__setattr__(
+            self,
+            "action_history",
+            to_json_object(self.action_history),
+        )
+        object.__setattr__(self, "trace_summary", to_json_object(self.trace_summary))
+        if not is_canonical_trace_digest(self.trace_digest):
+            raise SessionContractError(
+                "Session memory fact trace_digest must be a sha256 content digest"
+            )
 
     def to_json(self) -> JsonObject:
         return {
@@ -72,7 +84,9 @@ class SessionMemoryFact:
             "answer": self.answer,
             "references": list(self.references),
             "actions": list(self.actions),
+            "action_history": self.action_history,
             "exhausted": self.exhausted,
+            "trace_summary": self.trace_summary,
             "trace_digest": self.trace_digest,
         }
 
@@ -216,9 +230,16 @@ def _turn_fact(record: SessionRecord) -> SessionMemoryFact:
             ref=record.ref,
         ),
         actions=tuple(actions),
+        action_history=_object(record.content, "action_history", ref=record.ref),
         exhausted=exhausted,
-        trace_digest=_optional_object(
+        trace_summary=_object(
+            completion,
+            "trace_summary",
+            ref=record.ref,
+        ),
+        trace_digest=_required_text(
             completion.get("trace_digest"),
+            label="trace_digest",
             ref=record.ref,
         ),
     )
@@ -279,3 +300,11 @@ def _strings(value: object, *, label: str, ref: str) -> tuple[str, ...]:
 
 def _optional_text(value: object) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _required_text(value: object, *, label: str, ref: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise SessionInvariantError(
+            f"Session Turn {label} must be non-empty text: {ref}"
+        )
+    return value

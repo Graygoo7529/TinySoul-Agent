@@ -29,7 +29,14 @@ from .executor import (
     ExecutorRegistry,
 )
 from .hooks import ActionExecutionHookPipeline
-from .result import ActionResult, ActionResultStage, ActionResultStatus, ActionTraceMode
+from .result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+    ActionResultStatus,
+    ActionTraceMode,
+)
 from .specs import ActionBackendKind, ActionParallelPolicy
 
 
@@ -198,8 +205,8 @@ class ActionBatchRunner:
                             self._timeout_result(
                                 execution,
                                 model_feedback="Action timed out during execution.",
+                                reason="execution_timeout",
                                 frame_data={
-                                    "reason": "execution_timeout",
                                     "cancel_requested": True,
                                     "executor_started": True,
                                     "executor_leaked": executor_leaked,
@@ -301,13 +308,17 @@ class ActionBatchRunner:
                 stage=ActionResultStage.SCHEDULE,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback=(
-                    "Action was not started because a previous action timed out "
-                    "and may still be running."
+                failure=ActionLocalFailure(
+                    reason="previous_action_timeout_leak",
+                    scope="action.schedule",
+                    disposition=ActionFailureDisposition.STOP,
+                    feedback=(
+                        "Action was not started because a previous action timed out "
+                        "and may still be running."
+                    ),
                 ),
                 frame_data={
                     "blocked_by_invoke_ids": list(blocked_by),
-                    "reason": "previous_action_timeout_leak",
                 },
             )
             for execution in group
@@ -368,7 +379,7 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out before execution started.",
-                frame_data={"reason": "deadline_before_start"},
+                reason="deadline_before_start",
             )
         hook_result = self._hooks.run(
             execution,
@@ -380,7 +391,7 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out after hook checks.",
-                frame_data={"reason": "deadline_after_hooks"},
+                reason="deadline_after_hooks",
             )
         try:
             executor = self._executors.get(execution.action.backend.handler)
@@ -396,7 +407,12 @@ class ActionBatchRunner:
                 stage=ActionResultStage.EXECUTE,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback=f"Action execution failed: {exc}",
+                failure=ActionLocalFailure(
+                    reason="executor_raised",
+                    scope="action.execute",
+                    disposition=ActionFailureDisposition.STOP,
+                    feedback=f"Action execution failed: {exc}",
+                ),
                 frame_data={"error_type": type(exc).__name__},
             )
         if not isinstance(result, ActionResult):
@@ -408,9 +424,13 @@ class ActionBatchRunner:
                 stage=ActionResultStage.EXECUTE,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback="Action executor returned an invalid result object.",
+                failure=ActionLocalFailure(
+                    reason="invalid_executor_result",
+                    scope="action.execute",
+                    disposition=ActionFailureDisposition.STOP,
+                    feedback="Action executor returned an invalid result object.",
+                ),
                 frame_data={
-                    "reason": "invalid_executor_result",
                     "result_type": type(result).__name__,
                 },
             )
@@ -424,9 +444,15 @@ class ActionBatchRunner:
                 stage=ActionResultStage.EXECUTE,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback="Action executor returned a result for a different invocation.",
+                failure=ActionLocalFailure(
+                    reason="executor_result_mismatch",
+                    scope="action.execute",
+                    disposition=ActionFailureDisposition.STOP,
+                    feedback=(
+                        "Action executor returned a result for a different invocation."
+                    ),
+                ),
                 frame_data={
-                    "reason": "executor_result_mismatch",
                     "mismatch": result_mismatch,
                 },
             )
@@ -434,8 +460,8 @@ class ActionBatchRunner:
             return self._timeout_result(
                 execution,
                 model_feedback="Action timed out before result collection.",
+                reason="late_success_timeout",
                 frame_data={
-                    "reason": "late_success_timeout",
                     "executor_started": True,
                     "late_success": True,
                 },
@@ -450,13 +476,15 @@ class ActionBatchRunner:
                 stage=ActionResultStage.EXECUTE,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback=(
-                    "Action executor result did not satisfy its configured trace policy."
+                failure=ActionLocalFailure(
+                    reason="result_trace_policy_mismatch",
+                    scope="action.trace_policy",
+                    disposition=ActionFailureDisposition.STOP,
+                    feedback=(
+                        "Action executor result did not satisfy its configured trace policy."
+                    ),
                 ),
-                frame_data={
-                    "reason": "result_trace_policy_mismatch",
-                    **projection_mismatch,
-                },
+                frame_data=projection_mismatch,
             )
         return result
 
@@ -504,10 +532,10 @@ class ActionBatchRunner:
         execution: ActionExecution,
         *,
         model_feedback: str,
+        reason: str,
         frame_data: JsonObject | None = None,
     ) -> ActionResult:
         stable_frame: JsonObject = {
-            "reason": "timeout",
             "cancel_requested": False,
             "executor_started": False,
             "executor_leaked": False,
@@ -522,7 +550,12 @@ class ActionBatchRunner:
             action_name=execution.call.action_name,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            model_feedback=model_feedback,
+            failure=ActionLocalFailure(
+                reason=reason,
+                scope="action.timeout",
+                disposition=ActionFailureDisposition.RETRY_SAME,
+                feedback=model_feedback,
+            ),
             frame_data=stable_frame,
         )
 
@@ -541,7 +574,12 @@ class ActionBatchRunner:
             stage=ActionResultStage.EXECUTE,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            model_feedback=model_feedback,
+            failure=ActionLocalFailure(
+                reason="runner_internal_failure",
+                scope="action.runner",
+                disposition=ActionFailureDisposition.STOP,
+                feedback=model_feedback,
+            ),
             frame_data=frame_data,
         )
 

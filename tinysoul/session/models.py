@@ -123,13 +123,13 @@ class SessionRecord:
     kind: SessionHistoryKind
     content: JsonObject
     recorded_at_ns: int = field(default_factory=time_ns)
-    schema_version: int = 2
+    schema_version: int = 3
 
     def __post_init__(self) -> None:
         if not self.ref:
             raise SessionContractError("Session record ref must be non-empty")
-        if self.schema_version != 2:
-            raise SessionContractError("Session record schema_version must be 2")
+        if self.schema_version != 3:
+            raise SessionContractError("Session record schema_version must be 3")
         if (
             isinstance(self.recorded_at_ns, bool)
             or not isinstance(self.recorded_at_ns, int)
@@ -158,10 +158,10 @@ class SessionRecord:
             raise SessionContractError(
                 f"Unknown Session record kind: {kind_value}"
             ) from exc
-        schema_version = value.get("schema_version", 1)
-        if schema_version not in {1, 2}:
+        schema_version = value.get("schema_version")
+        if schema_version != 3:
             raise SessionContractError(
-                f"Unsupported Session record schema_version: {schema_version}"
+                f"Session record schema_version must be 3: {schema_version}"
             )
         recorded_at_ns = value.get("recorded_at_ns", 0)
         if (

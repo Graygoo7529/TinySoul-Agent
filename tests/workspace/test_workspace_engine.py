@@ -760,7 +760,7 @@ def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path) -> No
     assert result.payload["truncated"] is True
     assert result.trace_projection is not None
     assert result.trace_projection.origin_refs == ("workspace:a.md",)
-    assert "text" not in result.trace_projection.compact_payload
+    assert "text" not in result.trace_projection.canonical_payload
 
 
 def test_workspace_search_text_scopes_directory_and_returns_fragments(
@@ -990,7 +990,7 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
     assert isinstance(fragment, dict)
     assert fragment["text"] == "needle\n"
     assert result.trace_projection is not None
-    compact = result.trace_projection.compact_payload
+    compact = result.trace_projection.canonical_payload
     compact_fragments = compact["fragments"]
     assert isinstance(compact_fragments, list)
     compact_fragment = compact_fragments[0]
@@ -1098,7 +1098,8 @@ def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
     )
 
     assert result.status.value == "failed"
-    assert result.frame_data["reason"] == "unknown_analysis_source_ids"
+    assert result.failure is not None
+    assert result.failure.reason == "unknown_analysis_source_ids"
 
 
 def test_workspace_analyze_requires_at_least_one_grounding_source(
@@ -1122,7 +1123,8 @@ def test_workspace_analyze_requires_at_least_one_grounding_source(
     )
 
     assert result.status.value == "failed"
-    assert result.frame_data["reason"] == "invalid_analysis_source_ids"
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_analysis_source_ids"
 
 
 def test_workspace_write_text_creates_resource_and_manifest(tmp_path: Path) -> None:
@@ -1745,13 +1747,55 @@ def test_workspace_write_output_limit_does_not_commit_partial_artifact(
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
 
     assert result.status.value == "failed"
-    assert result.payload["failure"] == {
+    assert result.failure is not None
+    assert result.failure.to_json() == {
         "reason": "output_limit_reached",
         "scope": "llm.output",
         "disposition": "change_request",
+        "feedback": "Model generation reached its output token limit.",
         "constraint": {"max_output_tokens": 16384},
     }
     assert not (tmp_path / "partial.md").exists()
+    assert bus.consume_namespace("context") == ()
+
+
+def test_workspace_write_rejects_absent_target_created_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "created-elsewhere.md"
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+
+    def create_target() -> None:
+        target.write_text("external content", encoding="utf-8")
+
+    execution = _execution(
+        "workspace.write",
+        {
+            "target_link": "workspace:created-elsewhere.md",
+            "instruction": "Create a note.",
+        },
+    )
+    result = WorkspaceWriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner({"text": "generated"}, on_run=create_target),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
+    assert target.read_text(encoding="utf-8") == "external content"
     assert bus.consume_namespace("context") == ()
 
 def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
@@ -1774,7 +1818,8 @@ def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> Non
     )
 
     assert result.status.value == "failed"
-    assert "not found" in result.model_feedback
+    assert result.failure is not None
+    assert "not found" in result.failure.feedback
     assert bus.consume_namespace("context") == ()
 
 
@@ -1905,8 +1950,57 @@ def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
 
     assert result.status.value == "failed"
-    assert "digest mismatch" in result.model_feedback
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
     assert target.read_text(encoding="utf-8") == "changed elsewhere"
+    assert bus.consume_namespace("context") == ()
+
+
+def test_workspace_rewrite_rejects_reference_changed_after_prompt(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    reference = tmp_path / "ref.md"
+    target.write_text("old target", encoding="utf-8")
+    reference.write_text("old reference", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+
+    def change_reference() -> None:
+        reference.write_text("changed reference", encoding="utf-8")
+
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite from the reference.",
+            "reference_links": ["workspace:ref.md"],
+        },
+    )
+    result = WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=FakeLLMRunner(
+                {"text": "generated"},
+                on_run=change_reference,
+            ),
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "source_changed"
+    assert target.read_text(encoding="utf-8") == "old target"
+    assert reference.read_text(encoding="utf-8") == "changed reference"
     assert bus.consume_namespace("context") == ()
 
 

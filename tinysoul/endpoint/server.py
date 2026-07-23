@@ -213,8 +213,16 @@ def create_endpoint_app(
     async def session_recall(
         ref: str = Query(min_length=1),
         max_chars: int | None = Query(default=None, ge=1),
-        cursor: int = Query(default=0, ge=0),
+        cursor_entry_index: int = Query(default=0, ge=0),
+        cursor_char_offset: int = Query(default=0, ge=0),
+        cursor_entry_digest: str = Query(default=""),
     ) -> JsonObject:
+        cursor: JsonObject = {
+            "entry_index": cursor_entry_index,
+            "char_offset": cursor_char_offset,
+        }
+        if cursor_entry_digest:
+            cursor["entry_digest"] = cursor_entry_digest
         return engine.session_recall(ref, max_chars=max_chars, cursor=cursor)
 
     @app.get("/v1/workspace/manifest")

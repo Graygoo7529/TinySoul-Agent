@@ -10,6 +10,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
@@ -107,32 +109,41 @@ class ResourceConversionExecutor(ActionExecutor):
                 action_name=execution.call.action_name,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback=str(exc),
-                frame_data={"reason": exc.reason, "executor_leaked": False},
+                failure=ActionLocalFailure(
+                    reason=exc.reason,
+                    scope="resource.conversion",
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                    feedback=str(exc),
+                ),
+                frame_data={"executor_leaked": False},
             )
         except ResourceProcessingError as exc:
             return _failed(
                 execution,
                 str(exc),
-                {**exc.payload, "reason": exc.reason},
+                reason=exc.reason,
+                frame_data=exc.payload,
             )
         except ResourceWorkerProtocolError:
             return _failed(
                 execution,
                 "Resource conversion returned an invalid staged result.",
-                {"reason": "worker_protocol_invalid"},
+                reason="worker_protocol_invalid",
+                disposition=ActionFailureDisposition.STOP,
             )
         except StagingError:
             return _failed(
                 execution,
                 "Resource conversion staging could not be completed.",
-                {"reason": "staging_failed"},
+                reason="staging_failed",
+                disposition=ActionFailureDisposition.STOP,
             )
         except (ResourceContractError, WorkspaceError) as exc:
             return _failed(
                 execution,
                 "Resource conversion could not be completed.",
-                {"reason": "resource_conversion_failed", "error_type": type(exc).__name__},
+                reason="resource_conversion_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         signal_bus = context.signal_bus or self._bus
         signal_bus.emit(
@@ -201,35 +212,35 @@ def _params(execution: ActionExecution) -> _ConversionParams | ActionResult:
         return _failed(
             execution,
             f"{execution.call.action_name} requires a non-empty 'source_link'.",
-            {"reason": "invalid_source_link"},
+            reason="invalid_source_link",
         )
     target_link = execution.call.params.get("target_link")
     if not isinstance(target_link, str) or not target_link:
         return _failed(
             execution,
             f"{execution.call.action_name} requires a non-empty 'target_link'.",
-            {"reason": "invalid_target_link"},
+            reason="invalid_target_link",
         )
     overwrite = execution.call.params.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return _failed(
             execution,
             "Resource conversion overwrite must be boolean.",
-            {"reason": "invalid_overwrite"},
+            reason="invalid_overwrite",
         )
     expected_source_digest = execution.call.params.get("expected_source_digest", "")
     if not isinstance(expected_source_digest, str):
         return _failed(
             execution,
             "Resource conversion expected_source_digest must be a string.",
-            {"reason": "invalid_expected_source_digest"},
+            reason="invalid_expected_source_digest",
         )
     expected_target_digest = execution.call.params.get("expected_target_digest", "")
     if not isinstance(expected_target_digest, str):
         return _failed(
             execution,
             "Resource conversion expected_target_digest must be a string.",
-            {"reason": "invalid_expected_target_digest"},
+            reason="invalid_expected_target_digest",
         )
     return _ConversionParams(
         source_link=source_link,
@@ -268,7 +279,10 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
-    frame_data: JsonObject,
+    *,
+    reason: str,
+    disposition: ActionFailureDisposition = ActionFailureDisposition.CHANGE_REQUEST,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -278,6 +292,11 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="resource.conversion",
+            disposition=disposition,
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )

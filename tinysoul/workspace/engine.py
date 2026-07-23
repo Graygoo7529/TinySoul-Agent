@@ -18,6 +18,7 @@ from tinysoul.infra.filesystem import (
     read_text_prefix,
     resolve_under_root,
 )
+from tinysoul.infra.json import JsonObject
 from tinysoul.runtime import NullObservationEmitter, ObservationEmitter
 
 from .config import WorkspaceSettings
@@ -28,6 +29,7 @@ from .errors import (
     WorkspaceInvariantError,
     WorkspaceIOError,
     WorkspaceReconciliationError,
+    WorkspaceSourceChanged,
     WorkspaceTrashRestoreRequired,
 )
 from tinysoul.loop.day import BusinessDay
@@ -252,6 +254,123 @@ class WorkspacePromptInput:
         return "\n\n".join(
             _render_prompt_slice(text_slice) for text_slice in self.slices
         )
+
+
+class WorkspaceResourceState(StrEnum):
+    """Existence state included in a Workspace edit read set."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+
+
+@dataclass(frozen=True)
+class WorkspaceResourceVersion:
+    """One immutable resource version observed while building an edit prompt."""
+
+    link: str
+    state: WorkspaceResourceState
+    digest: str = ""
+    size: int = 0
+    kind: WorkspaceResourceKind | None = None
+
+    def __post_init__(self) -> None:
+        WorkspaceLink.parse(self.link)
+        if not isinstance(self.state, WorkspaceResourceState):
+            raise WorkspaceContractError("Workspace resource state is invalid")
+        if self.size < 0:
+            raise WorkspaceContractError("Workspace resource version size is invalid")
+        if self.state is WorkspaceResourceState.ABSENT:
+            if self.digest or self.size or self.kind is not None:
+                raise WorkspaceContractError(
+                    "An absent Workspace resource version cannot carry content facts"
+                )
+        elif not self.digest or not isinstance(self.kind, WorkspaceResourceKind):
+            raise WorkspaceContractError(
+                "A present Workspace resource version requires digest and kind"
+            )
+
+    def to_json(self) -> JsonObject:
+        value: JsonObject = {
+            "link": self.link,
+            "state": self.state.value,
+        }
+        if self.state is WorkspaceResourceState.PRESENT:
+            value.update(
+                {
+                    "digest": self.digest,
+                    "size": self.size,
+                    "kind": self.kind.value if self.kind is not None else "",
+                }
+            )
+        return value
+
+
+@dataclass(frozen=True)
+class WorkspaceEditReadSet:
+    """Every resource version actually used to construct one edit prompt."""
+
+    target: WorkspaceResourceVersion
+    references: tuple[WorkspaceResourceVersion, ...] = ()
+
+    def __post_init__(self) -> None:
+        references = tuple(self.references)
+        links = tuple(item.link for item in references)
+        if len(links) != len(set(links)):
+            raise WorkspaceContractError("Workspace edit references must be unique")
+        if self.target.link in links:
+            raise WorkspaceContractError(
+                "Workspace edit target cannot also be a reference"
+            )
+        object.__setattr__(self, "references", references)
+
+    def to_json(self) -> JsonObject:
+        return {
+            "target": self.target.to_json(),
+            "references": [item.to_json() for item in self.references],
+        }
+
+
+@dataclass(frozen=True)
+class WorkspacePromptSource:
+    """One prompt source body paired with its observed version."""
+
+    version: WorkspaceResourceVersion
+    text_slice: WorkspaceTextSlice | None = None
+    image: WorkspaceImageRead | None = None
+
+    def __post_init__(self) -> None:
+        if (self.text_slice is None) == (self.image is None):
+            raise WorkspaceContractError(
+                "Workspace prompt source requires exactly one body"
+            )
+        if self.version.state is not WorkspaceResourceState.PRESENT:
+            raise WorkspaceContractError("Workspace prompt source must be present")
+
+
+@dataclass(frozen=True)
+class WorkspaceEditSources:
+    """Bodies and versions read atomically for one Workspace edit prompt."""
+
+    read_set: WorkspaceEditReadSet
+    target: WorkspacePromptSource | None = None
+    references: tuple[WorkspacePromptSource, ...] = ()
+
+    def __post_init__(self) -> None:
+        references = tuple(self.references)
+        if tuple(item.version for item in references) != self.read_set.references:
+            raise WorkspaceContractError(
+                "Workspace edit source bodies do not match their read set"
+            )
+        if self.target is None:
+            if self.read_set.target.state is not WorkspaceResourceState.ABSENT:
+                raise WorkspaceContractError(
+                    "A present Workspace edit target requires a prompt source"
+                )
+        elif self.target.version != self.read_set.target:
+            raise WorkspaceContractError(
+                "Workspace edit target body does not match its read set"
+            )
+        object.__setattr__(self, "references", references)
 
 
 class WorkspaceEngine:
@@ -943,6 +1062,173 @@ class WorkspaceEngine:
     def write_target_exists(self, link: WorkspaceLink | str) -> bool:
         with self._lock:
             return self._write_target_exists(link)
+
+    def prepare_edit_sources(
+        self,
+        target_link: WorkspaceLink | str,
+        reference_links: Sequence[WorkspaceLink | str],
+        *,
+        require_target: bool,
+    ) -> WorkspaceEditSources:
+        """Read every edit prompt source and version under one Workspace lock."""
+
+        with self._lock:
+            target_value = str(
+                WorkspaceLink.parse(target_link)
+                if isinstance(target_link, str)
+                else target_link
+            )
+            reference_values = tuple(
+                str(WorkspaceLink.parse(link)) if isinstance(link, str) else str(link)
+                for link in reference_links
+            )
+            if len(reference_values) != len(set(reference_values)):
+                raise WorkspaceContractError(
+                    "Workspace edit reference links must be unique"
+                )
+            if target_value in reference_values:
+                raise WorkspaceContractError(
+                    "Workspace edit target cannot also be a reference"
+                )
+            target_source = self._edit_prompt_source(
+                target_value,
+                allow_absent=not require_target,
+                target=True,
+            )
+            if target_source is None:
+                target_version = WorkspaceResourceVersion(
+                    link=target_value,
+                    state=WorkspaceResourceState.ABSENT,
+                )
+            else:
+                target_version = target_source.version
+            references = tuple(
+                self._edit_prompt_source(link, allow_absent=False, target=False)
+                for link in reference_values
+            )
+            reference_sources = tuple(
+                item for item in references if item is not None
+            )
+            read_set = WorkspaceEditReadSet(
+                target=target_version,
+                references=tuple(item.version for item in reference_sources),
+            )
+            return WorkspaceEditSources(
+                read_set=read_set,
+                target=target_source,
+                references=reference_sources,
+            )
+
+    def commit_edit_text(
+        self,
+        link: WorkspaceLink | str,
+        text: str,
+        *,
+        read_set: WorkspaceEditReadSet,
+        overwrite: bool,
+        retention: WorkspaceRetention | None = None,
+        owner_turn_id: str = "",
+    ) -> WorkspaceResourceRecord:
+        """Validate the complete edit read set and commit under the same lock."""
+
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        if str(parsed) != read_set.target.link:
+            raise WorkspaceContractError(
+                "Workspace edit commit target does not match its read set"
+            )
+        with self._lock:
+            before = self._manifest_store.load()
+            self._require_resource_version(read_set.target)
+            for version in read_set.references:
+                self._require_resource_version(version)
+            record = self._write_text(
+                parsed,
+                text,
+                overwrite=overwrite,
+                expected_digest=(
+                    read_set.target.digest
+                    if read_set.target.state is WorkspaceResourceState.PRESENT
+                    else ""
+                ),
+                retention=retention,
+                owner_turn_id=owner_turn_id,
+            )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.WRITE,
+            before=before,
+            after=after,
+        )
+        return record
+
+    def _edit_prompt_source(
+        self,
+        link: str,
+        *,
+        allow_absent: bool,
+        target: bool,
+    ) -> WorkspacePromptSource | None:
+        if allow_absent and not self._write_target_exists(link):
+            return None
+        record = self._inspect_record(link)
+        if target and record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Workspace edit target is not readable text: {record.link}"
+            )
+        version = WorkspaceResourceVersion(
+            link=record.link,
+            state=WorkspaceResourceState.PRESENT,
+            digest=record.digest,
+            size=record.size,
+            kind=record.kind,
+        )
+        if record.kind is WorkspaceResourceKind.TEXT:
+            read = self._read_text(record.link, max_chars=None)
+            return WorkspacePromptSource(
+                version=version,
+                text_slice=_slice_from_read(
+                    read,
+                    range_label=f"prefix:{self._settings.max_read_chars}",
+                ),
+            )
+        if record.kind is WorkspaceResourceKind.IMAGE:
+            return WorkspacePromptSource(
+                version=version,
+                image=self._read_image(record.link, max_bytes=None),
+            )
+        if record.kind is WorkspaceResourceKind.DOCUMENT:
+            raise WorkspaceContractError(
+                f"Workspace document requires conversion before prompt use: {record.link}"
+            )
+        raise WorkspaceContractError(
+            f"Workspace binary resource cannot be loaded into a prompt: {record.link}"
+        )
+
+    def _require_resource_version(self, expected: WorkspaceResourceVersion) -> None:
+        actual = self._resource_version(expected.link)
+        if actual != expected:
+            raise WorkspaceSourceChanged(
+                link=expected.link,
+                expected_state=expected.state.value,
+                actual_state=actual.state.value,
+                expected_digest=expected.digest,
+                actual_digest=actual.digest,
+            )
+
+    def _resource_version(self, link: str) -> WorkspaceResourceVersion:
+        if not self._write_target_exists(link):
+            return WorkspaceResourceVersion(
+                link=link,
+                state=WorkspaceResourceState.ABSENT,
+            )
+        record = self._inspect_record(link, restore_if_trashed=False)
+        return WorkspaceResourceVersion(
+            link=record.link,
+            state=WorkspaceResourceState.PRESENT,
+            digest=record.digest,
+            size=record.size,
+            kind=record.kind,
+        )
 
     def _write_target_exists(self, link: WorkspaceLink | str) -> bool:
         parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link

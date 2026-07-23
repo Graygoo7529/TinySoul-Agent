@@ -157,7 +157,8 @@ def test_llm_action_reports_unsupported_reference_link() -> None:
     result = executor.execute(execution, ActionExecutionContext())
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "unsupported_reference_link"
+    assert result.failure is not None
+    assert result.failure.reason == "unsupported_reference_link"
     assert llm.calls == []
 
 
@@ -181,7 +182,8 @@ def test_llm_action_cancellation_stops_before_nested_task() -> None:
     )
 
     assert result.status is ActionResultStatus.TIMEOUT
-    assert result.frame_data["reason"] == "timeout"
+    assert result.failure is not None
+    assert result.failure.reason == "cancelled"
     assert llm.calls == []
 
 
@@ -326,13 +328,14 @@ def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
     )
 
     assert isinstance(result, ActionResult)
-    assert result.payload == {
-        "failure": {
-            "reason": "artifact_too_large",
-            "scope": "action.artifact",
-            "disposition": "change_request",
-            "constraint": {"max_output_chars": 4},
-        }
+    assert result.payload == {}
+    assert result.failure is not None
+    assert result.failure.to_json() == {
+        "reason": "artifact_too_large",
+        "scope": "action.artifact",
+        "disposition": "change_request",
+        "feedback": "Artifact task exceeded its artifact character limit of 4.",
+        "constraint": {"max_output_chars": 4},
     }
     assert result.frame_data["observed_chars"] == 8
 
@@ -360,10 +363,12 @@ def test_llm_action_output_limit_preserves_recovery_scope() -> None:
     )
 
     assert isinstance(result, ActionResult)
-    assert result.payload["failure"] == {
+    assert result.failure is not None
+    assert result.failure.to_json() == {
         "reason": "output_limit_reached",
         "scope": "llm.output",
         "disposition": "change_request",
+        "feedback": "Model generation reached its output token limit.",
         "constraint": {"max_output_tokens": 2048},
     }
 

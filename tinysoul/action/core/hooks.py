@@ -10,7 +10,12 @@ from tinysoul.llm.tools import ToolCallRecord
 from tinysoul.runtime import RuntimeException, RuntimeTransferInterrupt
 
 from .errors import ActionContractError, ActionInvariantError
-from .result import ActionResult, ActionResultStage
+from .result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+)
 from .schema import ActionSchemaValidationError, validate_action_params
 from .specs import ActionSpec
 
@@ -228,6 +233,7 @@ class ActionNormalizeHookPipeline:
             except Exception as exc:
                 return _normalize_hook_failure(
                     item,
+                    reason="normalize_hook_unavailable",
                     model_feedback=f"Action normalize hook is not available: {name}",
                     frame_data={
                         "hook": name,
@@ -257,6 +263,7 @@ class ActionNormalizeHookPipeline:
         except Exception as exc:
             return _normalize_hook_failure(
                 item,
+                reason="normalize_hook_failed",
                 model_feedback=f"Action normalize hook failed: {name}",
                 frame_data={
                     "hook": name,
@@ -266,6 +273,7 @@ class ActionNormalizeHookPipeline:
         if not outcome.ok:
             return _normalize_hook_failure(
                 item,
+                reason="normalize_hook_rejected",
                 model_feedback=outcome.model_feedback
                 or f"Action normalize hook failed: {name}",
                 frame_data={"hook": name, **outcome.frame_data},
@@ -297,6 +305,7 @@ class ActionExecutionHookPipeline:
             except Exception as exc:
                 return _execution_hook_failure(
                     execution,
+                    reason="execution_hook_unavailable",
                     model_feedback=f"Action execution hook is not available: {name}",
                     frame_data={
                         "hook": name,
@@ -310,6 +319,7 @@ class ActionExecutionHookPipeline:
             except Exception as exc:
                 return _execution_hook_failure(
                     execution,
+                    reason="execution_hook_failed",
                     model_feedback=f"Action execution hook failed: {name}",
                     frame_data={
                         "hook": name,
@@ -319,6 +329,7 @@ class ActionExecutionHookPipeline:
             if not outcome.ok:
                 return _execution_hook_failure(
                     execution,
+                    reason="execution_hook_rejected",
                     model_feedback=outcome.model_feedback
                     or f"Action execution hook failed: {name}",
                     frame_data={"hook": name, **outcome.frame_data},
@@ -330,6 +341,7 @@ def _normalize_hook_failure(
     item: ActionNormalizeInput,
     *,
     model_feedback: str,
+    reason: str,
     frame_data: JsonObject,
 ) -> ActionResult:
     return ActionResult.failed(
@@ -337,7 +349,12 @@ def _normalize_hook_failure(
         action_name=item.tool_call.name,
         stage=ActionResultStage.NORMALIZE,
         sequence=item.sequence,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="action.normalize_hook",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )
 
@@ -346,6 +363,7 @@ def _execution_hook_failure(
     execution: ActionExecution,
     *,
     model_feedback: str,
+    reason: str,
     frame_data: JsonObject,
 ) -> ActionResult:
     return ActionResult.failed(
@@ -356,7 +374,12 @@ def _execution_hook_failure(
         stage=ActionResultStage.HOOK,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="action.execution_hook",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )
 

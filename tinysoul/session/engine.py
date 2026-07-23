@@ -9,8 +9,14 @@ from threading import RLock
 
 from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
 from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.infra.paging import (
+    JsonPageCursor,
+    JsonPageError,
+    page_json_sequence,
+)
 from tinysoul.loop.day import BusinessDay
 
+from .action_history import TurnActionProjection, project_turn_actions
 from .config import SessionSettings
 from .errors import SessionContractError, SessionInvariantError
 from .memory import (
@@ -220,13 +226,17 @@ class SessionEngine:
             self._require_day(day)
             manifest = self._require_manifest()
             ref = f"session:turn/{summary.turn_id}"
+            projection = project_turn_actions(
+                summary.trace,
+                expected_digest=summary.trace_digest,
+            )
             background = _turn_background(
                 summary,
+                projection=projection,
                 output=output,
                 exhausted=exhausted,
                 action_names=frozenset(self._settings.background_action_names),
                 max_actions=self._settings.background_max_actions_per_turn,
-                action_max_chars=self._settings.background_action_max_chars,
             )
             self._store.save_record_if_absent(
                 SessionRecord(
@@ -236,6 +246,7 @@ class SessionEngine:
                         "day": manifest.day,
                         "background": background,
                         "completion": summary.to_json(),
+                        "action_history": projection.summary_json(),
                         "output": output,
                         "exhausted": exhausted,
                     },
@@ -268,7 +279,7 @@ class SessionEngine:
         ref: str,
         *,
         max_chars: int | None = None,
-        cursor: int = 0,
+        cursor: JsonObject | None = None,
     ) -> JsonObject:
         with self._lock:
             self._require_manifest()
@@ -276,11 +287,93 @@ class SessionEngine:
             requested = self._settings.recall_max_chars if max_chars is None else max_chars
             if isinstance(requested, bool) or requested <= 0:
                 raise SessionContractError("Session recall max_chars must be positive")
-            if isinstance(cursor, bool) or cursor < 0:
-                raise SessionContractError("Session recall cursor cannot be negative")
+            try:
+                page_cursor = JsonPageCursor.from_json(cursor)
+            except JsonPageError as exc:
+                raise SessionContractError(str(exc)) from exc
             limit = min(requested, self._settings.recall_max_chars)
             record = self._store.load_record(ref)
-            return _recall_record(record, max_chars=limit, cursor=cursor)
+            return _recall_record(
+                record,
+                max_chars=limit,
+                requested_max_chars=requested,
+                cursor=page_cursor,
+            )
+
+    def action_history(
+        self,
+        ref: str,
+        *,
+        cursor: int = 0,
+        max_items: int | None = None,
+    ) -> JsonObject:
+        """Return complete Action facts plus one bounded detail page for a Turn."""
+
+        with self._lock:
+            self._require_manifest()
+            self._last_reconcile_result = self._reconcile_current()
+            if not ref.startswith("session:turn/"):
+                raise SessionContractError(
+                    "Session action history requires a session:turn ref"
+                )
+            if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+                raise SessionContractError(
+                    "Session action history cursor must be non-negative"
+                )
+            requested = (
+                self._settings.actions_page_max_items
+                if max_items is None
+                else max_items
+            )
+            if (
+                isinstance(requested, bool)
+                or not isinstance(requested, int)
+                or requested <= 0
+            ):
+                raise SessionContractError(
+                    "Session action history max_items must be positive"
+                )
+            record = self._store.load_record(ref)
+            projection = _action_projection_from_record(record)
+            completion = record.content.get("completion")
+            if not isinstance(completion, dict):
+                raise SessionInvariantError(
+                    f"Session Turn record is missing completion: {ref}"
+                )
+            if cursor > len(projection.details):
+                raise SessionContractError(
+                    "Session action history cursor exceeds the detail count"
+                )
+            trace_value = completion.get("trace")
+            if not isinstance(trace_value, list):
+                raise SessionInvariantError(
+                    f"Session Turn record has an invalid trace: {ref}"
+                )
+            page_size = min(requested, self._settings.actions_page_max_items)
+            stop = min(len(projection.details), cursor + page_size)
+            next_cursor = stop if stop < len(projection.details) else None
+            return {
+                "source": {
+                    "owner": "session",
+                    "ref": ref,
+                    "turn_id": completion.get("turn_id"),
+                    "record_kind": record.kind.value,
+                    "trace_digest": projection.trace_digest,
+                    "trace_entry_count": len(trace_value),
+                },
+                "summary": projection.summary_json(),
+                "details": [item.to_json() for item in projection.details[cursor:stop]],
+                "detail_count": len(projection.details),
+                "requested_max_items": requested,
+                "effective_max_items": page_size,
+                "returned_detail_count": stop - cursor,
+                "cursor": cursor,
+                "next_cursor": next_cursor,
+                "coverage": [cursor, stop],
+                "remaining": len(projection.details) - stop,
+                "page_complete": next_cursor is None,
+                "truncated": next_cursor is not None,
+            }
 
     def _require_manifest(self) -> SessionManifest:
         if self._manifest is None:
@@ -449,6 +542,7 @@ def _turn_item_from_record(record: SessionRecord) -> SessionHistoryItem:
         raise SessionInvariantError(
             f"Session Turn record identity does not match completion: {record.ref}"
         )
+    _action_projection_from_record(record)
     stable_background = to_json_object(background)
     return SessionHistoryItem(
         item_id=turn_id,
@@ -462,11 +556,11 @@ def _turn_item_from_record(record: SessionRecord) -> SessionHistoryItem:
 def _turn_background(
     summary: TurnSummary,
     *,
+    projection: TurnActionProjection,
     output: JsonObject | None,
     exhausted: bool,
     action_names: frozenset[str],
     max_actions: int,
-    action_max_chars: int,
 ) -> JsonObject:
     asks = tuple(
         text
@@ -489,14 +583,15 @@ def _turn_background(
             "turn_id": summary.turn_id,
             "user_ask": _bounded_asks(asks),
             "actions": _project_action_history(
-                summary.trace,
+                projection,
                 action_names=action_names,
                 max_actions=max_actions,
-                action_max_chars=action_max_chars,
             ),
             "answer": _clip(answer, 1800),
             "references": references,
             "exhausted": exhausted,
+            "action_outcome_summary": projection.outcome_summary(),
+            "trace_summary": summary.trace_summary,
             "trace_digest": summary.trace_digest,
         }
     )
@@ -554,111 +649,153 @@ def _recall_record(
     record: SessionRecord,
     *,
     max_chars: int,
-    cursor: int,
+    requested_max_chars: int,
+    cursor: JsonPageCursor,
 ) -> JsonObject:
     background = record.content.get("background")
-    result: JsonObject = {
-        "background": to_json_object(background) if isinstance(background, dict) else {},
-    }
-    if record.kind is SessionHistoryKind.SUMMARY:
-        if cursor:
-            raise SessionContractError("Session summary recall does not accept a cursor")
-        refs = record.content.get("child_refs", [])
-        result["child_refs"] = refs if isinstance(refs, list) else []
-        return {
-            "ref": record.ref,
-            "kind": record.kind.value,
-            "content": result,
-            "cursor": 0,
-            "next_cursor": None,
-            "truncated": False,
-        }
-    completion = record.content.get("completion")
-    trace_value = completion.get("trace", []) if isinstance(completion, dict) else []
-    trace = trace_value if isinstance(trace_value, list) else []
-    if cursor > len(trace):
-        raise SessionContractError("Session recall cursor exceeds the Turn trace size")
-    selected: list[JsonValue] = []
-    next_cursor: int | None = None
-    for index, entry in enumerate(trace[cursor:], start=cursor):
-        candidate = [*selected, entry]
-        candidate_record = to_json_object({**result, "trace": candidate})
-        if selected and len(dumps_json(candidate_record)) > max_chars:
-            next_cursor = index
-            break
-        selected = candidate
-    result["trace"] = selected
-    result["trace_entry_count"] = len(trace)
-    return {
+    first_page = cursor.entry_index == 0 and cursor.char_offset == 0
+    base: JsonObject = {
         "ref": record.ref,
         "kind": record.kind.value,
-        "content": result,
-        "cursor": cursor,
-        "next_cursor": next_cursor,
-        "truncated": next_cursor is not None,
     }
+    if first_page:
+        base["background"] = (
+            to_json_object(background) if isinstance(background, dict) else {}
+        )
+    if record.kind is SessionHistoryKind.SUMMARY:
+        refs = record.content.get("child_refs", [])
+        if not isinstance(refs, list) or any(
+            not isinstance(ref, str) or not ref for ref in refs
+        ):
+            raise SessionInvariantError(
+                f"Session summary record has invalid child refs: {record.ref}"
+            )
+        base["source"] = {
+            "owner": "session",
+            "ref": record.ref,
+            "record_kind": record.kind.value,
+            "child_count": len(refs),
+        }
+        return _page_session_values(
+            tuple(refs),
+            base=base,
+            item_field="child_refs",
+            cursor_unit="summary_child",
+            cursor=cursor,
+            max_chars=max_chars,
+            requested_max_chars=requested_max_chars,
+        )
+    completion = record.content.get("completion")
+    if not isinstance(completion, dict):
+        raise SessionInvariantError(
+            f"Session Turn record is missing completion: {record.ref}"
+        )
+    trace_value = completion.get("trace")
+    if not isinstance(trace_value, list) or any(
+        not isinstance(entry, dict) for entry in trace_value
+    ):
+        raise SessionInvariantError(
+            f"Session Turn record has an invalid trace: {record.ref}"
+        )
+    base["source"] = {
+        "owner": "session",
+        "ref": record.ref,
+        "record_kind": record.kind.value,
+        "turn_id": completion.get("turn_id"),
+        "trace_digest": completion.get("trace_digest"),
+        "trace_entry_count": len(trace_value),
+    }
+    return _page_session_values(
+        tuple(to_json_object(entry) for entry in trace_value if isinstance(entry, dict)),
+        base=base,
+        item_field="trace",
+        cursor_unit="trace_entry",
+        cursor=cursor,
+        max_chars=max_chars,
+        requested_max_chars=requested_max_chars,
+    )
+
+
+def _page_session_values(
+    values: tuple[JsonValue, ...],
+    *,
+    base: JsonObject,
+    item_field: str,
+    cursor_unit: str,
+    cursor: JsonPageCursor,
+    max_chars: int,
+    requested_max_chars: int,
+) -> JsonObject:
+    try:
+        return page_json_sequence(
+            values,
+            base=base,
+            item_field=item_field,
+            cursor_unit=cursor_unit,
+            cursor=cursor,
+            max_chars=max_chars,
+            requested_max_chars=requested_max_chars,
+        )
+    except JsonPageError as exc:
+        raise SessionContractError(str(exc)) from exc
 
 
 def _project_action_history(
-    trace: tuple[JsonObject, ...],
+    projection: TurnActionProjection,
     *,
     action_names: frozenset[str],
     max_actions: int,
-    action_max_chars: int,
 ) -> list[JsonObject]:
-    calls: dict[str, JsonObject] = {}
-    order: list[str] = []
-    for entry in trace:
-        message = entry.get("message")
-        if not isinstance(message, dict) or message.get("role") != "assistant":
+    values: list[JsonObject] = []
+    for item in projection.details:
+        if item.action_name not in action_names:
             continue
-        tool_calls = message.get("tool_calls", [])
-        if not isinstance(tool_calls, list):
-            continue
-        for call in tool_calls:
-            if not isinstance(call, dict):
-                continue
-            call_id = call.get("id")
-            name = call.get("name")
-            if (
-                not isinstance(call_id, str)
-                or not isinstance(name, str)
-                or name not in action_names
-            ):
-                continue
-            calls[call_id] = to_json_object(
-                {
-                    "action": name,
-                    "call_id": call_id,
-                    "arguments": _bounded_json(call.get("arguments"), 600),
-                }
-            )
-            order.append(call_id)
-    for entry in trace:
-        message = entry.get("message")
-        if not isinstance(message, dict) or message.get("role") != "tool_result":
-            continue
-        call_id = message.get("call_id")
-        if not isinstance(call_id, str) or call_id not in calls:
-            continue
-        calls[call_id]["status"] = message.get("status", "")
-        calls[call_id]["result"] = _bounded_json(
-            message.get("content"),
-            action_max_chars,
+        detail = item.to_json()
+        failure = detail.pop("failure", None)
+        if isinstance(failure, dict):
+            detail["failure"] = {
+                key: failure[key]
+                for key in ("reason", "scope", "disposition")
+                if key in failure
+            }
+        values.append(detail)
+    return values[-max_actions:]
+
+
+def _action_projection_from_record(record: SessionRecord) -> TurnActionProjection:
+    if record.kind is not SessionHistoryKind.TURN:
+        raise SessionContractError(
+            "Session action history is only available for Turn records"
         )
-    return [calls[call_id] for call_id in order[-max_actions:]]
+    completion = record.content.get("completion")
+    stored = record.content.get("action_history")
+    if not isinstance(completion, dict) or not isinstance(stored, dict):
+        raise SessionInvariantError(
+            f"Session Turn record is missing Action history: {record.ref}"
+        )
+    trace_value = completion.get("trace")
+    digest = completion.get("trace_digest")
+    if not isinstance(trace_value, list) or any(
+        not isinstance(item, dict) for item in trace_value
+    ):
+        raise SessionInvariantError(
+            f"Session Turn record has an invalid trace: {record.ref}"
+        )
+    if not isinstance(digest, str):
+        raise SessionInvariantError(
+            f"Session Turn record has an invalid trace digest: {record.ref}"
+        )
+    projection = project_turn_actions(
+        tuple(to_json_object(item) for item in trace_value if isinstance(item, dict)),
+        expected_digest=digest,
+    )
+    if projection.summary_json() != to_json_object(stored):
+        raise SessionInvariantError(
+            f"Session Turn Action history projection is inconsistent: {record.ref}"
+        )
+    return projection
 
 
-def _bounded_json(value: object, max_chars: int) -> JsonValue:
-    wrapped = to_json_object({"value": value})["value"]
-    rendered = dumps_json(wrapped)
-    if len(rendered) <= max_chars:
-        return wrapped
-    preview_limit = max(1, max_chars - 48)
-    return {
-        "truncated": True,
-        "preview": rendered[:preview_limit],
-    }
 
 
 def _clip(text: str, limit: int) -> str:

@@ -9,7 +9,10 @@ import pytest
 from tinysoul.context.controls import (
     CONTROL_EVICT_BACKGROUND,
     CONTROL_LOAD_BACKGROUND,
-    CONTROL_UPDATE_WORKING,
+    CONTROL_REMOVE_MILESTONE,
+    CONTROL_REMOVE_TODO,
+    CONTROL_SET_MILESTONE,
+    CONTROL_SET_TODO,
     ContextControlScopeBuilder,
     ControlCallNormalizer,
     ControlResult,
@@ -44,7 +47,10 @@ def test_control_scope_reflects_loadable_and_loaded_links() -> None:
     )
     names = [tool.name for tool in scope.tools]
     assert names == [
-        CONTROL_UPDATE_WORKING,
+        CONTROL_SET_MILESTONE,
+        CONTROL_REMOVE_MILESTONE,
+        CONTROL_SET_TODO,
+        CONTROL_REMOVE_TODO,
         CONTROL_LOAD_BACKGROUND,
         CONTROL_EVICT_BACKGROUND,
     ]
@@ -60,44 +66,48 @@ def test_control_scope_reflects_loadable_and_loaded_links() -> None:
     assert "enum" not in items
 
     minimal = builder.build(loadable_links=(), loaded_links=())
-    assert [tool.name for tool in minimal.tools] == [CONTROL_UPDATE_WORKING]
+    assert [tool.name for tool in minimal.tools] == [
+        CONTROL_SET_MILESTONE,
+        CONTROL_REMOVE_MILESTONE,
+        CONTROL_SET_TODO,
+        CONTROL_REMOVE_TODO,
+    ]
 
 
-def test_update_working_control_scope_does_not_expose_workspace_resources() -> None:
-    tool = ContextControlScopeBuilder().build(
+def test_working_control_scope_does_not_expose_workspace_resources() -> None:
+    tools = ContextControlScopeBuilder().build(
         loadable_links=(),
         loaded_links=(),
-    ).tools[0]
-    properties = tool.parameters["properties"]
-
-    assert isinstance(properties, dict)
-    assert "set_resources" not in properties
-    assert "remove_resources" not in properties
+    ).tools
+    assert all("resources" not in str(tool.parameters) for tool in tools)
 
 
-def test_normalize_update_working_produces_signal() -> None:
+def test_normalize_working_operations_produce_signals() -> None:
     normalizer = ControlCallNormalizer()
     normalization = normalizer.normalize(
         (
             ToolCallRecord(
                 id="call_1",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={
-                    "set_milestones": [{"key": "goal", "content": "done soon"}],
-                    "set_todos": [
-                        {"key": "t1", "content": "write", "status": "in_progress"}
-                    ],
-                },
+                name=CONTROL_SET_MILESTONE,
+                arguments={"key": "goal", "content": "done soon"},
+                kind=ToolKind.CONTROL,
+            ),
+            ToolCallRecord(
+                id="call_2",
+                name=CONTROL_SET_TODO,
+                arguments={"key": "t1", "content": "write", "status": "in_progress"},
                 kind=ToolKind.CONTROL,
             ),
         ),
         scope=SCOPE,
     )
     assert normalization.results == ()
-    assert len(normalization.signals) == 1
-    signal = normalization.signals[0]
-    assert signal.name == SIGNAL_WORKING_PATCH
-    assert signal.payload["call_id"] == "call_1"
+    assert len(normalization.signals) == 2
+    assert all(signal.name == SIGNAL_WORKING_PATCH for signal in normalization.signals)
+    assert [signal.payload["call_id"] for signal in normalization.signals] == [
+        "call_1",
+        "call_2",
+    ]
 
 
 def test_normalize_background_calls_produce_signals() -> None:
@@ -144,22 +154,22 @@ def test_normalize_failures_become_local_results() -> None:
         (
             ToolCallRecord(
                 id="dup",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"set_milestones": [{"key": "a", "content": "b"}]},
+                name=CONTROL_SET_MILESTONE,
+                arguments={"key": "a", "content": "b"},
                 kind=ToolKind.CONTROL,
             ),
-            ToolCallRecord(id="dup", name=CONTROL_UPDATE_WORKING, arguments={}),
+            ToolCallRecord(id="dup", name=CONTROL_REMOVE_MILESTONE, arguments={"key": "a"}),
             ToolCallRecord(id="c3", name="unknown_tool", arguments={}),
             ToolCallRecord(
                 id="c4",
-                name=CONTROL_UPDATE_WORKING,
+                name=CONTROL_SET_MILESTONE,
                 arguments={},
                 kind=ToolKind.CONTROL,
             ),
             ToolCallRecord(
                 id="c5",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"set_todos": [{"key": "", "content": "x"}]},
+                name=CONTROL_SET_TODO,
+                arguments={"key": "", "content": "x", "status": "pending"},
                 kind=ToolKind.CONTROL,
             ),
             ToolCallRecord(
@@ -178,7 +188,7 @@ def test_normalize_failures_become_local_results() -> None:
     }
     assert reasons["dup"] == "duplicate_call_id"
     assert reasons["c3"] == "unknown_control_tool"
-    assert reasons["c4"] == "empty_patch"
+    assert reasons["c4"] == "invalid_arguments"
     assert reasons["c5"] == "invalid_arguments"
     assert reasons["c6"] == "action"
     assert all(

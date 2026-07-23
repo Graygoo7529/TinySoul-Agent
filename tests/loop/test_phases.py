@@ -526,7 +526,7 @@ def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
 
     prompt = _message_stack_text(llm.calls[0].messages)
     assert "reconcile existing WorkingContext" in prompt
-    assert "call update_working in this same Phase1 response" in prompt
+    assert "set/remove milestone or todo control tools" in prompt
     assert "mark every current-goal todo done or cancelled" in prompt
 
 
@@ -546,16 +546,12 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
                 ),
                 ToolCallRecord(
                     id="start_report",
-                    name="update_working",
-                    arguments={
-                        "set_todos": [
-                            {
-                                "key": "report",
-                                "content": "Write the report",
-                                "status": "in_progress",
-                            }
-                        ]
-                    },
+                        name="set_todo",
+                        arguments={
+                            "key": "report",
+                            "content": "Write the report",
+                            "status": "in_progress",
+                        },
                     kind=ToolKind.CONTROL,
                 ),
             ),
@@ -568,16 +564,12 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
                 ),
                 ToolCallRecord(
                     id="finish_report",
-                    name="update_working",
-                    arguments={
-                        "set_todos": [
-                            {
-                                "key": "report",
-                                "content": "Write the report",
-                                "status": "done",
-                            }
-                        ]
-                    },
+                        name="set_todo",
+                        arguments={
+                            "key": "report",
+                            "content": "Write the report",
+                            "status": "done",
+                        },
                     kind=ToolKind.CONTROL,
                 ),
             ),
@@ -831,6 +823,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("session.history.actions", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
@@ -910,6 +903,7 @@ def _action_engine(
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("session.history.actions", lambda execution, context: {})
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,

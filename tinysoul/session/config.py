@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.infra.paging import MIN_JSON_PAGE_CHARS
 
 
 @dataclass(frozen=True)
@@ -17,9 +18,9 @@ class SessionSettings:
     summary_target_ratio: float = 0.40
     min_recent_turns: int = 2
     recall_max_chars: int = 8000
+    actions_page_max_items: int = 50
     background_action_names: tuple[str, ...] = ("core.reason",)
     background_max_actions_per_turn: int = 3
-    background_action_max_chars: int = 1600
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path):
@@ -41,8 +42,8 @@ class SessionSettings:
         for name in {
             "background_max_chars",
             "recall_max_chars",
+            "actions_page_max_items",
             "background_max_actions_per_turn",
-            "background_action_max_chars",
         }:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -58,6 +59,13 @@ class SessionSettings:
                 key="session.background_max_chars",
                 value=self.background_max_chars,
                 expected="int >= 512",
+            )
+        if self.recall_max_chars < MIN_JSON_PAGE_CHARS:
+            raise ConfigError(
+                "Session recall_max_chars must leave room for paging metadata",
+                key="session.recall_max_chars",
+                value=self.recall_max_chars,
+                expected=f"int >= {MIN_JSON_PAGE_CHARS}",
             )
         if not 0 < self.summary_target_ratio < self.summary_watermark_ratio < 1:
             raise ConfigError(
@@ -112,9 +120,9 @@ def parse_session_settings(
             "summary_target_ratio",
             "min_recent_turns",
             "recall_max_chars",
+            "actions_page_max_items",
             "background_action_names",
             "background_max_actions_per_turn",
-            "background_action_max_chars",
         },
         key="session",
     )
@@ -125,6 +133,7 @@ def parse_session_settings(
         summary_target_ratio=_float(tree, "summary_target_ratio", 0.40),
         min_recent_turns=_int(tree, "min_recent_turns", 2),
         recall_max_chars=_int(tree, "recall_max_chars", 8000),
+        actions_page_max_items=_int(tree, "actions_page_max_items", 50),
         background_action_names=_strings(
             tree,
             "background_action_names",
@@ -134,11 +143,6 @@ def parse_session_settings(
             tree,
             "background_max_actions_per_turn",
             3,
-        ),
-        background_action_max_chars=_int(
-            tree,
-            "background_action_max_chars",
-            1600,
         ),
     )
 

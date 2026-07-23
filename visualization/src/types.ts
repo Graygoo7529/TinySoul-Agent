@@ -122,11 +122,40 @@ export interface SessionHistory {
   items: SessionHistoryItem[];
 }
 
+export interface SessionCursor {
+  entry_index: number;
+  char_offset: number;
+  entry_digest?: string;
+}
+
 export interface SessionRecall {
   ref: string;
-  text: string;
+  kind: string;
+  cursor_unit: "trace_entry" | "summary_child";
+  entry_count: number;
+  returned_entry_count: number;
+  returned_entry_indexes: number[];
+  entry_coverage: [number, number];
+  remaining_entry_count: number;
+  requested_max_chars: number;
+  effective_max_chars: number;
+  cursor: SessionCursor;
+  next_cursor: SessionCursor | null;
+  page_complete: boolean;
   truncated: boolean;
-  next_cursor: number;
+  background?: Record<string, unknown>;
+  source?: Record<string, unknown>;
+  trace?: Record<string, unknown>[];
+  child_refs?: string[];
+  oversized_entry?: {
+    entry_index: number;
+    entry_digest: string;
+    encoding: "canonical_json";
+    char_offset: number;
+    next_char_offset: number;
+    serialized_chars: number;
+    text: string;
+  };
 }
 
 export interface MaintenanceDecision {

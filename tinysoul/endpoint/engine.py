@@ -309,7 +309,7 @@ class EndpointEngine:
         ref: str,
         *,
         max_chars: int | None,
-        cursor: int,
+        cursor: JsonObject | None,
     ) -> JsonObject:
         try:
             with self._daily.active_day_lease():

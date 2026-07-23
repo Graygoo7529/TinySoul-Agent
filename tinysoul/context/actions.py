@@ -7,6 +7,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
     ActionTraceProjection,
@@ -51,11 +53,15 @@ class ContextTraceInspectExecutor(ActionExecutor):
     ) -> ActionResult:
         ref = _required_ref(execution)
         if ref is None:
-            return _failed(execution, "context.trace.inspect requires a non-empty ref")
+            return _failed(
+                execution,
+                "context.trace.inspect requires a non-empty ref",
+                reason="invalid_ref",
+            )
         try:
             payload = self._context.inspect_trace(ref)
         except ContextError as exc:
-            return _failed(execution, f"Trace inspect failed: {exc}")
+            return _failed(execution, f"Trace inspect failed: {exc}", reason="inspect_failed")
         return _success(execution, payload)
 
 
@@ -70,7 +76,11 @@ class ContextTraceRecallExecutor(ActionExecutor):
     ) -> ActionResult:
         ref = _required_ref(execution)
         if ref is None:
-            return _failed(execution, "context.trace.recall requires a non-empty ref")
+            return _failed(
+                execution,
+                "context.trace.recall requires a non-empty ref",
+                reason="invalid_ref",
+            )
         max_chars = execution.call.params.get("max_chars")
         if max_chars is not None and (
             isinstance(max_chars, bool)
@@ -80,12 +90,14 @@ class ContextTraceRecallExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "context.trace.recall max_chars must be a positive integer",
+                reason="invalid_max_chars",
             )
-        cursor = execution.call.params.get("cursor", 0)
-        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+        cursor = execution.call.params.get("cursor")
+        if cursor is not None and not isinstance(cursor, dict):
             return _failed(
                 execution,
-                "context.trace.recall cursor must be a non-negative integer",
+                "context.trace.recall cursor must be a continuation object",
+                reason="invalid_cursor",
             )
         try:
             payload = self._context.recall_trace(
@@ -94,13 +106,13 @@ class ContextTraceRecallExecutor(ActionExecutor):
                 cursor=cursor,
             )
         except ContextError as exc:
-            return _failed(execution, f"Trace recall failed: {exc}")
+            return _failed(execution, f"Trace recall failed: {exc}", reason="recall_failed")
         return _success(
             execution,
             payload,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
-                compact_payload={
+                canonical_payload={
                     "origin_ref": ref,
                     "entry_count": payload["entry_count"],
                     "next_cursor": payload["next_cursor"],
@@ -122,7 +134,7 @@ class ContextTraceFoldExecutor(ActionExecutor):
         try:
             folded = self._context.fold_trace_overlays()
         except ContextError as exc:
-            return _failed(execution, f"Trace fold failed: {exc}")
+            return _failed(execution, f"Trace fold failed: {exc}", reason="fold_failed")
         return _success(execution, {"folded_overlay_count": folded})
 
 
@@ -149,7 +161,7 @@ def _success(
     )
 
 
-def _failed(execution: ActionExecution, feedback: str) -> ActionResult:
+def _failed(execution: ActionExecution, feedback: str, *, reason: str) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -158,5 +170,10 @@ def _failed(execution: ActionExecution, feedback: str) -> ActionResult:
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="context.trace",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=feedback,
+        ),
     )

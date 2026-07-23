@@ -12,7 +12,9 @@ from tinysoul.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
     CONTROL_LOAD_BACKGROUND,
-    CONTROL_UPDATE_WORKING,
+    CONTROL_REMOVE_TODO,
+    CONTROL_SET_MILESTONE,
+    CONTROL_SET_TODO,
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_TRACE_APPEND,
     ContextContractError,
@@ -122,7 +124,16 @@ def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
             source="loop.phase3",
             cycle_id="cycle_1",
             origin_refs=("workspace:a.md",),
-            compact_payload={"link": "workspace:a.md", "folded": True},
+            canonical_message=ToolResultMessage.from_json(
+                call_id="read_1",
+                tool_name="workspace.read",
+                value={
+                    "action": "workspace.read",
+                    "status": "success",
+                    "stage": "execute",
+                    "payload": {"link": "workspace:a.md", "folded": True},
+                },
+            ),
         )
     )
 
@@ -140,7 +151,7 @@ def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
     assert isinstance(trace_message, dict)
     content = trace_message["content"]
     assert isinstance(content, list)
-    assert content[0]["value"] == {
+    assert content[0]["value"]["payload"] == {
         "link": "workspace:a.md",
         "folded": True,
     }
@@ -202,14 +213,14 @@ def test_consume_signals_commits_feasible_valid_changes() -> None:
         (
             ToolCallRecord(
                 id="ok",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"set_milestones": [{"key": "m", "content": "made progress"}]},
+                name=CONTROL_SET_MILESTONE,
+                arguments={"key": "m", "content": "made progress"},
                 kind=ToolKind.CONTROL,
             ),
             ToolCallRecord(
                 id="bad",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"remove_todos": ["missing"]},
+                name=CONTROL_REMOVE_TODO,
+                arguments={"key": "missing"},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -235,8 +246,8 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
         (
             ToolCallRecord(
                 id="set",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"set_todos": [{"key": "t1", "content": "write"}]},
+                name=CONTROL_SET_TODO,
+                arguments={"key": "t1", "content": "write", "status": "pending"},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -250,14 +261,14 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
         (
             ToolCallRecord(
                 id="remove_1",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"remove_todos": ["t1"]},
+                name=CONTROL_REMOVE_TODO,
+                arguments={"key": "t1"},
                 kind=ToolKind.CONTROL,
             ),
             ToolCallRecord(
                 id="remove_2",
-                name=CONTROL_UPDATE_WORKING,
-                arguments={"remove_todos": ["t1"]},
+                name=CONTROL_REMOVE_TODO,
+                arguments={"key": "t1"},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -725,7 +736,18 @@ def test_compress_via_engine() -> None:
     assert report.changed is True
     assert report.compacted_count == 3
     assert engine.trace_kinds() == (TraceKind.PHASE_NOTE,) * 3
-    assert engine.inspect_trace(f"turn:trace@{turn_id}")["roots"]
+    roots = engine.inspect_trace(f"turn:trace@{turn_id}")["roots"]
+    assert isinstance(roots, list) and roots
+    root = roots[0]
+    assert isinstance(root, dict)
+    ref = root["ref"]
+    assert isinstance(ref, str)
+    page = engine.recall_trace(ref)
+    source = page["source"]
+    assert isinstance(source, dict)
+    assert source["owner"] == "context"
+    assert source["turn_id"] == turn_id
+    assert source["trace_digest"] == engine.trace_digest()
 
 
 def test_abort_turn_discards_active_state() -> None:

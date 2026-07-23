@@ -167,22 +167,24 @@ Action result 需要同时表达三类信息：
 - 原始 call 顺序 `sequence`
 - 可选的 `invoke_id` / `batch_id` / `domain`
 - 结构化 payload
-- model feedback
+- 可选的 typed `ActionLocalFailure(reason, scope, disposition, feedback, constraint)`
 - frame data
 
 大块文件内容、隐式整文件内容和无界文本不直接塞回结果，改用资源句柄或摘要。明确 inspection action 可以返回受 owner 配置硬限制的文本片段；这类正文必须使用 foldable trace 生命周期，不能成为 Session 持久化正文。
 
 `ActionResult` 是具体 action call 的局部事实记录，不等同于 LLM message。Action phase result 是 action 模块某个 phase 的局部执行记录，用于表达无法绑定到具体 action call 的框架性问题。
 
-`ActionFeedbackRenderer` 负责把 action result 渲染为：
+`ActionResultRenderer` 负责把 action result 渲染为：
 
-1. 给模型看的 compact JSON payload。
-2. 给 trace/log 使用的完整 JSON payload。
-3. 可由 context 模块加入下一 cycle MessageStack 的 `ToolResultMessage`。
+1. 给模型看的统一 `action/status/stage/payload?/failure?` envelope；
+2. 给 trace/log 使用的同一 envelope 加执行标识和 frame data；
+3. 可由 Context 加入下一 Cycle MessageStack 的 visible/canonical `ToolResultMessage`。
 
-Context 模块决定这些渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 结果以完整 payload 作为 canonical trace；foldable 结果要求成功 ActionResult 提供非空 `compact_payload` 和有界、去重的 `origin_refs`，以 compact payload 作为 canonical trace、完整 payload 作为当前 Turn 的 visible overlay。Context 压缩或 `context.trace.fold` 会统一移除所有当前 visible overlays，显式 fold 结果使用 `folded_overlay_count`；TurnSummary 与 Session 始终只接收 canonical compact payload，即使当前 Turn 未发生压缩，也不会把完整 overlay 写入 Session。standard action 返回 projection 或 foldable action 缺少 projection 都由 runner 收敛为局部 trace-policy mismatch。failed/timeout 结果不携带 projection。
+Renderer 不是失败事实源，不从业务 payload 或 frame data 推断失败。`ActionResult.failure` 是 failed/timeout 的唯一通用失败事实；success 禁止 failure，failed/timeout 必须携带 failure。payload 只承载业务数据，frame data 只承载诊断，因此不存在 `payload.failure`。
 
-Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 compact 字段。字段选择属于业务 executor；Loop 只把已验证的 projection 转成 Context signal，Context 和 Session 不包含 action-specific 折叠分支。`context.trace.recall`、`session.history.recall`、`workspace.read` 和 `workspace.search_text` 共用该框架语义。
+Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。Renderer 构造的 canonical message 保留完整 Action envelope，只替换 envelope 内的业务 payload；完整 payload 作为当前 Turn visible overlay。Context 压缩或 `context.trace.fold` 统一移除 visible overlay，不修改 canonical message。TurnSummary 与 Session 始终只接收 canonical message。standard action 返回 projection、foldable action 缺少 projection或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
+
+Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal，Context 和 Session 不包含 action-specific 折叠分支。`context.trace.recall`、`session.history.recall`、`session.history.actions`、`workspace.read` 和 `workspace.search_text` 共用该框架语义。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 
@@ -232,13 +234,13 @@ Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide 
 
 `llm_action` backend options 由 backend kind validator 在 Catalog 构建边界统一校验：`max_output_tokens` 覆盖 `LLM_ACTION` profile 的 provider 生成上限，`max_output_chars` 限制 `run_text` 接受的完整工件字符数。前者属于 LLM 调用与上下文窗口预留，后者属于 action 工件边界；两者都不控制 ActionResult 进入 Context 的大小。结构化业务输出仍由 executor 校验自己的字段和结果预算，ActionResult trace 继续服从 Catalog 的 standard/foldable 生命周期。
 
-LLM task failure 由共享服务映射为模型可见 `{failure: {reason, scope, disposition, constraint?}}`。`retry_same` 只表示同一限制条件允许一次有界原样重试；`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 使用文本工件路径；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
+LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 只表示同一限制条件允许一次有界原样重试；`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。Workspace 内置 `workspace.write` 与 `workspace.rewrite` 使用文本工件路径；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
 
 `llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入，LLM runner 在重试、切换和 provider 调用前检查取消，并把剩余 deadline 映射为 provider request timeout；provider adapter 必须尊重该 timeout。取消在 provider 调用边界收敛为 Action timeout，避免已超时任务继续启动下一次模型尝试。Core 域默认使用 60 秒，但该值不是对供应商不可中断网络请求的硬停止保证。
 
 ## 组装入口
 
-`ActionEngine` 是 action 模块面向 Loop/Context 的唯一调用门面，位于 `tinysoul/action/engine.py`。它以私有字段持有 catalog、scope builder、normalizer、execution builder、runner 和 feedback renderer，不把内部组件作为公共状态暴露，不改变结果模型，也不引入 batch result。
+`ActionEngine` 是 action 模块面向 Loop/Context 的唯一调用门面，位于 `tinysoul/action/engine.py`。它以私有字段持有 catalog、scope builder、normalizer、execution builder、runner 和 result renderer，不把内部组件作为公共状态暴露，不改变结果模型，也不引入 batch result。
 
 上层模块应通过 `ActionEngine` 获取 action scope、执行批次和结果渲染，不直接调用 action 内部 builder、runner 或 renderer。`ActionEngine` 提供 action result、phase result 与 tool result replay 的渲染门面；renderer 仍是模块内部组件，用于保持结果模型和模型回放格式集中。
 

@@ -15,7 +15,10 @@ from .errors import ContextInvariantError
 from .signals import build_background_patch_signal, build_working_patch_signal
 from .working import Milestone, TodoItem, TodoStatus, WorkingPatch
 
-CONTROL_UPDATE_WORKING = "update_working"
+CONTROL_SET_MILESTONE = "set_milestone"
+CONTROL_REMOVE_MILESTONE = "remove_milestone"
+CONTROL_SET_TODO = "set_todo"
+CONTROL_REMOVE_TODO = "remove_todo"
 CONTROL_LOAD_BACKGROUND = "load_background"
 CONTROL_EVICT_BACKGROUND = "evict_background"
 
@@ -122,7 +125,12 @@ class ContextControlScopeBuilder:
         loadable_links: tuple[str, ...],
         loaded_links: tuple[str, ...],
     ) -> ToolScope:
-        tools: list[ToolSpec] = [self._update_working_spec()]
+        tools: list[ToolSpec] = [
+            self._set_milestone_spec(),
+            self._remove_milestone_spec(),
+            self._set_todo_spec(),
+            self._remove_todo_spec(),
+        ]
         if loadable_links:
             tools.append(self._load_background_spec())
         if loaded_links:
@@ -132,47 +140,53 @@ class ContextControlScopeBuilder:
             selection=ToolSelection(allowed_names=tuple(tool.name for tool in tools)),
         )
 
-    def _update_working_spec(self) -> ToolSpec:
-        item: JsonObject = {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "Stable item key."},
-                "content": {"type": "string", "description": "Item content."},
-            },
-            "required": ["key", "content"],
-            "additionalProperties": False,
-        }
-        todo_item: JsonObject = {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "Stable todo key."},
-                "content": {"type": "string", "description": "Todo content."},
-                "status": {
-                    "type": "string",
-                    "enum": [status.value for status in TodoStatus],
-                    "description": "Todo status.",
-                },
-            },
-            "required": ["key", "content"],
-            "additionalProperties": False,
-        }
+    def _set_milestone_spec(self) -> ToolSpec:
         return ToolSpec(
-            name=CONTROL_UPDATE_WORKING,
-            description=(
-                "Update the working context: set or remove milestones and todos. "
-                "Provide at least one operation."
-            ),
+            name=CONTROL_SET_MILESTONE,
+            description="Set or replace one WorkingContext milestone.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "set_milestones": {"type": "array", "items": item},
-                    "remove_milestones": {"type": "array", "items": {"type": "string"}},
-                    "set_todos": {"type": "array", "items": todo_item},
-                    "remove_todos": {"type": "array", "items": {"type": "string"}},
+                    "key": {"type": "string", "description": "Stable milestone key."},
+                    "content": {"type": "string", "description": "Milestone content."},
                 },
+                "required": ["key", "content"],
                 "additionalProperties": False,
             },
             kind=ToolKind.CONTROL,
+        )
+
+    def _remove_milestone_spec(self) -> ToolSpec:
+        return _remove_working_spec(
+            CONTROL_REMOVE_MILESTONE,
+            description="Remove one existing WorkingContext milestone.",
+        )
+
+    def _set_todo_spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=CONTROL_SET_TODO,
+            description="Set or replace one WorkingContext todo.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Stable todo key."},
+                    "content": {"type": "string", "description": "Todo content."},
+                    "status": {
+                        "type": "string",
+                        "enum": [status.value for status in TodoStatus],
+                        "description": "Todo status.",
+                    },
+                },
+                "required": ["key", "content", "status"],
+                "additionalProperties": False,
+            },
+            kind=ToolKind.CONTROL,
+        )
+
+    def _remove_todo_spec(self) -> ToolSpec:
+        return _remove_working_spec(
+            CONTROL_REMOVE_TODO,
+            description="Remove one existing WorkingContext todo.",
         )
 
     def _load_background_spec(self) -> ToolSpec:
@@ -272,8 +286,17 @@ class ControlCallNormalizer:
         scope: RunScope,
         sequence: int,
     ) -> Signal | ControlResult:
-        if tool_call.name == CONTROL_UPDATE_WORKING:
-            return self._normalize_update_working(tool_call, scope=scope, sequence=sequence)
+        if tool_call.name in {
+            CONTROL_SET_MILESTONE,
+            CONTROL_REMOVE_MILESTONE,
+            CONTROL_SET_TODO,
+            CONTROL_REMOVE_TODO,
+        }:
+            return self._normalize_working_operation(
+                tool_call,
+                scope=scope,
+                sequence=sequence,
+            )
         if tool_call.name in (CONTROL_LOAD_BACKGROUND, CONTROL_EVICT_BACKGROUND):
             return self._normalize_background(tool_call, scope=scope, sequence=sequence)
         return _normalize_failure(
@@ -283,7 +306,7 @@ class ControlCallNormalizer:
             frame_data={"reason": "unknown_control_tool"},
         )
 
-    def _normalize_update_working(
+    def _normalize_working_operation(
         self,
         tool_call: ToolCallRecord,
         *,
@@ -291,35 +314,13 @@ class ControlCallNormalizer:
         sequence: int,
     ) -> Signal | ControlResult:
         try:
-            patch = WorkingPatch(
-                set_milestones=tuple(
-                    Milestone(key=_arg_str(item, "key"), content=_arg_str(item, "content"))
-                    for item in _arg_object_list(tool_call.arguments, "set_milestones")
-                ),
-                remove_milestones=_arg_str_list(tool_call.arguments, "remove_milestones"),
-                set_todos=tuple(
-                    TodoItem(
-                        key=_arg_str(item, "key"),
-                        content=_arg_str(item, "content"),
-                        status=_arg_todo_status(item),
-                    )
-                    for item in _arg_object_list(tool_call.arguments, "set_todos")
-                ),
-                remove_todos=_arg_str_list(tool_call.arguments, "remove_todos"),
-            )
+            patch = _working_operation_patch(tool_call)
         except ControlArgumentError as exc:
             return _normalize_failure(
                 tool_call,
                 sequence=sequence,
                 model_feedback=str(exc),
                 frame_data={"reason": "invalid_arguments"},
-            )
-        if patch.is_empty():
-            return _normalize_failure(
-                tool_call,
-                sequence=sequence,
-                model_feedback="update_working requires at least one operation.",
-                frame_data={"reason": "empty_patch"},
             )
         return build_working_patch_signal(
             patch,
@@ -406,25 +407,60 @@ def _arg_str_list(value: JsonObject, name: str) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _arg_object_list(value: JsonObject, name: str) -> tuple[JsonObject, ...]:
-    item: JsonValue = value.get(name)
-    if item is None:
-        return ()
-    if not isinstance(item, list):
-        raise ControlArgumentError(f"Argument must be an object list: {name}")
-    result: list[JsonObject] = []
-    for element in item:
-        if not isinstance(element, dict):
-            raise ControlArgumentError(f"Argument must contain objects: {name}")
-        result.append(element)
-    return tuple(result)
-
-
 def _arg_todo_status(item: JsonObject) -> TodoStatus:
-    raw = item.get("status", TodoStatus.PENDING.value)
+    raw = item.get("status")
     if not isinstance(raw, str):
         raise ControlArgumentError("Todo status must be a string")
     try:
         return TodoStatus(raw)
     except ValueError as exc:
         raise ControlArgumentError(f"Unknown todo status: {raw}") from exc
+
+
+def _remove_working_spec(name: str, *, description: str) -> ToolSpec:
+    return ToolSpec(
+        name=name,
+        description=description,
+        parameters={
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Existing item key."},
+            },
+            "required": ["key"],
+            "additionalProperties": False,
+        },
+        kind=ToolKind.CONTROL,
+    )
+
+
+def _working_operation_patch(tool_call: ToolCallRecord) -> WorkingPatch:
+    arguments = tool_call.arguments
+    expected = (
+        {"key", "content", "status"}
+        if tool_call.name == CONTROL_SET_TODO
+        else {"key", "content"}
+        if tool_call.name == CONTROL_SET_MILESTONE
+        else {"key"}
+    )
+    if set(arguments) != expected:
+        raise ControlArgumentError(
+            f"{tool_call.name} requires exactly: {', '.join(sorted(expected))}"
+        )
+    key = _arg_str(arguments, "key")
+    if tool_call.name == CONTROL_SET_MILESTONE:
+        return WorkingPatch(
+            set_milestones=(Milestone(key=key, content=_arg_str(arguments, "content")),)
+        )
+    if tool_call.name == CONTROL_REMOVE_MILESTONE:
+        return WorkingPatch(remove_milestones=(key,))
+    if tool_call.name == CONTROL_SET_TODO:
+        return WorkingPatch(
+            set_todos=(
+                TodoItem(
+                    key=key,
+                    content=_arg_str(arguments, "content"),
+                    status=_arg_todo_status(arguments),
+                ),
+            )
+        )
+    return WorkingPatch(remove_todos=(key,))

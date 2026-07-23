@@ -289,7 +289,7 @@ def test_trace_recall_overlay_folds_back_to_origin_pointer() -> None:
     )
     trace.append_action_result(
         full,
-        compact_message=compact,
+        canonical_message=compact,
         origin_refs=("session:turn/old",),
     )
 

@@ -16,6 +16,7 @@ from tinysoul.action import (
     ActionExecutionControl,
     ActionFramework,
     ActionResultStatus,
+    ActionFailureDisposition,
     builtin_action_catalog_root,
 )
 from tinysoul.action.backends import (
@@ -40,11 +41,9 @@ from tinysoul.capabilities.web.config import (
 )
 from tinysoul.capabilities.web.dependencies import kimi_search_api_key
 from tinysoul.capabilities.web.errors import (
-    WebFailureDisposition,
     WebProcessingError,
     WebProcessTimeout,
     web_failure_disposition,
-    web_failure_payload,
 )
 from tinysoul.capabilities.web.models import WebExtractor
 from tinysoul.capabilities.web.network import FetchedPage, validate_public_https_url
@@ -313,73 +312,61 @@ def test_kimi_search_always_disables_thinking() -> None:
         (
             "network_request_failed",
             {},
-            WebFailureDisposition.RETRY_SAME,
+            ActionFailureDisposition.RETRY_SAME,
         ),
         (
             "http_status_error",
             {"status_code": 503},
-            WebFailureDisposition.RETRY_SAME,
+            ActionFailureDisposition.RETRY_SAME,
         ),
         (
             "http_status_error",
             {"status_code": 404},
-            WebFailureDisposition.CHANGE_REQUEST,
+            ActionFailureDisposition.CHANGE_REQUEST,
         ),
         (
             "invalid_url",
             {},
-            WebFailureDisposition.CHANGE_REQUEST,
+            ActionFailureDisposition.CHANGE_REQUEST,
         ),
         (
             "provider_protocol_invalid",
             {},
-            WebFailureDisposition.USE_FALLBACK,
+            ActionFailureDisposition.USE_FALLBACK,
         ),
         (
             "provider_request_failed",
             {"error_type": "RateLimitError"},
-            WebFailureDisposition.RETRY_SAME,
+            ActionFailureDisposition.RETRY_SAME,
         ),
         (
             "provider_request_failed",
             {"error_type": "AuthenticationError"},
-            WebFailureDisposition.STOP,
+            ActionFailureDisposition.STOP,
         ),
         (
             "provider_request_failed",
             {"error_type": "BadRequestError"},
-            WebFailureDisposition.USE_FALLBACK,
+            ActionFailureDisposition.USE_FALLBACK,
         ),
         (
             "credential_unavailable",
             {},
-            WebFailureDisposition.STOP,
+            ActionFailureDisposition.STOP,
         ),
         (
             "unknown_web_failure",
             {},
-            WebFailureDisposition.STOP,
+            ActionFailureDisposition.STOP,
         ),
     ],
 )
 def test_web_failure_disposition_is_conservative_and_fact_aware(
     reason: str,
     facts: dict[str, JsonValue],
-    expected: WebFailureDisposition,
+    expected: ActionFailureDisposition,
 ) -> None:
     assert web_failure_disposition(reason, facts) is expected
-
-
-def test_web_failure_payload_is_compact_and_model_visible() -> None:
-    assert web_failure_payload(
-        "provider_protocol_invalid",
-        {"call_type": "builtin_function"},
-    ) == {
-        "failure": {
-            "reason": "provider_protocol_invalid",
-            "disposition": "use_fallback",
-        }
-    }
 
 
 def test_worker_failure_facts_keep_only_bounded_classification_data() -> None:
@@ -500,12 +487,10 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     )
 
     assert action_result.status is ActionResultStatus.FAILED
-    assert action_result.payload == {
-        "failure": {
-            "reason": "provider_protocol_invalid",
-            "disposition": "use_fallback",
-        }
-    }
+    assert action_result.payload == {}
+    assert action_result.failure is not None
+    assert action_result.failure.reason == "provider_protocol_invalid"
+    assert action_result.failure.disposition is ActionFailureDisposition.USE_FALLBACK
     assert action_result.frame_data == {
         "call_type": "builtin_function",
         "function_name": "$web_search",
@@ -513,7 +498,6 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
         "has_function": True,
         "has_arguments": True,
         "call_index": 0,
-        "reason": "provider_protocol_invalid",
     }
 
 
@@ -537,16 +521,11 @@ def test_kimi_timeout_returns_model_visible_fallback_disposition(
     )
 
     assert result.status is ActionResultStatus.TIMEOUT
-    assert result.payload == {
-        "failure": {
-            "reason": "process_timeout",
-            "disposition": "use_fallback",
-        }
-    }
-    assert result.frame_data == {
-        "reason": "process_timeout",
-        "executor_leaked": False,
-    }
+    assert result.payload == {}
+    assert result.failure is not None
+    assert result.failure.reason == "process_timeout"
+    assert result.failure.disposition is ActionFailureDisposition.USE_FALLBACK
+    assert result.frame_data == {"executor_leaked": False}
 
 
 def test_oversized_kimi_search_spills_complete_answer_and_results(

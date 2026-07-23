@@ -35,7 +35,8 @@ def phase1_task_prompt(
             "in the current Context."
         ),
         (
-            "When real task state changed, call update_working in this same Phase1 "
+            "When real task state changed, call the relevant set/remove milestone "
+            "or todo control tools in this same Phase1 "
             "response; do not leave completed work pending or in_progress, and do "
             "not mark a failed or merely attempted action done."
         ),
@@ -66,9 +67,9 @@ def phase1_task_prompt(
                 (
                     "# Expected Output\n"
                     "Call select_action_domains with at least one valid domain. "
-                    "Call update_working in the same response whenever existing task "
-                    "state needs reconciliation; other context control tools remain "
-                    "optional."
+                    "Call the relevant set/remove milestone or todo control tools in "
+                    "the same response whenever existing task state needs "
+                    "reconciliation; other context control tools remain optional."
                 ),
             ),
         ),

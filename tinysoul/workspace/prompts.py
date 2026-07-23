@@ -16,8 +16,11 @@ from tinysoul.runtime import RuntimeException
 
 from .engine import (
     WorkspaceAnalysisInput,
+    WorkspaceEditReadSet,
+    WorkspaceEditSources,
     WorkspaceEngine,
     WorkspacePromptInput,
+    WorkspacePromptSource,
     WorkspaceTextSlice,
 )
 from .errors import (
@@ -214,10 +217,14 @@ class WorkspacePromptReferenceResolver(PromptReferenceResolver):
 
 @dataclass(frozen=True)
 class WorkspaceEditPrompt:
-    """One workspace edit task prompt and the target state it was built from."""
+    """One workspace edit task prompt and every source version it used."""
 
     prompt: TaskPrompt
-    target_digest: str = ""
+    read_set: WorkspaceEditReadSet
+
+    @property
+    def target_digest(self) -> str:
+        return self.read_set.target.digest
 
 
 class WorkspaceEditPromptBuilder:
@@ -230,10 +237,7 @@ class WorkspaceEditPromptBuilder:
         runtime_bridge: WorkspaceTrashRuntimeBridge | None = None,
     ) -> None:
         self._workspace = workspace
-        self._resolver = WorkspacePromptReferenceResolver(
-            workspace,
-            runtime_bridge=runtime_bridge,
-        )
+        self._runtime_bridge = runtime_bridge
 
     def build_describe(
         self,
@@ -241,8 +245,13 @@ class WorkspaceEditPromptBuilder:
         target_link: str,
         instruction: str,
     ) -> WorkspaceEditPrompt:
-        record = self._workspace.inspect(target_link)
-        target_blocks = self._resolver.resolve_reference(target_link)
+        sources = self._prepare_sources(target_link, (), require_target=True)
+        if sources.target is None:
+            raise WorkspaceError("Workspace describe target is absent")
+        target_blocks = _prompt_blocks_from_source(
+            sources.target,
+            role="reference",
+        )
         guidance = (
             "Describe the resource's purpose and important contents concisely. "
             "Do not repeat file size, MIME type, digest, or link metadata."
@@ -268,7 +277,7 @@ class WorkspaceEditPromptBuilder:
                     ),
                 ),
             ),
-            target_digest=record.digest,
+            read_set=sources.read_set,
         )
 
     def build_write(
@@ -277,18 +286,18 @@ class WorkspaceEditPromptBuilder:
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
-        include_target: bool,
         overwrite: bool,
     ) -> WorkspaceEditPrompt:
-        target_blocks: tuple[PromptBlock, ...] = ()
-        target_digest = ""
-        if include_target:
-            target_input = self._workspace.prepare_task_input((target_link,))
-            target_digest = target_input.slices[0].digest
-            target_blocks = prompt_blocks_from_workspace_input(
-                target_input,
-                role="target",
-            )
+        sources = self._prepare_sources(
+            target_link,
+            reference_links,
+            require_target=False,
+        )
+        target_blocks = (
+            _prompt_blocks_from_source(sources.target, role="target")
+            if sources.target is not None
+            else ()
+        )
         overwrite_text = "true" if overwrite else "false"
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
@@ -316,7 +325,14 @@ class WorkspaceEditPromptBuilder:
                         ),
                     ),
                     *target_blocks,
-                    *self._reference_blocks(reference_links),
+                    *(
+                        block
+                        for source in sources.references
+                        for block in _prompt_blocks_from_source(
+                            source,
+                            role="reference",
+                        )
+                    ),
                 ),
                 output_blocks=(
                     PromptBlock.from_text(
@@ -325,7 +341,7 @@ class WorkspaceEditPromptBuilder:
                     ),
                 ),
             ),
-            target_digest=target_digest,
+            read_set=sources.read_set,
         )
 
     def build_rewrite(
@@ -335,11 +351,14 @@ class WorkspaceEditPromptBuilder:
         instruction: str,
         reference_links: tuple[str, ...],
     ) -> WorkspaceEditPrompt:
-        target_input = self._workspace.prepare_task_input((target_link,))
-        target_blocks = prompt_blocks_from_workspace_input(
-            target_input,
-            role="target",
+        sources = self._prepare_sources(
+            target_link,
+            reference_links,
+            require_target=True,
         )
+        if sources.target is None:
+            raise WorkspaceError("Workspace rewrite target is absent")
+        target_blocks = _prompt_blocks_from_source(sources.target, role="target")
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
                 guide_blocks=(
@@ -358,7 +377,14 @@ class WorkspaceEditPromptBuilder:
                         "# Rewrite Instruction\n" + instruction,
                     ),
                     *target_blocks,
-                    *self._reference_blocks(reference_links),
+                    *(
+                        block
+                        for source in sources.references
+                        for block in _prompt_blocks_from_source(
+                            source,
+                            role="reference",
+                        )
+                    ),
                 ),
                 output_blocks=(
                     PromptBlock.from_text(
@@ -367,23 +393,63 @@ class WorkspaceEditPromptBuilder:
                     ),
                 ),
             ),
-            target_digest=target_input.slices[0].digest,
+            read_set=sources.read_set,
         )
 
-    def _reference_blocks(
+    def _prepare_sources(
         self,
-        links: tuple[str, ...],
-    ) -> tuple[PromptBlock, ...]:
-        blocks: list[PromptBlock] = []
-        for link in links:
-            if not self._resolver.supports(link):
-                raise PromptReferenceError(
-                    f"Unsupported workspace reference link: {link}",
-                    reason="unsupported_reference_link",
-                    payload={"link": link},
-                )
-            blocks.extend(self._resolver.resolve_reference(link))
-        return tuple(blocks)
+        target_link: str,
+        reference_links: tuple[str, ...],
+        *,
+        require_target: bool,
+    ) -> WorkspaceEditSources:
+        try:
+            return self._workspace.prepare_edit_sources(
+                target_link,
+                reference_links,
+                require_target=require_target,
+            )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+
+
+def _prompt_blocks_from_source(
+    source: WorkspacePromptSource,
+    *,
+    role: str,
+) -> tuple[PromptBlock, ...]:
+    if source.text_slice is not None:
+        return (_block_from_slice(source.text_slice, role=role),)
+    image = source.image
+    if image is None:
+        raise WorkspaceError("Workspace prompt source has no renderable body")
+    label_role = "target" if role == "target" else "reference"
+    heading = "# Workspace Target" if label_role == "target" else "# Workspace Reference"
+    label = f"task_prompt:input:workspace:{label_role}:{image.link}:image"
+    metadata = "\n".join(
+        (
+            heading,
+            f"link: {image.link}",
+            f"media_type: {image.media_type}",
+            f"size: {image.size} bytes",
+            f"digest: {image.digest}",
+        )
+    )
+    return (
+        PromptBlock(
+            label=label,
+            message=UserMessage.from_parts(
+                TextPart(metadata),
+                ImagePart(data=image.data, mime_type=image.media_type),
+                label=label,
+            ),
+        ),
+    )
 
 
 def prompt_blocks_from_workspace_input(

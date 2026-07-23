@@ -39,3 +39,23 @@ class WorkspaceTrashRestoreRequired(WorkspaceError):
         self.link = link
         self.trash_ref = trash_ref
 
+
+class WorkspaceSourceChanged(WorkspaceError):
+    """Raised when an edit prompt source changed before commit."""
+
+    def __init__(
+        self,
+        *,
+        link: str,
+        expected_state: str,
+        actual_state: str,
+        expected_digest: str = "",
+        actual_digest: str = "",
+    ) -> None:
+        super().__init__(f"Workspace edit source changed before commit: {link}")
+        self.link = link
+        self.expected_state = expected_state
+        self.actual_state = actual_state
+        self.expected_digest = expected_digest
+        self.actual_digest = actual_digest
+

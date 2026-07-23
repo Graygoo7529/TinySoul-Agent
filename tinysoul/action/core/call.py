@@ -17,7 +17,14 @@ from .hooks import (
     ActionNormalizeInput,
 )
 from tinysoul.runtime import CyclePhase
-from .result import ActionPhaseResult, ActionPhaseResultStage, ActionResult, ActionResultStage
+from .result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionPhaseResult,
+    ActionPhaseResultStage,
+    ActionResult,
+    ActionResultStage,
+)
 from .specs import ActionSpec
 
 
@@ -161,8 +168,8 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        model_feedback=f"Duplicate action tool call id: {tool_call.id}",
-                        frame_data={"reason": "duplicate_call_id"},
+                        feedback=f"Duplicate action tool call id: {tool_call.id}",
+                        reason="duplicate_call_id",
                     )
                 )
                 continue
@@ -172,10 +179,11 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        model_feedback=(
+                        feedback=(
                             "Expected an action tool call, but received a control or "
                             "uncategorized tool call."
                         ),
+                        reason="unexpected_tool_kind",
                         frame_data={"tool_kind": tool_call.kind.value if tool_call.kind else None},
                     )
                 )
@@ -185,7 +193,8 @@ class ActionCallNormalizer:
                     _normalize_failure(
                         tool_call,
                         sequence=sequence,
-                        model_feedback=f"Unknown action tool call: {tool_call.name}",
+                        feedback=f"Unknown action tool call: {tool_call.name}",
+                        reason="unknown_action",
                     )
                 )
                 continue
@@ -248,8 +257,8 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        stage_feedback=f"Duplicate action call id: {call.call_id}",
-                        frame_data={"reason": "duplicate_call_id"},
+                        feedback=f"Duplicate action call id: {call.call_id}",
+                        reason="duplicate_call_id",
                     )
                 )
                 continue
@@ -258,8 +267,8 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        stage_feedback=f"Duplicate action sequence: {call.sequence}",
-                        frame_data={"reason": "duplicate_sequence"},
+                        feedback=f"Duplicate action sequence: {call.sequence}",
+                        reason="duplicate_sequence",
                     )
                 )
                 continue
@@ -270,8 +279,8 @@ class ActionExecutionBuilder:
                     _prepare_failure(
                         call,
                         batch_id=resolved_batch_id,
-                        stage_feedback=f"Unknown action during preparation: {call.action_name}",
-                        frame_data={"reason": "unknown_action"},
+                        feedback=f"Unknown action during preparation: {call.action_name}",
+                        reason="unknown_action",
                     )
                 )
                 continue
@@ -306,10 +315,14 @@ class ActionExecutionBuilder:
                     ActionPhaseResult.failed(
                         phase=phase,
                         stage=ActionPhaseResultStage.PREPARE,
-                        model_feedback="Action batch preparation failed.",
+                        failure=ActionLocalFailure(
+                            reason="batch_invariant_error",
+                            scope="action.prepare",
+                            disposition=ActionFailureDisposition.STOP,
+                            feedback="Action batch preparation failed.",
+                        ),
                         frame_data={
                             "error_type": type(exc).__name__,
-                            "reason": "batch_invariant_error",
                         },
                         turn_id=turn_id,
                         cycle_id=cycle_id,
@@ -355,7 +368,8 @@ def _normalize_failure(
     tool_call: ToolCallRecord,
     *,
     sequence: int,
-    model_feedback: str,
+    feedback: str,
+    reason: str,
     frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
@@ -363,7 +377,12 @@ def _normalize_failure(
         action_name=tool_call.name,
         stage=ActionResultStage.NORMALIZE,
         sequence=sequence,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="action.normalize",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=feedback,
+        ),
         frame_data=frame_data,
     )
 
@@ -372,8 +391,9 @@ def _prepare_failure(
     call: ActionCall,
     *,
     batch_id: str,
-    stage_feedback: str,
-    frame_data: JsonObject,
+    feedback: str,
+    reason: str,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=call.call_id,
@@ -381,6 +401,11 @@ def _prepare_failure(
         action_name=call.action_name,
         stage=ActionResultStage.PREPARE,
         sequence=call.sequence,
-        model_feedback=stage_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="action.prepare",
+            disposition=ActionFailureDisposition.STOP,
+            feedback=feedback,
+        ),
         frame_data=frame_data,
     )

@@ -7,6 +7,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
@@ -103,7 +105,7 @@ class HomeTopSearchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.search requires a non-empty 'query' parameter.",
-                {"reason": "invalid_query"},
+                reason="invalid_query",
             )
         if top_k is not None and (
             isinstance(top_k, bool) or not isinstance(top_k, int)
@@ -111,7 +113,7 @@ class HomeTopSearchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.search top_k must be an integer.",
-                {"reason": "invalid_top_k"},
+                reason="invalid_top_k",
             )
         try:
             result = self._home.search_top(
@@ -126,7 +128,8 @@ class HomeTopSearchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home top search failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="top_search_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return ActionResult.success(
             call_id=execution.call.call_id,
@@ -166,7 +169,7 @@ class HomeResourceReadExecutor(ActionExecutor):
             return self._failed(
                 execution,
                 "home.resource.read requires a non-empty 'link' parameter.",
-                {"reason": "missing_link"},
+                reason="missing_link",
             )
         max_chars = execution.call.params.get("max_chars")
         if max_chars is not None and (
@@ -175,7 +178,7 @@ class HomeResourceReadExecutor(ActionExecutor):
             return self._failed(
                 execution,
                 "home.resource.read max_chars must be a positive integer.",
-                {"reason": "invalid_max_chars"},
+                reason="invalid_max_chars",
             )
         try:
             result = self._home.read_resource(
@@ -193,7 +196,8 @@ class HomeResourceReadExecutor(ActionExecutor):
             return self._failed(
                 execution,
                 f"Agent Home resource read failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="resource_read_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return ActionResult.success(
             call_id=execution.call.call_id,
@@ -214,7 +218,9 @@ class HomeResourceReadExecutor(ActionExecutor):
         self,
         execution: ActionExecution,
         model_feedback: str,
-        frame_data: JsonObject,
+        *,
+        reason: str,
+        frame_data: JsonObject | None = None,
     ) -> ActionResult:
         return ActionResult.failed(
             call_id=execution.call.call_id,
@@ -224,7 +230,12 @@ class HomeResourceReadExecutor(ActionExecutor):
             stage=ActionResultStage.EXECUTE,
             sequence=execution.call.sequence,
             domain=execution.framework.domain,
-            model_feedback=model_feedback,
+            failure=ActionLocalFailure(
+                reason=reason,
+                scope="home.action",
+                disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                feedback=model_feedback,
+            ),
             frame_data=frame_data,
         )
 
@@ -253,13 +264,13 @@ class HomeResourceWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.resource.write requires non-empty 'link' and string 'text'.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
             return _failed(
                 execution,
                 "home.resource.write overwrite/expected_digest parameters are invalid.",
-                {"reason": "invalid_precondition"},
+                reason="invalid_precondition",
             )
         try:
             result = self._home.write_resource(
@@ -274,7 +285,8 @@ class HomeResourceWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home resource write failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="resource_write_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -310,7 +322,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.resource.patch parameters are invalid.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         try:
             result = self._home.patch_resource(
@@ -325,7 +337,8 @@ class HomeResourcePatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home resource patch failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="resource_patch_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -352,7 +365,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.resource.delete parameters are invalid.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         try:
             result = self._home.delete_resource(
@@ -365,7 +378,8 @@ class HomeResourceDeleteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home resource delete failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="resource_delete_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -394,7 +408,7 @@ class HomeTopWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.write requires non-empty 'link' and string 'text'.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         if (
             not isinstance(overwrite, bool)
@@ -403,7 +417,7 @@ class HomeTopWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.write precondition parameters are invalid.",
-                {"reason": "invalid_precondition"},
+                reason="invalid_precondition",
             )
         try:
             result = self._home.write_top(
@@ -418,7 +432,8 @@ class HomeTopWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home top write failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="top_write_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -454,7 +469,7 @@ class HomeTopPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.patch parameters are invalid.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         try:
             result = self._home.patch_top(
@@ -469,7 +484,8 @@ class HomeTopPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home top patch failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="top_patch_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -496,7 +512,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.top.delete parameters are invalid.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         try:
             result = self._home.delete_top(link, expected_digest=expected_digest)
@@ -506,7 +522,8 @@ class HomeTopDeleteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home top delete failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="top_delete_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -535,13 +552,13 @@ class HomePromptMountWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.prompt_mount.write requires non-empty 'link' and string 'text'.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         if not isinstance(overwrite, bool) or not isinstance(expected_digest, str):
             return _failed(
                 execution,
                 "home.prompt_mount.write precondition parameters are invalid.",
-                {"reason": "invalid_precondition"},
+                reason="invalid_precondition",
             )
         try:
             result = self._home.write_prompt_mount(
@@ -556,7 +573,8 @@ class HomePromptMountWriteExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home prompt mount write failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="prompt_mount_write_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -592,7 +610,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "home.prompt_mount.patch parameters are invalid.",
-                {"reason": "invalid_parameters"},
+                reason="invalid_parameters",
             )
         try:
             result = self._home.patch_prompt_mount(
@@ -607,7 +625,8 @@ class HomePromptMountPatchExecutor(ActionExecutor):
             return _failed(
                 execution,
                 f"Agent Home prompt mount patch failed: {exc}",
-                {"error_type": type(exc).__name__},
+                reason="prompt_mount_patch_failed",
+                frame_data={"error_type": type(exc).__name__},
             )
         return _mutation_success(execution, result)
 
@@ -639,7 +658,9 @@ def _mutation_success(execution: ActionExecution, result: object) -> ActionResul
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
-    frame_data: JsonObject,
+    *,
+    reason: str,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -649,6 +670,11 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="home.action",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )

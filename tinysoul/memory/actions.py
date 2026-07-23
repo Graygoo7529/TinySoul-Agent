@@ -7,6 +7,8 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
 )
@@ -60,9 +62,9 @@ class MemorySearchExecutor(ActionExecutor):
         query = execution.call.params.get("query")
         top_k = execution.call.params.get("top_k")
         if not isinstance(query, str) or not query.strip():
-            return _failed(execution, "memory.search requires a non-empty query", {"reason": "invalid_query"})
+            return _failed(execution, "memory.search requires a non-empty query", reason="invalid_query")
         if top_k is not None and (isinstance(top_k, bool) or not isinstance(top_k, int)):
-            return _failed(execution, "memory.search top_k must be an integer", {"reason": "invalid_top_k"})
+            return _failed(execution, "memory.search top_k must be an integer", reason="invalid_top_k")
         try:
             result = self._memory.search(
                 query,
@@ -71,7 +73,12 @@ class MemorySearchExecutor(ActionExecutor):
                 scope=execution.framework.scope,
             )
         except MemoryContractError as exc:
-            return _failed(execution, f"Memory search failed: {exc}", {"error_type": type(exc).__name__})
+            return _failed(
+                execution,
+                f"Memory search failed: {exc}",
+                reason="search_failed",
+                frame_data={"error_type": type(exc).__name__},
+            )
         except MemoryError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
         return ActionResult.success(
@@ -108,13 +115,17 @@ class MemoryRecallExecutor(ActionExecutor):
     ) -> ActionResult:
         link = execution.call.params.get("memory_link")
         if not isinstance(link, str) or not link:
-            return _failed(execution, "memory.recall requires memory_link", {"reason": "invalid_link"})
+            return _failed(execution, "memory.recall requires memory_link", reason="invalid_link")
         try:
             result = self._memory.recall(link)
         except MemoryInvariantError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
         except MemoryContractError as exc:
-            return _failed(execution, f"Memory recall failed: {exc}", {"reason": "invalid_or_missing_memory"})
+            return _failed(
+                execution,
+                f"Memory recall failed: {exc}",
+                reason="invalid_or_missing_memory",
+            )
         except MemoryError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
         return ActionResult.success(
@@ -136,7 +147,9 @@ class MemoryRecallExecutor(ActionExecutor):
 def _failed(
     execution: ActionExecution,
     feedback: str,
-    frame_data: JsonObject,
+    *,
+    reason: str,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -146,6 +159,11 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="memory.action",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=feedback,
+        ),
         frame_data=frame_data,
     )

@@ -6,6 +6,12 @@ if TYPE_CHECKING:
     from .actions import register_session_actions
     from .projection import SessionTurnCompletionHandler, SessionTurnPreparationHandler
 from .config import SessionSettings, parse_session_settings
+from .action_history import (
+    ActionPairingIssue,
+    TurnActionDetail,
+    TurnActionProjection,
+    project_turn_actions,
+)
 from .engine import SessionArchiveSnapshot, SessionEngine
 from .errors import (
     SessionContractError,
@@ -19,6 +25,7 @@ from .reconcile import SessionReconcileResult
 
 __all__ = [
     "SessionContractError",
+    "ActionPairingIssue",
     "SessionArchiveSnapshot",
     "SessionEngine",
     "SessionError",
@@ -31,7 +38,10 @@ __all__ = [
     "SessionSettings",
     "SessionTurnCompletionHandler",
     "SessionTurnPreparationHandler",
+    "TurnActionDetail",
+    "TurnActionProjection",
     "parse_session_settings",
+    "project_turn_actions",
     "register_session_actions",
 ]
 

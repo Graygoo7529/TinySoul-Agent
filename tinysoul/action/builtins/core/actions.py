@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionContext
-from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+)
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.context import (
     PromptBlock,
@@ -24,6 +29,7 @@ class _PromptParse:
     prompt: TaskPrompt | None = None
     source_links: tuple[str, ...] = ()
     model_feedback: str = ""
+    failure_reason: str = ""
     frame_data: JsonObject = field(default_factory=dict)
 
 
@@ -61,7 +67,12 @@ class CoreReasonActionExecutor:
     ) -> ActionResult:
         parse = self._prompt_builder.context_task_prompt(execution.call.params)
         if parse.prompt is None:
-            return _failed(execution, parse.model_feedback, parse.frame_data)
+            return _failed(
+                execution,
+                parse.model_feedback,
+                reason=parse.failure_reason,
+                frame_data=parse.frame_data,
+            )
         payload = self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
@@ -94,7 +105,12 @@ class CoreAnswerActionExecutor:
     ) -> ActionResult:
         parse = self._prompt_builder.answer_prompt(execution.call.params)
         if parse.prompt is None:
-            return _failed(execution, parse.model_feedback, parse.frame_data)
+            return _failed(
+                execution,
+                parse.model_feedback,
+                reason=parse.failure_reason,
+                frame_data=parse.frame_data,
+            )
         payload = self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
@@ -108,7 +124,7 @@ class CoreAnswerActionExecutor:
             return _failed(
                 execution,
                 payload_failure.model_feedback,
-                payload_failure.frame_data,
+                reason=payload_failure.reason,
             )
         return _success(
             execution,
@@ -161,12 +177,14 @@ class _PromptArgumentBuilder:
         except _PromptParameterError as exc:
             return _PromptParse(
                 model_feedback=str(exc),
-                frame_data={**exc.payload, "reason": exc.reason},
+                failure_reason=exc.reason,
+                frame_data=exc.payload,
             )
         except PromptReferenceError as exc:
             return _PromptParse(
                 model_feedback=str(exc),
-                frame_data={**exc.payload, "reason": exc.reason},
+                failure_reason=exc.reason,
+                frame_data=exc.payload,
             )
 
     def answer_prompt(self, params: JsonObject) -> _PromptParse:
@@ -207,12 +225,14 @@ class _PromptArgumentBuilder:
         except _PromptParameterError as exc:
             return _PromptParse(
                 model_feedback=str(exc),
-                frame_data={**exc.payload, "reason": exc.reason},
+                failure_reason=exc.reason,
+                frame_data=exc.payload,
             )
         except PromptReferenceError as exc:
             return _PromptParse(
                 model_feedback=str(exc),
-                frame_data={**exc.payload, "reason": exc.reason},
+                failure_reason=exc.reason,
+                frame_data=exc.payload,
             )
 
     def _parse_blocks(
@@ -345,7 +365,7 @@ class _PromptArgumentBuilder:
 @dataclass(frozen=True)
 class _PayloadFailure:
     model_feedback: str
-    frame_data: JsonObject
+    reason: str
 
 
 def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
@@ -353,7 +373,7 @@ def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
     if not isinstance(text, str) or not text:
         return _PayloadFailure(
             "Answer LLM task must return a JSON object with non-empty string field 'text'.",
-            {"reason": "invalid_answer_text"},
+            "invalid_answer_text",
         )
     references = payload.get("references")
     if references is None:
@@ -361,13 +381,13 @@ def _answer_payload_failure(payload: JsonObject) -> _PayloadFailure | None:
     if not isinstance(references, list):
         return _PayloadFailure(
             "Answer LLM task 'references' field must be a string array.",
-            {"reason": "invalid_answer_references"},
+            "invalid_answer_references",
         )
     for item in references:
         if not isinstance(item, str) or not item:
             return _PayloadFailure(
                 "Answer LLM task 'references' field must contain non-empty strings.",
-                {"reason": "invalid_answer_references"},
+                "invalid_answer_references",
             )
     return None
 
@@ -429,7 +449,9 @@ def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:
 def _failed(
     execution: ActionExecution,
     model_feedback: str,
-    frame_data: JsonObject,
+    *,
+    reason: str,
+    frame_data: JsonObject | None = None,
 ) -> ActionResult:
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -439,6 +461,11 @@ def _failed(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=model_feedback,
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope="core.output_protocol",
+            disposition=ActionFailureDisposition.CHANGE_REQUEST,
+            feedback=model_feedback,
+        ),
         frame_data=frame_data,
     )

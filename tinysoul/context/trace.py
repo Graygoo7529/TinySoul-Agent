@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from hashlib import sha256
 from time import time
 from uuid import uuid4
 
@@ -19,6 +20,22 @@ from tinysoul.llm.messages import (
 from tinysoul.runtime import CyclePhase
 
 from .errors import ContextContractError, ContextInvariantError
+
+
+def canonical_trace_digest(trace: tuple[JsonObject, ...]) -> str:
+    """Return the content identity of one canonical serialized Turn trace."""
+
+    encoded = dumps_json({"trace": list(trace)}).encode("utf-8")
+    return f"sha256:{sha256(encoded).hexdigest()}"
+
+
+def is_canonical_trace_digest(value: object) -> bool:
+    """Return whether *value* is a canonical trace content digest."""
+
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
 
 
 class TraceKind(StrEnum):
@@ -248,15 +265,15 @@ class TurnTraceHeap:
         message: ToolResultMessage,
         *,
         cycle_id: str = "",
-        compact_message: ToolResultMessage | None = None,
+        canonical_message: ToolResultMessage | None = None,
         origin_refs: tuple[str, ...] = (),
     ) -> TraceEntry:
         return self._append(
             TraceKind.ACTION_RESULT,
-            compact_message or message,
+            canonical_message or message,
             cycle_id=cycle_id,
             phase=CyclePhase.PHASE3,
-            visible_overlay=message if compact_message is not None else None,
+            visible_overlay=message if canonical_message is not None else None,
             origin_refs=origin_refs,
         )
 
@@ -361,6 +378,17 @@ class TurnTraceHeap:
             cursor=cursor,
             next_cursor=next_cursor,
         )
+
+    def recall_entries(self, ref: str) -> tuple[TraceEntry, ...]:
+        """Return every immutable entry in one leaf for boundary paging."""
+
+        node = self._node_for_ref(ref)
+        if node.kind is not TraceHeapNodeKind.LEAF:
+            raise ContextContractError(
+                "Trace recall requires a leaf ref; inspect the branch first"
+            )
+        by_id = {entry.entry_id: entry for entry in self._entries}
+        return tuple(by_id[entry_id] for entry_id in node.entry_ids)
 
     def render_messages(self) -> tuple[Message, ...]:
         messages: list[Message] = []

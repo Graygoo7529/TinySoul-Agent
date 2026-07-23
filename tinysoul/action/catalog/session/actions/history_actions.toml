@@ -1,0 +1,38 @@
+name = "session.history.actions"
+domain = "session"
+
+[tool]
+description = "Project exact Action counts, outcomes, failures, and trace indexes for one prior Turn."
+
+[tool.schema]
+type = "object"
+required = ["ref"]
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "A concrete session:turn ref."
+
+[tool.schema.properties.cursor]
+type = "integer"
+description = "Optional zero-based detail cursor returned by an earlier actions page."
+
+[tool.schema.properties.max_items]
+type = "integer"
+description = "Optional maximum number of Action detail occurrences."
+
+[semantic]
+use_when = ["Need exact Action counts, outcomes, failures, or trace locations for a prior Turn"]
+avoid_when = ["Need raw arguments or result payload at a known trace index"]
+effects = ["read_only"]
+examples = ["Count web.fetch failures in a prior Turn before recalling exact entries"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[backend]
+kind = "native"
+handler = "session.history.actions"

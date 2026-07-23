@@ -90,7 +90,8 @@ def test_normalizer_returns_result_for_invalid_action_arguments() -> None:
     assert normalization.calls == ()
     assert normalization.results[0].status is ActionResultStatus.FAILED
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
-    assert "Missing required action parameter" in normalization.results[0].model_feedback
+    assert normalization.results[0].failure is not None
+    assert "Missing required action parameter" in normalization.results[0].failure.feedback
 
 
 def test_normalizer_returns_result_for_duplicate_call_id() -> None:
@@ -117,7 +118,8 @@ def test_normalizer_returns_result_for_duplicate_call_id() -> None:
     assert len(normalization.calls) == 1
     assert normalization.results[0].call_id == "call_1"
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
-    assert normalization.results[0].frame_data["reason"] == "duplicate_call_id"
+    assert normalization.results[0].failure is not None
+    assert normalization.results[0].failure.reason == "duplicate_call_id"
 
 
 def test_normalizer_runs_configured_normalize_hook() -> None:
@@ -140,7 +142,8 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
 
     assert normalization.calls == ()
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
-    assert normalization.results[0].model_feedback == "Rejected during normalize"
+    assert normalization.results[0].failure is not None
+    assert normalization.results[0].failure.feedback == "Rejected during normalize"
 
 
 def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
@@ -161,7 +164,8 @@ def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:
     assert normalization.calls == ()
     assert normalization.results[0].status is ActionResultStatus.FAILED
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
-    assert "Unexpected action parameter" in normalization.results[0].model_feedback
+    assert normalization.results[0].failure is not None
+    assert "Unexpected action parameter" in normalization.results[0].failure.feedback
 
 
 def test_normalization_merges_results_by_original_sequence() -> None:
@@ -272,7 +276,8 @@ def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:
         "call_1"
     ]
     assert preparation.results[0].stage is ActionResultStage.PREPARE
-    assert preparation.results[0].frame_data["reason"] == "duplicate_call_id"
+    assert preparation.results[0].failure is not None
+    assert preparation.results[0].failure.reason == "duplicate_call_id"
 
 
 def test_prepare_batch_returns_result_for_unknown_action() -> None:
@@ -287,7 +292,8 @@ def test_prepare_batch_returns_result_for_unknown_action() -> None:
 
     assert preparation.batch.executions == ()
     assert preparation.results[0].stage is ActionResultStage.PREPARE
-    assert preparation.results[0].frame_data["reason"] == "unknown_action"
+    assert preparation.results[0].failure is not None
+    assert preparation.results[0].failure.reason == "unknown_action"
 
 
 def test_action_batch_rejects_duplicate_call_id() -> None:

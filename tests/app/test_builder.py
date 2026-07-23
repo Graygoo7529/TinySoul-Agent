@@ -233,7 +233,8 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
 
     assert outcome.answered is True
     assert outcome.summary is not None
-    assert outcome.summary.trace_digest["entry_count"] == 2
+    assert outcome.summary.trace_summary["entry_count"] == 2
+    assert outcome.summary.trace_digest.startswith("sha256:")
     assert outcome.summary.inputs[0]["text"] == "please answer"
     assert len(outcome.summary.trace) == 2
     assert len(recorder.completions) == 1

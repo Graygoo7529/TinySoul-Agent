@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from tinysoul.context import canonical_trace_digest
 from tinysoul.home import (
     AgentHomeEngine,
     HomeMaintenanceDecisionProvider,
@@ -242,6 +243,7 @@ def _projection() -> SessionMemoryFactsProjection:
                 ref="session:turn/turn_1",
                 started_at=datetime(2026, 7, 13, 9, tzinfo=UTC),
                 user_inputs=("fact",),
+                trace_digest=canonical_trace_digest(()),
             ),
         ),
     )

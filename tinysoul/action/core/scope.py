@@ -10,7 +10,12 @@ from .catalog import ActionCatalog
 from tinysoul.runtime import CyclePhase
 
 from .errors import ActionContractError
-from .result import ActionPhaseResult, ActionPhaseResultStage
+from .result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionPhaseResult,
+    ActionPhaseResultStage,
+)
 from .specs import ActionSpec
 
 DOMAIN_SELECTION_TOOL = "select_action_domains"
@@ -153,7 +158,12 @@ class Phase2ActionScopeBuilder:
                     ActionPhaseResult.failed(
                         phase=phase,
                         stage=ActionPhaseResultStage.SCOPE,
-                        model_feedback="Action scope preparation failed.",
+                        failure=ActionLocalFailure(
+                            reason="scope_preparation_failed",
+                            scope="action.scope",
+                            disposition=ActionFailureDisposition.STOP,
+                            feedback="Action scope preparation failed.",
+                        ),
                         frame_data={
                             "error_type": type(exc).__name__,
                             "selected_domains": list(selected_domains),

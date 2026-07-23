@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol
 
 from tinysoul.action.core.call import ActionExecution
 from tinysoul.action.core.executor import ActionExecutionControl
-from tinysoul.action.core.result import ActionResult, ActionResultStage
+from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+)
 from tinysoul.action.core.specs import ActionBackendSpec
 from tinysoul.context import ContextEngine, PromptBlock, TaskPrompt
 from tinysoul.context.errors import ContextError
@@ -72,15 +76,6 @@ class LLMActionBackendOptions:
 
     max_output_tokens: int | None = None
     max_output_chars: int | None = None
-
-
-class LLMActionFailureDisposition(StrEnum):
-    """Model-facing recovery direction for one LLM action failure."""
-
-    RETRY_SAME = "retry_same"
-    CHANGE_REQUEST = "change_request"
-    USE_FALLBACK = "use_fallback"
-    STOP = "stop"
 
 
 class LLMActionBackendOptionsValidator:
@@ -147,7 +142,7 @@ class LLMActionTaskRunner:
                 feedback=f"{subject} did not return a JSON object.",
                 reason="missing_json_answer",
                 scope="llm.output_protocol",
-                disposition=LLMActionFailureDisposition.RETRY_SAME,
+                disposition=ActionFailureDisposition.RETRY_SAME,
             )
         return result.answer.value
 
@@ -176,7 +171,7 @@ class LLMActionTaskRunner:
                 feedback=f"{subject} did not return text.",
                 reason="missing_text_answer",
                 scope="llm.output_protocol",
-                disposition=LLMActionFailureDisposition.RETRY_SAME,
+                disposition=ActionFailureDisposition.RETRY_SAME,
             )
         text = result.answer.text
         if not text:
@@ -185,7 +180,7 @@ class LLMActionTaskRunner:
                 feedback=f"{subject} returned an empty text artifact.",
                 reason="empty_text_artifact",
                 scope="action.artifact",
-                disposition=LLMActionFailureDisposition.RETRY_SAME,
+                disposition=ActionFailureDisposition.RETRY_SAME,
             )
         options = _execution_options(execution)
         if isinstance(options, ActionResult):
@@ -199,7 +194,7 @@ class LLMActionTaskRunner:
                 ),
                 reason="artifact_too_large",
                 scope="action.artifact",
-                disposition=LLMActionFailureDisposition.CHANGE_REQUEST,
+                disposition=ActionFailureDisposition.CHANGE_REQUEST,
                 constraint={"max_output_chars": options.max_output_chars},
                 frame_data={"observed_chars": len(text)},
             )
@@ -254,9 +249,14 @@ class LLMActionTaskRunner:
                 action_name=execution.call.action_name,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                model_feedback="Action stopped after cancellation was requested.",
+                failure=ActionLocalFailure(
+                    reason="cancelled",
+                    scope="llm.execution",
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                    feedback="Action stopped after cancellation was requested.",
+                ),
                 frame_data={
-                    "reason": str(exc) or "cancelled",
+                    "cancel_reason": str(exc) or "cancelled",
                     "cancel_requested": True,
                     "executor_started": True,
                     "executor_leaked": False,
@@ -348,7 +348,7 @@ def _execution_options(
             feedback="LLM action backend options are invalid.",
             reason="invalid_backend_options",
             scope="action.configuration",
-            disposition=LLMActionFailureDisposition.STOP,
+            disposition=ActionFailureDisposition.STOP,
             frame_data={"error_type": type(exc).__name__, "key": exc.key},
         )
 
@@ -372,12 +372,12 @@ def _positive_int_option(
     )
 
 
-def _failure_disposition(reason: str) -> LLMActionFailureDisposition:
+def _failure_disposition(reason: str) -> ActionFailureDisposition:
     if reason in {"invalid_output_protocol", "incomplete_response"}:
-        return LLMActionFailureDisposition.RETRY_SAME
+        return ActionFailureDisposition.RETRY_SAME
     if reason in {"output_limit_reached", "content_filtered"}:
-        return LLMActionFailureDisposition.CHANGE_REQUEST
-    return LLMActionFailureDisposition.USE_FALLBACK
+        return ActionFailureDisposition.CHANGE_REQUEST
+    return ActionFailureDisposition.USE_FALLBACK
 
 
 def _protected_resource_links(execution: ActionExecution) -> tuple[str, ...]:
@@ -428,17 +428,10 @@ def _failure(
     feedback: str,
     reason: str,
     scope: str,
-    disposition: LLMActionFailureDisposition,
+    disposition: ActionFailureDisposition,
     constraint: JsonObject | None = None,
     frame_data: JsonObject | None = None,
 ) -> ActionResult:
-    failure: JsonObject = {
-        "reason": reason,
-        "scope": scope,
-        "disposition": disposition.value,
-    }
-    if constraint:
-        failure["constraint"] = constraint
     return ActionResult.failed(
         call_id=execution.call.call_id,
         invoke_id=execution.framework.invoke_id,
@@ -447,7 +440,12 @@ def _failure(
         stage=ActionResultStage.EXECUTE,
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
-        model_feedback=feedback,
-        payload={"failure": failure},
-        frame_data={**(frame_data or {}), "reason": reason, "scope": scope},
+        failure=ActionLocalFailure(
+            reason=reason,
+            scope=scope,
+            disposition=disposition,
+            feedback=feedback,
+            constraint=constraint or {},
+        ),
+        frame_data=frame_data,
     )

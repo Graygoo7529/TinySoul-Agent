@@ -18,8 +18,18 @@ type = "integer"
 description = "Optional maximum recalled character count."
 
 [tool.schema.properties.cursor]
+type = "object"
+description = "Optional continuation cursor returned verbatim by an earlier recall."
+additionalProperties = false
+
+[tool.schema.properties.cursor.properties.entry_index]
 type = "integer"
-description = "Optional zero-based continuation cursor returned by an earlier recall."
+
+[tool.schema.properties.cursor.properties.char_offset]
+type = "integer"
+
+[tool.schema.properties.cursor.properties.entry_digest]
+type = "string"
 
 [semantic]
 use_when = ["Need original details from a compressed current-Turn interaction"]

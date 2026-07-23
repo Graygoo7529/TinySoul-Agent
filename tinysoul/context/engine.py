@@ -7,7 +7,13 @@ from datetime import date
 from typing import Protocol
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, JsonValue, to_json_object
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.infra.paging import (
+    MIN_JSON_PAGE_CHARS,
+    JsonPageCursor,
+    JsonPageError,
+    page_json_sequence,
+)
 from tinysoul.llm.messages import (
     AssistantMessage,
     JsonPart,
@@ -76,6 +82,8 @@ from .trace import (
     TraceEntry,
     TraceKind,
     TurnTraceHeap,
+    canonical_trace_digest,
+    is_canonical_trace_digest,
 )
 from .working import WorkingContext, WorkingPatch, WorkspaceSnapshot
 
@@ -88,7 +96,8 @@ class TurnSummary:
     inputs: tuple[JsonObject, ...] = field(default_factory=tuple)
     working: JsonObject = field(default_factory=dict)
     background_links: tuple[str, ...] = field(default_factory=tuple)
-    trace_digest: JsonObject = field(default_factory=dict)
+    trace_summary: JsonObject = field(default_factory=dict)
+    trace_digest: str = ""
     trace: tuple[JsonObject, ...] = field(default_factory=tuple)
     trace_heap: JsonObject = field(default_factory=dict)
 
@@ -111,9 +120,13 @@ class TurnSummary:
         object.__setattr__(self, "background_links", links)
         object.__setattr__(
             self,
-            "trace_digest",
-            to_json_object(self.trace_digest),
+            "trace_summary",
+            to_json_object(self.trace_summary),
         )
+        if not is_canonical_trace_digest(self.trace_digest):
+            raise ContextContractError(
+                "TurnSummary.trace_digest must be a sha256 content digest"
+            )
         object.__setattr__(
             self,
             "trace",
@@ -127,6 +140,7 @@ class TurnSummary:
             "inputs": list(self.inputs),
             "working": self.working,
             "background_links": list(self.background_links),
+            "trace_summary": self.trace_summary,
             "trace_digest": self.trace_digest,
             "trace": list(self.trace),
             "trace_heap": self.trace_heap,
@@ -237,11 +251,17 @@ class ContextEngine:
         self._require_turn()
         return tuple(entry.kind for entry in self._trace.entries())
 
-    def trace_digest(self) -> JsonObject:
-        """Return a JSON-safe digest of the current turn trace."""
+    def trace_digest(self) -> str:
+        """Return the SHA-256 identity of the current canonical turn trace."""
 
         self._require_turn()
-        return _trace_digest(self._trace)
+        return canonical_trace_digest(_trace_records(self._trace))
+
+    def trace_summary(self) -> JsonObject:
+        """Return bounded structural facts about the current turn trace."""
+
+        self._require_turn()
+        return _trace_summary(self._trace)
 
     def begin_turn(self, user_input: str) -> str:
         if self._turn_id:
@@ -573,31 +593,48 @@ class ContextEngine:
         ref: str,
         *,
         max_chars: int | None = None,
-        cursor: int = 0,
+        cursor: JsonObject | None = None,
     ) -> JsonObject:
         self._require_turn()
         if max_chars is not None and (
             isinstance(max_chars, bool) or max_chars <= 0
         ):
             raise ContextContractError("Trace recall max_chars must be positive")
-        if isinstance(cursor, bool) or cursor < 0:
-            raise ContextContractError("Trace recall cursor cannot be negative")
+        try:
+            page_cursor = JsonPageCursor.from_json(cursor)
+        except JsonPageError as exc:
+            raise ContextContractError(str(exc)) from exc
         limit = (
             self._trace_recall_max_chars
             if max_chars is None
             else min(max_chars, self._trace_recall_max_chars)
         )
-        page = self._trace.recall(ref, max_chars=limit, cursor=cursor)
-        return to_json_object(
-            {
-                "origin_ref": ref,
-                "cursor": page.cursor,
-                "next_cursor": page.next_cursor,
-                "truncated": page.truncated,
-                "entry_count": len(page.entries),
-                "entries": [_trace_entry_record(entry) for entry in page.entries],
-            }
+        requested = self._trace_recall_max_chars if max_chars is None else max_chars
+        entries = tuple(
+            _trace_entry_record(entry)
+            for entry in self._trace.recall_entries(ref)
         )
+        try:
+            return page_json_sequence(
+                entries,
+                base={
+                    "origin_ref": ref,
+                    "source": {
+                        "owner": "context",
+                        "ref": ref,
+                        "turn_id": self._turn_id,
+                        "trace_digest": self.trace_digest(),
+                        "trace_entry_count": len(entries),
+                    },
+                },
+                item_field="entries",
+                cursor_unit="trace_entry",
+                cursor=page_cursor,
+                max_chars=limit,
+                requested_max_chars=requested,
+            )
+        except JsonPageError as exc:
+            raise ContextContractError(str(exc)) from exc
 
     def fold_trace_overlays(self) -> int:
         self._require_turn()
@@ -609,7 +646,7 @@ class ContextEngine:
 
     def end_turn(self) -> TurnSummary:
         self._require_turn()
-        trace_digest = _trace_digest(self._trace)
+        trace = _trace_records(self._trace)
         summary = TurnSummary(
             turn_id=self._turn_id,
             inputs=tuple(
@@ -623,8 +660,9 @@ class ContextEngine:
             ),
             working=self._working.to_json(),
             background_links=self._background.links(),
-            trace_digest=trace_digest,
-            trace=_trace_records(self._trace),
+            trace_summary=_trace_summary(self._trace),
+            trace_digest=canonical_trace_digest(trace),
+            trace=trace,
             trace_heap=_trace_heap_record(self._trace.seal()),
         )
         self._turn_id = ""
@@ -861,7 +899,7 @@ class ContextEngine:
             self._trace.append_action_result(
                 append.action_result,
                 cycle_id=append.cycle_id,
-                compact_message=append.compact_action_result,
+                canonical_message=append.canonical_action_result,
                 origin_refs=append.origin_refs,
             )
         elif append.note is not None:
@@ -971,8 +1009,14 @@ class ContextEngineBuilder:
         self,
         max_chars: int,
     ) -> "ContextEngineBuilder":
-        if max_chars <= 0:
-            raise ContextContractError("Trace recall max_chars must be positive")
+        if (
+            isinstance(max_chars, bool)
+            or not isinstance(max_chars, int)
+            or max_chars < MIN_JSON_PAGE_CHARS
+        ):
+            raise ContextContractError(
+                "Trace recall max_chars must leave room for paging metadata"
+            )
         self._trace_recall_max_chars = max_chars
         return self
 
@@ -1087,7 +1131,7 @@ class ContextEngineBuilder:
         )
 
 
-def _trace_digest(trace: TurnTraceHeap) -> JsonObject:
+def _trace_summary(trace: TurnTraceHeap) -> JsonObject:
     entries = trace.entries()
     action_names = sorted(
         {

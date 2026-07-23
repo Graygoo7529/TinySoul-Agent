@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Self
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.messages import ToolResultMessage
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     CyclePhase,
@@ -29,7 +28,7 @@ from .core.call import (
 from .core.catalog import ActionCatalog
 from .core.errors import ActionContractError
 from .core.executor import ActionExecutionContext, ActionExecutor, ExecutorRegistry
-from .core.feedback import ActionFeedbackRenderer
+from .core.rendering import ActionResultRenderer, RenderedActionResult
 from .core.hooks import (
     ActionExecutionHook,
     ActionExecutionHookPipeline,
@@ -61,7 +60,7 @@ class ActionEngine:
         normalizer: ActionCallNormalizer,
         builder: ActionExecutionBuilder,
         runner: ActionBatchRunner,
-        renderer: ActionFeedbackRenderer,
+        renderer: ActionResultRenderer,
         phase1_scope_builder: Phase1DomainScopeBuilder,
         phase2_scope_builder: Phase2ActionScopeBuilder,
         domain_prompt_renderer: ActionDomainPromptRenderer,
@@ -178,21 +177,13 @@ class ActionEngine:
 
         return self._renderer.render_trace_payload(result)
 
-    def render_result_model_payloads(
+    def render_tool_results(
         self,
         results: tuple[ActionResult, ...],
-    ) -> tuple[JsonObject, ...]:
-        """Render action results for compact model feedback."""
+    ) -> tuple[RenderedActionResult, ...]:
+        """Render visible and canonical model-side action result messages."""
 
         return self._renderer.render_many(results)
-
-    def to_tool_result_messages(
-        self,
-        results: tuple[ActionResult, ...],
-    ) -> tuple[ToolResultMessage, ...]:
-        """Render action results as model-side tool result replay messages."""
-
-        return self._renderer.to_tool_result_messages(results)
 
     def render_phase_model_payload(self, result: ActionPhaseResult) -> JsonObject:
         """Render one phase-level action result for model feedback."""
@@ -348,7 +339,7 @@ class ActionEngineBuilder:
                 process_cancel_grace_seconds=self._process_cancel_grace_seconds,
                 observations=self._observations,
             ),
-            renderer=ActionFeedbackRenderer(),
+            renderer=ActionResultRenderer(),
             phase1_scope_builder=Phase1DomainScopeBuilder(),
             phase2_scope_builder=Phase2ActionScopeBuilder(),
             domain_prompt_renderer=ActionDomainPromptRenderer(),

@@ -117,7 +117,7 @@ class ProjectionExecutor:
             payload={"text": "full"},
             trace_projection=ActionTraceProjection(
                 origin_refs=("workspace:a.md", "workspace:b.md"),
-                compact_payload={"links": ["workspace:a.md", "workspace:b.md"]},
+                canonical_payload={"links": ["workspace:a.md", "workspace:b.md"]},
             ),
         )
 
@@ -202,7 +202,8 @@ def test_runner_rejects_missing_foldable_projection() -> None:
     )[0]
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "result_trace_policy_mismatch"
+    assert result.failure is not None
+    assert result.failure.reason == "result_trace_policy_mismatch"
 
 
 def test_runner_rejects_projection_for_standard_action() -> None:
@@ -216,7 +217,8 @@ def test_runner_rejects_projection_for_standard_action() -> None:
     )[0]
 
     assert result.status is ActionResultStatus.FAILED
-    assert result.frame_data["reason"] == "result_trace_policy_mismatch"
+    assert result.failure is not None
+    assert result.failure.reason == "result_trace_policy_mismatch"
 
 
 def test_runner_allows_runtime_exception_to_reach_trap() -> None:
@@ -419,6 +421,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "script.stop",
         "script.wait",
         "script.write",
+            "session.history.actions",
             "session.history.inspect",
             "session.history.recall",
             "shell.apply",
@@ -461,7 +464,8 @@ def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].stage is ActionResultStage.EXECUTE
-    assert results[0].frame_data["reason"] == "executor_result_mismatch"
+    assert results[0].failure is not None
+    assert results[0].failure.reason == "executor_result_mismatch"
     mismatch = results[0].frame_data["mismatch"]
     assert isinstance(mismatch, dict)
     assert "call_id" in mismatch
@@ -484,7 +488,8 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
     ).run(batch, ActionExecutionContext())
 
     assert results[0].status is ActionResultStatus.FAILED
-    assert results[0].model_feedback == "Rejected by test hook"
+    assert results[0].failure is not None
+    assert results[0].failure.feedback == "Rejected by test hook"
 
 
 def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
@@ -737,7 +742,8 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[1].status is ActionResultStatus.FAILED
-    assert results[1].frame_data["reason"] == "previous_action_timeout_leak"
+    assert results[1].failure is not None
+    assert results[1].failure.reason == "previous_action_timeout_leak"
     assert results[1].frame_data["blocked_by_invoke_ids"] == [
         results[0].invoke_id
     ]
