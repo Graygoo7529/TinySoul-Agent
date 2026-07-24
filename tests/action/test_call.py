@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -37,6 +38,11 @@ class RejectNormalizeHook:
                 feedback="Rejected during normalize",
             )
         )
+
+
+class InvalidNormalizeHook:
+    def check(self, item) -> HookOutcome:
+        return cast(HookOutcome, None)
 
 
 ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
@@ -157,6 +163,33 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
     assert normalization.results[0].failure is not None
     assert normalization.results[0].failure.feedback == "Rejected during normalize"
+
+
+def test_normalizer_returns_local_failure_for_invalid_hook_outcome() -> None:
+    catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
+    hooks = ActionNormalizeHookPipeline()
+    hooks.registry.register_normalize_hook("invalid", InvalidNormalizeHook())
+    hooks.registry.register_global_normalize("invalid")
+
+    normalization = ActionCallNormalizer(hooks=hooks).normalize(
+        (
+            ToolCallRecord(
+                id="call_1",
+                name="core.answer",
+                arguments=ANSWER_ARGS,
+                kind=ToolKind.ACTION,
+            ),
+        ),
+        catalog=catalog,
+    )
+
+    result = normalization.results[0]
+    assert result.failure is not None
+    assert result.failure.reason == "normalize_hook_failed"
+    assert result.frame_data == {
+        "hook": "invalid",
+        "returned_type": "NoneType",
+    }
 
 
 def test_normalizer_returns_result_for_unexpected_action_arguments() -> None:

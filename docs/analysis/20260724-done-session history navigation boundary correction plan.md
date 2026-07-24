@@ -139,6 +139,16 @@ inspect 与 recall 共享 Infra immutable JSON sequence pager，但各自拥有 
 - 删除 `HookOutcome.ok`、`model_feedback` 和 primitive failure factory，使普通 hook 拒绝直接交付唯一 typed `ActionLocalFailure`；
 - 增加临界字符预算、cursor binding、迟到响应、查询部分失败、页轨迹和 revision reset 回归测试。
 
+### Stage 7：Hook SPI boundary closure
+
+状态：done
+
+- `HookOutcome.reject` 运行时拒绝非 `ActionLocalFailure`，避免非法 reject 退化为 success；
+- `HookOutcome.frame_data` 拒绝 pipeline-owned hook identity 与重复失败事实字段；
+- normalize/execution pipeline 将非 `HookOutcome` 返回收敛为既有 `*_hook_failed` 局部结果，Runtime control 仍原样传播；
+- pipeline 最终写入真实 hook identity，owner failure 的 reason/scope/disposition/feedback/constraint 原样保留；
+- 增加非法 reject、保留字段、两阶段非法返回、identity 防覆盖和 owner failure 保真测试。
+
 ## 完成标准
 
 - Background、inspect、actions、recall 各自只有一个明确职责；
@@ -158,6 +168,7 @@ inspect 与 recall 共享 Infra immutable JSON sequence pager，但各自拥有 
 - Session 配置已更名为 `history_page_max_chars/entries`，standard/development init profile 保持同形；Catalog、Domain HOW 和新配置已纳入 initializer/wheel 验收，不保留旧配置 key 或 Endpoint alias。
 - Review follow-up 将 Session root revision 作为 opaque `cursor_binding` 交给 Infra pager，current/next cursor 和 oversized 页面均在最终 wrapper 上计算字符硬预算；binding 不能覆盖 pager 自有 cursor 字段。
 - `HookOutcome` 删除平行 `ok`、`model_feedback` 与 primitive failure factory；schema hook、监督进程 guard 和测试 hook 都直接交付完整 `ActionLocalFailure`，pipeline 只判断 `failure` 是否存在。
+- Hook SPI 进一步封闭运行时返回协议与 frame data 所有权：非法 reject/保留字段在构造边界失败，非 `HookOutcome` 返回成为 pipeline-owned 局部失败，真实注册 identity 不能被 hook diagnostics 覆盖。
 - 前端 Session Explorer 使用 view-local reducer/hook 持有 history 层级、selected Turn 和 actions/trace 独立查询；HTTP client 使用 options request 与 `AbortSignal`，reducer 同时按 owner ref/request id 拒绝迟到响应。
 - history/actions/trace 各自保存最多 32 页的路径缓存并提供 Previous/Next；Summary 返回恢复父级缓存页，root revision 变化会原子清空旧层级、Turn 和详情后读取新 root。
 - 前端加入 Vitest 纯 reducer 测试，覆盖跨 Turn 与同 Turn 迟到响应、actions/trace 部分失败、父级/页面回退、有界缓存和 root reset；不增加 React DOM 测试框架。

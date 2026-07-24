@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Event
 from time import monotonic, sleep
+from typing import cast
 
 import pytest
 
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
-from tinysoul.action.core.errors import ActionContractError
+from tinysoul.action.core.errors import ActionContractError, ActionInvariantError
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
 from tinysoul.action.core.hooks import (
     ActionExecutionHookPipeline,
@@ -53,13 +54,19 @@ from tinysoul.runtime import (
 
 class RejectHook:
     def check(self, execution, context) -> HookOutcome:
+        return HookOutcome.reject(_test_hook_failure())
+
+
+class InvalidOutcomeHook:
+    def check(self, execution, context) -> HookOutcome:
+        return cast(HookOutcome, None)
+
+
+class ReservedFrameHook:
+    def check(self, execution, context) -> HookOutcome:
         return HookOutcome.reject(
-            ActionLocalFailure(
-                reason="hook_rejected",
-                scope="action.hook",
-                disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                feedback="Rejected by test hook",
-            )
+            _test_hook_failure(),
+            frame_data={"hook": "spoofed"},
         )
 
 
@@ -132,6 +139,16 @@ class ProjectionExecutor:
 
 
 ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}
+
+
+def _test_hook_failure() -> ActionLocalFailure:
+    return ActionLocalFailure(
+        reason="hook_rejected",
+        scope="action.hook",
+        disposition=ActionFailureDisposition.CHANGE_REQUEST,
+        feedback="Rejected by test hook",
+        constraint={"state": "blocked"},
+    )
 
 
 def _batch_for(action_name: str, arguments: JsonObject):
@@ -498,7 +515,86 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].failure is not None
+    assert results[0].failure.reason == "hook_rejected"
+    assert results[0].failure.scope == "action.hook"
+    assert (
+        results[0].failure.disposition
+        is ActionFailureDisposition.CHANGE_REQUEST
+    )
     assert results[0].failure.feedback == "Rejected by test hook"
+    assert results[0].failure.constraint == {"state": "blocked"}
+
+
+def test_hook_outcome_reject_requires_typed_failure() -> None:
+    with pytest.raises(ActionInvariantError):
+        HookOutcome.reject(cast(ActionLocalFailure, None))
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "hook",
+        "failure",
+        "reason",
+        "scope",
+        "disposition",
+        "feedback",
+        "model_feedback",
+        "constraint",
+    ),
+)
+def test_hook_outcome_rejects_reserved_frame_fields(field: str) -> None:
+    with pytest.raises(ActionInvariantError):
+        HookOutcome.reject(
+            _test_hook_failure(),
+            frame_data={field: "duplicate"},
+        )
+
+
+def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_execution_hook("invalid", InvalidOutcomeHook())
+    hooks.registry.register_global_execution("invalid")
+
+    result = ActionBatchRunner(executors=executors, hooks=hooks).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.failure is not None
+    assert result.failure.reason == "execution_hook_failed"
+    assert result.frame_data == {
+        "hook": "invalid",
+        "returned_type": "NoneType",
+    }
+
+
+def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
+    catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
+    executors = ExecutorRegistry()
+    executors.register(
+        "core.answer",
+        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+    )
+    hooks = ActionExecutionHookPipeline()
+    hooks.registry.register_execution_hook("reserved", ReservedFrameHook())
+    hooks.registry.register_global_execution("reserved")
+
+    result = ActionBatchRunner(executors=executors, hooks=hooks).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.failure is not None
+    assert result.failure.reason == "execution_hook_failed"
+    assert result.frame_data["hook"] == "reserved"
+    assert result.frame_data["error_type"] == "ActionInvariantError"
 
 
 def test_runner_returns_failed_result_when_hook_is_unknown() -> None:

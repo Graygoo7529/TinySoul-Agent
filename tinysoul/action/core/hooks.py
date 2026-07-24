@@ -24,6 +24,20 @@ if TYPE_CHECKING:
     from .executor import ActionExecutionContext
 
 
+_HOOK_FRAME_RESERVED_FIELDS = frozenset(
+    {
+        "hook",
+        "failure",
+        "reason",
+        "scope",
+        "disposition",
+        "feedback",
+        "model_feedback",
+        "constraint",
+    }
+)
+
+
 @dataclass(frozen=True)
 class HookOutcome:
     """Outcome for one hook check."""
@@ -32,13 +46,20 @@ class HookOutcome:
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
         if self.failure is not None and not isinstance(
             self.failure, ActionLocalFailure
         ):
             raise ActionInvariantError(
                 "HookOutcome.failure must be an ActionLocalFailure"
             )
+        frame_data = to_json_object(self.frame_data)
+        reserved_fields = sorted(set(frame_data) & _HOOK_FRAME_RESERVED_FIELDS)
+        if reserved_fields:
+            raise ActionInvariantError(
+                "HookOutcome.frame_data contains reserved fields: "
+                + ", ".join(reserved_fields)
+            )
+        object.__setattr__(self, "frame_data", frame_data)
 
     @classmethod
     def success(cls) -> "HookOutcome":
@@ -51,9 +72,13 @@ class HookOutcome:
         *,
         frame_data: JsonObject | None = None,
     ) -> "HookOutcome":
+        if not isinstance(failure, ActionLocalFailure):
+            raise ActionInvariantError(
+                "HookOutcome.reject requires an ActionLocalFailure"
+            )
         return cls(
             failure=failure,
-            frame_data=frame_data or {},
+            frame_data={} if frame_data is None else frame_data,
         )
 
 
@@ -266,7 +291,7 @@ class ActionNormalizeHookPipeline:
         name: str,
     ) -> ActionResult | None:
         try:
-            outcome = hook.check(item)
+            outcome: object = hook.check(item)
         except (RuntimeException, RuntimeTransferInterrupt):
             raise
         except Exception as exc:
@@ -279,11 +304,21 @@ class ActionNormalizeHookPipeline:
                     "error_type": type(exc).__name__,
                 },
             )
+        if not isinstance(outcome, HookOutcome):
+            return _normalize_hook_failure(
+                item,
+                reason="normalize_hook_failed",
+                model_feedback=f"Action normalize hook failed: {name}",
+                frame_data={
+                    "hook": name,
+                    "returned_type": type(outcome).__name__,
+                },
+            )
         if outcome.failure is not None:
             return _normalize_hook_failure(
                 item,
                 failure=outcome.failure,
-                frame_data={"hook": name, **outcome.frame_data},
+                frame_data={**outcome.frame_data, "hook": name},
             )
         return None
 
@@ -320,7 +355,7 @@ class ActionExecutionHookPipeline:
                     },
                 )
             try:
-                outcome = hook.check(execution, context)
+                outcome: object = hook.check(execution, context)
             except (RuntimeException, RuntimeTransferInterrupt):
                 raise
             except Exception as exc:
@@ -333,11 +368,21 @@ class ActionExecutionHookPipeline:
                         "error_type": type(exc).__name__,
                     },
                 )
+            if not isinstance(outcome, HookOutcome):
+                return _execution_hook_failure(
+                    execution,
+                    reason="execution_hook_failed",
+                    model_feedback=f"Action execution hook failed: {name}",
+                    frame_data={
+                        "hook": name,
+                        "returned_type": type(outcome).__name__,
+                    },
+                )
             if outcome.failure is not None:
                 return _execution_hook_failure(
                     execution,
                     failure=outcome.failure,
-                    frame_data={"hook": name, **outcome.frame_data},
+                    frame_data={**outcome.frame_data, "hook": name},
                 )
         return None
 

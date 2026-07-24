@@ -119,7 +119,7 @@ execution hook 发生在 Phase3，用于检查 ActionExecution 是否可以真�
 
 hook 只做输入检查、上下文约束和可执行性裁剪，不执行真实动作。
 
-hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。普通拒绝由 `HookOutcome.failure` 直接携带完整 `ActionLocalFailure`；`failure is None` 即通过，不再维护平行 `ok` 或 `model_feedback` 状态，也不提供从 primitive feedback 猜测失败 scope/disposition 的工厂。pipeline 只补充 hook identity 等 frame data，不能以通用 rejected reason 覆盖 owner failure，也不能在 frame data 重复 reason。注册缺失和 hook 实现异常由 pipeline 自己产生稳定 failure。
+hook 失败应转为结构化 action result，而不是直接升级成 Runtime 陷入。普通拒绝由 `HookOutcome.failure` 直接携带完整 `ActionLocalFailure`；`failure is None` 即通过，不再维护平行 `ok` 或 `model_feedback` 状态，也不提供从 primitive feedback 猜测失败 scope/disposition 的工厂。`reject` 在运行时要求 typed failure，`HookOutcome.frame_data` 禁止携带 pipeline-owned hook identity 或 failure/reason/scope/disposition/feedback/constraint 等重复失败事实。pipeline 校验 hook 的实际返回类型；非 `HookOutcome` 返回与普通实现异常一样收敛为既有阶段 hook failure。pipeline 最后写入真实 hook identity，不能以通用 rejected reason 覆盖 owner failure，也不能让 owner frame data 覆盖注册身份。注册缺失和 hook 实现异常由 pipeline 自己产生稳定 failure。
 
 这里的 hook 失败只指普通拒绝、注册缺失或实现异常。hook 抛出的 `RuntimeException` 与 `RuntimeTransferInterrupt` 已经表达全局恢复或运行转移，normalize/execution hook pipeline 必须原样传播，不能降级为局部 ActionResult。
 
