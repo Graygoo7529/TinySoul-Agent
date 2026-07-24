@@ -45,4 +45,26 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 .\scripts\typecheck.ps1
 ```
 
+若 Windows 沙箱或用户目录 ACL 阻止 pytest 创建临时目录或项目实例锁，可将测试临时目录与锁目录放到被忽略的仓库路径：
+
+```powershell
+$test_root = Join-Path (Get-Location) (".pytest-local-tmp-" + [guid]::NewGuid().ToString("N"))
+$local_app_data = Join-Path $test_root "local-app-data"
+$pytest_root = Join-Path $test_root "pytest"
+New-Item -ItemType Directory -Force $local_app_data | Out-Null
+$previous_local_app_data = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = $local_app_data
+try {
+    python -m pytest tests -q --basetemp $pytest_root -p no:cacheprovider
+} finally {
+    if ($null -eq $previous_local_app_data) {
+        Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+    } else {
+        $env:LOCALAPPDATA = $previous_local_app_data
+    }
+}
+```
+
+发布资源验收由 `tests/release/test_wheel.py` 负责；它会在测试内部构建 wheel、隔离安装并验证 `tinysoul init`，不由 editable install 替代。
+
 Architecture and module contracts are documented under `docs/design/`; the active lifecycle execution plan is under `docs/analysis/`.

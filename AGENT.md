@@ -208,6 +208,41 @@ $env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'; .\scripts\typecheck.
 
 多设备环境不要在 `pyproject.toml` 固定本机 Python 路径；类型检查统一通过 `scripts/typecheck.ps1` 选择当前设备的解释器，或显式传入 `ty --python <当前环境 python>`。
 
+若当前 Windows PowerShell execution policy 禁止直接运行仓库脚本，使用仅作用于该子进程的方式，不修改机器级策略：
+
+```powershell
+$env:TINYSOUL_PYTHON='当前设备的 TinySoul python.exe'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\typecheck.ps1
+```
+
+测试运行语义与环境边界：
+
+- `python -m pip install -e ".[dev]"` 是日常开发环境入口；它使用当前源码和 dev extras。构建后端可能为 PEP 660 安装生成临时 editable wheel，但这不是可发布 wheel，也不完成发布资源验收。普通 `python -m pytest tests -q` 覆盖所有本地测试，默认 skip 真实供应商和显式 opt-in 网络测试。
+- `tests/release/test_wheel.py` 是独立发布验收：测试内部从 clean source copy 执行 `pip wheel --no-deps --no-build-isolation`，检查 package data，再用 `pip install --target` 隔离安装并从安装结果运行 `tinysoul init`。不应把 `pip install .` 当作该验收的替代；需要单独检查发布资源时运行 `python -m pytest tests/release/test_wheel.py -q`。
+- 受限沙箱或 Windows 用户 Temp/LOCALAPPDATA ACL 导致 pytest setup、`.pytest_cache` 或 ProjectInstanceLease 失败时，把临时目录和单实例目录都置于仓库内的 ignored 路径，并禁用 pytest cache：
+
+```powershell
+$test_root = Join-Path (Get-Location) (".pytest-local-tmp-" + [guid]::NewGuid().ToString("N"))
+$local_app_data = Join-Path $test_root "local-app-data"
+$pytest_root = Join-Path $test_root "pytest"
+New-Item -ItemType Directory -Force $local_app_data | Out-Null
+$previous_local_app_data = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = $local_app_data
+try {
+    python -m pytest tests -q --basetemp $pytest_root -p no:cacheprovider
+} finally {
+    if ($null -eq $previous_local_app_data) {
+        Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+    } else {
+        $env:LOCALAPPDATA = $previous_local_app_data
+    }
+}
+```
+
+该命令只在测试期间改变 pytest 临时目录和 Windows 用户级 `LOCALAPPDATA`，从而把项目实例锁放进本次唯一测试根；它不会改变生产运行时默认目录。唯一根还避免复用旧 pytest 目录时继承不可写 ACL。若测试在沙箱外运行且系统 Temp/LOCALAPPDATA 可写，优先使用标准命令。不要为全量测试设置 `TINYSOUL_INSTANCE_DIR`：`TINYSOUL_*` 同时是项目配置环境命名空间，该变量会被解释为未知顶层配置。
+
+测试结果应区分：测试断言失败、测试依赖缺失/显式 skip、沙箱或 ACL setup failure，以及 wheel 子进程安装失败。后两类不能通过修改业务代码掩盖。
+
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。

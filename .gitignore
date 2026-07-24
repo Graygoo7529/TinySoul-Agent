@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .pytest-local-tmp/
+.pytest-local-tmp-*/
 .pytest-basetemp/
 .test-tmp/
 .coverage
