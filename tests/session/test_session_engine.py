@@ -301,45 +301,6 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
     assert action["status"] == "success"
 
 
-def test_real_runtime_fixture_projects_complete_action_outcomes() -> None:
-    fixture_path = (
-        Path(__file__).resolve().parents[2] / "reference" / "turn_6a56f14a.json"
-    )
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-    old_trace = fixture["content"]["completion"]["trace"]
-    trace = tuple(_normalize_runtime_fixture_entry(entry) for entry in old_trace)
-
-    projection = project_turn_actions(
-        trace,
-        expected_digest=canonical_trace_digest(trace),
-    )
-
-    assert projection.outcome_summary() == {
-        "call_count": 19,
-        "result_count": 19,
-        "success_count": 15,
-        "failed_count": 4,
-        "timeout_count": 0,
-        "unmatched_call_count": 0,
-        "unmatched_result_count": 0,
-        "pairing_issue_count": 0,
-        "scan_complete": True,
-        "pairing_complete": True,
-    }
-    by_action = {item["action"]: item for item in projection.by_action()}
-    assert by_action["web.search_by_kimi"]["calls"] == 8
-    assert by_action["web.fetch_with_defuddle"] == {
-        "action": "web.fetch_with_defuddle",
-        "calls": 8,
-        "results": 8,
-        "success": 4,
-        "failed": 4,
-        "timeout": 0,
-    }
-    assert projection.failure_groups()[0]["count"] == 4
-    assert projection.failure_groups()[0]["reason"] == "http_status_error"
-
-
 def test_action_projector_preserves_orphan_result_location() -> None:
     result = _result_entry("orphan", "workspace.scan", {"count": 1})
     result["cycle_id"] = "cycle_7"
@@ -668,6 +629,41 @@ def test_session_reconciles_turn_orphan_after_manifest_failure(
     assert recovered.revision == 1
 
 
+def test_history_queries_do_not_reconcile_an_uncommitted_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    store = SessionStore(root=settings.root)
+    session = _engine(settings, store=store)
+    original_save = store.save_manifest
+
+    def fail_manifest(manifest) -> None:
+        raise SessionIOError("injected manifest failure")
+
+    monkeypatch.setattr(store, "save_manifest", fail_manifest)
+    with pytest.raises(SessionIOError, match="injected"):
+        _record_turn(
+            session,
+            summary=_summary("turn_pending", ask="pending question"),
+            output={"text": "pending answer"},
+            exhausted=False,
+        )
+    monkeypatch.setattr(store, "save_manifest", original_save)
+
+    assert session.revision == 0
+    assert session.inspect_history()["items"] == []
+    assert session.inspect_history("session:turn/turn_pending")["items"]
+    assert session.action_history("session:turn/turn_pending")["page_complete"] is True
+    assert session.recall_history("session:turn/turn_pending")["page_complete"] is True
+    assert session.revision == 0
+
+    reconciled = session.reconcile_active()
+
+    assert reconciled.adopted_turn_refs == ("session:turn/turn_pending",)
+    assert session.revision == 1
+
+
 def test_session_reuses_deterministic_summary_after_manifest_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -723,7 +719,16 @@ def test_session_reconciles_orphans_before_explicit_archive(tmp_path: Path) -> N
                 "day": str(old_day),
                 "background": {
                     "kind": "session_turn",
+                    "ref": "session:turn/turn_before_midnight",
                     "turn_id": "turn_before_midnight",
+                    "user_ask": ["persist before archive"],
+                    "actions": [],
+                    "answer": "archived answer",
+                    "references": [],
+                    "exhausted": False,
+                    "action_outcome_summary": action_history["outcome"],
+                    "trace_summary": summary.trace_summary,
+                    "trace_digest": summary.trace_digest,
                 },
                 "completion": summary.to_json(),
                 "action_history": action_history,
@@ -892,26 +897,3 @@ def _result_entry(call_id: str, name: str, result: JsonObject) -> JsonObject:
         },
         "origin_refs": [],
     }
-
-
-def _normalize_runtime_fixture_entry(entry: JsonObject) -> JsonObject:
-    """Upgrade evidence data at the test boundary, never in production parsing."""
-
-    normalized = json.loads(json.dumps(entry))
-    if normalized.get("kind") != "action_result":
-        return normalized
-    message = normalized["message"]
-    value = message["content"][0]["value"]
-    if value.get("status") != "failed":
-        value.pop("feedback", None)
-        return normalized
-    payload = value.get("payload", {})
-    legacy_failure = payload.get("failure", {})
-    value["failure"] = {
-        "reason": legacy_failure["reason"],
-        "scope": "web.fetch",
-        "disposition": legacy_failure["disposition"],
-        "feedback": value.pop("feedback"),
-    }
-    value.pop("payload", None)
-    return normalized

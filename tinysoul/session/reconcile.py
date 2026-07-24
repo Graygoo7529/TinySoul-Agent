@@ -14,6 +14,7 @@ from .models import (
     SessionRecord,
 )
 from .store import SessionStore
+from .validation import validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,8 @@ class SessionReconciler:
             for record in self._store.list_records(SessionHistoryKind.SUMMARY)
         }
         records = {**turns, **summaries}
+        for record in turns.values():
+            validate_turn_record(record)
         for record in records.values():
             record_day = record.content.get("day")
             if record_day is not None and record_day != manifest.day:

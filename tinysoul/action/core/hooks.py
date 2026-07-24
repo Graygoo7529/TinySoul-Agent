@@ -40,9 +40,10 @@ _HOOK_FRAME_RESERVED_FIELDS = frozenset(
 
 @dataclass(frozen=True)
 class HookOutcome:
-    """Outcome for one hook check."""
+    """Pass or reject one hook check using ActionResult data channels."""
 
     failure: ActionLocalFailure | None = None
+    payload: JsonObject = field(default_factory=dict)
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -52,13 +53,19 @@ class HookOutcome:
             raise ActionInvariantError(
                 "HookOutcome.failure must be an ActionLocalFailure"
             )
+        payload = to_json_object(self.payload)
         frame_data = to_json_object(self.frame_data)
+        if self.failure is None and (payload or frame_data):
+            raise ActionInvariantError(
+                "A successful HookOutcome cannot carry payload or frame_data"
+            )
         reserved_fields = sorted(set(frame_data) & _HOOK_FRAME_RESERVED_FIELDS)
         if reserved_fields:
             raise ActionInvariantError(
                 "HookOutcome.frame_data contains reserved fields: "
                 + ", ".join(reserved_fields)
             )
+        object.__setattr__(self, "payload", payload)
         object.__setattr__(self, "frame_data", frame_data)
 
     @classmethod
@@ -70,6 +77,7 @@ class HookOutcome:
         cls,
         failure: ActionLocalFailure,
         *,
+        payload: JsonObject | None = None,
         frame_data: JsonObject | None = None,
     ) -> "HookOutcome":
         if not isinstance(failure, ActionLocalFailure):
@@ -78,6 +86,7 @@ class HookOutcome:
             )
         return cls(
             failure=failure,
+            payload={} if payload is None else payload,
             frame_data={} if frame_data is None else frame_data,
         )
 
@@ -268,7 +277,7 @@ class ActionNormalizeHookPipeline:
                 return _normalize_hook_failure(
                     item,
                     reason="normalize_hook_unavailable",
-                    model_feedback=f"Action normalize hook is not available: {name}",
+                    feedback=f"Action normalize hook is not available: {name}",
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -298,7 +307,7 @@ class ActionNormalizeHookPipeline:
             return _normalize_hook_failure(
                 item,
                 reason="normalize_hook_failed",
-                model_feedback=f"Action normalize hook failed: {name}",
+                feedback=f"Action normalize hook failed: {name}",
                 frame_data={
                     "hook": name,
                     "error_type": type(exc).__name__,
@@ -308,7 +317,7 @@ class ActionNormalizeHookPipeline:
             return _normalize_hook_failure(
                 item,
                 reason="normalize_hook_failed",
-                model_feedback=f"Action normalize hook failed: {name}",
+                feedback=f"Action normalize hook failed: {name}",
                 frame_data={
                     "hook": name,
                     "returned_type": type(outcome).__name__,
@@ -318,6 +327,7 @@ class ActionNormalizeHookPipeline:
             return _normalize_hook_failure(
                 item,
                 failure=outcome.failure,
+                payload=outcome.payload,
                 frame_data={**outcome.frame_data, "hook": name},
             )
         return None
@@ -348,7 +358,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_unavailable",
-                    model_feedback=f"Action execution hook is not available: {name}",
+                    feedback=f"Action execution hook is not available: {name}",
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -362,7 +372,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_failed",
-                    model_feedback=f"Action execution hook failed: {name}",
+                    feedback=f"Action execution hook failed: {name}",
                     frame_data={
                         "hook": name,
                         "error_type": type(exc).__name__,
@@ -372,7 +382,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     reason="execution_hook_failed",
-                    model_feedback=f"Action execution hook failed: {name}",
+                    feedback=f"Action execution hook failed: {name}",
                     frame_data={
                         "hook": name,
                         "returned_type": type(outcome).__name__,
@@ -382,6 +392,7 @@ class ActionExecutionHookPipeline:
                 return _execution_hook_failure(
                     execution,
                     failure=outcome.failure,
+                    payload=outcome.payload,
                     frame_data={**outcome.frame_data, "hook": name},
                 )
         return None
@@ -390,16 +401,17 @@ class ActionExecutionHookPipeline:
 def _normalize_hook_failure(
     item: ActionNormalizeInput,
     *,
-    model_feedback: str | None = None,
+    feedback: str | None = None,
     reason: str | None = None,
     failure: ActionLocalFailure | None = None,
+    payload: JsonObject | None = None,
     frame_data: JsonObject,
 ) -> ActionResult:
     local_failure = _pipeline_failure(
         failure,
         reason=reason,
         scope="action.normalize_hook",
-        model_feedback=model_feedback,
+        feedback=feedback,
     )
     return ActionResult.failed(
         call_id=item.tool_call.id,
@@ -407,6 +419,7 @@ def _normalize_hook_failure(
         stage=ActionResultStage.NORMALIZE,
         sequence=item.sequence,
         failure=local_failure,
+        payload=payload,
         frame_data=frame_data,
     )
 
@@ -414,16 +427,17 @@ def _normalize_hook_failure(
 def _execution_hook_failure(
     execution: ActionExecution,
     *,
-    model_feedback: str | None = None,
+    feedback: str | None = None,
     reason: str | None = None,
     failure: ActionLocalFailure | None = None,
+    payload: JsonObject | None = None,
     frame_data: JsonObject,
 ) -> ActionResult:
     local_failure = _pipeline_failure(
         failure,
         reason=reason,
         scope="action.execution_hook",
-        model_feedback=model_feedback,
+        feedback=feedback,
     )
     return ActionResult.failed(
         call_id=execution.call.call_id,
@@ -434,6 +448,7 @@ def _execution_hook_failure(
         sequence=execution.call.sequence,
         domain=execution.framework.domain,
         failure=local_failure,
+        payload=payload,
         frame_data=frame_data,
     )
 
@@ -443,21 +458,21 @@ def _pipeline_failure(
     *,
     reason: str | None,
     scope: str,
-    model_feedback: str | None,
+    feedback: str | None,
 ) -> ActionLocalFailure:
     if failure is not None:
-        if reason is not None or model_feedback is not None:
+        if reason is not None or feedback is not None:
             raise ActionInvariantError(
                 "A hook failure cannot combine an owner failure with pipeline facts"
             )
         return failure
-    if not reason or not model_feedback:
+    if not reason or not feedback:
         raise ActionInvariantError("A pipeline-owned hook failure requires facts")
     return ActionLocalFailure(
         reason=reason,
         scope=scope,
         disposition=ActionFailureDisposition.CHANGE_REQUEST,
-        feedback=model_feedback,
+        feedback=feedback,
     )
 
 

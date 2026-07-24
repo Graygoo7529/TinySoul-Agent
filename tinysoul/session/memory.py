@@ -13,6 +13,7 @@ from tinysoul.loop.day import BusinessDay
 from .errors import SessionContractError, SessionInvariantError
 from .models import SessionHistoryItem, SessionHistoryKind, SessionRecord
 from .store import SessionStore
+from .validation import validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -188,60 +189,32 @@ def _summary_children(record: SessionRecord) -> tuple[SessionHistoryItem, ...]:
 
 
 def _turn_fact(record: SessionRecord) -> SessionMemoryFact:
-    if record.kind is not SessionHistoryKind.TURN:
-        raise SessionInvariantError(
-            f"Session memory fact source is not a Turn: {record.ref}"
-        )
-    completion = _object(record.content, "completion", ref=record.ref)
-    background = _object(record.content, "background", ref=record.ref)
-    inputs = _objects(completion.get("inputs"), label="inputs", ref=record.ref)
+    validated = validate_turn_record(record)
+    inputs = validated.inputs
     user_inputs = tuple(
         text
         for item in inputs
         if isinstance((text := item.get("text")), str) and text
     )
     started_at = _turn_started_at(inputs, record=record)
-    output = record.content.get("output")
-    if output is not None and not isinstance(output, dict):
-        raise SessionInvariantError(
-            f"Session Turn output is not an object: {record.ref}"
-        )
-    output_value = to_json_object(output) if isinstance(output, dict) else {}
-    actions = _objects(background.get("actions", []), label="actions", ref=record.ref)
-    exhausted = record.content.get("exhausted", False)
-    if not isinstance(exhausted, bool):
-        raise SessionInvariantError(
-            f"Session Turn exhausted flag is invalid: {record.ref}"
-        )
+    output_value = validated.output or {}
     return SessionMemoryFact(
         ref=record.ref,
         started_at=started_at,
         user_inputs=user_inputs,
-        working=_optional_object(completion.get("working"), ref=record.ref),
-        background_links=_strings(
-            completion.get("background_links", []),
-            label="background_links",
-            ref=record.ref,
-        ),
+        working=validated.working,
+        background_links=validated.background_links,
         answer=_optional_text(output_value.get("text")),
         references=_strings(
             output_value.get("references", []),
             label="references",
             ref=record.ref,
         ),
-        actions=tuple(actions),
-        action_history=_object(record.content, "action_history", ref=record.ref),
-        exhausted=exhausted,
-        trace_summary=_object(
-            completion,
-            "trace_summary",
-            ref=record.ref,
-        ),
-        trace_digest=_required_text(
-            completion.get("trace_digest"),
-            label="trace_digest",
-            ref=record.ref,
-        ),
+        actions=validated.background_actions,
+        action_history=validated.action_projection.summary_json(),
+        exhausted=validated.exhausted,
+        trace_summary=validated.trace_summary,
+        trace_digest=validated.trace_digest,
     )
 
 
@@ -261,33 +234,6 @@ def _turn_started_at(
     return datetime.fromtimestamp(record.recorded_at_ns / 1_000_000_000, tz=UTC)
 
 
-def _object(value: JsonObject, name: str, *, ref: str) -> JsonObject:
-    item = value.get(name)
-    if not isinstance(item, dict):
-        raise SessionInvariantError(
-            f"Session Turn is missing {name}: {ref}"
-        )
-    return to_json_object(item)
-
-
-def _optional_object(value: object, *, ref: str) -> JsonObject:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise SessionInvariantError(
-            f"Session Turn contains a non-object fact: {ref}"
-        )
-    return to_json_object(value)
-
-
-def _objects(value: object, *, label: str, ref: str) -> tuple[JsonObject, ...]:
-    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
-        raise SessionInvariantError(
-            f"Session Turn {label} must contain objects: {ref}"
-        )
-    return tuple(to_json_object(item) for item in value if isinstance(item, dict))
-
-
 def _strings(value: object, *, label: str, ref: str) -> tuple[str, ...]:
     if not isinstance(value, list) or any(
         not isinstance(item, str) or not item for item in value
@@ -300,11 +246,3 @@ def _strings(value: object, *, label: str, ref: str) -> tuple[str, ...]:
 
 def _optional_text(value: object) -> str:
     return value if isinstance(value, str) else ""
-
-
-def _required_text(value: object, *, label: str, ref: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise SessionInvariantError(
-            f"Session Turn {label} must be non-empty text: {ref}"
-        )
-    return value

@@ -36,7 +36,9 @@ class RejectNormalizeHook:
                 scope="action.hook",
                 disposition=ActionFailureDisposition.CHANGE_REQUEST,
                 feedback="Rejected during normalize",
-            )
+            ),
+            payload={"invalid_fields": ["guide_blocks"]},
+            frame_data={"rule_revision": 2},
         )
 
 
@@ -163,6 +165,13 @@ def test_normalizer_runs_configured_normalize_hook() -> None:
     assert normalization.results[0].stage is ActionResultStage.NORMALIZE
     assert normalization.results[0].failure is not None
     assert normalization.results[0].failure.feedback == "Rejected during normalize"
+    assert normalization.results[0].payload == {
+        "invalid_fields": ["guide_blocks"]
+    }
+    assert normalization.results[0].frame_data == {
+        "hook": "reject",
+        "rule_revision": 2,
+    }
 
 
 def test_normalizer_returns_local_failure_for_invalid_hook_outcome() -> None:

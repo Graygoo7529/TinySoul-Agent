@@ -54,7 +54,11 @@ from tinysoul.runtime import (
 
 class RejectHook:
     def check(self, execution, context) -> HookOutcome:
-        return HookOutcome.reject(_test_hook_failure())
+        return HookOutcome.reject(
+            _test_hook_failure(),
+            payload={"blocked_resource": "resource_1"},
+            frame_data={"policy_revision": 3},
+        )
 
 
 class InvalidOutcomeHook:
@@ -523,11 +527,28 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
     )
     assert results[0].failure.feedback == "Rejected by test hook"
     assert results[0].failure.constraint == {"state": "blocked"}
+    assert results[0].payload == {"blocked_resource": "resource_1"}
+    assert results[0].frame_data == {
+        "hook": "reject",
+        "policy_revision": 3,
+    }
 
 
 def test_hook_outcome_reject_requires_typed_failure() -> None:
     with pytest.raises(ActionInvariantError):
         HookOutcome.reject(cast(ActionLocalFailure, None))
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    (
+        lambda: HookOutcome(payload={"unexpected": True}),
+        lambda: HookOutcome(frame_data={"unexpected": True}),
+    ),
+)
+def test_successful_hook_outcome_cannot_carry_result_data(outcome) -> None:
+    with pytest.raises(ActionInvariantError, match="successful HookOutcome"):
+        outcome()
 
 
 @pytest.mark.parametrize(

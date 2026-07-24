@@ -172,7 +172,7 @@ Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapsh
 - `GET /v1/session/trace?ref=<session:turn/...>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000&max_entries=50`：只分页返回具体 Turn 的 canonical trace。客户端必须原样回传 `next_cursor`；普通 entry 以 index 前进，oversized entry 以 digest 和 Unicode character offset 续读。从 actions 获得已知 trace index 后，使用该 index 作为 `cursor_entry_index` 并提交 `max_entries=1` 精确恢复；trace 响应不含 Background、preview 或 Action summary；
 - history/trace 共享 requested/effective char/entry limits、coverage、remaining、page_complete 和 digest-bound oversized continuation，最终 JSON 不超过 effective max chars。owner/ref/kind/limit/cursor/revision 可修正错误返回 `422 session.<reason>`，`details` 只携带稳定 constraint；Session I/O/invariant 返回安全通用 `500 session.failed`，不包含 store path 和原始异常消息。
 
-Session REST 是 SessionEngine 在 Daily active-day lease 内的只读适配，不经 Gateway 或 ActionEngine，不产生 ActionCall/ActionResult，也不写入当前 TurnTrace。Session 是已完成 Turn 的事实：前端不得把 WebSocket 临时事件写回 Session，也不得把 history/actions/trace 结果当作 Workspace 文件。
+Session REST 是 SessionEngine 在 Daily active-day lease 内的只读适配，不经 Gateway 或 ActionEngine，不产生 ActionCall/ActionResult，也不写入当前 TurnTrace。history/actions/trace 只读取最近一次已提交状态，不触发 orphan reconciliation 或 Manifest revision 变化；前端通过 status/event 观察后端生命周期提交，而不能用重复查询推动 Session 恢复。Session 是已完成 Turn 的事实：前端不得把 WebSocket 临时事件写回 Session，也不得把 history/actions/trace 结果当作 Workspace 文件。
 
 ## Workspace 接口
 
