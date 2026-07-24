@@ -1,4 +1,4 @@
-"""Session-owned validation for immutable Turn records."""
+"""Session-owned validation for immutable history records."""
 
 from __future__ import annotations
 
@@ -8,8 +8,14 @@ from tinysoul.context import is_canonical_trace_digest
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .action_history import TurnActionProjection, project_turn_actions
-from .errors import SessionInvariantError
-from .models import SessionHistoryKind, SessionRecord
+from .background import (
+    project_summary_background,
+    project_turn_background,
+    summary_ref,
+    validate_turn_background_actions,
+)
+from .errors import SessionContractError, SessionInvariantError
+from .models import SessionHistoryItem, SessionHistoryKind, SessionRecord
 
 
 _TURN_CONTENT_FIELDS = frozenset(
@@ -42,6 +48,9 @@ _TURN_BACKGROUND_FIELDS = frozenset(
         "trace_digest",
     }
 )
+_SUMMARY_CONTENT_FIELDS = frozenset(
+    {"day", "background", "child_refs", "children"}
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +72,17 @@ class ValidatedTurnRecord:
     background_actions: tuple[JsonObject, ...]
     output: JsonObject | None
     exhausted: bool
+
+
+@dataclass(frozen=True)
+class ValidatedSummaryRecord:
+    """Trusted view of one deterministic schema v3 Summary record."""
+
+    record: SessionRecord
+    day: str
+    background: JsonObject
+    child_refs: tuple[str, ...]
+    children: tuple[SessionHistoryItem, ...]
 
 
 def validate_turn_record(record: SessionRecord) -> ValidatedTurnRecord:
@@ -147,6 +167,8 @@ def validate_turn_record(record: SessionRecord) -> ValidatedTurnRecord:
         background,
         record=record,
         turn_id=turn_id,
+        inputs=inputs,
+        output=output,
         trace_digest=trace_digest,
         trace_summary=trace_summary,
         projection=projection,
@@ -171,11 +193,69 @@ def validate_turn_record(record: SessionRecord) -> ValidatedTurnRecord:
     )
 
 
+def validate_summary_record(record: SessionRecord) -> ValidatedSummaryRecord:
+    """Validate one Summary identity and its deterministic Background."""
+
+    if record.kind is not SessionHistoryKind.SUMMARY:
+        raise SessionInvariantError(
+            f"Session record is not a Summary record: {record.ref}"
+        )
+    _require_exact_fields(
+        record.content,
+        expected=_SUMMARY_CONTENT_FIELDS,
+        owner=f"Session Summary record {record.ref}",
+    )
+    day = _required_text(record.content.get("day"), label="day", ref=record.ref)
+    background = _required_object(
+        record.content.get("background"), label="background", ref=record.ref
+    )
+    child_refs = _required_strings(
+        record.content.get("child_refs"),
+        label="child_refs",
+        ref=record.ref,
+        unique=True,
+    )
+    raw_children = _required_objects(
+        record.content.get("children"), label="children", ref=record.ref
+    )
+    if len(raw_children) < 2:
+        raise SessionInvariantError(
+            f"Session Summary record requires at least two children: {record.ref}"
+        )
+    try:
+        children = tuple(SessionHistoryItem.from_json(item) for item in raw_children)
+    except SessionContractError as exc:
+        raise SessionInvariantError(
+            f"Session Summary record contains an invalid child: {record.ref}"
+        ) from exc
+    if tuple(child.ref for child in children) != child_refs:
+        raise SessionInvariantError(
+            f"Session Summary record child refs are inconsistent: {record.ref}"
+        )
+    if summary_ref(day, child_refs) != record.ref:
+        raise SessionInvariantError(
+            f"Session Summary record identity is inconsistent: {record.ref}"
+        )
+    if project_summary_background(record.ref, children) != background:
+        raise SessionInvariantError(
+            f"Session Summary record background is inconsistent: {record.ref}"
+        )
+    return ValidatedSummaryRecord(
+        record=record,
+        day=day,
+        background=background,
+        child_refs=child_refs,
+        children=children,
+    )
+
+
 def _validate_background(
     background: JsonObject,
     *,
     record: SessionRecord,
     turn_id: str,
+    inputs: tuple[JsonObject, ...],
+    output: JsonObject | None,
     trace_digest: str,
     trace_summary: JsonObject,
     projection: TurnActionProjection,
@@ -186,35 +266,29 @@ def _validate_background(
         expected=_TURN_BACKGROUND_FIELDS,
         owner=f"Session Turn background {record.ref}",
     )
-    expected: tuple[tuple[str, object], ...] = (
-        ("kind", "session_turn"),
-        ("ref", record.ref),
-        ("turn_id", turn_id),
-        ("trace_digest", trace_digest),
-        ("trace_summary", trace_summary),
-        ("action_outcome_summary", projection.outcome_summary()),
-        ("exhausted", exhausted),
-    )
-    for field, value in expected:
-        if background.get(field) != value:
-            raise SessionInvariantError(
-                f"Session Turn background {field} is inconsistent: {record.ref}"
-            )
-    _required_strings(
-        background.get("user_ask"), label="background.user_ask", ref=record.ref
-    )
     actions = _required_objects(
         background.get("actions"), label="background.actions", ref=record.ref
     )
-    _required_text(
-        background.get("answer"),
-        label="background.answer",
+    validate_turn_background_actions(
+        actions,
+        projection=projection,
         ref=record.ref,
-        allow_empty=True,
     )
-    _required_strings(
-        background.get("references"), label="background.references", ref=record.ref
+    expected = project_turn_background(
+        ref=record.ref,
+        turn_id=turn_id,
+        inputs=inputs,
+        output=output,
+        exhausted=exhausted,
+        trace_summary=trace_summary,
+        trace_digest=trace_digest,
+        action_outcome_summary=projection.outcome_summary(),
+        actions=actions,
     )
+    if background != expected:
+        raise SessionInvariantError(
+            f"Session Turn background is inconsistent with source facts: {record.ref}"
+        )
     return actions
 
 

@@ -178,7 +178,7 @@ def _record_contents_match(left: SessionRecord, right: SessionRecord) -> bool:
             for key in ("completion", "output", "exhausted")
         )
     if left.kind is SessionHistoryKind.SUMMARY:
-        return left.content.get("child_refs") == right.content.get("child_refs")
+        return left.content == right.content
     return left.content == right.content
 
 

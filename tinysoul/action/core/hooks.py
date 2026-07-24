@@ -55,6 +55,10 @@ class HookOutcome:
             )
         payload = to_json_object(self.payload)
         frame_data = to_json_object(self.frame_data)
+        if "failure" in payload:
+            raise ActionInvariantError(
+                "HookOutcome.payload cannot contain failure"
+            )
         if self.failure is None and (payload or frame_data):
             raise ActionInvariantError(
                 "A successful HookOutcome cannot carry payload or frame_data"

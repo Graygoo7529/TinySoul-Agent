@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 
@@ -17,7 +16,13 @@ from tinysoul.infra.paging import (
 )
 from tinysoul.loop.day import BusinessDay
 
-from .action_history import TurnActionProjection, project_turn_actions
+from .action_history import project_turn_actions
+from .background import (
+    project_summary_background,
+    project_turn_background,
+    select_turn_background_actions,
+    summary_ref,
+)
 from .config import SessionSettings
 from .errors import (
     SessionContractError,
@@ -37,7 +42,11 @@ from .models import (
 )
 from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
-from .validation import ValidatedTurnRecord, validate_turn_record
+from .validation import (
+    ValidatedTurnRecord,
+    validate_summary_record,
+    validate_turn_record,
+)
 
 
 @dataclass(frozen=True)
@@ -237,13 +246,21 @@ class SessionEngine:
                 summary.trace,
                 expected_digest=summary.trace_digest,
             )
-            background = _turn_background(
-                summary,
-                projection=projection,
-                output=output,
-                exhausted=exhausted,
+            actions = select_turn_background_actions(
+                projection,
                 action_names=frozenset(self._settings.background_action_names),
                 max_actions=self._settings.background_max_actions_per_turn,
+            )
+            background = project_turn_background(
+                ref=ref,
+                turn_id=summary.turn_id,
+                inputs=summary.inputs,
+                output=output,
+                exhausted=exhausted,
+                trace_summary=summary.trace_summary,
+                trace_digest=summary.trace_digest,
+                action_outcome_summary=projection.outcome_summary(),
+                actions=actions,
             )
             record = SessionRecord(
                 ref=ref,
@@ -258,7 +275,7 @@ class SessionEngine:
                 },
             )
             validate_turn_record(record)
-            self._store.save_record_if_absent(record)
+            validate_turn_record(self._store.save_record_if_absent(record))
             self._last_reconcile_result = self._reconcile_current()
 
     def inspect_history(
@@ -584,7 +601,7 @@ class SessionEngine:
         )
         split = max_split
         for candidate in range(2, max_split + 1):
-            candidate_background = _summary_background(
+            candidate_background = project_summary_background(
                 provisional_ref,
                 items[:candidate],
             )
@@ -596,18 +613,9 @@ class SessionEngine:
                 break
         children = items[:split]
         child_refs = tuple(item.ref for item in children)
-        summary_digest = sha256(
-            dumps_json(
-                {
-                    "schema_version": 1,
-                    "day": manifest.day,
-                    "child_refs": list(child_refs),
-                }
-            ).encode("utf-8")
-        ).hexdigest()[:16]
-        summary_id = f"summary_{summary_digest}"
-        ref = f"session:summary/{summary_id}"
-        background = _summary_background(ref, children)
+        ref = summary_ref(manifest.day, child_refs)
+        summary_id = ref.rsplit("/", 1)[1]
+        background = project_summary_background(ref, children)
         record = SessionRecord(
             ref=ref,
             kind=SessionHistoryKind.SUMMARY,
@@ -618,122 +626,30 @@ class SessionEngine:
                 "children": [item.to_json() for item in children],
             },
         )
-        self._store.save_record_if_absent(record)
+        validate_summary_record(record)
+        validated = validate_summary_record(
+            self._store.save_record_if_absent(record)
+        )
         summary_item = SessionHistoryItem(
             item_id=summary_id,
             ref=ref,
             kind=SessionHistoryKind.SUMMARY,
-            background=background,
-            char_count=len(dumps_json(background)),
-            child_refs=child_refs,
+            background=validated.background,
+            char_count=len(dumps_json(validated.background)),
+            child_refs=validated.child_refs,
         )
         return (summary_item, *items[split:])
 
 
 def _turn_item_from_record(record: SessionRecord) -> SessionHistoryItem:
-    if record.kind is not SessionHistoryKind.TURN:
-        raise SessionInvariantError(
-            f"Session orphan is not a Turn record: {record.ref}"
-        )
-    background = record.content.get("background")
-    completion = record.content.get("completion")
-    if not isinstance(background, dict) or not isinstance(completion, dict):
-        raise SessionInvariantError(
-            f"Session Turn record is missing committed content: {record.ref}"
-        )
-    turn_id = completion.get("turn_id")
-    if not isinstance(turn_id, str):
-        raise SessionInvariantError(
-            f"Session Turn record has an invalid turn id: {record.ref}"
-        )
-    expected_ref = f"session:turn/{turn_id}"
-    if expected_ref != record.ref:
-        raise SessionInvariantError(
-            f"Session Turn record identity does not match completion: {record.ref}"
-        )
-    stable_background = to_json_object(background)
+    validated = validate_turn_record(record)
     return SessionHistoryItem(
-        item_id=turn_id,
+        item_id=validated.turn_id,
         ref=record.ref,
         kind=SessionHistoryKind.TURN,
-        background=stable_background,
-        char_count=len(dumps_json(stable_background)),
+        background=validated.background,
+        char_count=len(dumps_json(validated.background)),
     )
-
-
-def _turn_background(
-    summary: TurnSummary,
-    *,
-    projection: TurnActionProjection,
-    output: JsonObject | None,
-    exhausted: bool,
-    action_names: frozenset[str],
-    max_actions: int,
-) -> JsonObject:
-    asks = tuple(
-        text
-        for item in summary.inputs
-        if isinstance((text := item.get("text")), str) and text
-    )
-    answer = ""
-    references: list[str] = []
-    if output is not None:
-        raw_answer = output.get("text")
-        if isinstance(raw_answer, str):
-            answer = raw_answer
-        raw_references = output.get("references", [])
-        if isinstance(raw_references, list):
-            references = [item for item in raw_references if isinstance(item, str)]
-    return to_json_object(
-        {
-            "kind": "session_turn",
-            "ref": f"session:turn/{summary.turn_id}",
-            "turn_id": summary.turn_id,
-            "user_ask": _bounded_asks(asks),
-            "actions": _project_action_history(
-                projection,
-                action_names=action_names,
-                max_actions=max_actions,
-            ),
-            "answer": _clip(answer, 1800),
-            "references": references,
-            "exhausted": exhausted,
-            "action_outcome_summary": projection.outcome_summary(),
-            "trace_summary": summary.trace_summary,
-            "trace_digest": summary.trace_digest,
-        }
-    )
-
-
-def _summary_background(
-    ref: str,
-    children: tuple[SessionHistoryItem, ...],
-) -> JsonObject:
-    turns: list[JsonObject] = []
-    for item in children:
-        if item.kind is SessionHistoryKind.SUMMARY:
-            turns.append(
-                {
-                    "kind": "summary",
-                    "ref": item.ref,
-                    "child_count": len(item.child_refs),
-                }
-            )
-            continue
-        turns.append(
-            {
-                "kind": "turn",
-                "ref": item.ref,
-                "user_ask": _clip_json_text(item.background.get("user_ask"), 360),
-                "answer": _clip_json_text(item.background.get("answer"), 520),
-            }
-        )
-    return to_json_object({
-        "kind": "session_summary",
-        "ref": ref,
-        "child_refs": [item.ref for item in children],
-        "turns": turns,
-    })
 
 
 def _summary_split(
@@ -858,31 +774,7 @@ def _inspect_cursor(
 def _summary_children_from_record(
     record: SessionRecord,
 ) -> tuple[SessionHistoryItem, ...]:
-    if record.kind is not SessionHistoryKind.SUMMARY:
-        raise SessionInvariantError(
-            f"Session history node is not a Summary record: {record.ref}"
-        )
-    raw_children = record.content.get("children")
-    if not isinstance(raw_children, list) or len(raw_children) < 2:
-        raise SessionInvariantError(
-            f"Session summary record has invalid children: {record.ref}"
-        )
-    children: list[SessionHistoryItem] = []
-    try:
-        for raw in raw_children:
-            if not isinstance(raw, dict):
-                raise SessionContractError("Session summary child must be an object")
-            children.append(SessionHistoryItem.from_json(to_json_object(raw)))
-    except SessionContractError as exc:
-        raise SessionInvariantError(
-            f"Session summary record has invalid children: {record.ref}"
-        ) from exc
-    child_refs = [child.ref for child in children]
-    if record.content.get("child_refs") != child_refs:
-        raise SessionInvariantError(
-            f"Session summary record child refs are inconsistent: {record.ref}"
-        )
-    return tuple(children)
+    return validate_summary_record(record).children
 
 
 def _recall_record(
@@ -923,28 +815,6 @@ def _recall_record(
             ref=record.ref,
             scope="session.history.recall",
         ) from exc
-
-
-def _project_action_history(
-    projection: TurnActionProjection,
-    *,
-    action_names: frozenset[str],
-    max_actions: int,
-) -> list[JsonObject]:
-    values: list[JsonObject] = []
-    for item in projection.details:
-        if item.action_name not in action_names:
-            continue
-        detail = item.to_json()
-        failure = detail.pop("failure", None)
-        if isinstance(failure, dict):
-            detail["failure"] = {
-                key: failure[key]
-                for key in ("reason", "scope", "disposition")
-                if key in failure
-            }
-        values.append(detail)
-    return values[-max_actions:]
 
 
 def _inspect_item(item: SessionHistoryItem) -> JsonObject:
@@ -1030,27 +900,3 @@ def _session_page_error(
         constraint=constraint,
         scope=scope,
     )
-
-def _clip(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
-def _bounded_asks(asks: tuple[str, ...]) -> list[str]:
-    selected: list[str] = []
-    used = 0
-    for text in reversed(asks):
-        clipped = _clip(text, 1200)
-        if selected and used + len(clipped) > 2400:
-            break
-        selected.append(clipped)
-        used += len(clipped)
-    selected.reverse()
-    return selected
-
-
-def _clip_json_text(value: object, limit: int) -> str:
-    if isinstance(value, str):
-        return _clip(value, limit)
-    if isinstance(value, list):
-        return _clip("\n".join(item for item in value if isinstance(item, str)), limit)
-    return ""

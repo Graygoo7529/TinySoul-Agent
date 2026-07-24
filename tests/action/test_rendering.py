@@ -12,6 +12,8 @@ from tinysoul.action.core.result import (
     ActionResult,
     ActionResultEnvelope,
     ActionResultStage,
+    ActionResultStatus,
+    ActionTraceProjection,
 )
 from tinysoul.llm.messages import JsonPart
 from tinysoul.llm.tools import ToolResultStatus
@@ -121,4 +123,37 @@ def test_canonical_result_parser_rejects_unknown_legacy_fields() -> None:
                 "stage": "execute",
                 "feedback": "legacy",
             }
+        )
+
+
+def test_action_result_rejects_failure_inside_business_payload() -> None:
+    with pytest.raises(ActionInvariantError, match="payload cannot contain failure"):
+        ActionResult.success(
+            call_id="call_reserved",
+            invoke_id="invoke_reserved",
+            batch_id="batch_reserved",
+            action_name="workspace.scan",
+            sequence=1,
+            payload={"failure": {"reason": "duplicate"}},
+        )
+
+
+def test_action_result_envelope_rejects_failure_inside_business_payload() -> None:
+    with pytest.raises(ActionInvariantError, match="payload cannot contain failure"):
+        ActionResultEnvelope(
+            action_name="workspace.scan",
+            status=ActionResultStatus.SUCCESS,
+            stage=ActionResultStage.EXECUTE,
+            payload={"failure": {"reason": "duplicate"}},
+        )
+
+
+def test_action_trace_projection_rejects_failure_inside_canonical_payload() -> None:
+    with pytest.raises(
+        ActionInvariantError,
+        match="canonical_payload cannot contain failure",
+    ):
+        ActionTraceProjection(
+            origin_refs=("workspace:source.md",),
+            canonical_payload={"failure": {"reason": "duplicate"}},
         )

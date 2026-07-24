@@ -159,7 +159,11 @@ class ActionResultEnvelope:
                 "ActionResultEnvelope.stage must be an ActionResultStage"
             )
         _validate_failure_status(self.status, self.failure, owner="ActionResultEnvelope")
-        object.__setattr__(self, "payload", to_json_object(self.payload))
+        object.__setattr__(
+            self,
+            "payload",
+            _result_payload(self.payload, owner="ActionResultEnvelope"),
+        )
 
     def to_json(self) -> JsonObject:
         value: JsonObject = {
@@ -234,6 +238,10 @@ class ActionTraceProjection:
             raise ActionInvariantError(
                 "ActionTraceProjection.canonical_payload must be non-empty"
             )
+        if "failure" in canonical_payload:
+            raise ActionInvariantError(
+                "ActionTraceProjection.canonical_payload cannot contain failure"
+            )
         object.__setattr__(self, "canonical_payload", canonical_payload)
 
 
@@ -292,7 +300,11 @@ class ActionResult:
             raise ActionInvariantError(
                 "Only successful ActionResults may carry a trace projection"
             )
-        object.__setattr__(self, "payload", to_json_object(self.payload))
+        object.__setattr__(
+            self,
+            "payload",
+            _result_payload(self.payload, owner="ActionResult"),
+        )
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
 
     @classmethod
@@ -455,6 +467,13 @@ def _validate_failure_status(
         ActionLocalFailure,
     ):
         raise ActionInvariantError(f"{owner} failed/timeout requires a failure")
+
+
+def _result_payload(value: object, *, owner: str) -> JsonObject:
+    payload = to_json_object(value)
+    if "failure" in payload:
+        raise ActionInvariantError(f"{owner}.payload cannot contain failure")
+    return payload
 
 
 def _validate_failure_identifier(value: str, *, label: str) -> None:

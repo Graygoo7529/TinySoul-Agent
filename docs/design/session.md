@@ -17,7 +17,7 @@ runtime/session/
   summaries/<summary_id>.json
 ```
 
-`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态、确定性 `action_history` 和用于恢复排序的 `recorded_at_ns`。Record schema 直接使用 v3，不读取或迁移 v1/v2。TurnSummary 的 canonical trace 是证据事实，`trace_digest` 是该 trace 稳定 JSON 的 SHA-256 完整性事实，`action_history` 是同一 trace 的确定性物化派生，不是独立事实源。Session-owned Turn record validator 是这些关系的唯一校验入口：写入前、生命周期 reconciliation、actions/recall 证据读取与 Memory facts projection 都复用它；任一 digest、物化摘要或复制的内在 Background 事实不一致都会成为 invariant failure。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态、trace identity 与 `action_outcome_summary`；配置 allowlist 仍只选择少量 Action detail 进入自动背景。validator 不依据当前配置重新选择旧 record 的 Background action detail，因此配置变化不会重写首次提交语义。summary record 保存被合并节点的完整头部和子引用，不合并子 Turn 的 Action counts，也不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
+`turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态、确定性 `action_history` 和用于恢复排序的 `recorded_at_ns`。Record schema 直接使用 v3，不读取或迁移 v1/v2。TurnSummary 的 canonical trace 是证据事实，`trace_digest` 是该 trace 稳定 JSON 的 SHA-256 完整性事实，`action_history` 是同一 trace 的确定性物化派生，不是独立事实源。Session-owned projector/validator 是这些关系的唯一实现入口：写入前、生命周期 reconciliation、inspect/actions/recall 证据读取与 Memory facts projection 都复用它；ask、answer、references、结束状态、trace identity 和 `action_outcome_summary` 必须从 record 内在事实精确重投影，任一不一致都成为 invariant failure。配置 allowlist 只在首次提交时选择少量 Action detail 进入自动背景；旧 record 读取时不使用当前配置重新选择，而是验证已保存 detail 的 occurrence、顺序和内容确实来自同一 canonical trace，因此配置变化不会改写首次提交语义，也不能伪造 Action preview。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。summary record 保存被合并节点的完整头部和子引用，不合并子 Turn 的 Action counts，也不删除原 Turn record；Summary validator 同时验证确定性 ref、children/child refs 和由 children 重投影的 Background，因此摘要是可验证的索引层压缩，不是第二事实源或事实层丢失。
 
 `TurnActionProjector` 只扫描 canonical trace 中 Phase2 decision 的 Action ToolCall 与 Phase3 action_result 的 canonical Action envelope，排除 Control、reasoning 和 phase note。它按 call id 分组，只有唯一 call/result 且 action name 一致才形成有效 pair；missing/orphan/duplicate/name mismatch 都显式报告。name mismatch 拆为 call action 与 result action 两个异常 occurrence，状态和 failure 始终归到实际 result action；`pairing_issue_count` 因此统计异常 occurrence 而不是 call-id group。投影包含 trace indexes、status/stage、typed failure、全 Turn counts、by-action 状态计数、failure groups、`scan_complete` 与 `pairing_complete`，不复制 raw arguments 或业务 payload。Turn completion 使用 projector 生成 Background 摘要与持久 `action_history`，validator 在后续生命周期和证据读取边界重算并比较；inspect/Turn preview 只消费已经提交的结构化导航投影，不扫描 Action。Summary 不聚合子节点 Action counts，派生摘要不是第二事实源。
 
@@ -36,7 +36,7 @@ SessionBackground 只在 Turn preparation 期间以唯一版本化 `context.sess
 - `session.history.recall(ref)` 只接受具体 Turn ref，只分页返回 canonical `trace_entry`、source、coverage 与 digest-bound oversized continuation。inspect/recall 共享 immutable JSON sequence hard pager 和 `history_page_max_chars/entries`，但各自拥有 ref/kind/source 语义；`max_entries=1` 可根据 actions 返回的 trace index 精确恢复；recall 不返回 Background、preview 或 Action summary，Summary ref 必须由 inspect 展开；
 - actions/recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史恢复递归放大当前 TurnTraceHeap。
 
-inspect/actions/recall 都读取 Engine 最近一次已提交的 Manifest 与 immutable record，不触发 orphan reconciliation，也不修改 Manifest revision。已知 orphan ref 在下一次生命周期 reconciliation 前不属于 authoritative root；恢复 record 与改变可见头部只发生在 Session 生命周期边界，不由用户查询产生副作用。
+inspect/actions/recall 都不触发 orphan reconciliation，也不修改 Manifest revision。无 ref inspect 只读取最近一次提交的 authoritative Manifest root；带已知具体 ref 的查询直接读取并完整校验对应 immutable record，因此一个已经原子落盘但尚未接入 Manifest 的有效 orphan record 可以被按 ref 检查。该直接可读性不表示 orphan 已进入 authoritative root 或 SessionBackground，也不产生 revision；把它接入可见头部仍只发生在 Session 生命周期 reconciliation 边界。
 
 ## Turn 生命周期
 
@@ -49,13 +49,13 @@ inspect/actions/recall 都读取 Engine 最近一次已提交的 Manifest 与 im
 
 ## 幂等提交与 orphan reconciliation
 
-Turn completion 使用“不可变 record 先行、Manifest 后提交”的顺序。Turn record 的幂等语义由 v3 completion、output、exhausted 和 day 共同决定；background 是首次提交时按 Session 配置生成的派生投影，不参与重放身份，因此重启后调整投影配置不会把同一完成事实误判为冲突。相同 `session:turn/<turn_id>` 与相同语义内容重复提交时直接复用已有 record；若同一 ref 对应不同完成事实，则抛出 `SessionInvariantError`，不会覆盖先前事实。summary record 以 day、schema 和有序 child refs 判断幂等。Manifest revision 只对新接入的 Turn 递增，完全相同的重放不改变 revision。
+Turn completion 使用“不可变 record 先行、Manifest 后提交”的顺序。Turn record 的幂等语义由 v3 completion、output、exhausted 和 day 共同决定；background 是首次提交时按 Session 配置生成的派生投影，不参与重放身份，因此重启后调整投影配置不会把同一完成事实误判为冲突。相同 `session:turn/<turn_id>` 与相同语义内容重复提交时直接复用已有 record；若同一 ref 对应不同完成事实，则抛出 `SessionInvariantError`，不会覆盖先前事实。summary ref 由 day、schema 和有序 child refs 确定，只有既存 Summary 的完整内容也与本次确定性投影相同时才能幂等复用。Manifest revision 只对新接入的 Turn 递增，完全相同的重放不改变 revision。
 
-进程可能在 record 原子落盘后、Manifest 原子提交前退出，因此 record 存在而未从 Manifest 图可达是合法的可恢复中间态。Session 在加载现有 active root、Turn preparation/completion、显式 `reconcile_active` 和归档前执行 reconciliation：先通过唯一 Turn validator 校验全部 Turn record，再递归校验 Manifest/summary 图的引用存在性、kind、background、char count、child refs、重复子节点和环，最后按 `recorded_at_ns, ref` 的稳定顺序接入 orphan Turn。普通 inspect/actions/recall 不执行这一流程。构造 Engine 不会隐式创建新日或隐式跨日搬迁；这些状态改变只能由 `initialize_day`/`archive_day` 触发。损坏的已提交图或 orphan record 属于内部不变量失败，不静默重建。
+进程可能在 record 原子落盘后、Manifest 原子提交前退出，因此 record 存在而未从 Manifest 图可达是合法的可恢复中间态。Session 在加载现有 active root、Turn preparation/completion、显式 `reconcile_active` 和归档前执行 reconciliation：先通过 Session-owned validator 校验全部 Turn 和 Summary record，再递归校验 Manifest 图的引用存在性、kind、background、char count、child refs、重复子节点和环，最后按 `recorded_at_ns, ref` 的稳定顺序接入 orphan Turn。普通 inspect/actions/recall 不执行这一流程。构造 Engine 不会隐式创建新日或隐式跨日搬迁；这些状态改变只能由 `initialize_day`/`archive_day` 触发。损坏的已提交图或 orphan record 属于内部不变量失败，不静默重建。
 
 summary id 由 day、schema 和有序 child refs 的 digest 确定。若生成 summary record 后 Manifest 提交失败，重试会复用同一 summary，而不会产生重复摘要。不可达 summary 不独立接入可见头部，因为它是派生索引而不是新的 Turn 事实；reconciliation 会报告这些 refs，并在后续确定性汇总需要时复用。`record_turn` 必须显式携带 Turn 开始日；同 ref、同 completion/output/exhausted 是幂等成功，同 ref 不同事实是 invariant conflict。跨日时必须先完成旧日 reconciliation，再把完整旧日目录归档。
 
-SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、completion、history 读取和 reconciliation。history 读取只观察最近一次提交状态；当前不提供跨进程锁，active Session 的支持运行模型是单进程写入，多进程同时提交同一 active 根不属于一致性保证范围。
+SessionEngine 使用进程内可重入锁串行化同一实例的 preparation、completion、history 读取和 reconciliation。无 ref history 导航只观察最近一次提交的 Manifest root；已知 ref 的证据读取可观察已经原子落盘的有效 immutable record，但不会改变 root。当前不提供跨进程锁，active Session 的支持运行模型是单进程写入，多进程同时提交同一 active 根不属于一致性保证范围。
 
 归档后的 Session 还是同一组不可变 Turn/summary 事实。`SessionEngine.memory_facts(day, root)` 先复用 `archive_snapshot` 校验 manifest/graph，再按需递归可达 Summary 节点，并对每个叶子 Turn 复用同一 validator，只输出唯一叶子 Turn 的 `SessionMemoryFactsProjection`。每个 fact 使用首个 UserInput `received_at` 作为 Turn 开始时间，缺失时回退 record `recorded_at_ns`，并投影全部 UserInput 文本、最终 Working、Background 顶层 Links、最终 answer/references、已校验的有界 action 摘要、exhausted 和 trace digest；不输出 raw trace、trace heap、reasoning 或 provider payload。Projection 按开始时间和 ref 稳定排序，不同时交付 Summary 与其子 Turn。
 

@@ -14,7 +14,7 @@ from .models import (
     SessionRecord,
 )
 from .store import SessionStore
-from .validation import validate_turn_record
+from .validation import validate_summary_record, validate_turn_record
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,8 @@ class SessionReconciler:
         records = {**turns, **summaries}
         for record in turns.values():
             validate_turn_record(record)
+        for record in summaries.values():
+            validate_summary_record(record)
         for record in records.values():
             record_day = record.content.get("day")
             if record_day is not None and record_day != manifest.day:
@@ -167,26 +169,4 @@ class SessionReconciler:
 
 
 def _summary_children(record: SessionRecord) -> tuple[SessionHistoryItem, ...]:
-    raw_children = record.content.get("children")
-    if not isinstance(raw_children, list) or len(raw_children) < 2:
-        raise SessionInvariantError(
-            f"Session summary record has invalid children: {record.ref}"
-        )
-    children: list[SessionHistoryItem] = []
-    for raw in raw_children:
-        if not isinstance(raw, dict):
-            raise SessionInvariantError(
-                f"Session summary record has a non-object child: {record.ref}"
-            )
-        children.append(SessionHistoryItem.from_json(to_json_object(raw)))
-    raw_refs = record.content.get("child_refs")
-    refs = [child.ref for child in children]
-    if not isinstance(raw_refs, list) or raw_refs != refs:
-        raise SessionInvariantError(
-            f"Session summary record child refs are inconsistent: {record.ref}"
-        )
-    if len(refs) != len(set(refs)):
-        raise SessionInvariantError(
-            f"Session summary record contains duplicate children: {record.ref}"
-        )
-    return tuple(children)
+    return validate_summary_record(record).children

@@ -585,6 +585,12 @@ def test_session_idempotency_ignores_changed_background_projection_settings(
     )
 
     assert restarted.revision == revision
+    snapshot = restarted.background_snapshot(DAY)
+    actions = snapshot.items[0].content["actions"]
+    assert isinstance(actions, list) and len(actions) == 1
+    action = actions[0]
+    assert isinstance(action, dict)
+    assert action["action"] == "core.reason"
 
 
 def test_session_reconciles_turn_orphan_after_manifest_failure(
@@ -699,6 +705,33 @@ def test_session_reuses_deterministic_summary_after_manifest_failure(
     recovered = _engine(settings)
     assert recovered.revision == 3
     assert len(tuple((settings.root / "summaries").glob("*.json"))) == 1
+
+
+def test_session_rejects_corrupted_summary_background_on_reload(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path, background_max_chars=900)
+    session = _engine(settings)
+    for index in range(3):
+        _record_turn(
+            session,
+            summary=_summary(f"turn_corrupt_{index}", ask=f"question {index}"),
+            output={"text": "answer " + "x" * 700},
+            exhausted=False,
+        )
+    summary_files = tuple((settings.root / "summaries").glob("*.json"))
+    assert len(summary_files) == 1
+    summary_path = summary_files[0]
+    persisted = json.loads(summary_path.read_text(encoding="utf-8"))
+    turns = persisted["content"]["background"]["turns"]
+    turns[0]["answer"] = "fabricated summary answer"
+    summary_path.write_text(
+        json.dumps(persisted, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SessionInvariantError, match="background is inconsistent"):
+        SessionEngine(settings)
 
 
 def test_session_reconciles_orphans_before_explicit_archive(tmp_path: Path) -> None:

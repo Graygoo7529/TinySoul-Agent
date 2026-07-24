@@ -572,6 +572,14 @@ def test_hook_outcome_rejects_reserved_frame_fields(field: str) -> None:
         )
 
 
+def test_hook_outcome_rejects_failure_inside_business_payload() -> None:
+    with pytest.raises(ActionInvariantError, match="payload cannot contain failure"):
+        HookOutcome.reject(
+            _test_hook_failure(),
+            payload={"failure": {"reason": "duplicate"}},
+        )
+
+
 def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
