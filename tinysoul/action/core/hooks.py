@@ -28,47 +28,31 @@ if TYPE_CHECKING:
 class HookOutcome:
     """Outcome for one hook check."""
 
-    ok: bool
     failure: ActionLocalFailure | None = None
     frame_data: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_data", to_json_object(self.frame_data))
-        if self.ok and self.failure is not None:
-            raise ActionInvariantError("A successful hook cannot carry a failure")
-        if not self.ok and self.failure is None:
-            raise ActionInvariantError("A rejected hook requires a local failure")
-
-    @property
-    def model_feedback(self) -> str:
-        return self.failure.feedback if self.failure is not None else ""
+        if self.failure is not None and not isinstance(
+            self.failure, ActionLocalFailure
+        ):
+            raise ActionInvariantError(
+                "HookOutcome.failure must be an ActionLocalFailure"
+            )
 
     @classmethod
     def success(cls) -> "HookOutcome":
-        return cls(ok=True)
+        return cls()
 
     @classmethod
-    def failed(
+    def reject(
         cls,
-        model_feedback: str,
+        failure: ActionLocalFailure,
         *,
-        reason: str = "hook_rejected",
-        scope: str = "action.hook",
-        disposition: ActionFailureDisposition = (
-            ActionFailureDisposition.CHANGE_REQUEST
-        ),
-        constraint: JsonObject | None = None,
         frame_data: JsonObject | None = None,
     ) -> "HookOutcome":
         return cls(
-            ok=False,
-            failure=ActionLocalFailure(
-                reason=reason,
-                scope=scope,
-                disposition=disposition,
-                feedback=model_feedback,
-                constraint=constraint or {},
-            ),
+            failure=failure,
             frame_data=frame_data or {},
         )
 
@@ -113,10 +97,13 @@ class SchemaNormalizeHook:
         try:
             validate_action_params(item.tool_call.arguments, schema=item.action.tool.schema)
         except ActionSchemaValidationError as exc:
-            return HookOutcome.failed(
-                str(exc),
-                reason="invalid_action_params",
-                scope="action.schema",
+            return HookOutcome.reject(
+                ActionLocalFailure(
+                    reason="invalid_action_params",
+                    scope="action.schema",
+                    disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                    feedback=str(exc),
+                ),
                 frame_data={"error_type": type(exc).__name__},
             )
         return HookOutcome.success()
@@ -292,8 +279,7 @@ class ActionNormalizeHookPipeline:
                     "error_type": type(exc).__name__,
                 },
             )
-        if not outcome.ok:
-            assert outcome.failure is not None
+        if outcome.failure is not None:
             return _normalize_hook_failure(
                 item,
                 failure=outcome.failure,
@@ -347,8 +333,7 @@ class ActionExecutionHookPipeline:
                         "error_type": type(exc).__name__,
                     },
                 )
-            if not outcome.ok:
-                assert outcome.failure is not None
+            if outcome.failure is not None:
                 return _execution_hook_failure(
                     execution,
                     failure=outcome.failure,

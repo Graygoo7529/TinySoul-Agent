@@ -31,7 +31,7 @@ SessionBackground 只在 Turn preparation 期间以唯一版本化 `context.sess
 
 恢复是分层、显式和有界的：
 
-- `session.history.inspect(ref?)` 无 ref 时分页返回 authoritative Manifest root，Summary ref 时返回直接 children，Turn ref 时返回单节点 overview。每个节点只携带 Session-owned 有界 `preview`、`child_count` 与 ref/kind；它不返回 raw trace 或重新统计 Action。root continuation cursor 绑定 Manifest revision，revision 变化时显式要求从 root 重新开始；Summary/Turn record immutable，不使用 revision cursor；
+- `session.history.inspect(ref?)` 无 ref 时分页返回 authoritative Manifest root，Summary ref 时返回直接 children，Turn ref 时返回单节点 overview。每个节点只携带 Session-owned 有界 `preview`、`child_count` 与 ref/kind；它不返回 raw trace 或重新统计 Action。root continuation cursor 绑定 Manifest revision，revision 变化时显式要求从 root 重新开始；revision 作为 Session-owned opaque cursor binding 交给 Infra pager，current/next cursor 的最终形态都参与 hard character budget，Infra 不解释 revision；Summary/Turn record immutable，不使用 revision cursor；
 - `session.history.actions(ref)` 只接受具体 Turn ref，始终从完整 canonical trace 投影全 Turn summary、by-action 计数、failure groups 和 trace indexes；details 按 occurrence 分页，不返回 raw arguments 或 raw result payload；
 - `session.history.recall(ref)` 只接受具体 Turn ref，只分页返回 canonical `trace_entry`、source、coverage 与 digest-bound oversized continuation。inspect/recall 共享 immutable JSON sequence hard pager 和 `history_page_max_chars/entries`，但各自拥有 ref/kind/source 语义；`max_entries=1` 可根据 actions 返回的 trace index 精确恢复；recall 不返回 Background、preview 或 Action summary，Summary ref 必须由 inspect 展开；
 - actions/recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史恢复递归放大当前 TurnTraceHeap。

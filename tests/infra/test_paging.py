@@ -112,3 +112,41 @@ def test_json_sequence_page_reports_digest_mismatch_reason() -> None:
 
     assert caught.value.reason is JsonPageFailureReason.ENTRY_DIGEST_MISMATCH
     assert caught.value.constraint == {"entry_index": 0}
+
+
+def test_cursor_binding_is_included_in_hard_page_budget() -> None:
+    page = page_json_sequence(
+        ({"text": "x" * 2000},),
+        base={"owner": "test"},
+        item_field="entries",
+        cursor_unit="trace_entry",
+        cursor=JsonPageCursor(),
+        max_chars=1024,
+        max_entries=1,
+        cursor_binding={"revision": 123},
+    )
+
+    assert len(dumps_json(page)) <= 1024
+    cursor = page["cursor"]
+    assert isinstance(cursor, dict)
+    assert cursor["revision"] == 123
+    next_cursor = page["next_cursor"]
+    assert isinstance(next_cursor, dict)
+    assert next_cursor["revision"] == 123
+
+
+def test_cursor_binding_cannot_replace_pager_cursor_fields() -> None:
+    with pytest.raises(JsonPageError) as caught:
+        page_json_sequence(
+            ({"value": 1},),
+            base={"owner": "test"},
+            item_field="entries",
+            cursor_unit="trace_entry",
+            cursor=JsonPageCursor(),
+            max_chars=1024,
+            max_entries=1,
+            cursor_binding={"entry_index": 4},
+        )
+
+    assert caught.value.reason is JsonPageFailureReason.INVALID_REQUEST
+    assert caught.value.constraint == {"fields": ["entry_index"]}

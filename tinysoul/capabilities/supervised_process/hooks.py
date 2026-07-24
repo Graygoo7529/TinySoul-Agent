@@ -1,6 +1,12 @@
 """Action hooks owned by the shared supervised process lifecycle."""
 
-from tinysoul.action import ActionExecution, ActionExecutionContext, HookOutcome
+from tinysoul.action import (
+    ActionExecution,
+    ActionExecutionContext,
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    HookOutcome,
+)
 
 from .manager import SupervisedProcessManager
 
@@ -18,9 +24,12 @@ class SupervisedProcessAnswerGuard:
     ) -> HookOutcome:
         del context
         if self._jobs.has_unresolved(execution.framework.turn_id):
-            return HookOutcome.failed(
-                "Resolve the active process job before answering.",
-                reason="unresolved_supervised_process_job",
-                scope="supervised_process.answer_guard",
+            return HookOutcome.reject(
+                ActionLocalFailure(
+                    reason="unresolved_supervised_process_job",
+                    scope="supervised_process.answer_guard",
+                    disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                    feedback="Resolve the active process job before answering.",
+                )
             )
         return HookOutcome.success()

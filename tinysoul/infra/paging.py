@@ -136,6 +136,7 @@ def page_json_sequence(
     max_entries: int,
     requested_max_chars: int | None = None,
     requested_max_entries: int | None = None,
+    cursor_binding: JsonObject | None = None,
 ) -> JsonObject:
     """Build one page whose final canonical JSON never exceeds *max_chars*."""
 
@@ -190,6 +191,15 @@ def page_json_sequence(
             "JSON page item field collides with base metadata",
             constraint={"field": item_field},
         )
+    binding = to_json_object(cursor_binding or {})
+    reserved_cursor_fields = {"entry_index", "char_offset", "entry_digest"}
+    collisions = sorted(set(binding) & reserved_cursor_fields)
+    if collisions:
+        raise JsonPageError(
+            JsonPageFailureReason.INVALID_REQUEST,
+            "JSON page cursor binding collides with cursor fields",
+            constraint={"fields": collisions},
+        )
     items = tuple(to_json_value(value) for value in values)
     if cursor.entry_index > len(items):
         raise JsonPageError(
@@ -217,6 +227,7 @@ def page_json_sequence(
         effective_max_chars=max_chars,
         requested_max_entries=requested_entries,
         effective_max_entries=max_entries,
+        cursor_binding=binding,
     )
     if len(dumps_json(empty)) > max_chars:
         raise JsonPageError(
@@ -240,6 +251,7 @@ def page_json_sequence(
             max_entries=max_entries,
             requested_max_chars=requested_chars,
             requested_max_entries=requested_entries,
+            cursor_binding=binding,
         )
 
     selected: list[JsonValue] = []
@@ -264,6 +276,7 @@ def page_json_sequence(
             effective_max_chars=max_chars,
             requested_max_entries=requested_entries,
             effective_max_entries=max_entries,
+            cursor_binding=binding,
         )
         if len(dumps_json(candidate)) > max_chars:
             if not selected:
@@ -277,6 +290,7 @@ def page_json_sequence(
                     max_entries=max_entries,
                     requested_max_chars=requested_chars,
                     requested_max_entries=requested_entries,
+                    cursor_binding=binding,
                 )
             break
         selected.append(items[index])
@@ -296,6 +310,7 @@ def page_json_sequence(
         effective_max_chars=max_chars,
         requested_max_entries=requested_entries,
         effective_max_entries=max_entries,
+        cursor_binding=binding,
     )
 
 
@@ -310,6 +325,7 @@ def _oversized_page(
     max_entries: int,
     requested_max_chars: int,
     requested_max_entries: int,
+    cursor_binding: JsonObject,
 ) -> JsonObject:
     serialized = dumps_json(items[cursor.entry_index])
     digest = f"sha256:{sha256(serialized.encode('utf-8')).hexdigest()}"
@@ -363,6 +379,7 @@ def _oversized_page(
             effective_max_chars=max_chars,
             requested_max_entries=requested_max_entries,
             effective_max_entries=max_entries,
+            cursor_binding=cursor_binding,
             oversized_entry={
                 "entry_index": cursor.entry_index,
                 "entry_digest": digest,
@@ -401,6 +418,7 @@ def _page_value(
     effective_max_chars: int,
     requested_max_entries: int,
     effective_max_entries: int,
+    cursor_binding: JsonObject,
     oversized_entry: JsonObject | None = None,
 ) -> JsonObject:
     value: JsonObject = {
@@ -415,8 +433,12 @@ def _page_value(
         "effective_max_chars": effective_max_chars,
         "requested_max_entries": requested_max_entries,
         "effective_max_entries": effective_max_entries,
-        "cursor": cursor.to_json(),
-        "next_cursor": next_cursor.to_json() if next_cursor is not None else None,
+        "cursor": _cursor_json(cursor, cursor_binding),
+        "next_cursor": (
+            _cursor_json(next_cursor, cursor_binding)
+            if next_cursor is not None
+            else None
+        ),
         "page_complete": next_cursor is None,
         "truncated": next_cursor is not None,
         item_field: list(items),
@@ -424,6 +446,10 @@ def _page_value(
     if oversized_entry is not None:
         value["oversized_entry"] = oversized_entry
     return to_json_object(value)
+
+
+def _cursor_json(cursor: JsonPageCursor, binding: JsonObject) -> JsonObject:
+    return {**cursor.to_json(), **binding}
 
 
 def _is_digest(value: object) -> bool:

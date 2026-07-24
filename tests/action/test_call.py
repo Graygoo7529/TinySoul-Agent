@@ -15,7 +15,13 @@ from tinysoul.action.core.call import (
 from tinysoul.action.core.errors import ActionInvariantError
 from tinysoul.action.core.hooks import ActionNormalizeHookPipeline, HookOutcome
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.action.core.result import ActionResult, ActionResultStage, ActionResultStatus
+from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+    ActionResult,
+    ActionResultStage,
+    ActionResultStatus,
+)
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import RunScope
@@ -23,7 +29,14 @@ from tinysoul.runtime import RunScope
 
 class RejectNormalizeHook:
     def check(self, item) -> HookOutcome:
-        return HookOutcome.failed("Rejected during normalize")
+        return HookOutcome.reject(
+            ActionLocalFailure(
+                reason="hook_rejected",
+                scope="action.hook",
+                disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                feedback="Rejected during normalize",
+            )
+        )
 
 
 ANSWER_ARGS: JsonObject = {"guide_blocks": [{"text": "answer"}]}

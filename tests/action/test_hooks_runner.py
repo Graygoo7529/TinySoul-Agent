@@ -18,6 +18,8 @@ from tinysoul.action.core.hooks import (
 )
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.action.core.result import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
     ActionResult,
     ActionResultStage,
     ActionResultStatus,
@@ -51,7 +53,14 @@ from tinysoul.runtime import (
 
 class RejectHook:
     def check(self, execution, context) -> HookOutcome:
-        return HookOutcome.failed("Rejected by test hook")
+        return HookOutcome.reject(
+            ActionLocalFailure(
+                reason="hook_rejected",
+                scope="action.hook",
+                disposition=ActionFailureDisposition.CHANGE_REQUEST,
+                feedback="Rejected by test hook",
+            )
+        )
 
 
 class ExplodingHook:

@@ -341,6 +341,9 @@ class SessionEngine:
                     max_entries=entry_limit,
                     requested_max_chars=requested_chars,
                     requested_max_entries=requested_entries,
+                    cursor_binding=(
+                        {"revision": manifest.revision} if ref is None else None
+                    ),
                 )
             except JsonPageError as exc:
                 raise _session_page_error(
@@ -348,8 +351,6 @@ class SessionEngine:
                     ref=ref,
                     scope="session.history.inspect",
                 ) from exc
-            if ref is None:
-                _bind_page_revision(page, manifest.revision)
             return page
 
     def _inspect_item(self, item: SessionHistoryItem) -> JsonObject:
@@ -868,13 +869,6 @@ def _inspect_cursor(
             scope=scope,
         )
     return cursor
-
-
-def _bind_page_revision(page: JsonObject, revision: int) -> None:
-    for name in ("cursor", "next_cursor"):
-        raw = page.get(name)
-        if isinstance(raw, dict):
-            raw["revision"] = revision
 
 
 def _summary_children_from_record(

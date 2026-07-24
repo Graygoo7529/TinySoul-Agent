@@ -63,7 +63,11 @@ export class TinySoulClient {
   private async request<T>(
     method: string,
     path: string,
-    options: { body?: unknown; query?: Record<string, string | number | undefined> } = {},
+    options: {
+      body?: unknown;
+      query?: Record<string, string | number | undefined>;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<T> {
     const query = options.query
       ? "?" +
@@ -76,6 +80,7 @@ export class TinySoulClient {
     const init: RequestInit = {
       method,
       headers: this.headers(),
+      signal: options.signal,
     };
     if (options.body !== undefined) {
       init.body = JSON.stringify(options.body);
@@ -121,50 +126,62 @@ export class TinySoulClient {
     });
   }
 
-  async sessionHistory(
-    ref?: string,
-    cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
-    maxChars?: number,
-    maxEntries?: number,
-  ): Promise<SessionHistory> {
+  async sessionHistory(options: {
+    ref?: string;
+    cursor?: SessionCursor;
+    maxChars?: number;
+    maxEntries?: number;
+    signal?: AbortSignal;
+  } = {}): Promise<SessionHistory> {
+    const cursor = options.cursor ?? { entry_index: 0, char_offset: 0 };
     return this.request<SessionHistory>("GET", "/v1/session/history", {
       query: {
-        ref,
-        max_chars: maxChars,
-        max_entries: maxEntries,
+        ref: options.ref,
+        max_chars: options.maxChars,
+        max_entries: options.maxEntries,
         cursor_entry_index: cursor.entry_index,
         cursor_char_offset: cursor.char_offset,
         cursor_entry_digest: cursor.entry_digest,
         cursor_revision: cursor.revision,
       },
+      signal: options.signal,
     });
   }
 
-  async sessionActions(
-    ref: string,
-    cursor = 0,
-    maxItems?: number,
-  ): Promise<SessionActions> {
+  async sessionActions(options: {
+    ref: string;
+    cursor?: number;
+    maxItems?: number;
+    signal?: AbortSignal;
+  }): Promise<SessionActions> {
     return this.request<SessionActions>("GET", "/v1/session/actions", {
-      query: { ref, cursor, max_items: maxItems },
+      query: {
+        ref: options.ref,
+        cursor: options.cursor ?? 0,
+        max_items: options.maxItems,
+      },
+      signal: options.signal,
     });
   }
 
-  async sessionTrace(
-    ref: string,
-    cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
-    maxChars?: number,
-    maxEntries?: number,
-  ): Promise<SessionTrace> {
+  async sessionTrace(options: {
+    ref: string;
+    cursor?: SessionCursor;
+    maxChars?: number;
+    maxEntries?: number;
+    signal?: AbortSignal;
+  }): Promise<SessionTrace> {
+    const cursor = options.cursor ?? { entry_index: 0, char_offset: 0 };
     return this.request<SessionTrace>("GET", "/v1/session/trace", {
       query: {
-        ref,
-        max_chars: maxChars,
-        max_entries: maxEntries,
+        ref: options.ref,
+        max_chars: options.maxChars,
+        max_entries: options.maxEntries,
         cursor_entry_index: cursor.entry_index,
         cursor_char_offset: cursor.char_offset,
         cursor_entry_digest: cursor.entry_digest,
       },
+      signal: options.signal,
     });
   }
 

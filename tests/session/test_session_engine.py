@@ -507,6 +507,29 @@ def test_session_root_inspect_cursor_is_bound_to_manifest_revision(
     assert failure.value.reason is SessionHistoryFailureReason.REVISION_CHANGED
 
 
+def test_session_root_cursor_binding_stays_inside_character_budget(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path))
+    _record_turn(
+        session,
+        summary=_summary("turn_bound_revision", ask="x" * 2000),
+        output={"text": "y" * 2000},
+        exhausted=False,
+    )
+
+    page = session.inspect_history(max_chars=1024, max_entries=1)
+
+    assert page["effective_max_chars"] == 1024
+    assert len(dumps_json(page)) <= 1024
+    cursor = page["cursor"]
+    assert isinstance(cursor, dict)
+    assert cursor["revision"] == session.revision
+    next_cursor = page["next_cursor"]
+    assert isinstance(next_cursor, dict)
+    assert next_cursor["revision"] == session.revision
+
+
 def test_session_overflow_background_recovers_through_root_inspect(
     tmp_path: Path,
 ) -> None:
