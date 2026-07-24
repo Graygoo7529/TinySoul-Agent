@@ -19,20 +19,22 @@ runtime/session/
 
 `turns/` 中的完整 Turn record 是不可变事实，包含 TurnSummary、输出、exhausted 状态、确定性 `action_history` 和用于恢复排序的 `recorded_at_ns`。Record schema 直接使用 v3，不读取或迁移 v1/v2。TurnSummary 的 `trace_summary` 是有界计数视图，`trace_digest` 是 canonical trace 稳定 JSON 的 SHA-256；写入、加载和 reconciliation 均重算校验。Manifest 只保存下一 Turn 可见的有界历史头部：`turn` item 或 `summary` item、背景投影、估算字符数及 child refs。近期 Turn 投影固定包含 ask、answer、结束状态、trace identity 与 `action_outcome_summary`；配置 allowlist 仍只选择少量 Action detail 进入自动背景。summary record 保存被合并节点的完整头部和子引用，不合并子 Turn 的 Action counts，也不删除原 Turn record，因此摘要是索引层压缩，不是事实层丢失。
 
-`TurnActionProjector` 只扫描 canonical trace 中 Phase2 decision 的 Action ToolCall 与 Phase3 action_result 的 canonical Action envelope，排除 Control、reasoning 和 phase note。它按 call id 分组，只有唯一 call/result 且 action name 一致才形成有效 pair；missing/orphan/duplicate/name mismatch 都显式报告。name mismatch 拆为 call action 与 result action 两个异常 occurrence，状态和 failure 始终归到实际 result action；`pairing_issue_count` 因此统计异常 occurrence 而不是 call-id group。投影包含 trace indexes、status/stage、typed failure、全 Turn counts、by-action 状态计数、failure groups、`scan_complete` 与 `pairing_complete`，不复制 raw arguments 或业务 payload。record、Background、inspect、actions 与 reconciliation 复用同一 projector；inspect 的直接 Turn item携带 outcome summary，summary item不聚合子节点 Action counts，派生摘要不是第二事实源。
+`TurnActionProjector` 只扫描 canonical trace 中 Phase2 decision 的 Action ToolCall 与 Phase3 action_result 的 canonical Action envelope，排除 Control、reasoning 和 phase note。它按 call id 分组，只有唯一 call/result 且 action name 一致才形成有效 pair；missing/orphan/duplicate/name mismatch 都显式报告。name mismatch 拆为 call action 与 result action 两个异常 occurrence，状态和 failure 始终归到实际 result action；`pairing_issue_count` 因此统计异常 occurrence 而不是 call-id group。投影包含 trace indexes、status/stage、typed failure、全 Turn counts、by-action 状态计数、failure groups、`scan_complete` 与 `pairing_complete`，不复制 raw arguments 或业务 payload。record、Background、Turn preview、actions 与 reconciliation 复用同一 projector；Summary 不聚合子节点 Action counts，派生摘要不是第二事实源。
 
 Session 不读取 `date.today()`，也不拥有 archive root 配置。Program 在 work 边界传入唯一 `BusinessDay`；日切时 Loop coordinator 先要求 Session 完成 reconciliation，再把 active root 移到统一 pending archive 的 `session/`，最后与 Workspace 一起打开新日。Home 不参与这一 Business Day 事务。Manifest 和 record 使用稳定 JSON 与原子写入；day 不匹配、损坏或归档目标冲突显式失败，不静默重建。
 
 ## 摘要与渐进恢复
 
-Session 的 `background_max_chars` 是跨 Turn 历史头部预算。当可见 item 估算超过 60% watermark 时，每次 Turn completion 最多执行一次确定性合并：保留至少 `min_recent_turns` 个最近 Turn，把更旧的连续前缀替换为一个 summary node。默认目标比例为 40%，为下一批 Turn 留出增长空间。若极端单条投影仍超过总预算，下一 Turn 只注入 overflow head，模型可通过 inspect action 获取完整索引。
+Session 的 `background_max_chars` 是跨 Turn 历史头部预算。当可见 item 估算超过 60% watermark 时，每次 Turn completion 最多执行一次确定性合并：保留至少 `min_recent_turns` 个最近 Turn，把更旧的连续前缀替换为一个 immutable Summary node。Summary 可递归包含 Summary，原 Turn/Summary record 不删除。默认目标比例为 40%，为下一批 Turn 留出增长空间。若极端单条投影仍超过总预算，下一 Turn 只注入 `session_overflow_head` 与可容纳的最近节点，模型通过无 ref inspect 恢复 authoritative Manifest root。
+
+SessionBackground 只在 Turn preparation 期间以唯一版本化 `context.session.sync` 进入 Context，在该 Turn 内固定且不可逐出。`session.history.*` 是普通 Phase2 Action；其 ActionResult 进入当前 Interaction/TurnTrace，不发出 Session sync 或 Background patch，不会将展开后的节点写回自动 Background。
 
 恢复是分层、显式和有界的：
 
-- `session.history.inspect` 返回当日 Manifest 头部及 `session:turn/...`、`session:summary/...` refs；直接 Turn item携带同源 Action outcome summary，summary item只提供 child refs；
-- `session.history.actions` 只接受具体 Turn ref，summary 始终覆盖完整 Turn，details 按 occurrence 分页并返回 trace indexes、coverage、remaining 和 page_complete；精确业务内容再用 trace index 驱动 recall；
-- `session.history.recall` 读取一个 Turn 或 summary record；summary 以 `summary_child` 分页，Turn trace 以 `trace_entry` 分页。两者共享 immutable JSON sequence 的字符/条目硬分页器，返回 requested/effective limits、entry coverage、remaining、page_complete 和 digest-bound oversized continuation；`max_entries=1` 精确读取已知 index。首个 page 只在硬字符预算允许时携带派生 Background，超限时返回 `background_state {included:false, reason:"page_budget", char_count}` 而不让 canonical recall 失败；后续页以 `reason="continuation"` 明确不重复 Background；
-- recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史召回递归放大当前 TurnTraceHeap。
+- `session.history.inspect(ref?)` 无 ref 时分页返回 authoritative Manifest root，Summary ref 时返回直接 children，Turn ref 时返回单节点 overview。每个节点只携带 Session-owned 有界 `preview`、`child_count` 与 ref/kind；它不返回 raw trace 或重新统计 Action。root continuation cursor 绑定 Manifest revision，revision 变化时显式要求从 root 重新开始；Summary/Turn record immutable，不使用 revision cursor；
+- `session.history.actions(ref)` 只接受具体 Turn ref，始终从完整 canonical trace 投影全 Turn summary、by-action 计数、failure groups 和 trace indexes；details 按 occurrence 分页，不返回 raw arguments 或 raw result payload；
+- `session.history.recall(ref)` 只接受具体 Turn ref，只分页返回 canonical `trace_entry`、source、coverage 与 digest-bound oversized continuation。inspect/recall 共享 immutable JSON sequence hard pager 和 `history_page_max_chars/entries`，但各自拥有 ref/kind/source 语义；`max_entries=1` 可根据 actions 返回的 trace index 精确恢复；recall 不返回 Background、preview 或 Action summary，Summary ref 必须由 inspect 展开；
+- actions/recall ActionResult 使用 foldable trace projection，当前 Cycle 可见完整结果，后续压缩折叠为 origin ref，避免历史恢复递归放大当前 TurnTraceHeap。
 
 ## Turn 生命周期
 

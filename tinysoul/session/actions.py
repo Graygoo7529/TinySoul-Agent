@@ -61,8 +61,58 @@ class SessionHistoryInspectExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
+        ref = execution.call.params.get("ref")
+        if ref is not None and (not isinstance(ref, str) or not ref):
+            return _failed(
+                execution,
+                "session.history.inspect ref must be non-empty text",
+                reason=SessionHistoryFailureReason.INVALID_REF.value,
+                scope="session.history.inspect",
+            )
+        max_chars = execution.call.params.get("max_chars")
+        if max_chars is not None and (
+            isinstance(max_chars, bool)
+            or not isinstance(max_chars, int)
+            or max_chars <= 0
+        ):
+            return _failed(
+                execution,
+                "session.history.inspect max_chars must be a positive integer",
+                reason=SessionHistoryFailureReason.INVALID_MAX_CHARS.value,
+                scope="session.history.inspect",
+            )
+        max_entries = execution.call.params.get("max_entries")
+        if max_entries is not None and (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            return _failed(
+                execution,
+                "session.history.inspect max_entries must be a positive integer",
+                reason=SessionHistoryFailureReason.INVALID_MAX_ENTRIES.value,
+                scope="session.history.inspect",
+            )
+        cursor = execution.call.params.get("cursor")
+        if cursor is not None and not isinstance(cursor, dict):
+            return _failed(
+                execution,
+                "session.history.inspect cursor must be a continuation object",
+                reason=SessionHistoryFailureReason.INVALID_CURSOR.value,
+                scope="session.history.inspect",
+            )
         try:
-            return _success(execution, self._session.inspect_history())
+            return _success(
+                execution,
+                self._session.inspect_history(
+                    ref,
+                    max_chars=max_chars,
+                    max_entries=max_entries,
+                    cursor=cursor,
+                ),
+            )
+        except SessionHistoryRequestError as exc:
+            return _failed_request(execution, exc)
         except SessionError as exc:
             raise self._runtime_bridge.from_session_error(exc) from exc
 
@@ -86,8 +136,9 @@ class SessionHistoryRecallExecutor(ActionExecutor):
         if not isinstance(ref, str) or not ref:
             return _failed(
                 execution,
-                "session.history.recall requires a non-empty ref",
+                "session.history.recall ref must be non-empty text",
                 reason=SessionHistoryFailureReason.INVALID_REF.value,
+                scope="session.history.recall",
             )
         max_chars = execution.call.params.get("max_chars")
         if max_chars is not None and (
@@ -99,6 +150,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 execution,
                 "session.history.recall max_chars must be a positive integer",
                 reason=SessionHistoryFailureReason.INVALID_MAX_CHARS.value,
+                scope="session.history.recall",
             )
         max_entries = execution.call.params.get("max_entries")
         if max_entries is not None and (
@@ -110,6 +162,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 execution,
                 "session.history.recall max_entries must be a positive integer",
                 reason=SessionHistoryFailureReason.INVALID_MAX_ENTRIES.value,
+                scope="session.history.recall",
             )
         cursor = execution.call.params.get("cursor")
         if cursor is not None and not isinstance(cursor, dict):
@@ -117,6 +170,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 execution,
                 "session.history.recall cursor must be a continuation object",
                 reason=SessionHistoryFailureReason.INVALID_CURSOR.value,
+                scope="session.history.recall",
             )
         try:
             payload = self._session.recall_history(
@@ -159,18 +213,20 @@ class SessionHistoryActionsExecutor(ActionExecutor):
         context: ActionExecutionContext,
     ) -> ActionResult:
         ref = execution.call.params.get("ref")
-        if not isinstance(ref, str) or not ref.startswith("session:turn/"):
+        if not isinstance(ref, str) or not ref:
             return _failed(
                 execution,
-                "session.history.actions requires a session:turn ref",
-                reason="invalid_ref",
+                "session.history.actions ref must be non-empty text",
+                reason=SessionHistoryFailureReason.INVALID_REF.value,
+                scope="session.history.actions",
             )
         cursor = execution.call.params.get("cursor", 0)
         if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
             return _failed(
                 execution,
                 "session.history.actions cursor must be a non-negative integer",
-                reason="invalid_cursor",
+                reason=SessionHistoryFailureReason.INVALID_CURSOR.value,
+                scope="session.history.actions",
             )
         max_items = execution.call.params.get("max_items")
         if max_items is not None and (
@@ -181,7 +237,8 @@ class SessionHistoryActionsExecutor(ActionExecutor):
             return _failed(
                 execution,
                 "session.history.actions max_items must be a positive integer",
-                reason="invalid_max_items",
+                reason=SessionHistoryFailureReason.INVALID_MAX_ITEMS.value,
+                scope="session.history.actions",
             )
         try:
             payload = self._session.action_history(

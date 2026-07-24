@@ -68,7 +68,7 @@ HTTP 错误统一为：
 - `401`：token 缺失或错误；
 - `409`：Program 尚未完成 active-day 初始化、Maintenance decision 待处理、控制与当前状态冲突，或 Workspace revision/digest 过期；
 - `413`：声明的请求长度超过 Endpoint body 上限，或 Workspace blob 实际长度超过上限；
-- `422`：请求 schema 或 Session recall 参数无效；
+- `422`：请求 schema 或 Session history/actions/trace 参数无效；
 - `500`：模块 I/O 或内部失败，正文不暴露绝对路径、traceback 或原始异常。
 
 受鉴权的 `GET /openapi.json` 是 HTTP TypeScript client/schema 生成来源；WebSocket 首帧和 server frame 使用本页定义的独立协议，不属于 OpenAPI path。
@@ -167,12 +167,12 @@ Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapsh
 
 ## Session 接口
 
-- `GET /v1/session/history`：当前 active day 的有界历史 head；直接 Turn item包含 `action_outcome_summary`，summary item只包含 `child_refs`，前端不得聚合 summary 子节点的 Action counts；
-- `GET /v1/session/recall?ref=<session-ref>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000&max_entries=50`：按 ref 分页召回不可变记录。客户端必须原样回传 `next_cursor` 的三个字段；普通 entry 以 index 前进，oversized entry 在完成前以 digest/character offset 续读；读取一个已知 trace index 时提交 `max_entries=1`。响应同时携带 `requested/effective_max_chars`、`requested/effective_max_entries`、source、coverage、remaining 和 page_complete，最终 JSON 不超过 effective max chars；
-- 首页派生 Background 只有在字符预算允许时才位于 `background`。`background_state.included=false, reason=page_budget` 表示 Background 被明确省略而 canonical trace 仍可读取；`reason=continuation` 表示后续页不重复 Background。前端应按该状态展示，而不是把它解释为请求失败；
-- owner/ref/kind/limit/cursor 可修正错误返回 `422`，错误码使用 `session.<reason>`，`details` 只携带稳定 constraint，例如 `entry_index`、`entry_count` 或 ref；Session I/O/invariant 返回安全通用 `500 session.failed`，不包含 store path 和原始异常消息。
+- `GET /v1/session/history?ref=<optional-session-ref>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&cursor_revision=<revision>&max_chars=8000&max_entries=50`：无 ref 时分页读取 authoritative active head，Summary ref 时读取直接 children，Turn ref 时读取单个 overview。`source.scope` 分别为 `active_head`、`summary_children`、`turn_overview`；每个 item 只交付 `ref/kind/child_count/char_count/preview`。active-head 的 `cursor`/`next_cursor` 携带 revision，续页时必须通过 `cursor_revision` 原样回传；若 revision 已变化，后端返回 `422 session.revision_changed`，前端从 root 重新加载。Summary/Turn 是 immutable record，其 cursor 不得携带 revision；
+- `GET /v1/session/actions?ref=<session:turn/...>&cursor=0&max_items=50`：返回该 Turn 的确定性 Action summary、by-action 计数、failure groups 与分页 details。summary 覆盖完整 canonical trace，details 携带 call/result trace indexes，不包含 raw arguments 或 raw result payload；
+- `GET /v1/session/trace?ref=<session:turn/...>&cursor_entry_index=0&cursor_char_offset=0&cursor_entry_digest=<sha256>&max_chars=8000&max_entries=50`：只分页返回具体 Turn 的 canonical trace。客户端必须原样回传 `next_cursor`；普通 entry 以 index 前进，oversized entry 以 digest 和 Unicode character offset 续读。从 actions 获得已知 trace index 后，使用该 index 作为 `cursor_entry_index` 并提交 `max_entries=1` 精确恢复；trace 响应不含 Background、preview 或 Action summary；
+- history/trace 共享 requested/effective char/entry limits、coverage、remaining、page_complete 和 digest-bound oversized continuation，最终 JSON 不超过 effective max chars。owner/ref/kind/limit/cursor/revision 可修正错误返回 `422 session.<reason>`，`details` 只携带稳定 constraint；Session I/O/invariant 返回安全通用 `500 session.failed`，不包含 store path 和原始异常消息。
 
-Session 是已完成 Turn 的事实，不应把当前 WebSocket 临时事件写回 Session，也不应把 recall 结果当作 Workspace 文件。
+Session REST 是 SessionEngine 在 Daily active-day lease 内的只读适配，不经 Gateway 或 ActionEngine，不产生 ActionCall/ActionResult，也不写入当前 TurnTrace。Session 是已完成 Turn 的事实：前端不得把 WebSocket 临时事件写回 Session，也不得把 history/actions/trace 结果当作 Workspace 文件。
 
 ## Workspace 接口
 

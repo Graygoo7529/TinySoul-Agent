@@ -9,24 +9,42 @@ from pathlib import Path
 
 import pytest
 
+from tinysoul.action import (
+    ActionCall,
+    ActionExecution,
+    ActionExecutionContext,
+    ActionFramework,
+    ActionResultStatus,
+    builtin_action_catalog_root,
+)
+from tinysoul.action.core.loader import ActionCatalogLoader
+from tinysoul.action.core.rendering import ActionResultRenderer
 from tinysoul.context import (
     ContextEngineBuilder,
     ContextSignalBatch,
     TurnSummary,
+    build_trace_action_result_signal,
     canonical_trace_digest,
 )
 from tinysoul.context.prompts import PromptBlock, TaskPrompt
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.loop import BusinessDay, TurnPreparationRequest
 from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime.bridge import RuntimeSessionBridge
 from tinysoul.session import (
     SessionEngine,
+    SessionHistoryFailureReason,
+    SessionHistoryRequestError,
     SessionIOError,
     SessionInvariantError,
     SessionSettings,
     project_turn_actions,
 )
 from tinysoul.session.store import SessionStore
+from tinysoul.session.actions import (
+    SessionHistoryInspectExecutor,
+    SessionHistoryRecallExecutor,
+)
 from tinysoul.session.models import SessionHistoryKind, SessionRecord
 from tinysoul.session.projection import SessionTurnPreparationHandler
 
@@ -58,15 +76,26 @@ def test_session_persists_turns_and_builds_hierarchical_summary(tmp_path: Path) 
     summary_header = items[0]
     assert isinstance(summary_header, dict)
     assert summary_header["kind"] == "summary"
-    child_refs = summary_header["child_refs"]
-    assert child_refs == ["session:turn/turn_0", "session:turn/turn_1"]
+    assert summary_header["child_count"] == 2
 
     summary_ref = summary_header["ref"]
     assert isinstance(summary_ref, str)
-    recalled_summary = session.recall_history(summary_ref)
-    assert recalled_summary["child_refs"] == child_refs
+    inspected_summary = session.inspect_history(summary_ref)
+    child_items = inspected_summary["items"]
+    assert isinstance(child_items, list)
+    assert [item["ref"] for item in child_items if isinstance(item, dict)] == [
+        "session:turn/turn_0",
+        "session:turn/turn_1",
+    ]
+    with pytest.raises(SessionHistoryRequestError) as failure:
+        session.recall_history(summary_ref)
+    assert failure.value.reason is SessionHistoryFailureReason.WRONG_RECORD_KIND
     recalled_turn = session.recall_history("session:turn/turn_0", max_chars=4000)
-    assert recalled_turn["ref"] == "session:turn/turn_0"
+    source = recalled_turn["source"]
+    assert isinstance(source, dict)
+    assert source["ref"] == "session:turn/turn_0"
+    assert "background" not in recalled_turn
+    assert "preview" not in recalled_turn
 
     reloaded = _engine(settings)
     assert reloaded.revision == session.revision
@@ -120,6 +149,129 @@ def test_session_background_is_prepared_before_home_background(tmp_path: Path) -
     )
     assert len(late_results) == 1
     assert "preparation" in late_results[0].model_feedback
+
+
+def test_session_inspect_action_enters_trace_without_changing_background(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path))
+    _record_turn(
+        session,
+        summary=_summary("turn_previous", ask="earlier question"),
+        output={"text": "earlier answer"},
+        exhausted=False,
+    )
+    context = ContextEngineBuilder(system_text="system").build()
+    turn_id = context.begin_turn("find the earlier turn")
+    scope = RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
+    signals = SessionTurnPreparationHandler(session).prepare(
+        TurnPreparationRequest(
+            turn_id=turn_id,
+            user_input="find the earlier turn",
+            business_day=DAY,
+            scope=scope,
+        )
+    )
+    assert context.consume_signal_batch(
+        ContextSignalBatch(turn_id=turn_id, signals=signals)
+    ) == ()
+    context.complete_preparation()
+    before = session.background_snapshot(DAY)
+
+    with builtin_action_catalog_root() as root:
+        action = ActionCatalogLoader().load(root).get_action(
+            "session.history.inspect"
+        )
+    execution = ActionExecution(
+        action=action,
+        call=ActionCall(
+            call_id="inspect_1",
+            action_name="session.history.inspect",
+            params={},
+            sequence=1,
+        ),
+        framework=ActionFramework(
+            invoke_id="invoke_1",
+            batch_id="batch_1",
+            scope=scope,
+            domain="session",
+            turn_id=turn_id,
+            cycle_id="cycle_1",
+        ),
+    )
+    result = SessionHistoryInspectExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(execution, ActionExecutionContext())
+    assert result.status is ActionResultStatus.SUCCESS
+    rendered = ActionResultRenderer().render_tool_result(result)
+    signal = build_trace_action_result_signal(
+        rendered.visible_message,
+        scope=scope,
+        source="loop.phase3",
+        cycle_id="cycle_1",
+    )
+
+    assert context.consume_signal_batch(
+        ContextSignalBatch(turn_id=turn_id, signals=(signal,))
+    ) == ()
+    assert session.background_snapshot(DAY) == before
+    stack = context.compose(
+        TaskPrompt(guide_blocks=(PromptBlock.from_text("guide", "continue"),))
+    )
+    labels = tuple(message.label for message in stack.messages)
+    assert labels.count("background:session:turn_previous") == 1
+    assert "action_result" in labels
+    summary = context.end_turn()
+    assert summary.trace[0]["kind"] == "action_result"
+
+
+def test_session_recall_action_preserves_engine_wrong_kind_failure(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path, background_max_chars=900))
+    for index in range(3):
+        _record_turn(
+            session,
+            summary=_summary(f"turn_kind_{index}", ask=f"question {index}"),
+            output={"text": "answer " + "x" * 700},
+            exhausted=False,
+        )
+    items = session.inspect_history()["items"]
+    assert isinstance(items, list)
+    summary_item = items[0]
+    assert isinstance(summary_item, dict)
+    summary_ref = summary_item["ref"]
+    assert isinstance(summary_ref, str)
+    with builtin_action_catalog_root() as root:
+        action = ActionCatalogLoader().load(root).get_action(
+            "session.history.recall"
+        )
+    execution = ActionExecution(
+        action=action,
+        call=ActionCall(
+            call_id="recall_summary",
+            action_name="session.history.recall",
+            params={"ref": summary_ref},
+            sequence=1,
+        ),
+        framework=ActionFramework(
+            invoke_id="invoke_recall",
+            batch_id="batch_recall",
+            scope=RunScope(),
+            domain="session",
+        ),
+    )
+
+    result = SessionHistoryRecallExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(execution, ActionExecutionContext())
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.reason == SessionHistoryFailureReason.WRONG_RECORD_KIND.value
+    assert result.failure.scope == "session.history.recall"
 
 
 def test_session_projects_only_policy_selected_action_history(tmp_path: Path) -> None:
@@ -233,7 +385,7 @@ def test_action_projector_splits_name_mismatch_by_real_action() -> None:
 
 
 def test_session_turn_recall_uses_bounded_continuation_cursor(tmp_path: Path) -> None:
-    settings = replace(_settings(tmp_path), recall_max_chars=1800)
+    settings = replace(_settings(tmp_path), history_page_max_chars=1800)
     session = _engine(settings)
     trace: tuple[JsonObject, ...] = tuple(
         {"entry_id": f"entry_{index}", "detail": "x" * 500}
@@ -305,7 +457,7 @@ def test_session_recall_honors_exact_entry_limit(tmp_path: Path) -> None:
     assert page["trace"] == [trace[1]]
 
 
-def test_session_recall_omits_oversized_derived_background(tmp_path: Path) -> None:
+def test_session_recall_never_returns_derived_background(tmp_path: Path) -> None:
     session = _engine(_settings(tmp_path))
     references = [f"workspace:doc/{index}-" + "x" * 120 for index in range(40)]
     output = to_json_object({"text": "answer", "references": references})
@@ -322,14 +474,63 @@ def test_session_recall_omits_oversized_derived_background(tmp_path: Path) -> No
     )
 
     assert "background" not in page
-    background_state = page["background_state"]
-    assert isinstance(background_state, dict)
-    assert background_state["included"] is False
-    assert background_state["reason"] == "page_budget"
-    char_count = background_state["char_count"]
-    assert isinstance(char_count, int)
-    assert char_count > 4000
+    assert "background_state" not in page
+    assert "preview" not in page
     assert len(dumps_json(page)) <= 4000
+
+
+def test_session_root_inspect_cursor_is_bound_to_manifest_revision(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path))
+    for index in range(2):
+        _record_turn(
+            session,
+            summary=_summary(f"turn_revision_{index}", ask=f"ask {index}"),
+            output={"text": f"answer {index}"},
+            exhausted=False,
+        )
+    first = session.inspect_history(max_entries=1)
+    next_cursor = first["next_cursor"]
+    assert isinstance(next_cursor, dict)
+    assert next_cursor["revision"] == session.revision
+
+    _record_turn(
+        session,
+        summary=_summary("turn_revision_changed", ask="new ask"),
+        output={"text": "new answer"},
+        exhausted=False,
+    )
+
+    with pytest.raises(SessionHistoryRequestError) as failure:
+        session.inspect_history(max_entries=1, cursor=next_cursor)
+    assert failure.value.reason is SessionHistoryFailureReason.REVISION_CHANGED
+
+
+def test_session_overflow_background_recovers_through_root_inspect(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path, background_max_chars=512))
+    _record_turn(
+        session,
+        summary=_summary("turn_overflow", ask="x" * 1200),
+        output={"text": "y" * 1800},
+        exhausted=False,
+    )
+
+    snapshot = session.background_snapshot(DAY)
+    assert snapshot.items[0].content["kind"] == "session_overflow_head"
+    before = snapshot
+    inspected = session.inspect_history(max_chars=8000)
+    items = inspected["items"]
+    assert isinstance(items, list)
+    item = items[0]
+    assert isinstance(item, dict)
+    assert item["ref"] == "session:turn/turn_overflow"
+    preview = item["preview"]
+    assert isinstance(preview, dict)
+    assert preview["user_ask"] == ["x" * 1200]
+    assert session.background_snapshot(DAY) == before
 
 
 def test_session_record_turn_is_idempotent_for_identical_completion(
@@ -561,7 +762,7 @@ def _settings(tmp_path: Path, *, background_max_chars: int = 24000) -> SessionSe
         summary_watermark_ratio=0.60,
         summary_target_ratio=0.40,
         min_recent_turns=1,
-        recall_max_chars=8000,
+        history_page_max_chars=8000,
     )
 
 

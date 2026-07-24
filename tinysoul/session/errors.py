@@ -22,6 +22,7 @@ class SessionHistoryFailureReason(StrEnum):
     UNKNOWN_REF = "unknown_ref"
     WRONG_RECORD_KIND = "wrong_record_kind"
     INVALID_CURSOR = "invalid_cursor"
+    REVISION_CHANGED = "revision_changed"
     CURSOR_OUT_OF_RANGE = "cursor_out_of_range"
     ENTRY_OFFSET_OUT_OF_RANGE = "entry_offset_out_of_range"
     ENTRY_DIGEST_MISMATCH = "entry_digest_mismatch"

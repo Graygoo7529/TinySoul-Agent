@@ -207,11 +207,44 @@ def create_endpoint_app(
         return engine.replay_events(after=after, mode=mode, limit=limit).to_json()
 
     @app.get("/v1/session/history")
-    async def session_history() -> JsonObject:
-        return engine.session_history()
+    async def session_history(
+        ref: str | None = Query(default=None, min_length=1),
+        max_chars: int | None = Query(default=None, ge=MIN_JSON_PAGE_CHARS),
+        max_entries: int | None = Query(default=None, ge=1),
+        cursor_entry_index: int = Query(default=0, ge=0),
+        cursor_char_offset: int = Query(default=0, ge=0),
+        cursor_entry_digest: str = Query(default=""),
+        cursor_revision: int | None = Query(default=None, ge=0),
+    ) -> JsonObject:
+        cursor: JsonObject = {
+            "entry_index": cursor_entry_index,
+            "char_offset": cursor_char_offset,
+        }
+        if cursor_entry_digest:
+            cursor["entry_digest"] = cursor_entry_digest
+        if cursor_revision is not None:
+            cursor["revision"] = cursor_revision
+        return engine.session_history(
+            ref,
+            max_chars=max_chars,
+            max_entries=max_entries,
+            cursor=cursor,
+        )
 
-    @app.get("/v1/session/recall")
-    async def session_recall(
+    @app.get("/v1/session/actions")
+    async def session_actions(
+        ref: str = Query(min_length=1),
+        cursor: int = Query(default=0, ge=0),
+        max_items: int | None = Query(default=None, ge=1),
+    ) -> JsonObject:
+        return engine.session_actions(
+            ref,
+            cursor=cursor,
+            max_items=max_items,
+        )
+
+    @app.get("/v1/session/trace")
+    async def session_trace(
         ref: str = Query(min_length=1),
         max_chars: int | None = Query(default=None, ge=MIN_JSON_PAGE_CHARS),
         max_entries: int | None = Query(default=None, ge=1),
@@ -225,7 +258,7 @@ def create_endpoint_app(
         }
         if cursor_entry_digest:
             cursor["entry_digest"] = cursor_entry_digest
-        return engine.session_recall(
+        return engine.session_trace(
             ref,
             max_chars=max_chars,
             max_entries=max_entries,

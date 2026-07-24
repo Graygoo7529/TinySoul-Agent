@@ -48,13 +48,9 @@
 - 发送按钮在 maintenance pending 时禁用，避免用户发送后收到 409。
 - 影响文件：`src/components/ChatView.tsx`。
 
-### 7. Session hard pager 协议同步
+### 7. Session hard pager 协议同步（历史记录）
 
-- `SessionHistory` 类型对齐后端 Manifest head，直接 Turn item消费 `action_outcome_summary`，不再假设后端提供不存在的 `started_at/status/summary` 字段。
-- Session recall 同步 `max_entries`、requested/effective entry limits 和 `background_state`；cursor 三字段继续逐字回传。
-- 首屏 Background 因 `page_budget` 明确省略时显示紧凑状态，不把 canonical trace recall 误报为失败。
-- HTTP `422 session.<reason>` 保留为可修正请求错误；未知内部错误继续使用安全通用消息。
-- 影响文件：`src/types.ts`、`src/api/tinysoul.ts`、`src/components/SessionView.tsx`。
+本节记录当时已完成的混合 recall 适配；该协议已于 2026-07-24 被 Session Explorer 边界修正取代。当前前端分别消费 `/v1/session/history`、`/v1/session/actions` 和 `/v1/session/trace`，不再消费派生 Background 状态。当前实施记录见 `20260724-done-session-explorer-boundary-correction.md`。
 
 ## 验证
 

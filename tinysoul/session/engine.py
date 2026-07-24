@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 
 from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.infra.paging import (
     JsonPageCursor,
     JsonPageError,
@@ -260,16 +260,97 @@ class SessionEngine:
             )
             self._last_reconcile_result = self._reconcile_current()
 
-    def inspect_history(self) -> JsonObject:
+    def inspect_history(
+        self,
+        ref: str | None = None,
+        *,
+        max_chars: int | None = None,
+        max_entries: int | None = None,
+        cursor: JsonObject | None = None,
+    ) -> JsonObject:
         with self._lock:
             self._last_reconcile_result = self._reconcile_current()
             manifest = self._require_manifest()
-            return {
-                "revision": manifest.revision,
-                "day": manifest.day,
-                "estimated_chars": sum(item.char_count for item in manifest.items),
-                "items": [self._inspect_item(item) for item in manifest.items],
-            }
+            requested_chars, limit, requested_entries, entry_limit = (
+                _history_page_limits(
+                    self._settings,
+                    max_chars=max_chars,
+                    max_entries=max_entries,
+                    scope="session.history.inspect",
+                )
+            )
+            page_cursor = _inspect_cursor(
+                cursor,
+                ref=ref,
+                revision=manifest.revision,
+            )
+            if ref is None:
+                items = manifest.items
+                source: JsonObject = {
+                    "owner": "session",
+                    "scope": "active_head",
+                    "day": manifest.day,
+                    "revision": manifest.revision,
+                    "estimated_chars": sum(item.char_count for item in items),
+                }
+            else:
+                record = _load_requested_record(
+                    self._store,
+                    ref,
+                    scope="session.history.inspect",
+                )
+                if record.kind is SessionHistoryKind.SUMMARY:
+                    items = _summary_children_from_record(record)
+                    source = {
+                        "owner": "session",
+                        "scope": "summary_children",
+                        "ref": ref,
+                        "record_kind": record.kind.value,
+                        "child_count": len(items),
+                    }
+                else:
+                    item = _turn_item_from_record(record)
+                    items = (item,)
+                    completion = record.content.get("completion")
+                    if not isinstance(completion, dict):
+                        raise SessionInvariantError(
+                            f"Session Turn record is missing completion: {ref}"
+                        )
+                    trace = completion.get("trace")
+                    if not isinstance(trace, list):
+                        raise SessionInvariantError(
+                            f"Session Turn record has an invalid trace: {ref}"
+                        )
+                    source = {
+                        "owner": "session",
+                        "scope": "turn_overview",
+                        "ref": ref,
+                        "record_kind": record.kind.value,
+                        "turn_id": item.item_id,
+                        "trace_digest": completion.get("trace_digest"),
+                        "trace_entry_count": len(trace),
+                    }
+            try:
+                page = page_json_sequence(
+                    tuple(self._inspect_item(item) for item in items),
+                    base=to_json_object({"source": source}),
+                    item_field="items",
+                    cursor_unit="history_item",
+                    cursor=page_cursor,
+                    max_chars=limit,
+                    max_entries=entry_limit,
+                    requested_max_chars=requested_chars,
+                    requested_max_entries=requested_entries,
+                )
+            except JsonPageError as exc:
+                raise _session_page_error(
+                    exc,
+                    ref=ref,
+                    scope="session.history.inspect",
+                ) from exc
+            if ref is None:
+                _bind_page_revision(page, manifest.revision)
+            return page
 
     def _inspect_item(self, item: SessionHistoryItem) -> JsonObject:
         value: JsonObject = {
@@ -277,13 +358,11 @@ class SessionEngine:
             "ref": item.ref,
             "kind": item.kind.value,
             "char_count": item.char_count,
-            "child_refs": list(item.child_refs),
+            "child_count": len(item.child_refs),
+            "preview": item.background,
         }
         if item.kind is SessionHistoryKind.TURN:
-            projection = _action_projection_from_record(
-                self._store.load_record(item.ref)
-            )
-            value["action_outcome_summary"] = projection.outcome_summary()
+            _action_projection_from_record(self._store.load_record(item.ref))
         return to_json_object(value)
 
     def recall_history(
@@ -297,46 +376,32 @@ class SessionEngine:
         with self._lock:
             self._require_manifest()
             self._last_reconcile_result = self._reconcile_current()
-            requested = self._settings.recall_max_chars if max_chars is None else max_chars
-            if (
-                isinstance(requested, bool)
-                or not isinstance(requested, int)
-                or requested <= 0
-            ):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_MAX_CHARS,
-                    "Session recall max_chars must be positive",
-                    constraint={"max_chars": requested},
-                )
-            requested_entries = (
-                self._settings.recall_max_entries
-                if max_entries is None
-                else max_entries
+            requested, limit, requested_entries, entry_limit = _history_page_limits(
+                self._settings,
+                max_chars=max_chars,
+                max_entries=max_entries,
+                scope="session.history.recall",
             )
-            if (
-                isinstance(requested_entries, bool)
-                or not isinstance(requested_entries, int)
-                or requested_entries <= 0
-            ):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_MAX_ENTRIES,
-                    "Session recall max_entries must be positive",
-                    constraint={"max_entries": requested_entries},
-                )
             try:
                 page_cursor = JsonPageCursor.from_json(cursor)
             except JsonPageError as exc:
-                raise _session_page_error(exc, ref=ref) from exc
-            limit = min(requested, self._settings.recall_max_chars)
-            entry_limit = min(
-                requested_entries,
-                self._settings.recall_max_entries,
-            )
+                raise _session_page_error(
+                    exc,
+                    ref=ref,
+                    scope="session.history.recall",
+                ) from exc
             record = _load_requested_record(
                 self._store,
                 ref,
                 scope="session.history.recall",
             )
+            if record.kind is not SessionHistoryKind.TURN:
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
+                    "Session recall is only available for Turn records",
+                    constraint={"ref": ref, "record_kind": record.kind.value},
+                    scope="session.history.recall",
+                )
             return _recall_record(
                 record,
                 max_chars=limit,
@@ -703,6 +768,145 @@ def _summary_split(
     return split
 
 
+def _history_page_limits(
+    settings: SessionSettings,
+    *,
+    max_chars: int | None,
+    max_entries: int | None,
+    scope: str,
+) -> tuple[int, int, int, int]:
+    requested_chars = (
+        settings.history_page_max_chars if max_chars is None else max_chars
+    )
+    if (
+        isinstance(requested_chars, bool)
+        or not isinstance(requested_chars, int)
+        or requested_chars <= 0
+    ):
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_MAX_CHARS,
+            "Session history max_chars must be positive",
+            constraint={"max_chars": requested_chars},
+            scope=scope,
+        )
+    requested_entries = (
+        settings.history_page_max_entries if max_entries is None else max_entries
+    )
+    if (
+        isinstance(requested_entries, bool)
+        or not isinstance(requested_entries, int)
+        or requested_entries <= 0
+    ):
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_MAX_ENTRIES,
+            "Session history max_entries must be positive",
+            constraint={"max_entries": requested_entries},
+            scope=scope,
+        )
+    return (
+        requested_chars,
+        min(requested_chars, settings.history_page_max_chars),
+        requested_entries,
+        min(requested_entries, settings.history_page_max_entries),
+    )
+
+
+def _inspect_cursor(
+    value: JsonObject | None,
+    *,
+    ref: str | None,
+    revision: int,
+) -> JsonPageCursor:
+    scope = "session.history.inspect"
+    raw_revision: object | None = None
+    page_value: object = value
+    if isinstance(value, dict) and "revision" in value:
+        raw_revision = value.get("revision")
+        page_value = {
+            key: item
+            for key, item in value.items()
+            if key != "revision"
+        }
+    if ref is not None and raw_revision is not None:
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_CURSOR,
+            "Only the active Session head cursor may carry a revision",
+            constraint={"field": "revision", "ref": ref},
+            scope=scope,
+        )
+    try:
+        cursor = JsonPageCursor.from_json(page_value)
+    except JsonPageError as exc:
+        raise _session_page_error(exc, ref=ref, scope=scope) from exc
+    if ref is not None:
+        return cursor
+    if raw_revision is not None and (
+        isinstance(raw_revision, bool) or not isinstance(raw_revision, int)
+    ):
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_CURSOR,
+            "Session head cursor revision must be an integer",
+            constraint={"field": "revision"},
+            scope=scope,
+        )
+    continuation = cursor.entry_index > 0 or cursor.char_offset > 0
+    if continuation and raw_revision is None:
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_CURSOR,
+            "Session head continuation requires its revision",
+            constraint={"field": "revision"},
+            scope=scope,
+        )
+    if raw_revision is not None and raw_revision != revision:
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.REVISION_CHANGED,
+            "Session head revision changed; restart inspection",
+            constraint={
+                "expected_revision": raw_revision,
+                "actual_revision": revision,
+            },
+            scope=scope,
+        )
+    return cursor
+
+
+def _bind_page_revision(page: JsonObject, revision: int) -> None:
+    for name in ("cursor", "next_cursor"):
+        raw = page.get(name)
+        if isinstance(raw, dict):
+            raw["revision"] = revision
+
+
+def _summary_children_from_record(
+    record: SessionRecord,
+) -> tuple[SessionHistoryItem, ...]:
+    if record.kind is not SessionHistoryKind.SUMMARY:
+        raise SessionInvariantError(
+            f"Session history node is not a Summary record: {record.ref}"
+        )
+    raw_children = record.content.get("children")
+    if not isinstance(raw_children, list) or len(raw_children) < 2:
+        raise SessionInvariantError(
+            f"Session summary record has invalid children: {record.ref}"
+        )
+    children: list[SessionHistoryItem] = []
+    try:
+        for raw in raw_children:
+            if not isinstance(raw, dict):
+                raise SessionContractError("Session summary child must be an object")
+            children.append(SessionHistoryItem.from_json(to_json_object(raw)))
+    except SessionContractError as exc:
+        raise SessionInvariantError(
+            f"Session summary record has invalid children: {record.ref}"
+        ) from exc
+    child_refs = [child.ref for child in children]
+    if record.content.get("child_refs") != child_refs:
+        raise SessionInvariantError(
+            f"Session summary record child refs are inconsistent: {record.ref}"
+        )
+    return tuple(children)
+
+
 def _recall_record(
     record: SessionRecord,
     *,
@@ -712,53 +916,6 @@ def _recall_record(
     requested_max_entries: int,
     cursor: JsonPageCursor,
 ) -> JsonObject:
-    background = record.content.get("background")
-    background_value = (
-        to_json_object(background) if isinstance(background, dict) else {}
-    )
-    first_page = cursor.entry_index == 0 and cursor.char_offset == 0
-    base: JsonObject = {
-        "ref": record.ref,
-        "kind": record.kind.value,
-        "background_state": {
-            "included": False,
-            "reason": "continuation",
-            "char_count": len(dumps_json(background_value)),
-        },
-    }
-    if first_page:
-        base["background"] = background_value
-        base["background_state"] = {
-            "included": True,
-            "char_count": len(dumps_json(background_value)),
-        }
-    if record.kind is SessionHistoryKind.SUMMARY:
-        refs = record.content.get("child_refs", [])
-        if not isinstance(refs, list) or any(
-            not isinstance(ref, str) or not ref for ref in refs
-        ):
-            raise SessionInvariantError(
-                f"Session summary record has invalid child refs: {record.ref}"
-            )
-        base["source"] = {
-            "owner": "session",
-            "ref": record.ref,
-            "record_kind": record.kind.value,
-            "child_count": len(refs),
-        }
-        return _page_session_values_with_background_fallback(
-            tuple(refs),
-            base=base,
-            item_field="child_refs",
-            cursor_unit="summary_child",
-            cursor=cursor,
-            max_chars=max_chars,
-            max_entries=max_entries,
-            requested_max_chars=requested_max_chars,
-            requested_max_entries=requested_max_entries,
-            background_value=background_value,
-            first_page=first_page,
-        )
     completion = record.content.get("completion")
     if not isinstance(completion, dict):
         raise SessionInvariantError(
@@ -771,49 +928,26 @@ def _recall_record(
         raise SessionInvariantError(
             f"Session Turn record has an invalid trace: {record.ref}"
         )
-    base["source"] = {
-        "owner": "session",
-        "ref": record.ref,
-        "record_kind": record.kind.value,
-        "turn_id": completion.get("turn_id"),
-        "trace_digest": completion.get("trace_digest"),
-        "trace_entry_count": len(trace_value),
+    base: JsonObject = {
+        "source": {
+            "owner": "session",
+            "ref": record.ref,
+            "record_kind": record.kind.value,
+            "turn_id": completion.get("turn_id"),
+            "trace_digest": completion.get("trace_digest"),
+            "trace_entry_count": len(trace_value),
+        }
     }
-    return _page_session_values_with_background_fallback(
-        tuple(to_json_object(entry) for entry in trace_value if isinstance(entry, dict)),
-        base=base,
-        item_field="trace",
-        cursor_unit="trace_entry",
-        cursor=cursor,
-        max_chars=max_chars,
-        max_entries=max_entries,
-        requested_max_chars=requested_max_chars,
-        requested_max_entries=requested_max_entries,
-        background_value=background_value,
-        first_page=first_page,
-    )
-
-
-def _page_session_values_with_background_fallback(
-    values: tuple[JsonValue, ...],
-    *,
-    base: JsonObject,
-    item_field: str,
-    cursor_unit: str,
-    cursor: JsonPageCursor,
-    max_chars: int,
-    max_entries: int,
-    requested_max_chars: int,
-    requested_max_entries: int,
-    background_value: JsonObject,
-    first_page: bool,
-) -> JsonObject:
     try:
         return page_json_sequence(
-            values,
+            tuple(
+                to_json_object(entry)
+                for entry in trace_value
+                if isinstance(entry, dict)
+            ),
             base=base,
-            item_field=item_field,
-            cursor_unit=cursor_unit,
+            item_field="trace",
+            cursor_unit="trace_entry",
             cursor=cursor,
             max_chars=max_chars,
             max_entries=max_entries,
@@ -821,36 +955,11 @@ def _page_session_values_with_background_fallback(
             requested_max_entries=requested_max_entries,
         )
     except JsonPageError as exc:
-        if first_page and exc.reason is JsonPageFailureReason.PAGE_BUDGET_TOO_SMALL:
-            fallback_base = to_json_object(
-                {
-                    **base,
-                    "background_state": {
-                        "included": False,
-                        "reason": "page_budget",
-                        "char_count": len(dumps_json(background_value)),
-                    },
-                }
-            )
-            fallback_base.pop("background", None)
-            try:
-                return page_json_sequence(
-                    values,
-                    base=fallback_base,
-                    item_field=item_field,
-                    cursor_unit=cursor_unit,
-                    cursor=cursor,
-                    max_chars=max_chars,
-                    max_entries=max_entries,
-                    requested_max_chars=requested_max_chars,
-                    requested_max_entries=requested_max_entries,
-                )
-            except JsonPageError as fallback_error:
-                raise _session_page_error(
-                    fallback_error,
-                    ref=str(base["ref"]),
-                ) from fallback_error
-        raise _session_page_error(exc, ref=str(base["ref"])) from exc
+        raise _session_page_error(
+            exc,
+            ref=record.ref,
+            scope="session.history.recall",
+        ) from exc
 
 
 def _project_action_history(
@@ -952,7 +1061,8 @@ def _is_valid_history_ref(ref: object) -> bool:
 def _session_page_error(
     error: JsonPageError,
     *,
-    ref: str,
+    ref: str | None,
+    scope: str,
 ) -> SessionHistoryRequestError:
     reason_map = {
         JsonPageFailureReason.INVALID_CURSOR: SessionHistoryFailureReason.INVALID_CURSOR,
@@ -972,11 +1082,14 @@ def _session_page_error(
     reason = reason_map.get(error.reason)
     if reason is None:
         raise SessionInvariantError("Unexpected Session paging failure") from error
+    constraint: JsonObject = {**error.constraint}
+    if ref is not None:
+        constraint = {"ref": ref, **constraint}
     return SessionHistoryRequestError(
         reason,
         str(error),
-        constraint={"ref": ref, **error.constraint},
-        scope="session.history.recall",
+        constraint=constraint,
+        scope=scope,
     )
 
 def _clip(text: str, limit: int) -> str:

@@ -2,16 +2,19 @@
 
 ## 定位
 
-Session 视图展示当日已完成的 Turn 历史，并支持召回任意 Turn 的 canonical trace。
+Session 视图是已完成 Turn 的只读 Explorer。它沿 Session 拥有的 Manifest/Summary/Turn 图导航，展示确定性 Action 审计，并按需恢复 canonical trace 证据。
 
 ## 当前功能
 
-- **历史列表**：调用 `GET /v1/session/history` 获取当前 active day 的有界历史头部，展示每条 Turn 的状态与摘要。
-- **Recall 面板**：选择一条历史后，调用 `GET /v1/session/recall?ref=<ref>&cursor=0&max_chars=8000` 分页召回不可变记录。
-- 召回结果只读，不写入 Workspace 或当前事件流。
+- **历史树**：通过 `GET /v1/session/history` 加载 active root，再以 Summary ref 逐层展开 direct children。节点展示 Session-owned 有界 preview，不在前端重建 Summary 或 Action 投影。
+- **Turn 概览**：选中 Turn 后，右侧 Overview 显示 preview 和 trace identity；选中 Summary 只展开子节点，不请求 trace。
+- **Actions 页签**：调用 `GET /v1/session/actions` 展示全 Turn counts、pairing 状态、failure groups 和分页 occurrence details。点击 detail 的 call/result trace index 可转到精确 trace entry。
+- **Trace 页签**：调用 `GET /v1/session/trace` 分页展示 canonical trace；一个已知 index 使用 `max_entries=1`，oversized entry 按后端 cursor 续读。
+- 三类结果都只读，不写入 Workspace、当前对话 event store 或 Agent Background。
 
 ## 设计要点
 
-- Session 是已完成 Turn 的事实源；不要把当前 WebSocket 临时事件写回 Session。
-- Recall 返回的 trace 文本用于审阅，不作为可编辑 Workspace 文件处理。
-- 未来可扩展：按日期切换、按关键词过滤历史、把历史 Turn 加载为 read-only 参考上下文。
+- Endpoint 直接调用 SessionEngine 只读查询，不伪装成 Agent Action；因此 Explorer 查询不会出现在当前 Turn Interaction 中。
+- active-root 续页绑定 revision。收到 `session.revision_changed` 后清空当前 root page cursor 并重新读取；不用新 revision 重放旧 cursor。
+- Summary/Turn 记录不可变，但页面只缓存当前连接所需的投影。不持久化 trace/actions 到应用 store 或遥测。
+- 前端不消费模型侧 `background_state`，也不通过 Session API 变更 Context SessionBackground。

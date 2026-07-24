@@ -18,9 +18,10 @@ import type {
   MaintenanceDecisionRequest,
   MaintenanceRequest,
   MaintenanceStatus,
-  SessionHistory,
+  SessionActions,
   SessionCursor,
-  SessionRecall,
+  SessionHistory,
+  SessionTrace,
   TrashItem,
   WorkspaceBlobHeaders,
   WorkspaceManifest,
@@ -120,17 +121,42 @@ export class TinySoulClient {
     });
   }
 
-  async sessionHistory(): Promise<SessionHistory> {
-    return this.request<SessionHistory>("GET", "/v1/session/history");
+  async sessionHistory(
+    ref?: string,
+    cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
+    maxChars?: number,
+    maxEntries?: number,
+  ): Promise<SessionHistory> {
+    return this.request<SessionHistory>("GET", "/v1/session/history", {
+      query: {
+        ref,
+        max_chars: maxChars,
+        max_entries: maxEntries,
+        cursor_entry_index: cursor.entry_index,
+        cursor_char_offset: cursor.char_offset,
+        cursor_entry_digest: cursor.entry_digest,
+        cursor_revision: cursor.revision,
+      },
+    });
   }
 
-  async sessionRecall(
+  async sessionActions(
+    ref: string,
+    cursor = 0,
+    maxItems?: number,
+  ): Promise<SessionActions> {
+    return this.request<SessionActions>("GET", "/v1/session/actions", {
+      query: { ref, cursor, max_items: maxItems },
+    });
+  }
+
+  async sessionTrace(
     ref: string,
     cursor: SessionCursor = { entry_index: 0, char_offset: 0 },
     maxChars?: number,
     maxEntries?: number,
-  ): Promise<SessionRecall> {
-    return this.request<SessionRecall>("GET", "/v1/session/recall", {
+  ): Promise<SessionTrace> {
+    return this.request<SessionTrace>("GET", "/v1/session/trace", {
       query: {
         ref,
         max_chars: maxChars,

@@ -2,17 +2,46 @@ name = "session.history.inspect"
 domain = "session"
 
 [tool]
-description = "Inspect the bounded daily Session history head and its recovery refs."
+description = "Inspect the active Session head or expand one immutable Summary or Turn node."
 
 [tool.schema]
 type = "object"
 additionalProperties = false
 
+[tool.schema.properties.ref]
+type = "string"
+description = "Optional session:summary or session:turn ref. Omit it to inspect the active head."
+
+[tool.schema.properties.max_chars]
+type = "integer"
+description = "Optional maximum canonical response character count."
+
+[tool.schema.properties.max_entries]
+type = "integer"
+description = "Optional maximum complete history nodes returned by this page."
+
+[tool.schema.properties.cursor]
+type = "object"
+description = "Optional continuation cursor returned verbatim by an earlier inspect page."
+additionalProperties = false
+
+[tool.schema.properties.cursor.properties.entry_index]
+type = "integer"
+
+[tool.schema.properties.cursor.properties.char_offset]
+type = "integer"
+
+[tool.schema.properties.cursor.properties.entry_digest]
+type = "string"
+
+[tool.schema.properties.cursor.properties.revision]
+type = "integer"
+
 [semantic]
-use_when = ["Need to locate an earlier Turn or nested Session summary"]
-avoid_when = ["The required current-Turn detail belongs to context.trace"]
+use_when = ["Need to locate an earlier Turn, expand a Session Summary, or inspect a bounded Turn preview"]
+avoid_when = ["Need exact Action statistics or raw canonical trace evidence"]
 effects = ["read_only"]
-examples = ["List available prior Turn and Session summary refs"]
+examples = ["Inspect the active head, then expand a summary ref until the relevant Turn is visible"]
 
 [runtime]
 parallel_policy = "serial"

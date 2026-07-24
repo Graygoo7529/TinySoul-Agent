@@ -1240,6 +1240,119 @@ button {
     padding: 20px;
 }
 
+.session-path,
+.session-pagination {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.session-pagination {
+    justify-content: flex-end;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 0;
+}
+
+.session-node {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.session-detail-header {
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.session-detail-body {
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.session-action-view,
+.session-trace-view {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.session-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(88px, 1fr));
+    gap: 8px;
+}
+
+.session-metric {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.session-metric strong {
+    font-size: 18px;
+}
+
+.session-action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.session-action-row {
+    width: 100%;
+    min-height: 38px;
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) auto 80px;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.session-trace-links {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.session-action-row:hover {
+    background: var(--surface);
+}
+
+@media (max-width: 900px) {
+    .session-view {
+        flex-direction: column;
+    }
+
+    .session-view .workspace-sidebar {
+        width: 100%;
+        min-height: 280px;
+    }
+
+    .session-metrics {
+        grid-template-columns: repeat(2, minmax(88px, 1fr));
+    }
+}
+
 /* Modal */
 .modal-overlay {
     position: fixed;

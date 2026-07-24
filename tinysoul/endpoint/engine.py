@@ -295,16 +295,47 @@ class EndpointEngine:
     ) -> EndpointEventPage:
         return self._events.replay(after=after, mode=mode, limit=limit)
 
-    def session_history(self) -> JsonObject:
+    def session_history(
+        self,
+        ref: str | None,
+        *,
+        max_chars: int | None,
+        max_entries: int | None,
+        cursor: JsonObject | None,
+    ) -> JsonObject:
         try:
             with self._daily.active_day_lease():
-                return self._session.inspect_history()
+                return self._session.inspect_history(
+                    ref,
+                    max_chars=max_chars,
+                    max_entries=max_entries,
+                    cursor=cursor,
+                )
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except SessionError as exc:
             raise _session_error(exc) from exc
 
-    def session_recall(
+    def session_actions(
+        self,
+        ref: str,
+        *,
+        cursor: int,
+        max_items: int | None,
+    ) -> JsonObject:
+        try:
+            with self._daily.active_day_lease():
+                return self._session.action_history(
+                    ref,
+                    cursor=cursor,
+                    max_items=max_items,
+                )
+        except LoopError as exc:
+            raise _not_ready(exc) from exc
+        except SessionError as exc:
+            raise _session_error(exc) from exc
+
+    def session_trace(
         self,
         ref: str,
         *,

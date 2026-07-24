@@ -80,7 +80,8 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         (root / "configs" / "session.toml").read_text(encoding="utf-8")
     )["session"]
     assert context["trace_recall_max_entries"] == 50
-    assert session["recall_max_entries"] == 50
+    assert session["history_page_max_chars"] == 8000
+    assert session["history_page_max_entries"] == 50
 
 
 def test_cli_init_development_profile_copies_enabled_development_config(

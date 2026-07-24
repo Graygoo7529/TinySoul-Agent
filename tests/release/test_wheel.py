@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 
 
@@ -72,11 +73,13 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
+    assert "tinysoul/action/catalog/session/actions/history_inspect.toml" in names
     assert "tinysoul/action/catalog/session/actions/history_actions.toml" in names
     assert "tinysoul/action/catalog/session/actions/history_recall.toml" in names
     for profile in ("standard", "development"):
         profile_root = f"tinysoul/assets/project/config_profiles/{profile}"
         assert f"{profile_root}/configs/home.toml" in names
+        assert f"{profile_root}/configs/session.toml" in names
         assert f"{profile_root}/configs/capabilities.resource.toml" in names
         assert f"{profile_root}/configs/capabilities.web.toml" in names
         assert f"{profile_root}/configs/capabilities.script.toml" in names
@@ -194,6 +197,16 @@ raise SystemExit(
     assert (
         initialized / "home" / "how_domain" / "shell" / "DOMAIN.md"
     ).is_file()
+    assert (
+        initialized / "home" / "how_domain" / "session" / "DOMAIN.md"
+    ).is_file()
+    assert not (initialized / "home" / "how_action" / "session").exists()
+    session_config = tomllib.loads(
+        (initialized / "configs" / "session.toml").read_text(encoding="utf-8")
+    )["session"]
+    assert session_config["history_page_max_chars"] == 8000
+    assert session_config["history_page_max_entries"] == 50
+    assert session_config["actions_page_max_items"] == 50
     assert "enabled = false" in (
         initialized / "configs" / "capabilities.shell.toml"
     ).read_text(encoding="utf-8")

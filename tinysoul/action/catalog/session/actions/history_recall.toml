@@ -2,7 +2,7 @@ name = "session.history.recall"
 domain = "session"
 
 [tool]
-description = "Recall bounded detail for a prior Turn or Session summary ref."
+description = "Recall bounded canonical trace evidence for one prior Turn."
 
 [tool.schema]
 type = "object"
@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.ref]
 type = "string"
-description = "A session:turn or session:summary ref."
+description = "A concrete session:turn ref."
 
 [tool.schema.properties.max_chars]
 type = "integer"
@@ -19,7 +19,7 @@ description = "Optional maximum recalled character count."
 
 [tool.schema.properties.max_entries]
 type = "integer"
-description = "Optional maximum complete trace entries or summary child refs returned by this page. Use 1 for an exact index."
+description = "Optional maximum complete trace entries returned by this page. Use 1 for an exact index."
 
 [tool.schema.properties.cursor]
 type = "object"
@@ -36,10 +36,10 @@ type = "integer"
 type = "string"
 
 [semantic]
-use_when = ["Need details hidden behind a Session history ref"]
-avoid_when = ["Only the visible Session background is needed"]
+use_when = ["Need raw canonical trace entries at a known prior-Turn location"]
+avoid_when = ["Need to navigate Session summaries or count Action outcomes"]
 effects = ["read_only"]
-examples = ["Recall a prior Turn, then follow a summary child ref"]
+examples = ["Use an Action trace index with max_entries 1 to recover the exact call or result"]
 
 [runtime]
 parallel_policy = "serial"

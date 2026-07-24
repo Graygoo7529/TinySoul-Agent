@@ -115,38 +115,14 @@ export interface SessionHistoryItem {
   ref: string;
   kind: "turn" | "summary";
   char_count: number;
-  child_refs: string[];
-  action_outcome_summary?: {
-    call_count: number;
-    result_count: number;
-    success_count: number;
-    failed_count: number;
-    timeout_count: number;
-    unmatched_call_count: number;
-    unmatched_result_count: number;
-    pairing_issue_count: number;
-    scan_complete: boolean;
-    pairing_complete: boolean;
-  };
+  child_count: number;
+  preview: Record<string, unknown>;
 }
 
 export interface SessionHistory {
-  revision: number;
-  day: string;
-  estimated_chars: number;
+  source: Record<string, unknown>;
   items: SessionHistoryItem[];
-}
-
-export interface SessionCursor {
-  entry_index: number;
-  char_offset: number;
-  entry_digest?: string;
-}
-
-export interface SessionRecall {
-  ref: string;
-  kind: string;
-  cursor_unit: "trace_entry" | "summary_child";
+  cursor_unit: "history_item";
   entry_count: number;
   returned_entry_count: number;
   returned_entry_indexes: number[];
@@ -160,24 +136,94 @@ export interface SessionRecall {
   next_cursor: SessionCursor | null;
   page_complete: boolean;
   truncated: boolean;
-  background?: Record<string, unknown>;
-  background_state: {
-    included: boolean;
-    reason?: "page_budget" | "continuation";
-    char_count: number;
-  };
-  source?: Record<string, unknown>;
-  trace?: Record<string, unknown>[];
-  child_refs?: string[];
-  oversized_entry?: {
-    entry_index: number;
-    entry_digest: string;
-    encoding: "canonical_json";
-    char_offset: number;
-    next_char_offset: number;
-    serialized_chars: number;
-    text: string;
-  };
+  oversized_entry?: SessionOversizedEntry;
+}
+
+export interface SessionCursor {
+  entry_index: number;
+  char_offset: number;
+  entry_digest?: string;
+  revision?: number;
+}
+
+export interface SessionOversizedEntry {
+  entry_index: number;
+  entry_digest: string;
+  encoding: "canonical_json";
+  char_offset: number;
+  next_char_offset: number;
+  serialized_chars: number;
+  text: string;
+}
+
+export interface SessionTrace {
+  source: Record<string, unknown>;
+  cursor_unit: "trace_entry";
+  entry_count: number;
+  returned_entry_count: number;
+  returned_entry_indexes: number[];
+  entry_coverage: [number, number];
+  remaining_entry_count: number;
+  requested_max_chars: number;
+  effective_max_chars: number;
+  requested_max_entries: number;
+  effective_max_entries: number;
+  cursor: SessionCursor;
+  next_cursor: SessionCursor | null;
+  page_complete: boolean;
+  truncated: boolean;
+  trace: Record<string, unknown>[];
+  oversized_entry?: SessionOversizedEntry;
+}
+
+export interface SessionActionOutcome {
+  call_count: number;
+  result_count: number;
+  success_count: number;
+  failed_count: number;
+  timeout_count: number;
+  unmatched_call_count: number;
+  unmatched_result_count: number;
+  pairing_issue_count: number;
+  scan_complete: boolean;
+  pairing_complete: boolean;
+}
+
+export interface SessionActionSummary {
+  trace_digest: string;
+  outcome: SessionActionOutcome;
+  by_action: Record<string, unknown>[];
+  failure_groups: Record<string, unknown>[];
+}
+
+export interface SessionActionDetail {
+  occurrence: number;
+  call_id: string;
+  action: string;
+  call_trace_index: number | null;
+  result_trace_index: number | null;
+  cycle_id: string;
+  phase: string;
+  status?: "success" | "failed" | "timeout";
+  stage?: string;
+  failure?: Record<string, unknown>;
+  pairing_issue?: string;
+}
+
+export interface SessionActions {
+  source: Record<string, unknown>;
+  summary: SessionActionSummary;
+  details: SessionActionDetail[];
+  detail_count: number;
+  requested_max_items: number;
+  effective_max_items: number;
+  returned_detail_count: number;
+  cursor: number;
+  next_cursor: number | null;
+  coverage: [number, number];
+  remaining: number;
+  page_complete: boolean;
+  truncated: boolean;
 }
 
 export interface MaintenanceDecision {
