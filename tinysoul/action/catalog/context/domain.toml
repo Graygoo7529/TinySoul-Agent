@@ -1,6 +1,6 @@
 name = "context"
-description = "Current Turn context and recoverable trace history."
-selection_hint = "Use when compressed current-Turn reasoning or action history must be explored."
+description = "Compressed interaction history from the current Turn."
+selection_hint = "Use only when a needed current-Turn decision or result is no longer visible."
 
 [runtime]
 timeout_seconds = 5

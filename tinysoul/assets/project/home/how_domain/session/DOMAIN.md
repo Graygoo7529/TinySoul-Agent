@@ -1,11 +1,7 @@
 # Session
 
-Use Session only for completed prior Turns. Current-Turn decisions and results belong to `context.trace`; Workspace resources belong to `workspace:` actions.
+Use Session only for completed prior Turns. The fixed `background:session:*` messages normally provide recent asks, answers, and Action outcomes; Session ActionResults enter the current TurnTrace and do not change that Background.
 
-The `background:session:*` messages are the fixed Session head selected before the current Turn. They do not change during the Turn. Older nodes may be represented by an immutable Summary, and an extreme budget overflow may expose only `session_overflow_head` plus recent nodes. Explicit Session ActionResults belong to the current Interaction trace; inspecting history never loads, replaces, or expands the fixed Background.
+Use `session.history.inspect` to locate a Turn or expand a Summary. Once a `session:turn/...` ref is known, use `session.history.actions` for Action counts, outcomes, failures, and trace indexes; use `session.history.recall` only when exact trace entries are needed.
 
-Use `session.history.inspect` without a ref when the relevant Turn is not visible or `session_overflow_head` asks for recovery. Inspect a `session:summary/...` ref to reveal its direct children, and continue one Summary level at a time. Inspect a `session:turn/...` ref for its bounded preview. Treat each returned `preview` as a navigation aid derived from Session facts, not as a new Background state or exact trace evidence.
-
-Once a concrete `session:turn/...` ref is known, use `session.history.actions` for complete Action counts, outcomes, failure groups, and trace indexes. Do not reconstruct those facts by manually counting recall pages. Use `session.history.recall` only for exact canonical trace entries from that Turn; set `max_entries = 1` with a known trace index and follow an oversized-entry continuation cursor verbatim. Summary refs belong to inspect, not recall.
-
-Treat `source`, `summary`, `coverage`, requested/effective limits, revision, and continuation fields as authoritative. A changed active-head revision requires restarting root inspection; immutable Summary and Turn pages do not use a revision cursor. `scan_complete` means the complete canonical trace was scanned, `pairing_complete` means every Action call/result paired without anomaly, and `page_complete` only describes the current inspect, Action detail, or trace page. Never substitute one for another, send a Session ref to Context actions, or send a Context trace ref to Session actions. Follow an Action failure's disposition and correct the owner, kind, ref, revision, cursor, limit, or request instead of guessing.
+Follow `next_cursor` continuation objects verbatim. Summary refs belong to inspect; Context trace refs belong to Context actions. Restart active-head inspection without a cursor if Session reports that history changed.

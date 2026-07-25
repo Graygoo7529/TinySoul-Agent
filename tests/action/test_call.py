@@ -313,7 +313,7 @@ def test_workspace_llm_edit_batch_uses_action_timeout(action_name: str) -> None:
     assert preparation.phase_results == ()
     execution = preparation.batch.executions[0]
     assert execution.framework.domain == "workspace"
-    assert execution.framework.timeout_seconds == 90.0
+    assert execution.framework.timeout_seconds == 180.0
 
 
 def test_prepare_batch_returns_result_for_duplicate_call_id() -> None:

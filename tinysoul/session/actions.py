@@ -13,9 +13,10 @@ from tinysoul.action import (
     ActionResultStage,
     ActionTraceProjection,
 )
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime.bridge import RuntimeSessionBridge
 
+from .background import project_model_background
 from .engine import SessionEngine
 from .errors import (
     SessionError,
@@ -102,14 +103,15 @@ class SessionHistoryInspectExecutor(ActionExecutor):
                 scope="session.history.inspect",
             )
         try:
+            payload = self._session.inspect_history(
+                ref,
+                max_chars=max_chars,
+                max_entries=max_entries,
+                cursor=cursor,
+            )
             return _success(
                 execution,
-                self._session.inspect_history(
-                    ref,
-                    max_chars=max_chars,
-                    max_entries=max_entries,
-                    cursor=cursor,
-                ),
+                _model_history_payload(payload),
             )
         except SessionHistoryRequestError as exc:
             return _failed_request(execution, exc)
@@ -185,7 +187,7 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             raise self._runtime_bridge.from_session_error(exc) from exc
         return _success(
             execution,
-            payload,
+            _model_history_payload(payload),
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
                 canonical_payload={
@@ -250,17 +252,18 @@ class SessionHistoryActionsExecutor(ActionExecutor):
             return _failed_request(execution, exc)
         except SessionError as exc:
             raise self._runtime_bridge.from_session_error(exc) from exc
+        model_payload = _model_history_payload(payload)
         return _success(
             execution,
-            payload,
+            model_payload,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
                 canonical_payload={
-                    "source": payload["source"],
-                    "summary": payload["summary"],
-                    "coverage": payload["coverage"],
-                    "next_cursor": payload["next_cursor"],
-                    "page_complete": payload["page_complete"],
+                    "source": model_payload["source"],
+                    "summary": model_payload["summary"],
+                    "coverage": model_payload["coverage"],
+                    "next_cursor": model_payload["next_cursor"],
+                    "page_complete": model_payload["page_complete"],
                     "folded": True,
                 },
             ),
@@ -289,6 +292,14 @@ def _failed_request(
     execution: ActionExecution,
     error: SessionHistoryRequestError,
 ) -> ActionResult:
+    if error.reason is SessionHistoryFailureReason.REVISION_CHANGED:
+        return _failed(
+            execution,
+            "Session history changed; restart active-head inspection without a cursor.",
+            reason=error.reason.value,
+            scope=error.scope,
+            constraint={"restart": "active_head"},
+        )
     return _failed(
         execution,
         str(error),
@@ -296,6 +307,28 @@ def _failed_request(
         scope=error.scope,
         constraint=error.constraint,
     )
+
+
+def _model_history_payload(payload: JsonObject) -> JsonObject:
+    """Project Session query facts for Agent use without integrity metadata."""
+
+    value = to_json_object(payload)
+    source = value.get("source")
+    if isinstance(source, dict):
+        source.pop("revision", None)
+        source.pop("trace_digest", None)
+    summary = value.get("summary")
+    if isinstance(summary, dict):
+        summary.pop("trace_digest", None)
+    items = value.get("items")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            preview = item.get("preview")
+            if isinstance(preview, dict):
+                item["preview"] = project_model_background(preview)
+    return value
 
 
 def _failed(

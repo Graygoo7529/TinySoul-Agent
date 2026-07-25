@@ -33,7 +33,7 @@ effects = ["modifying"]
 examples = ["Rewrite home:how/data-cleaning/scripts/clean.py to handle CSV headers"]
 
 [runtime]
-timeout_seconds = 90
+timeout_seconds = 180
 parallel_policy = "serial"
 
 [backend]

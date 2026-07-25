@@ -86,6 +86,15 @@ class FakeLLMRunner:
         )
 
 
+class FixedRemainingControl(ActionExecutionControl):
+    def __init__(self, remaining: float) -> None:
+        super().__init__()
+        self._remaining = remaining
+
+    def remaining_seconds(self) -> float | None:
+        return self._remaining
+
+
 class TestReferenceResolver:
     def supports(self, link: str) -> bool:
         return link in {"test:ref", "workspace:a.md"}
@@ -184,6 +193,59 @@ def test_llm_action_cancellation_stops_before_nested_task() -> None:
     assert result.status is ActionResultStatus.TIMEOUT
     assert result.failure is not None
     assert result.failure.reason == "cancelled"
+    assert llm.calls == []
+
+
+def test_llm_action_reserves_owner_time_for_completion() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    llm = FakeLLMRunner({"text": "done"})
+    control = FixedRemainingControl(12.0)
+    executor = CoreAnswerActionExecutor(
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
+    )
+
+    result = executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            handler="core.answer",
+        ),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.SUCCESS
+    cancellation = llm.calls[0].cancellation
+    assert cancellation is not None
+    assert cancellation.remaining_seconds() == 7.0
+
+
+def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    llm = FakeLLMRunner({"text": "done"})
+    control = FixedRemainingControl(4.0)
+    executor = CoreAnswerActionExecutor(
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
+    )
+
+    result = executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            handler="core.answer",
+        ),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.failure is not None
+    assert result.failure.to_json() == {
+        "reason": "execution_timeout",
+        "scope": "action.timeout",
+        "disposition": "retry_same",
+        "feedback": "Action timed out during execution.",
+    }
     assert llm.calls == []
 
 

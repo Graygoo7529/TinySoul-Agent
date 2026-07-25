@@ -18,6 +18,7 @@ from tinysoul.loop.day import BusinessDay
 
 from .action_history import project_turn_actions
 from .background import (
+    project_model_background,
     project_summary_background,
     project_turn_background,
     select_turn_background_actions,
@@ -225,7 +226,10 @@ class SessionEngine:
             return SessionBackgroundSnapshot(
                 revision=manifest.revision,
                 items=tuple(
-                    SessionBackgroundItem(item_id=item.item_id, content=item.background)
+                    SessionBackgroundItem(
+                        item_id=item.item_id,
+                        content=project_model_background(item.background),
+                    )
                     for item in items
                 ),
             )

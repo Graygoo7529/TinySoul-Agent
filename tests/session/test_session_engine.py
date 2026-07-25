@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action import (
+    ActionCatalog,
     ActionCall,
     ActionExecution,
     ActionExecutionContext,
@@ -42,6 +43,7 @@ from tinysoul.session import (
 )
 from tinysoul.session.store import SessionStore
 from tinysoul.session.actions import (
+    SessionHistoryActionsExecutor,
     SessionHistoryInspectExecutor,
     SessionHistoryRecallExecutor,
 )
@@ -287,18 +289,106 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
         inputs=({"input_id": "input_1", "text": "analyze", "merged": True},),
         trace=trace,
         trace_digest=canonical_trace_digest(trace),
+        trace_summary={
+            "entry_count": 4,
+            "action_names": ["core.reason", "workspace.scan"],
+        },
     )
 
     _record_turn(session, summary=summary, output={"text": "done"}, exhausted=False)
 
     snapshot = session.background_snapshot(DAY)
-    actions = snapshot.items[0].content["actions"]
+    background = snapshot.items[0].content
+    assert background["user_ask"] == ["analyze"]
+    assert background["answer"] == "done"
+    assert background["trace_summary"] == {
+        "entry_count": 4,
+        "action_names": ["core.reason", "workspace.scan"],
+    }
+    assert "trace_digest" not in background
+    actions = background["actions"]
     assert isinstance(actions, list)
     assert len(actions) == 1
     action = actions[0]
     assert isinstance(action, dict)
     assert action["action"] == "core.reason"
     assert action["status"] == "success"
+    assert "payload" not in action
+
+    persisted_items = session.inspect_history("session:turn/turn_actions")["items"]
+    assert isinstance(persisted_items, list)
+    persisted_preview = persisted_items[0]
+    assert isinstance(persisted_preview, dict)
+    preview = persisted_preview["preview"]
+    assert isinstance(preview, dict)
+    assert preview["trace_digest"] == canonical_trace_digest(trace)
+
+
+def test_session_action_model_projection_hides_integrity_metadata(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path))
+    trace = (
+        _decision_entry("call_scan", "workspace.scan", {}),
+        _result_entry("call_scan", "workspace.scan", {"count": 2}),
+    )
+    _record_turn(
+        session,
+        summary=TurnSummary(
+            turn_id="turn_model_projection",
+            inputs=({"input_id": "input_1", "text": "scan", "merged": True},),
+            trace=trace,
+            trace_digest=canonical_trace_digest(trace),
+        ),
+        output={"text": "done"},
+        exhausted=False,
+    )
+    ref = "session:turn/turn_model_projection"
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+
+    inspect = SessionHistoryInspectExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(
+        _history_execution(catalog, "session.history.inspect", {"ref": ref}),
+        ActionExecutionContext(),
+    )
+    recall = SessionHistoryRecallExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(
+        _history_execution(catalog, "session.history.recall", {"ref": ref}),
+        ActionExecutionContext(),
+    )
+    actions = SessionHistoryActionsExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(
+        _history_execution(catalog, "session.history.actions", {"ref": ref}),
+        ActionExecutionContext(),
+    )
+
+    for result in (inspect, recall, actions):
+        assert result.status is ActionResultStatus.SUCCESS
+        source = result.payload["source"]
+        assert isinstance(source, dict)
+        assert "revision" not in source
+        assert "trace_digest" not in source
+    action_summary = actions.payload["summary"]
+    assert isinstance(action_summary, dict)
+    assert "trace_digest" not in action_summary
+    inspect_items = inspect.payload["items"]
+    assert isinstance(inspect_items, list)
+    inspect_item = inspect_items[0]
+    assert isinstance(inspect_item, dict)
+    inspect_preview = inspect_item["preview"]
+    assert isinstance(inspect_preview, dict)
+    assert "trace_digest" not in inspect_preview
+
+    persisted_source = session.recall_history(ref)["source"]
+    assert isinstance(persisted_source, dict)
+    assert persisted_source["trace_digest"] == canonical_trace_digest(trace)
 
 
 def test_action_projector_preserves_orphan_result_location() -> None:
@@ -466,6 +556,27 @@ def test_session_root_inspect_cursor_is_bound_to_manifest_revision(
     with pytest.raises(SessionHistoryRequestError) as failure:
         session.inspect_history(max_entries=1, cursor=next_cursor)
     assert failure.value.reason is SessionHistoryFailureReason.REVISION_CHANGED
+
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+    result = SessionHistoryInspectExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(
+        _history_execution(
+            catalog,
+            "session.history.inspect",
+            {"max_entries": 1, "cursor": next_cursor},
+        ),
+        ActionExecutionContext(),
+    )
+    assert result.status is ActionResultStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.reason == SessionHistoryFailureReason.REVISION_CHANGED.value
+    assert result.failure.constraint == {"restart": "active_head"}
+    assert result.failure.feedback == (
+        "Session history changed; restart active-head inspection without a cursor."
+    )
 
 
 def test_session_root_cursor_binding_stays_inside_character_budget(
@@ -853,6 +964,28 @@ def _engine(
     elif engine.active_day != DAY:
         raise AssertionError("test Session has an unexpected active day")
     return engine
+
+
+def _history_execution(
+    catalog: ActionCatalog,
+    action_name: str,
+    params: JsonObject,
+) -> ActionExecution:
+    return ActionExecution(
+        action=catalog.get_action(action_name),
+        call=ActionCall(
+            call_id=f"call_{action_name}",
+            action_name=action_name,
+            params=params,
+            sequence=1,
+        ),
+        framework=ActionFramework(
+            invoke_id=f"invoke_{action_name}",
+            batch_id="batch_history",
+            scope=RunScope(),
+            domain="session",
+        ),
+    )
 
 
 def _summary(turn_id: str, *, ask: str) -> TurnSummary:

@@ -85,6 +85,9 @@ class LLMActionBackendOptionsValidator:
         parse_llm_action_options(backend.options, key=key)
 
 
+_COMPLETION_RESERVE_SECONDS = 5.0
+
+
 class LLMActionTaskRunner:
     """Run action-internal LLM tasks using Context-built message stacks."""
 
@@ -216,7 +219,7 @@ class LLMActionTaskRunner:
         cancellation = (
             TaskCancellation(
                 cancelled=control.is_cancelled,
-                remaining_seconds=control.remaining_seconds,
+                remaining_seconds=lambda: _nested_task_remaining_seconds(control),
                 reason=lambda: control.cancel_reason,
             )
             if control is not None
@@ -242,6 +245,28 @@ class LLMActionTaskRunner:
                 )
             )
         except TaskCancelled as exc:
+            cancel_reason = str(exc)
+            reserved_deadline_expired = (
+                cancel_reason == "deadline_expired"
+                and control is not None
+                and not control.is_cancelled()
+                and control.remaining_seconds() is not None
+            )
+            failure = (
+                ActionLocalFailure(
+                    reason="execution_timeout",
+                    scope="action.timeout",
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                    feedback="Action timed out during execution.",
+                )
+                if reserved_deadline_expired
+                else ActionLocalFailure(
+                    reason="cancelled",
+                    scope="llm.execution",
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                    feedback="Action stopped after cancellation was requested.",
+                )
+            )
             return ActionResult.timeout(
                 call_id=execution.call.call_id,
                 invoke_id=execution.framework.invoke_id,
@@ -249,15 +274,10 @@ class LLMActionTaskRunner:
                 action_name=execution.call.action_name,
                 sequence=execution.call.sequence,
                 domain=execution.framework.domain,
-                failure=ActionLocalFailure(
-                    reason="cancelled",
-                    scope="llm.execution",
-                    disposition=ActionFailureDisposition.RETRY_SAME,
-                    feedback="Action stopped after cancellation was requested.",
-                ),
+                failure=failure,
                 frame_data={
-                    "cancel_reason": str(exc) or "cancelled",
-                    "cancel_requested": True,
+                    "cancel_reason": cancel_reason or "cancelled",
+                    "cancel_requested": control.is_cancelled() if control else False,
                     "executor_started": True,
                     "executor_leaked": False,
                     "late_success": False,
@@ -304,6 +324,15 @@ class LLMActionTaskRunner:
                 frame_data=failure.frame_data if failure is not None else None,
             )
         return result
+
+
+def _nested_task_remaining_seconds(
+    control: ActionExecutionControl,
+) -> float | None:
+    remaining = control.remaining_seconds()
+    if remaining is None:
+        return None
+    return max(0.0, remaining - _COMPLETION_RESERVE_SECONDS)
 
 
 def parse_llm_action_options(

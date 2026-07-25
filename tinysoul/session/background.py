@@ -151,6 +151,14 @@ def project_summary_background(
     )
 
 
+def project_model_background(background: JsonObject) -> JsonObject:
+    """Remove Session integrity metadata from one Context projection."""
+
+    value = to_json_object(background)
+    value.pop("trace_digest", None)
+    return value
+
+
 def summary_ref(day: str, child_refs: tuple[str, ...]) -> str:
     """Return the deterministic identity for one persisted Summary record."""
 

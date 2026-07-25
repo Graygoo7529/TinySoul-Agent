@@ -401,7 +401,10 @@ class TurnTraceHeap:
         messages: list[Message] = []
         if self._root_ids:
             messages.append(
-                UserMessage.from_json(self._head_payload(), label="trace_heap_head")
+                UserMessage.from_json(
+                    self._head_payload(include_revision=False),
+                    label="trace_heap_head",
+                )
             )
         messages.extend(entry.visible_message for entry in self.hot_entries())
         return tuple(messages)
@@ -528,19 +531,19 @@ class TurnTraceHeap:
             self._nodes[node.node_id] = node
             self._root_ids = [node.node_id, *self._root_ids[self._branch_factor :]]
 
-    def _head_payload(self) -> JsonObject:
-        return to_json_object(
-            {
-                "ref": self.head_ref(),
-                "canonical_revision": len(self._entries),
-                "note": "Earlier TurnTrace entries are available through this heap head.",
-                "roots": [
-                    self._nodes[node_id].to_header(turn_id=self._turn_id)
-                    for node_id in self._root_ids
-                ],
-                "hot_entry_count": len(self._hot_entry_ids),
-            }
-        )
+    def _head_payload(self, *, include_revision: bool = True) -> JsonObject:
+        value: JsonObject = {
+            "ref": self.head_ref(),
+            "note": "Earlier TurnTrace entries are available through this heap head.",
+            "roots": [
+                self._nodes[node_id].to_header(turn_id=self._turn_id)
+                for node_id in self._root_ids
+            ],
+            "hot_entry_count": len(self._hot_entry_ids),
+        }
+        if include_revision:
+            value["canonical_revision"] = len(self._entries)
+        return to_json_object(value)
 
     def _node_for_ref(self, ref: str) -> TraceHeapNode:
         prefix = f"turn:trace/{self._turn_id}/"

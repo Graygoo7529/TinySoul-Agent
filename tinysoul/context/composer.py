@@ -109,9 +109,7 @@ class MessageStackComposer:
             ContextSection.SESSION_BACKGROUND: background.render_session_messages(),
             ContextSection.BACKGROUND: background.render_background_messages(),
             ContextSection.TRACE: trace.render_messages(),
-            ContextSection.WORKING: working.render_messages(
-                trace_anchor=trace.anchor()
-            ),
+            ContextSection.WORKING: working.render_messages(),
             ContextSection.TASK_PROMPT: task_prompt.render_messages(),
         }
         messages = tuple(

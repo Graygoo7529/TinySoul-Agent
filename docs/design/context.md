@@ -30,7 +30,7 @@ Stage 6.1 已将原 Home-specific Background 提升为 Context-owned 多 provide
 
 ### WorkingContext
 
-本轮任务执行状态，即 Agent 的"工作台"。持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 只验证和渲染资源句柄，不读取 workspace 文件内容。WorkingContext 在 MessageStack 中位于 TurnTraceHeap 之后，是当前组装边界的物化状态；模型可见 Working 消息附加 `as_of_trace {ref, canonical_revision}`，但该临时组装元数据不写入 WorkingContext 状态或 TurnSummary。
+本轮任务执行状态，即 Agent 的"工作台"。内部持有工作区资源描述（链接与摘要清单）、Manifest revision、里程碑与待办。普通 WorkingPatch 只管理里程碑与待办；Workspace 资源段只能由 `context.workspace.sync` 的完整 `WorkspaceSnapshot(revision, resources)` 替换，旧 revision 或同 revision 冲突快照收敛为局部结果。Context 不读取 workspace 文件内容。WorkingContext 在 MessageStack 中位于 TurnTraceHeap 之后；模型投影只包含 milestones、todos 与 Workspace resource links/summary，不暴露 Manifest revision 或 Trace anchor。
 
 ### TurnTraceHeap
 
@@ -40,7 +40,7 @@ recall 使用包含 `entry_index/char_offset/entry_digest` 的服务端 continua
 
 每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。`trace_summary` 只保存计数视图；`trace_digest` 固定为对 canonical trace 稳定 JSON 的 `sha256:<64hex>`，两者不可混用。
 
-TurnTraceHeap 提供组装时只读锚点：`ref` 是当前 Turn 的 `turn:trace@<turn_id>` head，`canonical_revision` 等于 canonical append 数。append 增加 revision；hot-to-cold 压缩、branch 合并和 visible overlay fold 都不改变 revision。锚点表达 Working 在同次组装中观察到的 Trace 边界，不表达 Working 变更的唯一因果来源，因为 Phase1 control、Workspace sync 或 Endpoint mutation 可以在不追加 Trace 的情况下更新 Working。
+TurnTraceHeap 内部保留只读锚点：`ref` 是当前 Turn 的 `turn:trace@<turn_id>` head，`canonical_revision` 等于 canonical append 数。append 增加 revision；hot-to-cold 压缩、branch 合并和 visible overlay fold 都不改变 revision。锚点服务内部一致性与 inspect；自动 MessageStack 的 heap header 只暴露导航 ref/roots，不暴露 canonical revision，也不把锚点复制到 Working 模型消息。
 
 ### PendingInputs
 
@@ -55,7 +55,7 @@ MessageStackComposer 按语义依赖与变更形态构造 MessageStack：
 3. SessionBackground 段：Turn preparation 后固定；
 4. 通用 Phase1 Background 段：每 Turn 从 Home、Memory 等 provider 重建，先渲染 provider 目录 metadata，再渲染默认/自动正文；Phase1 可调整本 Turn 动态正文条目；
 5. TurnTraceHeap 段：冷节点头部在前，随后是热轨迹；
-6. WorkingContext 段：携带当前物化状态和同次组装生成的 Trace 锚点；
+6. WorkingContext 段：携带 milestones、todos 与 Workspace resource links/summary；
 7. task prompt overlay：每次 LLM Task 不同。
 
 这个顺序先给出本轮已经发生的交互，再给出当前物化状态，最后给出本次任务。正常 Trace 增长是 append-only，旧 Trace 仍可构成下一请求的稳定前缀；Working 是原位替换快照，把它放在 Trace 后可以避免 todo、milestone 或 Workspace 投影变化使整段既有 Trace 失去提示缓存。Background 等替换型前置规约仍保留在交互之前，因为它们定义如何解释后续内容。

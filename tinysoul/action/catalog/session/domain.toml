@@ -1,6 +1,6 @@
 name = "session"
-description = "Daily cross-Turn conversation history and recoverable detail records."
-selection_hint = "Use when an earlier Turn or summarized conversation detail is needed."
+description = "Completed prior-Turn conversation and Action history."
+selection_hint = "Use when fixed Session Background is insufficient for an earlier ask, answer, Action outcome, or trace detail."
 
 [runtime]
 timeout_seconds = 5

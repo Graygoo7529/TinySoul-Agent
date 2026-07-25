@@ -95,10 +95,8 @@ def test_compose_section_order_and_labels() -> None:
     assert all(isinstance(message, UserMessage) for message in stack.messages[1:])
     working_part = stack.messages[5].parts[0]
     assert isinstance(working_part, JsonPart)
-    assert working_part.value["as_of_trace"] == {
-        "ref": "turn:trace@detached",
-        "canonical_revision": 1,
-    }
+    assert "as_of_trace" not in working_part.value
+    assert "workspace_revision" not in working_part.value
     task_message = stack.messages[-5]
     assert isinstance(task_message, UserMessage)
     part = task_message.parts[0]

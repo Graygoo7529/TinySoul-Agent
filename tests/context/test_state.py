@@ -147,20 +147,19 @@ def test_working_patch_rejects_conflicting_and_duplicate_operations() -> None:
     assert "duplicate todo remove key" in working.check_patch(duplicate)
 
 
-def test_working_message_is_anchored_without_changing_persisted_state() -> None:
+def test_working_message_hides_internal_revisions_without_changing_state() -> None:
     working = WorkingContext()
     trace = TurnTraceHeap(turn_id="turn_anchor")
     trace.append_phase_note("observed")
 
-    message = working.render_messages(trace_anchor=trace.anchor())[0]
+    message = working.render_messages()[0]
     part = message.parts[0]
 
     assert isinstance(part, JsonPart)
-    assert part.value["as_of_trace"] == {
-        "ref": "turn:trace@turn_anchor",
-        "canonical_revision": 1,
-    }
+    assert "as_of_trace" not in part.value
+    assert "workspace_revision" not in part.value
     assert "as_of_trace" not in working.to_json()
+    assert working.to_json()["workspace_revision"] == -1
 
 
 def test_working_patch_sequence_validates_projected_state() -> None:
@@ -227,6 +226,9 @@ def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
         trace.append_phase_note(f"note {index}")
     report = trace.compact(required_chars=1)
     assert report.compacted_count == 3
+    model_header = trace.render_messages()[0].parts[0]
+    assert isinstance(model_header, JsonPart)
+    assert "canonical_revision" not in model_header.value
     head = trace.inspect(trace.head_ref())
     assert head["canonical_revision"] == 4
     roots = head["roots"]
