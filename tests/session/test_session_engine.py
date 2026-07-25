@@ -276,7 +276,7 @@ def test_session_recall_action_preserves_engine_wrong_kind_failure(
     assert result.failure.scope == "session.history.recall"
 
 
-def test_session_projects_only_policy_selected_action_history(tmp_path: Path) -> None:
+def test_session_projects_compact_per_action_outcomes_to_context(tmp_path: Path) -> None:
     session = _engine(_settings(tmp_path))
     trace = (
         _decision_entry("call_reason", "core.reason", {"topic": "design"}),
@@ -299,21 +299,28 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
 
     snapshot = session.background_snapshot(DAY)
     background = snapshot.items[0].content
-    assert background["user_ask"] == ["analyze"]
-    assert background["answer"] == "done"
-    assert background["trace_summary"] == {
-        "entry_count": 4,
-        "action_names": ["core.reason", "workspace.scan"],
+    assert background == {
+        "kind": "session_turn",
+        "ref": "session:turn/turn_actions",
+        "user_ask": ["analyze"],
+        "answer": "done",
+        "references": [],
+        "exhausted": False,
+        "action_outcomes": [
+            {
+                "action": "core.reason",
+                "success_count": 1,
+                "failed_count": 0,
+                "timeout_count": 0,
+            },
+            {
+                "action": "workspace.scan",
+                "success_count": 1,
+                "failed_count": 0,
+                "timeout_count": 0,
+            },
+        ],
     }
-    assert "trace_digest" not in background
-    actions = background["actions"]
-    assert isinstance(actions, list)
-    assert len(actions) == 1
-    action = actions[0]
-    assert isinstance(action, dict)
-    assert action["action"] == "core.reason"
-    assert action["status"] == "success"
-    assert "payload" not in action
 
     persisted_items = session.inspect_history("session:turn/turn_actions")["items"]
     assert isinstance(persisted_items, list)
@@ -322,6 +329,15 @@ def test_session_projects_only_policy_selected_action_history(tmp_path: Path) ->
     preview = persisted_preview["preview"]
     assert isinstance(preview, dict)
     assert preview["trace_digest"] == canonical_trace_digest(trace)
+    assert preview["trace_summary"] == {
+        "entry_count": 4,
+        "action_names": ["core.reason", "workspace.scan"],
+    }
+    selected = preview["actions"]
+    assert isinstance(selected, list) and len(selected) == 1
+    selected_action = selected[0]
+    assert isinstance(selected_action, dict)
+    assert selected_action["action"] == "core.reason"
 
 
 def test_session_action_model_projection_hides_integrity_metadata(
@@ -427,6 +443,22 @@ def test_action_projector_splits_name_mismatch_by_real_action() -> None:
         "workspace.scan",
         "workspace.read",
     ]
+    assert projection.background_outcomes() == (
+        {
+            "action": "workspace.read",
+            "success_count": 1,
+            "failed_count": 0,
+            "timeout_count": 0,
+            "incomplete_count": 1,
+        },
+        {
+            "action": "workspace.scan",
+            "success_count": 0,
+            "failed_count": 0,
+            "timeout_count": 0,
+            "incomplete_count": 1,
+        },
+    )
     by_action = {item["action"]: item for item in projection.by_action()}
     assert by_action["workspace.scan"]["calls"] == 1
     assert by_action["workspace.scan"]["results"] == 0
@@ -697,11 +729,23 @@ def test_session_idempotency_ignores_changed_background_projection_settings(
 
     assert restarted.revision == revision
     snapshot = restarted.background_snapshot(DAY)
-    actions = snapshot.items[0].content["actions"]
-    assert isinstance(actions, list) and len(actions) == 1
-    action = actions[0]
-    assert isinstance(action, dict)
-    assert action["action"] == "core.reason"
+    assert snapshot.items[0].content["action_outcomes"] == [
+        {
+            "action": "core.reason",
+            "success_count": 1,
+            "failed_count": 0,
+            "timeout_count": 0,
+        }
+    ]
+    inspected = restarted.inspect_history("session:turn/turn_projection")["items"]
+    assert isinstance(inspected, list) and isinstance(inspected[0], dict)
+    preview = inspected[0]["preview"]
+    assert isinstance(preview, dict)
+    selected = preview["actions"]
+    assert isinstance(selected, list) and len(selected) == 1
+    selected_action = selected[0]
+    assert isinstance(selected_action, dict)
+    assert selected_action["action"] == "core.reason"
 
 
 def test_session_reconciles_turn_orphan_after_manifest_failure(

@@ -18,7 +18,7 @@ from tinysoul.loop.day import BusinessDay
 
 from .action_history import project_turn_actions
 from .background import (
-    project_model_background,
+    project_context_background,
     project_summary_background,
     project_turn_background,
     select_turn_background_actions,
@@ -228,7 +228,7 @@ class SessionEngine:
                 items=tuple(
                     SessionBackgroundItem(
                         item_id=item.item_id,
-                        content=project_model_background(item.background),
+                        content=self._context_background(item),
                     )
                     for item in items
                 ),
@@ -580,6 +580,19 @@ class SessionEngine:
             char_count=len(dumps_json(head_background)),
         )
         return (head, *selected)
+
+    def _context_background(self, item: SessionHistoryItem) -> JsonObject:
+        if item.kind is not SessionHistoryKind.TURN:
+            return project_context_background(item.background)
+        validated = validate_turn_record(self._store.load_record(item.ref))
+        if validated.background != item.background:
+            raise SessionInvariantError(
+                f"Session model background does not match its record: {item.ref}"
+            )
+        return project_context_background(
+            item.background,
+            action_outcomes=validated.action_projection.background_outcomes(),
+        )
 
     def _summarize_once(
         self,

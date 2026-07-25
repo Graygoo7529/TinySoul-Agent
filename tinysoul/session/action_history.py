@@ -146,6 +146,32 @@ class TurnActionProjection:
             for name in sorted(counters)
         )
 
+    def background_outcomes(self) -> tuple[JsonObject, ...]:
+        """Return compact per-Action outcomes for the next Turn Background."""
+
+        counters: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"success": 0, "failed": 0, "timeout": 0, "incomplete": 0}
+        )
+        for item in self.details:
+            counter = counters[item.action_name]
+            if item.status is not None:
+                counter[item.status.value] += 1
+            if item.pairing_issue is not None:
+                counter["incomplete"] += 1
+        outcomes: list[JsonObject] = []
+        for name in sorted(counters):
+            counter = counters[name]
+            value: JsonObject = {
+                "action": name,
+                "success_count": counter["success"],
+                "failed_count": counter["failed"],
+                "timeout_count": counter["timeout"],
+            }
+            if counter["incomplete"]:
+                value["incomplete_count"] = counter["incomplete"]
+            outcomes.append(to_json_object(value))
+        return tuple(outcomes)
+
     def failure_groups(self) -> tuple[JsonObject, ...]:
         counters: dict[tuple[str, str, str, str], int] = defaultdict(int)
         feedback: dict[tuple[str, str, str, str], tuple[str, JsonObject]] = {}

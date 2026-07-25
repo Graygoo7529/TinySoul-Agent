@@ -52,6 +52,20 @@ def test_action_history_aggregates_statuses_and_repeated_failures() -> None:
     assert by_action["test.alpha"]["success"] == 1
     assert by_action["test.alpha"]["timeout"] == 1
     assert by_action["test.beta"]["failed"] == 2
+    assert projection.background_outcomes() == (
+        {
+            "action": "test.alpha",
+            "success_count": 1,
+            "failed_count": 0,
+            "timeout_count": 1,
+        },
+        {
+            "action": "test.beta",
+            "success_count": 0,
+            "failed_count": 2,
+            "timeout_count": 0,
+        },
+    )
     failure_groups = projection.failure_groups()
     assert [group["count"] for group in failure_groups] == [1, 2]
     assert {group["reason"] for group in failure_groups} == {"request_rejected"}

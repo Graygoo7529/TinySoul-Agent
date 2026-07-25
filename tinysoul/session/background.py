@@ -151,8 +151,36 @@ def project_summary_background(
     )
 
 
+def project_context_background(
+    background: JsonObject,
+    *,
+    action_outcomes: tuple[JsonObject, ...] | None = None,
+) -> JsonObject:
+    """Project one persisted Session preview into automatic Context."""
+
+    value = to_json_object(background)
+    if value.get("kind") != "session_turn":
+        value.pop("trace_digest", None)
+        return value
+    if action_outcomes is None:
+        raise SessionInvariantError(
+            "Session Turn model background requires validated Action outcomes"
+        )
+    return to_json_object(
+        {
+            "kind": value.get("kind"),
+            "ref": value.get("ref"),
+            "user_ask": value.get("user_ask"),
+            "answer": value.get("answer"),
+            "references": value.get("references"),
+            "exhausted": value.get("exhausted"),
+            "action_outcomes": list(action_outcomes),
+        }
+    )
+
+
 def project_model_background(background: JsonObject) -> JsonObject:
-    """Remove Session integrity metadata from one Context projection."""
+    """Remove integrity metadata from one explicit Agent query preview."""
 
     value = to_json_object(background)
     value.pop("trace_digest", None)
