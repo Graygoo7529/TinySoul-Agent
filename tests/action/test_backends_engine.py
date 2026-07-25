@@ -358,7 +358,6 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
-        .register_native("session.history.actions", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})

@@ -2,7 +2,7 @@ name = "session.history.recall"
 domain = "session"
 
 [tool]
-description = "Recall bounded canonical trace evidence for one prior Turn."
+description = "Recall the semantic request and result for one prior-Turn Action ref returned by inspect."
 
 [tool.schema]
 type = "object"
@@ -11,15 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.ref]
 type = "string"
-description = "A concrete session:turn ref."
-
-[tool.schema.properties.max_chars]
-type = "integer"
-description = "Optional maximum recalled character count."
-
-[tool.schema.properties.max_entries]
-type = "integer"
-description = "Optional maximum complete trace entries returned by this page. Use 1 for an exact index."
+description = "A concrete session:turn/...#action/... ref returned by session.history.inspect."
 
 [tool.schema.properties.cursor]
 type = "object"
@@ -36,10 +28,10 @@ type = "integer"
 type = "string"
 
 [semantic]
-use_when = ["Need raw canonical trace entries at a known prior-Turn location"]
-avoid_when = ["Need to navigate Session summaries or count Action outcomes"]
+use_when = ["Need the request, result, references, or failure facts for one Action leaf returned by inspect"]
+avoid_when = ["Need to locate a Turn or Action leaf"]
 effects = ["read_only"]
-examples = ["Use an Action trace index with max_entries 1 to recover the exact call or result"]
+examples = ["Submit one Action ref from inspect without interpreting its suffix"]
 
 [runtime]
 parallel_policy = "serial"

@@ -174,6 +174,8 @@ Context Background、当前 Phase 和活跃 LLM Task 没有对应的 REST snapsh
 
 Session REST 是 SessionEngine 在 Daily active-day lease 内的只读适配，不经 Gateway 或 ActionEngine，不产生 ActionCall/ActionResult，也不写入当前 TurnTrace。无 ref history 只读取最近一次提交的 authoritative Manifest root；已知具体 ref 的 history/actions/trace 可以读取已经原子落盘且校验有效的 immutable record，即使它尚未因生命周期 reconciliation 接入 root。该 record 仍不属于当前 SessionBackground，查询不会触发 orphan reconciliation 或 Manifest revision 变化；前端必须通过 root revision/status/event 判断导航头部是否已提交，不能用重复查询推动 Session 恢复。Session 是已完成 Turn 的事实：前端不得把 WebSocket 临时事件写回 Session，也不得把 history/actions/trace 结果当作 Workspace 文件。
 
+上述 REST 是前端诊断协议，和 Agent 的模型投影有意不同。Agent 只使用 `session.history.inspect` 与 `session.history.recall`：自动 Background 为每个 Turn 提供一个 `session:turn/<turn_id>#actions` 虚拟集合 ref，inspect 将其展开为 compact Action leaf，recall 再按 `session:turn/<turn_id>#action/<occurrence>` 返回语义化 request/result；虚拟 ref 不落盘，也不进入 Manifest。模型侧不再注册 `session.history.actions`，也不接收 trace indexes、call id、cycle id、历史 stage 或完整 canonical trace。前端 `/v1/session/actions` 和 `/v1/session/trace` 继续保留这些诊断事实，以支持 Actions/Trace 页签，但不得把 REST 响应伪装成 Agent Background 或 ActionResult。
+
 ## Workspace 接口
 
 ### Manifest 与读取

@@ -1,6 +1,6 @@
 name = "session"
 description = "Completed prior-Turn conversation and Action history."
-selection_hint = "Use when fixed Session Background is insufficient for an earlier ask, answer, Action outcome, or trace detail."
+selection_hint = "Use when Session Background is insufficient and an earlier Summary, Turn, or Action needs progressive inspection."
 
 [runtime]
 timeout_seconds = 5

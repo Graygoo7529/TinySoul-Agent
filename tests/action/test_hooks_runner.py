@@ -451,7 +451,6 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "script.stop",
         "script.wait",
         "script.write",
-            "session.history.actions",
             "session.history.inspect",
             "session.history.recall",
             "shell.apply",

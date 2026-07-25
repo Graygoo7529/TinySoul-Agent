@@ -823,7 +823,6 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
-        .register_native("session.history.actions", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
@@ -903,7 +902,6 @@ def _action_engine(
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_native("session.history.inspect", lambda execution, context: {})
         .register_native("session.history.recall", lambda execution, context: {})
-        .register_native("session.history.actions", lambda execution, context: {})
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,

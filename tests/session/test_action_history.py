@@ -55,20 +55,60 @@ def test_action_history_aggregates_statuses_and_repeated_failures() -> None:
     assert projection.background_outcomes() == (
         {
             "action": "test.alpha",
-            "success_count": 1,
-            "failed_count": 0,
-            "timeout_count": 1,
+            "counts": {"success": 1, "timeout": 1},
         },
         {
             "action": "test.beta",
-            "success_count": 0,
-            "failed_count": 2,
-            "timeout_count": 0,
+            "counts": {"failed": 2},
         },
     )
     failure_groups = projection.failure_groups()
     assert [group["count"] for group in failure_groups] == [1, 2]
     assert {group["reason"] for group in failure_groups} == {"request_rejected"}
+
+
+def test_action_history_preserves_tool_order_within_one_decision() -> None:
+    trace: tuple[JsonObject, ...] = (
+        {
+            "entry_id": "decision_batch",
+            "kind": "decision",
+            "cycle_id": "cycle_test",
+            "phase": "phase2",
+            "message": {
+                "role": "assistant",
+                "label": "decision",
+                "content": [],
+                "tool_calls": [
+                    {
+                        "id": "call_z",
+                        "name": "test.first",
+                        "arguments": {"position": 1},
+                        "kind": "action",
+                    },
+                    {
+                        "id": "call_a",
+                        "name": "test.second",
+                        "arguments": {"position": 2},
+                        "kind": "action",
+                    },
+                ],
+            },
+            "origin_refs": [],
+        },
+        _result("call_z", "test.first", ActionResultStatus.SUCCESS),
+        _result("call_a", "test.second", ActionResultStatus.SUCCESS),
+    )
+
+    projection = project_turn_actions(
+        trace,
+        expected_digest=canonical_trace_digest(trace),
+    )
+
+    assert [detail.action_name for detail in projection.details] == [
+        "test.first",
+        "test.second",
+    ]
+    assert [detail.call_position for detail in projection.details] == [0, 1]
 
 
 def _call(call_id: str, action_name: str) -> JsonObject:

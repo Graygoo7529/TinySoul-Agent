@@ -2,7 +2,7 @@ name = "session.history.inspect"
 domain = "session"
 
 [tool]
-description = "Inspect the active Session head or expand one immutable Summary or Turn node."
+description = "Explore completed Session history from the active head through Summary, Turn, and Action nodes."
 
 [tool.schema]
 type = "object"
@@ -10,15 +10,11 @@ additionalProperties = false
 
 [tool.schema.properties.ref]
 type = "string"
-description = "Optional session:summary or session:turn ref. Omit it to inspect the active head."
+description = "Optional Session ref returned by Background or an earlier inspect result. Omit it to inspect the active head."
 
-[tool.schema.properties.max_chars]
-type = "integer"
-description = "Optional maximum canonical response character count."
-
-[tool.schema.properties.max_entries]
-type = "integer"
-description = "Optional maximum complete history nodes returned by this page."
+[tool.schema.properties.action]
+type = "string"
+description = "Optional Action-name filter when ref identifies a Turn Action collection."
 
 [tool.schema.properties.cursor]
 type = "object"
@@ -37,14 +33,20 @@ type = "string"
 [tool.schema.properties.cursor.properties.revision]
 type = "integer"
 
+[tool.schema.properties.cursor.properties.action]
+type = "string"
+
 [semantic]
-use_when = ["Need to locate an earlier Turn, expand a Session Summary, or inspect a bounded Turn preview"]
-avoid_when = ["Need exact Action statistics or raw canonical trace evidence"]
+use_when = ["Need to locate an earlier Turn or progressively expand a Summary, Turn, or Turn Action collection"]
+avoid_when = ["Already have a session:turn/...#action/... ref and need its request or result"]
 effects = ["read_only"]
-examples = ["Inspect the active head, then expand a summary ref until the relevant Turn is visible"]
+examples = ["Inspect the Action collection ref from Session Background, optionally filtering by Action name"]
 
 [runtime]
 parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
 
 [backend]
 kind = "native"

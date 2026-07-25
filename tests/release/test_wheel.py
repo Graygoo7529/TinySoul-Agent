@@ -74,7 +74,6 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
     assert "tinysoul/action/catalog/session/actions/history_inspect.toml" in names
-    assert "tinysoul/action/catalog/session/actions/history_actions.toml" in names
     assert "tinysoul/action/catalog/session/actions/history_recall.toml" in names
     for profile in ("standard", "development"):
         profile_root = f"tinysoul/assets/project/config_profiles/{profile}"

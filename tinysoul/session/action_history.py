@@ -33,6 +33,7 @@ class TurnActionDetail:
     call_id: str
     action_name: str
     call_trace_index: int | None = None
+    call_position: int | None = None
     result_trace_index: int | None = None
     cycle_id: str = ""
     phase: str = ""
@@ -46,7 +47,7 @@ class TurnActionDetail:
             raise SessionContractError("Action occurrence cannot be negative")
         if not self.call_id or not self.action_name:
             raise SessionContractError("Action detail identity must be non-empty")
-        for index in (self.call_trace_index, self.result_trace_index):
+        for index in (self.call_trace_index, self.call_position, self.result_trace_index):
             if index is not None and (isinstance(index, bool) or index < 0):
                 raise SessionContractError("Action trace index cannot be negative")
         if self.failure is not None:
@@ -161,15 +162,12 @@ class TurnActionProjection:
         outcomes: list[JsonObject] = []
         for name in sorted(counters):
             counter = counters[name]
-            value: JsonObject = {
-                "action": name,
-                "success_count": counter["success"],
-                "failed_count": counter["failed"],
-                "timeout_count": counter["timeout"],
+            counts: JsonObject = {
+                key: counter[key]
+                for key in ("success", "failed", "timeout", "incomplete")
+                if counter[key]
             }
-            if counter["incomplete"]:
-                value["incomplete_count"] = counter["incomplete"]
-            outcomes.append(to_json_object(value))
+            outcomes.append(to_json_object({"action": name, "counts": counts}))
         return tuple(outcomes)
 
     def failure_groups(self) -> tuple[JsonObject, ...]:
@@ -219,6 +217,7 @@ class _CallOccurrence:
     call_id: str
     action_name: str
     trace_index: int
+    position: int
     cycle_id: str
     phase: str
 
@@ -252,7 +251,7 @@ def project_turn_actions(
     for result in results:
         results_by_id[result.call_id].append(result)
 
-    pending: list[tuple[int, TurnActionDetail]] = []
+    pending: list[tuple[tuple[int, int], TurnActionDetail]] = []
     occurrence = 0
     for call_id in sorted(set(calls_by_id) | set(results_by_id)):
         call_group = calls_by_id[call_id]
@@ -263,7 +262,7 @@ def project_turn_actions(
             if call.action_name != result.action_name:
                 pending.append(
                     (
-                        call.trace_index,
+                        (call.trace_index, call.position),
                         _detail(
                             occurrence,
                             call=call,
@@ -274,7 +273,7 @@ def project_turn_actions(
                 occurrence += 1
                 pending.append(
                     (
-                        result.trace_index,
+                        (result.trace_index, 0),
                         _detail(
                             occurrence,
                             result=result,
@@ -286,7 +285,7 @@ def project_turn_actions(
                 continue
             pending.append(
                 (
-                    min(call.trace_index, result.trace_index),
+                    (call.trace_index, call.position),
                     _detail(
                         occurrence,
                         call=call,
@@ -318,7 +317,7 @@ def project_turn_actions(
         for call in call_group:
             pending.append(
                 (
-                    call.trace_index,
+                    (call.trace_index, call.position),
                     _detail(occurrence, call=call, issue=call_issue),
                 )
             )
@@ -326,7 +325,7 @@ def project_turn_actions(
         for result in result_group:
             pending.append(
                 (
-                    result.trace_index,
+                    (result.trace_index, 0),
                     _detail(occurrence, result=result, issue=result_issue),
                 )
             )
@@ -356,7 +355,7 @@ def _call_occurrences(trace: tuple[JsonObject, ...]) -> tuple[_CallOccurrence, .
         tool_calls = message.get("tool_calls", [])
         if not isinstance(tool_calls, list):
             raise SessionInvariantError("Session trace assistant tool_calls must be a list")
-        for call in tool_calls:
+        for position, call in enumerate(tool_calls):
             if not isinstance(call, dict):
                 raise SessionInvariantError("Session trace tool call must be an object")
             if call.get("kind") != "action":
@@ -366,6 +365,7 @@ def _call_occurrences(trace: tuple[JsonObject, ...]) -> tuple[_CallOccurrence, .
                     call_id=_required_text(call, "id", owner="Action call"),
                     action_name=_required_text(call, "name", owner="Action call"),
                     trace_index=trace_index,
+                    position=position,
                     cycle_id=_optional_text(entry.get("cycle_id")),
                     phase=_optional_text(entry.get("phase")),
                 )
@@ -439,6 +439,7 @@ def _detail(
         call_id=call_id,
         action_name=action_name,
         call_trace_index=call.trace_index if call is not None else None,
+        call_position=call.position if call is not None else None,
         result_trace_index=result.trace_index if result is not None else None,
         cycle_id=(
             call.cycle_id

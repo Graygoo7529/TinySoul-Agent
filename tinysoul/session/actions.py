@@ -13,10 +13,9 @@ from tinysoul.action import (
     ActionResultStage,
     ActionTraceProjection,
 )
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject
 from tinysoul.runtime.bridge import RuntimeSessionBridge
 
-from .background import project_model_background
 from .engine import SessionEngine
 from .errors import (
     SessionError,
@@ -39,10 +38,6 @@ def register_session_actions(
         .register_executor(
             "session.history.recall",
             SessionHistoryRecallExecutor(session, runtime_bridge=runtime_bridge),
-        )
-        .register_executor(
-            "session.history.actions",
-            SessionHistoryActionsExecutor(session, runtime_bridge=runtime_bridge),
         )
     )
 
@@ -70,28 +65,12 @@ class SessionHistoryInspectExecutor(ActionExecutor):
                 reason=SessionHistoryFailureReason.INVALID_REF.value,
                 scope="session.history.inspect",
             )
-        max_chars = execution.call.params.get("max_chars")
-        if max_chars is not None and (
-            isinstance(max_chars, bool)
-            or not isinstance(max_chars, int)
-            or max_chars <= 0
-        ):
+        action = execution.call.params.get("action")
+        if action is not None and (not isinstance(action, str) or not action):
             return _failed(
                 execution,
-                "session.history.inspect max_chars must be a positive integer",
-                reason=SessionHistoryFailureReason.INVALID_MAX_CHARS.value,
-                scope="session.history.inspect",
-            )
-        max_entries = execution.call.params.get("max_entries")
-        if max_entries is not None and (
-            isinstance(max_entries, bool)
-            or not isinstance(max_entries, int)
-            or max_entries <= 0
-        ):
-            return _failed(
-                execution,
-                "session.history.inspect max_entries must be a positive integer",
-                reason=SessionHistoryFailureReason.INVALID_MAX_ENTRIES.value,
+                "session.history.inspect action must be non-empty text",
+                reason=SessionHistoryFailureReason.INVALID_REF.value,
                 scope="session.history.inspect",
             )
         cursor = execution.call.params.get("cursor")
@@ -103,15 +82,22 @@ class SessionHistoryInspectExecutor(ActionExecutor):
                 scope="session.history.inspect",
             )
         try:
-            payload = self._session.inspect_history(
+            payload = self._session.inspect_model_history(
                 ref,
-                max_chars=max_chars,
-                max_entries=max_entries,
+                action=action,
                 cursor=cursor,
             )
             return _success(
                 execution,
-                _model_history_payload(payload),
+                payload,
+                trace_projection=ActionTraceProjection(
+                    origin_refs=(ref,) if isinstance(ref, str) else (),
+                    canonical_payload={
+                        "origin_ref": ref or "session:head",
+                        "next_cursor": payload.get("next_cursor"),
+                        "folded": True,
+                    },
+                ),
             )
         except SessionHistoryRequestError as exc:
             return _failed_request(execution, exc)
@@ -142,30 +128,6 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 reason=SessionHistoryFailureReason.INVALID_REF.value,
                 scope="session.history.recall",
             )
-        max_chars = execution.call.params.get("max_chars")
-        if max_chars is not None and (
-            isinstance(max_chars, bool)
-            or not isinstance(max_chars, int)
-            or max_chars <= 0
-        ):
-            return _failed(
-                execution,
-                "session.history.recall max_chars must be a positive integer",
-                reason=SessionHistoryFailureReason.INVALID_MAX_CHARS.value,
-                scope="session.history.recall",
-            )
-        max_entries = execution.call.params.get("max_entries")
-        if max_entries is not None and (
-            isinstance(max_entries, bool)
-            or not isinstance(max_entries, int)
-            or max_entries <= 0
-        ):
-            return _failed(
-                execution,
-                "session.history.recall max_entries must be a positive integer",
-                reason=SessionHistoryFailureReason.INVALID_MAX_ENTRIES.value,
-                scope="session.history.recall",
-            )
         cursor = execution.call.params.get("cursor")
         if cursor is not None and not isinstance(cursor, dict):
             return _failed(
@@ -175,10 +137,8 @@ class SessionHistoryRecallExecutor(ActionExecutor):
                 scope="session.history.recall",
             )
         try:
-            payload = self._session.recall_history(
+            payload = self._session.recall_model_action(
                 ref,
-                max_chars=max_chars,
-                max_entries=max_entries,
                 cursor=cursor,
             )
         except SessionHistoryRequestError as exc:
@@ -187,83 +147,12 @@ class SessionHistoryRecallExecutor(ActionExecutor):
             raise self._runtime_bridge.from_session_error(exc) from exc
         return _success(
             execution,
-            _model_history_payload(payload),
+            payload,
             trace_projection=ActionTraceProjection(
                 origin_refs=(ref,),
                 canonical_payload={
                     "origin_ref": ref,
-                    "next_cursor": payload["next_cursor"],
-                    "folded": True,
-                },
-            ),
-        )
-
-
-class SessionHistoryActionsExecutor(ActionExecutor):
-    def __init__(
-        self,
-        session: SessionEngine,
-        *,
-        runtime_bridge: RuntimeSessionBridge,
-    ) -> None:
-        self._session = session
-        self._runtime_bridge = runtime_bridge
-
-    def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> ActionResult:
-        ref = execution.call.params.get("ref")
-        if not isinstance(ref, str) or not ref:
-            return _failed(
-                execution,
-                "session.history.actions ref must be non-empty text",
-                reason=SessionHistoryFailureReason.INVALID_REF.value,
-                scope="session.history.actions",
-            )
-        cursor = execution.call.params.get("cursor", 0)
-        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
-            return _failed(
-                execution,
-                "session.history.actions cursor must be a non-negative integer",
-                reason=SessionHistoryFailureReason.INVALID_CURSOR.value,
-                scope="session.history.actions",
-            )
-        max_items = execution.call.params.get("max_items")
-        if max_items is not None and (
-            isinstance(max_items, bool)
-            or not isinstance(max_items, int)
-            or max_items <= 0
-        ):
-            return _failed(
-                execution,
-                "session.history.actions max_items must be a positive integer",
-                reason=SessionHistoryFailureReason.INVALID_MAX_ITEMS.value,
-                scope="session.history.actions",
-            )
-        try:
-            payload = self._session.action_history(
-                ref,
-                cursor=cursor,
-                max_items=max_items,
-            )
-        except SessionHistoryRequestError as exc:
-            return _failed_request(execution, exc)
-        except SessionError as exc:
-            raise self._runtime_bridge.from_session_error(exc) from exc
-        model_payload = _model_history_payload(payload)
-        return _success(
-            execution,
-            model_payload,
-            trace_projection=ActionTraceProjection(
-                origin_refs=(ref,),
-                canonical_payload={
-                    "source": model_payload["source"],
-                    "summary": model_payload["summary"],
-                    "coverage": model_payload["coverage"],
-                    "next_cursor": model_payload["next_cursor"],
-                    "page_complete": model_payload["page_complete"],
+                    "next_cursor": payload.get("next_cursor"),
                     "folded": True,
                 },
             ),
@@ -307,28 +196,6 @@ def _failed_request(
         scope=error.scope,
         constraint=error.constraint,
     )
-
-
-def _model_history_payload(payload: JsonObject) -> JsonObject:
-    """Project Session query facts for Agent use without integrity metadata."""
-
-    value = to_json_object(payload)
-    source = value.get("source")
-    if isinstance(source, dict):
-        source.pop("revision", None)
-        source.pop("trace_digest", None)
-    summary = value.get("summary")
-    if isinstance(summary, dict):
-        summary.pop("trace_digest", None)
-    items = value.get("items")
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            preview = item.get("preview")
-            if isinstance(preview, dict):
-                item["preview"] = project_model_background(preview)
-    return value
 
 
 def _failed(

@@ -9,6 +9,7 @@ from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from .action_history import TurnActionDetail, TurnActionProjection
 from .errors import SessionInvariantError
 from .models import SessionHistoryItem, SessionHistoryKind
+from .navigation import action_collection_ref
 
 
 _TURN_ASK_ITEM_MAX_CHARS = 1200
@@ -166,25 +167,26 @@ def project_context_background(
         raise SessionInvariantError(
             "Session Turn model background requires validated Action outcomes"
         )
-    return to_json_object(
-        {
-            "kind": value.get("kind"),
-            "ref": value.get("ref"),
-            "user_ask": value.get("user_ask"),
-            "answer": value.get("answer"),
-            "references": value.get("references"),
-            "exhausted": value.get("exhausted"),
-            "action_outcomes": list(action_outcomes),
+    ref = value.get("ref")
+    if not isinstance(ref, str) or not ref:
+        raise SessionInvariantError("Session Turn model background requires a ref")
+    projected: JsonObject = {
+        "kind": value.get("kind"),
+        "ref": ref,
+        "user_ask": value.get("user_ask"),
+        "answer": value.get("answer"),
+    }
+    references = value.get("references")
+    if isinstance(references, list) and references:
+        projected["references"] = references
+    if value.get("exhausted") is True:
+        projected["exhausted"] = True
+    if action_outcomes:
+        projected["actions"] = {
+            "ref": action_collection_ref(ref),
+            "outcomes": list(action_outcomes),
         }
-    )
-
-
-def project_model_background(background: JsonObject) -> JsonObject:
-    """Remove integrity metadata from one explicit Agent query preview."""
-
-    value = to_json_object(background)
-    value.pop("trace_digest", None)
-    return value
+    return to_json_object(projected)
 
 
 def summary_ref(day: str, child_refs: tuple[str, ...]) -> str:

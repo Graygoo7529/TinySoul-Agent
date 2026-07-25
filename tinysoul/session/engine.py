@@ -41,6 +41,11 @@ from .models import (
     SessionManifest,
     SessionRecord,
 )
+from .navigation import (
+    parse_action_ref,
+    project_action_node,
+    project_action_recall,
+)
 from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
 from .validation import (
@@ -374,6 +379,223 @@ class SessionEngine:
                 ) from exc
             return page
 
+    def inspect_model_history(
+        self,
+        ref: str | None = None,
+        *,
+        action: str | None = None,
+        cursor: JsonObject | None = None,
+    ) -> JsonObject:
+        """Explore prior Turns and their Actions through compact virtual refs."""
+
+        with self._lock:
+            manifest = self._require_manifest()
+            if action is not None and (not isinstance(action, str) or not action):
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.INVALID_REF,
+                    "Session Action filter must be non-empty text",
+                    constraint={"field": "action"},
+                    scope="session.history.inspect",
+                )
+            try:
+                action_ref = parse_action_ref(ref) if ref is not None else None
+            except SessionContractError as exc:
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.INVALID_REF,
+                    str(exc),
+                    constraint={"ref": ref},
+                    scope="session.history.inspect",
+                ) from exc
+            if action_ref is not None:
+                if not action_ref.is_collection:
+                    raise SessionHistoryRequestError(
+                        SessionHistoryFailureReason.WRONG_RECORD_KIND,
+                        "Session Action occurrence refs belong to recall",
+                        constraint={"ref": ref},
+                        scope="session.history.inspect",
+                    )
+                validated = validate_turn_record(
+                    _load_requested_record(
+                        self._store,
+                        action_ref.turn_ref,
+                        scope="session.history.inspect",
+                    )
+                )
+                page_cursor = _action_inspect_cursor(cursor, action=action)
+                details = tuple(
+                    detail
+                    for detail in validated.action_projection.details
+                    if action is None or detail.action_name == action
+                )
+                try:
+                    page = page_json_sequence(
+                        tuple(
+                            project_action_node(action_ref.turn_ref, detail)
+                            for detail in details
+                        ),
+                        base=to_json_object(
+                            {
+                                "kind": "session_actions",
+                                "ref": ref,
+                                **({"action": action} if action is not None else {}),
+                            }
+                        ),
+                        item_field="items",
+                        cursor_unit="session_action",
+                        cursor=page_cursor,
+                        max_chars=self._settings.history_page_max_chars,
+                        max_entries=self._settings.history_page_max_entries,
+                        cursor_binding=(
+                            {"action": action} if action is not None else None
+                        ),
+                    )
+                except JsonPageError as exc:
+                    raise _session_page_error(
+                        exc,
+                        ref=ref,
+                        scope="session.history.inspect",
+                    ) from exc
+                return _model_page(page)
+            if action is not None:
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
+                    "Session Action filters require an Action collection ref",
+                    constraint={"ref": ref},
+                    scope="session.history.inspect",
+                )
+            cursor_binding: JsonObject | None
+            if ref is not None:
+                record = _load_requested_record(
+                    self._store,
+                    ref,
+                    scope="session.history.inspect",
+                )
+                if record.kind is SessionHistoryKind.TURN:
+                    if cursor:
+                        raise SessionHistoryRequestError(
+                            SessionHistoryFailureReason.INVALID_CURSOR,
+                            "Session Turn overview does not accept a cursor",
+                            constraint={"ref": ref},
+                            scope="session.history.inspect",
+                        )
+                    return _model_turn(validate_turn_record(record))
+                items = validate_summary_record(record).children
+                kind = "session_summary"
+                cursor_binding = None
+            else:
+                items = manifest.items
+                kind = "session_head"
+                cursor_binding = {"revision": manifest.revision}
+            page_cursor = _inspect_cursor(
+                cursor,
+                ref=ref,
+                revision=manifest.revision,
+            )
+            try:
+                page = page_json_sequence(
+                    tuple(self._model_navigation_item(item) for item in items),
+                    base=to_json_object(
+                        {"kind": kind, **({"ref": ref} if ref is not None else {})}
+                    ),
+                    item_field="items",
+                    cursor_unit="history_item",
+                    cursor=page_cursor,
+                    max_chars=self._settings.history_page_max_chars,
+                    max_entries=self._settings.history_page_max_entries,
+                    cursor_binding=cursor_binding,
+                )
+            except JsonPageError as exc:
+                raise _session_page_error(
+                    exc,
+                    ref=ref,
+                    scope="session.history.inspect",
+                ) from exc
+            return _model_page(page)
+
+    def recall_model_action(
+        self,
+        ref: str,
+        *,
+        cursor: JsonObject | None = None,
+    ) -> JsonObject:
+        """Recall one semantic Action exchange addressed by a virtual ref."""
+
+        with self._lock:
+            self._require_manifest()
+            try:
+                action_ref = parse_action_ref(ref)
+            except SessionContractError as exc:
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.INVALID_REF,
+                    str(exc),
+                    constraint={"ref": ref},
+                    scope="session.history.recall",
+                ) from exc
+            if action_ref is None or action_ref.is_collection:
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
+                    "Session recall requires an Action occurrence ref",
+                    constraint={"ref": ref},
+                    scope="session.history.recall",
+                )
+            validated = validate_turn_record(
+                _load_requested_record(
+                    self._store,
+                    action_ref.turn_ref,
+                    scope="session.history.recall",
+                )
+            )
+            assert action_ref.occurrence is not None
+            if action_ref.occurrence >= len(validated.action_projection.details):
+                raise SessionHistoryRequestError(
+                    SessionHistoryFailureReason.UNKNOWN_REF,
+                    "Unknown Session Action occurrence ref",
+                    constraint={"ref": ref},
+                    scope="session.history.recall",
+                )
+            detail = validated.action_projection.details[action_ref.occurrence]
+            item = project_action_recall(
+                turn_ref=action_ref.turn_ref,
+                trace=validated.trace,
+                detail=detail,
+            )
+            try:
+                page_cursor = JsonPageCursor.from_json(cursor)
+                page = page_json_sequence(
+                    (item,),
+                    base={"kind": "session_action_recall", "ref": ref},
+                    item_field="items",
+                    cursor_unit="session_action",
+                    cursor=page_cursor,
+                    max_chars=self._settings.history_page_max_chars,
+                    max_entries=1,
+                )
+            except JsonPageError as exc:
+                raise _session_page_error(
+                    exc,
+                    ref=ref,
+                    scope="session.history.recall",
+                ) from exc
+            items = page.get("items")
+            if isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict):
+                return to_json_object(items[0])
+            oversized = page.get("oversized_entry")
+            if isinstance(oversized, dict):
+                return to_json_object(
+                    {
+                        "kind": "session_action_chunk",
+                        "ref": ref,
+                        "chunk": oversized,
+                        "next_cursor": page.get("next_cursor"),
+                    }
+                )
+            return {
+                "kind": "session_action_chunk",
+                "ref": ref,
+                "chunk": {},
+                "next_cursor": None,
+            }
+
     def recall_history(
         self,
         ref: str,
@@ -509,6 +731,32 @@ class SessionEngine:
         if self._manifest is None:
             raise SessionInvariantError("Session has no active business day")
         return self._manifest
+
+    def _model_navigation_item(self, item: SessionHistoryItem) -> JsonObject:
+        if item.kind is SessionHistoryKind.SUMMARY:
+            if item.item_id == "session_overflow_head":
+                omitted = item.background.get("omitted_item_count")
+                return to_json_object(
+                    {
+                        "kind": "session_overflow",
+                        **(
+                            {"omitted_item_count": omitted}
+                            if isinstance(omitted, int) and not isinstance(omitted, bool)
+                            else {}
+                        ),
+                    }
+                )
+            return {
+                "kind": "session_summary",
+                "ref": item.ref,
+                "child_count": len(item.child_refs),
+            }
+        validated = validate_turn_record(self._store.load_record(item.ref))
+        if validated.background != item.background:
+            raise SessionInvariantError(
+                f"Session model history item does not match its record: {item.ref}"
+            )
+        return _model_turn(validated)
 
     def _require_day(self, day: BusinessDay) -> None:
         if not isinstance(day, BusinessDay):
@@ -786,6 +1034,64 @@ def _inspect_cursor(
             scope=scope,
         )
     return cursor
+
+
+def _action_inspect_cursor(
+    value: JsonObject | None,
+    *,
+    action: str | None,
+) -> JsonPageCursor:
+    raw_action: object | None = None
+    page_value: object = value
+    if isinstance(value, dict) and "action" in value:
+        raw_action = value.get("action")
+        page_value = {key: item for key, item in value.items() if key != "action"}
+    try:
+        cursor = JsonPageCursor.from_json(page_value)
+    except JsonPageError as exc:
+        raise _session_page_error(
+            exc,
+            ref=None,
+            scope="session.history.inspect",
+        ) from exc
+    continuation = cursor.entry_index > 0 or cursor.char_offset > 0
+    if continuation and action is not None and raw_action is None:
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_CURSOR,
+            "Filtered Session Action continuation requires its Action binding",
+            constraint={"field": "action"},
+            scope="session.history.inspect",
+        )
+    if raw_action is not None and raw_action != action:
+        raise SessionHistoryRequestError(
+            SessionHistoryFailureReason.INVALID_CURSOR,
+            "Session Action continuation filter changed",
+            constraint={"expected_action": raw_action, "actual_action": action},
+            scope="session.history.inspect",
+        )
+    return cursor
+
+
+def _model_page(page: JsonObject) -> JsonObject:
+    value: JsonObject = {}
+    for key in ("kind", "ref", "action"):
+        item = page.get(key)
+        if item is not None:
+            value[key] = item
+    items = page.get("items")
+    value["items"] = items if isinstance(items, list) else []
+    oversized = page.get("oversized_entry")
+    if isinstance(oversized, dict):
+        value["chunk"] = oversized
+    value["next_cursor"] = page.get("next_cursor")
+    return to_json_object(value)
+
+
+def _model_turn(validated: ValidatedTurnRecord) -> JsonObject:
+    return project_context_background(
+        validated.background,
+        action_outcomes=validated.action_projection.background_outcomes(),
+    )
 
 
 def _summary_children_from_record(

@@ -14,7 +14,11 @@ from tinysoul.action import (
     ActionCall,
     ActionExecution,
     ActionExecutionContext,
+    ActionFailureDisposition,
     ActionFramework,
+    ActionLocalFailure,
+    ActionResultEnvelope,
+    ActionResultStage,
     ActionResultStatus,
     builtin_action_catalog_root,
 )
@@ -43,7 +47,6 @@ from tinysoul.session import (
 )
 from tinysoul.session.store import SessionStore
 from tinysoul.session.actions import (
-    SessionHistoryActionsExecutor,
     SessionHistoryInspectExecutor,
     SessionHistoryRecallExecutor,
 )
@@ -304,22 +307,13 @@ def test_session_projects_compact_per_action_outcomes_to_context(tmp_path: Path)
         "ref": "session:turn/turn_actions",
         "user_ask": ["analyze"],
         "answer": "done",
-        "references": [],
-        "exhausted": False,
-        "action_outcomes": [
-            {
-                "action": "core.reason",
-                "success_count": 1,
-                "failed_count": 0,
-                "timeout_count": 0,
-            },
-            {
-                "action": "workspace.scan",
-                "success_count": 1,
-                "failed_count": 0,
-                "timeout_count": 0,
-            },
-        ],
+        "actions": {
+            "ref": "session:turn/turn_actions#actions",
+            "outcomes": [
+                {"action": "core.reason", "counts": {"success": 1}},
+                {"action": "workspace.scan", "counts": {"success": 1}},
+            ],
+        },
     }
 
     persisted_items = session.inspect_history("session:turn/turn_actions")["items"]
@@ -370,41 +364,143 @@ def test_session_action_model_projection_hides_integrity_metadata(
         _history_execution(catalog, "session.history.inspect", {"ref": ref}),
         ActionExecutionContext(),
     )
+    action_collection = SessionHistoryInspectExecutor(
+        session,
+        runtime_bridge=RuntimeSessionBridge(),
+    ).execute(
+        _history_execution(
+            catalog,
+            "session.history.inspect",
+            {"ref": f"{ref}#actions"},
+        ),
+        ActionExecutionContext(),
+    )
+    assert action_collection.status is ActionResultStatus.SUCCESS
+    action_items = action_collection.payload["items"]
+    assert isinstance(action_items, list) and len(action_items) == 1
+    action_item = action_items[0]
+    assert isinstance(action_item, dict)
+    assert action_item == {
+        "kind": "session_action",
+        "ref": f"{ref}#action/0",
+        "action": "workspace.scan",
+        "outcome": "success",
+    }
     recall = SessionHistoryRecallExecutor(
         session,
         runtime_bridge=RuntimeSessionBridge(),
     ).execute(
-        _history_execution(catalog, "session.history.recall", {"ref": ref}),
-        ActionExecutionContext(),
-    )
-    actions = SessionHistoryActionsExecutor(
-        session,
-        runtime_bridge=RuntimeSessionBridge(),
-    ).execute(
-        _history_execution(catalog, "session.history.actions", {"ref": ref}),
+        _history_execution(
+            catalog,
+            "session.history.recall",
+            {"ref": action_item["ref"]},
+        ),
         ActionExecutionContext(),
     )
 
-    for result in (inspect, recall, actions):
+    for result in (inspect, action_collection, recall):
         assert result.status is ActionResultStatus.SUCCESS
-        source = result.payload["source"]
-        assert isinstance(source, dict)
-        assert "revision" not in source
-        assert "trace_digest" not in source
-    action_summary = actions.payload["summary"]
-    assert isinstance(action_summary, dict)
-    assert "trace_digest" not in action_summary
-    inspect_items = inspect.payload["items"]
-    assert isinstance(inspect_items, list)
-    inspect_item = inspect_items[0]
-    assert isinstance(inspect_item, dict)
-    inspect_preview = inspect_item["preview"]
-    assert isinstance(inspect_preview, dict)
-    assert "trace_digest" not in inspect_preview
+        assert "source" not in result.payload
+        assert "trace_digest" not in result.payload
+    assert inspect.payload["actions"] == {
+        "ref": f"{ref}#actions",
+        "outcomes": [
+            {"action": "workspace.scan", "counts": {"success": 1}}
+        ],
+    }
+    assert recall.payload == {
+        "kind": "session_action",
+        "ref": f"{ref}#action/0",
+        "turn_ref": ref,
+        "action": "workspace.scan",
+        "outcome": "success",
+        "request": {},
+        "result": {"count": 2},
+    }
 
     persisted_source = session.recall_history(ref)["source"]
     assert isinstance(persisted_source, dict)
     assert persisted_source["trace_digest"] == canonical_trace_digest(trace)
+
+
+def test_session_action_navigation_filters_and_recalls_failure_facts(
+    tmp_path: Path,
+) -> None:
+    session = _engine(_settings(tmp_path))
+    failure = ActionLocalFailure(
+        reason="http_error",
+        scope="web.fetch",
+        disposition=ActionFailureDisposition.CHANGE_REQUEST,
+        feedback="The requested page could not be fetched.",
+        constraint={"status": 503},
+    )
+    trace = (
+        _decision_entry(
+            "call_fetch",
+            "web.fetch_with_trafilatura",
+            {"url": "https://example.com"},
+        ),
+        _failed_result_entry(
+            "call_fetch",
+            "web.fetch_with_trafilatura",
+            failure,
+        ),
+    )
+    _record_turn(
+        session,
+        summary=TurnSummary(
+            turn_id="turn_failed_action",
+            inputs=({"input_id": "input_1", "text": "fetch", "merged": True},),
+            trace=trace,
+            trace_digest=canonical_trace_digest(trace),
+        ),
+        output={"text": "fetch failed"},
+        exhausted=False,
+    )
+
+    collection_ref = "session:turn/turn_failed_action#actions"
+    inspected = session.inspect_model_history(
+        collection_ref,
+        action="web.fetch_with_trafilatura",
+    )
+
+    assert inspected == {
+        "kind": "session_actions",
+        "ref": collection_ref,
+        "action": "web.fetch_with_trafilatura",
+        "items": [
+            {
+                "kind": "session_action",
+                "ref": "session:turn/turn_failed_action#action/0",
+                "action": "web.fetch_with_trafilatura",
+                "outcome": "failed",
+                "failure": {
+                    "reason": "http_error",
+                    "feedback": "The requested page could not be fetched.",
+                    "constraint": {"status": 503},
+                },
+            }
+        ],
+        "next_cursor": None,
+    }
+    recalled = session.recall_model_action(
+        "session:turn/turn_failed_action#action/0"
+    )
+    assert recalled == {
+        "kind": "session_action",
+        "ref": "session:turn/turn_failed_action#action/0",
+        "turn_ref": "session:turn/turn_failed_action",
+        "action": "web.fetch_with_trafilatura",
+        "outcome": "failed",
+        "request": {"url": "https://example.com"},
+        "failure": {
+            "reason": "http_error",
+            "feedback": "The requested page could not be fetched.",
+            "constraint": {"status": 503},
+        },
+    }
+    assert "stage" not in recalled
+    assert "cycle_id" not in recalled
 
 
 def test_action_projector_preserves_orphan_result_location() -> None:
@@ -446,17 +542,11 @@ def test_action_projector_splits_name_mismatch_by_real_action() -> None:
     assert projection.background_outcomes() == (
         {
             "action": "workspace.read",
-            "success_count": 1,
-            "failed_count": 0,
-            "timeout_count": 0,
-            "incomplete_count": 1,
+            "counts": {"success": 1, "incomplete": 1},
         },
         {
             "action": "workspace.scan",
-            "success_count": 0,
-            "failed_count": 0,
-            "timeout_count": 0,
-            "incomplete_count": 1,
+            "counts": {"incomplete": 1},
         },
     )
     by_action = {item["action"]: item for item in projection.by_action()}
@@ -729,14 +819,12 @@ def test_session_idempotency_ignores_changed_background_projection_settings(
 
     assert restarted.revision == revision
     snapshot = restarted.background_snapshot(DAY)
-    assert snapshot.items[0].content["action_outcomes"] == [
-        {
-            "action": "core.reason",
-            "success_count": 1,
-            "failed_count": 0,
-            "timeout_count": 0,
-        }
-    ]
+    assert snapshot.items[0].content["actions"] == {
+        "ref": "session:turn/turn_projection#actions",
+        "outcomes": [
+            {"action": "core.reason", "counts": {"success": 1}}
+        ],
+    }
     inspected = restarted.inspect_history("session:turn/turn_projection")["items"]
     assert isinstance(inspected, list) and isinstance(inspected[0], dict)
     preview = inspected[0]["preview"]
@@ -1104,6 +1192,34 @@ def _result_entry(call_id: str, name: str, result: JsonObject) -> JsonObject:
                     },
                 }
             ],
+        },
+        "origin_refs": [],
+    }
+
+
+def _failed_result_entry(
+    call_id: str,
+    name: str,
+    failure: ActionLocalFailure,
+) -> JsonObject:
+    envelope = ActionResultEnvelope(
+        action_name=name,
+        status=ActionResultStatus.FAILED,
+        stage=ActionResultStage.EXECUTE,
+        failure=failure,
+    )
+    return {
+        "entry_id": f"result_{call_id}",
+        "kind": "action_result",
+        "cycle_id": "cycle_1",
+        "phase": "phase3",
+        "message": {
+            "role": "tool_result",
+            "label": "action_result",
+            "call_id": call_id,
+            "tool_name": name,
+            "status": "error",
+            "content": [{"type": "json", "value": envelope.to_json()}],
         },
         "origin_refs": [],
     }
