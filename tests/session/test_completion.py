@@ -50,7 +50,8 @@ def test_completion_projects_typed_action_business_facts() -> None:
     ]
     assert record.actions[0].result == {"written": True}
     assert record.actions[0].references == ("workspace:report.md",)
-    assert record.actions[1].failure["reason"] == "provider_unavailable"
+    assert record.actions[1].failure is not None
+    assert record.actions[1].failure.reason == "provider_unavailable"
 
 
 def test_completion_rejects_unpaired_action_evidence() -> None:

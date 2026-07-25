@@ -8,6 +8,7 @@ from hashlib import sha256
 import re
 from time import time_ns
 
+from tinysoul.action import ActionInvariantError, ActionLocalFailure
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 
 from .errors import SessionContractError
@@ -92,7 +93,7 @@ class SessionActionRecord:
     request: JsonObject
     outcome: SessionActionOutcome
     result: JsonObject = field(default_factory=dict)
-    failure: JsonObject = field(default_factory=dict)
+    failure: ActionLocalFailure | None = None
     references: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -101,16 +102,28 @@ class SessionActionRecord:
         if not isinstance(self.outcome, SessionActionOutcome):
             raise SessionContractError("Session Action outcome is invalid")
         object.__setattr__(self, "request", to_json_object(self.request))
-        object.__setattr__(self, "result", to_json_object(self.result))
-        object.__setattr__(self, "failure", to_json_object(self.failure))
+        result = to_json_object(self.result)
+        if "failure" in result:
+            raise SessionContractError("Session Action result cannot contain failure")
+        object.__setattr__(self, "result", result)
+        if self.failure is not None and not isinstance(
+            self.failure,
+            ActionLocalFailure,
+        ):
+            raise SessionContractError(
+                "Session Action failure must be an ActionLocalFailure"
+            )
         object.__setattr__(
             self,
             "references",
             _non_empty_strings(self.references, "Session Action references"),
         )
-        if self.outcome is SessionActionOutcome.SUCCESS and self.failure:
+        if (
+            self.outcome is SessionActionOutcome.SUCCESS
+            and self.failure is not None
+        ):
             raise SessionContractError("Successful Session Action cannot have failure")
-        if self.outcome is not SessionActionOutcome.SUCCESS and not self.failure:
+        if self.outcome is not SessionActionOutcome.SUCCESS and self.failure is None:
             raise SessionContractError("Failed Session Action requires failure facts")
 
     def to_json(self) -> JsonObject:
@@ -121,8 +134,8 @@ class SessionActionRecord:
         }
         if self.result:
             value["result"] = self.result
-        if self.failure:
-            value["failure"] = self.failure
+        if self.failure is not None:
+            value["failure"] = self.failure.to_json()
         if self.references:
             value["references"] = list(self.references)
         return value
@@ -143,7 +156,7 @@ class SessionActionRecord:
             request=_required_object(item, "request"),
             outcome=outcome,
             result=_optional_object(item, "result"),
-            failure=_optional_object(item, "failure"),
+            failure=_optional_action_failure(item),
             references=_string_list(item.get("references", []), "references"),
         )
 
@@ -461,6 +474,15 @@ def _optional_object(value: JsonObject, name: str) -> JsonObject:
     if not isinstance(item, dict):
         raise SessionContractError(f"Session field must be an object: {name}")
     return to_json_object(item)
+
+
+def _optional_action_failure(value: JsonObject) -> ActionLocalFailure | None:
+    if "failure" not in value:
+        return None
+    try:
+        return ActionLocalFailure.from_json(value["failure"])
+    except ActionInvariantError as exc:
+        raise SessionContractError(f"Session Action failure is invalid: {exc}") from exc
 
 
 def _required_list(value: JsonObject, name: str) -> list[object]:

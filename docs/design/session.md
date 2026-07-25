@@ -14,7 +14,7 @@ Turn record 使用 schema v4，显式保存：
 - 可选最终输出、references 与 exhausted；
 - 按发生顺序排列的 Action 业务记录。
 
-Action record 只保存 Action name、schema request、success/failed/timeout outcome、canonical result、typed failure 与 references。不保存 call id、trace location、cycle、phase、stage、backend metadata 或 pairing 审计。
+Action record 只保存 Action name、schema request、success/failed/timeout outcome、canonical result、typed failure 与 references。内存记录直接持有 Action 公共 SPI 的 `ActionLocalFailure`；持久 JSON 恢复复用同一类型的严格解析边界，不能将任意非空对象解释为失败事实。不保存 call id、trace location、cycle、phase、stage、backend metadata 或 pairing 审计。
 
 正常完成的 Turn 必须拥有可唯一配对的 Phase2 Action call 与 Phase3 ActionResult。missing、orphan、duplicate、name mismatch 或外层 ToolResult 状态不一致属于 completion invariant failure，不持久化 incomplete 诊断记录。
 

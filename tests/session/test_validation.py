@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from tinysoul.action import (
+    ActionFailureDisposition,
+    ActionLocalFailure,
+)
 from tinysoul.session.errors import SessionContractError, SessionInvariantError
 from tinysoul.session.models import (
     SESSION_MANIFEST_SCHEMA_VERSION,
     SESSION_RECORD_SCHEMA_VERSION,
+    SessionActionOutcome,
+    SessionActionRecord,
     SessionInputRecord,
     SessionManifest,
     SessionSummaryRecord,
@@ -31,6 +39,92 @@ def test_v4_turn_record_round_trips_and_rejects_unknown_fields() -> None:
     invalid = {**record.to_json(), "trace": []}
     with pytest.raises(SessionContractError, match="fields"):
         session_record_from_json(invalid)
+
+
+def test_session_action_failure_is_typed_and_round_trips() -> None:
+    failure = _failure()
+    record = SessionActionRecord(
+        action="workspace.write",
+        request={"target_link": "workspace:report.md"},
+        outcome=SessionActionOutcome.FAILED,
+        failure=failure,
+    )
+
+    restored = SessionActionRecord.from_json(record.to_json())
+
+    assert restored == record
+    assert restored.failure is not None
+    assert restored.failure.to_json() == failure.to_json()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {},
+        {"arbitrary": True},
+        {
+            "reason": "write_failed",
+            "scope": "workspace.action",
+            "disposition": "unknown",
+            "feedback": "Write failed.",
+        },
+        {
+            "reason": "write_failed",
+            "scope": "workspace.action",
+            "disposition": "change_request",
+            "feedback": "Write failed.",
+            "unknown": True,
+        },
+    ],
+)
+def test_session_action_rejects_invalid_persisted_failure(failure: object) -> None:
+    with pytest.raises(SessionContractError, match="failure is invalid"):
+        SessionActionRecord.from_json(
+            {
+                "action": "workspace.write",
+                "request": {},
+                "outcome": "failed",
+                "failure": failure,
+            }
+        )
+
+
+def test_session_action_requires_typed_failure_and_reserved_result_boundary() -> None:
+    with pytest.raises(SessionContractError, match="must be an ActionLocalFailure"):
+        SessionActionRecord(
+            action="workspace.write",
+            request={},
+            outcome=SessionActionOutcome.FAILED,
+            failure=cast(ActionLocalFailure, _failure().to_json()),
+        )
+
+    with pytest.raises(SessionContractError, match="result cannot contain failure"):
+        SessionActionRecord(
+            action="workspace.write",
+            request={},
+            outcome=SessionActionOutcome.SUCCESS,
+            result={"failure": _failure().to_json()},
+        )
+
+
+def test_store_rejects_malformed_persisted_action_failure(tmp_path: Path) -> None:
+    store = SessionStore(root=tmp_path / "session")
+    store.create_manifest(DAY)
+    raw = _turn("turn_invalid_failure").to_json()
+    raw["actions"] = [
+        {
+            "action": "workspace.write",
+            "request": {},
+            "outcome": "failed",
+            "failure": {"arbitrary": True},
+        }
+    ]
+    path = store.root / "turns" / "turn_invalid_failure.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(SessionInvariantError, match="failure is invalid"):
+        store.load_record("session:turn/turn_invalid_failure")
 
 
 def test_manifest_v2_is_only_an_ordered_root_set() -> None:
@@ -79,4 +173,14 @@ def _turn(turn_id: str) -> SessionTurnRecord:
         exhausted=False,
         actions=(),
         recorded_at_ns=1,
+    )
+
+
+def _failure() -> ActionLocalFailure:
+    return ActionLocalFailure(
+        reason="write_failed",
+        scope="workspace.action",
+        disposition=ActionFailureDisposition.CHANGE_REQUEST,
+        feedback="Write failed.",
+        constraint={"target_link": "workspace:report.md"},
     )

@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
 
-from tinysoul.action import ActionResultEnvelope
-from tinysoul.action.core.errors import ActionInvariantError
+from tinysoul.action import ActionInvariantError, ActionResultEnvelope
 from tinysoul.context import ContextTurnCompletion
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage
@@ -76,11 +75,7 @@ def project_turn_record(
                 request=call.request,
                 outcome=outcome,
                 result=result.envelope.payload,
-                failure=(
-                    result.envelope.failure.to_json()
-                    if result.envelope.failure is not None
-                    else {}
-                ),
+                failure=result.envelope.failure,
                 references=result.references,
             )
         )

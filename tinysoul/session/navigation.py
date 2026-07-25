@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import re
 
+from tinysoul.action import ActionLocalFailure
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 
 from .errors import SessionContractError
@@ -132,7 +133,7 @@ def project_action_header(
         "action": action.action,
         "outcome": action.outcome.value,
     }
-    if action.failure:
+    if action.failure is not None:
         value["failure"] = _failure_preview(action.failure)
     if action.outcome.value != "success" and action.result:
         if len(dumps_json(action.result)) <= _FAILED_RESULT_PREVIEW_CHARS:
@@ -157,31 +158,25 @@ def project_action(
     }
     if action.result:
         value["result"] = action.result
-    if action.failure:
-        value["failure"] = action.failure
+    if action.failure is not None:
+        value["failure"] = action.failure.to_json()
     if action.references:
         value["references"] = list(action.references)
     return to_json_object(value)
 
 
-def _failure_preview(failure: JsonObject) -> JsonObject:
-    value: JsonObject = {}
-    reason = failure.get("reason")
-    if isinstance(reason, str) and reason:
-        value["reason"] = reason
-    disposition = failure.get("disposition")
-    if isinstance(disposition, str) and disposition:
-        value["disposition"] = disposition
-    feedback = failure.get("feedback")
-    if isinstance(feedback, str) and feedback:
-        value["feedback"] = (
-            feedback
-            if len(feedback) <= _FAILURE_FEEDBACK_PREVIEW_CHARS
-            else feedback[: _FAILURE_FEEDBACK_PREVIEW_CHARS - 3] + "..."
-        )
-    constraint = failure.get("constraint")
-    if isinstance(constraint, dict) and constraint:
-        projected = to_json_object(constraint)
+def _failure_preview(failure: ActionLocalFailure) -> JsonObject:
+    value: JsonObject = {
+        "reason": failure.reason,
+        "disposition": failure.disposition.value,
+        "feedback": (
+            failure.feedback
+            if len(failure.feedback) <= _FAILURE_FEEDBACK_PREVIEW_CHARS
+            else failure.feedback[: _FAILURE_FEEDBACK_PREVIEW_CHARS - 3] + "..."
+        ),
+    }
+    if failure.constraint:
+        projected = to_json_object(failure.constraint)
         if len(dumps_json(projected)) <= _FAILURE_FEEDBACK_PREVIEW_CHARS:
             value["constraint"] = projected
     return value
