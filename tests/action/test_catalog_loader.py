@@ -63,7 +63,11 @@ def test_load_builtin_catalog() -> None:
     assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
     assert (
-        catalog.get_action("context.trace.recall").runtime.result.trace_mode
+        catalog.get_action("core.context.inspect").runtime.result.trace_mode
+        is ActionTraceMode.FOLDABLE
+    )
+    assert (
+        catalog.get_action("core.session.inspect").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE
     )
 

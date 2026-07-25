@@ -54,7 +54,7 @@ class _FakeTurnRunner:
         self.days.append(business_day)
         self.requests.append((request_id, input_source))
         return TurnOutcome(
-            summary=None,
+            context_completion=None,
             business_day=business_day,
             status=TurnOutcomeStatus.ANSWERED,
             output=TurnOutput(text="done", result_id="answer_1"),

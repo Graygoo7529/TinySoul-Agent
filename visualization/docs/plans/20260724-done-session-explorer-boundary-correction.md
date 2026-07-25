@@ -1,5 +1,7 @@
 # Session Explorer Boundary Correction
 
+> 历史记录：本方案描述的 Session Explorer 已由 `20260725-done-session-explorer-removal.md` 取代，相关 Endpoint 与前端实现均已删除。
+
 状态：done
 
 日期：2026-07-24

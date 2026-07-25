@@ -182,9 +182,9 @@ Action result 需要同时表达三类信息：
 
 Renderer 不是失败事实源，不从业务 payload 或 frame data 推断失败。`ActionResult.failure` 是 failed/timeout 的唯一通用失败事实；success 禁止 failure，failed/timeout 必须携带 failure。payload 只承载业务数据，frame data 只承载诊断，因此不存在 `payload.failure`。`ActionResult`、`ActionResultEnvelope` 和 foldable `ActionTraceProjection` 在构造边界拒绝业务 payload 顶层 `failure`；`HookOutcome` 在更早的 hook owner 边界执行同一检查，避免重复失败事实进入 pipeline。
 
-Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。Renderer 构造的 canonical message 保留完整 Action envelope，只替换 envelope 内的业务 payload；完整 payload 作为当前 Turn visible overlay。Context 压缩或 `context.trace.fold` 统一移除 visible overlay，不修改 canonical message。TurnSummary 与 Session 始终只接收 canonical message。standard action 返回 projection、foldable action 缺少 projection或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
+Context 模块决定渲染结果如何进入 TurnTraceHeap；Action 模块不直接维护 MessageStack。Catalog 的 `[runtime.result] trace_mode` 只支持 `standard` 和 `foldable`：standard 的 visible/canonical message 相同；foldable 只允许成功结果提供非空 `canonical_payload` 和有界、去重的 `origin_refs`。Renderer 构造的 canonical message 保留完整 Action envelope，只替换 envelope 内的业务 payload；完整 payload 作为当前 Turn visible overlay。Context 压缩统一移除 visible overlay，不修改 canonical message。Turn 结束时 Session 从已验证 call/result 投影不可变业务事实，不保存 ToolResultMessage 或完整 Context trace。standard action 返回 projection、foldable action 缺少 projection或 failed/timeout 携带 projection，均由 runner 收敛为局部 trace-policy mismatch。
 
-Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`context.trace.recall`、`session.history.inspect`、`session.history.recall`、`workspace.read` 和 `workspace.search_text` 共用该框架生命周期；各 owner 只在 executor 边界形成自己的紧凑 canonical payload。
+Catalog 只声明生命周期策略，不能从任意 JSON 自动推断 canonical 字段。业务 payload 的投影选择属于 executor；Loop 只把已验证的完整 visible/canonical message 转成 Context signal。`core.context.inspect`、`core.session.inspect`、`workspace.read` 和 `workspace.search_text` 共用该框架生命周期；各 owner 只在 executor 边界形成自己的紧凑 canonical payload。
 
 Phase-level result 没有模型侧 tool call id，因此不渲染为 ToolResultMessage，只渲染为普通模型反馈 payload 或 trace payload，由 Context 写入对应 phase 的执行记录。
 

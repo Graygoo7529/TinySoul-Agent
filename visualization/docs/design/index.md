@@ -6,7 +6,7 @@
 
 - **仅前端**：`kimi-agent` 的编辑范围限定在 `visualization/` 目录；不修改后端 Python/Rust 业务代码。
 - **纯连接模式**：Tauri 不启动、不持有、不停止 Python 进程；前端只读取 App 发布的项目实例连接描述，发现并连接当前已运行的 Endpoint。
-- **后端为真相源**：Workspace、Session、Home、Memory 等持久状态一律通过 Endpoint REST/WebSocket 获取；前端不直接读取 `runtime/`、`home/`、`memory/` 或 `archive/`。
+- **后端为真相源**：Workspace 通过 Endpoint REST 管理；Agent 运行过程与真实模型语境通过 Observation 展示。前端不直接读取 `runtime/`、`home/`、`memory/` 或 `archive/`。
 - **MODEL 级事件订阅**：WebSocket 始终订阅 `model` 等级事件，前端按事件名称、scope、identity 在本地切割展示 normal/verbose/model 信息。
 
 ## 核心设计原则
@@ -25,14 +25,13 @@
 |  64px     +-----------------------------------------------+
 |           |                                               |
 |  Chat     |              Main Content Area                |
-|  Files    |         (Chat / Workspace / Session)          |
-|  History  |                                               |
+|  Files    |              (Chat / Workspace)               |
 |           +-----------------------------------------------+
 |  Settings |              Status Bar                       |
 +-----------------------------------------------------------+
 ```
 
-- **左侧 Sidebar**：Chat、Files（Workspace）、History（Session）、Settings。
+- **左侧 Sidebar**：Chat、Files（Workspace）、Settings。
 - **顶部 Header**：连接状态、Background Context 开关、Maintenance 入口、Settings 入口。
 - **主内容区**：根据 active tab 渲染对应视图。
 - **右侧 Background Context**：全局侧边栏，展示当前加载的 top links。
@@ -46,5 +45,4 @@
 
 - [chat.md](./chat.md) — 对话、执行轨迹、运行时语义展开。
 - [workspace.md](./workspace.md) — 工作区文件管理与编辑器。
-- [session.md](./session.md) — 当日 Turn 历史与 canonical trace 召回。
 - [visual-system.md](./visual-system.md) — 视觉 token 与组件风格。

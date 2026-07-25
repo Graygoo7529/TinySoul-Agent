@@ -232,11 +232,9 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
     outcome = app.run_once("please answer")
 
     assert outcome.answered is True
-    assert outcome.summary is not None
-    assert outcome.summary.trace_summary["entry_count"] == 2
-    assert outcome.summary.trace_digest.startswith("sha256:")
-    assert outcome.summary.inputs[0]["text"] == "please answer"
-    assert len(outcome.summary.trace) == 2
+    assert outcome.context_completion is not None
+    assert len(outcome.context_completion.trace.entries) == 2
+    assert outcome.context_completion.inputs[0].text == "please answer"
     assert len(recorder.completions) == 1
     assert recorder.completions[0].output is not None
     assert recorder.completions[0].output.text == "done"
@@ -356,7 +354,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
 
     assert outcome.answered is False
     assert outcome.exhausted is True
-    assert outcome.summary is not None
+    assert outcome.context_completion is not None
 
 
 def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
@@ -421,7 +419,7 @@ def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> 
 
     assert outcome.answered is True
     assert outcome.transfer is None
-    assert outcome.summary is not None
+    assert outcome.context_completion is not None
     assert len(llm.calls) == 3
 
 

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
-from tinysoul.infra.paging import MIN_JSON_PAGE_CHARS
+from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
 
 
 @dataclass(frozen=True)
@@ -21,8 +21,7 @@ class ContextSettings:
     trace_chunk_max_chars: int = 12000
     trace_branch_factor: int = 4
     trace_min_hot_entries: int = 2
-    trace_recall_max_chars: int = 8000
-    trace_recall_max_entries: int = 50
+    trace_inspect_max_chars: int = 8000
 
     def __post_init__(self) -> None:
         if not self.system_text:
@@ -71,14 +70,13 @@ class ContextSettings:
                 value=self.trace_min_hot_entries,
                 expected="non-negative int",
             )
-        _require_positive(self.trace_recall_max_chars, "trace_recall_max_chars")
-        _require_positive(self.trace_recall_max_entries, "trace_recall_max_entries")
-        if self.trace_recall_max_chars < MIN_JSON_PAGE_CHARS:
+        _require_positive(self.trace_inspect_max_chars, "trace_inspect_max_chars")
+        if self.trace_inspect_max_chars < MIN_CONTINUATION_PAGE_CHARS:
             raise ConfigError(
-                "Context trace_recall_max_chars must leave room for paging metadata",
-                key="context.trace_recall_max_chars",
-                value=self.trace_recall_max_chars,
-                expected=f"int >= {MIN_JSON_PAGE_CHARS}",
+                "Context trace_inspect_max_chars must leave room for response metadata",
+                key="context.trace_inspect_max_chars",
+                value=self.trace_inspect_max_chars,
+                expected=f"int >= {MIN_CONTINUATION_PAGE_CHARS}",
             )
 
 
@@ -94,8 +92,7 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "trace_chunk_max_chars",
             "trace_branch_factor",
             "trace_min_hot_entries",
-            "trace_recall_max_chars",
-            "trace_recall_max_entries",
+            "trace_inspect_max_chars",
         },
         key="context",
     )
@@ -136,15 +133,10 @@ def parse_context_settings(tree: Mapping[str, object]) -> ContextSettings:
             "trace_min_hot_entries",
             default=ContextSettings.trace_min_hot_entries,
         ),
-        trace_recall_max_chars=_required_optional_int(
+        trace_inspect_max_chars=_required_optional_int(
             tree,
-            "trace_recall_max_chars",
-            default=ContextSettings.trace_recall_max_chars,
-        ),
-        trace_recall_max_entries=_required_optional_int(
-            tree,
-            "trace_recall_max_entries",
-            default=ContextSettings.trace_recall_max_entries,
+            "trace_inspect_max_chars",
+            default=ContextSettings.trace_inspect_max_chars,
         ),
     )
 

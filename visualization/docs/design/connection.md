@@ -31,7 +31,7 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 
 ## 身份与状态校验
 
-- `GET /v1/status` 返回 instance/project identity、active day、turn active、workspace/session revision、最新 event sequence 和 maintenance decision pending 状态。
+- `GET /v1/status` 返回 instance/project identity、active day、turn active、workspace revision、最新 event sequence 和 maintenance decision pending 状态。
 - 若 status 中的 identity 与连接描述不一致，立即断开并回到未连接状态。
 - `ready=false` 时继续轮询重试，不能绕过 Daily 初始化访问本地目录。
 

@@ -4,7 +4,6 @@ import { Check, Copy, RefreshCw, TerminalSquare, Loader2 } from "lucide-react";
 import { AppShell } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { WorkspaceView } from "./components/WorkspaceView";
-import { SessionView } from "./components/SessionView";
 import { MaintenanceDialog } from "./components/MaintenanceDialog";
 import { useBackend } from "./hooks/useBackend";
 import { useAppStore } from "./store/appStore";
@@ -47,7 +46,6 @@ function AppContent() {
     <>
       {activeTab === "chat" && <ChatView />}
       {activeTab === "workspace" && <WorkspaceView />}
-      {activeTab === "session" && <SessionView />}
       <MaintenanceDialog />
     </>
   );

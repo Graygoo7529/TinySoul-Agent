@@ -260,7 +260,7 @@ def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
 
     outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
 
-    assert outcome.summary is None
+    assert outcome.context_completion is None
     assert context.turn_active is False
     assert context.aborted == 1
     assert outcome.transfer is not None
@@ -311,8 +311,8 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert outcome.transfer is None
     assert len(recorder.completions) == 1
     completion = recorder.completions[0]
-    assert completion.summary.inputs[0]["text"] == "hello"
-    assert completion.summary.trace == ()
+    assert completion.context_completion.inputs[0].text == "hello"
+    assert completion.context_completion.trace.entries == ()
     assert completion.output is not None
     assert completion.output.text == "done"
     assert completion.business_day == DAY
@@ -340,7 +340,7 @@ def test_turn_preparation_retry_replays_only_preparation() -> None:
 
     assert preparation.calls == 2
     assert cycles.calls == 1
-    assert outcome.summary is not None
+    assert outcome.context_completion is not None
     assert outcome.transfer is not None
     assert outcome.transfer.target.level is RunLevel.TURN
 
@@ -450,7 +450,7 @@ def test_turn_preparation_propagates_program_transfer_without_running_cycle() ->
     outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
 
     assert cycles.calls == 0
-    assert outcome.summary is not None
+    assert outcome.context_completion is not None
     assert outcome.transfer is not None
     assert outcome.transfer.target.level is RunLevel.PROGRAM
     assert outcome.status is TurnOutcomeStatus.STOPPED

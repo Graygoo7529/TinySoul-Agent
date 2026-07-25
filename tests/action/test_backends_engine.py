@@ -339,9 +339,6 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
         ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("context.trace.fold", lambda execution, context: {})
-        .register_native("context.trace.inspect", lambda execution, context: {})
-        .register_native("context.trace.recall", lambda execution, context: {})
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
@@ -356,8 +353,8 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
             .register_native("memory.search", lambda execution, context: {"items": []})
         .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("session.history.inspect", lambda execution, context: {})
-        .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("context.inspect", lambda execution, context: {})
+        .register_native("session.inspect", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})

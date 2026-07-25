@@ -18,8 +18,6 @@ from tinysoul.runtime import (
     RuntimeGatewayError,
     RuntimeInputBlockedError,
 )
-from tinysoul.session import SessionEngine
-from tinysoul.session.errors import SessionError, SessionHistoryRequestError
 from tinysoul.workspace import (
     WorkspaceEngine,
     WorkspaceBundleWrite,
@@ -126,7 +124,6 @@ class EndpointEngine:
         events: EndpointEventBuffer,
         gateway: EndpointAppGateway,
         workspace: WorkspaceEngine,
-        session: SessionEngine,
         daily_lifecycle: DailyLifecycleCoordinator,
         maintenance: EndpointMaintenanceStatus | None = None,
     ) -> None:
@@ -134,7 +131,6 @@ class EndpointEngine:
         self._events = events
         self._gateway = gateway
         self._workspace = workspace
-        self._session = session
         self._daily = daily_lifecycle
         self._maintenance = maintenance
 
@@ -151,11 +147,9 @@ class EndpointEngine:
         try:
             with self._daily.active_day_lease() as day:
                 workspace_revision = self._workspace.load_manifest().revision
-                session_revision = self._session.revision
                 active_day = str(day)
         except LoopError:
             workspace_revision = -1
-            session_revision = -1
             active_day = ""
         pending = self._gateway.pending_maintenance_decision()
         return {
@@ -166,7 +160,6 @@ class EndpointEngine:
             "active_day": active_day,
             "turn_active": turn_scope is not None,
             "workspace_revision": workspace_revision,
-            "session_revision": session_revision,
             "latest_event_sequence": self._events.latest_sequence,
             "maintenance_decision_pending": pending is not None,
         }
@@ -294,67 +287,6 @@ class EndpointEngine:
         limit: int,
     ) -> EndpointEventPage:
         return self._events.replay(after=after, mode=mode, limit=limit)
-
-    def session_history(
-        self,
-        ref: str | None,
-        *,
-        max_chars: int | None,
-        max_entries: int | None,
-        cursor: JsonObject | None,
-    ) -> JsonObject:
-        try:
-            with self._daily.active_day_lease():
-                return self._session.inspect_history(
-                    ref,
-                    max_chars=max_chars,
-                    max_entries=max_entries,
-                    cursor=cursor,
-                )
-        except LoopError as exc:
-            raise _not_ready(exc) from exc
-        except SessionError as exc:
-            raise _session_error(exc) from exc
-
-    def session_actions(
-        self,
-        ref: str,
-        *,
-        cursor: int,
-        max_items: int | None,
-    ) -> JsonObject:
-        try:
-            with self._daily.active_day_lease():
-                return self._session.action_history(
-                    ref,
-                    cursor=cursor,
-                    max_items=max_items,
-                )
-        except LoopError as exc:
-            raise _not_ready(exc) from exc
-        except SessionError as exc:
-            raise _session_error(exc) from exc
-
-    def session_trace(
-        self,
-        ref: str,
-        *,
-        max_chars: int | None,
-        max_entries: int | None,
-        cursor: JsonObject | None,
-    ) -> JsonObject:
-        try:
-            with self._daily.active_day_lease():
-                return self._session.recall_history(
-                    ref,
-                    max_chars=max_chars,
-                    max_entries=max_entries,
-                    cursor=cursor,
-                )
-        except LoopError as exc:
-            raise _not_ready(exc) from exc
-        except SessionError as exc:
-            raise _session_error(exc) from exc
 
     def workspace_manifest(self) -> JsonObject:
         try:
@@ -635,21 +567,5 @@ def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
         status_code=500,
         code="workspace.failed",
         message="Workspace operation failed.",
-        details={"error_type": type(error).__name__},
-    )
-
-
-def _session_error(error: SessionError) -> EndpointRequestError:
-    if isinstance(error, SessionHistoryRequestError):
-        return EndpointRequestError(
-            status_code=422,
-            code=f"session.{error.reason.value}",
-            message=str(error),
-            details=error.constraint,
-        )
-    return EndpointRequestError(
-        status_code=500,
-        code="session.failed",
-        message="Session operation failed.",
         details={"error_type": type(error).__name__},
     )

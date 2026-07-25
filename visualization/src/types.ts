@@ -44,7 +44,6 @@ export interface BackendStatus {
   active_day: string;
   turn_active: boolean;
   workspace_revision: number;
-  session_revision: number;
   latest_event_sequence: number;
   maintenance_decision_pending: boolean;
 }
@@ -108,122 +107,6 @@ export interface TrashItem {
   size: number;
   digest?: string;
   moved_at: number;
-}
-
-export interface SessionHistoryItem {
-  item_id: string;
-  ref: string;
-  kind: "turn" | "summary";
-  char_count: number;
-  child_count: number;
-  preview: Record<string, unknown>;
-}
-
-export interface SessionHistory {
-  source: Record<string, unknown>;
-  items: SessionHistoryItem[];
-  cursor_unit: "history_item";
-  entry_count: number;
-  returned_entry_count: number;
-  returned_entry_indexes: number[];
-  entry_coverage: [number, number];
-  remaining_entry_count: number;
-  requested_max_chars: number;
-  effective_max_chars: number;
-  requested_max_entries: number;
-  effective_max_entries: number;
-  cursor: SessionCursor;
-  next_cursor: SessionCursor | null;
-  page_complete: boolean;
-  truncated: boolean;
-  oversized_entry?: SessionOversizedEntry;
-}
-
-export interface SessionCursor {
-  entry_index: number;
-  char_offset: number;
-  entry_digest?: string;
-  revision?: number;
-}
-
-export interface SessionOversizedEntry {
-  entry_index: number;
-  entry_digest: string;
-  encoding: "canonical_json";
-  char_offset: number;
-  next_char_offset: number;
-  serialized_chars: number;
-  text: string;
-}
-
-export interface SessionTrace {
-  source: Record<string, unknown>;
-  cursor_unit: "trace_entry";
-  entry_count: number;
-  returned_entry_count: number;
-  returned_entry_indexes: number[];
-  entry_coverage: [number, number];
-  remaining_entry_count: number;
-  requested_max_chars: number;
-  effective_max_chars: number;
-  requested_max_entries: number;
-  effective_max_entries: number;
-  cursor: SessionCursor;
-  next_cursor: SessionCursor | null;
-  page_complete: boolean;
-  truncated: boolean;
-  trace: Record<string, unknown>[];
-  oversized_entry?: SessionOversizedEntry;
-}
-
-export interface SessionActionOutcome {
-  call_count: number;
-  result_count: number;
-  success_count: number;
-  failed_count: number;
-  timeout_count: number;
-  unmatched_call_count: number;
-  unmatched_result_count: number;
-  pairing_issue_count: number;
-  scan_complete: boolean;
-  pairing_complete: boolean;
-}
-
-export interface SessionActionSummary {
-  trace_digest: string;
-  outcome: SessionActionOutcome;
-  by_action: Record<string, unknown>[];
-  failure_groups: Record<string, unknown>[];
-}
-
-export interface SessionActionDetail {
-  occurrence: number;
-  call_id: string;
-  action: string;
-  call_trace_index: number | null;
-  result_trace_index: number | null;
-  cycle_id: string;
-  phase: string;
-  status?: "success" | "failed" | "timeout";
-  stage?: string;
-  failure?: Record<string, unknown>;
-  pairing_issue?: string;
-}
-
-export interface SessionActions {
-  source: Record<string, unknown>;
-  summary: SessionActionSummary;
-  details: SessionActionDetail[];
-  detail_count: number;
-  requested_max_items: number;
-  effective_max_items: number;
-  returned_detail_count: number;
-  cursor: number;
-  next_cursor: number | null;
-  coverage: [number, number];
-  remaining: number;
-  page_complete: boolean;
-  truncated: boolean;
 }
 
 export interface MaintenanceDecision {
@@ -318,4 +201,4 @@ export interface TopLinkEntry {
   evictable: boolean;
 }
 
-export type AppTab = "chat" | "workspace" | "session";
+export type AppTab = "chat" | "workspace";

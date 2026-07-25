@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
-from tinysoul.infra.paging import MIN_JSON_PAGE_CHARS
+from tinysoul.infra.continuation import MIN_CONTINUATION_PAGE_CHARS
 
 
 @dataclass(frozen=True)
@@ -17,11 +17,7 @@ class SessionSettings:
     summary_watermark_ratio: float = 0.60
     summary_target_ratio: float = 0.40
     min_recent_turns: int = 2
-    history_page_max_chars: int = 8000
-    history_page_max_entries: int = 50
-    actions_page_max_items: int = 50
-    background_action_names: tuple[str, ...] = ("core.reason",)
-    background_max_actions_per_turn: int = 3
+    inspect_max_chars: int = 8000
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path):
@@ -42,10 +38,7 @@ class SessionSettings:
                 )
         for name in {
             "background_max_chars",
-            "history_page_max_chars",
-            "history_page_max_entries",
-            "actions_page_max_items",
-            "background_max_actions_per_turn",
+            "inspect_max_chars",
         }:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -62,12 +55,12 @@ class SessionSettings:
                 value=self.background_max_chars,
                 expected="int >= 512",
             )
-        if self.history_page_max_chars < MIN_JSON_PAGE_CHARS:
+        if self.inspect_max_chars < MIN_CONTINUATION_PAGE_CHARS:
             raise ConfigError(
-                "Session history_page_max_chars must leave room for paging metadata",
-                key="session.history_page_max_chars",
-                value=self.history_page_max_chars,
-                expected=f"int >= {MIN_JSON_PAGE_CHARS}",
+                "Session inspect_max_chars must leave room for response metadata",
+                key="session.inspect_max_chars",
+                value=self.inspect_max_chars,
+                expected=f"int >= {MIN_CONTINUATION_PAGE_CHARS}",
             )
         if not 0 < self.summary_target_ratio < self.summary_watermark_ratio < 1:
             raise ConfigError(
@@ -87,25 +80,6 @@ class SessionSettings:
                 value=self.min_recent_turns,
                 expected="non-negative int",
             )
-        if not isinstance(self.background_action_names, tuple) or any(
-            not isinstance(name, str) or not name
-            for name in self.background_action_names
-        ):
-            raise ConfigError(
-                "Session background action names must be non-empty",
-                key="session.background_action_names",
-                value=self.background_action_names,
-                expected="list of non-empty strings",
-            )
-        if len(set(self.background_action_names)) != len(
-            self.background_action_names
-        ):
-            raise ConfigError(
-                "Session background action names must be unique",
-                key="session.background_action_names",
-                value=self.background_action_names,
-                expected="unique strings",
-            )
 
 
 def parse_session_settings(
@@ -121,11 +95,7 @@ def parse_session_settings(
             "summary_watermark_ratio",
             "summary_target_ratio",
             "min_recent_turns",
-            "history_page_max_chars",
-            "history_page_max_entries",
-            "actions_page_max_items",
-            "background_action_names",
-            "background_max_actions_per_turn",
+            "inspect_max_chars",
         },
         key="session",
     )
@@ -135,19 +105,7 @@ def parse_session_settings(
         summary_watermark_ratio=_float(tree, "summary_watermark_ratio", 0.60),
         summary_target_ratio=_float(tree, "summary_target_ratio", 0.40),
         min_recent_turns=_int(tree, "min_recent_turns", 2),
-        history_page_max_chars=_int(tree, "history_page_max_chars", 8000),
-        history_page_max_entries=_int(tree, "history_page_max_entries", 50),
-        actions_page_max_items=_int(tree, "actions_page_max_items", 50),
-        background_action_names=_strings(
-            tree,
-            "background_action_names",
-            ("core.reason",),
-        ),
-        background_max_actions_per_turn=_int(
-            tree,
-            "background_max_actions_per_turn",
-            3,
-        ),
+        inspect_max_chars=_int(tree, "inspect_max_chars", 8000),
     )
 
 
@@ -193,21 +151,3 @@ def _float(tree: Mapping[str, object], name: str, default: float) -> float:
             expected="float",
         )
     return float(value)
-
-
-def _strings(
-    tree: Mapping[str, object],
-    name: str,
-    default: tuple[str, ...],
-) -> tuple[str, ...]:
-    value = tree.get(name, list(default))
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item for item in value
-    ):
-        raise ConfigError(
-            "Session setting must be a list of non-empty strings",
-            key=f"session.{name}",
-            value=value,
-            expected="list[str]",
-        )
-    return tuple(item for item in value if isinstance(item, str))

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from tinysoul.context import TurnSummary
+from tinysoul.context import ContextTurnCompletion
 
 from .day import BusinessDay
 from .errors import LoopContractError
@@ -16,7 +16,7 @@ from .signals import TurnOutput
 class TurnCompletion:
     """Stable data passed to ordered post-Turn services such as Session."""
 
-    summary: TurnSummary
+    context_completion: ContextTurnCompletion
     business_day: BusinessDay
     output: TurnOutput | None = None
     exhausted: bool = False

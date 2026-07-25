@@ -18,10 +18,6 @@ import type {
   MaintenanceDecisionRequest,
   MaintenanceRequest,
   MaintenanceStatus,
-  SessionActions,
-  SessionCursor,
-  SessionHistory,
-  SessionTrace,
   TrashItem,
   WorkspaceBlobHeaders,
   WorkspaceManifest,
@@ -123,65 +119,6 @@ export class TinySoulClient {
   async replayEvents(after: number, mode: string, limit = 200): Promise<EventPage> {
     return this.request<EventPage>("GET", "/v1/events", {
       query: { after, mode, limit },
-    });
-  }
-
-  async sessionHistory(options: {
-    ref?: string;
-    cursor?: SessionCursor;
-    maxChars?: number;
-    maxEntries?: number;
-    signal?: AbortSignal;
-  } = {}): Promise<SessionHistory> {
-    const cursor = options.cursor ?? { entry_index: 0, char_offset: 0 };
-    return this.request<SessionHistory>("GET", "/v1/session/history", {
-      query: {
-        ref: options.ref,
-        max_chars: options.maxChars,
-        max_entries: options.maxEntries,
-        cursor_entry_index: cursor.entry_index,
-        cursor_char_offset: cursor.char_offset,
-        cursor_entry_digest: cursor.entry_digest,
-        cursor_revision: cursor.revision,
-      },
-      signal: options.signal,
-    });
-  }
-
-  async sessionActions(options: {
-    ref: string;
-    cursor?: number;
-    maxItems?: number;
-    signal?: AbortSignal;
-  }): Promise<SessionActions> {
-    return this.request<SessionActions>("GET", "/v1/session/actions", {
-      query: {
-        ref: options.ref,
-        cursor: options.cursor ?? 0,
-        max_items: options.maxItems,
-      },
-      signal: options.signal,
-    });
-  }
-
-  async sessionTrace(options: {
-    ref: string;
-    cursor?: SessionCursor;
-    maxChars?: number;
-    maxEntries?: number;
-    signal?: AbortSignal;
-  }): Promise<SessionTrace> {
-    const cursor = options.cursor ?? { entry_index: 0, char_offset: 0 };
-    return this.request<SessionTrace>("GET", "/v1/session/trace", {
-      query: {
-        ref: options.ref,
-        max_chars: options.maxChars,
-        max_entries: options.maxEntries,
-        cursor_entry_index: cursor.entry_index,
-        cursor_char_offset: cursor.char_offset,
-        cursor_entry_digest: cursor.entry_digest,
-      },
-      signal: options.signal,
     });
   }
 

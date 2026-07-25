@@ -1,7 +1,0 @@
-name = "session"
-description = "Completed prior-Turn conversation and Action history."
-selection_hint = "Use when Session Background is insufficient and an earlier Summary, Turn, or Action needs progressive inspection."
-
-[runtime]
-timeout_seconds = 5
-parallel_policy = "serial"

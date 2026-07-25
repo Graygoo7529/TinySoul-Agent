@@ -1,210 +1,512 @@
-"""Persistent Session history models."""
+"""Immutable Session business records and active-head manifest."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from hashlib import sha256
+import re
 from time import time_ns
 
-from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 
 from .errors import SessionContractError
 
 
-class SessionHistoryKind(StrEnum):
+SESSION_RECORD_SCHEMA_VERSION = 4
+SESSION_MANIFEST_SCHEMA_VERSION = 2
+_TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
+_SUMMARY_REF = re.compile(r"^session:summary/([a-z0-9_-]+)$")
+
+
+class SessionRecordKind(StrEnum):
     TURN = "turn"
     SUMMARY = "summary"
 
 
-@dataclass(frozen=True)
-class SessionHistoryItem:
-    """One visible node in the bounded cross-Turn history head."""
+class SessionActionOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
 
-    item_id: str
-    ref: str
-    kind: SessionHistoryKind
-    background: JsonObject
-    char_count: int
-    child_refs: tuple[str, ...] = field(default_factory=tuple)
+
+@dataclass(frozen=True)
+class SessionInputRecord:
+    text: str
+    received_at: float
 
     def __post_init__(self) -> None:
-        if not self.item_id or not self.ref:
-            raise SessionContractError("Session history item id and ref must be non-empty")
-        if not isinstance(self.kind, SessionHistoryKind):
-            raise SessionContractError("Session history item kind is invalid")
-        if self.char_count < 0:
-            raise SessionContractError("Session history char_count cannot be negative")
-        if any(not ref for ref in self.child_refs):
-            raise SessionContractError("Session history child refs must be non-empty")
-        object.__setattr__(self, "background", to_json_object(self.background))
-        object.__setattr__(self, "child_refs", tuple(self.child_refs))
+        if not isinstance(self.text, str) or not self.text:
+            raise SessionContractError("Session input text must be non-empty")
+        if (
+            isinstance(self.received_at, bool)
+            or not isinstance(self.received_at, (int, float))
+            or self.received_at < 0
+        ):
+            raise SessionContractError("Session input timestamp must be non-negative")
 
     def to_json(self) -> JsonObject:
-        return {
-            "item_id": self.item_id,
-            "ref": self.ref,
-            "kind": self.kind.value,
-            "background": self.background,
-            "char_count": self.char_count,
-            "child_refs": list(self.child_refs),
-        }
+        return {"text": self.text, "received_at": float(self.received_at)}
 
     @classmethod
-    def from_json(cls, value: JsonObject) -> "SessionHistoryItem":
-        kind_value = _str(value, "kind")
-        try:
-            kind = SessionHistoryKind(kind_value)
-        except ValueError as exc:
-            raise SessionContractError(
-                f"Unknown Session history kind: {kind_value}"
-            ) from exc
+    def from_json(cls, value: object) -> "SessionInputRecord":
+        item = _exact_object(value, {"text", "received_at"}, "Session input")
         return cls(
-            item_id=_str(value, "item_id"),
-            ref=_str(value, "ref"),
-            kind=kind,
-            background=_object(value, "background"),
-            char_count=_int(value, "char_count"),
-            child_refs=_strings(value, "child_refs"),
+            text=_required_text(item, "text"),
+            received_at=_non_negative_number(item, "received_at"),
         )
 
 
 @dataclass(frozen=True)
-class SessionManifest:
-    """Authoritative visible Session head for one calendar day."""
-
-    day: str
-    revision: int = 0
-    items: tuple[SessionHistoryItem, ...] = field(default_factory=tuple)
-    schema_version: int = 1
+class SessionOutputRecord:
+    text: str
+    references: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        if not self.day:
-            raise SessionContractError("Session manifest day must be non-empty")
-        if self.schema_version != 1:
-            raise SessionContractError("Session manifest schema_version must be 1")
-        if self.revision < 0:
+        if not isinstance(self.text, str) or not self.text:
+            raise SessionContractError("Session output text must be non-empty")
+        object.__setattr__(
+            self,
+            "references",
+            _non_empty_strings(self.references, "Session output references"),
+        )
+
+    def to_json(self) -> JsonObject:
+        value: JsonObject = {"text": self.text}
+        if self.references:
+            value["references"] = list(self.references)
+        return value
+
+    @classmethod
+    def from_json(cls, value: object) -> "SessionOutputRecord":
+        item = _limited_object(value, {"text", "references"}, "Session output")
+        return cls(
+            text=_required_text(item, "text"),
+            references=_string_list(item.get("references", []), "references"),
+        )
+
+
+@dataclass(frozen=True)
+class SessionActionRecord:
+    action: str
+    request: JsonObject
+    outcome: SessionActionOutcome
+    result: JsonObject = field(default_factory=dict)
+    failure: JsonObject = field(default_factory=dict)
+    references: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.action, str) or not self.action:
+            raise SessionContractError("Session Action name must be non-empty")
+        if not isinstance(self.outcome, SessionActionOutcome):
+            raise SessionContractError("Session Action outcome is invalid")
+        object.__setattr__(self, "request", to_json_object(self.request))
+        object.__setattr__(self, "result", to_json_object(self.result))
+        object.__setattr__(self, "failure", to_json_object(self.failure))
+        object.__setattr__(
+            self,
+            "references",
+            _non_empty_strings(self.references, "Session Action references"),
+        )
+        if self.outcome is SessionActionOutcome.SUCCESS and self.failure:
+            raise SessionContractError("Successful Session Action cannot have failure")
+        if self.outcome is not SessionActionOutcome.SUCCESS and not self.failure:
+            raise SessionContractError("Failed Session Action requires failure facts")
+
+    def to_json(self) -> JsonObject:
+        value: JsonObject = {
+            "action": self.action,
+            "request": self.request,
+            "outcome": self.outcome.value,
+        }
+        if self.result:
+            value["result"] = self.result
+        if self.failure:
+            value["failure"] = self.failure
+        if self.references:
+            value["references"] = list(self.references)
+        return value
+
+    @classmethod
+    def from_json(cls, value: object) -> "SessionActionRecord":
+        item = _limited_object(
+            value,
+            {"action", "request", "outcome", "result", "failure", "references"},
+            "Session Action",
+        )
+        try:
+            outcome = SessionActionOutcome(item.get("outcome"))
+        except (TypeError, ValueError) as exc:
+            raise SessionContractError("Session Action outcome is invalid") from exc
+        return cls(
+            action=_required_text(item, "action"),
+            request=_required_object(item, "request"),
+            outcome=outcome,
+            result=_optional_object(item, "result"),
+            failure=_optional_object(item, "failure"),
+            references=_string_list(item.get("references", []), "references"),
+        )
+
+
+@dataclass(frozen=True)
+class SessionTurnRecord:
+    ref: str
+    day: str
+    inputs: tuple[SessionInputRecord, ...]
+    working: JsonObject
+    background_links: tuple[str, ...]
+    output: SessionOutputRecord | None
+    exhausted: bool
+    actions: tuple[SessionActionRecord, ...]
+    recorded_at_ns: int = field(default_factory=time_ns)
+    kind: SessionRecordKind = field(default=SessionRecordKind.TURN, init=False)
+    schema_version: int = field(default=SESSION_RECORD_SCHEMA_VERSION, init=False)
+
+    def __post_init__(self) -> None:
+        if _TURN_REF.fullmatch(self.ref) is None:
+            raise SessionContractError("Session Turn ref is invalid")
+        _require_day(self.day)
+        inputs = tuple(self.inputs)
+        if not inputs or any(not isinstance(item, SessionInputRecord) for item in inputs):
+            raise SessionContractError("Session Turn requires typed inputs")
+        object.__setattr__(self, "inputs", inputs)
+        object.__setattr__(self, "working", to_json_object(self.working))
+        object.__setattr__(
+            self,
+            "background_links",
+            _non_empty_strings(
+                self.background_links,
+                "Session Turn background links",
+                unique=True,
+            ),
+        )
+        if self.output is not None and not isinstance(self.output, SessionOutputRecord):
+            raise SessionContractError("Session Turn output is invalid")
+        if not isinstance(self.exhausted, bool):
+            raise SessionContractError("Session Turn exhausted must be a boolean")
+        actions = tuple(self.actions)
+        if any(not isinstance(item, SessionActionRecord) for item in actions):
+            raise SessionContractError("Session Turn actions must be typed records")
+        object.__setattr__(self, "actions", actions)
+        _require_recorded_at(self.recorded_at_ns)
+
+    @property
+    def turn_id(self) -> str:
+        match = _TURN_REF.fullmatch(self.ref)
+        assert match is not None
+        return match.group(1)
+
+    def to_json(self) -> JsonObject:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind.value,
+            "ref": self.ref,
+            "day": self.day,
+            "recorded_at_ns": self.recorded_at_ns,
+            "inputs": [item.to_json() for item in self.inputs],
+            "working": self.working,
+            "background_links": list(self.background_links),
+            "output": self.output.to_json() if self.output is not None else None,
+            "exhausted": self.exhausted,
+            "actions": [item.to_json() for item in self.actions],
+        }
+
+    @classmethod
+    def from_json(cls, value: JsonObject) -> "SessionTurnRecord":
+        _require_record_header(value, SessionRecordKind.TURN)
+        _require_fields(
+            value,
+            {
+                "schema_version",
+                "kind",
+                "ref",
+                "day",
+                "recorded_at_ns",
+                "inputs",
+                "working",
+                "background_links",
+                "output",
+                "exhausted",
+                "actions",
+            },
+            "Session Turn record",
+        )
+        raw_inputs = _required_list(value, "inputs")
+        raw_actions = _required_list(value, "actions")
+        raw_output = value.get("output")
+        return cls(
+            ref=_required_text(value, "ref"),
+            day=_required_text(value, "day"),
+            recorded_at_ns=_non_negative_int(value, "recorded_at_ns"),
+            inputs=tuple(SessionInputRecord.from_json(item) for item in raw_inputs),
+            working=_required_object(value, "working"),
+            background_links=_string_list(
+                value.get("background_links", []), "background_links"
+            ),
+            output=(
+                SessionOutputRecord.from_json(raw_output)
+                if raw_output is not None
+                else None
+            ),
+            exhausted=_required_bool(value, "exhausted"),
+            actions=tuple(SessionActionRecord.from_json(item) for item in raw_actions),
+        )
+
+
+@dataclass(frozen=True)
+class SessionSummaryRecord:
+    ref: str
+    day: str
+    child_refs: tuple[str, ...]
+    recorded_at_ns: int = field(default_factory=time_ns)
+    kind: SessionRecordKind = field(default=SessionRecordKind.SUMMARY, init=False)
+    schema_version: int = field(default=SESSION_RECORD_SCHEMA_VERSION, init=False)
+
+    def __post_init__(self) -> None:
+        if _SUMMARY_REF.fullmatch(self.ref) is None:
+            raise SessionContractError("Session Summary ref is invalid")
+        _require_day(self.day)
+        children = _non_empty_strings(
+            self.child_refs,
+            "Session Summary child refs",
+            unique=True,
+        )
+        if len(children) < 2:
+            raise SessionContractError("Session Summary requires at least two children")
+        for ref in children:
+            session_ref_kind(ref)
+        object.__setattr__(self, "child_refs", children)
+        _require_recorded_at(self.recorded_at_ns)
+
+    def to_json(self) -> JsonObject:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind.value,
+            "ref": self.ref,
+            "day": self.day,
+            "recorded_at_ns": self.recorded_at_ns,
+            "child_refs": list(self.child_refs),
+        }
+
+    @classmethod
+    def from_json(cls, value: JsonObject) -> "SessionSummaryRecord":
+        _require_record_header(value, SessionRecordKind.SUMMARY)
+        _require_fields(
+            value,
+            {
+                "schema_version",
+                "kind",
+                "ref",
+                "day",
+                "recorded_at_ns",
+                "child_refs",
+            },
+            "Session Summary record",
+        )
+        return cls(
+            ref=_required_text(value, "ref"),
+            day=_required_text(value, "day"),
+            recorded_at_ns=_non_negative_int(value, "recorded_at_ns"),
+            child_refs=_string_list(value.get("child_refs", []), "child_refs"),
+        )
+
+
+SessionRecord = SessionTurnRecord | SessionSummaryRecord
+
+
+@dataclass(frozen=True)
+class SessionManifest:
+    day: str
+    revision: int = 0
+    refs: tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = field(default=SESSION_MANIFEST_SCHEMA_VERSION, init=False)
+
+    def __post_init__(self) -> None:
+        _require_day(self.day)
+        if isinstance(self.revision, bool) or not isinstance(self.revision, int) or self.revision < 0:
             raise SessionContractError("Session manifest revision cannot be negative")
-        ids = tuple(item.item_id for item in self.items)
-        refs = tuple(item.ref for item in self.items)
-        if len(ids) != len(set(ids)) or len(refs) != len(set(refs)):
-            raise SessionContractError("Session manifest items must be unique")
+        refs = _non_empty_strings(self.refs, "Session manifest refs", unique=True)
+        for ref in refs:
+            session_ref_kind(ref)
+        object.__setattr__(self, "refs", refs)
 
     def to_json(self) -> JsonObject:
         return {
             "schema_version": self.schema_version,
             "day": self.day,
             "revision": self.revision,
-            "items": [item.to_json() for item in self.items],
+            "refs": list(self.refs),
         }
 
     @classmethod
     def from_json(cls, value: JsonObject) -> "SessionManifest":
-        raw_items = value.get("items", [])
-        if not isinstance(raw_items, list):
-            raise SessionContractError("Session manifest items must be a list")
-        items: list[SessionHistoryItem] = []
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                raise SessionContractError("Session manifest items must be objects")
-            items.append(SessionHistoryItem.from_json(to_json_object(raw)))
+        _require_fields(
+            value,
+            {"schema_version", "day", "revision", "refs"},
+            "Session manifest",
+        )
+        if value.get("schema_version") != SESSION_MANIFEST_SCHEMA_VERSION:
+            raise SessionContractError(
+                f"Session manifest schema_version must be {SESSION_MANIFEST_SCHEMA_VERSION}"
+            )
         return cls(
-            schema_version=_int(value, "schema_version"),
-            day=_str(value, "day"),
-            revision=_int(value, "revision"),
-            items=tuple(items),
+            day=_required_text(value, "day"),
+            revision=_non_negative_int(value, "revision"),
+            refs=_string_list(value.get("refs", []), "refs"),
         )
 
 
-@dataclass(frozen=True)
-class SessionRecord:
-    """Immutable detail record addressed by a Session ref."""
-
-    ref: str
-    kind: SessionHistoryKind
-    content: JsonObject
-    recorded_at_ns: int = field(default_factory=time_ns)
-    schema_version: int = 3
-
-    def __post_init__(self) -> None:
-        if not self.ref:
-            raise SessionContractError("Session record ref must be non-empty")
-        if self.schema_version != 3:
-            raise SessionContractError("Session record schema_version must be 3")
-        if (
-            isinstance(self.recorded_at_ns, bool)
-            or not isinstance(self.recorded_at_ns, int)
-            or self.recorded_at_ns < 0
-        ):
-            raise SessionContractError(
-                "Session record recorded_at_ns must be a non-negative integer"
-            )
-        object.__setattr__(self, "content", to_json_object(self.content))
-
-    def to_json(self) -> JsonObject:
-        return {
-            "schema_version": self.schema_version,
-            "ref": self.ref,
-            "kind": self.kind.value,
-            "recorded_at_ns": self.recorded_at_ns,
-            "content": self.content,
-        }
-
-    @classmethod
-    def from_json(cls, value: JsonObject) -> "SessionRecord":
-        kind_value = _str(value, "kind")
-        try:
-            kind = SessionHistoryKind(kind_value)
-        except ValueError as exc:
-            raise SessionContractError(
-                f"Unknown Session record kind: {kind_value}"
-            ) from exc
-        schema_version = value.get("schema_version")
-        if schema_version != 3:
-            raise SessionContractError(
-                f"Session record schema_version must be 3: {schema_version}"
-            )
-        recorded_at_ns = value.get("recorded_at_ns", 0)
-        if (
-            isinstance(recorded_at_ns, bool)
-            or not isinstance(recorded_at_ns, int)
-            or recorded_at_ns < 0
-        ):
-            raise SessionContractError(
-                "Session record recorded_at_ns must be a non-negative integer"
-            )
-        return cls(
-            ref=_str(value, "ref"),
-            kind=kind,
-            content=_object(value, "content"),
-            recorded_at_ns=recorded_at_ns,
+def session_record_from_json(value: JsonObject) -> SessionRecord:
+    if value.get("schema_version") != SESSION_RECORD_SCHEMA_VERSION:
+        raise SessionContractError(
+            f"Session record schema_version must be {SESSION_RECORD_SCHEMA_VERSION}"
         )
+    kind = value.get("kind")
+    if kind == SessionRecordKind.TURN.value:
+        return SessionTurnRecord.from_json(value)
+    if kind == SessionRecordKind.SUMMARY.value:
+        return SessionSummaryRecord.from_json(value)
+    raise SessionContractError("Session record kind is invalid")
 
 
-def _str(value: JsonObject, name: str) -> str:
+def session_ref_kind(ref: str) -> SessionRecordKind:
+    if not isinstance(ref, str):
+        raise SessionContractError("Session ref must be text")
+    if _TURN_REF.fullmatch(ref) is not None:
+        return SessionRecordKind.TURN
+    if _SUMMARY_REF.fullmatch(ref) is not None:
+        return SessionRecordKind.SUMMARY
+    raise SessionContractError(f"Invalid Session ref: {ref}")
+
+
+def summary_ref(day: str, child_refs: tuple[str, ...]) -> str:
+    """Return the deterministic identity of one Summary index node."""
+
+    _require_day(day)
+    children = _non_empty_strings(
+        child_refs,
+        "Session Summary child refs",
+        unique=True,
+    )
+    if len(children) < 2:
+        raise SessionContractError("Session Summary requires at least two children")
+    encoded = dumps_json({"day": day, "child_refs": list(children)}).encode("utf-8")
+    return f"session:summary/summary_{sha256(encoded).hexdigest()[:16]}"
+
+
+def same_record_facts(left: SessionRecord, right: SessionRecord) -> bool:
+    left_value = left.to_json()
+    right_value = right.to_json()
+    left_value.pop("recorded_at_ns", None)
+    right_value.pop("recorded_at_ns", None)
+    return left_value == right_value
+
+
+def _require_record_header(value: JsonObject, kind: SessionRecordKind) -> None:
+    if value.get("schema_version") != SESSION_RECORD_SCHEMA_VERSION:
+        raise SessionContractError(
+            f"Session record schema_version must be {SESSION_RECORD_SCHEMA_VERSION}"
+        )
+    if value.get("kind") != kind.value:
+        raise SessionContractError("Session record kind is inconsistent")
+
+
+def _require_fields(value: JsonObject, fields: set[str], owner: str) -> None:
+    if set(value) != fields:
+        raise SessionContractError(f"{owner} fields are invalid")
+
+
+def _require_day(value: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise SessionContractError("Session day must be non-empty")
+
+
+def _require_recorded_at(value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SessionContractError("Session recorded_at_ns must be non-negative")
+
+
+def _limited_object(value: object, fields: set[str], owner: str) -> JsonObject:
+    if not isinstance(value, dict):
+        raise SessionContractError(f"{owner} must be an object")
+    unknown = set(value) - fields
+    if unknown:
+        raise SessionContractError(f"{owner} contains unknown fields")
+    return to_json_object(value)
+
+
+def _exact_object(value: object, fields: set[str], owner: str) -> JsonObject:
+    item = _limited_object(value, fields, owner)
+    if set(item) != fields:
+        raise SessionContractError(f"{owner} is missing required fields")
+    return item
+
+
+def _required_text(value: JsonObject, name: str) -> str:
     item = value.get(name)
     if not isinstance(item, str) or not item:
         raise SessionContractError(f"Session field must be non-empty text: {name}")
     return item
 
 
-def _int(value: JsonObject, name: str) -> int:
-    item = value.get(name)
-    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
-        raise SessionContractError(f"Session field must be non-negative int: {name}")
-    return item
-
-
-def _object(value: JsonObject, name: str) -> JsonObject:
+def _required_object(value: JsonObject, name: str) -> JsonObject:
     item = value.get(name)
     if not isinstance(item, dict):
         raise SessionContractError(f"Session field must be an object: {name}")
     return to_json_object(item)
 
 
-def _strings(value: JsonObject, name: str) -> tuple[str, ...]:
-    item = value.get(name, [])
-    if not isinstance(item, list) or any(
-        not isinstance(entry, str) or not entry for entry in item
-    ):
+def _optional_object(value: JsonObject, name: str) -> JsonObject:
+    item = value.get(name, {})
+    if not isinstance(item, dict):
+        raise SessionContractError(f"Session field must be an object: {name}")
+    return to_json_object(item)
+
+
+def _required_list(value: JsonObject, name: str) -> list[object]:
+    item = value.get(name)
+    if not isinstance(item, list):
+        raise SessionContractError(f"Session field must be a list: {name}")
+    return list(item)
+
+
+def _required_bool(value: JsonObject, name: str) -> bool:
+    item = value.get(name)
+    if not isinstance(item, bool):
+        raise SessionContractError(f"Session field must be a boolean: {name}")
+    return item
+
+
+def _non_negative_int(value: JsonObject, name: str) -> int:
+    item = value.get(name)
+    if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+        raise SessionContractError(f"Session field must be non-negative int: {name}")
+    return item
+
+
+def _non_negative_number(value: JsonObject, name: str) -> float:
+    item = value.get(name)
+    if isinstance(item, bool) or not isinstance(item, (int, float)) or item < 0:
+        raise SessionContractError(f"Session field must be non-negative: {name}")
+    return float(item)
+
+
+def _string_list(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
         raise SessionContractError(f"Session field must be a string list: {name}")
-    return tuple(entry for entry in item if isinstance(entry, str))
+    return _non_empty_strings(tuple(value), f"Session {name}")
+
+
+def _non_empty_strings(
+    values: tuple[object, ...] | tuple[str, ...],
+    owner: str,
+    *,
+    unique: bool = False,
+) -> tuple[str, ...]:
+    items = tuple(values)
+    if any(not isinstance(item, str) or not item for item in items):
+        raise SessionContractError(f"{owner} must contain non-empty strings")
+    result = tuple(item for item in items if isinstance(item, str))
+    if unique and len(set(result)) != len(result):
+        raise SessionContractError(f"{owner} must be unique")
+    return result

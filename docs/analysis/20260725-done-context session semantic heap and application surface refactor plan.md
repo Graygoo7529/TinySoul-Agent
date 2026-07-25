@@ -1,6 +1,6 @@
 # Context/Session 语义堆与应用表面重构执行计划
 
-状态：pending
+状态：done
 
 日期：2026-07-25
 
@@ -66,7 +66,7 @@ Session root inspect 允许省略 `ref`；其续读仍保持省略 ref，并提�
 
 continuation 是 versioned、owner/action/ref-bound 的 opaque token。其内部可以包含位置、immutable node content binding，或 active Session head 的 revision binding；这些字段不进入工具 schema 或模型结果。无效、过期、owner/ref 不匹配统一反馈“重新 inspect 当前 ref”，不向模型解释 index、offset、digest 或 revision。
 
-节点之间只能通过响应中的新 ref 导航。continuation 不形成可持久 Link，不进入 Session record、Background 或 WorkingContext；foldable inspect 的 compact canonical result 至多保留 origin ref 和继续入口。
+节点之间只能通过响应中的新 ref 导航。continuation 不形成可持久 Link，不进入 foldable canonical payload、Session record、Background 或 WorkingContext；inspect 的 compact canonical result 只保留已检查的 origin ref/标记，完整结果被回收后从该 ref 重新检查。
 
 ## Context 重构
 
@@ -237,7 +237,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 1：契约与 Core Catalog
 
-状态：pending
+状态：done
 
 - 定义 Context/Session ref/continuation/next_continuation 共同语法和 owner binding；
 - 将两个 inspect Catalog 移入 Core，命名为 `core.context.inspect`、`core.session.inspect`；
@@ -247,7 +247,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 2：Context semantic heap inspect
 
-状态：pending
+状态：done
 
 - 保留并整理 `TurnTraceHeap` 的 hot/cold、Cycle 原子压缩、leaf/branch 和 root coalescing；
 - 让一个 inspect 门面覆盖 head、branch、leaf，输出紧凑 header 或语义 interaction；
@@ -258,7 +258,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 3：Session schema v4 与唯一投影
 
-状态：pending
+状态：done
 
 - 引入显式 Turn/Summary/Action/Input/Output immutable record 类型；
 - 将 Manifest 收敛为 v2 ordered root refs；
@@ -270,7 +270,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 4：Session semantic heap inspect
 
-状态：pending
+状态：done
 
 - 用单一 inspect 实现 active root、Summary、Turn、Action collection 和 Action leaf 展开；
 - 让 continuation 只服务同一节点的 direct children 或 oversized leaf；
@@ -280,7 +280,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 5：Endpoint 与前端表面收缩
 
-状态：pending
+状态：done
 
 - 删除三条 Session REST、OpenAPI、status 字段、Endpoint tests 和对接文档声明；
 - 删除 visualization History/Session Explorer、client/types/hooks/tests/styles；
@@ -289,7 +289,7 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 
 ### Stage 6：文档、发布与验收
 
-状态：pending
+状态：done
 
 - 更新 AGENT 项目规约和当前任务状态；
 - 重写 Context、Session、Action、Endpoint 设计文档；
@@ -334,3 +334,11 @@ Chat 继续从 `llm.task.*` model Observation 展示每次真实 MessageStack，
 - Core domain 是唯一历史 inspect 选择入口，Catalog/HOW 边界简洁且不污染嵌套 LLM Task；
 - Endpoint 和 visualization 不再维护独立 Session Explorer，前端只呈现真实 MessageStack/Observation 与 Workspace；
 - 不引入兼容层、第二事实源、万能路由器或为前端诊断服务的后端业务结构。
+
+## 实施结果
+
+- Catalog 只在 Core domain 暴露 `core.context.inspect` 与 `core.session.inspect`；旧 Context/Session domain、recall/fold、Domain HOW 和配置键已删除；
+- Context 保留当前 Turn hot/cold semantic heap，Session 使用 schema v4/Manifest v2 immutable business graph；两者统一使用 ref 与 opaque continuation，但不共享业务导航实现；
+- Session Background、inspect 与 Memory facts 已从同一已验证 record graph 派生，Endpoint 和 visualization 不再维护 Session REST/Explorer 或 canonical trace 投影；
+- initializer 与 wheel 回归测试同时正向验证两个 Core inspect 资源、反向验证旧 Catalog/HOW 不再发布；
+- 完整后端 pytest、生产代码 `ty`、前端 Vitest、TypeScript/Vite build 和 diff 格式检查通过；测试只剩第三方 FastAPI TestClient 的 Starlette 弃用 warning。

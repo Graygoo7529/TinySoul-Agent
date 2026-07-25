@@ -218,7 +218,7 @@ def test_trace_compaction_keeps_canonical_entries_and_exposes_heap_head() -> Non
     assert again.compacted_count == 0
 
 
-def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
+def test_trace_compaction_builds_inspectable_leaf_nodes() -> None:
     trace = TurnTraceHeap(turn_id="turn_test", min_hot_entries=1)
     for index in range(4):
         trace.append_phase_note(f"note {index}")
@@ -229,37 +229,35 @@ def test_trace_compaction_builds_recallable_leaf_nodes() -> None:
     assert "canonical_revision" not in model_header.value
     head = trace.inspect(trace.head_ref())
     assert head == model_header.value
-    roots = head["roots"]
-    assert isinstance(roots, list)
-    assert roots
-    root = roots[0]
+    nodes = head["nodes"]
+    assert isinstance(nodes, list)
+    assert nodes
+    root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    recalled = trace.recall(ref, max_chars=1000)
-    assert [entry.kind for entry in recalled.entries] == [TraceKind.PHASE_NOTE] * 3
-    assert recalled.next_cursor is None
+    assert trace.inspect(ref) == {"kind": "context_trace_leaf", "ref": ref}
+    assert [entry.kind for entry in trace.leaf_entries(ref)] == [
+        TraceKind.PHASE_NOTE
+    ] * 3
 
 
-def test_trace_recall_pages_through_an_immutable_leaf() -> None:
+def test_trace_leaf_keeps_immutable_interaction_order() -> None:
     trace = TurnTraceHeap(turn_id="turn_page", min_hot_entries=0)
     for index in range(4):
         trace.append_phase_note(f"note {index}" + "x" * 30)
     trace.compact(required_chars=1)
     head = trace.inspect(trace.head_ref())
-    roots = head["roots"]
-    assert isinstance(roots, list)
-    root = roots[0]
+    nodes = head["nodes"]
+    assert isinstance(nodes, list)
+    root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
 
-    first = trace.recall(ref, max_chars=40)
-    assert len(first.entries) == 1
-    assert first.next_cursor == 1
-    second = trace.recall(ref, max_chars=1000, cursor=first.next_cursor)
-    assert len(second.entries) == 3
-    assert second.next_cursor is None
+    entries = trace.leaf_entries(ref)
+    assert len(entries) == 4
+    assert [entry.kind for entry in entries] == [TraceKind.PHASE_NOTE] * 4
 
 
 def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:
@@ -275,16 +273,16 @@ def test_trace_compaction_does_not_split_cycle_at_hot_boundary() -> None:
     assert len(trace.hot_entries()) == 4
 
 
-def test_trace_recall_overlay_folds_back_to_origin_pointer() -> None:
+def test_trace_inspect_overlay_folds_back_to_origin_pointer() -> None:
     trace = TurnTraceHeap()
     full = ToolResultMessage.from_json(
         call_id="recall_1",
-        tool_name="session.history.recall",
+        tool_name="core.session.inspect",
         value={"detail": "x" * 200},
     )
     compact = ToolResultMessage.from_json(
         call_id="recall_1",
-        tool_name="session.history.recall",
+        tool_name="core.session.inspect",
         value={"origin_ref": "session:turn/old", "folded": True},
     )
     trace.append_action_result(

@@ -1,0 +1,38 @@
+name = "core.session.inspect"
+domain = "core"
+
+[tool]
+description = "Inspect one completed prior-Turn Session ref by one semantic level."
+
+[tool.schema]
+type = "object"
+additionalProperties = false
+
+[tool.schema.properties.ref]
+type = "string"
+description = "Optional Summary, Turn, Action collection, or Action leaf ref already visible in Session Background or inspect output. Omit to inspect the active Session head."
+
+[tool.schema.properties.action]
+type = "string"
+description = "Optional exact Action-name filter for an Action collection ref."
+
+[tool.schema.properties.continuation]
+type = "string"
+description = "Opaque continuation returned for unfinished content from this same ref."
+
+[semantic]
+use_when = ["A needed completed prior-Turn fact is not sufficiently visible in Session Background"]
+avoid_when = ["The needed fact belongs to the active current Turn", "The visible Session Background already contains enough information"]
+effects = ["read_only"]
+examples = ["Inspect a Summary ref, then a returned Turn ref, then its Action collection if needed"]
+
+[runtime]
+timeout_seconds = 5
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[backend]
+kind = "native"
+handler = "session.inspect"

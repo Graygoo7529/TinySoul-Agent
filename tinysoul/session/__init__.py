@@ -6,46 +6,54 @@ if TYPE_CHECKING:
     from .actions import register_session_actions
     from .projection import SessionTurnCompletionHandler, SessionTurnPreparationHandler
 from .config import SessionSettings, parse_session_settings
-from .action_history import (
-    ActionPairingIssue,
-    TurnActionDetail,
-    TurnActionProjection,
-    project_turn_actions,
-)
 from .engine import SessionArchiveSnapshot, SessionEngine
 from .errors import (
     SessionContractError,
     SessionError,
-    SessionHistoryFailureReason,
-    SessionHistoryRequestError,
+    SessionInspectFailureReason,
+    SessionInspectRequestError,
     SessionIOError,
     SessionInvariantError,
 )
 from .failures import SessionFailureKind
 from .memory import SessionMemoryFact, SessionMemoryFactsProjection
+from .models import (
+    SessionActionOutcome,
+    SessionActionRecord,
+    SessionInputRecord,
+    SessionManifest,
+    SessionOutputRecord,
+    SessionRecordKind,
+    SessionSummaryRecord,
+    SessionTurnRecord,
+)
 from .reconcile import SessionReconcileResult
 
 __all__ = [
     "SessionContractError",
-    "ActionPairingIssue",
+    "SessionActionOutcome",
+    "SessionActionRecord",
     "SessionArchiveSnapshot",
     "SessionEngine",
     "SessionError",
-    "SessionHistoryFailureReason",
-    "SessionHistoryRequestError",
+    "SessionInspectFailureReason",
+    "SessionInspectRequestError",
     "SessionFailureKind",
     "SessionIOError",
     "SessionInvariantError",
     "SessionMemoryFact",
     "SessionMemoryFactsProjection",
+    "SessionInputRecord",
+    "SessionManifest",
+    "SessionOutputRecord",
+    "SessionRecordKind",
     "SessionReconcileResult",
     "SessionSettings",
+    "SessionSummaryRecord",
+    "SessionTurnRecord",
     "SessionTurnCompletionHandler",
     "SessionTurnPreparationHandler",
-    "TurnActionDetail",
-    "TurnActionProjection",
     "parse_session_settings",
-    "project_turn_actions",
     "register_session_actions",
 ]
 

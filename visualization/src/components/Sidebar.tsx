@@ -1,4 +1,4 @@
-import { MessageSquare, FolderOpen, History, Settings } from "lucide-react";
+import { MessageSquare, FolderOpen, Settings } from "lucide-react";
 
 import { useAppStore } from "../store/appStore";
 import type { AppTab } from "../types";
@@ -6,7 +6,6 @@ import type { AppTab } from "../types";
 const ITEMS: { id: AppTab; label: string; icon: React.ElementType }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "workspace", label: "Files", icon: FolderOpen },
-  { id: "session", label: "History", icon: History },
 ];
 
 interface SidebarProps {

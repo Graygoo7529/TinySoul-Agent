@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Protocol
 
-from tinysoul.context import ContextEngine, TurnSummary, build_trace_phase_note_signal
+from tinysoul.context import (
+    ContextEngine,
+    ContextTurnCompletion,
+    build_trace_phase_note_signal,
+)
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import to_json_object
 from tinysoul.runtime import (
@@ -45,7 +49,7 @@ from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 class TurnOutcome:
     """Outcome of one user turn."""
 
-    summary: TurnSummary | None
+    context_completion: ContextTurnCompletion | None
     business_day: BusinessDay
     status: TurnOutcomeStatus
     output: TurnOutput | None = None
@@ -244,7 +248,7 @@ class TurnRunner:
         if output is not None and self._is_turn_end(transfer, turn_scope):
             transfer = None
         try:
-            summary, finish_boundary = self._finish_turn(turn_scope)
+            context_completion, finish_boundary = self._finish_turn(turn_scope)
         finally:
             self._set_active_scope(None)
         if finish_boundary is not None:
@@ -252,11 +256,11 @@ class TurnRunner:
                 transfer = finish_boundary.transfer
             failure = failure or finish_boundary.failure
         completion_committed = False
-        if summary is not None:
+        if context_completion is not None:
             try:
                 self._completion_pipeline.run(
                     TurnCompletion(
-                        summary=summary,
+                        context_completion=context_completion,
                         business_day=business_day,
                         output=output,
                         exhausted=exhausted,
@@ -307,7 +311,7 @@ class TurnRunner:
             },
         )
         return TurnOutcome(
-            summary=summary,
+            context_completion=context_completion,
             business_day=business_day,
             status=status,
             output=output,
@@ -451,7 +455,7 @@ class TurnRunner:
             scope=scope,
         )
 
-    def _end_turn(self) -> TurnSummary | None:
+    def _end_turn(self) -> ContextTurnCompletion | None:
         if not self._context.turn_active:
             return None
         try:
@@ -462,7 +466,7 @@ class TurnRunner:
     def _finish_turn(
         self,
         scope: RunScope,
-    ) -> tuple[TurnSummary | None, _TurnBoundary | None]:
+    ) -> tuple[ContextTurnCompletion | None, _TurnBoundary | None]:
         try:
             return self._end_turn(), None
         except RuntimeException as exc:

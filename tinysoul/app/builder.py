@@ -611,7 +611,6 @@ class TinySoulAppBuilder:
                     events=endpoint_events,
                     gateway=gateway,
                     workspace=workspace,
-                    session=session,
                     daily_lifecycle=daily_lifecycle,
                     maintenance=maintenance_runner,
                 )
@@ -850,8 +849,7 @@ class TinySoulAppBuilder:
                     branch_factor=settings.trace_branch_factor,
                     min_hot_entries=settings.trace_min_hot_entries,
                 )
-                .with_trace_recall_max_chars(settings.trace_recall_max_chars)
-                .with_trace_recall_max_entries(settings.trace_recall_max_entries)
+                .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
                 .with_compression_trigger_ratio(settings.compression_trigger_ratio)
                 .with_compression_target_ratio(settings.compression_target_ratio)
                 .add_background_provider(

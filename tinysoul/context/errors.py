@@ -21,13 +21,8 @@ class ContextTraceFailureReason(StrEnum):
     INVALID_REF = "invalid_ref"
     UNKNOWN_REF = "unknown_ref"
     REF_NOT_LEAF = "ref_not_leaf"
-    INVALID_CURSOR = "invalid_cursor"
-    CURSOR_OUT_OF_RANGE = "cursor_out_of_range"
-    ENTRY_OFFSET_OUT_OF_RANGE = "entry_offset_out_of_range"
-    ENTRY_DIGEST_MISMATCH = "entry_digest_mismatch"
+    INVALID_CONTINUATION = "invalid_continuation"
     PAGE_BUDGET_TOO_SMALL = "page_budget_too_small"
-    INVALID_MAX_CHARS = "invalid_max_chars"
-    INVALID_MAX_ENTRIES = "invalid_max_entries"
 
 
 class ContextTraceRequestError(ContextContractError):
@@ -42,7 +37,7 @@ class ContextTraceRequestError(ContextContractError):
     ) -> None:
         super().__init__(message)
         self.reason = reason
-        self.scope = "context.trace"
+        self.scope = "context.inspect"
         self.constraint = to_json_object(constraint or {})
 
 

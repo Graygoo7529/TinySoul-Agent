@@ -10,7 +10,6 @@ import pytest
 
 import tinysoul.loop.daily as daily_module
 import tinysoul.workspace.engine as workspace_engine_module
-from tinysoul.context import TurnSummary, canonical_trace_digest
 from tinysoul.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator
 from tinysoul.loop.errors import LoopContractError, LoopInvariantError
@@ -21,7 +20,8 @@ from tinysoul.runtime import (
     RunLevel,
     RunScope,
 )
-from tinysoul.session import SessionEngine, SessionSettings
+from tinysoul.session import SessionEngine, SessionOutputRecord, SessionSettings
+from tests.session.synthetic import completion
 from tinysoul.workspace import WorkspaceEngine, WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.workspace.errors import WorkspaceIOError
 
@@ -73,11 +73,8 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     session, workspace, home, coordinator = _daily_system(tmp_path)
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
-        summary=TurnSummary(
-            turn_id="turn_old",
-            trace_digest=canonical_trace_digest(()),
-        ),
-        output={"text": "old answer"},
+        completion("turn_old"),
+        output=SessionOutputRecord(text="old answer"),
         exhausted=False,
         day=OLD_DAY,
     )
@@ -233,11 +230,8 @@ def test_daily_resumes_session_move_when_step_journal_write_failed(
     session, workspace, home, coordinator = _daily_system(tmp_path)
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
-        summary=TurnSummary(
-            turn_id="turn_session_window",
-            trace_digest=canonical_trace_digest(()),
-        ),
-        output={"text": "saved"},
+        completion("turn_session_window"),
+        output=SessionOutputRecord(text="saved"),
         exhausted=False,
         day=OLD_DAY,
     )

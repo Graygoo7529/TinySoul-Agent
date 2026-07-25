@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from hashlib import sha256
 from time import time
 from uuid import uuid4
 
@@ -25,23 +24,6 @@ from .errors import (
     ContextTraceFailureReason,
     ContextTraceRequestError,
 )
-
-
-def canonical_trace_digest(trace: tuple[JsonObject, ...]) -> str:
-    """Return the content identity of one canonical serialized Turn trace."""
-
-    encoded = dumps_json({"trace": list(trace)}).encode("utf-8")
-    return f"sha256:{sha256(encoded).hexdigest()}"
-
-
-def is_canonical_trace_digest(value: object) -> bool:
-    """Return whether *value* is a canonical trace content digest."""
-
-    if not isinstance(value, str) or not value.startswith("sha256:"):
-        return False
-    digest = value.removeprefix("sha256:")
-    return len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
-
 
 class TraceKind(StrEnum):
     """Kinds of canonical turn trace entries."""
@@ -123,19 +105,19 @@ class TraceHeapNode:
             )
 
     def to_header(self, *, turn_id: str) -> JsonObject:
-        return to_json_object(
-            {
-                "ref": _node_ref(turn_id, self.node_id),
-                "kind": self.kind.value,
-                "level": self.level,
-                "entry_count": len(self.entry_ids),
-                "child_count": len(self.child_ids),
-                "cycle_ids": list(self.cycle_ids),
-                "trace_kinds": list(self.trace_kinds),
-                "action_names": list(self.action_names),
-                "char_count": self.char_count,
-            }
-        )
+        value: JsonObject = {
+            "ref": _node_ref(turn_id, self.node_id),
+            "kind": self.kind.value,
+        }
+        if self.kind is TraceHeapNodeKind.LEAF:
+            value["interaction_count"] = len(self.entry_ids)
+        else:
+            value["child_count"] = len(self.child_ids)
+        if self.trace_kinds:
+            value["interaction_kinds"] = list(self.trace_kinds)
+        if self.action_names:
+            value["actions"] = list(self.action_names)
+        return to_json_object(value)
 
 
 @dataclass(frozen=True)
@@ -151,26 +133,11 @@ class TraceCompactionReport:
 
 
 @dataclass(frozen=True)
-class TraceRecallPage:
-    """One stable page from an immutable trace leaf."""
-
-    entries: tuple[TraceEntry, ...]
-    cursor: int
-    next_cursor: int | None
-
-    @property
-    def truncated(self) -> bool:
-        return self.next_cursor is not None
-
-
-@dataclass(frozen=True)
 class SealedTurnTrace:
-    """Immutable complete trace transferred to Turn completion services."""
+    """Immutable canonical entries transferred once at Turn completion."""
 
     turn_id: str
     entries: tuple[TraceEntry, ...]
-    nodes: tuple[TraceHeapNode, ...]
-    root_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
         if not self.turn_id:
@@ -313,57 +280,24 @@ class TurnTraceHeap:
         if ref == self.head_ref():
             return self._head_payload()
         node = self._node_for_ref(ref)
-        children = [
+        if node.kind is TraceHeapNodeKind.LEAF:
+            return {"kind": "context_trace_leaf", "ref": ref}
+        children = tuple(
             self._nodes[child_id].to_header(turn_id=self._turn_id)
             for child_id in node.child_ids
-        ]
-        payload = node.to_header(turn_id=self._turn_id)
-        return to_json_object({**payload, "children": children})
-
-    def recall(
-        self,
-        ref: str,
-        *,
-        max_chars: int,
-        cursor: int = 0,
-    ) -> TraceRecallPage:
-        if isinstance(max_chars, bool) or max_chars <= 0:
-            raise ContextContractError("Trace recall max_chars must be positive")
-        if isinstance(cursor, bool) or cursor < 0:
-            raise ContextContractError("Trace recall cursor cannot be negative")
-        node = self._node_for_ref(ref)
-        if node.kind is not TraceHeapNodeKind.LEAF:
-            raise ContextContractError(
-                "Trace recall requires a leaf ref; inspect the branch first"
-            )
-        if cursor > len(node.entry_ids):
-            raise ContextContractError("Trace recall cursor exceeds the leaf size")
-        by_id = {entry.entry_id: entry for entry in self._entries}
-        selected: list[TraceEntry] = []
-        used = 0
-        next_cursor: int | None = None
-        for index, entry_id in enumerate(node.entry_ids[cursor:], start=cursor):
-            entry = by_id[entry_id]
-            size = _message_chars(entry.message)
-            if selected and used + size > max_chars:
-                next_cursor = index
-                break
-            selected.append(entry)
-            used += size
-        return TraceRecallPage(
-            entries=tuple(selected),
-            cursor=cursor,
-            next_cursor=next_cursor,
+        )
+        return to_json_object(
+            {"kind": "context_trace_branch", "ref": ref, "nodes": children}
         )
 
-    def recall_entries(self, ref: str) -> tuple[TraceEntry, ...]:
-        """Return every immutable entry in one leaf for boundary paging."""
+    def leaf_entries(self, ref: str) -> tuple[TraceEntry, ...]:
+        """Return the immutable entries of one inspected leaf."""
 
         node = self._node_for_ref(ref)
         if node.kind is not TraceHeapNodeKind.LEAF:
             raise ContextTraceRequestError(
                 ContextTraceFailureReason.REF_NOT_LEAF,
-                "Trace recall requires a leaf ref; inspect the branch first",
+                "Context inspect requires a leaf ref for interaction content",
                 constraint={"ref": ref},
             )
         by_id = {entry.entry_id: entry for entry in self._entries}
@@ -388,8 +322,6 @@ class TurnTraceHeap:
         return SealedTurnTrace(
             turn_id=self._turn_id,
             entries=self.entries(),
-            nodes=self.nodes(),
-            root_ids=tuple(self._root_ids),
         )
 
     def _append(
@@ -506,13 +438,12 @@ class TurnTraceHeap:
     def _head_payload(self) -> JsonObject:
         return to_json_object(
             {
+                "kind": "context_trace_head",
                 "ref": self.head_ref(),
-                "note": "Earlier TurnTrace entries are available through this heap head.",
-                "roots": [
+                "nodes": [
                     self._nodes[node_id].to_header(turn_id=self._turn_id)
                     for node_id in self._root_ids
                 ],
-                "hot_entry_count": len(self._hot_entry_ids),
             }
         )
 

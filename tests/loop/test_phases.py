@@ -21,7 +21,7 @@ from tinysoul.context import (
 )
 from tinysoul.context.trace import TraceKind
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.messages import JsonPart, MessageStack, TextPart
+from tinysoul.llm.messages import JsonPart, MessageStack, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
@@ -449,7 +449,7 @@ def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     assert analyze_payload["answer"] == (
         "Alpha and beta are present."
     )
-    assert context.fold_trace_overlays() == 2
+    assert context.compress(required_chars=0).folded_overlay_count == 2
     assert all(entry.visible_overlay is None for entry in context.seal_trace().entries)
 
     summary = context.end_turn()
@@ -716,14 +716,11 @@ def test_phase3_records_multiple_answers_as_loop_note() -> None:
     assert len(outcome.results) == 2
     assert outcome.phase_results == ()
     assert context.turn_active is False
-    note_message = summary.trace[-1]["message"]
-    assert isinstance(note_message, dict)
-    content = note_message["content"]
-    assert isinstance(content, list)
-    note_part = content[0]
-    assert isinstance(note_part, dict)
-    note = note_part["value"]
-    assert isinstance(note, dict)
+    note_message = summary.trace.entries[-1].message
+    assert isinstance(note_message, UserMessage)
+    note_part = note_message.parts[0]
+    assert isinstance(note_part, JsonPart)
+    note = note_part.value
     assert note["kind"] == LoopTraceNoteKind.MULTIPLE_TURN_OUTPUTS.value
     result_ids = note["result_ids"]
     assert isinstance(result_ids, list)
@@ -804,9 +801,6 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
 
     action = (
         ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("context.trace.fold", lambda execution, context: {})
-        .register_native("context.trace.inspect", lambda execution, context: {})
-        .register_native("context.trace.recall", lambda execution, context: {})
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
@@ -821,8 +815,8 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_native("memory.search", lambda execution, context: {"items": []})
         .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("session.history.inspect", lambda execution, context: {})
-        .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("context.inspect", lambda execution, context: {})
+        .register_native("session.inspect", lambda execution, context: {})
         .register_native("workspace.delete", lambda execution, context: {"deleted": True})
         .register_native("workspace.describe", lambda execution, context: {"described": True})
         .register_native("workspace.patch", lambda execution, context: {"patched": True})
@@ -885,9 +879,6 @@ def _action_engine(
 ) -> ActionEngine:
     builder = (
         ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("context.trace.fold", lambda execution, context: {})
-        .register_native("context.trace.inspect", lambda execution, context: {})
-        .register_native("context.trace.recall", lambda execution, context: {})
         .register_native("core.answer", lambda execution, context: {"text": "done"})
         .register_native("core.reason", lambda execution, context: {"ok": True})
         .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
@@ -900,8 +891,8 @@ def _action_engine(
         .register_native("home.top.search", lambda execution, context: {"items": []})
         .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("session.history.inspect", lambda execution, context: {})
-        .register_native("session.history.recall", lambda execution, context: {})
+        .register_native("context.inspect", lambda execution, context: {})
+        .register_native("session.inspect", lambda execution, context: {})
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,

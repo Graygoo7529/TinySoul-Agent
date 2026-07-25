@@ -38,7 +38,7 @@ Workspace 的核心职责：
 
 Workspace 不负责：
 
-- 把文件正文写入 BackgroundContext、WorkingContext 或 Session canonical trace；
+- 把文件正文写入 BackgroundContext、WorkingContext 或 Session record；
 - 决定 Phase1/Phase2 的行动策略；
 - 维护 Agent Home 的 WHAT/WHY/HOW 或 Memory 模块的 MEMORY；
 - 解析终端、HTTP、WebSocket 等外部输入；
@@ -147,7 +147,7 @@ Workspace action 继续走 action 模块的既有机制：TOML 描述模型可�
 - `workspace.search_text` 接受单行字面量 query 和显式 file/directory/workspace scope，不接受 regex。目录 prefix 是选择器而不是新的 Link 类型；候选按 Link、命中按行号稳定排序，重叠上下文合并为片段。scan budget 决定 `coverage.complete`，result budget 决定 fragments、额外 line hints 与 `truncated`，二者不能混为一个标记；不区分大小写匹配使用 Unicode casefold，但长行裁剪和列位置始终映射回原文字符坐标，片段必须保留实际来源 match span。
 - `workspace.analyze` 只接受 Phase2 已选择的非空、去重 text `reference_links` 和有界 intent，不接受目录或 Workspace scope，也不在 Phase3 重新选择资源。每个 reference 必须完整进入一次 action-internal LLM task；任一单文件、Link 数量或合计 source 超出 analysis budget 时，不调用 LLM，而是返回带 Link/digest/size 诊断的局部失败。成功输出只含有界 answer、经过 executor 验证的 source ids 映射和 coverage，不携带原始正文，不修改 Workspace 或发布 snapshot。
 
-`workspace.read` 与 `workspace.search_text` 的成功结果使用 Catalog 声明的 foldable trace mode：正文只存在于当前 Turn visible overlay；canonical trace 删除正文但保留 Link、digest、范围/hints 和 coverage，Context pressure 可移除 overlay，Session 无论是否发生压缩都只持久化 compact locator。Workspace 资源可变且按日归档，compact locator 不承诺跨日恢复原片段。`workspace.analyze` 返回的是有界整理结论，使用 standard trace；原始 references 只存在于 action-internal prompt。
+`workspace.read` 与 `workspace.search_text` 的成功结果使用 Catalog 声明的 foldable trace mode：正文只存在于当前 Turn visible overlay；canonical payload 删除正文但保留 Link、digest、范围/hints 和 coverage，Context pressure 可移除 overlay，Session completion 只投影 compact locator 业务结果。Workspace 资源可变且按日归档，compact locator 不承诺跨日恢复原片段。`workspace.analyze` 返回的是有界整理结论，使用 standard trace；原始 references 只存在于 action-internal prompt。
 
 当前已实现的 `workspace.describe` 行为：
 
@@ -192,7 +192,7 @@ Workspace 不提供跨进程锁、文件系统快照或外部 writer 的强一�
 
 桌面 Endpoint 也复用同一 Engine 实例，不把 active Workspace 暴露给前端文件 API。UI mutation 额外提交 Manifest `expected_revision`，Engine 在同一可重入锁内先校验 revision，再执行原有 resource digest guard 和 mutation；trash 同样要求 digest，restore 要求 revision。Endpoint 在 Daily active-day lease 内调用这些门面，避免请求落入归档与新日初始化之间。Endpoint 不重复发布 Workspace event，只在自身 mutation 成功后通过 Gateway 协调活跃 Turn 的 Context snapshot。
 
-WorkingContext 与 BackgroundContext 不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，优先在 action 内部进行分析、转化为临时 task prompt，或通过显式有界 read/search 返回。read/search 完整 payload 只作为当前 Turn visible overlay，compact payload 才是 canonical trace 和 Session 输入；analyze 的 references 只进入内部 prompt，ActionResult 只保存结论与来源。
+WorkingContext 与 BackgroundContext 不保存文件正文。Action 结果也不应默认把正文渲染为 tool result message；需要给模型继续处理的正文，优先在 action 内部进行分析、转化为临时 task prompt，或通过显式有界 read/search 返回。read/search 完整 payload 只作为当前 Turn visible overlay，compact payload 才进入可恢复 Context trace 并由 Session completion 投影；analyze 的 references 只进入内部 prompt，ActionResult 只保存结论与来源。
 
 ## Infra 依赖
 
@@ -257,7 +257,7 @@ AppBuilder 的目标职责是：
 - manifest 完整 reconciliation、incomplete 不提交、无变化 revision 稳定和 description digest 失效有单元测试；
 - Turn preparation 在首个 Phase 前投影完整 Manifest；
 - text/image/document/binary 分类、ImagePart 内容签名校验、图片预算和 document conversion_required 有单元测试；
-- Engine 内部有界文本前缀读取、公开 range/cursor 读取、确定性 file/directory/workspace 字面量搜索、`WorkspacePromptInput` 和 workspace link 到 PromptBlock 的局部解析都有边界测试；read/search 正文只进入 foldable visible overlay，TurnSummary/Session 只保存 compact locator；
+- Engine 内部有界文本前缀读取、公开 range/cursor 读取、确定性 file/directory/workspace 字面量搜索、`WorkspacePromptInput` 和 workspace link 到 PromptBlock 的局部解析都有边界测试；read/search 正文只进入 foldable visible overlay，Session 只保存投影后的 compact locator 业务结果；
 - `workspace.analyze` 覆盖完整 reference budget、超限不调用 LLM、虚构 source id 拒绝、standard result 不携带 reference 正文和无 Workspace mutation；
 - Workspace 配置错误经 workspace bridge 映射，并保留 `module = workspace`；
 - write/patch/delete/rewrite action 使用 `target_link` 表达变更目标；write/rewrite 在 action 内部调用 LLM 生成完整文本，patch 确定性应用 Phase2 生成的小幅替换参数；执行失败应收敛为 `ActionResult`，成功结果不携带文件正文；

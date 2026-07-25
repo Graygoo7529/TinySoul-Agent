@@ -73,8 +73,10 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
-    assert "tinysoul/action/catalog/session/actions/history_inspect.toml" in names
-    assert "tinysoul/action/catalog/session/actions/history_recall.toml" in names
+    assert "tinysoul/action/catalog/core/actions/context_inspect.toml" in names
+    assert "tinysoul/action/catalog/core/actions/session_inspect.toml" in names
+    assert not any(name.startswith("tinysoul/action/catalog/context/") for name in names)
+    assert not any(name.startswith("tinysoul/action/catalog/session/") for name in names)
     for profile in ("standard", "development"):
         profile_root = f"tinysoul/assets/project/config_profiles/{profile}"
         assert f"{profile_root}/configs/home.toml" in names
@@ -98,8 +100,14 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/how_domain/web/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/script/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/session/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/context/DOMAIN.md" in names
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/how_domain/session/")
+        for name in names
+    )
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/how_domain/context/")
+        for name in names
+    )
     assert (
         "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
     )
@@ -197,19 +205,13 @@ raise SystemExit(
     assert (
         initialized / "home" / "how_domain" / "shell" / "DOMAIN.md"
     ).is_file()
-    assert (
-        initialized / "home" / "how_domain" / "session" / "DOMAIN.md"
-    ).is_file()
-    assert (
-        initialized / "home" / "how_domain" / "context" / "DOMAIN.md"
-    ).is_file()
+    assert not (initialized / "home" / "how_domain" / "session").exists()
+    assert not (initialized / "home" / "how_domain" / "context").exists()
     assert not (initialized / "home" / "how_action" / "session").exists()
     session_config = tomllib.loads(
         (initialized / "configs" / "session.toml").read_text(encoding="utf-8")
     )["session"]
-    assert session_config["history_page_max_chars"] == 8000
-    assert session_config["history_page_max_entries"] == 50
-    assert session_config["actions_page_max_items"] == 50
+    assert session_config["inspect_max_chars"] == 8000
     assert "enabled = false" in (
         initialized / "configs" / "capabilities.shell.toml"
     ).read_text(encoding="utf-8")

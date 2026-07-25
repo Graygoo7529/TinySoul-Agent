@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import tinysoul.memory.store as store_module
-from tinysoul.context import canonical_trace_digest
 from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm import JsonAnswer, RawResponse, TaskCall, TaskProfile, TaskResult
@@ -350,7 +349,6 @@ def test_fact_start_time_must_belong_to_projection_business_day(tmp_path: Path) 
         ref="session:turn/wrong_day",
         started_at=datetime(2026, 7, 13, 9, 0, tzinfo=ZONE).astimezone(UTC),
         user_inputs=("wrong day",),
-        trace_digest=canonical_trace_digest(()),
     )
 
     with pytest.raises(MemoryInvariantError):
@@ -558,7 +556,6 @@ def _fact(text: str, hour: int) -> SessionMemoryFact:
         started_at=started_at,
         user_inputs=(text,),
         answer=f"answer for {text}",
-        trace_digest=canonical_trace_digest(()),
     )
 
 

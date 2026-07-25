@@ -1,7 +1,0 @@
-name = "context"
-description = "Compressed interaction history from the current Turn."
-selection_hint = "Use only when a needed current-Turn decision or result is no longer visible."
-
-[runtime]
-timeout_seconds = 5
-parallel_policy = "serial"

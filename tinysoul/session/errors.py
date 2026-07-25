@@ -15,33 +15,26 @@ class SessionContractError(SessionError):
     """Invalid Session boundary input."""
 
 
-class SessionHistoryFailureReason(StrEnum):
-    """Stable request-local failures for Session history navigation."""
+class SessionInspectFailureReason(StrEnum):
+    """Stable request-local failures for Session heap inspection."""
 
     INVALID_REF = "invalid_ref"
     UNKNOWN_REF = "unknown_ref"
     WRONG_RECORD_KIND = "wrong_record_kind"
-    INVALID_CURSOR = "invalid_cursor"
-    REVISION_CHANGED = "revision_changed"
-    CURSOR_OUT_OF_RANGE = "cursor_out_of_range"
-    ENTRY_OFFSET_OUT_OF_RANGE = "entry_offset_out_of_range"
-    ENTRY_DIGEST_MISMATCH = "entry_digest_mismatch"
+    INVALID_CONTINUATION = "invalid_continuation"
     PAGE_BUDGET_TOO_SMALL = "page_budget_too_small"
-    INVALID_MAX_CHARS = "invalid_max_chars"
-    INVALID_MAX_ENTRIES = "invalid_max_entries"
-    INVALID_MAX_ITEMS = "invalid_max_items"
 
 
-class SessionHistoryRequestError(SessionContractError):
-    """A caller can correct one Session history request."""
+class SessionInspectRequestError(SessionContractError):
+    """A caller can correct one Session inspect request."""
 
     def __init__(
         self,
-        reason: SessionHistoryFailureReason,
+        reason: SessionInspectFailureReason,
         message: str,
         *,
         constraint: JsonObject | None = None,
-        scope: str = "session.history",
+        scope: str = "session.inspect",
     ) -> None:
         super().__init__(message)
         self.reason = reason

@@ -21,7 +21,6 @@ from tinysoul.endpoint import (
     EndpointSettings,
 )
 from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
-from tinysoul.context import TurnSummary, canonical_trace_digest
 from tinysoul.infra.json import JsonObject
 from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
 from tinysoul.runtime import (
@@ -56,10 +55,6 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     status = client.get("/v1/status", headers=_auth()).json()
     assert status["ready"] is True
     assert status["active_day"] == str(DAY)
-    history = client.get("/v1/session/history", headers=_auth()).json()
-    assert history["source"]["day"] == str(DAY)
-    assert history["source"]["scope"] == "active_head"
-    assert history["items"] == []
     assert client.get(
         "/v1/maintenance/decision",
         headers=_auth(),
@@ -67,24 +62,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     openapi = client.get("/openapi.json", headers=_auth()).json()
     assert "/v1/events" in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]
-    assert "/v1/session/recall" not in openapi["paths"]
-    assert "/v1/session/actions" in openapi["paths"]
-    trace_parameters = openapi["paths"]["/v1/session/trace"]["get"]["parameters"]
-    assert any(item["name"] == "max_entries" for item in trace_parameters)
-    history_parameters = openapi["paths"]["/v1/session/history"]["get"]["parameters"]
-    assert any(item["name"] == "cursor_revision" for item in history_parameters)
-
-    unknown = client.get(
-        "/v1/session/trace",
-        headers=_auth(),
-        params={"ref": "session:turn/missing", "max_entries": 1},
-    )
-    assert unknown.status_code == 422
-    assert unknown.json()["error"] == {
-        "code": "session.unknown_ref",
-        "message": "Unknown Session history ref",
-        "details": {"ref": "session:turn/missing"},
-    }
+    assert all(not path.startswith("/v1/session/") for path in openapi["paths"])
 
     response = client.post(
         "/v1/input",
@@ -124,52 +102,6 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert gateway.maintenance_requests == [
         ("memory", BusinessDay.parse("2026-07-18"), "endpoint")
     ]
-
-
-def test_endpoint_session_history_actions_and_trace_are_read_only(
-    tmp_path: Path,
-) -> None:
-    engine, gateway = _engine(tmp_path, seed_session=True)
-    client = TestClient(create_endpoint_app(engine, engine.settings))
-    observed_before = list(gateway.observed)
-    sequence_before = engine.events.latest_sequence
-
-    history = client.get("/v1/session/history", headers=_auth()).json()
-    assert [item["ref"] for item in history["items"]] == [
-        "session:turn/turn_endpoint"
-    ]
-    overview = client.get(
-        "/v1/session/history",
-        headers=_auth(),
-        params={"ref": "session:turn/turn_endpoint"},
-    ).json()
-    assert overview["source"]["scope"] == "turn_overview"
-    assert overview["items"][0]["preview"]["user_ask"] == ["inspect history"]
-
-    actions = client.get(
-        "/v1/session/actions",
-        headers=_auth(),
-        params={"ref": "session:turn/turn_endpoint"},
-    ).json()
-    assert actions["summary"]["outcome"]["success_count"] == 1
-    assert actions["details"][0]["call_trace_index"] == 0
-    assert actions["details"][0]["result_trace_index"] == 1
-
-    trace = client.get(
-        "/v1/session/trace",
-        headers=_auth(),
-        params={
-            "ref": "session:turn/turn_endpoint",
-            "cursor_entry_index": 1,
-            "max_entries": 1,
-        },
-    ).json()
-    assert trace["returned_entry_indexes"] == [1]
-    assert trace["trace"][0]["kind"] == "action_result"
-    assert "background" not in trace
-    assert gateway.inputs == []
-    assert gateway.observed == observed_before
-    assert engine.events.latest_sequence == sequence_before
 
 
 def test_endpoint_hides_unexpected_exception_details(
@@ -408,7 +340,6 @@ def _engine(
     tmp_path: Path,
     *,
     event_max_bytes: int = 1024 * 1024,
-    seed_session: bool = False,
 ) -> tuple[EndpointEngine, _EndpointGateway]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
@@ -433,36 +364,12 @@ def _engine(
         DAY,
         now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
-    if seed_session:
-        trace = (
-            _decision_entry("call_scan", "workspace.scan"),
-            _result_entry("call_scan", "workspace.scan"),
-        )
-        session.record_turn(
-            summary=TurnSummary(
-                turn_id="turn_endpoint",
-                inputs=(
-                    {
-                        "input_id": "input_endpoint",
-                        "text": "inspect history",
-                        "received_at": 1.0,
-                        "merged": True,
-                    },
-                ),
-                trace=trace,
-                trace_digest=canonical_trace_digest(trace),
-            ),
-            day=DAY,
-            output={"text": "done"},
-            exhausted=False,
-        )
     settings = EndpointSettings(token=TOKEN)
     engine = EndpointEngine(
         settings=settings,
         events=events,
         gateway=gateway,
         workspace=workspace,
-        session=session,
         daily_lifecycle=daily,
     )
     return engine, gateway
@@ -568,54 +475,3 @@ class _EndpointGateway:
 
 def _auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
-
-
-def _decision_entry(call_id: str, action_name: str) -> JsonObject:
-    return {
-        "entry_id": f"decision_{call_id}",
-        "kind": "decision",
-        "cycle_id": "cycle_1",
-        "phase": "phase2",
-        "message": {
-            "role": "assistant",
-            "label": "decision",
-            "content": [],
-            "tool_calls": [
-                {
-                    "id": call_id,
-                    "name": action_name,
-                    "arguments": {},
-                    "kind": "action",
-                }
-            ],
-        },
-        "origin_refs": [],
-    }
-
-
-def _result_entry(call_id: str, action_name: str) -> JsonObject:
-    return {
-        "entry_id": f"result_{call_id}",
-        "kind": "action_result",
-        "cycle_id": "cycle_1",
-        "phase": "phase3",
-        "message": {
-            "role": "tool_result",
-            "label": "action_result",
-            "call_id": call_id,
-            "tool_name": action_name,
-            "status": "ok",
-            "content": [
-                {
-                    "type": "json",
-                    "value": {
-                        "action": action_name,
-                        "status": "success",
-                        "stage": "execute",
-                        "payload": {"count": 1},
-                    },
-                }
-            ],
-        },
-        "origin_refs": [],
-    }

@@ -67,7 +67,12 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
     )
 
     tools = scope.visible_tools()
-    assert [tool.name for tool in tools] == ["core.answer", "core.reason"]
+    assert [tool.name for tool in tools] == [
+        "core.answer",
+        "core.context.inspect",
+        "core.reason",
+        "core.session.inspect",
+    ]
     assert tools[0].kind is ToolKind.ACTION
     assert "Use when:" in tools[0].description
 

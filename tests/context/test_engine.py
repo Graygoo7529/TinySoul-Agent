@@ -20,9 +20,10 @@ from tinysoul.context import (
     ContextContractError,
     ContextEngineBuilder,
     ContextSignalBatch,
+    ContextTurnCompletion,
+    ContextTurnInput,
     PromptBlock,
     TaskPrompt,
-    TurnSummary,
     WorkspaceResource,
     WorkspaceSnapshot,
     build_input_append_signal,
@@ -31,7 +32,7 @@ from tinysoul.context import (
     build_trace_phase_note_signal,
     build_workspace_sync_signal,
 )
-from tinysoul.context.trace import TraceKind
+from tinysoul.context.trace import SealedTurnTrace, TraceKind
 from tinysoul.context.signals import build_working_patch_signal
 from tinysoul.context.working import WorkingPatch
 from tinysoul.llm.messages import AssistantMessage, JsonPart, TextPart, ToolResultMessage
@@ -104,7 +105,7 @@ def test_turn_lifecycle_and_compose() -> None:
 
     summary = engine.end_turn()
     assert summary.turn_id == turn_id
-    assert summary.inputs[0]["text"] == "please help"
+    assert summary.inputs[0].text == "please help"
     assert summary.background_links == ("home:agent@AGENT",)
     assert not engine.turn_active
 
@@ -147,15 +148,15 @@ def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
     assert visible.parts[0].value["text"] == "sensitive body"
 
     summary = engine.end_turn()
-    trace_message = summary.trace[0]["message"]
-    assert isinstance(trace_message, dict)
-    content = trace_message["content"]
-    assert isinstance(content, list)
-    assert content[0]["value"]["payload"] == {
+    trace_message = summary.trace.entries[0].message
+    assert isinstance(trace_message, ToolResultMessage)
+    content = trace_message.parts
+    assert isinstance(content[0], JsonPart)
+    assert content[0].value["payload"] == {
         "link": "workspace:a.md",
         "folded": True,
     }
-    assert summary.trace[0]["origin_refs"] == ["workspace:a.md"]
+    assert summary.trace.entries[0].origin_refs == ("workspace:a.md",)
 
 
 def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
@@ -167,9 +168,12 @@ def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
             signals=cast(tuple[Signal, ...], (object(),)),
         )
     with pytest.raises(ContextContractError, match="background_links"):
-        TurnSummary(
+        ContextTurnCompletion(
             turn_id="turn_1",
+            inputs=(ContextTurnInput("question", 1.0),),
+            working={},
             background_links=("home:agent@AGENT", "home:agent@AGENT"),
+            trace=SealedTurnTrace(turn_id="turn_1", entries=()),
         )
 
 
@@ -736,21 +740,21 @@ def test_compress_via_engine() -> None:
     assert report.changed is True
     assert report.compacted_count == 3
     assert engine.trace_kinds() == (TraceKind.PHASE_NOTE,) * 3
-    roots = engine.inspect_trace(f"turn:trace@{turn_id}")["roots"]
-    assert isinstance(roots, list) and roots
-    root = roots[0]
+    nodes = engine.inspect_trace(f"turn:trace@{turn_id}")["nodes"]
+    assert isinstance(nodes, list) and nodes
+    root = nodes[0]
     assert isinstance(root, dict)
     ref = root["ref"]
     assert isinstance(ref, str)
-    page = engine.recall_trace(ref, max_entries=1)
-    source = page["source"]
-    assert isinstance(source, dict)
-    assert source["owner"] == "context"
-    assert source["turn_id"] == turn_id
-    assert source["trace_digest"] == engine.trace_digest()
-    assert page["requested_max_entries"] == 1
-    assert page["effective_max_entries"] == 1
-    assert page["returned_entry_count"] == 1
+    page = engine.inspect_trace(ref)
+    assert page["kind"] == "context_trace_leaf"
+    assert page["ref"] == ref
+    interactions = page["interactions"]
+    assert isinstance(interactions, list)
+    assert len(interactions) == 3
+    assert all(item["kind"] == "phase_note" for item in interactions)
+    assert "source" not in page
+    assert "cursor" not in page
 
 
 def test_abort_turn_discards_active_state() -> None:

@@ -1,6 +1,6 @@
 name = "core"
-description = "Core conversation and control actions."
-selection_hint = "Use when the task should answer, ask for clarification, or produce a final response."
+description = "Core conversation, reasoning, and progressive context inspection."
+selection_hint = "Use to answer or reason, or when compressed current/prior Turn facts must be inspected before continuing."
 
 [runtime]
 timeout_seconds = 60

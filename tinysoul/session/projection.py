@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from tinysoul.context import build_session_sync_signal
-from tinysoul.infra.json import JsonObject
 from tinysoul.loop.completion import TurnCompletion
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
@@ -11,6 +10,7 @@ from tinysoul.runtime.bridge import RuntimeSessionBridge
 
 from .engine import SessionEngine
 from .errors import SessionError
+from .models import SessionOutputRecord
 
 
 class SessionTurnPreparationHandler:
@@ -49,17 +49,15 @@ class SessionTurnCompletionHandler:
         self._runtime_bridge = runtime_bridge or RuntimeSessionBridge()
 
     def handle(self, completion: TurnCompletion) -> None:
-        output: JsonObject | None = None
+        output: SessionOutputRecord | None = None
         if completion.output is not None:
-            output = {
-                "text": completion.output.text,
-                "result_id": completion.output.result_id,
-                "references": list(completion.output.references),
-                "metadata": completion.output.metadata,
-            }
+            output = SessionOutputRecord(
+                text=completion.output.text,
+                references=completion.output.references,
+            )
         try:
             self._session.record_turn(
-                summary=completion.summary,
+                completion.context_completion,
                 day=completion.business_day,
                 output=output,
                 exhausted=completion.exhausted,

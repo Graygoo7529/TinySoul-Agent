@@ -213,8 +213,10 @@ def test_offline_daily_lifecycle_runs_typed_maintenance_and_continues(
     assert outcome.turns[0].business_day == NEW_DAY
     assert outcome.turns[0].output is not None
     assert outcome.turns[0].output.text == "new day complete"
-    assert outcome.turns[0].summary is not None
-    assert "older durable project fact" in repr(outcome.turns[0].summary.trace)
+    assert outcome.turns[0].context_completion is not None
+    assert "older durable project fact" in repr(
+        outcome.turns[0].context_completion.trace
+    )
     first_new_day_call = next(
         call
         for call in llm.calls

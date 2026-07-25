@@ -65,7 +65,7 @@ export interface AppState {
   maintenanceStatus: MaintenanceStatus | null;
 
   // UI
-  activeTab: "chat" | "workspace" | "session";
+  activeTab: "chat" | "workspace";
   projectRoot: string;
   eventStreamInterrupted: boolean;
 
@@ -85,7 +85,7 @@ export interface AppState {
   closeResource: () => void;
   setMaintenance: (maintenance: MaintenanceDecision | null) => void;
   setMaintenanceStatus: (status: MaintenanceStatus | null) => void;
-  setActiveTab: (tab: "chat" | "workspace" | "session") => void;
+  setActiveTab: (tab: "chat" | "workspace") => void;
   setProjectRoot: (root: string) => void;
 }
 

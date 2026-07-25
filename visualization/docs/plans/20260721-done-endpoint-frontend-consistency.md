@@ -50,7 +50,7 @@
 
 ### 7. Session hard pager 协议同步（历史记录）
 
-本节记录当时已完成的混合 recall 适配；该协议已于 2026-07-24 被 Session Explorer 边界修正取代。当前前端分别消费 `/v1/session/history`、`/v1/session/actions` 和 `/v1/session/trace`，不再消费派生 Background 状态。当前实施记录见 `20260724-done-session-explorer-boundary-correction.md`。
+本节记录当时已完成的混合 recall 适配；该协议先于 2026-07-24 被 Session Explorer 方案取代，随后 Session Explorer 及其三条 REST 又于 2026-07-25 整体删除。当前前端只从真实 MessageStack Observation 呈现 Session 内容；现行记录见 `20260725-done-session-explorer-removal.md`。
 
 ## 验证
 

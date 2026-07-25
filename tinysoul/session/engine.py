@@ -1,68 +1,70 @@
-"""Session history facade and bounded background projection."""
+"""Session business engine: immutable Turns, Summary heap, and projections."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 
-from tinysoul.context import SessionBackgroundItem, SessionBackgroundSnapshot, TurnSummary
-from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
-from tinysoul.infra.paging import (
-    JsonPageCursor,
-    JsonPageError,
-    JsonPageFailureReason,
-    page_json_sequence,
+from tinysoul.context import (
+    ContextTurnCompletion,
+    SessionBackgroundItem,
+    SessionBackgroundSnapshot,
 )
+from tinysoul.infra.continuation import (
+    ContinuationError,
+    ContinuationFailureReason,
+    OpaqueContinuationCodec,
+    continue_json_sequence,
+)
+from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.loop.day import BusinessDay
 
-from .action_history import project_turn_actions
 from .background import (
-    project_context_background,
+    project_overflow_background,
     project_summary_background,
     project_turn_background,
-    select_turn_background_actions,
-    summary_ref,
 )
+from .completion import project_turn_record
 from .config import SessionSettings
 from .errors import (
     SessionContractError,
-    SessionHistoryFailureReason,
-    SessionHistoryRequestError,
+    SessionInspectFailureReason,
+    SessionInspectRequestError,
     SessionInvariantError,
 )
-from .memory import (
-    SessionMemoryFactsProjection,
-    project_session_memory_facts,
-)
+from .memory import SessionMemoryFactsProjection, project_session_memory_facts
 from .models import (
-    SessionHistoryItem,
-    SessionHistoryKind,
     SessionManifest,
+    SessionOutputRecord,
     SessionRecord,
+    SessionRecordKind,
+    SessionSummaryRecord,
+    SessionTurnRecord,
+    summary_ref,
 )
 from .navigation import (
+    action_collection_ref,
+    action_leaf_ref,
     parse_action_ref,
-    project_action_node,
-    project_action_recall,
+    project_action,
+    project_action_header,
+    project_navigation_header,
+    project_turn,
 )
 from .reconcile import SessionReconcileResult, SessionReconciler
 from .store import SessionStore
-from .validation import (
-    ValidatedTurnRecord,
-    validate_summary_record,
-    validate_turn_record,
-)
+from .validation import validate_record, validate_summary_record, validate_turn_record
 
 
 @dataclass(frozen=True)
 class SessionArchiveSnapshot:
-    """Validated, read-only history head for one archived Business Day."""
+    """Validated, read-only roots for one archived Business Day."""
 
     day: BusinessDay
     root: Path
     revision: int
-    items: tuple[SessionHistoryItem, ...]
+    refs: tuple[str, ...]
 
     def __post_init__(self) -> None:
         if not isinstance(self.day, BusinessDay):
@@ -79,21 +81,22 @@ class SessionArchiveSnapshot:
             or self.revision < 0
         ):
             raise SessionContractError(
-                "Session archive snapshot revision must be a non-negative integer"
+                "Session archive snapshot revision must be non-negative"
             )
-        if any(not isinstance(item, SessionHistoryItem) for item in self.items):
+        refs = tuple(self.refs)
+        if any(not isinstance(ref, str) or not ref for ref in refs):
             raise SessionContractError(
-                "Session archive snapshot items must be SessionHistoryItem values"
+                "Session archive snapshot refs must be non-empty"
             )
-        object.__setattr__(self, "items", tuple(self.items))
+        object.__setattr__(self, "refs", refs)
 
     @property
     def has_facts(self) -> bool:
-        return bool(self.items)
+        return bool(self.refs)
 
 
 class SessionEngine:
-    """Persist completed Turns and expose a bounded history head."""
+    """Own completed-Turn persistence and prior-Turn semantic inspection."""
 
     def __init__(
         self,
@@ -103,14 +106,16 @@ class SessionEngine:
     ) -> None:
         self._settings = settings
         self._lock = RLock()
-        self._store = store or SessionStore(
-            root=settings.root,
-        )
+        self._store = store or SessionStore(root=settings.root)
         if self._store.root.resolve() != settings.root.resolve():
             raise SessionContractError(
                 "Session store root must match Session settings root"
             )
         self._reconciler = SessionReconciler(self._store)
+        self._continuations = OpaqueContinuationCodec(
+            owner="session",
+            operation="inspect",
+        )
         self._manifest = self._store.load_active_manifest()
         self._last_reconcile_result = SessionReconcileResult(revision=0)
         if self._manifest is not None:
@@ -123,9 +128,11 @@ class SessionEngine:
     @property
     def active_day(self) -> BusinessDay | None:
         with self._lock:
-            if self._manifest is None:
-                return None
-            return BusinessDay.parse(self._manifest.day)
+            return (
+                BusinessDay.parse(self._manifest.day)
+                if self._manifest is not None
+                else None
+            )
 
     @property
     def revision(self) -> int:
@@ -139,8 +146,7 @@ class SessionEngine:
 
     def initialize_day(self, day: BusinessDay) -> None:
         with self._lock:
-            if not isinstance(day, BusinessDay):
-                raise SessionContractError("Session day must be a BusinessDay")
+            _require_business_day(day)
             if self._manifest is not None:
                 self._require_day(day)
                 self._last_reconcile_result = self._reconcile_current()
@@ -158,8 +164,7 @@ class SessionEngine:
 
     def reconcile_active(self) -> SessionReconcileResult:
         with self._lock:
-            if self._manifest is None:
-                return SessionReconcileResult(revision=0)
+            self._require_manifest()
             self._last_reconcile_result = self._reconcile_current()
             return self._last_reconcile_result
 
@@ -169,39 +174,26 @@ class SessionEngine:
         *,
         root: Path,
     ) -> SessionArchiveSnapshot:
-        """Validate and expose one archived Session head without mutating it."""
-
-        with self._lock:
-            if not isinstance(day, BusinessDay):
-                raise SessionContractError("Session archive day must be a BusinessDay")
-            if not isinstance(root, Path):
-                raise SessionContractError("Session archive root must be a Path")
-            resolved = root.resolve()
-            if resolved == self.root.resolve():
-                raise SessionContractError(
-                    "Session archive root must differ from the active root"
-                )
-            store = SessionStore(root=resolved)
-            manifest = store.load_active_manifest()
-            if manifest is None:
-                raise SessionContractError(
-                    f"Session archive does not contain a manifest: {resolved}"
-                )
-            if manifest.day != str(day):
-                raise SessionInvariantError(
-                    f"Session archive day mismatch: expected {day}, found {manifest.day}"
-                )
-            scan = SessionReconciler(store).scan(manifest)
-            if scan.orphan_turn_records:
-                raise SessionInvariantError(
-                    "Session archive contains uncommitted Turn records"
-                )
-            return SessionArchiveSnapshot(
-                day=day,
-                root=resolved,
-                revision=manifest.revision,
-                items=manifest.items,
+        _require_business_day(day)
+        if not isinstance(root, Path) or not root.is_absolute():
+            raise SessionContractError("Session archive root must be absolute")
+        store = SessionStore(root=root)
+        manifest = store.load_manifest()
+        if manifest.day != str(day):
+            raise SessionInvariantError(
+                f"Session archive day mismatch: {manifest.day} != {day}"
             )
+        scan = SessionReconciler(store).scan(manifest)
+        if scan.orphan_turn_records:
+            raise SessionInvariantError(
+                "Session archive contains uncommitted Turn records"
+            )
+        return SessionArchiveSnapshot(
+            day=day,
+            root=root,
+            revision=manifest.revision,
+            refs=manifest.refs,
+        )
 
     def memory_facts(
         self,
@@ -209,1017 +201,427 @@ class SessionEngine:
         *,
         root: Path,
     ) -> SessionMemoryFactsProjection:
-        """Project all committed Turn facts from one validated archive."""
-
         snapshot = self.archive_snapshot(day, root=root)
         return project_session_memory_facts(
-            day=snapshot.day,
-            root=snapshot.root,
+            day=day,
+            root=root,
             revision=snapshot.revision,
-            items=snapshot.items,
+            refs=snapshot.refs,
         )
 
-    def background_snapshot(
-        self,
-        day: BusinessDay,
-    ) -> SessionBackgroundSnapshot:
+    def background_snapshot(self, day: BusinessDay) -> SessionBackgroundSnapshot:
         with self._lock:
             self._require_day(day)
             self._last_reconcile_result = self._reconcile_current()
             manifest = self._require_manifest()
-            items = self._bounded_background_items()
+            projected = tuple(
+                SessionBackgroundItem(
+                    item_id=ref,
+                    content=self._background_for_ref(ref),
+                )
+                for ref in manifest.refs
+            )
+            items = self._fit_background(projected)
             return SessionBackgroundSnapshot(
                 revision=manifest.revision,
-                items=tuple(
-                    SessionBackgroundItem(
-                        item_id=item.item_id,
-                        content=self._context_background(item),
-                    )
-                    for item in items
-                ),
+                items=items,
             )
 
     def record_turn(
         self,
+        completion: ContextTurnCompletion,
         *,
-        summary: TurnSummary,
-        output: JsonObject | None,
-        exhausted: bool,
         day: BusinessDay,
+        output: SessionOutputRecord | None,
+        exhausted: bool,
     ) -> None:
         with self._lock:
             self._require_day(day)
-            manifest = self._require_manifest()
-            ref = f"session:turn/{summary.turn_id}"
-            projection = project_turn_actions(
-                summary.trace,
-                expected_digest=summary.trace_digest,
-            )
-            actions = select_turn_background_actions(
-                projection,
-                action_names=frozenset(self._settings.background_action_names),
-                max_actions=self._settings.background_max_actions_per_turn,
-            )
-            background = project_turn_background(
-                ref=ref,
-                turn_id=summary.turn_id,
-                inputs=summary.inputs,
+            self._last_reconcile_result = self._reconcile_current()
+            record = project_turn_record(
+                completion,
+                day=day,
                 output=output,
                 exhausted=exhausted,
-                trace_summary=summary.trace_summary,
-                trace_digest=summary.trace_digest,
-                action_outcome_summary=projection.outcome_summary(),
-                actions=actions,
-            )
-            record = SessionRecord(
-                ref=ref,
-                kind=SessionHistoryKind.TURN,
-                content={
-                    "day": manifest.day,
-                    "background": background,
-                    "completion": summary.to_json(),
-                    "action_history": projection.summary_json(),
-                    "output": output,
-                    "exhausted": exhausted,
-                },
             )
             validate_turn_record(record)
-            validate_turn_record(self._store.save_record_if_absent(record))
-            self._last_reconcile_result = self._reconcile_current()
-
-    def inspect_history(
-        self,
-        ref: str | None = None,
-        *,
-        max_chars: int | None = None,
-        max_entries: int | None = None,
-        cursor: JsonObject | None = None,
-    ) -> JsonObject:
-        with self._lock:
+            stored = validate_turn_record(self._store.save_record_if_absent(record))
             manifest = self._require_manifest()
-            requested_chars, limit, requested_entries, entry_limit = (
-                _history_page_limits(
-                    self._settings,
-                    max_chars=max_chars,
-                    max_entries=max_entries,
-                    scope="session.history.inspect",
-                )
+            if self._is_reachable(stored.ref, manifest.refs):
+                return
+            refs = self._compact_refs((*manifest.refs, stored.ref), day=day)
+            committed = SessionManifest(
+                day=manifest.day,
+                revision=manifest.revision + 1,
+                refs=refs,
             )
-            page_cursor = _inspect_cursor(
-                cursor,
-                ref=ref,
-                revision=manifest.revision,
+            self._store.save_manifest(committed)
+            self._manifest = committed
+            self._last_reconcile_result = SessionReconcileResult(
+                revision=committed.revision
             )
-            if ref is None:
-                items = manifest.items
-                source: JsonObject = {
-                    "owner": "session",
-                    "scope": "active_head",
-                    "day": manifest.day,
-                    "revision": manifest.revision,
-                    "estimated_chars": sum(item.char_count for item in items),
-                }
-            else:
-                record = _load_requested_record(
-                    self._store,
-                    ref,
-                    scope="session.history.inspect",
-                )
-                if record.kind is SessionHistoryKind.SUMMARY:
-                    items = _summary_children_from_record(record)
-                    source = {
-                        "owner": "session",
-                        "scope": "summary_children",
-                        "ref": ref,
-                        "record_kind": record.kind.value,
-                        "child_count": len(items),
-                    }
-                else:
-                    item = _turn_item_from_record(record)
-                    items = (item,)
-                    completion = record.content.get("completion")
-                    if not isinstance(completion, dict):
-                        raise SessionInvariantError(
-                            f"Session Turn record is missing completion: {ref}"
-                        )
-                    trace = completion.get("trace")
-                    if not isinstance(trace, list):
-                        raise SessionInvariantError(
-                            f"Session Turn record has an invalid trace: {ref}"
-                        )
-                    source = {
-                        "owner": "session",
-                        "scope": "turn_overview",
-                        "ref": ref,
-                        "record_kind": record.kind.value,
-                        "turn_id": item.item_id,
-                        "trace_digest": completion.get("trace_digest"),
-                        "trace_entry_count": len(trace),
-                    }
-            try:
-                page = page_json_sequence(
-                    tuple(_inspect_item(item) for item in items),
-                    base=to_json_object({"source": source}),
-                    item_field="items",
-                    cursor_unit="history_item",
-                    cursor=page_cursor,
-                    max_chars=limit,
-                    max_entries=entry_limit,
-                    requested_max_chars=requested_chars,
-                    requested_max_entries=requested_entries,
-                    cursor_binding=(
-                        {"revision": manifest.revision} if ref is None else None
-                    ),
-                )
-            except JsonPageError as exc:
-                raise _session_page_error(
-                    exc,
-                    ref=ref,
-                    scope="session.history.inspect",
-                ) from exc
-            return page
 
-    def inspect_model_history(
+    def inspect(
         self,
         ref: str | None = None,
         *,
         action: str | None = None,
-        cursor: JsonObject | None = None,
+        continuation: str | None = None,
     ) -> JsonObject:
-        """Explore prior Turns and their Actions through compact virtual refs."""
+        """Inspect one Session heap node by exactly one semantic level."""
 
         with self._lock:
             manifest = self._require_manifest()
             if action is not None and (not isinstance(action, str) or not action):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_REF,
+                raise SessionInspectRequestError(
+                    SessionInspectFailureReason.INVALID_REF,
                     "Session Action filter must be non-empty text",
-                    constraint={"field": "action"},
-                    scope="session.history.inspect",
+                    scope="session.inspect",
                 )
             try:
                 action_ref = parse_action_ref(ref) if ref is not None else None
             except SessionContractError as exc:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_REF,
+                raise _request_error(
+                    SessionInspectFailureReason.INVALID_REF,
                     str(exc),
-                    constraint={"ref": ref},
-                    scope="session.history.inspect",
+                    ref=ref,
                 ) from exc
             if action_ref is not None:
-                if not action_ref.is_collection:
-                    raise SessionHistoryRequestError(
-                        SessionHistoryFailureReason.WRONG_RECORD_KIND,
-                        "Session Action occurrence refs belong to recall",
-                        constraint={"ref": ref},
-                        scope="session.history.inspect",
+                record = self._load_turn(action_ref.turn_ref)
+                if action_ref.is_collection:
+                    collection_ref = action_collection_ref(record.ref)
+                    actions = tuple(
+                        project_action_header(record.ref, index, item)
+                        for index, item in enumerate(record.actions)
+                        if action is None or item.action == action
                     )
-                validated = validate_turn_record(
-                    _load_requested_record(
-                        self._store,
-                        action_ref.turn_ref,
-                        scope="session.history.inspect",
+                    return self._page(
+                        actions,
+                        base={"kind": "session_actions", "ref": collection_ref},
+                        item_field="actions",
+                        continuation=continuation,
+                        ref=collection_ref,
+                        binding=({"action": action} if action is not None else None),
                     )
-                )
-                page_cursor = _action_inspect_cursor(cursor, action=action)
-                details = tuple(
-                    detail
-                    for detail in validated.action_projection.details
-                    if action is None or detail.action_name == action
-                )
-                try:
-                    page = page_json_sequence(
-                        tuple(
-                            project_action_node(action_ref.turn_ref, detail)
-                            for detail in details
-                        ),
-                        base=to_json_object(
-                            {
-                                "kind": "session_actions",
-                                "ref": ref,
-                                **({"action": action} if action is not None else {}),
-                            }
-                        ),
-                        item_field="items",
-                        cursor_unit="session_action",
-                        cursor=page_cursor,
-                        max_chars=self._settings.history_page_max_chars,
-                        max_entries=self._settings.history_page_max_entries,
-                        cursor_binding=(
-                            {"action": action} if action is not None else None
-                        ),
-                    )
-                except JsonPageError as exc:
-                    raise _session_page_error(
-                        exc,
+                if action is not None:
+                    raise _request_error(
+                        SessionInspectFailureReason.WRONG_RECORD_KIND,
+                        "Session Action filter only applies to an Action collection",
                         ref=ref,
-                        scope="session.history.inspect",
-                    ) from exc
-                return _model_page(page)
+                    )
+                assert action_ref.occurrence is not None
+                if action_ref.occurrence >= len(record.actions):
+                    raise _request_error(
+                        SessionInspectFailureReason.UNKNOWN_REF,
+                        "Unknown Session Action ref",
+                        ref=ref,
+                    )
+                detail = project_action(
+                    record.ref,
+                    action_ref.occurrence,
+                    record.actions[action_ref.occurrence],
+                )
+                leaf_ref = action_leaf_ref(record.ref, action_ref.occurrence)
+                return self._page(
+                    (detail,),
+                    base={"kind": "session_action", "ref": leaf_ref},
+                    item_field="content",
+                    continuation=continuation,
+                    ref=leaf_ref,
+                )
             if action is not None:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
-                    "Session Action filters require an Action collection ref",
-                    constraint={"ref": ref},
-                    scope="session.history.inspect",
+                raise _request_error(
+                    SessionInspectFailureReason.WRONG_RECORD_KIND,
+                    "Session Action filter requires an Action collection ref",
+                    ref=ref,
                 )
-            cursor_binding: JsonObject | None
-            if ref is not None:
-                record = _load_requested_record(
-                    self._store,
-                    ref,
-                    scope="session.history.inspect",
+            if ref is None:
+                nodes = tuple(self._navigation_header(item) for item in manifest.refs)
+                return self._page(
+                    nodes,
+                    base={"kind": "session_head"},
+                    item_field="nodes",
+                    continuation=continuation,
+                    ref="session:head",
+                    binding={"revision": manifest.revision},
                 )
-                if record.kind is SessionHistoryKind.TURN:
-                    if cursor:
-                        raise SessionHistoryRequestError(
-                            SessionHistoryFailureReason.INVALID_CURSOR,
-                            "Session Turn overview does not accept a cursor",
-                            constraint={"ref": ref},
-                            scope="session.history.inspect",
-                        )
-                    return _model_turn(validate_turn_record(record))
-                items = validate_summary_record(record).children
-                kind = "session_summary"
-                cursor_binding = None
-            else:
-                items = manifest.items
-                kind = "session_head"
-                cursor_binding = {"revision": manifest.revision}
-            page_cursor = _inspect_cursor(
-                cursor,
+            record = self._requested_record(ref)
+            if isinstance(record, SessionSummaryRecord):
+                nodes = tuple(
+                    self._navigation_header(child_ref)
+                    for child_ref in record.child_refs
+                )
+                return self._page(
+                    nodes,
+                    base={"kind": "session_summary", "ref": ref},
+                    item_field="nodes",
+                    continuation=continuation,
+                    ref=ref,
+                )
+            detail = project_turn(record)
+            return self._page(
+                (detail,),
+                base={"kind": "session_turn", "ref": ref},
+                item_field="content",
+                continuation=continuation,
                 ref=ref,
-                revision=manifest.revision,
             )
-            try:
-                page = page_json_sequence(
-                    tuple(self._model_navigation_item(item) for item in items),
-                    base=to_json_object(
-                        {"kind": kind, **({"ref": ref} if ref is not None else {})}
-                    ),
-                    item_field="items",
-                    cursor_unit="history_item",
-                    cursor=page_cursor,
-                    max_chars=self._settings.history_page_max_chars,
-                    max_entries=self._settings.history_page_max_entries,
-                    cursor_binding=cursor_binding,
-                )
-            except JsonPageError as exc:
-                raise _session_page_error(
-                    exc,
-                    ref=ref,
-                    scope="session.history.inspect",
-                ) from exc
-            return _model_page(page)
 
-    def recall_model_action(
+    def _page(
         self,
-        ref: str,
+        values: tuple[JsonObject, ...],
         *,
-        cursor: JsonObject | None = None,
-    ) -> JsonObject:
-        """Recall one semantic Action exchange addressed by a virtual ref."""
-
-        with self._lock:
-            self._require_manifest()
-            try:
-                action_ref = parse_action_ref(ref)
-            except SessionContractError as exc:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_REF,
-                    str(exc),
-                    constraint={"ref": ref},
-                    scope="session.history.recall",
-                ) from exc
-            if action_ref is None or action_ref.is_collection:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
-                    "Session recall requires an Action occurrence ref",
-                    constraint={"ref": ref},
-                    scope="session.history.recall",
-                )
-            validated = validate_turn_record(
-                _load_requested_record(
-                    self._store,
-                    action_ref.turn_ref,
-                    scope="session.history.recall",
-                )
-            )
-            assert action_ref.occurrence is not None
-            if action_ref.occurrence >= len(validated.action_projection.details):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.UNKNOWN_REF,
-                    "Unknown Session Action occurrence ref",
-                    constraint={"ref": ref},
-                    scope="session.history.recall",
-                )
-            detail = validated.action_projection.details[action_ref.occurrence]
-            item = project_action_recall(
-                turn_ref=action_ref.turn_ref,
-                trace=validated.trace,
-                detail=detail,
-            )
-            try:
-                page_cursor = JsonPageCursor.from_json(cursor)
-                page = page_json_sequence(
-                    (item,),
-                    base={"kind": "session_action_recall", "ref": ref},
-                    item_field="items",
-                    cursor_unit="session_action",
-                    cursor=page_cursor,
-                    max_chars=self._settings.history_page_max_chars,
-                    max_entries=1,
-                )
-            except JsonPageError as exc:
-                raise _session_page_error(
-                    exc,
-                    ref=ref,
-                    scope="session.history.recall",
-                ) from exc
-            items = page.get("items")
-            if isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict):
-                return to_json_object(items[0])
-            oversized = page.get("oversized_entry")
-            if isinstance(oversized, dict):
-                return to_json_object(
-                    {
-                        "kind": "session_action_chunk",
-                        "ref": ref,
-                        "chunk": oversized,
-                        "next_cursor": page.get("next_cursor"),
-                    }
-                )
-            return {
-                "kind": "session_action_chunk",
-                "ref": ref,
-                "chunk": {},
-                "next_cursor": None,
-            }
-
-    def recall_history(
-        self,
+        base: JsonObject,
+        item_field: str,
+        continuation: str | None,
         ref: str,
-        *,
-        max_chars: int | None = None,
-        max_entries: int | None = None,
-        cursor: JsonObject | None = None,
+        binding: JsonObject | None = None,
     ) -> JsonObject:
-        with self._lock:
-            self._require_manifest()
-            requested, limit, requested_entries, entry_limit = _history_page_limits(
-                self._settings,
-                max_chars=max_chars,
-                max_entries=max_entries,
-                scope="session.history.recall",
+        try:
+            return continue_json_sequence(
+                values,
+                base=base,
+                item_field=item_field,
+                continuation=continuation,
+                codec=self._continuations,
+                ref=ref,
+                binding=binding,
+                max_chars=self._settings.inspect_max_chars,
             )
-            try:
-                page_cursor = JsonPageCursor.from_json(cursor)
-            except JsonPageError as exc:
-                raise _session_page_error(
-                    exc,
-                    ref=ref,
-                    scope="session.history.recall",
-                ) from exc
-            record = _load_requested_record(
-                self._store,
-                ref,
-                scope="session.history.recall",
+        except ContinuationError as exc:
+            reason = (
+                SessionInspectFailureReason.PAGE_BUDGET_TOO_SMALL
+                if exc.reason is ContinuationFailureReason.BUDGET_TOO_SMALL
+                else SessionInspectFailureReason.INVALID_CONTINUATION
             )
-            if record.kind is not SessionHistoryKind.TURN:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
-                    "Session recall is only available for Turn records",
-                    constraint={"ref": ref, "record_kind": record.kind.value},
-                    scope="session.history.recall",
-                )
-            validated = validate_turn_record(record)
-            return _recall_record(
-                validated,
-                max_chars=limit,
-                max_entries=entry_limit,
-                requested_max_chars=requested,
-                requested_max_entries=requested_entries,
-                cursor=page_cursor,
-            )
-
-    def action_history(
-        self,
-        ref: str,
-        *,
-        cursor: int = 0,
-        max_items: int | None = None,
-    ) -> JsonObject:
-        """Return complete Action facts plus one bounded detail page for a Turn."""
-
-        with self._lock:
-            self._require_manifest()
-            if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_CURSOR,
-                    "Session action history cursor must be non-negative",
-                    constraint={"cursor": cursor},
-                    scope="session.history.actions",
-                )
-            requested = (
-                self._settings.actions_page_max_items
-                if max_items is None
-                else max_items
-            )
-            if (
-                isinstance(requested, bool)
-                or not isinstance(requested, int)
-                or requested <= 0
-            ):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.INVALID_MAX_ITEMS,
-                    "Session action history max_items must be positive",
-                    constraint={"max_items": requested},
-                    scope="session.history.actions",
-                )
-            record = _load_requested_record(
-                self._store,
-                ref,
-                scope="session.history.actions",
-            )
-            if record.kind is not SessionHistoryKind.TURN:
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.WRONG_RECORD_KIND,
-                    "Session action history is only available for Turn records",
-                    constraint={"ref": ref, "record_kind": record.kind.value},
-                    scope="session.history.actions",
-                )
-            validated = validate_turn_record(record)
-            projection = validated.action_projection
-            completion = validated.completion
-            if cursor > len(projection.details):
-                raise SessionHistoryRequestError(
-                    SessionHistoryFailureReason.CURSOR_OUT_OF_RANGE,
-                    "Session action history cursor exceeds the detail count",
-                    constraint={
-                        "cursor": cursor,
-                        "detail_count": len(projection.details),
-                    },
-                    scope="session.history.actions",
-                )
-            page_size = min(requested, self._settings.actions_page_max_items)
-            stop = min(len(projection.details), cursor + page_size)
-            next_cursor = stop if stop < len(projection.details) else None
-            return {
-                "source": {
-                    "owner": "session",
-                    "ref": ref,
-                    "turn_id": completion.get("turn_id"),
-                    "record_kind": record.kind.value,
-                    "trace_digest": projection.trace_digest,
-                    "trace_entry_count": len(validated.trace),
-                },
-                "summary": projection.summary_json(),
-                "details": [item.to_json() for item in projection.details[cursor:stop]],
-                "detail_count": len(projection.details),
-                "requested_max_items": requested,
-                "effective_max_items": page_size,
-                "returned_detail_count": stop - cursor,
-                "cursor": cursor,
-                "next_cursor": next_cursor,
-                "coverage": [cursor, stop],
-                "remaining": len(projection.details) - stop,
-                "page_complete": next_cursor is None,
-                "truncated": next_cursor is not None,
-            }
-
-    def _require_manifest(self) -> SessionManifest:
-        if self._manifest is None:
-            raise SessionInvariantError("Session has no active business day")
-        return self._manifest
-
-    def _model_navigation_item(self, item: SessionHistoryItem) -> JsonObject:
-        if item.kind is SessionHistoryKind.SUMMARY:
-            if item.item_id == "session_overflow_head":
-                omitted = item.background.get("omitted_item_count")
-                return to_json_object(
-                    {
-                        "kind": "session_overflow",
-                        **(
-                            {"omitted_item_count": omitted}
-                            if isinstance(omitted, int) and not isinstance(omitted, bool)
-                            else {}
-                        ),
-                    }
-                )
-            return {
-                "kind": "session_summary",
-                "ref": item.ref,
-                "child_count": len(item.child_refs),
-            }
-        validated = validate_turn_record(self._store.load_record(item.ref))
-        if validated.background != item.background:
-            raise SessionInvariantError(
-                f"Session model history item does not match its record: {item.ref}"
-            )
-        return _model_turn(validated)
-
-    def _require_day(self, day: BusinessDay) -> None:
-        if not isinstance(day, BusinessDay):
-            raise SessionContractError("Session day must be a BusinessDay")
-        manifest = self._require_manifest()
-        if manifest.day != str(day):
-            raise SessionInvariantError(
-                f"Session active day mismatch: expected {day}, found {manifest.day}"
-            )
+            raise _request_error(reason, str(exc), ref=ref) from exc
 
     def _reconcile_current(self) -> SessionReconcileResult:
-        current = self._require_manifest()
-        scan = self._reconciler.scan(current)
+        manifest = self._require_manifest()
+        scan = self._reconciler.scan(manifest)
         if not scan.orphan_turn_records:
             return SessionReconcileResult(
-                revision=current.revision,
+                revision=manifest.revision,
                 orphan_summary_refs=scan.orphan_summary_refs,
             )
-        items = current.items
-        adopted: list[str] = []
+        refs = manifest.refs
         for record in scan.orphan_turn_records:
-            items = (*items, _turn_item_from_record(record))
-            items = self._summarize_once(items)
-            adopted.append(record.ref)
-        manifest = SessionManifest(
-            day=current.day,
-            revision=current.revision + len(adopted),
-            items=items,
-        )
-        self._store.save_manifest(manifest)
-        self._manifest = manifest
-        committed_scan = self._reconciler.scan(manifest)
-        return SessionReconcileResult(
-            revision=manifest.revision,
-            adopted_turn_refs=tuple(adopted),
-            orphan_summary_refs=committed_scan.orphan_summary_refs,
-        )
-
-    def _bounded_background_items(self) -> tuple[SessionHistoryItem, ...]:
-        manifest = self._require_manifest()
-        total = sum(item.char_count for item in manifest.items)
-        if total <= self._settings.background_max_chars:
-            return manifest.items
-        head_background: JsonObject = {
-            "kind": "session_overflow_head",
-            "inspect_action": "session.history.inspect",
-        }
-        head_chars = len(dumps_json(head_background)) + 32
-        selected: list[SessionHistoryItem] = []
-        used = 0
-        for item in reversed(manifest.items):
-            if (
-                used + item.char_count + head_chars
-                > self._settings.background_max_chars
-            ):
-                break
-            selected.append(item)
-            used += item.char_count
-        selected.reverse()
-        omitted = len(manifest.items) - len(selected)
-        if omitted <= 0:
-            return tuple(selected)
-        head_background["omitted_item_count"] = omitted
-        head = SessionHistoryItem(
-            item_id="session_overflow_head",
-            ref="session:summary/session_overflow_head",
-            kind=SessionHistoryKind.SUMMARY,
-            background=head_background,
-            char_count=len(dumps_json(head_background)),
-        )
-        return (head, *selected)
-
-    def _context_background(self, item: SessionHistoryItem) -> JsonObject:
-        if item.kind is not SessionHistoryKind.TURN:
-            return project_context_background(item.background)
-        validated = validate_turn_record(self._store.load_record(item.ref))
-        if validated.background != item.background:
-            raise SessionInvariantError(
-                f"Session model background does not match its record: {item.ref}"
+            refs = self._compact_refs(
+                (*refs, record.ref),
+                day=BusinessDay.parse(manifest.day),
             )
-        return project_context_background(
-            item.background,
-            action_outcomes=validated.action_projection.background_outcomes(),
+        committed = SessionManifest(
+            day=manifest.day,
+            revision=manifest.revision + len(scan.orphan_turn_records),
+            refs=refs,
+        )
+        self._store.save_manifest(committed)
+        self._manifest = committed
+        return SessionReconcileResult(
+            revision=committed.revision,
+            adopted_turn_refs=tuple(
+                record.ref for record in scan.orphan_turn_records
+            ),
+            orphan_summary_refs=scan.orphan_summary_refs,
         )
 
-    def _summarize_once(
+    def _compact_refs(
         self,
-        items: tuple[SessionHistoryItem, ...],
-    ) -> tuple[SessionHistoryItem, ...]:
-        manifest = self._require_manifest()
+        refs: tuple[str, ...],
+        *,
+        day: BusinessDay,
+    ) -> tuple[str, ...]:
         watermark = int(
             self._settings.background_max_chars
             * self._settings.summary_watermark_ratio
         )
-        if sum(item.char_count for item in items) <= watermark:
-            return items
-        max_split = _summary_split(
-            items,
-            min_recent_turns=self._settings.min_recent_turns,
+        if self._background_chars(refs) <= watermark:
+            return refs
+        keep_start = _recent_turn_start(
+            refs,
+            store=self._store,
+            count=self._settings.min_recent_turns,
         )
-        if max_split < 2:
-            return items
-        provisional_ref = f"session:summary/summary_{'0' * 16}"
+        if keep_start < 2:
+            return refs
         target = int(
             self._settings.background_max_chars
             * self._settings.summary_target_ratio
         )
-        split = max_split
-        for candidate in range(2, max_split + 1):
-            candidate_background = project_summary_background(
-                provisional_ref,
-                items[:candidate],
+        cut = keep_start
+        for candidate in range(2, keep_start + 1):
+            trial_children = refs[:candidate]
+            trial = SessionSummaryRecord(
+                ref=summary_ref(str(day), trial_children),
+                day=str(day),
+                child_refs=trial_children,
             )
-            candidate_chars = len(dumps_json(candidate_background)) + sum(
-                item.char_count for item in items[candidate:]
-            )
-            if candidate_chars <= target:
-                split = candidate
+            trial_chars = len(
+                dumps_json(
+                    project_summary_background(
+                        trial,
+                        turn_count=sum(
+                            self._turn_count(child_ref)
+                            for child_ref in trial_children
+                        ),
+                    )
+                )
+            ) + self._background_chars(refs[candidate:])
+            if trial_chars <= target:
+                cut = candidate
                 break
-        children = items[:split]
-        child_refs = tuple(item.ref for item in children)
-        ref = summary_ref(manifest.day, child_refs)
-        summary_id = ref.rsplit("/", 1)[1]
-        background = project_summary_background(ref, children)
-        record = SessionRecord(
-            ref=ref,
-            kind=SessionHistoryKind.SUMMARY,
-            content={
-                "day": manifest.day,
-                "background": background,
-                "child_refs": list(child_refs),
-                "children": [item.to_json() for item in children],
-            },
+        children = refs[:cut]
+        record = SessionSummaryRecord(
+            ref=summary_ref(str(day), children),
+            day=str(day),
+            child_refs=children,
         )
         validate_summary_record(record)
-        validated = validate_summary_record(
-            self._store.save_record_if_absent(record)
+        stored = validate_summary_record(self._store.save_record_if_absent(record))
+        compacted = (stored.ref, *refs[cut:])
+        return compacted
+
+    def _background_chars(self, refs: tuple[str, ...]) -> int:
+        return sum(len(dumps_json(self._background_for_ref(ref))) for ref in refs)
+
+    def _background_for_ref(self, ref: str) -> JsonObject:
+        record = self._record(ref)
+        if isinstance(record, SessionTurnRecord):
+            return project_turn_background(record)
+        return project_summary_background(
+            record,
+            turn_count=self._turn_count(record.ref),
         )
-        summary_item = SessionHistoryItem(
-            item_id=summary_id,
-            ref=ref,
-            kind=SessionHistoryKind.SUMMARY,
-            background=validated.background,
-            char_count=len(dumps_json(validated.background)),
-            child_refs=validated.child_refs,
+
+    def _fit_background(
+        self,
+        items: tuple[SessionBackgroundItem, ...],
+    ) -> tuple[SessionBackgroundItem, ...]:
+        if (
+            sum(len(dumps_json(item.content)) for item in items)
+            <= self._settings.background_max_chars
+        ):
+            return items
+        overflow = SessionBackgroundItem(
+            item_id="session_overflow_head",
+            content=project_overflow_background(),
         )
-        return (summary_item, *items[split:])
+        used = len(dumps_json(overflow.content))
+        selected: list[SessionBackgroundItem] = []
+        for item in reversed(items):
+            size = len(dumps_json(item.content))
+            if used + size > self._settings.background_max_chars:
+                break
+            selected.append(item)
+            used += size
+        selected.reverse()
+        return (overflow, *selected)
+
+    def _navigation_header(self, ref: str) -> JsonObject:
+        record = self._record(ref)
+        return project_navigation_header(
+            record,
+            turn_count=self._turn_count(ref),
+        )
+
+    def _turn_count(self, ref: str) -> int:
+        record = self._record(ref)
+        if isinstance(record, SessionTurnRecord):
+            return 1
+        return sum(self._turn_count(child_ref) for child_ref in record.child_refs)
+
+    def _record(self, ref: str) -> SessionRecord:
+        try:
+            return validate_record(self._store.load_record(ref))
+        except SessionContractError as exc:
+            raise SessionInvariantError(
+                f"Session graph references a missing record: {ref}"
+            ) from exc
+
+    def _requested_record(self, ref: str) -> SessionRecord:
+        try:
+            record = validate_record(self._store.load_record(ref))
+        except SessionContractError as exc:
+            raise _request_error(
+                SessionInspectFailureReason.UNKNOWN_REF,
+                "Unknown Session ref",
+                ref=ref,
+            ) from exc
+        if not self._is_reachable(ref, self._require_manifest().refs):
+            raise _request_error(
+                SessionInspectFailureReason.UNKNOWN_REF,
+                "Unknown Session ref",
+                ref=ref,
+            )
+        return record
+
+    def _load_turn(self, ref: str) -> SessionTurnRecord:
+        record = self._requested_record(ref)
+        if not isinstance(record, SessionTurnRecord):
+            raise _request_error(
+                SessionInspectFailureReason.WRONG_RECORD_KIND,
+                "Session Action ref must belong to a Turn",
+                ref=ref,
+            )
+        return record
+
+    def _is_reachable(self, target: str, refs: tuple[str, ...]) -> bool:
+        for ref in refs:
+            if ref == target:
+                return True
+            record = self._record(ref)
+            if isinstance(record, SessionSummaryRecord) and self._is_reachable(
+                target, record.child_refs
+            ):
+                return True
+        return False
+
+    def _require_manifest(self) -> SessionManifest:
+        if self._manifest is None:
+            raise SessionContractError("Session day is not initialized")
+        return self._manifest
+
+    def _require_day(self, day: BusinessDay) -> SessionManifest:
+        _require_business_day(day)
+        manifest = self._require_manifest()
+        if manifest.day != str(day):
+            raise SessionContractError(
+                f"Session active day mismatch: {manifest.day} != {day}"
+            )
+        return manifest
 
 
-def _turn_item_from_record(record: SessionRecord) -> SessionHistoryItem:
-    validated = validate_turn_record(record)
-    return SessionHistoryItem(
-        item_id=validated.turn_id,
-        ref=record.ref,
-        kind=SessionHistoryKind.TURN,
-        background=validated.background,
-        char_count=len(dumps_json(validated.background)),
-    )
-
-
-def _summary_split(
-    items: tuple[SessionHistoryItem, ...],
+def _recent_turn_start(
+    refs: tuple[str, ...],
     *,
-    min_recent_turns: int,
-) -> int:
-    remaining_turns = min_recent_turns
-    split = len(items)
-    for index in range(len(items) - 1, -1, -1):
-        if items[index].kind is not SessionHistoryKind.TURN:
-            continue
-        if remaining_turns == 0:
-            break
-        split = index
-        remaining_turns -= 1
-    return split
-
-
-def _history_page_limits(
-    settings: SessionSettings,
-    *,
-    max_chars: int | None,
-    max_entries: int | None,
-    scope: str,
-) -> tuple[int, int, int, int]:
-    requested_chars = (
-        settings.history_page_max_chars if max_chars is None else max_chars
-    )
-    if (
-        isinstance(requested_chars, bool)
-        or not isinstance(requested_chars, int)
-        or requested_chars <= 0
-    ):
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_MAX_CHARS,
-            "Session history max_chars must be positive",
-            constraint={"max_chars": requested_chars},
-            scope=scope,
-        )
-    requested_entries = (
-        settings.history_page_max_entries if max_entries is None else max_entries
-    )
-    if (
-        isinstance(requested_entries, bool)
-        or not isinstance(requested_entries, int)
-        or requested_entries <= 0
-    ):
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_MAX_ENTRIES,
-            "Session history max_entries must be positive",
-            constraint={"max_entries": requested_entries},
-            scope=scope,
-        )
-    return (
-        requested_chars,
-        min(requested_chars, settings.history_page_max_chars),
-        requested_entries,
-        min(requested_entries, settings.history_page_max_entries),
-    )
-
-
-def _inspect_cursor(
-    value: JsonObject | None,
-    *,
-    ref: str | None,
-    revision: int,
-) -> JsonPageCursor:
-    scope = "session.history.inspect"
-    raw_revision: object | None = None
-    page_value: object = value
-    if isinstance(value, dict) and "revision" in value:
-        raw_revision = value.get("revision")
-        page_value = {
-            key: item
-            for key, item in value.items()
-            if key != "revision"
-        }
-    if ref is not None and raw_revision is not None:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_CURSOR,
-            "Only the active Session head cursor may carry a revision",
-            constraint={"field": "revision", "ref": ref},
-            scope=scope,
-        )
-    try:
-        cursor = JsonPageCursor.from_json(page_value)
-    except JsonPageError as exc:
-        raise _session_page_error(exc, ref=ref, scope=scope) from exc
-    if ref is not None:
-        return cursor
-    if raw_revision is not None and (
-        isinstance(raw_revision, bool) or not isinstance(raw_revision, int)
-    ):
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_CURSOR,
-            "Session head cursor revision must be an integer",
-            constraint={"field": "revision"},
-            scope=scope,
-        )
-    continuation = cursor.entry_index > 0 or cursor.char_offset > 0
-    if continuation and raw_revision is None:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_CURSOR,
-            "Session head continuation requires its revision",
-            constraint={"field": "revision"},
-            scope=scope,
-        )
-    if raw_revision is not None and raw_revision != revision:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.REVISION_CHANGED,
-            "Session head revision changed; restart inspection",
-            constraint={
-                "expected_revision": raw_revision,
-                "actual_revision": revision,
-            },
-            scope=scope,
-        )
-    return cursor
-
-
-def _action_inspect_cursor(
-    value: JsonObject | None,
-    *,
-    action: str | None,
-) -> JsonPageCursor:
-    raw_action: object | None = None
-    page_value: object = value
-    if isinstance(value, dict) and "action" in value:
-        raw_action = value.get("action")
-        page_value = {key: item for key, item in value.items() if key != "action"}
-    try:
-        cursor = JsonPageCursor.from_json(page_value)
-    except JsonPageError as exc:
-        raise _session_page_error(
-            exc,
-            ref=None,
-            scope="session.history.inspect",
-        ) from exc
-    continuation = cursor.entry_index > 0 or cursor.char_offset > 0
-    if continuation and action is not None and raw_action is None:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_CURSOR,
-            "Filtered Session Action continuation requires its Action binding",
-            constraint={"field": "action"},
-            scope="session.history.inspect",
-        )
-    if raw_action is not None and raw_action != action:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_CURSOR,
-            "Session Action continuation filter changed",
-            constraint={"expected_action": raw_action, "actual_action": action},
-            scope="session.history.inspect",
-        )
-    return cursor
-
-
-def _model_page(page: JsonObject) -> JsonObject:
-    value: JsonObject = {}
-    for key in ("kind", "ref", "action"):
-        item = page.get(key)
-        if item is not None:
-            value[key] = item
-    items = page.get("items")
-    value["items"] = items if isinstance(items, list) else []
-    oversized = page.get("oversized_entry")
-    if isinstance(oversized, dict):
-        value["chunk"] = oversized
-    value["next_cursor"] = page.get("next_cursor")
-    return to_json_object(value)
-
-
-def _model_turn(validated: ValidatedTurnRecord) -> JsonObject:
-    return project_context_background(
-        validated.background,
-        action_outcomes=validated.action_projection.background_outcomes(),
-    )
-
-
-def _summary_children_from_record(
-    record: SessionRecord,
-) -> tuple[SessionHistoryItem, ...]:
-    return validate_summary_record(record).children
-
-
-def _recall_record(
-    validated: ValidatedTurnRecord,
-    *,
-    max_chars: int,
-    max_entries: int,
-    requested_max_chars: int,
-    requested_max_entries: int,
-    cursor: JsonPageCursor,
-) -> JsonObject:
-    record = validated.record
-    base: JsonObject = {
-        "source": {
-            "owner": "session",
-            "ref": record.ref,
-            "record_kind": record.kind.value,
-            "turn_id": validated.turn_id,
-            "trace_digest": validated.trace_digest,
-            "trace_entry_count": len(validated.trace),
-        }
-    }
-    try:
-        return page_json_sequence(
-            validated.trace,
-            base=base,
-            item_field="trace",
-            cursor_unit="trace_entry",
-            cursor=cursor,
-            max_chars=max_chars,
-            max_entries=max_entries,
-            requested_max_chars=requested_max_chars,
-            requested_max_entries=requested_max_entries,
-        )
-    except JsonPageError as exc:
-        raise _session_page_error(
-            exc,
-            ref=record.ref,
-            scope="session.history.recall",
-        ) from exc
-
-
-def _inspect_item(item: SessionHistoryItem) -> JsonObject:
-    return to_json_object(
-        {
-            "item_id": item.item_id,
-            "ref": item.ref,
-            "kind": item.kind.value,
-            "char_count": item.char_count,
-            "child_count": len(item.child_refs),
-            "preview": item.background,
-        }
-    )
-
-
-def _load_requested_record(
     store: SessionStore,
-    ref: str,
-    *,
-    scope: str,
-) -> SessionRecord:
-    if not _is_valid_history_ref(ref):
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.INVALID_REF,
-            "Invalid Session history ref",
-            constraint={"ref": ref} if isinstance(ref, str) else {},
-            scope=scope,
-        )
-    try:
-        return store.load_record(ref)
-    except SessionContractError as exc:
-        raise SessionHistoryRequestError(
-            SessionHistoryFailureReason.UNKNOWN_REF,
-            "Unknown Session history ref",
-            constraint={"ref": ref},
-            scope=scope,
-        ) from exc
+    count: int,
+) -> int:
+    if count == 0:
+        return len(refs)
+    seen = 0
+    for index in range(len(refs) - 1, -1, -1):
+        if isinstance(store.load_record(refs[index]), SessionTurnRecord):
+            seen += 1
+            if seen == count:
+                return index
+    return 0
 
 
-def _is_valid_history_ref(ref: object) -> bool:
-    if not isinstance(ref, str):
-        return False
-    prefixes = tuple(f"session:{kind.value}/" for kind in SessionHistoryKind)
-    prefix = next((value for value in prefixes if ref.startswith(value)), None)
-    if prefix is None:
-        return False
-    record_id = ref[len(prefix) :]
-    return bool(record_id) and all(
-        char in "abcdefghijklmnopqrstuvwxyz0123456789_-" for char in record_id
-    )
-
-
-def _session_page_error(
-    error: JsonPageError,
+def _request_error(
+    reason: SessionInspectFailureReason,
+    message: str,
     *,
     ref: str | None,
-    scope: str,
-) -> SessionHistoryRequestError:
-    reason_map = {
-        JsonPageFailureReason.INVALID_CURSOR: SessionHistoryFailureReason.INVALID_CURSOR,
-        JsonPageFailureReason.CURSOR_OUT_OF_RANGE: (
-            SessionHistoryFailureReason.CURSOR_OUT_OF_RANGE
-        ),
-        JsonPageFailureReason.ENTRY_OFFSET_OUT_OF_RANGE: (
-            SessionHistoryFailureReason.ENTRY_OFFSET_OUT_OF_RANGE
-        ),
-        JsonPageFailureReason.ENTRY_DIGEST_MISMATCH: (
-            SessionHistoryFailureReason.ENTRY_DIGEST_MISMATCH
-        ),
-        JsonPageFailureReason.PAGE_BUDGET_TOO_SMALL: (
-            SessionHistoryFailureReason.PAGE_BUDGET_TOO_SMALL
-        ),
-    }
-    reason = reason_map.get(error.reason)
-    if reason is None:
-        raise SessionInvariantError("Unexpected Session paging failure") from error
-    constraint: JsonObject = {**error.constraint}
-    if ref is not None:
-        constraint = {"ref": ref, **constraint}
-    return SessionHistoryRequestError(
+) -> SessionInspectRequestError:
+    return SessionInspectRequestError(
         reason,
-        str(error),
-        constraint=constraint,
-        scope=scope,
+        message,
+        constraint=({"ref": ref} if ref is not None else {}),
+        scope="session.inspect",
     )
+
+
+def _require_business_day(day: BusinessDay) -> None:
+    if not isinstance(day, BusinessDay):
+        raise SessionContractError("Session day must be a BusinessDay")

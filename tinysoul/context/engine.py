@@ -7,14 +7,14 @@ from datetime import date
 from typing import Protocol
 from uuid import uuid4
 
-from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
-from tinysoul.infra.paging import (
-    MIN_JSON_PAGE_CHARS,
-    JsonPageCursor,
-    JsonPageError,
-    JsonPageFailureReason,
-    page_json_sequence,
+from tinysoul.infra.continuation import (
+    MIN_CONTINUATION_PAGE_CHARS,
+    ContinuationError,
+    ContinuationFailureReason,
+    OpaqueContinuationCodec,
+    continue_json_sequence,
 )
+from tinysoul.infra.json import JsonObject, JsonValue, dumps_json, to_json_object
 from tinysoul.llm.messages import (
     AssistantMessage,
     JsonPart,
@@ -22,9 +22,8 @@ from tinysoul.llm.messages import (
     MessageStack,
     TextPart,
     ToolResultMessage,
-    UserMessage,
 )
-from tinysoul.llm.tools import ToolCallRecord, ToolScope
+from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolScope
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -88,69 +87,70 @@ from .trace import (
     TraceEntry,
     TraceKind,
     TurnTraceHeap,
-    canonical_trace_digest,
-    is_canonical_trace_digest,
 )
 from .working import WorkingContext, WorkingPatch, WorkspaceSnapshot
 
 
 @dataclass(frozen=True)
-class TurnSummary:
-    """A JSON-safe summary of one finished turn."""
+class ContextTurnInput:
+    """One immutable user input transferred at Turn completion."""
+
+    text: str
+    received_at: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or not self.text:
+            raise ContextContractError("ContextTurnInput.text must be non-empty")
+        if (
+            isinstance(self.received_at, bool)
+            or not isinstance(self.received_at, (int, float))
+            or self.received_at < 0
+        ):
+            raise ContextContractError(
+                "ContextTurnInput.received_at must be non-negative"
+            )
+
+
+@dataclass(frozen=True)
+class ContextTurnCompletion:
+    """Typed current-Turn facts transferred once through the completion pipeline."""
 
     turn_id: str
-    inputs: tuple[JsonObject, ...] = field(default_factory=tuple)
-    working: JsonObject = field(default_factory=dict)
-    background_links: tuple[str, ...] = field(default_factory=tuple)
-    trace_summary: JsonObject = field(default_factory=dict)
-    trace_digest: str = ""
-    trace: tuple[JsonObject, ...] = field(default_factory=tuple)
-    trace_heap: JsonObject = field(default_factory=dict)
+    inputs: tuple[ContextTurnInput, ...]
+    working: JsonObject
+    background_links: tuple[str, ...]
+    trace: SealedTurnTrace
 
     def __post_init__(self) -> None:
         if not self.turn_id:
-            raise ContextContractError("TurnSummary.turn_id must be non-empty")
-        object.__setattr__(
-            self,
-            "inputs",
-            tuple(to_json_object(item) for item in self.inputs),
-        )
+            raise ContextContractError(
+                "ContextTurnCompletion.turn_id must be non-empty"
+            )
+        inputs = tuple(self.inputs)
+        if not inputs or any(not isinstance(item, ContextTurnInput) for item in inputs):
+            raise ContextContractError(
+                "ContextTurnCompletion.inputs must contain typed inputs"
+            )
+        object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "working", to_json_object(self.working))
         links = tuple(self.background_links)
         if any(not isinstance(link, str) or not link for link in links):
             raise ContextContractError(
-                "TurnSummary.background_links must contain non-empty strings"
+                "ContextTurnCompletion.background_links must contain non-empty strings"
             )
         if len(set(links)) != len(links):
-            raise ContextContractError("TurnSummary.background_links must be unique")
-        object.__setattr__(self, "background_links", links)
-        object.__setattr__(
-            self,
-            "trace_summary",
-            to_json_object(self.trace_summary),
-        )
-        if not is_canonical_trace_digest(self.trace_digest):
             raise ContextContractError(
-                "TurnSummary.trace_digest must be a sha256 content digest"
+                "ContextTurnCompletion.background_links must be unique"
             )
-        object.__setattr__(
-            self,
-            "trace",
-            tuple(to_json_object(item) for item in self.trace),
-        )
-        object.__setattr__(self, "trace_heap", to_json_object(self.trace_heap))
-
-    def to_json(self) -> JsonObject:
-        return {
-            "turn_id": self.turn_id,
-            "inputs": list(self.inputs),
-            "working": self.working,
-            "background_links": list(self.background_links),
-            "trace_summary": self.trace_summary,
-            "trace_digest": self.trace_digest,
-            "trace": list(self.trace),
-            "trace_heap": self.trace_heap,
-        }
+        object.__setattr__(self, "background_links", links)
+        if not isinstance(self.trace, SealedTurnTrace):
+            raise ContextContractError(
+                "ContextTurnCompletion.trace must be a SealedTurnTrace"
+            )
+        if self.trace.turn_id != self.turn_id:
+            raise ContextContractError(
+                "ContextTurnCompletion trace must belong to the same Turn"
+            )
 
 
 class BackgroundContentLoader(Protocol):
@@ -201,8 +201,7 @@ class ContextEngine:
         default_entries: tuple[BackgroundEntry, ...],
         loadable_entries: dict[str, BackgroundContentLoader],
         background_providers: tuple[BackgroundEntryProvider, ...],
-        trace_recall_max_chars: int,
-        trace_recall_max_entries: int,
+        trace_inspect_max_chars: int,
         compression_trigger_ratio: float,
         compression_target_ratio: float,
         observations: ObservationEmitter | None = None,
@@ -217,8 +216,11 @@ class ContextEngine:
         self._provider_by_owner: dict[str, BackgroundEntryProvider] = {}
         self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
         self._business_day: date | None = None
-        self._trace_recall_max_chars = trace_recall_max_chars
-        self._trace_recall_max_entries = trace_recall_max_entries
+        self._trace_inspect_max_chars = trace_inspect_max_chars
+        self._trace_continuations = OpaqueContinuationCodec(
+            owner="context",
+            operation="inspect",
+        )
         self._compression_trigger_ratio = compression_trigger_ratio
         self._compression_target_ratio = compression_target_ratio
         self._observations = observations or NullObservationEmitter()
@@ -258,18 +260,6 @@ class ContextEngine:
 
         self._require_turn()
         return tuple(entry.kind for entry in self._trace.entries())
-
-    def trace_digest(self) -> str:
-        """Return the SHA-256 identity of the current canonical turn trace."""
-
-        self._require_turn()
-        return canonical_trace_digest(_trace_records(self._trace))
-
-    def trace_summary(self) -> JsonObject:
-        """Return bounded structural facts about the current turn trace."""
-
-        self._require_turn()
-        return _trace_summary(self._trace)
 
     def begin_turn(self, user_input: str) -> str:
         if self._turn_id:
@@ -592,117 +582,66 @@ class ContextEngine:
             ),
         )
 
-    def inspect_trace(self, ref: str) -> JsonObject:
-        self._require_turn()
-        return self._trace.inspect(ref)
-
-    def recall_trace(
+    def inspect_trace(
         self,
         ref: str,
         *,
-        max_chars: int | None = None,
-        max_entries: int | None = None,
-        cursor: JsonObject | None = None,
+        continuation: str | None = None,
     ) -> JsonObject:
-        self._require_turn()
-        if max_chars is not None and (
-            isinstance(max_chars, bool)
-            or not isinstance(max_chars, int)
-            or max_chars <= 0
-        ):
-            raise ContextTraceRequestError(
-                ContextTraceFailureReason.INVALID_MAX_CHARS,
-                "Trace recall max_chars must be positive",
-                constraint={"max_chars": max_chars},
-            )
-        if max_entries is not None and (
-            isinstance(max_entries, bool)
-            or not isinstance(max_entries, int)
-            or max_entries <= 0
-        ):
-            raise ContextTraceRequestError(
-                ContextTraceFailureReason.INVALID_MAX_ENTRIES,
-                "Trace recall max_entries must be positive",
-                constraint={"max_entries": max_entries},
-            )
-        try:
-            page_cursor = JsonPageCursor.from_json(cursor)
-        except JsonPageError as exc:
-            raise _context_page_error(exc, ref=ref) from exc
-        limit = (
-            self._trace_recall_max_chars
-            if max_chars is None
-            else min(max_chars, self._trace_recall_max_chars)
-        )
-        requested = self._trace_recall_max_chars if max_chars is None else max_chars
-        entry_limit = (
-            self._trace_recall_max_entries
-            if max_entries is None
-            else min(max_entries, self._trace_recall_max_entries)
-        )
-        requested_entries = (
-            self._trace_recall_max_entries if max_entries is None else max_entries
-        )
-        entries = tuple(
-            _trace_entry_record(entry)
-            for entry in self._trace.recall_entries(ref)
-        )
-        try:
-            return page_json_sequence(
-                entries,
-                base={
-                    "origin_ref": ref,
-                    "source": {
-                        "owner": "context",
-                        "ref": ref,
-                        "turn_id": self._turn_id,
-                        "trace_digest": self.trace_digest(),
-                        "trace_entry_count": len(entries),
-                    },
-                },
-                item_field="entries",
-                cursor_unit="trace_entry",
-                cursor=page_cursor,
-                max_chars=limit,
-                max_entries=entry_limit,
-                requested_max_chars=requested,
-                requested_max_entries=requested_entries,
-            )
-        except JsonPageError as exc:
-            raise _context_page_error(exc, ref=ref) from exc
+        """Inspect one current-Turn heap node without flattening the hierarchy."""
 
-    def fold_trace_overlays(self) -> int:
         self._require_turn()
-        return self._trace.fold_overlays()
+        structure = self._trace.inspect(ref)
+        if structure.get("kind") != "context_trace_leaf":
+            if continuation is not None:
+                raise ContextTraceRequestError(
+                    ContextTraceFailureReason.INVALID_CONTINUATION,
+                    "This Context node has no continuation; inspect its child ref",
+                    constraint={"ref": ref},
+                )
+            if len(dumps_json(structure)) > self._trace_inspect_max_chars:
+                raise ContextTraceRequestError(
+                    ContextTraceFailureReason.PAGE_BUDGET_TOO_SMALL,
+                    "Context heap header exceeds the inspect character limit",
+                    constraint={"ref": ref},
+                )
+            return structure
+        interactions = tuple(
+            _semantic_trace_entry(entry)
+            for entry in self._trace.leaf_entries(ref)
+        )
+        try:
+            return continue_json_sequence(
+                interactions,
+                base={"kind": "context_trace_leaf", "ref": ref},
+                item_field="interactions",
+                continuation=continuation,
+                codec=self._trace_continuations,
+                ref=ref,
+                max_chars=self._trace_inspect_max_chars,
+            )
+        except ContinuationError as exc:
+            raise _context_continuation_error(exc, ref=ref) from exc
 
     def seal_trace(self) -> SealedTurnTrace:
         self._require_turn()
         return self._trace.seal()
 
-    def end_turn(self) -> TurnSummary:
+    def end_turn(self) -> ContextTurnCompletion:
         self._require_turn()
-        trace = _trace_records(self._trace)
-        summary = TurnSummary(
+        completion = ContextTurnCompletion(
             turn_id=self._turn_id,
             inputs=tuple(
-                {
-                    "input_id": item.input_id,
-                    "text": item.text,
-                    "received_at": item.received_at,
-                    "merged": item.merged,
-                }
+                ContextTurnInput(text=item.text, received_at=item.received_at)
                 for item in self._inputs.all()
             ),
             working=self._working.to_json(),
             background_links=self._background.links(),
-            trace_summary=_trace_summary(self._trace),
-            trace_digest=canonical_trace_digest(trace),
-            trace=trace,
-            trace_heap=_trace_heap_record(self._trace.seal()),
+            trace=self._trace.seal(),
         )
         self._turn_id = ""
         self._preparing_turn = False
-        return summary
+        return completion
 
     def abort_turn(self) -> None:
         """Discard the active turn state when summary finalization cannot complete."""
@@ -988,8 +927,7 @@ class ContextEngineBuilder:
         self._trace_chunk_max_chars = 12000
         self._trace_branch_factor = 4
         self._trace_min_hot_entries = 2
-        self._trace_recall_max_chars = 8000
-        self._trace_recall_max_entries = 50
+        self._trace_inspect_max_chars = 8000
         self._compression_trigger_ratio = 0.80
         self._compression_target_ratio = 0.50
         self._default_entries: list[BackgroundEntry] = []
@@ -1041,32 +979,19 @@ class ContextEngineBuilder:
         self._trace_min_hot_entries = min_hot_entries
         return self
 
-    def with_trace_recall_max_chars(
+    def with_trace_inspect_max_chars(
         self,
         max_chars: int,
     ) -> "ContextEngineBuilder":
         if (
             isinstance(max_chars, bool)
             or not isinstance(max_chars, int)
-            or max_chars < MIN_JSON_PAGE_CHARS
+            or max_chars < MIN_CONTINUATION_PAGE_CHARS
         ):
             raise ContextContractError(
-                "Trace recall max_chars must leave room for paging metadata"
+                "Trace inspect max_chars must leave room for response metadata"
             )
-        self._trace_recall_max_chars = max_chars
-        return self
-
-    def with_trace_recall_max_entries(
-        self,
-        max_entries: int,
-    ) -> "ContextEngineBuilder":
-        if (
-            isinstance(max_entries, bool)
-            or not isinstance(max_entries, int)
-            or max_entries <= 0
-        ):
-            raise ContextContractError("Trace recall max_entries must be positive")
-        self._trace_recall_max_entries = max_entries
+        self._trace_inspect_max_chars = max_chars
         return self
 
     def with_compression_target_ratio(
@@ -1173,161 +1098,107 @@ class ContextEngineBuilder:
             default_entries=tuple(self._default_entries),
             loadable_entries=loadable,
             background_providers=tuple(self._background_providers),
-            trace_recall_max_chars=self._trace_recall_max_chars,
-            trace_recall_max_entries=self._trace_recall_max_entries,
+            trace_inspect_max_chars=self._trace_inspect_max_chars,
             compression_trigger_ratio=self._compression_trigger_ratio,
             compression_target_ratio=self._compression_target_ratio,
             observations=self._observations,
         )
 
 
-def _trace_summary(trace: TurnTraceHeap) -> JsonObject:
-    entries = trace.entries()
-    action_names = sorted(
-        {
-            name
-            for entry in entries
-            for name in _message_action_names(entry.message)
-        }
-    )
-    return to_json_object(
-        {
-            "entry_count": len(entries),
-            "kinds": sorted({entry.kind.value for entry in entries}),
-            "cycle_count": len({entry.cycle_id for entry in entries if entry.cycle_id}),
-            "action_names": action_names,
-        }
-    )
-
-
-def _message_action_names(message: Message) -> tuple[str, ...]:
-    if isinstance(message, AssistantMessage):
-        return tuple(call.name for call in message.tool_calls)
-    if isinstance(message, ToolResultMessage):
-        return (message.tool_name,)
-    return ()
-
-
-def _context_page_error(
-    error: JsonPageError,
+def _context_continuation_error(
+    error: ContinuationError,
     *,
     ref: str,
 ) -> ContextTraceRequestError:
     reason_map = {
-        JsonPageFailureReason.INVALID_CURSOR: ContextTraceFailureReason.INVALID_CURSOR,
-        JsonPageFailureReason.CURSOR_OUT_OF_RANGE: (
-            ContextTraceFailureReason.CURSOR_OUT_OF_RANGE
+        ContinuationFailureReason.INVALID: (
+            ContextTraceFailureReason.INVALID_CONTINUATION
         ),
-        JsonPageFailureReason.ENTRY_OFFSET_OUT_OF_RANGE: (
-            ContextTraceFailureReason.ENTRY_OFFSET_OUT_OF_RANGE
+        ContinuationFailureReason.MISMATCH: (
+            ContextTraceFailureReason.INVALID_CONTINUATION
         ),
-        JsonPageFailureReason.ENTRY_DIGEST_MISMATCH: (
-            ContextTraceFailureReason.ENTRY_DIGEST_MISMATCH
+        ContinuationFailureReason.OUT_OF_RANGE: (
+            ContextTraceFailureReason.INVALID_CONTINUATION
         ),
-        JsonPageFailureReason.PAGE_BUDGET_TOO_SMALL: (
+        ContinuationFailureReason.CONTENT_CHANGED: (
+            ContextTraceFailureReason.INVALID_CONTINUATION
+        ),
+        ContinuationFailureReason.BUDGET_TOO_SMALL: (
             ContextTraceFailureReason.PAGE_BUDGET_TOO_SMALL
         ),
     }
     reason = reason_map.get(error.reason)
     if reason is None:
-        raise ContextInvariantError("Unexpected Context paging failure") from error
+        raise ContextInvariantError("Unexpected Context continuation failure") from error
     return ContextTraceRequestError(
         reason,
         str(error),
-        constraint={"ref": ref, **error.constraint},
+        constraint={"ref": ref},
     )
 
 
-def _trace_records(trace: TurnTraceHeap) -> tuple[JsonObject, ...]:
-    return tuple(
-        _trace_entry_record(entry)
-        for entry in trace.entries()
-    )
-
-
-def _trace_heap_record(trace: SealedTurnTrace) -> JsonObject:
-    return to_json_object(
-        {
-            "turn_id": trace.turn_id,
-            "head_ref": f"turn:trace@{trace.turn_id}",
-            "root_ids": list(trace.root_ids),
-            "nodes": [
-                {
-                    "node_id": node.node_id,
-                    "kind": node.kind.value,
-                    "level": node.level,
-                    "entry_ids": list(node.entry_ids),
-                    "child_ids": list(node.child_ids),
-                    "cycle_ids": list(node.cycle_ids),
-                    "trace_kinds": list(node.trace_kinds),
-                    "action_names": list(node.action_names),
-                    "char_count": node.char_count,
-                }
-                for node in trace.nodes
-            ],
-        }
-    )
-
-
-def _trace_entry_record(entry: TraceEntry) -> JsonObject:
-    return to_json_object(
-        {
-            "entry_id": entry.entry_id,
-            "kind": entry.kind.value,
-            "cycle_id": entry.cycle_id,
-            "phase": entry.phase.value if entry.phase is not None else "",
-            "message": _message_record(entry.message),
-            "origin_refs": list(entry.origin_refs),
-        }
-    )
-
-
-def _message_record(message: Message) -> JsonObject:
-    role = "user"
+def _semantic_trace_entry(entry: TraceEntry) -> JsonObject:
+    message = entry.message
+    content = _semantic_parts(message)
     if isinstance(message, AssistantMessage):
-        role = "assistant"
-    elif isinstance(message, ToolResultMessage):
-        role = "tool_result"
-    content: list[JsonValue] = []
+        value: JsonObject = {"kind": "decision"}
+        if content:
+            value["content"] = content[0] if len(content) == 1 else content
+        actions: list[JsonValue] = [
+            to_json_object({"action": call.name, "request": call.arguments})
+            for call in message.tool_calls
+            if call.kind is ToolKind.ACTION
+        ]
+        controls: list[JsonValue] = [
+            to_json_object({"control": call.name, "request": call.arguments})
+            for call in message.tool_calls
+            if call.kind is ToolKind.CONTROL
+        ]
+        if actions:
+            value["actions"] = actions
+        if controls:
+            value["controls"] = controls
+        return to_json_object(value)
+    if isinstance(message, ToolResultMessage):
+        value = {
+            "kind": "action_result",
+            "action": message.tool_name,
+            "outcome": message.status.value,
+        }
+        envelope = content[0] if len(content) == 1 and isinstance(content[0], dict) else None
+        if envelope is not None:
+            status = envelope.get("status")
+            if isinstance(status, str) and status:
+                value["outcome"] = status
+            payload = envelope.get("payload")
+            if isinstance(payload, dict) and payload:
+                value["result"] = payload
+            failure = envelope.get("failure")
+            if isinstance(failure, dict) and failure:
+                value["failure"] = {
+                    key: failure[key]
+                    for key in ("reason", "disposition", "feedback", "constraint")
+                    if key in failure
+                }
+        elif content:
+            value["result"] = content[0] if len(content) == 1 else content
+        if entry.origin_refs:
+            value["references"] = list(entry.origin_refs)
+        return to_json_object(value)
+    value = {"kind": "phase_note"}
+    if content:
+        value["content"] = content[0] if len(content) == 1 else content
+    return to_json_object(value)
+
+
+def _semantic_parts(message: Message) -> list[JsonValue]:
+    values: list[JsonValue] = []
     for part in message.parts:
         if isinstance(part, TextPart):
-            content.append({"type": "text", "text": part.text})
+            values.append(part.text)
         elif isinstance(part, JsonPart):
-            content.append({"type": "json", "value": part.value})
-    record: JsonObject = {
-        "role": role,
-        "label": message.label,
-        "content": content,
-    }
-    if isinstance(message, AssistantMessage):
-        if message.reasoning is not None:
-            reasoning: JsonObject = {}
-            if message.reasoning.content is not None:
-                reasoning["content"] = message.reasoning.content
-            if message.reasoning.summary is not None:
-                reasoning["summary"] = message.reasoning.summary
-            if message.reasoning.encrypted_items:
-                reasoning["encrypted_items"] = [
-                    to_json_object(item)
-                    for item in message.reasoning.encrypted_items
-                ]
-            record["reasoning"] = reasoning
-        record["tool_calls"] = [
-            {
-                "id": call.id,
-                "name": call.name,
-                "arguments": call.arguments,
-                "kind": call.kind.value if call.kind is not None else "",
-            }
-            for call in message.tool_calls
-        ]
-    elif isinstance(message, ToolResultMessage):
-        record["call_id"] = message.call_id
-        record["tool_name"] = message.tool_name
-        record["status"] = message.status.value
-    elif not isinstance(message, UserMessage):
-        record["role"] = "system"
-    return to_json_object(record)
+            values.append(part.value)
+    return values
 
 
 def _signal_call_id(signal: Signal) -> str:

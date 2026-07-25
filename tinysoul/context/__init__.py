@@ -19,11 +19,12 @@ from .controls import (
 )
 from .engine import (
     BackgroundContentLoader,
+    ContextTurnCompletion,
+    ContextTurnInput,
     ContextEngine,
     ContextEngineBuilder,
     ContextSignalBatch,
     StaticBackgroundContentLoader,
-    TurnSummary,
 )
 from .config import ContextSettings, parse_context_settings
 from .errors import (
@@ -62,7 +63,6 @@ from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
 from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
 from .compress import ContextPressureReport
-from .trace import canonical_trace_digest, is_canonical_trace_digest
 
 __all__ = [
     "ContextBudgetReport",
@@ -84,6 +84,8 @@ __all__ = [
     "ContextInvariantError",
     "ContextTraceFailureReason",
     "ContextTraceRequestError",
+    "ContextTurnCompletion",
+    "ContextTurnInput",
     "ContextSignalBatch",
     "ContextSettings",
     "ContextSection",
@@ -108,7 +110,6 @@ __all__ = [
     "SessionBackgroundItem",
     "SessionBackgroundSnapshot",
     "TaskPrompt",
-    "TurnSummary",
     "WorkspaceResource",
     "WorkspaceSnapshot",
     "build_input_append_signal",
@@ -117,8 +118,6 @@ __all__ = [
     "build_trace_decision_signal",
     "build_trace_phase_note_signal",
     "build_workspace_sync_signal",
-    "canonical_trace_digest",
-    "is_canonical_trace_digest",
     "parse_context_settings",
     "parse_input_append_signal",
     "register_context_actions",
