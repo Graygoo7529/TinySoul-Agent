@@ -100,6 +100,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/how_domain/script/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/session/DOMAIN.md" in names
+    assert "tinysoul/assets/project/home/how_domain/context/DOMAIN.md" in names
     assert (
         "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
     )
@@ -199,6 +200,9 @@ raise SystemExit(
     ).is_file()
     assert (
         initialized / "home" / "how_domain" / "session" / "DOMAIN.md"
+    ).is_file()
+    assert (
+        initialized / "home" / "how_domain" / "context" / "DOMAIN.md"
     ).is_file()
     assert not (initialized / "home" / "how_action" / "session").exists()
     session_config = tomllib.loads(

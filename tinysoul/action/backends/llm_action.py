@@ -244,6 +244,11 @@ class LLMActionTaskRunner:
                     cancellation=cancellation,
                 )
             )
+            if (
+                cancellation is not None
+                and result.status is TaskResultStatus.SUCCESS
+            ):
+                cancellation.check()
         except TaskCancelled as exc:
             cancel_reason = str(exc)
             reserved_deadline_expired = (

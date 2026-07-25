@@ -94,6 +94,25 @@ class FixedRemainingControl(ActionExecutionControl):
     def remaining_seconds(self) -> float | None:
         return self._remaining
 
+    def set_remaining(self, remaining: float) -> None:
+        self._remaining = remaining
+
+
+class ReturningAfterReserveLLMRunner(FakeLLMRunner):
+    def __init__(
+        self,
+        control: FixedRemainingControl,
+        *,
+        failure: TaskFailure | None = None,
+    ) -> None:
+        super().__init__({"text": "done"}, failure=failure)
+        self._control = control
+
+    def run(self, call: TaskCall) -> TaskResult:
+        result = super().run(call)
+        self._control.set_remaining(4.0)
+        return result
+
 
 class TestReferenceResolver:
     def supports(self, link: str) -> bool:
@@ -247,6 +266,60 @@ def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
         "feedback": "Action timed out during execution.",
     }
     assert llm.calls == []
+
+
+def test_llm_action_rechecks_completion_reserve_after_successful_return() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    control = FixedRemainingControl(12.0)
+    llm = ReturningAfterReserveLLMRunner(control)
+    executor = CoreAnswerActionExecutor(
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
+    )
+
+    result = executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            handler="core.answer",
+        ),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.failure is not None
+    assert result.failure.reason == "execution_timeout"
+    assert len(llm.calls) == 1
+
+
+def test_llm_action_preserves_failure_returned_after_completion_reserve() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("user asks")
+    control = FixedRemainingControl(12.0)
+    failure = TaskFailure(
+        model_feedback="Model generation reached its output token limit.",
+        reason=TaskFailureReason.OUTPUT_LIMIT_REACHED,
+        scope=TaskFailureScope.OUTPUT,
+        constraint={"max_output_tokens": 2048},
+    )
+    llm = ReturningAfterReserveLLMRunner(control, failure=failure)
+    executor = CoreAnswerActionExecutor(
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
+    )
+
+    result = executor.execute(
+        _execution(
+            "core.answer",
+            {"guide_blocks": [{"text": "answer"}]},
+            handler="core.answer",
+        ),
+        ActionExecutionContext(control=control),
+    )
+
+    assert result.status is ActionResultStatus.FAILED
+    assert result.failure is not None
+    assert result.failure.reason == TaskFailureReason.OUTPUT_LIMIT_REACHED.value
+    assert len(llm.calls) == 1
 
 
 def test_llm_action_injects_domain_and_action_how_as_guide_blocks() -> None:

@@ -35,6 +35,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert (root / "home" / "agent" / "user" / "user.md").is_file()
     assert (root / "home" / "what" / "entity" / "tiny-soul.md").is_file()
     assert (root / "home" / "how_domain" / "session" / "DOMAIN.md").is_file()
+    assert (root / "home" / "how_domain" / "context" / "DOMAIN.md").is_file()
     assert (root / "home" / "how_action" / "core" / "answer.md").is_file()
     assert not (root / "home" / "how_action" / "session").exists()
     assert (

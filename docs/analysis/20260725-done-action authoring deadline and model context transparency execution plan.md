@@ -42,8 +42,8 @@
 ## 实施结果
 
 - 四个完整工件 Action 的 Catalog owner timeout 已统一为 180 秒；`workspace.analyze` 仍为 90 秒，其余 Workspace/Script Action 保持原有 domain/job 边界。
-- `LLMActionTaskRunner` 只对存在 owner deadline 的嵌套 Task 扣除 5 秒；预留窗口到期返回 `execution_timeout/action.timeout`，显式外部取消仍保持 `cancelled`，两者都不暴露执行后端细节。
-- Working model projection、自动 Trace heap header、Session Context projection 和 Session Action adapter 已移除指定内部 revision/digest；内部 state、Session record/validator、Context inspect 与 Endpoint 直接使用的 Engine query 保持完整。
+- `LLMActionTaskRunner` 只对存在 owner deadline 的嵌套 Task 扣除 5 秒，并在成功返回边界重新检查预留窗口；迟返成功转为 `execution_timeout/action.timeout`，迟返失败保留原失败，显式外部取消仍保持 `cancelled`，均不暴露执行后端细节。
+- Working model projection、Trace heap header/head inspect、Session Context projection 和 Session Action adapter 已移除指定内部 revision/digest。Context 不再维护没有协议消费者的 Trace anchor/canonical revision；Session record/validator、真实 cursor binding、领域 Engine 与 Endpoint 仍保留各自需要的完整事实。
 - Session Background 测试证明 ask、answer、Action names/outcome summary 与配置选中的 `core.reason` status detail 可用，且未复制 ActionResult 业务 payload；`core.answer` 继续由最终 answer 独立投影。
-- 默认 Home 新增精炼的 Context Domain HOW，并压缩三个 Context Top、Session/Script Domain HOW 与 Core Answer HOW；Script 只增加通用复用、避免嵌入大段目标文本的弱约束。
+- 默认 Home 新增精炼的 Context Domain HOW，并压缩三个 Context Top、Session/Script Domain HOW 与 Core Answer HOW；Script 只增加通用复用、避免嵌入大段目标文本的弱约束。发布测试显式验证 Context Domain HOW 同时存在于 wheel 和普通/隔离初始化产物。
 - 聚焦测试与完整 `pytest tests` 通过；`ty check --python C:\Anaconda3\envs\TinySoul\python.exe` 通过；`git diff --check` 通过。全量测试仅报告既有 FastAPI TestClient deprecation warning。

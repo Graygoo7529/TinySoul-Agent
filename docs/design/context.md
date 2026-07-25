@@ -40,7 +40,7 @@ recall 使用包含 `entry_index/char_offset/entry_digest` 的服务端 continua
 
 每条轨迹记录直接持有 llm 公共消息类型，并附带 Cycle、Phase、可选 visible overlay 和复数 `origin_refs`。用户输入由 PendingInputs 单独渲染，不作为普通 trace 条目保存。`seal()` 产生包含当前 entries、节点和 roots 的不可变运行时投影；TurnSummary 序列化只读取每个 entry 的 canonical message 与 `origin_refs`，不持久化 visible overlay，再由 Session 保存该 canonical trace。`trace_summary` 只保存计数视图；`trace_digest` 固定为对 canonical trace 稳定 JSON 的 `sha256:<64hex>`，两者不可混用。
 
-TurnTraceHeap 内部保留只读锚点：`ref` 是当前 Turn 的 `turn:trace@<turn_id>` head，`canonical_revision` 等于 canonical append 数。append 增加 revision；hot-to-cold 压缩、branch 合并和 visible overlay fold 都不改变 revision。锚点服务内部一致性与 inspect；自动 MessageStack 的 heap header 只暴露导航 ref/roots，不暴露 canonical revision，也不把锚点复制到 Working 模型消息。
+`turn:trace@<turn_id>` head 是进入当前 Turn 冷轨迹树的导航入口。自动 MessageStack header 与 `context.trace.inspect` 对该 head 使用同一投影，只包含 ref、roots 和热条目计数等恢复事实；Context 不维护或暴露独立 canonical revision/anchor。append-only entries、不可变 heap node 与 `seal()` 共同保存本轮 canonical 记录和恢复结构，Turn 提交时再由稳定 `trace_digest` 绑定完整 trace。
 
 ### PendingInputs
 
