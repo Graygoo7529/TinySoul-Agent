@@ -4,7 +4,7 @@ This is an editable TinySoul project created from a packaged config profile. Its
 
 ## Standard
 
-The standard profile keeps all providers and host-sensitive optional capabilities disabled. Enable a provider in `configs/llm.providers.toml` and add its credentials to `.env`, then start the backend:
+Enable a provider in `configs/llm.providers.toml` and add its credentials to `.env`, then start the backend:
 
 ```powershell
 tinysoul start --root . --mode normal

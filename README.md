@@ -13,7 +13,7 @@ python -m pip install .
 tinysoul init my-agent
 ```
 
-The standard profile keeps all providers and host-sensitive optional capabilities disabled. Enable a provider in `my-agent/configs/llm.providers.toml` and add its credentials to `my-agent/.env`, then start the backend:
+Enable a provider in `my-agent/configs/llm.providers.toml` and add its credentials to `my-agent/.env`, then start the backend:
 
 ```powershell
 tinysoul start --root my-agent --mode normal

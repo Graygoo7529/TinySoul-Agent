@@ -77,6 +77,11 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
     )["capabilities"]["web"]
     assert web["search_by_kimi"]["model"] == "kimi-k2.6"
+    script = tomllib.loads(
+        (root / "configs" / "capabilities.script.toml").read_text(encoding="utf-8")
+    )["capabilities"]["script"]
+    assert script["enabled"] is False
+    assert script["python"]["enabled"] is False
     context = tomllib.loads(
         (root / "configs" / "context.toml").read_text(encoding="utf-8")
     )["context"]

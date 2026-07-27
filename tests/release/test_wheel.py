@@ -217,6 +217,13 @@ raise SystemExit(main(["reset", {str(development)!r}]))
         (initialized / "configs" / "session.toml").read_text(encoding="utf-8")
     )["session"]
     assert session_config["inspect_max_chars"] == 8000
+    script_config = tomllib.loads(
+        (initialized / "configs" / "capabilities.script.toml").read_text(
+            encoding="utf-8"
+        )
+    )["capabilities"]["script"]
+    assert script_config["enabled"] is False
+    assert script_config["python"]["enabled"] is False
     assert "enabled = false" in (
         initialized / "configs" / "capabilities.shell.toml"
     ).read_text(encoding="utf-8")

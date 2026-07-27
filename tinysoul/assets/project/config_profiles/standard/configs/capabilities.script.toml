@@ -1,11 +1,11 @@
 [capabilities.script]
-enabled = true
+enabled = false
 max_source_chars = 100000
 max_args = 32
 max_arg_chars = 1000
 
 [capabilities.script.python]
-enabled = true
+enabled = false
 
 [capabilities.script.bash]
 enabled = false
