@@ -1,4 +1,4 @@
-"""Initialize an editable TinySoul project from package resources."""
+"""Initialize or reset an editable TinySoul project from package resources."""
 
 from __future__ import annotations
 
@@ -45,6 +45,30 @@ class ProjectInitializationOutcome:
             raise AppInvariantError("Initialized project config profile is invalid")
 
 
+@dataclass(frozen=True)
+class ProjectResetOutcome:
+    """Result of one successful project template reset."""
+
+    root: Path
+    file_count: int
+    config_profile: ProjectConfigProfile
+    env_preserved: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.root, Path) or not self.root.is_absolute():
+            raise AppInvariantError("Reset project root must be absolute")
+        if (
+            isinstance(self.file_count, bool)
+            or not isinstance(self.file_count, int)
+            or self.file_count <= 0
+        ):
+            raise AppInvariantError("Reset project must contain files")
+        if not isinstance(self.config_profile, ProjectConfigProfile):
+            raise AppInvariantError("Reset project config profile is invalid")
+        if not isinstance(self.env_preserved, bool):
+            raise AppInvariantError("Reset project env preservation state is invalid")
+
+
 class ProjectInitializer:
     """Copy the package-owned project template into one empty target."""
 
@@ -80,33 +104,15 @@ class ProjectInitializer:
                     f"Failed to inspect project initialization target: {exc}"
                 ) from exc
 
-        template = files("tinysoul.assets").joinpath("project")
-        if not template.is_dir():
-            raise AppInvariantError("Packaged TinySoul project template is missing")
-        resources = _project_template_files(template, config_profile=config_profile)
-        if not resources:
-            raise AppInvariantError("Packaged TinySoul project template is empty")
+        resources = _packaged_project_files(config_profile)
+        staging = _stage_project(
+            root,
+            resources,
+            operation="initialization",
+            prefix="init",
+        )
 
         try:
-            root.parent.mkdir(parents=True, exist_ok=True)
-            staging = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{root.name}.tinysoul-init-",
-                    dir=root.parent,
-                )
-            )
-        except OSError as exc:
-            raise AppInitializationError(
-                f"Failed to prepare project initialization directory: {exc}"
-            ) from exc
-
-        try:
-            for relative in _INITIAL_PROJECT_DIRECTORIES:
-                (staging / relative).mkdir(parents=True, exist_ok=True)
-            for relative, resource in resources:
-                destination = staging.joinpath(*relative.parts)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(resource.read_bytes())
             if existed:
                 root.rmdir()
             staging.replace(root)
@@ -128,6 +134,176 @@ class ProjectInitializer:
             file_count=len(resources),
             config_profile=config_profile,
         )
+
+
+class ProjectResetter:
+    """Replace one existing TinySoul project while retaining its local env file."""
+
+    def reset(
+        self,
+        target: Path,
+        *,
+        config_profile: ProjectConfigProfile = ProjectConfigProfile.DEVELOPMENT,
+    ) -> ProjectResetOutcome:
+        if not isinstance(target, Path):
+            raise AppContractError("Project reset target must be a path")
+        if not isinstance(config_profile, ProjectConfigProfile):
+            raise AppContractError("Project config profile is invalid")
+        expanded = target.expanduser()
+        if expanded.is_symlink():
+            raise AppContractError(f"Project reset target cannot be a symlink: {expanded}")
+        root = expanded.resolve()
+        if not root.exists() or not root.is_dir():
+            raise AppContractError(
+                f"Project reset target must be an existing directory: {root}"
+            )
+        project_file = root / "tinysoul.toml"
+        if project_file.is_symlink() or not project_file.is_file():
+            raise AppContractError(
+                f"Project reset target is not a TinySoul project: {root}"
+            )
+        try:
+            cwd = Path.cwd().resolve()
+        except OSError as exc:
+            raise AppInitializationError(
+                f"Failed to inspect the current directory before project reset: {exc}"
+            ) from exc
+        if cwd == root or root in cwd.parents:
+            raise AppContractError(
+                "Project reset must be run from outside the target directory"
+            )
+
+        env_path = root / ".env"
+        env_bytes: bytes | None = None
+        if env_path.is_symlink():
+            raise AppContractError(
+                f"Project env file cannot be a symlink during reset: {env_path}"
+            )
+        if env_path.exists():
+            if not env_path.is_file():
+                raise AppContractError(
+                    f"Project env path must be a file during reset: {env_path}"
+                )
+            try:
+                env_bytes = env_path.read_bytes()
+            except OSError as exc:
+                raise AppInitializationError(
+                    f"Failed to preserve project env file: {exc}"
+                ) from exc
+
+        resources = _packaged_project_files(config_profile)
+        staging = _stage_project(
+            root,
+            resources,
+            operation="reset",
+            prefix="reset-new",
+        )
+        backup: Path | None = None
+        backup_has_previous_project = False
+        installed = False
+        try:
+            if env_bytes is not None:
+                (staging / ".env").write_bytes(env_bytes)
+            backup = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{root.name}.tinysoul-reset-old-",
+                    dir=root.parent,
+                )
+            )
+            backup.rmdir()
+            root.replace(backup)
+            backup_has_previous_project = True
+            try:
+                staging.replace(root)
+                installed = True
+            except OSError as install_exc:
+                try:
+                    backup.replace(root)
+                    backup_has_previous_project = False
+                except OSError as rollback_exc:
+                    raise AppInitializationError(
+                        "Failed to install reset TinySoul project and restore the "
+                        f"previous project at {root}; previous data remains at "
+                        f"{backup}: {rollback_exc}"
+                    ) from install_exc
+                raise AppInitializationError(
+                    f"Failed to install reset TinySoul project: {install_exc}"
+                ) from install_exc
+            try:
+                shutil.rmtree(backup)
+                backup = None
+                backup_has_previous_project = False
+            except OSError as exc:
+                raise AppInitializationError(
+                    "TinySoul project was reset, but the previous project could not "
+                    f"be removed from {backup}: {exc}"
+                ) from exc
+        except AppInitializationError:
+            raise
+        except OSError as exc:
+            raise AppInitializationError(f"Failed to reset TinySoul project: {exc}") from exc
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            if (
+                backup is not None
+                and not installed
+                and not backup_has_previous_project
+                and backup.exists()
+            ):
+                shutil.rmtree(backup, ignore_errors=True)
+
+        return ProjectResetOutcome(
+            root=root,
+            file_count=len(resources),
+            config_profile=config_profile,
+            env_preserved=env_bytes is not None,
+        )
+
+
+def _packaged_project_files(
+    config_profile: ProjectConfigProfile,
+) -> tuple[tuple[PurePosixPath, Traversable], ...]:
+    template = files("tinysoul.assets").joinpath("project")
+    if not template.is_dir():
+        raise AppInvariantError("Packaged TinySoul project template is missing")
+    resources = _project_template_files(template, config_profile=config_profile)
+    if not resources:
+        raise AppInvariantError("Packaged TinySoul project template is empty")
+    return resources
+
+
+def _stage_project(
+    root: Path,
+    resources: tuple[tuple[PurePosixPath, Traversable], ...],
+    *,
+    operation: str,
+    prefix: str,
+) -> Path:
+    staging: Path | None = None
+    try:
+        root.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{root.name}.tinysoul-{prefix}-",
+                dir=root.parent,
+            )
+        )
+        for relative in _INITIAL_PROJECT_DIRECTORIES:
+            (staging / relative).mkdir(parents=True, exist_ok=True)
+        for relative, resource in resources:
+            destination = staging.joinpath(*relative.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(resource.read_bytes())
+    except OSError as exc:
+        if staging is not None and staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise AppInitializationError(
+            f"Failed to prepare project {operation} directory: {exc}"
+        ) from exc
+    if staging is None:
+        raise AppInvariantError("Project staging directory was not created")
+    return staging
 
 
 def _project_template_files(

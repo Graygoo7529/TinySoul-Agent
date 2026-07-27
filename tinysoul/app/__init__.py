@@ -21,6 +21,8 @@ from .initializer import (
     ProjectConfigProfile,
     ProjectInitializationOutcome,
     ProjectInitializer,
+    ProjectResetOutcome,
+    ProjectResetter,
 )
 from .instance import (
     AppInstanceIdentity,
@@ -76,6 +78,8 @@ __all__ = [
     "ProjectInitializationOutcome",
     "ProjectConfigProfile",
     "ProjectInitializer",
+    "ProjectResetOutcome",
+    "ProjectResetter",
     "ProjectInstanceLease",
     "TerminalInputSource",
     "HomeDecisionBroker",

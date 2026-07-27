@@ -15,7 +15,7 @@ from tinysoul.runtime import ObservationLevel, RuntimeException
 from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
-from .initializer import ProjectConfigProfile, ProjectInitializer
+from .initializer import ProjectConfigProfile, ProjectInitializer, ProjectResetter
 from .instance import ProjectInstanceLease
 from .outputs import ConsoleOutputSink
 from .sources import TerminalInputSource
@@ -25,10 +25,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = tuple(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "init":
         return _init(args[1:])
+    if args and args[0] == "reset":
+        return _reset(args[1:])
     if args and args[0] == "start":
         return _start(args[1:])
     parser = argparse.ArgumentParser(prog="tinysoul")
-    parser.add_argument("command", choices=("start", "init"))
+    parser.add_argument("command", choices=("start", "init", "reset"))
     try:
         parser.parse_args(args)
     except SystemExit as exc:
@@ -67,6 +69,48 @@ def _init(argv: Sequence[str]) -> int:
     print(
         f"Initialized TinySoul project at {outcome.root} "
         f"(config profile: {outcome.config_profile.value})"
+    )
+    return 0
+
+
+def _reset(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tinysoul reset",
+        description=(
+            "Recreate a TinySoul project from packaged templates, clear all "
+            "project data, and preserve its .env file."
+        ),
+    )
+    parser.add_argument(
+        "directory",
+        type=Path,
+        help="existing TinySoul project directory",
+    )
+    parser.add_argument(
+        "--config-profile",
+        type=ProjectConfigProfile,
+        choices=tuple(ProjectConfigProfile),
+        default=ProjectConfigProfile.DEVELOPMENT,
+        help=(
+            "replacement configuration set: standard or development "
+            "(default: development)"
+        ),
+    )
+    args = parser.parse_args(tuple(argv))
+    root = args.directory.expanduser().resolve()
+    try:
+        with ProjectInstanceLease(root):
+            outcome = ProjectResetter().reset(
+                root,
+                config_profile=args.config_profile,
+            )
+    except AppError as exc:
+        print(f"tinysoul: {exc}", file=sys.stderr)
+        return 1
+    env_status = ".env preserved" if outcome.env_preserved else "no .env to preserve"
+    print(
+        f"Reset TinySoul project at {outcome.root} "
+        f"(config profile: {outcome.config_profile.value}; {env_status})"
     )
     return 0
 

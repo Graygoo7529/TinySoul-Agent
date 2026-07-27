@@ -82,6 +82,8 @@ MODEL 事件可能包含完整文本 prompt 和模型回答；Console 只应在�
 
 `tinysoul init [DIRECTORY]` 是独立项目初始化命令。`ProjectInitializer` 从已安装包读取公共模板与所选 config profile，确定性合成为普通项目结构，先完整写入目标同级 staging，再安装到不存在或空目录；文件、symlink 或非空目录都被拒绝，不覆盖现有内容。`--config-profile standard|development` 只选择初始 `configs/` 与 `.env.example`，默认 standard；standard 的 provider 全部 disabled 且 host-sensitive capability 使用安全默认值，development 保存项目维护者已启用但不含凭据的开发配置。profile 不安装依赖或 executable，不进入生成项目，也不成为 ConfigEnvironment 的运行时来源。命令不接收 `--provider`。公共模板包含 `tinysoul.toml`、唯一默认 Home、`.gitignore` 和项目 README，initializer 另外建立空的默认顶层 `memory/`；项目不包含 package-owned Action Catalog。生成后 configs/Home 完全归项目所有，package 更新不自动修改已有项目。
 
+`tinysoul reset DIRECTORY` 是面向专用开发项目的显式破坏性重建命令。它只接受带普通 `tinysoul.toml` 的已有目录，调用方工作目录必须位于目标外，并在任何读取/替换前持有与 `start` 相同的项目进程 lease。`ProjectResetter` 默认选择 development profile，也允许显式 standard；它先在目标同级 staging 完整生成新项目并按原始字节复制已有普通 `.env`，再以旧目录备份、新目录安装和旧目录清理组成可回滚替换。除 `.env` 外，旧 Home、configs、Memory、runtime、archive、对话数据和其它项目条目均不保留；目标或 `.env` 为 symlink、`.env` 不是普通文件、项目正在运行或新目录无法安装时拒绝，安装失败时恢复旧目录。reset 不保存 profile identity，也不改变 Infra 运行时配置来源。
+
 ### 项目模板维护
 
 源码仓库不再同时充当可运行项目。初始化资源只在 `tinysoul/assets/project/` 维护：公共资源位于目录根和 `home/`，profile-owned 资源分别位于 `config_profiles/standard/` 与 `config_profiles/development/`。仓库根不得重新出现用于开发运行的 configs/Home 镜像；真实运行和 provider smoke 使用外部初始化项目。

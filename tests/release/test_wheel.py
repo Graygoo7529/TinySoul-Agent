@@ -154,22 +154,27 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         "PYTHONPATH": str(installed),
     }
     script = f"""
+from pathlib import Path
+
 from tinysoul.action import builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.app.cli import main
 
+development = Path({str(development)!r})
 with builtin_action_catalog_root() as root:
     catalog = ActionCatalogLoader().load(root)
 assert catalog.has_domain("core")
 assert main(["init", {str(initialized)!r}]) == 0
-raise SystemExit(
-    main([
-        "init",
-        {str(development)!r},
-        "--config-profile",
-        "development",
-    ])
-)
+assert main([
+    "init",
+    {str(development)!r},
+    "--config-profile",
+    "development",
+]) == 0
+(development / ".env").write_bytes(b"SUBLYX_API_KEY=wheel-secret\\n")
+(development / "runtime").mkdir()
+(development / "runtime" / "old.txt").write_text("old", encoding="utf-8")
+raise SystemExit(main(["reset", {str(development)!r}]))
 """
     subprocess.run(
         (sys.executable, "-c", script),
@@ -235,6 +240,8 @@ raise SystemExit(
     ).is_file()
     assert (initialized / "memory").is_dir()
     assert (development / "README.md").is_file()
+    assert (development / ".env").read_bytes() == b"SUBLYX_API_KEY=wheel-secret\n"
+    assert not (development / "runtime").exists()
     assert not (development / "config_profiles").exists()
     assert (development / "home" / "agent" / "AGENT.md").read_bytes() == (
         initialized / "home" / "agent" / "AGENT.md"

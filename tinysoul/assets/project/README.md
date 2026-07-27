@@ -13,3 +13,5 @@ tinysoul start --root . --mode normal
 Projects created with the standard profile report a configuration error until at least one provider used by the configured task models is enabled. Development-profile projects fail at the owning module boundary when an enabled provider credential, optional distribution, or host executable is unavailable.
 
 Persistent Agent Home content is under `home/`. Runtime Session, Workspace, and Home overlay state are created under `runtime/`; daily Session, Workspace, and Trash archives are created under `archive/`; consolidated date memories are written under `memory/`.
+
+Repository maintainers may rebuild a disposable development project from its parent directory with `tinysoul reset PROJECT`. Reset defaults to the packaged `development` profile, preserves only an existing regular `.env` file, and replaces every other project entry. It refuses a non-TinySoul directory, a project that is currently running, or a target containing the current working directory. Use `--config-profile standard` when intentionally resetting a standard project.

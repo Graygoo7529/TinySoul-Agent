@@ -26,6 +26,14 @@ tinysoul init my-agent-dev --config-profile development
 
 The development profile contains enabled provider/capability settings but no credentials and does not install optional distributions or host executables. After initialization, the selected configuration and the shared Home copy are owned entirely by that project.
 
+To rebuild a dedicated development project after packaged Home or configuration changes, run this from the project's parent directory:
+
+```powershell
+tinysoul reset my-agent-dev
+```
+
+`tinysoul reset` defaults to the `development` profile. It requires an existing TinySoul project that is not running, preserves an existing regular `.env` file byte-for-byte, and replaces every other project entry, including Home, configs, Memory, runtime state, archives, and conversation data. It therefore also removes project-local additions such as `.git`; use it only for a disposable development project. Reset a standard project explicitly with `--config-profile standard`.
+
 The source checkout is not itself an initialized TinySoul project. Keep runtime development and real-provider smoke tests in an external directory created by `tinysoul init`, and pass that directory through `--root` or `TINYSOUL_REAL_PROJECT_ROOT` as appropriate.
 
 For one non-interactive turn:

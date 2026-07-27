@@ -7,8 +7,11 @@ import pytest
 
 from tinysoul.app import (
     AppContractError,
+    AppInitializationError,
     ProjectConfigProfile,
     ProjectInitializer,
+    ProjectInstanceLease,
+    ProjectResetter,
 )
 from tinysoul.app import cli
 from tinysoul.infra.config import parse_dotenv
@@ -174,6 +177,143 @@ def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     with pytest.raises(AppContractError, match="must be empty"):
         ProjectInitializer().initialize(marker.parent)
     assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_cli_reset_recreates_development_project_and_preserves_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "agent"
+    monkeypatch.setenv("TINYSOUL_INSTANCE_DIR", str(tmp_path / "instances"))
+    assert cli.main(["init", str(root)]) == 0
+    original_home = (root / "home" / "agent" / "AGENT.md").read_bytes()
+    env = b"SUBLYX_API_KEY=secret\r\nMOONSHOT_API_KEY=other\r\n"
+    (root / ".env").write_bytes(env)
+    (root / "home" / "agent" / "AGENT.md").write_text(
+        "custom home", encoding="utf-8"
+    )
+    (root / "configs" / "llm.providers.toml").write_text(
+        "custom config", encoding="utf-8"
+    )
+    for relative in (
+        "runtime/session/turn.json",
+        "archive/old/session.json",
+        "memory/2026-07-26.md",
+        "unknown-project-data.txt",
+    ):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("old data", encoding="utf-8")
+
+    result = cli.main(["reset", str(root)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "config profile: development" in captured.out
+    assert ".env preserved" in captured.out
+    assert (root / ".env").read_bytes() == env
+    assert (root / "home" / "agent" / "AGENT.md").read_bytes() == original_home
+    assert not (root / "runtime").exists()
+    assert not (root / "archive").exists()
+    assert not (root / "memory" / "2026-07-26.md").exists()
+    assert not (root / "unknown-project-data.txt").exists()
+    assert list((root / "memory").iterdir()) == []
+    providers = tomllib.loads(
+        (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")
+    )["llm"]["providers"]
+    assert providers["sublyx_proxy"]["enabled"] is True
+    assert providers["kimi"]["enabled"] is True
+
+
+def test_project_resetter_rejects_nonproject_and_invalid_env(
+    tmp_path: Path,
+) -> None:
+    nonproject = tmp_path / "nonproject"
+    nonproject.mkdir()
+    marker = nonproject / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(AppContractError, match="not a TinySoul project"):
+        ProjectResetter().reset(nonproject)
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+    root = tmp_path / "agent"
+    ProjectInitializer().initialize(root)
+    (root / ".env").mkdir()
+    with pytest.raises(AppContractError, match="env path must be a file"):
+        ProjectResetter().reset(root)
+    assert (root / "tinysoul.toml").is_file()
+
+
+def test_project_resetter_restores_previous_project_when_install_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "agent"
+    ProjectInitializer().initialize(root)
+    marker = root / "previous-data.txt"
+    marker.write_text("keep", encoding="utf-8")
+    original_replace = Path.replace
+
+    def replace_with_install_failure(self: Path, target: Path) -> Path:
+        if self.name.startswith(f".{root.name}.tinysoul-reset-new-"):
+            raise OSError("injected install failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace_with_install_failure)
+
+    with pytest.raises(AppInitializationError, match="Failed to install"):
+        ProjectResetter().reset(root)
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert not tuple(tmp_path.glob(".agent.tinysoul-reset-*"))
+
+
+def test_project_resetter_retains_previous_project_when_rollback_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "agent"
+    ProjectInitializer().initialize(root)
+    marker = root / "previous-data.txt"
+    marker.write_text("keep", encoding="utf-8")
+    original_replace = Path.replace
+
+    def replace_with_double_failure(self: Path, target: Path) -> Path:
+        if self.name.startswith(f".{root.name}.tinysoul-reset-new-"):
+            raise OSError("injected install failure")
+        if self.name.startswith(f".{root.name}.tinysoul-reset-old-"):
+            raise OSError("injected rollback failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace_with_double_failure)
+
+    with pytest.raises(AppInitializationError, match="previous data remains at"):
+        ProjectResetter().reset(root)
+    backup = next(tmp_path.glob(".agent.tinysoul-reset-old-*"))
+    assert (backup / "previous-data.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_cli_reset_rejects_project_held_by_running_instance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "agent"
+    ProjectInitializer().initialize(root)
+    marker = root / "runtime" / "session" / "active.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("active", encoding="utf-8")
+    instance_directory = tmp_path / "instances"
+    monkeypatch.setenv("TINYSOUL_INSTANCE_DIR", str(instance_directory))
+
+    with ProjectInstanceLease(root, directory=instance_directory):
+        result = cli.main(["reset", str(root)])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "already running for this project" in captured.err
+    assert marker.read_text(encoding="utf-8") == "active"
 
 
 def test_initialized_project_reports_clear_unconfigured_provider_error(
