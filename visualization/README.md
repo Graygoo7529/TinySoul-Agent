@@ -91,11 +91,6 @@ Phase 3 action results are rendered as mock computer UIs:
 - Create new resources.
 - Move resources to trash and restore them.
 
-### Session
-
-- List today’s turns with status and summary.
-- Recall canonical turn traces.
-
 ### Settings
 
 - Project root directory is persisted across restarts.
