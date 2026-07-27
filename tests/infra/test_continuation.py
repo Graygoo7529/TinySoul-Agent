@@ -5,6 +5,7 @@ import pytest
 from tinysoul.infra import (
     ContinuationError,
     ContinuationFailureReason,
+    JsonValue,
     OpaqueContinuationCodec,
     continue_json_sequence,
 )
@@ -12,7 +13,9 @@ from tinysoul.infra import (
 
 def test_continuation_pages_items_without_exposing_position() -> None:
     codec = OpaqueContinuationCodec(owner="test", operation="inspect")
-    values = tuple({"value": "x" * 250} for _ in range(8))
+    values: tuple[JsonValue, ...] = tuple(
+        {"value": "x" * 250} for _ in range(8)
+    )
 
     first = continue_json_sequence(
         values,
@@ -53,7 +56,9 @@ def test_continuation_fragments_one_oversized_canonical_item() -> None:
         max_chars=1024,
     )
     assert first["content"] == []
-    assert first["content_fragment"]["encoding"] == "canonical_json"
+    fragment = first["content_fragment"]
+    assert isinstance(fragment, dict)
+    assert fragment["encoding"] == "canonical_json"
     assert len(str(first)) <= 1400
 
 

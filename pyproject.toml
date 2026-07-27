@@ -68,6 +68,7 @@ include = ["tinysoul*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+cache_dir = ".local-test/pytest-cache"
 
 [tool.ty.environment]
 # Keep machine-specific Python paths out of shared config.

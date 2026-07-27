@@ -40,31 +40,13 @@ The Action Catalog is versioned package data and is not copied into projects. Pr
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest tests -q
+.\scripts\test.ps1
 $env:TINYSOUL_PYTHON=(Get-Command python).Source
 .\scripts\typecheck.ps1
 ```
 
-若 Windows 沙箱或用户目录 ACL 阻止 pytest 创建临时目录或项目实例锁，可将测试临时目录与锁目录放到被忽略的仓库路径：
+`test.ps1` 运行完整本地 pytest suite，包括 wheel 构建与隔离安装验收；真实供应商和显式 opt-in 网络测试默认跳过。脚本将 pytest、系统临时文件和项目实例目录隔离到 `.local-test/`，成功后清理本次运行，失败时保留现场。
 
-```powershell
-$test_root = Join-Path (Get-Location) (".pytest-local-tmp-" + [guid]::NewGuid().ToString("N"))
-$local_app_data = Join-Path $test_root "local-app-data"
-$pytest_root = Join-Path $test_root "pytest"
-New-Item -ItemType Directory -Force $local_app_data | Out-Null
-$previous_local_app_data = $env:LOCALAPPDATA
-$env:LOCALAPPDATA = $local_app_data
-try {
-    python -m pytest tests -q --basetemp $pytest_root -p no:cacheprovider
-} finally {
-    if ($null -eq $previous_local_app_data) {
-        Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
-    } else {
-        $env:LOCALAPPDATA = $previous_local_app_data
-    }
-}
-```
-
-发布资源验收由 `tests/release/test_wheel.py` 负责；它会在测试内部构建 wheel、隔离安装并验证 `tinysoul init`，不由 editable install 替代。
+`typecheck.ps1` 使用同一 Python 环境运行 `ty`；等价的原始命令是 `python -m ty check --python (Get-Command python).Source`。发布资源验收不能由 editable install 替代。
 
 Architecture and module contracts are documented under `docs/design/`; the active lifecycle execution plan is under `docs/analysis/`.

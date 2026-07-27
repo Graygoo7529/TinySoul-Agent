@@ -752,7 +752,9 @@ def test_compress_via_engine() -> None:
     interactions = page["interactions"]
     assert isinstance(interactions, list)
     assert len(interactions) == 3
-    assert all(item["kind"] == "phase_note" for item in interactions)
+    for item in interactions:
+        assert isinstance(item, dict)
+        assert item["kind"] == "phase_note"
     assert "source" not in page
     assert "cursor" not in page
 

@@ -12,6 +12,7 @@ from tinysoul.action import (
     ActionResultStatus,
 )
 from tinysoul.action.core.loader import ActionCatalogLoader
+from tinysoul.infra import JsonObject, JsonValue
 from tinysoul.loop import BusinessDay
 from tinysoul.runtime import RunScope
 from tinysoul.runtime.bridge import RuntimeSessionBridge
@@ -83,20 +84,23 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     assert "revision" not in item
 
     turn = session.inspect("session:turn/turn_actions")
-    content = turn["content"]
-    assert isinstance(content, list)
-    assert content[0]["actions"]["ref"].endswith("#actions")
+    content = _json_object_list(turn["content"])
+    turn_actions = _json_object(content[0]["actions"])
+    turn_action_ref = turn_actions["ref"]
+    assert isinstance(turn_action_ref, str)
+    assert turn_action_ref.endswith("#actions")
 
     actions = session.inspect("session:turn/turn_actions#actions")
-    headers = actions["actions"]
-    assert isinstance(headers, list)
+    headers = _json_object_list(actions["actions"])
     assert [header["outcome"] for header in headers] == ["success", "failed"]
-    assert headers[1]["failure"]["reason"] == "provider_unavailable"
+    failure = _json_object(headers[1]["failure"])
+    assert failure["reason"] == "provider_unavailable"
     assert headers[1]["result"] == {"attempted": True}
 
-    leaf = session.inspect(headers[0]["ref"])
-    detail = leaf["content"]
-    assert isinstance(detail, list)
+    leaf_ref = headers[0]["ref"]
+    assert isinstance(leaf_ref, str)
+    leaf = session.inspect(leaf_ref)
+    detail = _json_object_list(leaf["content"])
     assert detail[0]["request"] == {"link": "workspace:report.md"}
     assert detail[0]["result"] == {"written": True}
 
@@ -121,7 +125,8 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
         "session:turn/turn_large",
         continuation=token,
     )
-    assert second["content_fragment"]["text"]
+    fragment = _json_object(second["content_fragment"])
+    assert fragment["text"]
 
     with pytest.raises(SessionInspectRequestError) as mismatch:
         session.inspect(None, continuation=token)
@@ -141,13 +146,12 @@ def test_summary_heap_keeps_recent_turn_and_expands_one_level(
         )
 
     root = session.inspect()
-    nodes = root["nodes"]
-    assert isinstance(nodes, list)
+    nodes = _json_object_list(root["nodes"])
     assert [node["kind"] for node in nodes] == ["summary", "turn"]
     summary_ref = nodes[0]["ref"]
+    assert isinstance(summary_ref, str)
     summary = session.inspect(summary_ref)
-    children = summary["nodes"]
-    assert isinstance(children, list)
+    children = _json_object_list(summary["nodes"])
     assert [child["ref"] for child in children] == [
         "session:turn/turn_0",
         "session:turn/turn_1",
@@ -177,7 +181,8 @@ def test_reconcile_adopts_an_uncommitted_turn_record(tmp_path: Path) -> None:
 
     result = session.reconcile_active()
     assert result.adopted_turn_refs == ("session:turn/turn_orphan",)
-    assert session.inspect()["nodes"][0]["ref"] == "session:turn/turn_orphan"
+    nodes = _json_object_list(session.inspect()["nodes"])
+    assert nodes[0]["ref"] == "session:turn/turn_orphan"
 
 
 def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> None:
@@ -282,3 +287,13 @@ def _session(
     )
     session.initialize_day(DAY)
     return session
+
+
+def _json_object(value: JsonValue) -> JsonObject:
+    assert isinstance(value, dict)
+    return value
+
+
+def _json_object_list(value: JsonValue) -> list[JsonObject]:
+    assert isinstance(value, list)
+    return [_json_object(item) for item in value]

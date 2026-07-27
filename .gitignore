@@ -3,10 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-.pytest-local-tmp/
-.pytest-local-tmp-*/
-.pytest-basetemp/
-.test-tmp/
+.local-test/
 .coverage
 htmlcov/
 

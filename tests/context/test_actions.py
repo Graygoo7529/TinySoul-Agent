@@ -39,7 +39,9 @@ def test_context_inspect_continuation_is_visible_only() -> None:
     context.compress()
     nodes = context.inspect_trace(f"turn:trace@{turn_id}")["nodes"]
     assert isinstance(nodes, list)
-    ref = nodes[0]["ref"]
+    root = nodes[0]
+    assert isinstance(root, dict)
+    ref = root["ref"]
     assert isinstance(ref, str)
 
     action = ActionCatalogLoader().load(Path("tinysoul/action/catalog")).get_action(
