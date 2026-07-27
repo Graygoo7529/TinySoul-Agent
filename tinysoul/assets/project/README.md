@@ -1,17 +1,49 @@
 # TinySoul Project
 
-This directory is an editable TinySoul project created from one packaged config profile. The profile only selected the initial files; this project now owns and may edit its `configs/` and `home/` independently.
+This is an editable TinySoul project created from a packaged config profile. Its configuration, Home, Memory, runtime state, and archives are project-owned.
 
-The default `standard` profile keeps every LLM provider disabled and leaves host-sensitive optional capabilities disabled. The `development` profile carries the repository maintainer's enabled provider and capability configuration; it still contains no credentials and does not install optional distributions or host executables.
+## Standard
 
-Review `configs/llm.providers.toml`, copy the required names from `.env.example` into a local `.env`, and ensure every enabled capability dependency is installed. Then run:
+The standard profile keeps all providers and host-sensitive optional capabilities disabled. Enable a provider in `configs/llm.providers.toml` and add its credentials to `.env`, then start the backend:
 
 ```powershell
 tinysoul start --root . --mode normal
 ```
 
-Projects created with the standard profile report a configuration error until at least one provider used by the configured task models is enabled. Development-profile projects fail at the owning module boundary when an enabled provider credential, optional distribution, or host executable is unavailable.
+For one non-interactive turn:
 
-Persistent Agent Home content is under `home/`. Runtime Session, Workspace, and Home overlay state are created under `runtime/`; daily Session, Workspace, and Trash archives are created under `archive/`; consolidated date memories are written under `memory/`.
+```powershell
+tinysoul start --root . --once "Summarize today's work"
+```
 
-Repository maintainers may rebuild a disposable development project from its parent directory with `tinysoul reset PROJECT`. Reset defaults to the packaged `development` profile, preserves only an existing regular `.env` file, and replaces every other project entry. It refuses a non-TinySoul directory, a project that is currently running, or a target containing the current working directory. Use `--config-profile standard` when intentionally resetting a standard project.
+## Development
+
+The development profile enables the repository maintainer's provider and capability settings, but contains no credentials.
+
+### Backend
+
+Add the required credentials to `.env` and install any enabled optional dependencies or host executables, then start the backend:
+
+```powershell
+tinysoul start --root . --mode normal
+```
+
+To rebuild this disposable development project, stop the backend and run the following command from its parent directory:
+
+```powershell
+tinysoul reset my-agent-dev
+```
+
+`reset` preserves `.env` and replaces everything else, including runtime data, conversations, Memory, archives, and `.git`.
+
+### Frontend
+
+Keep the backend running. In another terminal, open the TinySoul source checkout and run:
+
+```powershell
+cd visualization
+pnpm install
+pnpm tauri dev
+```
+
+The frontend requires Node.js 20+, pnpm, and Rust 1.97+. It discovers the running project automatically and does not manage the backend process.
