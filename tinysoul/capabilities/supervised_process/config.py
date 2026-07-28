@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
+ABSOLUTE_MIN_WAIT_SECONDS = 15
+ABSOLUTE_MAX_WAIT_SECONDS = 60
+
+
 @dataclass(frozen=True)
 class SupervisedProcessSettings:
     max_mirror_files: int = 100
@@ -18,8 +22,8 @@ class SupervisedProcessSettings:
     max_log_bytes: int = 2 * 1024 * 1024
     max_log_delta_chars: int = 4_000
     initial_wait_seconds: int = 10
-    cycle_wait_seconds: int = 30
-    min_wait_seconds: int = 5
+    cycle_wait_seconds: int = 15
+    min_wait_seconds: int = 15
     default_wait_seconds: int = 15
     max_wait_seconds: int = 60
     max_runtime_seconds: int = 1_800
@@ -48,18 +52,41 @@ class SupervisedProcessSettings:
                     f"between {self.min_wait_seconds} and {self.max_wait_seconds}"
                 ),
             )
-        for name in ("initial_wait_seconds", "cycle_wait_seconds"):
-            value = getattr(self, name)
-            if not self.min_wait_seconds <= value <= self.max_wait_seconds:
-                raise ConfigError(
-                    "Supervised process wait is outside wait boundaries",
-                    key=f"capabilities.supervised_process.{name}",
-                    value=value,
-                    expected=(
-                        f"between {self.min_wait_seconds} and "
-                        f"{self.max_wait_seconds}"
-                    ),
-                )
+        if self.min_wait_seconds < ABSOLUTE_MIN_WAIT_SECONDS:
+            raise ConfigError(
+                "Supervised process model wait minimum is below its absolute boundary",
+                key="capabilities.supervised_process.min_wait_seconds",
+                value=self.min_wait_seconds,
+                expected=f">= {ABSOLUTE_MIN_WAIT_SECONDS}",
+            )
+        if self.max_wait_seconds > ABSOLUTE_MAX_WAIT_SECONDS:
+            raise ConfigError(
+                "Supervised process model wait maximum exceeds its absolute boundary",
+                key="capabilities.supervised_process.max_wait_seconds",
+                value=self.max_wait_seconds,
+                expected=f"<= {ABSOLUTE_MAX_WAIT_SECONDS}",
+            )
+        if not (
+            ABSOLUTE_MIN_WAIT_SECONDS
+            <= self.cycle_wait_seconds
+            <= self.min_wait_seconds
+        ):
+            raise ConfigError(
+                "Supervised process Cycle wait is inconsistent with model pacing",
+                key="capabilities.supervised_process.cycle_wait_seconds",
+                value=self.cycle_wait_seconds,
+                expected=(
+                    f"between {ABSOLUTE_MIN_WAIT_SECONDS} and "
+                    f"{self.min_wait_seconds}"
+                ),
+            )
+        if self.initial_wait_seconds > self.max_runtime_seconds:
+            raise ConfigError(
+                "Supervised process initial wait exceeds the runtime limit",
+                key="capabilities.supervised_process.initial_wait_seconds",
+                value=self.initial_wait_seconds,
+                expected=f"<= {self.max_runtime_seconds}",
+            )
         if self.max_mirror_file_bytes > self.max_mirror_bytes:
             raise ConfigError(
                 "Supervised process mirror file limit cannot exceed total limit",

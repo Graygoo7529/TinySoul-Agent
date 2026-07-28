@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from hashlib import sha256
 from threading import Thread
@@ -18,6 +19,7 @@ from tinysoul.capabilities.script.process import ScriptProcessPreparer
 from tinysoul.capabilities.script.sources import ScriptSourceResolver
 from tinysoul.capabilities.supervised_process import (
     SupervisedProcessManager,
+    SupervisedProcessObservation,
     SupervisedProcessOwner,
     SupervisedProcessSettings,
     SupervisedProcessState,
@@ -65,6 +67,30 @@ def test_script_settings_parse_language_and_supervision_limits() -> None:
     assert settings.script.bash.executable == "custom-bash"
     assert settings.supervised_process.max_supervision_cycles == 9
     assert settings.supervised_process.default_wait_seconds == 20
+    assert settings.supervised_process.cycle_wait_seconds == 15
+    assert settings.supervised_process.min_wait_seconds == 15
+
+
+@pytest.mark.parametrize(
+    ("values", "key"),
+    (
+        ({"min_wait_seconds": 14}, "min_wait_seconds"),
+        ({"max_wait_seconds": 61}, "max_wait_seconds"),
+        ({"cycle_wait_seconds": 16}, "cycle_wait_seconds"),
+        (
+            {"initial_wait_seconds": 11, "max_runtime_seconds": 10},
+            "initial_wait_seconds",
+        ),
+    ),
+)
+def test_supervised_process_wait_configuration_rejects_inconsistent_boundaries(
+    values: dict[str, int],
+    key: str,
+) -> None:
+    with pytest.raises(ConfigError) as raised:
+        parse_capabilities_settings({"supervised_process": values})
+
+    assert raised.value.key == f"capabilities.supervised_process.{key}"
 
 
 def test_script_rejects_removed_shared_process_settings() -> None:
@@ -157,7 +183,15 @@ def test_python_job_requires_explicit_apply(local_tmp: Path) -> None:
     )
 
     assert observation.payload["job_state"] == SupervisedProcessState.READY_TO_APPLY.value
+    assert observation.payload["wake_reason"] == "process_exited"
+    assert observation.payload["remaining_runtime_seconds"] == 0.0
+    activity = observation.payload["observed_activity"]
+    assert isinstance(activity, dict)
+    assert activity["activity_since_last_observation"] is True
+    assert activity["workspace_diff_changed"] is True
+    assert activity["candidate_count_delta"] == 1
     assert not (workspace.root / "result.txt").exists()
+    assert manager.allow_additional_cycle("turn_1") is True
     execution_id = str(observation.payload["execution_id"])
     applied = manager.apply(
         turn_id="turn_1",
@@ -491,7 +525,7 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
                 turn_id="turn_1",
                 owner=SupervisedProcessOwner.SCRIPT,
                 execution_id=execution_id,
-                wait_seconds=2,
+                wait_seconds=15,
                 control=ActionExecutionControl(),
                 bus=bus,
             )
@@ -527,6 +561,11 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
 
     assert not thread.is_alive()
     assert len(observations) == 1
+    observation = cast(SupervisedProcessObservation, observations[0])
+    assert observation.payload["wake_reason"] == "user_input"
+    assert observation.payload["requested_wait_seconds"] == 15
+    assert cast(float, observation.payload["actual_wait_seconds"]) < 15
+    assert cast(float, observation.payload["remaining_runtime_seconds"]) > 0
     manager.stop(
         turn_id="turn_1",
         owner=SupervisedProcessOwner.SCRIPT,
@@ -539,7 +578,7 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
     )
 
 
-def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
+def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -548,7 +587,21 @@ def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
         "import time\nprint('started', flush=True)\ntime.sleep(30)\n",
         owner_turn_id="turn_1",
     )
-    manager = _jobs(local_tmp, workspace)
+    clock = _AdvancingClock(step=5.0)
+    manager = _jobs(
+        local_tmp,
+        workspace,
+        settings=SupervisedProcessSettings(
+            initial_wait_seconds=1,
+            cycle_wait_seconds=15,
+            min_wait_seconds=15,
+            default_wait_seconds=15,
+            max_wait_seconds=60,
+            max_runtime_seconds=1_800,
+            max_supervision_cycles=3,
+        ),
+        clock=clock,
+    )
     bus = SignalBus()
     running = _start(
         manager,
@@ -572,7 +625,21 @@ def test_running_job_paces_adjacent_cycles_and_owns_log_staging(
     manager.wait_before_cycle("turn_1", bus=bus)
     started = monotonic()
     manager.wait_before_cycle("turn_1", bus=bus)
-    assert monotonic() - started >= 0.8
+    assert monotonic() - started >= 0.08
+
+    waited = manager.wait(
+        turn_id="turn_1",
+        owner=SupervisedProcessOwner.SCRIPT,
+        execution_id=execution_id,
+        wait_seconds=15,
+        control=ActionExecutionControl(),
+        bus=None,
+    )
+    assert waited.payload["wake_reason"] == "requested_interval_elapsed"
+    assert cast(float, waited.payload["actual_wait_seconds"]) >= 15
+    started = monotonic()
+    manager.wait_before_cycle("turn_1", bus=bus)
+    assert monotonic() - started < 0.08
 
     manager.stop(
         turn_id="turn_1",
@@ -594,10 +661,10 @@ def _settings() -> ScriptSettings:
 def _process_settings() -> SupervisedProcessSettings:
     return SupervisedProcessSettings(
         initial_wait_seconds=1,
-        cycle_wait_seconds=1,
-        min_wait_seconds=1,
-        default_wait_seconds=1,
-        max_wait_seconds=2,
+        cycle_wait_seconds=15,
+        min_wait_seconds=15,
+        default_wait_seconds=15,
+        max_wait_seconds=60,
         max_runtime_seconds=30,
         max_supervision_cycles=3,
     )
@@ -623,14 +690,17 @@ def _jobs(
     workspace,
     *,
     runtime_bridge: RuntimeSupervisedProcessBridge | None = None,
+    settings: SupervisedProcessSettings | None = None,
+    clock: Callable[[], float] = monotonic,
 ) -> SupervisedProcessManager:
     staging = StagingDirectoryManager(root.resolve())
     staging.prepare()
     return SupervisedProcessManager(
-        settings=_process_settings(),
+        settings=settings or _process_settings(),
         mirror_service=_mirrors(workspace),
         staging=staging,
         runtime_bridge=runtime_bridge,
+        clock=clock,
     )
 
 
@@ -662,6 +732,16 @@ def _start(
 
 def _turn_scope(turn_id: str) -> RunScope:
     return RunScope().push(RunLevel.PROGRAM, "program").push(RunLevel.TURN, turn_id)
+
+
+class _AdvancingClock:
+    def __init__(self, *, step: float) -> None:
+        self._value = 0.0
+        self._step = step
+
+    def __call__(self) -> float:
+        self._value += self._step
+        return self._value
 
 
 class _RecordingHome:

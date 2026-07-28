@@ -738,6 +738,15 @@ def register_script_actions(
                 workspace_bridge=workspace_bridge,
             ),
         )
+    builder.update_tool_property_schema(
+        "script.wait",
+        "wait_seconds",
+        {
+            "minimum": jobs.settings.min_wait_seconds,
+            "default": jobs.settings.default_wait_seconds,
+            "maximum": jobs.settings.max_wait_seconds,
+        },
+    )
     return builder
 
 

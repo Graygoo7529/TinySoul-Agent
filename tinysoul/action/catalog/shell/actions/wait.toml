@@ -15,7 +15,10 @@ description = "Turn-scoped Shell execution id."
 
 [tool.schema.properties.wait_seconds]
 type = "integer"
-description = "Bounded wait interval; defaults to shared supervised process configuration."
+minimum = 15
+default = 15
+maximum = 60
+description = "Wait interval in seconds; bounded by the effective project configuration."
 
 [semantic]
 use_when = ["The current Turn has a running Shell job that needs paced supervision"]

@@ -23,11 +23,11 @@ Python 默认启用并使用当前 TinySoul Python 解释器。Bash 独立配置
 
 ## Job 生命周期
 
-每个 Turn 最多拥有一个 unresolved Script job。job 不跨 Turn、不持久化、不跨重启。`script.run_python` / `script.run_bash` 启动进程后先等待配置的 initial interval，返回 execution id、状态、有界增量日志和候选文件 metadata。
+每个 Turn 跨 Script/Shell 最多拥有一个 unresolved job。job 不跨 Turn、不持久化、不跨重启。`script.run_python` / `script.run_bash` 启动进程后先等待配置的 initial interval，返回 execution id、状态、有界增量日志和候选文件 metadata。
 
 后续动作固定为：
 
-- `script.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；
+- `script.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；结果区分 interval、process exit、user input、Turn control、runtime limit 与 action cancellation 等 wake reason；
 - `script.stop`：终止进程并保留镜像供检查；stopped 不可 apply；
 - `script.read_candidate`：按候选相对路径读取有界 UTF-8 文本；候选路径不是 Link；
 - `script.apply`：只允许 `ready_to_apply`，逐文件比较创建 job 时的 baseline digest 与当前 active Workspace；同路径并发变化拒绝整个提交，job 保留；
@@ -37,9 +37,11 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 ## 长任务监督
 
-普通 Turn Cycle 上限耗尽后，只有共享 manager 中仍在运行的 Script/Shell job 可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
+普通 Turn Cycle 上限耗尽后，共享 manager 中任一 unresolved Script/Shell job 都可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。running job 由此继续监督，ready/failed/timed-out/stopped job 由此获得有界 apply/discard 收尾机会。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
 
-`script.wait` 默认 15 秒，允许范围 5 至 60 秒；运行中 job 的相邻 Cycle 还必须满足默认 `cycle_wait_seconds=30` 的最小启动间隔。run initial wait 和当前 Cycle 的其它耗时计入该间隔，不机械追加完整 30 秒；进程结束或上述当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+模型可选 wait 默认 15 秒，绝对范围为 15 至 60 秒；项目配置可以在该范围内收紧，effective `script.wait`/`shell.wait` Tool Schema 投影实际 minimum/default/maximum。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+
+每次 job observation 还返回 requested/actual wait、剩余运行时间，以及相对上次 observation 的 observed activity：日志字节增量、Workspace diff 是否变化、候选数量变化和距上次观测到活动的时间。这些是 Manager 可以确定的运行事实，不解释日志业务含义或完成百分比；日志活动本身不触发新的模型 Cycle。所有 job observation 只进入 TurnTrace，不成为 Background 状态。
 
 默认进程上限 1800 秒，额外监督 Cycle 上限 32。Turn stop、失败、耗尽、Runtime transfer 或正常离开时，TurnRunner 在 `finally` 中调用 job manager 终止进程并 best-effort 清理 retained staging；cleanup 错误只形成 Observation，不能替换原始 transfer 或失败。
 
@@ -84,4 +86,4 @@ runtime/.staging/supervised-process-job-*/
 
 无效 Link、缺失 HOW、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 `wait_before_cycle` 与 `allow_additional_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
 
-job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。
+job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、等待/活动事实、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。

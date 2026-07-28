@@ -10,6 +10,7 @@ from .models import (
     SupervisedProcessOwner,
     SupervisedProcessPreparer,
     SupervisedProcessState,
+    SupervisedProcessWakeReason,
 )
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "SupervisedProcessPreparer",
     "SupervisedProcessSettings",
     "SupervisedProcessState",
+    "SupervisedProcessWakeReason",
     "parse_supervised_process_settings",
     "build_supervised_process_environment",
 ]

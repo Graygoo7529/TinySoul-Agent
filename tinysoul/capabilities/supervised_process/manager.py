@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
@@ -53,6 +54,7 @@ from .models import (
     SupervisedProcessOwner,
     SupervisedProcessPreparer,
     SupervisedProcessState,
+    SupervisedProcessWakeReason,
 )
 
 
@@ -72,6 +74,11 @@ _RESERVED_IDENTITY_KEYS = {
     "deleted_links",
     "workspace_changes",
     "workspace_revision",
+    "wake_reason",
+    "requested_wait_seconds",
+    "actual_wait_seconds",
+    "remaining_runtime_seconds",
+    "observed_activity",
 }
 
 
@@ -94,6 +101,12 @@ class _ProcessJob:
     failure_reason: str = ""
     supervision_cycles: int = 0
     next_cycle_at: float = 0.0
+    observation_index: int = 0
+    observed_stdout_bytes: int = 0
+    observed_stderr_bytes: int = 0
+    observed_candidate_count: int = 0
+    observed_candidate_signature: tuple[tuple[str, str, int, str], ...] = ()
+    last_observed_activity_at: float = 0.0
 
 
 class SupervisedProcessRuntimeBridge(Protocol):
@@ -116,12 +129,14 @@ class SupervisedProcessManager:
         staging: StagingDirectoryManager,
         process_runner: ManagedProcessRunner | None = None,
         runtime_bridge: SupervisedProcessRuntimeBridge | None = None,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         self._settings = settings
         self._mirrors = mirror_service
         self._staging = staging
         self._process_runner = process_runner or ManagedProcessRunner()
         self._runtime_bridge = runtime_bridge
+        self._clock = clock
         self._jobs: dict[str, _ProcessJob] = {}
         self._by_turn: dict[str, str] = {}
         self._lock = RLock()
@@ -189,7 +204,7 @@ class SupervisedProcessManager:
                 raise SupervisedProcessExecutionError(
                     "Supervised process could not be started"
                 ) from exc
-            now = monotonic()
+            now = self._clock()
             job = _ProcessJob(
                 execution_id=execution_id,
                 turn_id=turn_id,
@@ -203,6 +218,7 @@ class SupervisedProcessManager:
                 signal_watch=signal_watch,
                 auto_complete_without_changes=auto_complete_without_changes,
                 next_cycle_at=now + self._settings.cycle_wait_seconds,
+                last_observed_activity_at=now,
             )
             self._jobs[execution_id] = job
             self._by_turn[turn_id] = execution_id
@@ -211,6 +227,8 @@ class SupervisedProcessManager:
             wait_seconds=self._settings.initial_wait_seconds,
             control=control,
             bus=bus,
+            interval_reason=SupervisedProcessWakeReason.INITIAL_INTERVAL_ELAPSED,
+            release_next_cycle_on_interval=False,
         )
 
     def wait(
@@ -225,7 +243,12 @@ class SupervisedProcessManager:
     ) -> SupervisedProcessObservation:
         job = self._job(turn_id, owner, execution_id)
         if job.state is not SupervisedProcessState.RUNNING:
-            return self._observation_and_finalize(job)
+            return self._observation_and_finalize(
+                job,
+                wake_reason=SupervisedProcessWakeReason.ALREADY_RESOLVED,
+                requested_wait_seconds=wait_seconds,
+                actual_wait_seconds=0.0,
+            )
         if not (
             self._settings.min_wait_seconds
             <= wait_seconds
@@ -239,6 +262,8 @@ class SupervisedProcessManager:
             wait_seconds=wait_seconds,
             control=control,
             bus=bus,
+            interval_reason=SupervisedProcessWakeReason.REQUESTED_INTERVAL_ELAPSED,
+            release_next_cycle_on_interval=True,
         )
 
     def stop(
@@ -255,7 +280,12 @@ class SupervisedProcessManager:
             job.process.wait(5.0)
             job.state = SupervisedProcessState.STOPPED
             job.failure_reason = "stopped_by_agent"
-        return self._observation_and_finalize(job)
+        return self._observation_and_finalize(
+            job,
+            wake_reason=SupervisedProcessWakeReason.AGENT_STOPPED,
+            requested_wait_seconds=0,
+            actual_wait_seconds=0.0,
+        )
 
     def read_candidate(
         self,
@@ -366,10 +396,6 @@ class SupervisedProcessManager:
                     return False
                 job = self._jobs[execution_id]
                 self._refresh(job)
-                if job.state is not SupervisedProcessState.RUNNING:
-                    return False
-                if monotonic() >= job.deadline:
-                    return False
                 if job.supervision_cycles >= self._settings.max_supervision_cycles:
                     return False
                 job.supervision_cycles += 1
@@ -395,7 +421,7 @@ class SupervisedProcessManager:
                 self._refresh(job)
                 if job.state is not SupervisedProcessState.RUNNING:
                     return
-                now = monotonic()
+                now = self._clock()
                 remaining = job.next_cycle_at - now
                 if remaining <= 0:
                     job.next_cycle_at = now + self._settings.cycle_wait_seconds
@@ -405,7 +431,7 @@ class SupervisedProcessManager:
                     min(0.1, remaining),
                 )
                 if matched is not None:
-                    job.next_cycle_at = monotonic() + self._settings.cycle_wait_seconds
+                    job.next_cycle_at = self._clock() + self._settings.cycle_wait_seconds
                     return
         except RuntimeException:
             raise
@@ -450,32 +476,61 @@ class SupervisedProcessManager:
         wait_seconds: int,
         control: ActionExecutionControl,
         bus: SignalBus | None,
+        interval_reason: SupervisedProcessWakeReason,
+        release_next_cycle_on_interval: bool,
     ) -> SupervisedProcessObservation:
-        wait_deadline = monotonic() + wait_seconds
+        wait_started = self._clock()
+        wait_deadline = wait_started + wait_seconds
         while True:
             self._refresh(job)
             if job.state is not SupervisedProcessState.RUNNING:
-                return self._observation_and_finalize(job)
+                return self._observation_and_finalize(
+                    job,
+                    wake_reason=_terminal_wake_reason(job),
+                    requested_wait_seconds=wait_seconds,
+                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
+                )
             if control.is_cancelled() or control.is_expired():
                 job.process.terminate()
                 job.process.wait(5.0)
                 job.state = SupervisedProcessState.TIMED_OUT
                 job.failure_reason = control.cancel_reason or "action_cancelled"
-                return self._observation_and_finalize(job)
-            remaining = wait_deadline - monotonic()
+                return self._observation_and_finalize(
+                    job,
+                    wake_reason=SupervisedProcessWakeReason.ACTION_CANCELLED,
+                    requested_wait_seconds=wait_seconds,
+                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
+                )
+            remaining = wait_deadline - self._clock()
             if remaining <= 0:
-                return self._observation(job)
+                now = self._clock()
+                if release_next_cycle_on_interval:
+                    job.next_cycle_at = now
+                return self._observation(
+                    job,
+                    wake_reason=interval_reason,
+                    requested_wait_seconds=wait_seconds,
+                    actual_wait_seconds=max(0.0, now - wait_started),
+                )
             slice_seconds = min(0.1, remaining)
             if bus is None:
                 job.process.wait(slice_seconds)
                 continue
             matched = job.signal_watch.wait_for_matching(
-                lambda signal: _is_turn_wake_signal(signal, job.turn_id),
+                lambda signal: _turn_wake_reason(signal, job.turn_id) is not None,
                 slice_seconds,
             )
             if matched is not None:
-                job.next_cycle_at = monotonic()
-                return self._observation(job)
+                job.next_cycle_at = self._clock()
+                return self._observation(
+                    job,
+                    wake_reason=(
+                        _turn_wake_reason(matched, job.turn_id)
+                        or SupervisedProcessWakeReason.TURN_CONTROL
+                    ),
+                    requested_wait_seconds=wait_seconds,
+                    actual_wait_seconds=max(0.0, self._clock() - wait_started),
+                )
 
     def _refresh(self, job: _ProcessJob) -> None:
         if job.state is not SupervisedProcessState.RUNNING:
@@ -487,7 +542,7 @@ class SupervisedProcessManager:
             job.state = SupervisedProcessState.FAILED
             job.failure_reason = "log_bytes_limit_exceeded"
             return
-        if monotonic() >= job.deadline:
+        if self._clock() >= job.deadline:
             job.process.terminate()
             job.process.wait(5.0)
             job.state = SupervisedProcessState.TIMED_OUT
@@ -510,14 +565,32 @@ class SupervisedProcessManager:
     def _observation_and_finalize(
         self,
         job: _ProcessJob,
+        *,
+        wake_reason: SupervisedProcessWakeReason,
+        requested_wait_seconds: int,
+        actual_wait_seconds: float,
     ) -> SupervisedProcessObservation:
-        observation = self._observation(job)
+        observation = self._observation(
+            job,
+            wake_reason=wake_reason,
+            requested_wait_seconds=requested_wait_seconds,
+            actual_wait_seconds=actual_wait_seconds,
+        )
         if job.state is SupervisedProcessState.COMPLETED:
             self._remove(job)
         return observation
 
-    def _observation(self, job: _ProcessJob) -> SupervisedProcessObservation:
+    def _observation(
+        self,
+        job: _ProcessJob,
+        *,
+        wake_reason: SupervisedProcessWakeReason,
+        requested_wait_seconds: int,
+        actual_wait_seconds: float,
+    ) -> SupervisedProcessObservation:
         self._refresh(job)
+        now = self._clock()
+        stdout_bytes, stderr_bytes = job.process.output_sizes()
         stdout = job.process.read_stdout(
             cursor=job.stdout_cursor,
             max_chars=self._settings.max_log_delta_chars,
@@ -532,12 +605,43 @@ class SupervisedProcessManager:
         job.stderr_cursor = stderr.next_cursor
         diff = self._mirrors.diff(job.mirror)
         candidates = diff.candidates[: self._settings.max_candidates]
+        candidate_signature = tuple(
+            (item.path, item.change, item.size, item.digest) for item in diff.candidates
+        )
+        stdout_bytes_delta = max(0, stdout_bytes - job.observed_stdout_bytes)
+        stderr_bytes_delta = max(0, stderr_bytes - job.observed_stderr_bytes)
+        candidate_count_delta = len(diff.candidates) - job.observed_candidate_count
+        workspace_diff_changed = (
+            candidate_signature != job.observed_candidate_signature
+        )
+        activity_since_last_observation = bool(
+            stdout_bytes_delta or stderr_bytes_delta or workspace_diff_changed
+        )
+        if activity_since_last_observation:
+            job.last_observed_activity_at = now
+        job.observation_index += 1
+        seconds_since_observed_activity = max(
+            0.0,
+            now - job.last_observed_activity_at,
+        )
+        job.observed_stdout_bytes = stdout_bytes
+        job.observed_stderr_bytes = stderr_bytes
+        job.observed_candidate_count = len(diff.candidates)
+        job.observed_candidate_signature = candidate_signature
         payload: JsonObject = {
             **job.identity,
             "execution_id": job.execution_id,
             "owner": job.owner.value,
             "job_state": job.state.value,
-            "elapsed_seconds": max(0.0, monotonic() - job.started_at),
+            "elapsed_seconds": max(0.0, now - job.started_at),
+            "wake_reason": wake_reason.value,
+            "requested_wait_seconds": requested_wait_seconds,
+            "actual_wait_seconds": max(0.0, actual_wait_seconds),
+            "remaining_runtime_seconds": (
+                max(0.0, job.deadline - now)
+                if job.state is SupervisedProcessState.RUNNING
+                else 0.0
+            ),
             "exit_code": job.process.exit_code,
             "failure_reason": job.failure_reason,
             "stdout": {
@@ -563,6 +667,15 @@ class SupervisedProcessManager:
             ],
             "candidate_count": len(diff.candidates),
             "candidates_truncated": len(diff.candidates) > len(candidates),
+            "observed_activity": {
+                "observation_index": job.observation_index,
+                "activity_since_last_observation": activity_since_last_observation,
+                "stdout_bytes_delta": stdout_bytes_delta,
+                "stderr_bytes_delta": stderr_bytes_delta,
+                "workspace_diff_changed": workspace_diff_changed,
+                "candidate_count_delta": candidate_count_delta,
+                "seconds_since_observed_activity": seconds_since_observed_activity,
+            },
         }
         return SupervisedProcessObservation(
             payload=payload,
@@ -667,19 +780,36 @@ def _close_watch(watch: SignalWatch) -> None:
         pass
 
 
-def _is_turn_wake_signal(signal: Signal, turn_id: str) -> bool:
+def _turn_wake_reason(
+    signal: Signal,
+    turn_id: str,
+) -> SupervisedProcessWakeReason | None:
     frame = signal.scope.nearest(RunLevel.TURN)
     if frame is None or frame.name != turn_id:
-        return False
+        return None
     try:
         if signal.name == SIGNAL_INPUT_APPEND:
-            return bool(parse_input_append_signal(signal))
+            if parse_input_append_signal(signal):
+                return SupervisedProcessWakeReason.USER_INPUT
         if signal.name == SIGNAL_CONTROL_REQUEST:
             request = parse_control_request_signal(signal)
-            return request.kind in {
+            if request.kind in {
                 LoopControlKind.STOP_TURN,
                 LoopControlKind.EXIT_PROGRAM,
-            }
+            }:
+                return SupervisedProcessWakeReason.TURN_CONTROL
     except (ContextError, LoopError):
-        return False
-    return False
+        return None
+    return None
+
+
+def _is_turn_wake_signal(signal: Signal, turn_id: str) -> bool:
+    return _turn_wake_reason(signal, turn_id) is not None
+
+
+def _terminal_wake_reason(job: _ProcessJob) -> SupervisedProcessWakeReason:
+    if job.failure_reason == "runtime_limit_exceeded":
+        return SupervisedProcessWakeReason.RUNTIME_LIMIT
+    if job.state is SupervisedProcessState.TIMED_OUT:
+        return SupervisedProcessWakeReason.ACTION_CANCELLED
+    return SupervisedProcessWakeReason.PROCESS_EXITED

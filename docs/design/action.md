@@ -248,7 +248,7 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；已注册 handler 也可以提供自己的 options validator。两类 validator 都在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。只有通用 `subprocess.default` 由 builder 默认注册 executor 与 handler options validator；native 与 capability-specific Script/Shell handler 由对应 registrar 显式注册。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；已注册 handler 也可以提供自己的 options validator。两类 validator 都在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。只有通用 `subprocess.default` 由 builder 默认注册 executor 与 handler options validator；native 与 capability-specific Script/Shell handler 由对应 registrar 显式注册。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
 
 ## Action Schema
 
@@ -263,6 +263,11 @@ Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML �
 - `additionalProperties`
 - `items`
 - `enum`
+- `minimum`
+- `maximum`
+- `default`
+
+`minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；它不负责向缺失参数注入值，实际默认行为仍由 action executor 从对应配置取得。
 
 当前支持的 type：
 

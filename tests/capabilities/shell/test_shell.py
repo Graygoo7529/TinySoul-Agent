@@ -346,10 +346,10 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
         workspace,
         settings=SupervisedProcessSettings(
             initial_wait_seconds=1,
-            cycle_wait_seconds=1,
-            min_wait_seconds=1,
-            default_wait_seconds=1,
-            max_wait_seconds=2,
+            cycle_wait_seconds=15,
+            min_wait_seconds=15,
+            default_wait_seconds=15,
+            max_wait_seconds=60,
             max_runtime_seconds=1,
             max_supervision_cycles=3,
         ),
@@ -453,13 +453,37 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
         cmd=ShellAdapterSettings(False, "cmd"),
         bash=ShellAdapterSettings(False, "bash"),
     )
-    engine, _, _, _ = _shell_engine(local_tmp / "enabled", enabled)
+    process_settings = SupervisedProcessSettings(
+        initial_wait_seconds=1,
+        cycle_wait_seconds=15,
+        min_wait_seconds=20,
+        default_wait_seconds=30,
+        max_wait_seconds=45,
+        max_runtime_seconds=60,
+    )
+    engine, _, _, _ = _shell_engine(
+        local_tmp / "enabled",
+        enabled,
+        process_settings,
+    )
     identifiers = engine.action_identifiers()
 
     assert engine.domain_names() == ("shell",)
     assert ("shell", "shell.run_powershell") in identifiers
     assert ("shell", "shell.run_cmd") not in identifiers
     assert ("shell", "shell.run_bash") not in identifiers
+    scope = engine.phase2_scope(("shell",))
+    assert scope.tool_scope is not None
+    wait_tool = next(
+        tool for tool in scope.tool_scope.visible_tools() if tool.name == "shell.wait"
+    )
+    properties = wait_tool.parameters["properties"]
+    assert isinstance(properties, dict)
+    wait_seconds = properties["wait_seconds"]
+    assert isinstance(wait_seconds, dict)
+    assert wait_seconds["minimum"] == 20
+    assert wait_seconds["default"] == 30
+    assert wait_seconds["maximum"] == 45
 
     home_root = local_tmp / "enabled" / "home" / "how_domain" / "shell"
     home_root.mkdir(parents=True)
@@ -654,10 +678,10 @@ def _manager(
         settings=settings
         or SupervisedProcessSettings(
             initial_wait_seconds=1,
-            cycle_wait_seconds=1,
-            min_wait_seconds=1,
-            default_wait_seconds=1,
-            max_wait_seconds=2,
+            cycle_wait_seconds=15,
+            min_wait_seconds=15,
+            default_wait_seconds=15,
+            max_wait_seconds=60,
             max_runtime_seconds=30,
             max_supervision_cycles=3,
         ),
@@ -720,9 +744,10 @@ def _start_shell(
 def _shell_engine(
     root: Path,
     settings: ShellSettings,
+    process_settings: SupervisedProcessSettings | None = None,
 ) -> tuple[ActionEngine, SupervisedProcessManager, WorkspaceEngine, SignalBus]:
     workspace = _workspace(root)
-    manager = _manager(root, workspace)
+    manager = _manager(root, workspace, settings=process_settings)
     bus = SignalBus()
     with builtin_action_catalog_root() as catalog_root:
         catalog = ActionCatalogLoader().load(catalog_root)

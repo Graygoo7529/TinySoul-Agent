@@ -6,9 +6,14 @@ import pytest
 
 from tinysoul.action import builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
-from tinysoul.action.core.schema import ActionSchemaDefinitionError
+from tinysoul.action.core.schema import (
+    ActionSchemaDefinitionError,
+    ActionSchemaValidationError,
+    validate_action_params,
+)
 from tinysoul.action.core.result import ActionTraceMode
 from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
+from tinysoul.infra import JsonObject
 from tinysoul.infra.config import ConfigError
 
 
@@ -70,6 +75,15 @@ def test_load_builtin_catalog() -> None:
         catalog.get_action("core.session.inspect").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE
     )
+    wait_schema = catalog.get_action("script.wait").tool.schema
+    wait_properties = wait_schema["properties"]
+    assert isinstance(wait_properties, dict)
+    wait_seconds = wait_properties["wait_seconds"]
+    assert isinstance(wait_seconds, dict)
+    assert wait_seconds["minimum"] == 15
+    assert wait_seconds["default"] == 15
+    assert wait_seconds["maximum"] == 60
+    assert catalog.get_action("script.wait").runtime.timeout_seconds == 70.0
 
 
 def test_catalog_view_by_domain() -> None:
@@ -250,3 +264,49 @@ def test_action_tool_spec_validates_schema_subset() -> None:
         )
 
     assert error.value.key == "ActionToolSpec(x.action).schema.properties.path.pattern"
+
+
+def test_action_schema_validates_numeric_boundaries_and_default() -> None:
+    schema: JsonObject = {
+        "type": "object",
+        "properties": {
+            "wait_seconds": {
+                "type": "integer",
+                "minimum": 15,
+                "default": 20,
+                "maximum": 60,
+            }
+        },
+        "additionalProperties": False,
+    }
+    ActionToolSpec(name="x.wait", description="Wait.", schema=schema)
+    validate_action_params({"wait_seconds": 15}, schema=schema)
+    validate_action_params({}, schema=schema)
+
+    with pytest.raises(ActionSchemaValidationError, match=">= 15"):
+        validate_action_params({"wait_seconds": 14}, schema=schema)
+    with pytest.raises(ActionSchemaValidationError, match="<= 60"):
+        validate_action_params({"wait_seconds": 61}, schema=schema)
+
+
+def test_action_schema_rejects_inconsistent_numeric_default() -> None:
+    with pytest.raises(ActionSchemaDefinitionError) as error:
+        ActionToolSpec(
+            name="x.wait",
+            description="Wait.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "wait_seconds": {
+                        "type": "integer",
+                        "minimum": 15,
+                        "default": 10,
+                        "maximum": 60,
+                    }
+                },
+            },
+        )
+
+    assert error.value.key == (
+        "ActionToolSpec(x.wait).schema.properties.wait_seconds.default"
+    )

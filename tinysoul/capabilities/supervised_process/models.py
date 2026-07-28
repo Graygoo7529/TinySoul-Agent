@@ -26,6 +26,18 @@ class SupervisedProcessState(StrEnum):
     STOPPED = "stopped"
 
 
+class SupervisedProcessWakeReason(StrEnum):
+    INITIAL_INTERVAL_ELAPSED = "initial_interval_elapsed"
+    REQUESTED_INTERVAL_ELAPSED = "requested_interval_elapsed"
+    PROCESS_EXITED = "process_exited"
+    USER_INPUT = "user_input"
+    TURN_CONTROL = "turn_control"
+    ACTION_CANCELLED = "action_cancelled"
+    RUNTIME_LIMIT = "runtime_limit"
+    AGENT_STOPPED = "agent_stopped"
+    ALREADY_RESOLVED = "already_resolved"
+
+
 class SupervisedProcessPreparer(Protocol):
     def __call__(
         self,

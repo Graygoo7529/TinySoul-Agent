@@ -9,9 +9,12 @@ from tinysoul.infra.json import JsonObject, JsonValue
 
 SUPPORTED_SCHEMA_KEYS = {
     "additionalProperties",
+    "default",
     "description",
     "enum",
     "items",
+    "maximum",
+    "minimum",
     "properties",
     "required",
     "type",
@@ -130,13 +133,67 @@ def _check_schema_node(schema: JsonObject, *, key: str, root: bool = False) -> N
             expected="list",
         )
 
+    _check_numeric_boundaries(schema, key=key)
+
     if schema_type == "object" or root:
         _check_object_schema(schema, key=key)
-        return
-    if schema_type == "array":
+    elif schema_type == "array":
         _check_array_schema(schema, key=key)
+    else:
+        _reject_keys(
+            schema,
+            {"properties", "required", "additionalProperties", "items"},
+            key=key,
+        )
+
+    if "default" in schema:
+        try:
+            _validate_value(schema["default"], schema=schema, path=f"{key}.default")
+        except ActionSchemaValidationError as exc:
+            raise ActionSchemaDefinitionError(
+                "Action tool schema default does not satisfy its schema",
+                key=f"{key}.default",
+                value=schema["default"],
+                expected="value accepted by the containing schema",
+            ) from exc
+
+
+def _check_numeric_boundaries(schema: JsonObject, *, key: str) -> None:
+    present = tuple(name for name in ("minimum", "maximum") if name in schema)
+    if not present:
         return
-    _reject_keys(schema, {"properties", "required", "additionalProperties", "items"}, key=key)
+    schema_type = schema.get("type")
+    if schema_type not in {"integer", "number"}:
+        raise ActionSchemaDefinitionError(
+            "Action tool schema numeric boundary requires a numeric type",
+            key=f"{key}.{present[0]}",
+            value=schema[present[0]],
+            expected="integer or number schema",
+        )
+    for name in present:
+        value = schema[name]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ActionSchemaDefinitionError(
+                "Action tool schema numeric boundary must be a number",
+                key=f"{key}.{name}",
+                value=value,
+                expected="int or float",
+            )
+    minimum = schema.get("minimum")
+    maximum = schema.get("maximum")
+    if (
+        isinstance(minimum, int | float)
+        and not isinstance(minimum, bool)
+        and isinstance(maximum, int | float)
+        and not isinstance(maximum, bool)
+        and minimum > maximum
+    ):
+        raise ActionSchemaDefinitionError(
+            "Action tool schema numeric boundaries are inconsistent",
+            key=f"{key}.minimum",
+            value=minimum,
+            expected=f"<= {maximum}",
+        )
 
 
 def _check_object_schema(schema: JsonObject, *, key: str) -> None:
@@ -230,6 +287,18 @@ def _validate_value(value: JsonValue, *, schema: JsonObject, path: str) -> None:
     enum_values = schema.get("enum")
     if isinstance(enum_values, list) and value not in enum_values:
         raise ActionSchemaValidationError(f"Action parameter {path} must be one of the allowed values")
+
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if isinstance(minimum, int | float) and value < minimum:
+            raise ActionSchemaValidationError(
+                f"Action parameter {path} must be >= {minimum}"
+            )
+        if isinstance(maximum, int | float) and value > maximum:
+            raise ActionSchemaValidationError(
+                f"Action parameter {path} must be <= {maximum}"
+            )
 
     if expected_type == "object":
         if not isinstance(value, dict):
