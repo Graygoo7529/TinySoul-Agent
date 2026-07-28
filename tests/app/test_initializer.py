@@ -35,7 +35,14 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert not (root / "config_profiles").exists()
     skill = root / "home" / "how" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
-    assert (root / "home" / "agent" / "user" / "user.md").is_file()
+    identity = root / "home" / "agent" / "identity"
+    assert "**Name:** tt" in (identity / "identity.md").read_text(encoding="utf-8")
+    assert "Core Truths" in (identity / "soul.md").read_text(encoding="utf-8")
+    user = (root / "home" / "agent" / "user" / "user.md").read_text(
+        encoding="utf-8"
+    )
+    assert "尚未记录稳定的用户画像" in user
+    assert "graygoo" not in user
     assert (root / "home" / "what" / "entity" / "tiny-soul.md").is_file()
     assert not (root / "home" / "how_domain" / "session").exists()
     assert not (root / "home" / "how_domain" / "context").exists()
@@ -136,10 +143,15 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
         encoding="utf-8"
     )
+    user = (root / "home" / "agent" / "user" / "user.md").read_text(
+        encoding="utf-8"
+    )
+    assert user.startswith("# graygoo\n")
+    assert "graygoo 与 tt 以长期伙伴关系共同工作" in user
     assert not (root / "config_profiles").exists()
 
 
-def test_project_config_profiles_share_home_and_complete_config_shape(
+def test_project_config_profiles_share_core_home_and_customize_user_profile(
     tmp_path: Path,
 ) -> None:
     standard = tmp_path / "standard"
@@ -153,7 +165,17 @@ def test_project_config_profiles_share_home_and_complete_config_shape(
 
     assert standard_outcome.config_profile is ProjectConfigProfile.STANDARD
     assert development_outcome.config_profile is ProjectConfigProfile.DEVELOPMENT
-    assert _tree_snapshot(standard / "home") == _tree_snapshot(development / "home")
+    standard_home = _tree_snapshot(standard / "home")
+    development_home = _tree_snapshot(development / "home")
+    user_path = "agent/user/user.md"
+    assert set(standard_home) == set(development_home)
+    assert {
+        path: content for path, content in standard_home.items() if path != user_path
+    } == {
+        path: content for path, content in development_home.items() if path != user_path
+    }
+    assert b"graygoo" not in standard_home[user_path]
+    assert b"graygoo" in development_home[user_path]
     assert set(_tree_snapshot(standard / "configs")) == set(
         _tree_snapshot(development / "configs")
     )
@@ -219,6 +241,9 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     assert ".env preserved" in captured.out
     assert (root / ".env").read_bytes() == env
     assert (root / "home" / "agent" / "AGENT.md").read_bytes() == original_home
+    assert "# graygoo" in (
+        root / "home" / "agent" / "user" / "user.md"
+    ).read_text(encoding="utf-8")
     assert not (root / "runtime").exists()
     assert not (root / "archive").exists()
     assert not (root / "memory" / "2026-07-26.md").exists()

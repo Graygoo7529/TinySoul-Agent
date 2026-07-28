@@ -48,6 +48,8 @@ from .search import (
 
 _DEFAULT_BACKGROUND_TOP_LINKS = (
     HomeTopLink("agent", "AGENT"),
+    HomeTopLink("agent", "identity/identity"),
+    HomeTopLink("agent", "identity/soul"),
     HomeTopLink("agent", "context/background"),
     HomeTopLink("agent", "context/turn-trace"),
     HomeTopLink("agent", "context/working"),

@@ -92,6 +92,8 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
     ).build()
     cases = {
         "home:agent@AGENT": "agent/AGENT.md",
+        "home:agent@identity/identity": "agent/identity/identity.md",
+        "home:agent@identity/soul": "agent/identity/soul.md",
         "home:agent@context/turn-trace": "agent/context/turn-trace.md",
         "home:agent@user/user": "agent/user/user.md",
         "home:what@entity/tiny-soul": "what/entity/tiny-soul.md",

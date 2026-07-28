@@ -6,6 +6,6 @@ A Link identifies content or a resource without automatically embedding its body
 
 Top Link syntax indicates Background eligibility, not automatic loading. The Agent core and effective allowlisted Context/user Agent Tops are automatic; other Top Links are loaded when they have been exposed in the current Context and are relevant to the task. All general HOW metadata is exposed automatically so Phase1 can decide which skill body to load.
 
-The effective allowlisted Agent Context pages are also automatic Background defaults: <home:agent@context/background>, <home:agent@context/turn-trace>, and <home:agent@context/working>. They explain stable visibility and Link semantics; domain/action HOW continues to own operational action guidance.
+The effective allowlisted Agent identity, soul, Context, and user pages are automatic Background defaults. <home:agent@identity/identity> and <home:agent@identity/soul> define stable personal identity and character. <home:agent@context/background>, <home:agent@context/turn-trace>, and <home:agent@context/working> explain stable visibility and Link semantics; domain/action HOW continues to own operational action guidance.
 
 Related entity: <home:what@entity/tiny-soul>. Usage guidance: <home:how@tinysoul-docs>.

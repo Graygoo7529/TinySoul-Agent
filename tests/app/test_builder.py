@@ -508,6 +508,7 @@ def test_app_builder_script_dependency_error_is_script_startup_failure(
     config = _test_config(
         tmp_path,
         {
+            "capabilities.script.enabled": True,
             "capabilities.script.bash.enabled": True,
             "capabilities.script.bash.executable": "tinysoul-missing-bash-for-test",
         },

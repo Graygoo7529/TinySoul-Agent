@@ -33,6 +33,8 @@ _EXPECTED_TOP_LINKS = {
     "home:agent@context/background",
     "home:agent@context/turn-trace",
     "home:agent@context/working",
+    "home:agent@identity/identity",
+    "home:agent@identity/soul",
     "home:agent@user/user",
     "home:how@tinysoul-docs",
     "home:what@concept/context-and-links",
@@ -84,6 +86,8 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
 
     assert catalog.default_links == (
         "home:agent@AGENT",
+        "home:agent@identity/identity",
+        "home:agent@identity/soul",
         "home:agent@context/background",
         "home:agent@context/turn-trace",
         "home:agent@context/working",
@@ -120,6 +124,8 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     }
     assert "background:catalog:home" in initial_labels
     assert "background:home:agent@AGENT" in initial_labels
+    assert "background:home:agent@identity/identity" in initial_labels
+    assert "background:home:agent@identity/soul" in initial_labels
     assert "background:home:agent@context/background" in initial_labels
     assert "background:home:agent@context/turn-trace" in initial_labels
     assert "background:home:agent@context/working" in initial_labels

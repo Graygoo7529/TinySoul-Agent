@@ -53,6 +53,7 @@ include = ["tinysoul*"]
     "project/config_profiles/*/.env.example",
     "project/config_profiles/*/configs/*.toml",
     "project/config_profiles/*/configs/llm.models/*.toml",
+    "project/config_profiles/*/home/agent/user/*.md",
     "project/home/agent/*.md",
     "project/home/agent/*/*.md",
     "project/home/how/*/*.md",

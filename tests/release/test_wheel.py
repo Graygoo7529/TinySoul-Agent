@@ -87,11 +87,14 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         assert f"{profile_root}/configs/capabilities.shell.toml" in names
         assert f"{profile_root}/configs/capabilities.supervised_process.toml" in names
         assert f"{profile_root}/.env.example" in names
+        assert f"{profile_root}/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/README.md" in names
     assert "tinysoul/assets/project/home/agent/context/background.md" in names
     assert "tinysoul/assets/project/home/agent/context/turn-trace.md" in names
     assert "tinysoul/assets/project/home/agent/context/working.md" in names
-    assert "tinysoul/assets/project/home/agent/user/user.md" in names
+    assert "tinysoul/assets/project/home/agent/identity/identity.md" in names
+    assert "tinysoul/assets/project/home/agent/identity/soul.md" in names
+    assert "tinysoul/assets/project/home/agent/user/user.md" not in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
     assert (
