@@ -1,5 +1,5 @@
-name = "script.patch"
-domain = "script"
+name = "execution.patch_script"
+domain = "execution"
 
 [tool]
 description = "Apply one exact, deterministic text replacement to an existing Workspace or general HOW script after syntax policy validation."

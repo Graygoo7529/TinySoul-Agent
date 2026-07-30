@@ -1,5 +1,5 @@
-name = "shell.run_bash"
-domain = "shell"
+name = "execution.run_bash_command"
+domain = "execution"
 
 [tool]
 description = "Start a bounded non-interactive Bash command in a transactional Workspace mirror. This is not an OS security sandbox."

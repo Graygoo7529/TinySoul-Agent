@@ -1,5 +1,5 @@
-name = "script.promote"
-domain = "script"
+name = "execution.promote_script"
+domain = "execution"
 
 [tool]
 description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general HOW. Home Maintenance later reviews the resulting Home diff."

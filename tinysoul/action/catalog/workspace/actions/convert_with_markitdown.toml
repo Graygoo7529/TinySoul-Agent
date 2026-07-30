@@ -1,5 +1,5 @@
-name = "resource.convert_with_markitdown"
-domain = "resource"
+name = "workspace.convert_with_markitdown"
+domain = "workspace"
 
 [tool]
 description = "Convert a supported Workspace document to Markdown and a bounded sibling asset bundle using MarkItDown. The result returns links and execution metadata only."
@@ -36,9 +36,9 @@ effects = ["modifying"]
 examples = ["Convert workspace:incoming/report.docx to workspace:converted/report.md"]
 
 [runtime]
+timeout_seconds = 90
 parallel_policy = "serial"
 
 [backend]
 kind = "subprocess"
 handler = "resource.convert_with_markitdown"
-

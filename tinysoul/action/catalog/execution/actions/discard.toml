@@ -1,0 +1,27 @@
+name = "execution.discard"
+domain = "execution"
+
+[tool]
+description = "Delete a non-running Script or Shell job, its transactional mirror, logs, and candidates without changing the active Workspace."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped execution id returned by a Script or Shell run action."
+
+[semantic]
+use_when = ["A completed, failed, timed out, or stopped Execution job should not be applied"]
+avoid_when = ["The job is still running", "Reviewed successful changes should be applied"]
+effects = ["modifying"]
+examples = ["Discard a failed Execution job after inspecting its logs"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "supervised_process.discard"

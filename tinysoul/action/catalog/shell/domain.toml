@@ -1,7 +1,0 @@
-name = "shell"
-description = "Run immediate PowerShell, Cmd, or Bash commands against a transactional Workspace mirror."
-selection_hint = "Use for bounded local commands that do not need a maintained Script resource."
-
-[runtime]
-timeout_seconds = 70
-parallel_policy = "serial"

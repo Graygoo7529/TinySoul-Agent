@@ -1,0 +1,34 @@
+name = "execution.wait"
+domain = "execution"
+
+[tool]
+description = "Wait for the active Script or Shell job to finish, receive a valid same-Turn input or control signal, or reach the requested interval."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped execution id returned by a Script or Shell run action."
+
+[tool.schema.properties.wait_seconds]
+type = "integer"
+minimum = 15
+default = 15
+maximum = 60
+description = "Wait interval in seconds; bounded by the effective project configuration."
+
+[semantic]
+use_when = ["The current Turn has a running Execution job that needs paced supervision"]
+avoid_when = ["No Execution job is active", "The current job already needs apply or discard"]
+effects = ["read_only"]
+examples = ["Wait 15 seconds for the current Execution job"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "supervised_process.wait"

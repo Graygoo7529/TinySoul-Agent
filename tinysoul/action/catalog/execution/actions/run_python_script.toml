@@ -1,8 +1,8 @@
-name = "script.run_python"
-domain = "script"
+name = "execution.run_python_script"
+domain = "execution"
 
 [tool]
-description = "Start a Python script against a transactional Workspace mirror. The active Workspace is unchanged until a later script.apply."
+description = "Start a Python script against a transactional Workspace mirror. The active Workspace is unchanged until a later execution.apply."
 
 [tool.schema]
 type = "object"

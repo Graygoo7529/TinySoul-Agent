@@ -168,13 +168,13 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     assert "Make each Agent Cycle advance" in core
     assert "authoritative successful mutation or apply ActionResult" in core
 
-    for domain in ("web", "shell", "workspace"):
+    for domain in ("web", "execution", "workspace"):
         home.ensure_runtime_copy(home.parse_link(f"home:how_domain:{domain}"))
     home.ensure_runtime_copy(
         home.parse_link("home:how_action:workspace/rewrite")
     )
     home.ensure_runtime_copy(home.parse_link("home:how_action:workspace/write"))
-    domain_guidance = HomeDomainHowProvider(home).guidance_for(("web", "shell"))
+    domain_guidance = HomeDomainHowProvider(home).guidance_for(("web", "execution"))
     action_guidance = HomeActionHowProvider(home).guidance_for(
         domain="workspace",
         action_name="workspace.rewrite",
@@ -186,7 +186,7 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
 
     assert "failure.disposition" in domain_guidance[0]
     assert "stable public URLs" in domain_guidance[0]
-    assert "`shell.apply` is the authoritative Workspace commit" in domain_guidance[1]
+    assert "`execution.apply` is the authoritative Workspace commit" in domain_guidance[1]
     assert any("workspace.read" in item for item in action_guidance.domain)
     assert any("complete replacement" in item for item in action_guidance.action)
     assert any("`truncated` metadata" in item for item in action_guidance.action)

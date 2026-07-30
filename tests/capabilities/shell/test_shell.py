@@ -44,6 +44,7 @@ from tinysoul.capabilities.supervised_process import (
     SupervisedProcessSettings,
     SupervisedProcessState,
     build_supervised_process_environment,
+    register_supervised_process_actions,
 )
 from tinysoul.capabilities.supervised_process.errors import (
     SupervisedProcessStateError,
@@ -267,7 +268,6 @@ def test_powershell_workspace_diff_requires_apply(local_tmp: Path) -> None:
     execution_id = str(observation.payload["execution_id"])
     applied = manager.apply(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
     assert applied.payload["job_state"] == "applied"
@@ -295,12 +295,10 @@ def test_failed_shell_job_is_retained_and_cannot_apply(local_tmp: Path) -> None:
     with pytest.raises(SupervisedProcessStateError):
         manager.apply(
             turn_id="turn_1",
-            owner=SupervisedProcessOwner.SHELL,
             execution_id=execution_id,
         )
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
 
@@ -371,12 +369,10 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
     with pytest.raises(SupervisedProcessStateError):
         timeout_manager.apply(
             turn_id="turn_timeout",
-            owner=SupervisedProcessOwner.SHELL,
             execution_id=timeout_id,
         )
     timeout_manager.discard(
         turn_id="turn_timeout",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=timeout_id,
     )
 
@@ -393,7 +389,6 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
     stop_id = str(running.payload["execution_id"])
     stopped = stop_manager.stop(
         turn_id="turn_stop",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=stop_id,
     )
 
@@ -401,7 +396,6 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
     assert stop_manager.has_unresolved("turn_stop") is True
     stop_manager.discard(
         turn_id="turn_stop",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=stop_id,
     )
     assert stop_manager.has_unresolved("turn_stop") is False
@@ -431,7 +425,6 @@ def test_failed_shell_candidate_can_be_read_then_discarded(local_tmp: Path) -> N
     assert failed.payload["candidate_count"] == 1
     candidate = manager.read_candidate(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
         path="candidate.txt",
         cursor=0,
@@ -440,7 +433,6 @@ def test_failed_shell_candidate_can_be_read_then_discarded(local_tmp: Path) -> N
     assert candidate["text"] == "candidate body"
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
     assert not (workspace.root / "candidate.txt").exists()
@@ -468,14 +460,14 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
     )
     identifiers = engine.action_identifiers()
 
-    assert engine.domain_names() == ("shell",)
-    assert ("shell", "shell.run_powershell") in identifiers
-    assert ("shell", "shell.run_cmd") not in identifiers
-    assert ("shell", "shell.run_bash") not in identifiers
-    scope = engine.phase2_scope(("shell",))
+    assert engine.domain_names() == ("execution",)
+    assert ("execution", "execution.run_powershell") in identifiers
+    assert ("execution", "execution.run_cmd") not in identifiers
+    assert ("execution", "execution.run_bash_command") not in identifiers
+    scope = engine.phase2_scope(("execution",))
     assert scope.tool_scope is not None
     wait_tool = next(
-        tool for tool in scope.tool_scope.visible_tools() if tool.name == "shell.wait"
+        tool for tool in scope.tool_scope.visible_tools() if tool.name == "execution.wait"
     )
     properties = wait_tool.parameters["properties"]
     assert isinstance(properties, dict)
@@ -485,7 +477,7 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
     assert wait_seconds["default"] == 30
     assert wait_seconds["maximum"] == 45
 
-    home_root = local_tmp / "enabled" / "home" / "how_domain" / "shell"
+    home_root = local_tmp / "enabled" / "home" / "how_domain" / "execution"
     home_root.mkdir(parents=True)
     (home_root / "DOMAIN.md").write_text("shell guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -499,15 +491,15 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
         actions=engine.action_identifiers(),
     )
     assert home.ensure_runtime_copy(
-        home.parse_link("home:how_domain:shell")
+        home.parse_link("home:how_domain:execution")
     ) is True
-    assert home.guidance_for_domain("shell") == "shell guidance"
+    assert home.guidance_for_domain("execution") == "shell guidance"
 
     disabled_engine, _, _, _ = _shell_engine(
         local_tmp / "disabled",
         ShellSettings(enabled=False),
     )
-    assert "shell" not in disabled_engine.domain_names()
+    assert "execution" not in disabled_engine.domain_names()
     (local_tmp / "disabled" / "home").mkdir(parents=True)
     disabled_home = AgentHomeEngineBuilder(
         AgentHomeSettings(
@@ -520,7 +512,7 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
         actions=disabled_engine.action_identifiers(),
     )
     with pytest.raises(AgentHomeContractError, match="not defined"):
-        disabled_home.guidance_for_domain("shell")
+        disabled_home.guidance_for_domain("execution")
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
@@ -541,7 +533,7 @@ def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
         (
             ToolCallRecord(
                 id="shell_1",
-                name="shell.run_powershell",
+                name="execution.run_powershell",
                 arguments={"command": "Write-Output 'trace-ok'"},
                 kind=ToolKind.ACTION,
             ),
@@ -569,8 +561,61 @@ def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
     assert manager.has_unresolved(turn_id) is False
 
 
+def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) -> None:
+    settings = ShellSettings(
+        enabled=True,
+        powershell=ShellAdapterSettings(True, sys.executable),
+        cmd=ShellAdapterSettings(False, "cmd"),
+        bash=ShellAdapterSettings(False, "bash"),
+    )
+    engine, manager, _, bus = _shell_engine(local_tmp, settings)
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("stop the active execution")
+    running = manager.start(
+        turn_id=turn_id,
+        owner=SupervisedProcessOwner.SHELL,
+        identity={"command_digest": "shared-lifecycle"},
+        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        control=ActionExecutionControl(),
+        bus=None,
+        auto_complete_without_changes=True,
+    )
+    execution_id = str(running.payload["execution_id"])
+    normalization = engine.normalize(
+        (
+            ToolCallRecord(
+                id="stop_1",
+                name="execution.stop",
+                arguments={"execution_id": execution_id},
+                kind=ToolKind.ACTION,
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
+    )
+
+    outcome = Phase3Unit(context=context, action=engine, bus=bus).run(
+        normalization=normalization,
+        scope=scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert outcome.results[0].status is ActionResultStatus.SUCCESS
+    assert outcome.results[0].payload["job_state"] == "stopped"
+    assert outcome.results[0].payload["owner"] == SupervisedProcessOwner.SHELL.value
+    manager.discard(turn_id=turn_id, execution_id=execution_id)
+
+
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
-def test_script_and_shell_share_one_owner_checked_job(local_tmp: Path) -> None:
+def test_script_and_shell_share_one_job_resolved_by_execution_id(
+    local_tmp: Path,
+) -> None:
     workspace = _workspace(local_tmp)
     manager = _manager(local_tmp, workspace)
     running = _start_shell(
@@ -582,12 +627,6 @@ def test_script_and_shell_share_one_owner_checked_job(local_tmp: Path) -> None:
     )
     execution_id = str(running.payload["execution_id"])
 
-    with pytest.raises(SupervisedProcessStateError, match="another capability"):
-        manager.stop(
-            turn_id="turn_1",
-            owner=SupervisedProcessOwner.SCRIPT,
-            execution_id=execution_id,
-        )
     with pytest.raises(SupervisedProcessStateError, match="already has"):
         _start_shell(
             manager,
@@ -596,14 +635,13 @@ def test_script_and_shell_share_one_owner_checked_job(local_tmp: Path) -> None:
             executable=shutil.which("powershell") or "powershell",
             command="Write-Output 'second'",
         )
-    manager.stop(
+    stopped = manager.stop(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
+    assert stopped.payload["owner"] == SupervisedProcessOwner.SHELL.value
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
 
@@ -650,12 +688,10 @@ def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
     execution_id = str(running.payload["execution_id"])
     manager.stop(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SHELL,
         execution_id=execution_id,
     )
 
@@ -751,13 +787,36 @@ def _shell_engine(
     bus = SignalBus()
     with builtin_action_catalog_root() as catalog_root:
         catalog = ActionCatalogLoader().load(catalog_root)
+        enabled_actions = {
+            "execution.run_powershell",
+            "execution.run_cmd",
+            "execution.run_bash_command",
+            "execution.wait",
+            "execution.stop",
+            "execution.read_candidate",
+            "execution.apply",
+            "execution.discard",
+        }
         disabled = tuple(
-            action.name for action in catalog.actions() if action.domain != "shell"
+            action.name for action in catalog.actions() if action.name not in enabled_actions
         )
         builder = ActionEngineBuilder(catalog_root).disable_actions(*disabled)
         register_shell_actions(
             builder,
             settings=settings,
+            jobs=manager,
+            bus=bus,
+        )
+        register_supervised_process_actions(
+            builder,
+            enabled=(
+                settings.enabled
+                and (
+                    settings.powershell.enabled
+                    or settings.cmd.enabled
+                    or settings.bash.enabled
+                )
+            ),
             jobs=manager,
             bus=bus,
         )

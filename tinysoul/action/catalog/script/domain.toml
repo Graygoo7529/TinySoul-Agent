@@ -1,7 +1,0 @@
-name = "script"
-description = "Author reusable or temporary scripts and run them against a transactional Workspace mirror."
-selection_hint = "Use when deterministic local code should transform Workspace resources or perform a bounded longer-running task."
-
-[runtime]
-timeout_seconds = 70
-parallel_policy = "serial"

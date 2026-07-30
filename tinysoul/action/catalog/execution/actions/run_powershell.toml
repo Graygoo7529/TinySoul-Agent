@@ -1,5 +1,5 @@
-name = "shell.run_powershell"
-domain = "shell"
+name = "execution.run_powershell"
+domain = "execution"
 
 [tool]
 description = "Start a bounded PowerShell command in a transactional Workspace mirror. This is not an OS security sandbox."

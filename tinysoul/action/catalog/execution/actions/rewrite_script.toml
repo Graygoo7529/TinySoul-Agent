@@ -1,5 +1,5 @@
-name = "script.rewrite"
-domain = "script"
+name = "execution.rewrite_script"
+domain = "execution"
 
 [tool]
 description = "Rewrite the complete source of an existing Workspace or general HOW script through an internal LLM task."

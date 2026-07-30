@@ -1,5 +1,5 @@
-name = "script.write"
-domain = "script"
+name = "execution.write_script"
+domain = "execution"
 
 [tool]
 description = "Generate a complete Python or Bash script at a Workspace scripts link or an existing general HOW scripts resource."

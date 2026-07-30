@@ -1,5 +1,5 @@
-name = "shell.run_cmd"
-domain = "shell"
+name = "execution.run_cmd"
+domain = "execution"
 
 [tool]
 description = "Start a bounded Windows Cmd command in a transactional Workspace mirror. This is not an OS security sandbox."

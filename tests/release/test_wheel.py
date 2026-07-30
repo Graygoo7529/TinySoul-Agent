@@ -57,19 +57,21 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
 
     assert "tinysoul/action/catalog/core/actions/answer.toml" in names
     assert (
-        "tinysoul/action/catalog/resource/actions/convert_with_markitdown.toml"
+        "tinysoul/action/catalog/workspace/actions/convert_with_markitdown.toml"
         in names
     )
-    assert "tinysoul/action/catalog/resource/actions/convert_with_pypdf.toml" in names
+    assert "tinysoul/action/catalog/workspace/actions/convert_with_pypdf.toml" in names
     assert "tinysoul/action/catalog/web/actions/search_by_kimi.toml" in names
     assert "tinysoul/action/catalog/web/actions/discover_pages.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_defuddle.toml" in names
     assert "tinysoul/action/catalog/web/actions/fetch_with_trafilatura.toml" in names
-    assert "tinysoul/action/catalog/script/actions/run_python.toml" in names
-    assert "tinysoul/action/catalog/script/actions/apply.toml" in names
-    assert "tinysoul/action/catalog/shell/actions/run_powershell.toml" in names
-    assert "tinysoul/action/catalog/shell/actions/run_cmd.toml" in names
-    assert "tinysoul/action/catalog/shell/actions/apply.toml" in names
+    assert "tinysoul/action/catalog/execution/actions/run_python_script.toml" in names
+    assert "tinysoul/action/catalog/execution/actions/run_powershell.toml" in names
+    assert "tinysoul/action/catalog/execution/actions/run_cmd.toml" in names
+    assert "tinysoul/action/catalog/execution/actions/apply.toml" in names
+    assert not any(name.startswith("tinysoul/action/catalog/resource/") for name in names)
+    assert not any(name.startswith("tinysoul/action/catalog/script/") for name in names)
+    assert not any(name.startswith("tinysoul/action/catalog/shell/") for name in names)
     assert "tinysoul/action/catalog/workspace/actions/read.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/search_text.toml" in names
     assert "tinysoul/action/catalog/workspace/actions/analyze.toml" in names
@@ -97,12 +99,20 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/agent/user/user.md" not in names
     assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
     assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
-    assert (
-        "tinysoul/assets/project/home/how_domain/resource/DOMAIN.md" in names
-    )
+    assert "tinysoul/assets/project/home/how_domain/execution/DOMAIN.md" in names
     assert "tinysoul/assets/project/home/how_domain/web/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/script/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/shell/DOMAIN.md" in names
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/how_domain/resource/")
+        for name in names
+    )
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/how_domain/script/")
+        for name in names
+    )
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/how_domain/shell/")
+        for name in names
+    )
     assert not any(
         name.startswith("tinysoul/assets/project/home/how_domain/session/")
         for name in names
@@ -202,17 +212,14 @@ raise SystemExit(main(["reset", {str(development)!r}]))
         initialized / "configs" / "capabilities.supervised_process.toml"
     ).is_file()
     assert (
-        initialized / "home" / "how_domain" / "resource" / "DOMAIN.md"
+        initialized / "home" / "how_domain" / "execution" / "DOMAIN.md"
     ).is_file()
     assert (
         initialized / "home" / "how_domain" / "web" / "DOMAIN.md"
     ).is_file()
-    assert (
-        initialized / "home" / "how_domain" / "script" / "DOMAIN.md"
-    ).is_file()
-    assert (
-        initialized / "home" / "how_domain" / "shell" / "DOMAIN.md"
-    ).is_file()
+    assert not (initialized / "home" / "how_domain" / "resource").exists()
+    assert not (initialized / "home" / "how_domain" / "script").exists()
+    assert not (initialized / "home" / "how_domain" / "shell").exists()
     assert not (initialized / "home" / "how_domain" / "session").exists()
     assert not (initialized / "home" / "how_domain" / "context").exists()
     assert not (initialized / "home" / "how_action" / "session").exists()

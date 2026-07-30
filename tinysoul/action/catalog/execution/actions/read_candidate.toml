@@ -1,8 +1,8 @@
-name = "script.read_candidate"
-domain = "script"
+name = "execution.read_candidate"
+domain = "execution"
 
 [tool]
-description = "Read a bounded UTF-8 slice from one candidate path inside the active Script Workspace mirror. Candidate paths are staged metadata, not Workspace Links."
+description = "Read a bounded UTF-8 slice from one candidate path inside the active Execution Workspace mirror. Candidate paths are staged metadata, not Workspace Links."
 
 [tool.schema]
 type = "object"
@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.execution_id]
 type = "string"
-description = "Turn-scoped Script execution id."
+description = "Turn-scoped execution id returned by a Script or Shell run action."
 
 [tool.schema.properties.path]
 type = "string"
@@ -29,11 +29,11 @@ description = "Optional bounded character count."
 use_when = ["Need to inspect a text candidate before apply or discard"]
 avoid_when = ["Candidate metadata is already sufficient", "Need to read active Workspace rather than staged output"]
 effects = ["read_only"]
-examples = ["Read the start of docs/result.md from the current Script job"]
+examples = ["Read the start of docs/result.md from the current Execution job"]
 
 [runtime]
 parallel_policy = "serial"
 
 [backend]
 kind = "supervised_process"
-handler = "script.read_candidate"
+handler = "supervised_process.read_candidate"

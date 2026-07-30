@@ -23,6 +23,7 @@ from tinysoul.capabilities.script import (
 from tinysoul.capabilities.supervised_process import (
     SupervisedProcessAnswerGuard,
     SupervisedProcessManager,
+    register_supervised_process_actions,
 )
 from tinysoul.capabilities.web import register_web_actions
 from tinysoul.context import (
@@ -989,6 +990,28 @@ class TinySoulAppBuilder:
                     )
                 except ConfigError as exc:
                     raise shell_bridge.from_config_error(exc) from exc
+                script_process_enabled = (
+                    capabilities_settings.script.enabled
+                    and (
+                        capabilities_settings.script.python.enabled
+                        or capabilities_settings.script.bash.enabled
+                    )
+                )
+                shell_process_enabled = (
+                    capabilities_settings.shell.enabled
+                    and (
+                        capabilities_settings.shell.powershell.enabled
+                        or capabilities_settings.shell.cmd.enabled
+                        or capabilities_settings.shell.bash.enabled
+                    )
+                )
+                register_supervised_process_actions(
+                    builder,
+                    enabled=script_process_enabled or shell_process_enabled,
+                    jobs=process_jobs,
+                    bus=bus,
+                    workspace_bridge=workspace_bridge,
+                )
                 builder.register_execution_hook(
                     "supervised_process.answer_guard",
                     SupervisedProcessAnswerGuard(process_jobs),

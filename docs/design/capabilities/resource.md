@@ -4,22 +4,22 @@
 
 `capabilities.resource` 负责 Workspace 资源之间的本地转换和提取。它不拥有新的 Link namespace，不维护独立索引，不把转换正文放入 Context，也不调用 LLM 识别文档。
 
-Stage 1 建立 `resource` domain，并提供：
+Resource capability 不建立独立 Action Domain。转换属于对 Workspace 资源的操作，因此并入宽泛的 `workspace` Domain，并提供：
 
 ```text
-resource.convert_with_markitdown
-resource.convert_with_pypdf
+workspace.convert_with_markitdown
+workspace.convert_with_pypdf
 ```
 
 两个 action 都把输入文档转换为 Markdown 与关联 Workspace 资源包，并独立收敛为成功、部分成功、失败或超时。它们不是自动串行 fallback，也不会为图片处理开启额外 Agent Cycle。
 
 ## 选择语义
 
-`resource.convert_with_markitdown` 面向普通 PDF/DOCX 和适合结构化 Markdown 的文档。它使用 MarkItDown 作为主转换 adapter，并用格式专用 extractor 补充图片和附件。
+`workspace.convert_with_markitdown` 面向普通 PDF/DOCX 和适合结构化 Markdown 的文档。它使用 MarkItDown 作为主转换 adapter，并用格式专用 extractor 补充图片和附件。
 
-`resource.convert_with_pypdf` 只处理 PDF，强调页级文本、嵌入图片、附件和页面可追踪性。pypdf 负责 PDF 文本与嵌入资源，pypdfium2 负责在无有效文本时把页面渲染为 PNG；页面渲染不是 pypdf 自身能力。
+`workspace.convert_with_pypdf` 只处理 PDF，强调页级文本、嵌入图片、附件和页面可追踪性。pypdf 负责 PDF 文本与嵌入资源，pypdfium2 负责在无有效文本时把页面渲染为 PNG；页面渲染不是 pypdf 自身能力。
 
-`home:how_domain:resource` 在 Phase2 说明倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action HOW。
+`home:how_domain:workspace` 同时说明一般 Workspace 操作和转换选择倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action HOW。Capability 仍由 `tinysoul.capabilities.resource` 拥有配置、依赖、转换 service 和 `resource.*` backend handler；Domain 与 Capability 不要求一一对应。
 
 ## 输入输出
 
@@ -122,7 +122,7 @@ extract_attachments = true
 
 配置只表达期望能力。Resource 根据 effective settings 推导 MarkItDown/pypdf/pypdfium2/Pillow requirement；Infra DependencyChecker 对照当前解释器检测 distribution 与 module。启用 action 缺少依赖时 App 启动失败，禁用 action 不检测依赖并从 effective Catalog 移除。
 
-Stage 1 的基础依赖随 TinySoul wheel 安装，dependency check 仍用于检测损坏环境、错误解释器和后续 optional capability。运行时不自动 pip install。
+基础依赖随 TinySoul wheel 安装，dependency check 仍用于检测损坏环境、错误解释器和后续 optional capability。运行时不自动 pip install。
 
 ## 失败与限制
 

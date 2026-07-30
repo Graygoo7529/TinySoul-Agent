@@ -1,0 +1,27 @@
+name = "execution.apply"
+domain = "execution"
+
+[tool]
+description = "Commit a successfully completed Script or Shell mirror diff to the active Workspace using per-path baseline conflict checks, then close the job."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped execution id returned by a Script or Shell run action."
+
+[semantic]
+use_when = ["A ready_to_apply Execution job produced reviewed Workspace changes"]
+avoid_when = ["The job is running, failed, timed out, or stopped", "A same-path Workspace conflict must be resolved"]
+effects = ["modifying"]
+examples = ["Apply the reviewed candidate changes from the current Execution job"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "supervised_process.apply"

@@ -1,6 +1,6 @@
 name = "workspace"
-description = "Workspace resource inspection and mutation actions."
-selection_hint = "Use when the task needs to inspect, create, or modify workspace resources."
+description = "Workspace resource inspection, conversion, and mutation actions."
+selection_hint = "Use when the task needs to inspect, transform, create, or modify workspace resources."
 
 [runtime]
 timeout_seconds = 30

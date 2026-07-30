@@ -195,7 +195,6 @@ def test_python_job_requires_explicit_apply(local_tmp: Path) -> None:
     execution_id = str(observation.payload["execution_id"])
     applied = manager.apply(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
     )
     assert applied.payload["job_state"] == "applied"
@@ -226,12 +225,10 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
     with pytest.raises(SupervisedProcessStateError):
         manager.apply(
             turn_id="turn_fail",
-            owner=SupervisedProcessOwner.SCRIPT,
             execution_id=failed_id,
         )
     manager.discard(
         turn_id="turn_fail",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=failed_id,
     )
 
@@ -254,19 +251,16 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
     assert running.payload["job_state"] == SupervisedProcessState.RUNNING.value
     stopped = manager.stop(
         turn_id="turn_stop",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=running_id,
     )
     assert stopped.payload["job_state"] == SupervisedProcessState.STOPPED.value
     with pytest.raises(SupervisedProcessStateError):
         manager.apply(
             turn_id="turn_stop",
-            owner=SupervisedProcessOwner.SCRIPT,
             execution_id=running_id,
         )
     manager.discard(
         turn_id="turn_stop",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=running_id,
     )
 
@@ -450,12 +444,10 @@ def test_additional_cycle_failure_uses_supervised_process_runtime_bridge(
     monkeypatch.undo()
     manager.stop(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=str(running.payload["execution_id"]),
     )
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=str(running.payload["execution_id"]),
     )
 
@@ -523,7 +515,6 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
         target=lambda: observations.append(
             manager.wait(
                 turn_id="turn_1",
-                owner=SupervisedProcessOwner.SCRIPT,
                 execution_id=execution_id,
                 wait_seconds=15,
                 control=ActionExecutionControl(),
@@ -568,12 +559,10 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
     assert cast(float, observation.payload["remaining_runtime_seconds"]) > 0
     manager.stop(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
     )
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
     )
 
@@ -629,7 +618,6 @@ def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
 
     waited = manager.wait(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
         wait_seconds=15,
         control=ActionExecutionControl(),
@@ -643,12 +631,10 @@ def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
 
     manager.stop(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
     )
     manager.discard(
         turn_id="turn_1",
-        owner=SupervisedProcessOwner.SCRIPT,
         execution_id=execution_id,
     )
     assert not staging_roots[0].exists()

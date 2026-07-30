@@ -341,7 +341,20 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
 ) -> None:
     catalog_root = local_tmp / "catalog"
     with builtin_action_catalog_root() as package_catalog:
-        shutil.copytree(package_catalog / "resource", catalog_root / "resource")
+        workspace_catalog = catalog_root / "workspace"
+        (workspace_catalog / "actions").mkdir(parents=True)
+        shutil.copy2(
+            package_catalog / "workspace" / "domain.toml",
+            workspace_catalog / "domain.toml",
+        )
+        for action_file in (
+            "convert_with_markitdown.toml",
+            "convert_with_pypdf.toml",
+        ):
+            shutil.copy2(
+                package_catalog / "workspace" / "actions" / action_file,
+                workspace_catalog / "actions" / action_file,
+            )
     settings = ResourceSettings(
         convert_with_markitdown=MarkItDownConversionSettings(enabled=False),
         convert_with_pypdf=PdfConversionSettings(enabled=False),
@@ -354,7 +367,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
         staging=_staging(local_tmp),
     ).build()
 
-    assert "resource" not in engine.domain_names()
+    assert "workspace" not in engine.domain_names()
     assert engine.action_identifiers() == ()
 
 
@@ -397,7 +410,7 @@ def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
             invoke_id="invoke_1",
             batch_id="batch_1",
             scope=RunScope(),
-            domain="resource",
+            domain="workspace",
             turn_id="turn_1",
         ),
     )
@@ -566,7 +579,7 @@ def _resource_execution() -> ActionExecution:
             invoke_id="invoke_1",
             batch_id="batch_1",
             scope=RunScope(),
-            domain="resource",
+            domain="workspace",
             turn_id="turn_1",
         ),
     )

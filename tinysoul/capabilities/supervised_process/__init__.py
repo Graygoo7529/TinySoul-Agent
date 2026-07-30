@@ -1,5 +1,6 @@
 """Shared Turn-scoped supervised process lifecycle."""
 
+from .actions import EXECUTION_LIFECYCLE_ACTIONS, register_supervised_process_actions
 from .config import SupervisedProcessSettings, parse_supervised_process_settings
 from .hooks import SupervisedProcessAnswerGuard
 from .environment import build_supervised_process_environment
@@ -14,6 +15,7 @@ from .models import (
 )
 
 __all__ = [
+    "EXECUTION_LIFECYCLE_ACTIONS",
     "SupervisedProcessAnswerGuard",
     "SupervisedProcessApply",
     "SupervisedProcessManager",
@@ -25,4 +27,5 @@ __all__ = [
     "SupervisedProcessWakeReason",
     "parse_supervised_process_settings",
     "build_supervised_process_environment",
+    "register_supervised_process_actions",
 ]

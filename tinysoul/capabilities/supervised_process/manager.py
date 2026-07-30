@@ -235,13 +235,12 @@ class SupervisedProcessManager:
         self,
         *,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
         wait_seconds: int,
         control: ActionExecutionControl,
         bus: SignalBus | None,
     ) -> SupervisedProcessObservation:
-        job = self._job(turn_id, owner, execution_id)
+        job = self._job(turn_id, execution_id)
         if job.state is not SupervisedProcessState.RUNNING:
             return self._observation_and_finalize(
                 job,
@@ -270,10 +269,9 @@ class SupervisedProcessManager:
         self,
         *,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
     ) -> SupervisedProcessObservation:
-        job = self._job(turn_id, owner, execution_id)
+        job = self._job(turn_id, execution_id)
         self._refresh(job)
         if job.state is SupervisedProcessState.RUNNING:
             job.process.terminate()
@@ -291,13 +289,12 @@ class SupervisedProcessManager:
         self,
         *,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
         path: str,
         cursor: int,
         max_chars: int,
     ) -> JsonObject:
-        job = self._job(turn_id, owner, execution_id)
+        job = self._job(turn_id, execution_id)
         if max_chars > self._settings.max_candidate_read_chars:
             raise SupervisedProcessContractError(
                 "Candidate read exceeds its configured limit"
@@ -323,10 +320,9 @@ class SupervisedProcessManager:
         self,
         *,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
     ) -> SupervisedProcessApply:
-        job = self._job(turn_id, owner, execution_id)
+        job = self._job(turn_id, execution_id)
         self._refresh(job)
         if job.state is not SupervisedProcessState.READY_TO_APPLY:
             raise SupervisedProcessStateError(
@@ -364,10 +360,9 @@ class SupervisedProcessManager:
         self,
         *,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
     ) -> JsonObject:
-        job = self._job(turn_id, owner, execution_id)
+        job = self._job(turn_id, execution_id)
         self._refresh(job)
         if job.state is SupervisedProcessState.RUNNING:
             raise SupervisedProcessStateError(
@@ -686,7 +681,6 @@ class SupervisedProcessManager:
     def _job(
         self,
         turn_id: str,
-        owner: SupervisedProcessOwner,
         execution_id: str,
     ) -> _ProcessJob:
         if not turn_id:
@@ -699,10 +693,6 @@ class SupervisedProcessManager:
             if job is None or job.turn_id != turn_id:
                 raise SupervisedProcessStateError(
                     "Execution id is not active in this Turn"
-                )
-            if job.owner is not owner:
-                raise SupervisedProcessStateError(
-                    "Execution id belongs to another capability"
                 )
             return job
 

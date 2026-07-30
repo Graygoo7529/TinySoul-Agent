@@ -8,12 +8,12 @@
 
 ## 源与提升
 
-- `script.write` / `script.rewrite` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action HOW；模型只返回完整 source 文本工件，不使用 JSON wrapper；
-- `script.patch` 只做唯一精确替换，并在写入前执行确定性语法策略检查；
-- `script.promote` 只允许从 `workspace:scripts/...` 复制到 `home:how/<existing-skill>/scripts/...`，扩展名必须保持一致；
+- `execution.write_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action HOW；模型只返回完整 source 文本工件，不使用 JSON wrapper；
+- `execution.patch_script` 只做唯一精确替换，并在写入前执行确定性语法策略检查；
+- `execution.promote_script` 只允许从 `workspace:scripts/...` 复制到 `home:how/<existing-skill>/scripts/...`，扩展名必须保持一致；
 - promote 写入 lazy runtime Home，随后由普通 Home Maintenance review/apply；它不直接写实际 Home，也不自动创建 skill。
 
-`ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`script.promote` 同样直接写入已校验 snapshot，不二次读取 source Link。
+`ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`execution.promote_script` 同样直接写入已校验 snapshot，不二次读取 source Link。
 
 `max_source_chars` 是 Script 的读写共同边界：read、LLM write/rewrite 输出、patch 后完整候选、promote 与 resolver 最终 mutation 都必须检查。Workspace/Home 自有 mutation 上限继续独立生效，实际边界取二者较小值。
 
@@ -23,15 +23,15 @@ Python 默认启用并使用当前 TinySoul Python 解释器。Bash 独立配置
 
 ## Job 生命周期
 
-每个 Turn 跨 Script/Shell 最多拥有一个 unresolved job。job 不跨 Turn、不持久化、不跨重启。`script.run_python` / `script.run_bash` 启动进程后先等待配置的 initial interval，返回 execution id、状态、有界增量日志和候选文件 metadata。
+Script 与 Shell 的模型侧动作统一位于宽泛的 `execution` Domain；Capability 仍分别拥有 source/command policy、配置、依赖和启动 handler。每个 Turn 跨 Script/Shell 最多拥有一个 unresolved job。job 不跨 Turn、不持久化、不跨重启。`execution.run_python_script` / `execution.run_bash_script` 启动进程后先等待配置的 initial interval，返回 execution id、owner、状态、有界增量日志和候选文件 metadata。
 
 后续动作固定为：
 
-- `script.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；结果区分 interval、process exit、user input、Turn control、runtime limit 与 action cancellation 等 wake reason；
-- `script.stop`：终止进程并保留镜像供检查；stopped 不可 apply；
-- `script.read_candidate`：按候选相对路径读取有界 UTF-8 文本；候选路径不是 Link；
-- `script.apply`：只允许 `ready_to_apply`，逐文件比较创建 job 时的 baseline digest 与当前 active Workspace；同路径并发变化拒绝整个提交，job 保留；
-- `script.discard`：关闭非运行 job 并删除镜像、日志和候选，不修改 active Workspace。
+- `execution.wait`：等待进程完成、等待区间到期，或当前 Turn 中合法的 `context.input.append` / `loop.control.request`；日志增长、其它 namespace、其它 Turn 和非法 payload 不唤醒；结果区分 interval、process exit、user input、Turn control、runtime limit 与 action cancellation 等 wake reason；
+- `execution.stop`：终止进程并保留镜像供检查；stopped 不可 apply；
+- `execution.read_candidate`：按候选相对路径读取有界 UTF-8 文本；候选路径不是 Link；
+- `execution.apply`：只允许 `ready_to_apply`，逐文件比较创建 job 时的 baseline digest 与当前 active Workspace；同路径并发变化拒绝整个提交，job 保留；
+- `execution.discard`：关闭非运行 job 并删除镜像、日志和候选，不修改 active Workspace。
 
 failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成功也必须显式 apply 或 discard。`core.answer` execution hook 在 job unresolved 时拒绝最终回答。
 
@@ -39,7 +39,7 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 普通 Turn Cycle 上限耗尽后，共享 manager 中任一 unresolved Script/Shell job 都可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。running job 由此继续监督，ready/failed/timed-out/stopped job 由此获得有界 apply/discard 收尾机会。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
 
-模型可选 wait 默认 15 秒，绝对范围为 15 至 60 秒；项目配置可以在该范围内收紧，effective `script.wait`/`shell.wait` Tool Schema 投影实际 minimum/default/maximum。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+模型可选 wait 默认 15 秒，绝对范围为 15 至 60 秒；项目配置可以在该范围内收紧，effective `execution.wait` Tool Schema 投影实际 minimum/default/maximum。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
 
 每次 job observation 还返回 requested/actual wait、剩余运行时间，以及相对上次 observation 的 observed activity：日志字节增量、Workspace diff 是否变化、候选数量变化和距上次观测到活动的时间。这些是 Manager 可以确定的运行事实，不解释日志业务含义或完成百分比；日志活动本身不触发新的模型 Cycle。所有 job observation 只进入 TurnTrace，不成为 Background 状态。
 
@@ -63,10 +63,10 @@ runtime/.staging/supervised-process-job-*/
 当前实现已在保持本文件上述 Script 行为不变的前提下完成以下迁移：
 
 - job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 与 cleanup 位于 capability-internal `tinysoul.capabilities.supervised_process`；`tinysoul.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
-- Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 handler，不存在通用 inline executor；
+- Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 author/run handler；共享层只注册 `execution.wait/stop/read_candidate/apply/discard` 对应的生命周期 handler，不存在接受任意 inline 参数的通用 run executor；
 - staging identity 为 `runtime/.staging/supervised-process-job-*`；Script job 使用 `source/` 保存经 snapshot digest 复核的冻结入口，Shell job 不需要该目录；
 - `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；wait/runtime/log/mirror/candidate 共用上限位于 `[capabilities.supervised_process]`；
-- 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”，后续 action 必须校验 execution id、Turn scope 和 owner，Shell 不能 wait/apply Script job，反之亦然；
+- 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”；启动 action 记录 owner，后续生命周期 action 只提交 execution id，由 Manager 在当前 Turn 内解析实际 owner，模型无需先判断它是 Script 还是 Shell job；
 - `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
 
 该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:how/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Maintenance 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。

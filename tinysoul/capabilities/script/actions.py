@@ -51,17 +51,12 @@ from .sources import ScriptSourceResolver
 
 
 SCRIPT_ACTIONS = (
-    "script.write",
-    "script.rewrite",
-    "script.patch",
-    "script.promote",
-    "script.run_python",
-    "script.run_bash",
-    "script.wait",
-    "script.stop",
-    "script.read_candidate",
-    "script.apply",
-    "script.discard",
+    "execution.write_script",
+    "execution.rewrite_script",
+    "execution.patch_script",
+    "execution.promote_script",
+    "execution.run_python_script",
+    "execution.run_bash_script",
 )
 
 
@@ -512,142 +507,6 @@ class ScriptRunExecutor(ActionExecutor):
         return _observation_result(execution, observation)
 
 
-class ScriptJobExecutor(ActionExecutor):
-    def __init__(
-        self,
-        *,
-        operation: str,
-        jobs: SupervisedProcessManager,
-        bus: SignalBus,
-        workspace_bridge: ScriptWorkspaceRuntimeBridge | None,
-    ) -> None:
-        self._operation = operation
-        self._jobs = jobs
-        self._bus = bus
-        self._workspace_bridge = workspace_bridge
-
-    def execute(
-        self,
-        execution: ActionExecution,
-        context: ActionExecutionContext,
-    ) -> ActionResult:
-        execution_id = _required_text(execution, "execution_id")
-        if execution_id is None:
-            return _failed(
-                execution,
-                "Script job action requires execution_id.",
-                reason="missing_execution_id",
-            )
-        try:
-            if self._operation == "wait":
-                wait = execution.call.params.get(
-                    "wait_seconds",
-                    self._jobs.settings.default_wait_seconds,
-                )
-                if isinstance(wait, bool) or not isinstance(wait, int):
-                    return _failed(
-                        execution,
-                        "Script wait_seconds must be an integer.",
-                        reason="invalid_wait",
-                    )
-                return _observation_result(
-                    execution,
-                    self._jobs.wait(
-                        turn_id=execution.framework.turn_id,
-                        owner=SupervisedProcessOwner.SCRIPT,
-                        execution_id=execution_id,
-                        wait_seconds=wait,
-                        control=context.control,
-                        bus=context.signal_bus or self._bus,
-                    ),
-                )
-            if self._operation == "stop":
-                return _observation_result(
-                    execution,
-                    self._jobs.stop(
-                        turn_id=execution.framework.turn_id,
-                        owner=SupervisedProcessOwner.SCRIPT,
-                        execution_id=execution_id,
-                    ),
-                )
-            if self._operation == "read_candidate":
-                path = _required_text(execution, "path")
-                cursor = execution.call.params.get("cursor", 0)
-                max_chars = execution.call.params.get(
-                    "max_chars",
-                    self._jobs.settings.max_candidate_read_chars,
-                )
-                if (
-                    path is None
-                    or isinstance(cursor, bool)
-                    or not isinstance(cursor, int)
-                    or isinstance(max_chars, bool)
-                    or not isinstance(max_chars, int)
-                ):
-                    return _failed(
-                        execution,
-                        "Script candidate read parameters are invalid.",
-                        reason="invalid_candidate_read",
-                    )
-                return _success(
-                    execution,
-                    self._jobs.read_candidate(
-                        turn_id=execution.framework.turn_id,
-                        owner=SupervisedProcessOwner.SCRIPT,
-                        execution_id=execution_id,
-                        path=path,
-                        cursor=cursor,
-                        max_chars=max_chars,
-                    ),
-                )
-            if self._operation == "apply":
-                applied = self._jobs.apply(
-                    turn_id=execution.framework.turn_id,
-                    owner=SupervisedProcessOwner.SCRIPT,
-                    execution_id=execution_id,
-                )
-                (context.signal_bus or self._bus).emit(
-                    workspace_snapshot_signal(
-                        applied.manifest,
-                        call_id=execution.call.call_id,
-                        scope=execution.framework.scope,
-                        source="script.apply",
-                    )
-                )
-                return _success(execution, applied.payload)
-            if self._operation == "discard":
-                return _success(
-                    execution,
-                    self._jobs.discard(
-                        turn_id=execution.framework.turn_id,
-                        owner=SupervisedProcessOwner.SCRIPT,
-                        execution_id=execution_id,
-                    ),
-                )
-        except WorkspaceMirrorConflict:
-            return _failed(
-                execution,
-                "Script apply conflicts with a concurrently changed Workspace path. "
-                "The job remains available for review or discard.",
-                reason="workspace_apply_conflict",
-            )
-        except (ScriptError, SupervisedProcessError, WorkspaceContractError) as exc:
-            return _failed(
-                execution,
-                "Script job operation failed.",
-                reason="script_job_failed",
-                frame_data={"error_type": type(exc).__name__},
-            )
-        except WorkspaceError as exc:
-            _raise_workspace_error(exc, self._workspace_bridge)
-        return _failed(
-            execution,
-            "Script job operation is unavailable.",
-            reason="unknown_job_operation",
-            disposition=ActionFailureDisposition.STOP,
-        )
-
-
 def register_script_actions(
     builder: ActionEngineBuilder,
     *,
@@ -708,15 +567,25 @@ def register_script_actions(
             workspace_bridge=workspace_bridge,
         ),
     )
-    for language, action_name, enabled in (
-        (ScriptLanguage.PYTHON, "script.run_python", settings.python.enabled),
-        (ScriptLanguage.BASH, "script.run_bash", settings.bash.enabled),
+    for language, action_name, handler, enabled in (
+        (
+            ScriptLanguage.PYTHON,
+            "execution.run_python_script",
+            "script.run_python",
+            settings.python.enabled,
+        ),
+        (
+            ScriptLanguage.BASH,
+            "execution.run_bash_script",
+            "script.run_bash",
+            settings.bash.enabled,
+        ),
     ):
         if not enabled:
             builder.disable_actions(action_name)
             continue
         builder.register_executor(
-            action_name,
+            handler,
             ScriptRunExecutor(
                 language=language,
                 settings=settings,
@@ -728,25 +597,6 @@ def register_script_actions(
                 workspace_bridge=workspace_bridge,
             ),
         )
-    for operation in ("wait", "stop", "read_candidate", "apply", "discard"):
-        builder.register_executor(
-            f"script.{operation}",
-            ScriptJobExecutor(
-                operation=operation,
-                jobs=jobs,
-                bus=bus,
-                workspace_bridge=workspace_bridge,
-            ),
-        )
-    builder.update_tool_property_schema(
-        "script.wait",
-        "wait_seconds",
-        {
-            "minimum": jobs.settings.min_wait_seconds,
-            "default": jobs.settings.default_wait_seconds,
-            "maximum": jobs.settings.max_wait_seconds,
-        },
-    )
     return builder
 
 

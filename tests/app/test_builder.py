@@ -260,16 +260,16 @@ def test_app_builder_runs_resource_conversion_through_real_action_chain(
                 (
                     _tool_result(
                         ToolCallRecord(
-                            id="select_resource",
+                            id="select_workspace",
                             name="select_action_domains",
-                            arguments={"domains": ["resource"]},
+                            arguments={"domains": ["workspace"]},
                             kind=ToolKind.CONTROL,
                         )
                     ),
                     _tool_result(
                         ToolCallRecord(
                             id="convert_1",
-                            name="resource.convert_with_pypdf",
+                            name="workspace.convert_with_pypdf",
                             arguments={
                                 "source_link": "workspace:incoming/blank.pdf",
                                 "target_link": "workspace:converted/blank.md",

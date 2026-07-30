@@ -1,5 +1,5 @@
-name = "resource.convert_with_pypdf"
-domain = "resource"
+name = "workspace.convert_with_pypdf"
+domain = "workspace"
 
 [tool]
 description = "Convert a Workspace PDF to page-oriented Markdown, extracted images and attachments, rendering pages without usable text. The result returns links and execution metadata only."
@@ -36,9 +36,9 @@ effects = ["modifying"]
 examples = ["Convert workspace:incoming/scanned.pdf to workspace:converted/scanned.md"]
 
 [runtime]
+timeout_seconds = 90
 parallel_policy = "serial"
 
 [backend]
 kind = "subprocess"
 handler = "resource.convert_with_pypdf"
-

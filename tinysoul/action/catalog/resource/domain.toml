@@ -1,8 +1,0 @@
-name = "resource"
-description = "Convert and extract local Workspace document resources."
-selection_hint = "Use when a Workspace document must become Markdown, images, or extracted attachments before later inspection."
-
-[runtime]
-timeout_seconds = 90
-parallel_policy = "serial"
-

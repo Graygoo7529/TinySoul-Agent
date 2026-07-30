@@ -1,5 +1,5 @@
-name = "script.run_bash"
-domain = "script"
+name = "execution.run_bash_script"
+domain = "execution"
 
 [tool]
 description = "Start a Bash script against a transactional Workspace mirror when the configured Bash executable is available."

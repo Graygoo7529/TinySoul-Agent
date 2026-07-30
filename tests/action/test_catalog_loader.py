@@ -25,18 +25,20 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("workspace")
     assert catalog.has_domain("home")
     assert catalog.has_domain("memory")
-    assert catalog.has_domain("shell")
-    assert catalog.has_domain("script")
+    assert catalog.has_domain("execution")
+    assert not catalog.has_domain("resource")
+    assert not catalog.has_domain("shell")
+    assert not catalog.has_domain("script")
     assert (
-        catalog.get_action("script.run_python").backend.handler
+        catalog.get_action("execution.run_python_script").backend.handler
         == "script.run_python"
     )
     assert (
-        catalog.get_action("script.run_python").backend.kind
+        catalog.get_action("execution.run_python_script").backend.kind
         is ActionBackendKind.SUPERVISED_PROCESS
     )
     assert (
-        catalog.get_action("shell.run_powershell").backend.kind
+        catalog.get_action("execution.run_powershell").backend.kind
         is ActionBackendKind.SUPERVISED_PROCESS
     )
     answer = catalog.get_action("core.answer")
@@ -58,12 +60,12 @@ def test_load_builtin_catalog() -> None:
     assert rewrite.backend.kind is ActionBackendKind.LLM_ACTION
     assert rewrite.runtime.timeout_seconds == 180.0
     assert rewrite.backend.options == write.backend.options
-    assert catalog.get_action("script.write").backend.options == {
+    assert catalog.get_action("execution.write_script").backend.options == {
         "max_output_tokens": 16384,
         "max_output_chars": 100000,
     }
-    assert catalog.get_action("script.write").runtime.timeout_seconds == 180.0
-    assert catalog.get_action("script.rewrite").runtime.timeout_seconds == 180.0
+    assert catalog.get_action("execution.write_script").runtime.timeout_seconds == 180.0
+    assert catalog.get_action("execution.rewrite_script").runtime.timeout_seconds == 180.0
     assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 90.0
     assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
@@ -75,7 +77,7 @@ def test_load_builtin_catalog() -> None:
         catalog.get_action("core.session.inspect").runtime.result.trace_mode
         is ActionTraceMode.FOLDABLE
     )
-    wait_schema = catalog.get_action("script.wait").tool.schema
+    wait_schema = catalog.get_action("execution.wait").tool.schema
     wait_properties = wait_schema["properties"]
     assert isinstance(wait_properties, dict)
     wait_seconds = wait_properties["wait_seconds"]
@@ -83,7 +85,8 @@ def test_load_builtin_catalog() -> None:
     assert wait_seconds["minimum"] == 15
     assert wait_seconds["default"] == 15
     assert wait_seconds["maximum"] == 60
-    assert catalog.get_action("script.wait").runtime.timeout_seconds == 70.0
+    assert catalog.get_action("execution.wait").runtime.timeout_seconds == 70.0
+    assert catalog.get_action("execution.wait").backend.handler == "supervised_process.wait"
 
 
 def test_catalog_view_by_domain() -> None:
@@ -94,6 +97,8 @@ def test_catalog_view_by_domain() -> None:
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == [
         "workspace.analyze",
+        "workspace.convert_with_markitdown",
+        "workspace.convert_with_pypdf",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
@@ -104,6 +109,24 @@ def test_catalog_view_by_domain() -> None:
         "workspace.search_text",
         "workspace.trash.list",
         "workspace.write",
+    ]
+
+    execution_view = catalog.with_domains(("execution",))
+    assert [action.name for action in execution_view.actions()] == [
+        "execution.apply",
+        "execution.discard",
+        "execution.patch_script",
+        "execution.promote_script",
+        "execution.read_candidate",
+        "execution.rewrite_script",
+        "execution.run_bash_command",
+        "execution.run_bash_script",
+        "execution.run_cmd",
+        "execution.run_powershell",
+        "execution.run_python_script",
+        "execution.stop",
+        "execution.wait",
+        "execution.write_script",
     ]
 
     home_view = catalog.with_domains(("home",))

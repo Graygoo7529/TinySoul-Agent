@@ -11,6 +11,7 @@ from tinysoul.action import ActionEngine, ActionEngineBuilder
 from tinysoul.action.backends import LLMActionTaskRunner
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.capabilities.shell import SHELL_ACTIONS
+from tinysoul.capabilities.supervised_process import EXECUTION_LIFECYCLE_ACTIONS
 from tinysoul.context import (
     BackgroundCatalog,
     BackgroundCatalogItem,
@@ -828,8 +829,9 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
-            "resource.convert_with_markitdown",
-            "resource.convert_with_pypdf",
+            *EXECUTION_LIFECYCLE_ACTIONS,
+            "workspace.convert_with_markitdown",
+            "workspace.convert_with_pypdf",
             "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",
@@ -896,8 +898,9 @@ def _action_engine(
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
-            "resource.convert_with_markitdown",
-            "resource.convert_with_pypdf",
+            *EXECUTION_LIFECYCLE_ACTIONS,
+            "workspace.convert_with_markitdown",
+            "workspace.convert_with_pypdf",
             "web.discover_pages",
             "web.fetch_with_defuddle",
             "web.fetch_with_trafilatura",

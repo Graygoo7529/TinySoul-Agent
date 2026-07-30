@@ -1,0 +1,27 @@
+name = "execution.stop"
+domain = "execution"
+
+[tool]
+description = "Terminate the active running Script or Shell job and retain its logs and candidates for inspection or discard. A stopped job cannot be applied."
+
+[tool.schema]
+type = "object"
+required = ["execution_id"]
+additionalProperties = false
+
+[tool.schema.properties.execution_id]
+type = "string"
+description = "Turn-scoped execution id returned by a Script or Shell run action."
+
+[semantic]
+use_when = ["A running Execution job should not continue"]
+avoid_when = ["The job completed successfully and should be applied"]
+effects = ["modifying"]
+examples = ["Stop the current Execution job after inspecting its progress"]
+
+[runtime]
+parallel_policy = "serial"
+
+[backend]
+kind = "supervised_process"
+handler = "supervised_process.stop"

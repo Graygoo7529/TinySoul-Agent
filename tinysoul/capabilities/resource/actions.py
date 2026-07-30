@@ -41,8 +41,10 @@ from .models import ResourceConversionResult, ResourceConverter
 from .service import ResourceConversionService
 
 
-RESOURCE_MARKITDOWN_ACTION = "resource.convert_with_markitdown"
-RESOURCE_PYPDF_ACTION = "resource.convert_with_pypdf"
+RESOURCE_MARKITDOWN_ACTION = "workspace.convert_with_markitdown"
+RESOURCE_PYPDF_ACTION = "workspace.convert_with_pypdf"
+_RESOURCE_MARKITDOWN_HANDLER = "resource.convert_with_markitdown"
+_RESOURCE_PYPDF_HANDLER = "resource.convert_with_pypdf"
 
 
 @dataclass(frozen=True)
@@ -185,7 +187,7 @@ def register_resource_actions(
     )
     if markitdown:
         builder.register_executor(
-            RESOURCE_MARKITDOWN_ACTION,
+            _RESOURCE_MARKITDOWN_HANDLER,
             ResourceConversionExecutor(
                 converter=ResourceConverter.MARKITDOWN,
                 service=service,
@@ -195,7 +197,7 @@ def register_resource_actions(
         )
     if pypdf:
         builder.register_executor(
-            RESOURCE_PYPDF_ACTION,
+            _RESOURCE_PYPDF_HANDLER,
             ResourceConversionExecutor(
                 converter=ResourceConverter.PYPDF,
                 service=service,
