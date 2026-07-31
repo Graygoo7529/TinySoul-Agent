@@ -274,8 +274,7 @@ class SupervisedProcessManager:
         job = self._job(turn_id, execution_id)
         self._refresh(job)
         if job.state is SupervisedProcessState.RUNNING:
-            job.process.terminate()
-            job.process.wait(5.0)
+            self._terminate(job)
             job.state = SupervisedProcessState.STOPPED
             job.failure_reason = "stopped_by_agent"
         return self._observation_and_finalize(
@@ -445,8 +444,7 @@ class SupervisedProcessManager:
         first_error: Exception | None = None
         try:
             if job.process.running():
-                job.process.terminate()
-                job.process.wait(5.0)
+                self._terminate(job)
         except Exception as exc:
             first_error = exc
         try:
@@ -486,8 +484,7 @@ class SupervisedProcessManager:
                     actual_wait_seconds=max(0.0, self._clock() - wait_started),
                 )
             if control.is_cancelled() or control.is_expired():
-                job.process.terminate()
-                job.process.wait(5.0)
+                self._terminate(job)
                 job.state = SupervisedProcessState.TIMED_OUT
                 job.failure_reason = control.cancel_reason or "action_cancelled"
                 return self._observation_and_finalize(
@@ -532,14 +529,12 @@ class SupervisedProcessManager:
             return
         stdout_bytes, stderr_bytes = job.process.output_sizes()
         if max(stdout_bytes, stderr_bytes) > self._settings.max_log_bytes:
-            job.process.terminate()
-            job.process.wait(5.0)
+            self._terminate(job)
             job.state = SupervisedProcessState.FAILED
             job.failure_reason = "log_bytes_limit_exceeded"
             return
         if self._clock() >= job.deadline:
-            job.process.terminate()
-            job.process.wait(5.0)
+            self._terminate(job)
             job.state = SupervisedProcessState.TIMED_OUT
             job.failure_reason = "runtime_limit_exceeded"
             return
@@ -695,6 +690,14 @@ class SupervisedProcessManager:
                     "Execution id is not active in this Turn"
                 )
             return job
+
+    @staticmethod
+    def _terminate(job: _ProcessJob) -> None:
+        job.process.terminate()
+        if job.process.running():
+            raise SupervisedProcessExecutionError(
+                "Supervised process did not terminate after hard-stop request"
+            )
 
     def _remove(self, job: _ProcessJob, *, suppress_cleanup: bool = False) -> None:
         first_error: Exception | None = None

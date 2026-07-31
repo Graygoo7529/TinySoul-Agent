@@ -117,6 +117,8 @@ GET /v1/events?after=0&mode=model&limit=200
 {"token": "...", "after": 0, "mode": "model"}
 ```
 
+空闲连接会收到 `{"type":"heartbeat","next_sequence":121}`；heartbeat 不增加 sequence，也不表示业务状态变化。
+
 事件 envelope：
 
 ```json

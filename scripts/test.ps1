@@ -1,3 +1,13 @@
+param(
+    [ValidateSet("Fast", "Full", "External")]
+    [string]$Suite = "Fast",
+    [Alias("Path")]
+    [string[]]$TestPath = @("tests"),
+    [string]$Filter = "",
+    [ValidateRange(0, 100)]
+    [int]$Durations = 10
+)
+
 $ErrorActionPreference = "Stop"
 
 if ($env:TINYSOUL_PYTHON) {
@@ -5,6 +15,14 @@ if ($env:TINYSOUL_PYTHON) {
 } else {
     $pythonCommand = Get-Command python -ErrorAction Stop
     $pythonPath = $pythonCommand.Source
+}
+
+& $pythonPath -c "import pytest" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw (
+        "Selected Python '$pythonPath' cannot import pytest. " +
+        "Activate Conda environment 'TinySoul' or set TINYSOUL_PYTHON."
+    )
 }
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
@@ -26,7 +44,14 @@ $pytestRoot = Join-Path $runRoot "pytest"
 $pytestCacheRoot = Join-Path $runRoot "pytest-cache"
 $tempRoot = Join-Path $runRoot "temp"
 $localAppDataRoot = Join-Path $runRoot "local-app-data"
-$environmentNames = @("TEMP", "TMP", "LOCALAPPDATA", "TINYSOUL_PYTHON")
+$environmentNames = @(
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "LOCALAPPDATA",
+    "PYTEST_TINYSOUL_RUN_ROOT",
+    "TINYSOUL_PYTHON"
+)
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) {
     $previousEnvironment[$name] = [System.Environment]::GetEnvironmentVariable(
@@ -43,12 +68,37 @@ try {
     New-Item -ItemType Directory -Force $localAppDataRoot | Out-Null
     $env:TEMP = $tempRoot
     $env:TMP = $tempRoot
+    $env:TMPDIR = $tempRoot
     $env:LOCALAPPDATA = $localAppDataRoot
+    $env:PYTEST_TINYSOUL_RUN_ROOT = $runRoot
     Remove-Item Env:TINYSOUL_PYTHON -ErrorAction SilentlyContinue
 
     Push-Location $repositoryRoot
     $locationPushed = $true
-    & $pythonPath -m pytest tests --basetemp $pytestRoot -o "cache_dir=$pytestCacheRoot"
+    switch ($Suite) {
+        "Fast" { $markerExpression = "not release and not external" }
+        "Full" { $markerExpression = "not external" }
+        "External" { $markerExpression = "external" }
+    }
+    $pytestArguments = @(
+        $TestPath
+        "-m"
+        $markerExpression
+        "--basetemp"
+        $pytestRoot
+        "-o"
+        "cache_dir=$pytestCacheRoot"
+    )
+    if ($Filter) {
+        $pytestArguments += @("-k", $Filter)
+    }
+    if ($Durations -gt 0) {
+        $pytestArguments += @("--durations", $Durations)
+    }
+    Write-Host "TinySoul test suite: $($Suite.ToUpperInvariant())"
+    Write-Host "TinySoul test paths: $($TestPath -join ', ')"
+    Write-Host "TinySoul test run root: $runRoot"
+    & $pythonPath -m pytest @pytestArguments
     $exitCode = $LASTEXITCODE
 } finally {
     if ($locationPushed) {

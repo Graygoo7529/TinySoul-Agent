@@ -199,18 +199,21 @@ tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE
 conda activate TinySoul
 ```
 
-- 修改代码后、声明任务完成前，必须运行并通过：
+- 修改代码后的日常反馈使用 Fast 测试；声明任务完成前，必须运行并通过完整本地门禁：
 
 ```powershell
-.\scripts\test.ps1
+.\scripts\test.ps1 -Suite Full
 .\scripts\typecheck.ps1
 ```
 
-`scripts/test.ps1` 运行完整本地 pytest suite（包含 wheel 发布验收），将临时文件隔离到 `.local-test/`；真实供应商和显式启用的网络测试默认跳过。`scripts/typecheck.ps1` 使用当前 Python 环境运行 ty，等价原始命令为 `python -m ty check --python <当前环境 python>`。日常开发环境通过 `python -m pip install -e ".[dev]"` 安装。
+`scripts/test.ps1` 默认运行 Fast 本地 pytest suite，排除 wheel 发布验收和真实 provider/network 测试；`-Suite Full` 加入 wheel 验收，`-Suite External` 只选择真实 provider/network 测试，后者仍需显式环境开关和凭据。每次运行使用 `.local-test/runs/<uuid>` 隔离 pytest、临时文件、实例锁和 cache，失败时保留工件。若当前 PowerShell 禁止脚本执行，使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`，不要把执行策略错误当作 pytest 失败。
+
+标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 `-Suite Full` 和 typecheck。日常开发环境通过 `conda activate TinySoul` 或设置 `TINYSOUL_PYTHON` 选择包含 pytest/ty 的 Python，随后通过 `python -m pip install -e ".[dev]"` 安装依赖。直接 `python -m pytest` 仍有 `tests/conftest.py` 兜底，会创建唯一 `.local-test` 临时目录，但标准入口优先，因为它还负责 cache 生命周期和 suite 语义。
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。
+  - `release` marker 表示 wheel 构建和隔离安装验收；`external` marker 表示真实 provider 或网络服务，默认不进入 Fast/Full。
 
 - 用户对接：每次产生修改后阐述本轮改动了哪些文件，以及提供用于 commit 的文本内容
 - 前后端协作：后端 agent 仅修改后端项目代码，不过多考虑 visualization；前端 agent 工作仅限于在 visualization 目录下修改，不改动后端项目代码；后端项目代码接口应全部通过 endpoint 向前端提供能力支持，在修改后端实现时，若发生 endpoint 改动，需即时在 docs\endpoint 中建立和调整文档，供前端对接；前端在进行前端设计和实现时，若发生缺失能力，不要阻塞设计和实现工作，允许暂时假定可行接口，并通过 visualization\docs\demand 向后端 agent 提出进一步能力需求。

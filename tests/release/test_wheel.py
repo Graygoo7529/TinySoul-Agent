@@ -8,6 +8,11 @@ import sys
 import tomllib
 import zipfile
 
+import pytest
+
+
+pytestmark = pytest.mark.release
+
 
 def test_wheel_contains_resources_and_installed_package_initializes_project(
     tmp_path: Path,

@@ -26,6 +26,8 @@ Console route 由 `tinysoul start --mode` 选择 normal/verbose/model；Endpoint
 
 Event buffer 只保存有界 Observation envelope，并以单调 sequence 支持 HTTP replay 和 WebSocket 断线续传。淘汰产生 gap；客户端清理 event-derived 临时执行视图，并重新读取 status、Maintenance 与 Workspace 权威投影。Context Background、Phase、Action 与 LLM MessageStack 没有 REST snapshot，gap 后不能伪造缺失轨迹。
 
+WebSocket 在没有新事件时按 `EndpointSettings.websocket_heartbeat_seconds` 发送 heartbeat，默认间隔为 15 秒。该设置只控制连接存活反馈，不改变 event sequence、replay 或 gap 语义。
+
 完整模型上下文来自 `llm.model.request` 的 provider-neutral MessageStack。前端看到的 prior Session 内容因此就是实际进入模型的 Session Background，而不是另一套 Session Explorer 协议。
 
 ## Workspace

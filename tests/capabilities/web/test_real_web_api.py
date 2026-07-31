@@ -16,10 +16,13 @@ from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("TINYSOUL_RUN_REAL_WEB_API_TESTS") != "1",
-    reason="real Web API integration test is disabled",
-)
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(
+        os.environ.get("TINYSOUL_RUN_REAL_WEB_API_TESTS") != "1",
+        reason="real Web API integration test is disabled",
+    ),
+]
 
 
 def test_real_kimi_search_returns_answer_and_structured_results(

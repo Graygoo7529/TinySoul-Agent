@@ -68,8 +68,12 @@ include = ["tinysoul*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
 cache_dir = ".local-test/pytest-cache"
+markers = [
+    "external: requires a real provider or network service",
+    "release: builds and validates an installable wheel",
+]
 
 [tool.ty.environment]
 # Keep machine-specific Python paths out of shared config.

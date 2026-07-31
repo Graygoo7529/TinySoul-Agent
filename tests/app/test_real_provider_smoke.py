@@ -8,10 +8,13 @@ import pytest
 from tinysoul.app import cli
 
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("TINYSOUL_RUN_REAL_LLM_APP") != "1",
-    reason="real provider App/CLI smoke test is disabled",
-)
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(
+        os.environ.get("TINYSOUL_RUN_REAL_LLM_APP") != "1",
+        reason="real provider App/CLI smoke test is disabled",
+    ),
+]
 
 
 def test_configured_real_provider_completes_one_cli_turn() -> None:

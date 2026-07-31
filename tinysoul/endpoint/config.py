@@ -20,6 +20,7 @@ class EndpointSettings:
     project_identity: str = ""
     event_capacity: int = 2000
     event_bytes: int = 32 * 1024 * 1024
+    websocket_heartbeat_seconds: float = 15.0
     max_request_bytes: int = 8 * 1024 * 1024
     max_resource_chars: int = 2 * 1024 * 1024
     max_resource_bytes: int = 8 * 1024 * 1024
@@ -46,6 +47,14 @@ class EndpointSettings:
             raise EndpointContractError("Endpoint instance_id must be non-empty")
         if not isinstance(self.project_identity, str):
             raise EndpointContractError("Endpoint project_identity must be text")
+        if (
+            isinstance(self.websocket_heartbeat_seconds, bool)
+            or not isinstance(self.websocket_heartbeat_seconds, (int, float))
+            or self.websocket_heartbeat_seconds <= 0
+        ):
+            raise EndpointContractError(
+                "Endpoint websocket heartbeat must be positive"
+            )
         object.__setattr__(self, "instance_id", instance_id.strip())
         for name in (
             "event_capacity",

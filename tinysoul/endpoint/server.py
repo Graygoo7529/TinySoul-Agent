@@ -324,7 +324,7 @@ def create_endpoint_app(
                     engine.events.wait_after,
                     after=after,
                     mode=mode,
-                    timeout_seconds=15.0,
+                    timeout_seconds=settings.websocket_heartbeat_seconds,
                 )
                 if page.events or page.gap:
                     await websocket.send_json(

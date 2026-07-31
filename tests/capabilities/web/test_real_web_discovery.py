@@ -14,10 +14,13 @@ from tinysoul.infra import JsonValue, StagingDirectoryManager
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("TINYSOUL_RUN_REAL_WEB_DISCOVERY_TESTS") != "1",
-    reason="real Web discovery integration test is disabled",
-)
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(
+        os.environ.get("TINYSOUL_RUN_REAL_WEB_DISCOVERY_TESTS") != "1",
+        reason="real Web discovery integration test is disabled",
+    ),
+]
 
 
 def test_real_page_discovery_returns_same_origin_candidates(

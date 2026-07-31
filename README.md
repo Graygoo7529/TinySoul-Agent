@@ -68,10 +68,12 @@ The frontend discovers the running TinySoul project automatically and does not m
 
 ```powershell
 .\scripts\test.ps1
+.\scripts\test.ps1 -TestPath tests/action/test_backends_engine.py
+.\scripts\test.ps1 -Suite Full
 $env:TINYSOUL_PYTHON=(Get-Command python).Source
 .\scripts\typecheck.ps1
 ```
 
-`test.ps1` runs the local pytest suite, including wheel build and isolated-install checks. Real-provider and opt-in network tests are skipped by default. `typecheck.ps1` runs `ty` with the selected Python environment.
+`test.ps1` runs the Fast local pytest suite by default and creates a unique isolated run root under `.local-test/runs/`. Use `-TestPath` for focused feedback and `-Suite Full` for the completion gate, which includes wheel build and isolated-install checks. Real-provider and opt-in network tests are excluded from Fast and Full and can only be selected with `-Suite External` plus their existing environment switches. If PowerShell blocks local script execution, invoke the same script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `typecheck.ps1` runs `ty` with the selected Python environment.
 
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.

@@ -16,6 +16,7 @@ from tinysoul.app import (
     ObservationRouter,
 )
 from tinysoul.endpoint import (
+    EndpointContractError,
     EndpointEngine,
     EndpointEventBuffer,
     EndpointSettings,
@@ -36,6 +37,14 @@ from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceManifest, Worksp
 
 DAY = BusinessDay.parse("2026-07-19")
 TOKEN = "endpoint-test-token-0000000000000000"
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, True])
+def test_endpoint_settings_reject_invalid_websocket_heartbeat(
+    value: float | bool,
+) -> None:
+    with pytest.raises(EndpointContractError, match="heartbeat"):
+        EndpointSettings(token=TOKEN, websocket_heartbeat_seconds=value)
 
 
 def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
@@ -282,7 +291,7 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
 
 
 def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None:
-    engine, _gateway = _engine(tmp_path)
+    engine, _gateway = _engine(tmp_path, websocket_heartbeat_seconds=0.05)
     after = engine.events.latest_sequence
     engine.events.write(
         ObservationEvent(
@@ -340,6 +349,7 @@ def _engine(
     tmp_path: Path,
     *,
     event_max_bytes: int = 1024 * 1024,
+    websocket_heartbeat_seconds: float = 15.0,
 ) -> tuple[EndpointEngine, _EndpointGateway]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
@@ -364,7 +374,10 @@ def _engine(
         DAY,
         now=datetime(2026, 7, 19, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
-    settings = EndpointSettings(token=TOKEN)
+    settings = EndpointSettings(
+        token=TOKEN,
+        websocket_heartbeat_seconds=websocket_heartbeat_seconds,
+    )
     engine = EndpointEngine(
         settings=settings,
         events=events,

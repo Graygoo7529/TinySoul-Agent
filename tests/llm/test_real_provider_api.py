@@ -40,10 +40,13 @@ from tinysoul.llm.tools import (
 )
 
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1",
-    reason="real LLM API integration test is disabled",
-)
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(
+        os.environ.get("TINYSOUL_RUN_REAL_LLM_API") != "1",
+        reason="real LLM API integration test is disabled",
+    ),
+]
 
 PRIMARY_MODEL_IDS = (
     "gpt_5_6_sol",
@@ -524,4 +527,3 @@ def _reasoning_summary(reasoning: object) -> dict[str, object]:
         "summary_len": len(summary) if isinstance(summary, str) else 0,
         "encrypted_items": len(encrypted_items),
     }
-

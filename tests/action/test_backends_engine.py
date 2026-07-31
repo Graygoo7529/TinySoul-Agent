@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from time import monotonic, sleep
@@ -219,6 +220,26 @@ def test_managed_process_preserves_caller_owned_capture_directory(
 
     assert (capture_root / "stdout.log").read_text(encoding="utf-8") == "captured\n"
     assert (capture_root / "stderr.log").read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows termination fallback")
+def test_managed_process_falls_back_when_taskkill_is_denied(monkeypatch) -> None:
+    process = ManagedProcessRunner().start(
+        ManagedProcessRequest(
+            argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+        )
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode=1),
+    )
+
+    try:
+        process.terminate()
+        assert process.running() is False
+    finally:
+        process.close()
 
 
 def test_controlled_process_runner_returns_bounded_output() -> None:

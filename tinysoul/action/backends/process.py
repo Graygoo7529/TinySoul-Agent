@@ -104,6 +104,15 @@ class ManagedProcess:
     def terminate(self) -> None:
         with self._lock:
             terminate_process_tree(self._process)
+            if self._process.poll() is None:
+                try:
+                    self._process.kill()
+                except OSError:
+                    pass
+            try:
+                self._process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
 
     def output_sizes(self) -> tuple[int, int]:
         with self._lock:
@@ -148,9 +157,7 @@ class ManagedProcess:
             try:
                 if self.running():
                     self.terminate()
-                    try:
-                        self._process.wait(timeout=1.0)
-                    except subprocess.TimeoutExpired:
+                    if self.running():
                         self._process.kill()
                         self._process.wait()
             except Exception:
@@ -294,23 +301,26 @@ class ManagedProcessRunner:
 
 
 def terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    """Terminate one process group without raising cleanup failures."""
+    """Request hard termination of one process tree without waiting for reaping."""
 
     if process.poll() is not None:
         return
     if os.name == "nt":
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
+            if result.returncode == 0:
+                return
         except OSError:
-            try:
-                process.kill()
-            except OSError:
-                pass
+            pass
+        try:
+            process.kill()
+        except OSError:
+            pass
         return
     try:
         os.killpg(process.pid, 9)
