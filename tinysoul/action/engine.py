@@ -17,7 +17,6 @@ from tinysoul.runtime import (
 
 from .backends.native import NativeActionFunction, NativeFunctionExecutor
 from .backends.llm_action import LLMActionBackendOptionsValidator
-from .backends.subprocess import SubprocessBackendOptionsValidator, SubprocessActionExecutor
 from .core.call import (
     ActionBatch,
     ActionBatchPreparation,
@@ -219,11 +218,6 @@ class ActionEngineBuilder:
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._disabled_actions: set[str] = set()
         self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
-        self.register_executor(
-            "subprocess.default",
-            SubprocessActionExecutor(),
-            options_validator=SubprocessBackendOptionsValidator(),
-        )
 
     def register_executor(
         self,

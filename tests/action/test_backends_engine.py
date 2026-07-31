@@ -11,11 +11,20 @@ from tinysoul.capabilities.shell import SHELL_ACTIONS
 from tinysoul.capabilities.supervised_process import EXECUTION_LIFECYCLE_ACTIONS
 from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.backends.process import ManagedProcessRequest, ManagedProcessRunner
-from tinysoul.action.backends.subprocess import SubprocessActionExecutor
+from tinysoul.action.backends.subprocess import (
+    ControlledProcessRunner,
+    ProcessRequest,
+    ProcessStatus,
+)
 from tinysoul.action.engine import ActionEngineBuilder
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
-from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
+from tinysoul.action.core.errors import ActionContractError
+from tinysoul.action.core.executor import (
+    ActionExecutionContext,
+    ActionExecutionControl,
+    ExecutorRegistry,
+)
 from tinysoul.action.core.result import ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
 from tinysoul.action.core.specs import (
@@ -29,7 +38,6 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.infra.config import ConfigError
 from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
 
 
@@ -129,89 +137,22 @@ def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
     }
 
 
-def test_subprocess_executor_returns_success_payload() -> None:
-    catalog = ActionCatalog(
-        domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.echo",
-                schema={
-                    "type": "object",
-                    "properties": {"value": {"type": "string"}},
-                    "required": ["value"],
-                    "additionalProperties": False,
-                },
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.SUBPROCESS,
-                    handler="subprocess.default",
-                    options={
-                        "argv": [
-                            sys.executable,
-                            "-c",
-                            "import json,sys; print(json.load(sys.stdin)['value'])",
-                        ]
-                    },
-                ),
+def test_controlled_process_runner_returns_success_output() -> None:
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest(
+            argv=(
+                sys.executable,
+                "-c",
+                "import json,sys; print(json.load(sys.stdin)['value'])",
             ),
+            stdin_text='{"value":"hello"}',
         ),
-    )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.echo", {"value": "hello"}, ToolKind.ACTION),),
-    )
-    executors = ExecutorRegistry()
-    executors.register("subprocess.default", SubprocessActionExecutor())
-
-    results = ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
-
-    assert results[0].status is ActionResultStatus.SUCCESS
-    assert results[0].payload["stdout"] == "hello\n"
-    assert results[0].payload["exit_code"] == 0
-
-
-def test_subprocess_executor_returns_bounded_captured_output() -> None:
-    catalog = ActionCatalog(
-        domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.output",
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.SUBPROCESS,
-                    handler="subprocess.default",
-                    options={
-                        "argv": [
-                            sys.executable,
-                            "-c",
-                            (
-                                "import sys; "
-                                "sys.stdout.write('abcdefgh'); "
-                                "sys.stderr.write('uvwxyz')"
-                            ),
-                        ],
-                        "stdout_limit": 4,
-                        "stderr_limit": 3,
-                    },
-                ),
-            ),
-        ),
-    )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.output", {}, ToolKind.ACTION),),
-    )
-    executors = ExecutorRegistry()
-    executors.register("subprocess.default", SubprocessActionExecutor())
-
-    results = ActionBatchRunner(executors=executors).run(
-        batch,
-        ActionExecutionContext(),
+        ActionExecutionContext().control,
     )
 
-    assert results[0].status is ActionResultStatus.SUCCESS
-    assert results[0].payload["stdout"] == "abcd"
-    assert results[0].payload["stderr"] == "uvw"
-    assert results[0].payload["stdout_truncated"] is True
-    assert results[0].payload["stderr_truncated"] is True
+    assert outcome.status is ProcessStatus.COMPLETED
+    assert outcome.exit_code == 0
+    assert outcome.stdout == "hello\n"
 
 
 def test_managed_process_preserves_caller_owned_capture_directory(
@@ -232,39 +173,41 @@ def test_managed_process_preserves_caller_owned_capture_directory(
     assert (capture_root / "stderr.log").read_text(encoding="utf-8") == ""
 
 
-def test_subprocess_executor_kills_timed_out_process() -> None:
-    catalog = ActionCatalog(
-        domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.sleep",
-                runtime=ActionRuntimeSpec(timeout_seconds=0.05),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.SUBPROCESS,
-                    handler="subprocess.default",
-                    options={
-                        "argv": [
-                            sys.executable,
-                            "-c",
-                            "import time; time.sleep(1)",
-                        ]
-                    },
+def test_controlled_process_runner_returns_bounded_output() -> None:
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest(
+            argv=(
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "sys.stdout.write('abcdefgh'); "
+                    "sys.stderr.write('uvwxyz')"
                 ),
             ),
+            stdout_limit=4,
+            stderr_limit=3,
         ),
+        ActionExecutionContext().control,
     )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.sleep", {}, ToolKind.ACTION),),
+
+    assert outcome.status is ProcessStatus.COMPLETED
+    assert outcome.stdout == "abcd"
+    assert outcome.stderr == "uvw"
+    assert outcome.stdout_truncated is True
+    assert outcome.stderr_truncated is True
+
+
+def test_controlled_process_runner_kills_timed_out_process() -> None:
+    control = ActionExecutionControl(deadline=monotonic() + 0.05)
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest(
+            argv=(sys.executable, "-c", "import time; time.sleep(1)"),
+        ),
+        control,
     )
-    executors = ExecutorRegistry()
-    executors.register("subprocess.default", SubprocessActionExecutor())
 
-    results = ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
-
-    assert results[0].status is ActionResultStatus.TIMEOUT
-    assert results[0].failure is not None
-    assert results[0].failure.reason == "process_timeout"
+    assert outcome.status is ProcessStatus.TIMED_OUT
 
 
 def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
@@ -285,19 +228,7 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
                 "test.process",
                 backend=ActionBackendSpec(
                     kind=ActionBackendKind.SUBPROCESS,
-                    handler="subprocess.default",
-                    options={
-                        "argv": [
-                            sys.executable,
-                            "-c",
-                            (
-                                "from pathlib import Path; import sys,time; "
-                                "Path(sys.argv[1]).write_text('started'); "
-                                "time.sleep(10)"
-                            ),
-                            str(marker),
-                        ]
-                    },
+                    handler="test.process",
                 ),
             ),
         ),
@@ -325,7 +256,15 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
         "test.interrupt",
         NativeFunctionExecutor(interrupt_after_process_starts),
     )
-    executors.register("subprocess.default", SubprocessActionExecutor())
+    executors.register(
+        "test.process",
+        NativeFunctionExecutor(
+            lambda execution, context: _run_controlled_process(
+                context,
+                marker=marker,
+            )
+        ),
+    )
     started = monotonic()
 
     with pytest.raises(RuntimeException):
@@ -410,18 +349,16 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     assert engine.render_result_trace_payload(results[0])["action"] == "core.answer"
 
 
-def test_action_engine_validates_subprocess_options_at_load_time(tmp_path: Path) -> None:
+def test_action_engine_requires_an_explicit_subprocess_handler(tmp_path: Path) -> None:
     _write_catalog_action(
         tmp_path,
         backend_kind="subprocess",
-        handler="subprocess.default",
-        options='argv = "not-a-list"',
+        handler="test.process",
+        options="",
     )
 
-    with pytest.raises(ConfigError) as error:
+    with pytest.raises(ActionContractError, match="test.process"):
         ActionEngineBuilder(tmp_path).build()
-
-    assert error.value.key.endswith("backend.options.argv")
 
 
 def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
@@ -438,24 +375,33 @@ def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> Non
     assert engine.action_identifiers() == ()
 
 
-def test_subprocess_stdin_uses_explicit_mode_option(tmp_path: Path) -> None:
-    _write_catalog_action(
-        tmp_path,
-        backend_kind="subprocess",
-        handler="subprocess.default",
-        options='argv = ["python", "-c", "print(1)"]\nstdin = "literal"',
-    )
-
-    with pytest.raises(ConfigError) as error:
-        ActionEngineBuilder(tmp_path).build()
-
-    assert error.value.key.endswith("backend.options.stdin")
-
-
 def _cooperative_native_function(execution, context):
     while True:
         context.control.check_cancelled()
         sleep(0.005)
+
+
+def _run_controlled_process(
+    context: ActionExecutionContext,
+    *,
+    marker: Path,
+):
+    outcome = ControlledProcessRunner().run(
+        ProcessRequest(
+            argv=(
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; import sys,time; "
+                    "Path(sys.argv[1]).write_text('started'); "
+                    "time.sleep(10)"
+                ),
+                str(marker),
+            ),
+        ),
+        context.control,
+    )
+    return {"status": outcome.status.value}
 
 
 def _action(

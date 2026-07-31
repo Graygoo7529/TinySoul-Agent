@@ -206,9 +206,9 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### subprocess
 
-`subprocess` 后端以显式 `argv` 启动进程，禁止 `shell=True`。`stdin_mode` 是纯模式配置，只支持 `json_params` 和 `none`；默认把 action params 以 JSON 写入 stdin，不支持把 backend option 中的任意字符串隐式当作 stdin 字面量。stdout/stderr 直接捕获到临时文件，进程结束后只把按配置字符上限读取的 UTF-8 前缀及 truncated 标记放入 payload，避免宿主内存聚合完整输出；这不是子进程硬输出配额。进程 exit code 为 0 时返回 success，非 0 返回 failed，deadline 超时时终止进程树并返回 timeout。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。
+`subprocess` 后端表示 Action 内必须同步收敛的受控进程生命周期，不提供从 Catalog options 直接执行命令的通用 executor。Capability-owned executor 或 service 只能为固定 worker 构造显式 `ProcessRequest`，禁止 `shell=True`，也不能把模型参数直接拼为 argv。结构化请求可以由 owner 编码为 stdin，worker 的响应协议、失败映射和后续业务提交仍由 owner 校验。
 
-进程启动、stdin、stdout/stderr 上限、deadline、取消回调和进程树回收由内部 `ControlledProcessRunner` 统一实现。`SubprocessActionExecutor` 负责把 Catalog options 映射为普通 ActionResult；Resource 这类需要在进程前后执行业务 staging/commit 的 executor 可以复用同一 runner，但只能执行固定 worker，不能把模型参数拼成 argv。`subprocess.default` 是通用 executor handler identity，不是配置中的默认命令。
+进程启动、stdin、stdout/stderr 字符投影上限、deadline、取消回调和进程树回收由内部 `ControlledProcessRunner` 统一实现。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
 
 ### supervised_process
 
@@ -216,7 +216,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 与 `supervised_process` 的边界不是使用哪一个解释器，而是进程生命周期：`subprocess` 必须在当前 Action batch 内完成并收敛；`supervised_process` 可以在启动 Action 返回后保留一个 Turn-scoped job，由后续 Cycle 的 wait/stop/read/apply/discard Action 继续监督。每个监督 action 自身仍在所属 batch 内收敛，不引入 ongoing Action。
 
-`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步 adapter 与 `subprocess.default`，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
+`supervised_process` 不提供通用命令 executor，也不允许 Catalog 仅凭 backend kind 执行参数。Script 与 Shell 使用不同 handler、参数协议和业务 policy，但共用 capability-internal job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 和 cleanup；实际 mirror/diff/CAS/bundle mutation 仍由 `tinysoul.workspace` 拥有。同一 Turn 跨两者最多一个 unresolved job。`tinysoul/action/backends/process.py` 继续作为不注册到 ActionEngine 的低层 lifecycle primitive；`subprocess.py` 在其上提供同步受控进程 adapter，共享监督层则直接复用 managed process。业务 capability 不得复制 `Popen`/终止逻辑，也不得假设 backend kind 存在同名通用 handler。
 
 ### llm_action
 
@@ -248,7 +248,7 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；已注册 handler 也可以提供自己的 options validator。两类 validator 都在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。只有通用 `subprocess.default` 由 builder 默认注册 executor 与 handler options validator；native 与 capability-specific Script/Shell handler 由对应 registrar 显式注册。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。Builder 不按 backend kind 自动提供 executor；所有 native、subprocess、supervised_process 与 capability-specific handler 都由其 owner registrar 显式注册。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；已注册 handler 也可以提供自己的 options validator。两类 validator 都在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
 
 ## Action Schema
 
