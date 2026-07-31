@@ -4,13 +4,20 @@ import subprocess
 import sys
 from pathlib import Path
 from time import monotonic, sleep
+from typing import cast
 
 import pytest
 
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.capabilities.shell import SHELL_ACTIONS
 from tinysoul.capabilities.supervised_process import EXECUTION_LIFECYCLE_ACTIONS
-from tinysoul.action.backends.process import ManagedProcessRequest, ManagedProcessRunner
+from tinysoul.action.backends import process as process_backend
+from tinysoul.action.backends.process import (
+    ManagedProcess,
+    ManagedProcessOptions,
+    ManagedProcessRequest,
+    ManagedProcessRunner,
+)
 from tinysoul.action.backends.subprocess import (
     ControlledProcessRunner,
     ProcessRequest,
@@ -220,6 +227,37 @@ def test_managed_process_preserves_caller_owned_capture_directory(
 
     assert (capture_root / "stdout.log").read_text(encoding="utf-8") == "captured\n"
     assert (capture_root / "stderr.log").read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize("value", [-1.0, True, "1.0", float("nan"), float("inf")])
+def test_managed_process_options_reject_invalid_termination_wait(value) -> None:
+    with pytest.raises(ActionContractError):
+        ManagedProcessOptions(termination_wait_seconds=value)
+
+
+def test_managed_process_terminate_uses_configured_wait(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    process = _FakeProcess()
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    managed = ManagedProcess(
+        cast(subprocess.Popen[str], process),
+        stdout_capture=_FakeCapture(),
+        stderr_capture=_FakeCapture(),
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        capture_directory=None,
+        options=ManagedProcessOptions(termination_wait_seconds=0.25),
+    )
+    monkeypatch.setattr(process_backend, "terminate_process_tree", lambda _process: None)
+
+    managed.terminate()
+
+    assert process.wait_timeouts == [0.25]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows termination fallback")
@@ -442,6 +480,32 @@ def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> Non
 
     assert engine.domain_names() == ()
     assert engine.action_identifiers() == ()
+
+
+class _FakeCapture:
+    def close(self) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+
+class _FakeProcess:
+    pid = 12345
+
+    def __init__(self) -> None:
+        self.exit_code: int | None = None
+        self.wait_timeouts: list[float | None] = []
+
+    def poll(self) -> int | None:
+        return self.exit_code
+
+    def kill(self) -> None:
+        self.exit_code = -9
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.wait_timeouts.append(timeout)
+        return self.exit_code or 0
 
 
 def _cooperative_native_function(execution, context):

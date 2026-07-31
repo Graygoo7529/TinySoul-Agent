@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from math import isfinite
 import os
 from pathlib import Path
 import subprocess
@@ -56,6 +57,24 @@ class ManagedProcessStartError(Exception):
     """A managed child process could not be started."""
 
 
+@dataclass(frozen=True)
+class ManagedProcessOptions:
+    """Host process lifecycle options shared by process-backed actions."""
+
+    termination_wait_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.termination_wait_seconds, bool)
+            or not isinstance(self.termination_wait_seconds, (int, float))
+            or not isfinite(self.termination_wait_seconds)
+            or self.termination_wait_seconds < 0
+        ):
+            raise ActionContractError(
+                "Managed process termination wait must be a finite non-negative number"
+            )
+
+
 class CapturedOutput(Protocol):
     def close(self) -> None: ...
 
@@ -74,6 +93,7 @@ class ManagedProcess:
         stdout_path: Path,
         stderr_path: Path,
         capture_directory: TemporaryDirectory[str] | None,
+        options: ManagedProcessOptions,
     ) -> None:
         self._process = process
         self._stdout = stdout_capture
@@ -81,6 +101,7 @@ class ManagedProcess:
         self._stdout_path = stdout_path
         self._stderr_path = stderr_path
         self._capture_directory = capture_directory
+        self._options = options
         self._lock = RLock()
         self._closed = False
 
@@ -110,7 +131,7 @@ class ManagedProcess:
                 except OSError:
                     pass
             try:
-                self._process.wait(timeout=1.0)
+                self._process.wait(timeout=self._options.termination_wait_seconds)
             except subprocess.TimeoutExpired:
                 pass
 
@@ -210,6 +231,9 @@ class ManagedProcess:
 class ManagedProcessRunner:
     """Start process-group-owned children without waiting for completion."""
 
+    def __init__(self, options: ManagedProcessOptions | None = None) -> None:
+        self._options = options or ManagedProcessOptions()
+
     def start(
         self,
         request: ManagedProcessRequest,
@@ -297,6 +321,7 @@ class ManagedProcessRunner:
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             capture_directory=capture_directory,
+            options=self._options,
         )
 
 

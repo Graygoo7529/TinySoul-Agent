@@ -12,6 +12,7 @@ from .llm_action import (
 )
 from .process import (
     ManagedProcess,
+    ManagedProcessOptions,
     ManagedProcessRequest,
     ManagedProcessRunner,
     ManagedProcessStartError,
@@ -34,6 +35,7 @@ __all__ = [
     "LLMActionTaskRunner",
     "parse_llm_action_options",
     "ManagedProcess",
+    "ManagedProcessOptions",
     "ManagedProcessRequest",
     "ManagedProcessRunner",
     "ManagedProcessStartError",

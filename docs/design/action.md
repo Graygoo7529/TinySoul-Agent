@@ -69,7 +69,7 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
-`native` 后端运行在宿主 Python 进程的 worker 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native executor 通过 `context.control.check_cancelled()` 等方式协作退出，runner 会统一捕获 `ActionExecutionCancelled` 并将结果收敛为 timeout，后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `supervised_process` 进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
+`native` 后端运行在宿主 Python 进程的 worker 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native executor 通过 `context.control.check_cancelled()` 等方式协作退出，runner 会统一捕获 `ActionExecutionCancelled` 并将结果收敛为 timeout，后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `supervised_process` 进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的 executor 收敛 grace，OS 进程回收等待由 `ManagedProcessOptions` 在进程后端内部统一控制。
 
 并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，无论它是在正常完成收取阶段还是超时取消 grace 的结果收取阶段出现，runner 都立即进入同一个外层 transfer 分支，对同组未完成 action 请求 `runtime_transfer` 取消：进程后端通过 `ActionExecutionControl` 的取消回调终止当前 action 启动或持有的进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
 
@@ -208,7 +208,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `subprocess` 后端表示 Action 内必须同步收敛的受控进程生命周期，不提供从 Catalog options 直接执行命令的通用 executor。Capability-owned executor 或 service 只能为固定 worker 构造显式 `ProcessRequest`，禁止 `shell=True`，也不能把模型参数直接拼为 argv。结构化请求可以由 owner 编码为 stdin，worker 的响应协议、失败映射和后续业务提交仍由 owner 校验。
 
-进程启动、stdin、stdout/stderr 字符投影上限、deadline、取消回调和进程树回收由内部 `ControlledProcessRunner` 统一实现。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
+进程启动、stdin、stdout/stderr 字符投影上限、deadline 和取消回调由内部 `ControlledProcessRunner` 统一实现；真正的进程树终止、fallback kill 和短暂回收等待属于 `ManagedProcess`，由 `ManagedProcessOptions.termination_wait_seconds` 集中配置，默认 1 秒。stdout/stderr 直接捕获到临时文件，进程结束后只读取有界 UTF-8 前缀与 truncated 标记，避免宿主内存聚合完整输出；这不是子进程硬输出配额。Windows 使用 `taskkill /T /F`，POSIX 使用新 session/process group。Resource 与 Web 等需要在进程前后执行协议校验、staging 或 commit 的 executor 复用同一 runner，并各自把 outcome 映射为所属业务的 ActionResult。
 
 ### supervised_process
 

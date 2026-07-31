@@ -89,6 +89,9 @@ class ProcessOutcome:
 class ControlledProcessRunner:
     """Run a fixed process with Action cancellation and hard termination."""
 
+    def __init__(self, process_runner: ManagedProcessRunner | None = None) -> None:
+        self._process_runner = process_runner or ManagedProcessRunner()
+
     def run(
         self,
         request: ProcessRequest,
@@ -99,7 +102,7 @@ class ControlledProcessRunner:
         if control.is_expired():
             return ProcessOutcome(status=ProcessStatus.TIMED_OUT)
         try:
-            handle = ManagedProcessRunner().start(
+            handle = self._process_runner.start(
                 ManagedProcessRequest(
                     argv=request.argv,
                     cwd=request.cwd,
