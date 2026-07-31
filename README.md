@@ -77,3 +77,19 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 `test.ps1` runs the Fast local pytest suite by default and creates a unique isolated run root under `.local-test/runs/`. Use `-TestPath` for focused feedback and `-Suite Full` for the completion gate, which includes wheel build and isolated-install checks. Real-provider and opt-in network tests are excluded from Fast and Full and can only be selected with `-Suite External` plus their existing environment switches. If PowerShell blocks local script execution, invoke the same script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`. `typecheck.ps1` runs `ty` with the selected Python environment.
 
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
+
+
+
+
+
+## Cases
+
+![image-20260731221827847](README.assets/image-20260731221827847.png)
+
+
+
+![image-20260731221904965](README.assets/image-20260731221904965.png)
+
+
+
+![image-20260731221918147](README.assets/image-20260731221918147.png)
