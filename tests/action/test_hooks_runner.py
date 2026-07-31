@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from tinysoul.action.backends.native import NativeFunctionExecutor
+from tests.action_helpers import FunctionActionExecutor
 from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.errors import ActionContractError, ActionInvariantError
@@ -182,7 +182,7 @@ def test_runner_returns_action_result_from_executor() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
     results = ActionBatchRunner(executors=executors).run(
@@ -223,7 +223,7 @@ def test_runner_rejects_missing_foldable_projection() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "test.foldable",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
     result = ActionBatchRunner(executors=executors).run(
@@ -287,8 +287,8 @@ def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
         context.control.check_cancelled()
         return {}
 
-    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
-    executors.register("test.peer", NativeFunctionExecutor(cooperative))
+    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
+    executors.register("test.peer", FunctionActionExecutor(cooperative))
 
     with pytest.raises(RuntimeException):
         ActionBatchRunner(
@@ -317,8 +317,8 @@ def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> N
         assert release_peer.wait(1.0)
         return {}
 
-    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
-    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
+    executors.register("test.peer", FunctionActionExecutor(blocking))
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
@@ -352,8 +352,8 @@ def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None
         assert release_peer.wait(1.0)
         return {}
 
-    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
-    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
+    executors.register("test.peer", FunctionActionExecutor(blocking))
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
@@ -387,8 +387,8 @@ def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
         assert release_peer.wait(1.0)
         return {}
 
-    executors.register("test.interrupt", NativeFunctionExecutor(interrupting))
-    executors.register("test.peer", NativeFunctionExecutor(blocking))
+    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
+    executors.register("test.peer", FunctionActionExecutor(blocking))
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
@@ -418,7 +418,7 @@ def test_executor_registry_validates_catalog_handlers() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
     assert executors.missing_handlers_for(catalog) == (
@@ -497,7 +497,7 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_execution_hook("reject", RejectHook())
@@ -576,7 +576,7 @@ def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_execution_hook("invalid", InvalidOutcomeHook())
@@ -600,7 +600,7 @@ def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_execution_hook("reserved", ReservedFrameHook())
@@ -622,7 +622,7 @@ def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_global_execution("missing")
@@ -642,7 +642,7 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_execution_hook("explode", ExplodingHook())
@@ -673,7 +673,7 @@ def test_runner_propagates_runtime_control_from_execution_hook(
     executors = ExecutorRegistry()
     executors.register(
         "core.answer",
-        NativeFunctionExecutor(lambda execution, context: {"ok": True}),
+        FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_execution_hook("runtime", hook)
@@ -760,7 +760,7 @@ def test_runner_returns_timeout_for_blocked_execution() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "test.slow",
-        NativeFunctionExecutor(lambda execution, context: sleep(0.2) or {}),
+        FunctionActionExecutor(lambda execution, context: sleep(0.2) or {}),
     )
 
     results = ActionBatchRunner(executors=executors).run(
@@ -853,11 +853,11 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "test.slow",
-        NativeFunctionExecutor(lambda execution, context: sleep(0.2) or {}),
+        FunctionActionExecutor(lambda execution, context: sleep(0.2) or {}),
     )
     executors.register(
         "test.next",
-        NativeFunctionExecutor(lambda execution, context: {"started": True}),
+        FunctionActionExecutor(lambda execution, context: {"started": True}),
     )
 
     results = ActionBatchRunner(executors=executors).run(

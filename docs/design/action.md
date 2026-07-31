@@ -69,7 +69,7 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
 
-`native` 后端运行在宿主 Python 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native action 通过 `context.control.check_cancelled()` 等方式协作退出，结果收敛为 timeout 且后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `supervised_process` 进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
+`native` 后端运行在宿主 Python 进程的 worker 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native executor 通过 `context.control.check_cancelled()` 等方式协作退出，runner 会统一捕获 `ActionExecutionCancelled` 并将结果收敛为 timeout，后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `supervised_process` 进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的进程回收 grace。
 
 并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，无论它是在正常完成收取阶段还是超时取消 grace 的结果收取阶段出现，runner 都立即进入同一个外层 transfer 分支，对同组未完成 action 请求 `runtime_transfer` 取消：进程后端通过 `ActionExecutionControl` 的取消回调终止当前 action 启动或持有的进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
 
@@ -202,7 +202,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### native
 
-`native` 后端通过 `NativeFunctionExecutor` 包装宿主 Python 函数。native 函数返回 JSON object payload；执行器负责包装为 success result。native 函数应在长循环、阻塞前后或分块处理边界调用 `context.control.check_cancelled()`，从而响应 runner 的超时取消请求。未协作退出的 native action 会被标记为泄漏风险，后续执行组会被 schedule failed 结果阻断。
+`native` 后端表示 owner-specific executor 在宿主 Python 进程内执行。`backend.handler` 精确指向由业务 owner 注册的 `ActionExecutor`；executor 负责执行业务逻辑并构造完整 `ActionResult`，框架不提供 callable adapter 或 default native executor。native executor 应在长循环、阻塞前后或分块处理边界调用 `context.control.check_cancelled()`，从而响应 runner 的超时取消请求；该异常由 runner 统一收敛为 timeout。未协作退出的 native action 会被标记为泄漏风险，后续执行组会被 schedule failed 结果阻断。
 
 ### subprocess
 
@@ -248,7 +248,7 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。Builder 不按 backend kind 自动提供 executor；所有 native、subprocess、supervised_process 与 capability-specific handler 都由其 owner registrar 显式注册。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；已注册 handler 也可以提供自己的 options validator。两类 validator 都在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
+`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。Builder 不按 backend kind 自动提供 executor；所有 native、subprocess、supervised_process 与 capability-specific handler 都由其 owner registrar 显式注册。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；validator 在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。不为没有实际消费者的单个 handler 保留独立 validator 注册通道。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
 
 ## Action Schema
 

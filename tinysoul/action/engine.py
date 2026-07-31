@@ -15,7 +15,6 @@ from tinysoul.runtime import (
     RunScope,
 )
 
-from .backends.native import NativeActionFunction, NativeFunctionExecutor
 from .backends.llm_action import LLMActionBackendOptionsValidator
 from .core.call import (
     ActionBatch,
@@ -36,7 +35,7 @@ from .core.hooks import (
     ActionNormalizeHook,
     ActionNormalizeHookPipeline,
 )
-from .core.loader import ActionBackendOptionsValidator, ActionCatalogLoader
+from .core.loader import ActionCatalogLoader
 from .core.result import ActionPhaseResult, ActionResult
 from .core.specs import ActionBackendKind, ActionToolSpec
 from .core.runner import ActionBatchRunner
@@ -210,7 +209,6 @@ class ActionEngineBuilder:
     def __init__(self, catalog_root: Path) -> None:
         self._catalog_root = catalog_root
         self._executors = ExecutorRegistry()
-        self._backend_options_validators: dict[str, ActionBackendOptionsValidator] = {}
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
         self._cooperative_cancel_grace_seconds = 0.05
@@ -223,24 +221,9 @@ class ActionEngineBuilder:
         self,
         handler: str,
         executor: ActionExecutor,
-        *,
-        options_validator: ActionBackendOptionsValidator | None = None,
     ) -> Self:
         self._executors.register(handler, executor)
-        if options_validator is not None:
-            self._backend_options_validators[handler] = options_validator
         return self
-
-    def register_backend_options_validator(
-        self,
-        handler: str,
-        validator: ActionBackendOptionsValidator,
-    ) -> Self:
-        self._backend_options_validators[handler] = validator
-        return self
-
-    def register_native(self, handler: str, function: NativeActionFunction) -> Self:
-        return self.register_executor(handler, NativeFunctionExecutor(function))
 
     def disable_actions(self, *action_names: str) -> Self:
         """Remove explicitly disabled package actions from the effective catalog."""
@@ -321,7 +304,6 @@ class ActionEngineBuilder:
 
     def build(self) -> ActionEngine:
         catalog = ActionCatalogLoader(
-            backend_options_validators=self._backend_options_validators,
             backend_kind_options_validators={
                 ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
             },

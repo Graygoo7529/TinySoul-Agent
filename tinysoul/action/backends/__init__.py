@@ -10,7 +10,6 @@ from .llm_action import (
     LLMActionTaskRunner,
     parse_llm_action_options,
 )
-from .native import NativeFunctionExecutor
 from .process import (
     ManagedProcess,
     ManagedProcessRequest,
@@ -34,7 +33,6 @@ __all__ = [
     "LLMActionBackendOptionsValidator",
     "LLMActionTaskRunner",
     "parse_llm_action_options",
-    "NativeFunctionExecutor",
     "ManagedProcess",
     "ManagedProcessRequest",
     "ManagedProcessRunner",

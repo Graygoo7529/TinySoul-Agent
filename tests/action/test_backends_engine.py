@@ -9,7 +9,6 @@ import pytest
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.capabilities.shell import SHELL_ACTIONS
 from tinysoul.capabilities.supervised_process import EXECUTION_LIFECYCLE_ACTIONS
-from tinysoul.action.backends.native import NativeFunctionExecutor
 from tinysoul.action.backends.process import ManagedProcessRequest, ManagedProcessRunner
 from tinysoul.action.backends.subprocess import (
     ControlledProcessRunner,
@@ -39,6 +38,7 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
+from tests.action_helpers import FunctionActionEngineBuilder, FunctionActionExecutor
 
 
 def test_native_cooperative_timeout_does_not_block_later_group() -> None:
@@ -76,11 +76,11 @@ def test_native_cooperative_timeout_does_not_block_later_group() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "test.cooperative",
-        NativeFunctionExecutor(_cooperative_native_function),
+        FunctionActionExecutor(_cooperative_native_function),
     )
     executors.register(
         "test.next",
-        NativeFunctionExecutor(lambda execution, context: {"started": True}),
+        FunctionActionExecutor(lambda execution, context: {"started": True}),
     )
 
     results = ActionBatchRunner(
@@ -89,12 +89,60 @@ def test_native_cooperative_timeout_does_not_block_later_group() -> None:
     ).run(batch, ActionExecutionContext())
 
     assert results[0].status is ActionResultStatus.TIMEOUT
+    assert results[0].failure is not None
+    assert results[0].failure.reason == "cancelled"
+    assert results[0].failure.scope == "action.timeout"
+    assert results[0].frame_data["cancel_reason"] in {"deadline_expired", "timeout"}
+    assert isinstance(results[0].frame_data["cancel_requested"], bool)
     assert results[0].frame_data["executor_leaked"] is False
     assert results[0].frame_data["late_success"] is False
-    assert isinstance(results[0].frame_data["cancel_requested"], bool)
     assert isinstance(results[0].frame_data["executor_started"], bool)
     assert results[1].status is ActionResultStatus.SUCCESS
     assert results[1].payload == {"started": True}
+
+
+def test_runner_maps_cooperative_cancellation_to_timeout() -> None:
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _action(
+                "test.cancelled",
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.NATIVE,
+                    handler="test.cancelled",
+                ),
+            ),
+        ),
+    )
+    batch = _batch(
+        catalog,
+        (ToolCallRecord("call_1", "test.cancelled", {}, ToolKind.ACTION),),
+    )
+
+    def cancel(execution, context):
+        context.control.request_cancel("test_cancel")
+        context.control.check_cancelled()
+        raise AssertionError("Cancellation check did not stop execution")
+
+    executors = ExecutorRegistry()
+    executors.register("test.cancelled", FunctionActionExecutor(cancel))
+
+    result = ActionBatchRunner(executors=executors).run(
+        batch,
+        ActionExecutionContext(),
+    )[0]
+
+    assert result.status is ActionResultStatus.TIMEOUT
+    assert result.failure is not None
+    assert result.failure.reason == "cancelled"
+    assert result.failure.scope == "action.timeout"
+    assert result.frame_data == {
+        "cancel_reason": "test_cancel",
+        "cancel_requested": True,
+        "executor_started": True,
+        "executor_leaked": False,
+        "late_success": False,
+    }
 
 
 def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
@@ -118,7 +166,7 @@ def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
     executors = ExecutorRegistry()
     executors.register(
         "test.expired",
-        NativeFunctionExecutor(lambda execution, context: {"started": True}),
+        FunctionActionExecutor(lambda execution, context: {"started": True}),
     )
     runner = ActionBatchRunner(executors=executors)
     scheduled = runner._schedule_group(batch.executions)
@@ -254,11 +302,11 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
 
     executors.register(
         "test.interrupt",
-        NativeFunctionExecutor(interrupt_after_process_starts),
+        FunctionActionExecutor(interrupt_after_process_starts),
     )
     executors.register(
         "test.process",
-        NativeFunctionExecutor(
+        FunctionActionExecutor(
             lambda execution, context: _run_controlled_process(
                 context,
                 marker=marker,
@@ -278,34 +326,34 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
 
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
-        ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("core.answer", lambda execution, context: {"text": "done"})
-        .register_native("core.reason", lambda execution, context: {"ok": True})
-        .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.resource.patch", lambda execution, context: {"patched": True})
-        .register_native("home.resource.read", lambda execution, context: {"read": True})
-        .register_native("home.resource.write", lambda execution, context: {"written": True})
-        .register_native("home.top.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.top.patch", lambda execution, context: {"patched": True})
-        .register_native("home.top.search", lambda execution, context: {"items": []})
-            .register_native("home.top.write", lambda execution, context: {"written": True})
-            .register_native("memory.recall", lambda execution, context: {"text": ""})
-            .register_native("memory.search", lambda execution, context: {"items": []})
-        .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
-        .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("context.inspect", lambda execution, context: {})
-        .register_native("session.inspect", lambda execution, context: {})
-        .register_native("workspace.delete", lambda execution, context: {"deleted": True})
-        .register_native("workspace.describe", lambda execution, context: {"described": True})
-        .register_native("workspace.analyze", lambda execution, context: {"answer": "ok"})
-        .register_native("workspace.read", lambda execution, context: {"text": "ok"})
-        .register_native("workspace.search_text", lambda execution, context: {"items": []})
-        .register_native("workspace.patch", lambda execution, context: {"patched": True})
-        .register_native("workspace.restore", lambda execution, context: {"restored": True})
-        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
-        .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
-        .register_native("workspace.scan", lambda execution, context: {"scanned": True})
-        .register_native("workspace.write", lambda execution, context: {"written": True})
+        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        .register_function("core.answer", lambda execution, context: {"text": "done"})
+        .register_function("core.reason", lambda execution, context: {"ok": True})
+        .register_function("home.resource.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.resource.patch", lambda execution, context: {"patched": True})
+        .register_function("home.resource.read", lambda execution, context: {"read": True})
+        .register_function("home.resource.write", lambda execution, context: {"written": True})
+        .register_function("home.top.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.top.patch", lambda execution, context: {"patched": True})
+        .register_function("home.top.search", lambda execution, context: {"items": []})
+            .register_function("home.top.write", lambda execution, context: {"written": True})
+            .register_function("memory.recall", lambda execution, context: {"text": ""})
+            .register_function("memory.search", lambda execution, context: {"items": []})
+        .register_function("home.prompt_mount.patch", lambda execution, context: {"patched": True})
+        .register_function("home.prompt_mount.write", lambda execution, context: {"written": True})
+        .register_function("context.inspect", lambda execution, context: {})
+        .register_function("session.inspect", lambda execution, context: {})
+        .register_function("workspace.delete", lambda execution, context: {"deleted": True})
+        .register_function("workspace.describe", lambda execution, context: {"described": True})
+        .register_function("workspace.analyze", lambda execution, context: {"answer": "ok"})
+        .register_function("workspace.read", lambda execution, context: {"text": "ok"})
+        .register_function("workspace.search_text", lambda execution, context: {"items": []})
+        .register_function("workspace.patch", lambda execution, context: {"patched": True})
+        .register_function("workspace.restore", lambda execution, context: {"restored": True})
+        .register_function("workspace.trash.list", lambda execution, context: {"items": []})
+        .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
+        .register_function("workspace.scan", lambda execution, context: {"scanned": True})
+        .register_function("workspace.write", lambda execution, context: {"written": True})
             .disable_actions(
                 *SCRIPT_ACTIONS,
                 *SHELL_ACTIONS,

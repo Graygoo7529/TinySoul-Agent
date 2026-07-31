@@ -52,6 +52,7 @@ from tinysoul.workspace import (
     WorkspaceSettings,
     register_workspace_actions,
 )
+from tests.action_helpers import FunctionActionEngineBuilder
 
 
 class FakeLLM:
@@ -801,31 +802,31 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         return {"scanned": True}
 
     action = (
-        ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("core.answer", lambda execution, context: {"text": "done"})
-        .register_native("core.reason", lambda execution, context: {"ok": True})
-        .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.resource.patch", lambda execution, context: {"patched": True})
-        .register_native("home.resource.read", lambda execution, context: {"read": True})
-        .register_native("home.resource.write", lambda execution, context: {"written": True})
-        .register_native("home.top.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.top.patch", lambda execution, context: {"patched": True})
-        .register_native("home.top.write", lambda execution, context: {"written": True})
-        .register_native("home.top.search", lambda execution, context: {"items": []})
-        .register_native("memory.recall", lambda execution, context: {"text": ""})
-        .register_native("memory.search", lambda execution, context: {"items": []})
-        .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
-        .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("context.inspect", lambda execution, context: {})
-        .register_native("session.inspect", lambda execution, context: {})
-        .register_native("workspace.delete", lambda execution, context: {"deleted": True})
-        .register_native("workspace.describe", lambda execution, context: {"described": True})
-        .register_native("workspace.patch", lambda execution, context: {"patched": True})
-        .register_native("workspace.restore", lambda execution, context: {"restored": True})
-        .register_native("workspace.trash.list", lambda execution, context: {"items": []})
-        .register_native("workspace.scan", emit_invalid_sync)
-        .register_native("workspace.write", lambda execution, context: {"written": True})
-        .register_native("workspace.rewrite", lambda execution, context: {"rewritten": True})
+        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        .register_function("core.answer", lambda execution, context: {"text": "done"})
+        .register_function("core.reason", lambda execution, context: {"ok": True})
+        .register_function("home.resource.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.resource.patch", lambda execution, context: {"patched": True})
+        .register_function("home.resource.read", lambda execution, context: {"read": True})
+        .register_function("home.resource.write", lambda execution, context: {"written": True})
+        .register_function("home.top.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.top.patch", lambda execution, context: {"patched": True})
+        .register_function("home.top.write", lambda execution, context: {"written": True})
+        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("memory.recall", lambda execution, context: {"text": ""})
+        .register_function("memory.search", lambda execution, context: {"items": []})
+        .register_function("home.prompt_mount.patch", lambda execution, context: {"patched": True})
+        .register_function("home.prompt_mount.write", lambda execution, context: {"written": True})
+        .register_function("context.inspect", lambda execution, context: {})
+        .register_function("session.inspect", lambda execution, context: {})
+        .register_function("workspace.delete", lambda execution, context: {"deleted": True})
+        .register_function("workspace.describe", lambda execution, context: {"described": True})
+        .register_function("workspace.patch", lambda execution, context: {"patched": True})
+        .register_function("workspace.restore", lambda execution, context: {"restored": True})
+        .register_function("workspace.trash.list", lambda execution, context: {"items": []})
+        .register_function("workspace.scan", emit_invalid_sync)
+        .register_function("workspace.write", lambda execution, context: {"written": True})
+        .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
@@ -880,21 +881,21 @@ def _action_engine(
     workspace_llm: FakeLLM | None = None,
 ) -> ActionEngine:
     builder = (
-        ActionEngineBuilder(Path("tinysoul/action/catalog"))
-        .register_native("core.answer", lambda execution, context: {"text": "done"})
-        .register_native("core.reason", lambda execution, context: {"ok": True})
-        .register_native("home.resource.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.resource.patch", lambda execution, context: {"patched": True})
-        .register_native("home.resource.read", lambda execution, context: {"read": True})
-        .register_native("home.resource.write", lambda execution, context: {"written": True})
-        .register_native("home.top.delete", lambda execution, context: {"deleted": True})
-        .register_native("home.top.patch", lambda execution, context: {"patched": True})
-        .register_native("home.top.write", lambda execution, context: {"written": True})
-        .register_native("home.top.search", lambda execution, context: {"items": []})
-        .register_native("home.prompt_mount.patch", lambda execution, context: {"patched": True})
-        .register_native("home.prompt_mount.write", lambda execution, context: {"written": True})
-        .register_native("context.inspect", lambda execution, context: {})
-        .register_native("session.inspect", lambda execution, context: {})
+        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        .register_function("core.answer", lambda execution, context: {"text": "done"})
+        .register_function("core.reason", lambda execution, context: {"ok": True})
+        .register_function("home.resource.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.resource.patch", lambda execution, context: {"patched": True})
+        .register_function("home.resource.read", lambda execution, context: {"read": True})
+        .register_function("home.resource.write", lambda execution, context: {"written": True})
+        .register_function("home.top.delete", lambda execution, context: {"deleted": True})
+        .register_function("home.top.patch", lambda execution, context: {"patched": True})
+        .register_function("home.top.write", lambda execution, context: {"written": True})
+        .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("home.prompt_mount.patch", lambda execution, context: {"patched": True})
+        .register_function("home.prompt_mount.write", lambda execution, context: {"written": True})
+        .register_function("context.inspect", lambda execution, context: {})
+        .register_function("session.inspect", lambda execution, context: {})
         .disable_actions(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
@@ -909,28 +910,28 @@ def _action_engine(
     )
     if workspace is None:
         builder = (
-            builder.register_native(
+            builder.register_function(
                 "workspace.delete", lambda execution, context: {"deleted": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.describe", lambda execution, context: {"described": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.patch", lambda execution, context: {"patched": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.restore", lambda execution, context: {"restored": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.trash.list", lambda execution, context: {"items": []}
             )
-            .register_native(
+            .register_function(
                 "workspace.scan", lambda execution, context: {"scanned": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.write", lambda execution, context: {"written": True}
             )
-            .register_native(
+            .register_function(
                 "workspace.rewrite", lambda execution, context: {"rewritten": True}
             )
             .disable_actions(
@@ -952,10 +953,10 @@ def _action_engine(
             ),
         )
     if memory is None:
-        builder.register_native(
+        builder.register_function(
             "memory.recall",
             lambda execution, context: {"text": ""},
-        ).register_native(
+        ).register_function(
             "memory.search",
             lambda execution, context: {"items": []},
         )

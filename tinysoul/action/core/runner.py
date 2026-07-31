@@ -23,6 +23,7 @@ from tinysoul.runtime import (
 from .call import ActionBatch, ActionExecution
 from .errors import ActionContractError
 from .executor import (
+    ActionExecutionCancelled,
     ActionExecutionContext,
     ActionExecutionControl,
     ActionExecutor,
@@ -398,6 +399,20 @@ class ActionBatchRunner:
             result = self._execute(executor, execution, context)
         except (RuntimeException, RuntimeTransferInterrupt):
             raise
+        except ActionExecutionCancelled as exc:
+            return self._timeout_result(
+                execution,
+                model_feedback=(
+                    "Action stopped after its deadline expired or cancellation "
+                    "was requested."
+                ),
+                reason="cancelled",
+                frame_data={
+                    "cancel_reason": str(exc) or "cancelled",
+                    "cancel_requested": context.control.is_cancelled(),
+                    "executor_started": True,
+                },
+            )
         except Exception as exc:
             return ActionResult.failed(
                 call_id=execution.call.call_id,

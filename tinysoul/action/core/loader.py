@@ -46,14 +46,12 @@ class ActionCatalogLoader:
         self,
         parser: "ActionTomlParser | None" = None,
         *,
-        backend_options_validators: Mapping[str, ActionBackendOptionsValidator] | None = None,
         backend_kind_options_validators: Mapping[
             ActionBackendKind, ActionBackendOptionsValidator
         ]
         | None = None,
     ) -> None:
         self._parser = parser or ActionTomlParser()
-        self._backend_options_validators = dict(backend_options_validators or {})
         self._backend_kind_options_validators = dict(
             backend_kind_options_validators or {}
         )
@@ -111,9 +109,6 @@ class ActionCatalogLoader:
 
     def _validate_backend_options(self, backend: ActionBackendSpec, *, key: str) -> None:
         validator = self._backend_kind_options_validators.get(backend.kind)
-        if validator is not None:
-            validator.validate(backend, key=key)
-        validator = self._backend_options_validators.get(backend.handler)
         if validator is not None:
             validator.validate(backend, key=key)
 
