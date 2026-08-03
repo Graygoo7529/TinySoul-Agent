@@ -2,12 +2,12 @@
 
 ## 状态
 
-- `in_progress`：整体重构
-- `in_progress`：Stage 1，建立 Maintenance 领域与 App-owned Program 边界
-- `pending`：Stage 2，抽取可复用 Turn/Cycle 内核并建立 Maintenance Turn
-- `pending`：Stage 3，接入 Archive/Home/Memory Maintenance 任务与专用 Action view
-- `pending`：Stage 4，统一手动、定时和启动提示链路，删除人工 decision 协议
-- `pending`：Stage 5，更新设计规约、Endpoint 和前端协议并完成全量验证
+- `completed`：整体重构
+- `completed`：Stage 1，建立 Maintenance 领域与 App-owned Program 边界
+- `completed`：Stage 2，抽取可复用 Turn/Cycle 内核并建立 Maintenance Turn
+- `completed`：Stage 3，接入 Archive/Home/Memory Maintenance 任务与专用 Action view
+- `completed`：Stage 4，统一手动、定时和启动提示链路，删除人工 decision 协议
+- `completed`：Stage 5，更新设计规约、Endpoint 和前端协议并完成全量验证
 
 ## 背景与问题
 
@@ -191,3 +191,11 @@ Endpoint 删除 decision GET/POST 和相关 schema，只保留 Maintenance statu
 - Memory 只为关闭日期写入，默认不覆盖已有有效文件，`--rebuild` 显式覆盖。
 - 不存在人工 decision channel、兼容配置键、旧 Endpoint 或旧调用 alias。
 - 完整本地门禁与类型检查通过。
+
+## 实施结果
+
+2026-08-03 已完成本计划。App 现在以 typed request queue 和 Program frame 统一分派 User Turn、Maintenance 与退出请求；Loop 只保留中性的 Turn/Cycle/Phase 内核，User 与 Maintenance profile 显式注入各自 completion、prompt、preparation 和 outcome 语义。Maintenance 形成 Archive/Home/Memory 独立包及唯一 Engine 门面，Home/Memory 都经真实 3-stage Maintenance Turn 和精确 ActionEngine view 执行，Archive 保持确定性 preflight 与权威关闭日投影。
+
+User Turn 在装配期排除全部 `maintenance.*`，Home/Memory Maintenance 只复用 `core.context.inspect`、`core.session.inspect` 和本任务 actions。Maintenance Context 使用 actual Home，并按任务注入当前或归档的 Session/Workspace；Home 完成后 owner 校验无 diff/SKILL_MEMORY 并移除空 runtime Home，Memory 只针对关闭日写入，已有有效文档仅在 `--rebuild` 时覆盖。Terminal、Endpoint 与 scheduler 都只构造相同 MaintenanceRequest；启动只自动恢复 Archive 并发布 availability，不追补启动前错过的模型维护。
+
+人工 decision/approval、旧配置键、旧 Program/Daily Loop owner、旧 Endpoint/UI decision 协议和兼容 alias 已删除。全量 `pytest -q`、全项目 `ty check`、前端 `pnpm test` 与 `pnpm build` 均通过；仅保留第三方 Starlette TestClient deprecation warning。

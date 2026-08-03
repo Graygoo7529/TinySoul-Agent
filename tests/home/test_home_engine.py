@@ -21,6 +21,7 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.home import (
+    ActualHomeBackgroundEntryProvider,
     AgentHomeContractError,
     AgentHomeEngine,
     AgentHomeEngineBuilder,
@@ -290,6 +291,31 @@ def test_home_background_provider_catalog_does_not_materialize_core(
 
     assert content == "core rules"
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
+
+
+def test_actual_home_background_provider_ignores_runtime_overrides(
+    tmp_path: Path,
+) -> None:
+    agent = tmp_path / "home" / "agent"
+    agent.mkdir(parents=True)
+    (agent / "AGENT.md").write_text("actual rules", encoding="utf-8")
+    home = AgentHomeEngineBuilder(
+        AgentHomeSettings(
+            original_root=tmp_path / "home",
+            runtime_root=tmp_path / "runtime" / "home",
+        )
+    ).build()
+    home.write_top("home:agent@AGENT", "runtime rules", overwrite=True)
+
+    user_provider = HomeBackgroundEntryProvider(home)
+    maintenance_provider = ActualHomeBackgroundEntryProvider(home)
+    day = date(2026, 8, 3)
+
+    assert user_provider.load("home:agent@AGENT", day) == "runtime rules"
+    assert maintenance_provider.catalog(day).default_links == (
+        "home:agent@AGENT",
+    )
+    assert maintenance_provider.load("home:agent@AGENT", day) == "actual rules"
 
 
 def test_home_background_provider_automatically_loads_allowlisted_agent_tops(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from tinysoul.action import (
     ActionEngineBuilder,
     ActionExecution,
@@ -16,14 +18,23 @@ from tinysoul.action import (
 from tinysoul.infra.json import JsonObject
 from tinysoul.runtime.bridge import RuntimeSessionBridge
 
-from .engine import SessionEngine
 from .errors import SessionError, SessionInspectRequestError
+
+
+class SessionInspector(Protocol):
+    def inspect(
+        self,
+        ref: str | None = None,
+        *,
+        action: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject: ...
 
 
 def register_session_actions(
     builder: ActionEngineBuilder,
     *,
-    session: SessionEngine,
+    session: SessionInspector,
     runtime_bridge: RuntimeSessionBridge,
 ) -> ActionEngineBuilder:
     """Register the prior-Turn semantic heap inspector."""
@@ -37,7 +48,7 @@ def register_session_actions(
 class SessionInspectExecutor(ActionExecutor):
     def __init__(
         self,
-        session: SessionEngine,
+        session: SessionInspector,
         *,
         runtime_bridge: RuntimeSessionBridge,
     ) -> None:

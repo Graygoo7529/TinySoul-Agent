@@ -11,7 +11,6 @@ import pytest
 
 from tinysoul.app import (
     CommandReceipt,
-    HomeDecisionBroker,
     ObservationRoute,
     ObservationRouter,
 )
@@ -23,13 +22,18 @@ from tinysoul.endpoint import (
 )
 from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.json import JsonObject
-from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
+from tinysoul.loop import LoopControlKind
+from tinysoul.maintenance import (
+    BusinessDay,
+    DailyLifecycleCoordinator,
+    MaintenanceAvailability,
+    MaintenanceScope,
+)
 from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
     RunLevel,
     RunScope,
-    RuntimeInputBlockedError,
 )
 from tinysoul.session import SessionEngine, SessionSettings
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
@@ -64,13 +68,10 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     status = client.get("/v1/status", headers=_auth()).json()
     assert status["ready"] is True
     assert status["active_day"] == str(DAY)
-    assert client.get(
-        "/v1/maintenance/decision",
-        headers=_auth(),
-    ).json() == {"pending": False}
     openapi = client.get("/openapi.json", headers=_auth()).json()
     assert "/v1/events" in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]
+    assert "/v1/maintenance/decision" not in openapi["paths"]
     assert all(not path.startswith("/v1/session/") for path in openapi["paths"])
 
     response = client.post(
@@ -86,7 +87,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert response.json() == {
         "accepted": True,
         "command_id": "command_ui",
-        "kind": "start_turn",
+        "kind": "user_turn",
         "state": "queued",
     }
     assert gateway.inputs == [("hello", "endpoint", {"client_id": "ui"})]
@@ -109,7 +110,12 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert response.status_code == 202
     assert response.json()["command_id"] == "work_ui"
     assert gateway.maintenance_requests == [
-        ("memory", BusinessDay.parse("2026-07-18"), "endpoint")
+        (
+            MaintenanceScope.MEMORY,
+            BusinessDay.parse("2026-07-18"),
+            False,
+            "endpoint",
+        )
     ]
 
 
@@ -139,24 +145,6 @@ def test_endpoint_hides_unexpected_exception_details(
         }
     }
     assert "private" not in response.text
-
-
-def test_endpoint_input_cannot_resolve_pending_maintenance_text(
-    tmp_path: Path,
-) -> None:
-    engine, gateway = _engine(tmp_path)
-    gateway.block_input = True
-    client = TestClient(create_endpoint_app(engine, engine.settings))
-
-    response = client.post(
-        "/v1/input",
-        headers=_auth(),
-        json={"text": "apply"},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "maintenance.decision_required"
-    assert gateway.inputs == []
 
 
 def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
@@ -383,22 +371,34 @@ def _engine(
         events=events,
         gateway=gateway,
         workspace=workspace,
-        daily_lifecycle=daily,
+        maintenance=_EndpointMaintenance(daily),
     )
     return engine, gateway
 
 
 @dataclass
+class _EndpointMaintenance:
+    daily: DailyLifecycleCoordinator
+
+    def active_day_lease(self):
+        return self.daily.active_day_lease()
+
+    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability:
+        assert business_day == DAY
+        return MaintenanceAvailability()
+
+
+@dataclass
 class _EndpointGateway:
-    decisions: HomeDecisionBroker = field(default_factory=HomeDecisionBroker)
     inputs: list[tuple[str, str, JsonObject]] = field(default_factory=list)
     controls: list[tuple[LoopControlKind, str, str, JsonObject]] = field(
         default_factory=list
     )
     synced: list[WorkspaceManifest] = field(default_factory=list)
     observed: list[ObservationEvent] = field(default_factory=list)
-    block_input: bool = False
-    maintenance_requests: list[tuple[str, BusinessDay | None, str]] = field(
+    maintenance_requests: list[
+        tuple[MaintenanceScope, BusinessDay | None, bool, str]
+    ] = field(
         default_factory=list
     )
 
@@ -418,10 +418,8 @@ class _EndpointGateway:
         metadata: JsonObject,
         command_id: str | None = None,
     ) -> CommandReceipt:
-        if self.block_input:
-            raise RuntimeInputBlockedError("Maintenance decision is pending")
         self.inputs.append((text, source, metadata))
-        return CommandReceipt(True, command_id or "command_test", "start_turn", "queued")
+        return CommandReceipt(True, command_id or "command_test", "user_turn", "queued")
 
     def request_control(
         self,
@@ -441,37 +439,25 @@ class _EndpointGateway:
 
     def request_maintenance(
         self,
-        kind: str,
+        scope: MaintenanceScope | str,
         *,
         target_day,
+        rebuild_memory: bool,
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
     ) -> CommandReceipt:
-        self.maintenance_requests.append((kind, target_day, source))
+        typed_scope = (
+            scope if isinstance(scope, MaintenanceScope) else MaintenanceScope(scope)
+        )
+        self.maintenance_requests.append(
+            (typed_scope, target_day, rebuild_memory, source)
+        )
         return CommandReceipt(
             True,
             command_id or "command_maintenance",
-            f"{kind}_maintenance",
+            "maintenance",
             "queued",
-        )
-
-    def pending_maintenance_decision(self):
-        return self.decisions.pending_decision()
-
-    def resolve_maintenance_decision(
-        self,
-        decision_id: str,
-        decision,
-        *,
-        source: str = "api",
-        command_id: str = "",
-    ) -> bool:
-        return self.decisions.submit_decision(
-            decision_id,
-            decision,
-            source=source,
-            command_id=command_id,
         )
 
     def sync_workspace_context(

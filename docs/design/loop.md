@@ -2,149 +2,104 @@
 
 ## 定位
 
-Loop 模块负责 TinySoul 的运行编排：Program/Turn/Cycle/Phase 各级运行器，以及 Runtime 运行转移的消费。
+Loop 模块只负责一次 Turn 内的运行编排：Turn、Cycle、Phase 及 Runtime 运行转移的消费。顶层 Program、typed request queue、外部输入和 scheduler 属于 `tinysoul.app`；业务日、确定性日切和 Archive/Home/Memory 任务编排属于 `tinysoul.maintenance`。
 
-Loop 不维护语境状态，不定义行动语义，不做模型供应商适配，也不直接处理外部输入源或进程装配。它把 context、action、llm 三个模块在每个 Phase 组合起来，并消费 runtime 的信号与运行转移协议。进程装配、输入源、输入命令解析和外部接口适配由 app 模块负责。
-
-## 设计目标
-
-1. 运行层级与 Runtime 的运行位置模型一一对应：Program、Turn、Cycle、Phase 各有运行器或执行单元，各自消费指向本级 frame 的运行转移。
-2. Phase 执行单元只做组合：取语境、取工具作用域、调 LLM Task、解释结果、发信号；不复制任何模块的内部逻辑。
-3. 控制流变化统一经 Runtime 语义异常进入 Trap；外部输入与模块事件统一经信号，在明确边界消费。
-4. 用户轮执行中可以接收由 app 层分发而来的追加输入与控制指令，两者路径分离。
-5. Turn 结束语义唯一：以 `core.answer` 行动执行成功为准。
+Loop 不维护语境状态，不定义行动语义，不做模型供应商适配，也不直接读写 Home、Memory、Session 或 Workspace。它把 context、action、llm 三个门面组合成可复用的 3-stage Turn 内核，再由 User Turn 与 Maintenance Turn profile 补充各自的 preparation、completion、prompt guidance 和 outcome 语义。
 
 ## 目录组织
 
-Loop 模块按运行职责拆分：
-
 ```text
 tinysoul/loop/
-  config.py          # LoopSettings 与配置解析
-  day.py             # BusinessDay 与可注入 IANA 业务时钟
-  daily.py           # 跨 Session/Workspace/Trash 的可恢复日切 journal
-  outcomes.py        # 稳定 TurnOutcomeStatus 与有界 TurnFailure
-  errors.py          # loop 契约与不变量错误
-  failures.py        # loop Runtime bridge 失败枚举
-  signals.py         # loop.control.request 信号协议
-  prompts.py         # Phase 任务提示构造与 domain HOW provider
-  preparation.py     # 首个 Cycle 前的 Turn preparation pipeline
-  completion.py      # Turn 完成后的持久化/后处理 pipeline
-  pressure.py        # Context 与 Workspace 的压力恢复协调
-  phases.py          # Phase1/Phase2/Phase3 执行单元
-  cycle.py           # CycleRunner
-  turn.py            # TurnRunner
-  work.py            # typed Program work 与有界 outcome
-  maintenance.py     # Home/Memory Maintenance 跨模块编排
-  program.py         # ProgramRunner 与 typed input queue
-  trap_handlers.py   # 通用结束与语境压缩 Trap handler
+  turn.py                    # 通用 TurnRunner
+  cycle.py                   # 共用 CycleRunner
+  phases.py                  # Phase1/Phase2/Phase3
+  preparation.py             # 通用 preparation pipeline
+  completion.py              # 通用 completion pipeline
+  prompts.py                 # 共用 Phase prompt 构造
+  outcomes.py                # TurnOutcomeStatus / TurnFailure
+  signals.py                 # Turn 内 control/output 信号
+  context_signals.py         # Context signal 批量提交
+  pressure.py                # Context/Workspace 压力恢复
+  trap_handlers.py           # Turn/Cycle/Context Trap handler
+  user/
+    preparation.py           # User Turn preparation exports
+    completion.py            # core.answer completion
+    prompts.py               # User Turn guidance
+    outcomes.py              # User Turn outcome exports
+  maintenance/
+    preparation.py           # archived Session/Workspace binding
+    completion.py            # maintenance.complete completion
+    prompts.py               # Maintenance guidance
+    outcomes.py              # Maintenance Turn outcome exports
 ```
 
-Runtime bridge 独立放在 `tinysoul/runtime/bridge/loop.py`，使 loop 自身的跨边界失败仍通过统一 Runtime 原因进入 Trap。`tinysoul/loop/__init__.py` 使用轻量导出与延迟加载，避免运行器、Phase 单元和 runtime bridge 之间形成导入环。
+`loop/__init__.py` 只导出通用运行 SPI；`loop.user` 和 `loop.maintenance` 导出 profile-specific 组件。不存在 `loop.program`、`loop.daily`、`loop.work` 或跨模块 Maintenance runner。
 
-## 运行层级与运行器
+## 通用 Turn
 
-ProgramRunner 是顶层运行循环：等待已经由 app 层解析完成的 `ProgramInputEvent`，把 `start_turn` 事件派发为 User Turn，把 Home/Memory Maintenance 事件派发为对应维护 work，把 `exit_program` 事件转换为 Runtime Program end。每个 work item 在进程锁内从配置的 IANA 时钟捕获一次 aware `now` 和 `BusinessDay`；先调用 `DailyLifecycleCoordinator.ensure_active_day`，成功后才开始该项 work。同一 User Turn 内不再次读取日期，因而跨午夜 Turn 仍归属开始日；所有 work 被串行化，符合 Session、Workspace、Home 与 Memory 的单进程单写者模型。
+`TurnRunner` 接受本轮输入、权威 `BusinessDay`、Program scope 和 request identity。BusinessDay 由调用方捕获；同一 Turn 内不再读取系统日期，因此跨午夜仍属于开始时的业务日。
 
-TurnRunner 驱动一次 User Turn：开始时初始化语境并以锁保护唯一 active Turn scope，循环执行 Cycle，结束时收取 `ContextTurnCompletion`。`core.answer` 成功不会直接设置 answered 布尔，而是由 Phase3 抛出 `runtime.turn_output`；TurnOutput Trap 校验输出、发出 `loop.turn.output` 并返回结束当前 Turn。Cycle/Turn 从 Runtime exception chain 提取 reason/module/kind 和有界安全 message，但把 turn output、用户 stop/exit 等控制异常排除在失败之外。最终 `TurnOutcomeStatus` 稳定区分 `answered/exhausted/stopped/failed`；失败、耗尽和停止发布 normal Observation，只有 completion pipeline 全部成功后才发布 `turn.output`。默认首个 completion handler 由 Session 验证 sealed entries、投影并幂等提交 schema v4 Turn record；后续 handler 必须自行以 Turn id/业务 operation id 实现幂等，因为 pipeline 保证确定顺序和失败停止，不提供跨 handler 原子事务或自动回滚。
+Turn scope 建立后，Runner 依次：
 
-Turn scope 建立后、首个 Cycle 开始前，TurnRunner 运行 `TurnPreparationPipeline` 并批量提交处理器产生的 Context signals。Context 先从全部 `BackgroundEntryProvider` 原子重建通用 Background：Home provider 提供不可逐出的默认 core、effective 存在时不可逐出的 allowlisted Context/user Agent Top 和通用 HOW metadata catalog，Memory provider 使用同一 `BusinessDay` 提供可选昨日正文；Session 再投影显式 business day 的跨 Turn 历史，Workspace 最后校验相同 day、完成 reconciliation 并投影 Manifest。Context 只在这个窗口接受 `context.session.sync`。属于本次 preparation 的信号若被拒绝，按 Loop 装配不变量失败结束当前流程，不能在缺失初始状态时进入 Phase1。
+1. 调用 Context begin，建立独立 UserInputs、Background、TurnTrace 和 Working 状态；
+2. 运行有序 `TurnPreparationPipeline`，批量提交 Background、Session、Workspace 等 owner signals；
+3. 循环运行 Cycle，直到 profile completion、Runtime transfer、失败或 cycle budget 耗尽；
+4. 对成功 completion 运行可选 `TurnCompletionPipeline`；
+5. 在 finally 中结束 Context 并清理 Turn-scoped activity。
 
-CycleRunner 驱动一次执行轮，顺序执行 Phase1、Phase2、Phase3 三个执行单元。每个 Phase 边界执行两项检查：控制请求信号存在时构造 Runtime 语义异常进入 Trap；追加输入信号存在时触发语境的输入合并，使追加输入在下一次 MessageStack 构造中可见。
+`TurnOutcomeStatus` 对两类 Turn 统一表达 `completed/exhausted/stopped/failed`。profile 可以把 completion 映射为用户输出，也可以仅保留 owner completion；通用 Runner 不假定每个 Turn 都产生聊天回答。
 
-各级运行器在自己的 frame 边界捕获 Runtime 语义异常，交 Trap 处理并消费运行转移：转移目标是本级 frame 时，结束转移正常收束本级、重试转移重放本级（语境保持已提交状态）；目标是上级 frame 时以运行结果向上传播。重试语义要求各级边界可重放，这由"语境变更只在信号消费点提交"保证。
+## User Turn
 
-## 业务日与确定性归档
+User Turn preparation 按以下顺序构造情景：
 
-`loop.daily.timezone` 是可配置 IANA 时区，默认 `Asia/Shanghai`；`loop.daily.archive_root` 默认项目顶层 `archive/`。Runtime frame 只描述控制位置，不携带日期；Program 把捕获的 `BusinessDay` 作为明确业务参数传给 Turn preparation/completion，Session 和 Workspace 不自行调用系统日期。Home overlay 不再以 Business Day 作为身份或清理边界。
+1. Context 从 effective Home、昨日 Memory 等 provider 原子重建 Background；
+2. Session 投影当前业务日的跨 Turn 历史；
+3. Workspace reconcile 当前业务日并投影 Manifest。
 
-这里必须区分三个流程：`daily rollover` 是 Session/Workspace/Trash 的确定性物理归档与换日，不调用 LLM；Home Maintenance 直接 review 当前 active Home overlay；Memory Maintenance 按日期读取 Session archive 并重写顶层 `memory/` 中的长期 MEMORY。新日 User Turn 只依赖 rollover 完成，不等待任何 Maintenance。当前代码已完成只含 Session/Workspace/Trash 的 rollover、旧 transition `home_archived` 读取兼容、按 Business Day 定位 Session archive、Session Memory facts projection、Memory-owned Maintenance service，以及 Program/App 的 typed Maintenance event、启动提醒、人工入口和内置 scheduler 装配；Memory 拆分复用同一 Program work，没有第二套调度流程。
+User ActionEngine 使用普通 effective catalog，并明确排除整个 `maintenance` domain。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 转换为 Turn completion，经 TurnOutput Trap 形成用户输出。默认 completion pipeline 先由 Session 校验 sealed entries 并幂等写入 schema v4 User Turn record，再运行其它后处理。
 
-日切顺序固定为：
+User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
 
-1. 恢复或创建 `archive/.pending-<operation-id>/transition.json`；
-2. Session 完成 orphan reconciliation 并移动到 pending `session/`；
-3. Workspace 完整 reconcile，把 active Workspace 和 active Trash 分别移动到 `workspace/`、`trash/`；
-4. 为 Session 与 Workspace 初始化相同的新 business day；
-5. 原子把 pending 目录改名为 `archive/<timezone-timestamp>/`。
+## Maintenance Turn
 
-每一步完成后原子更新 journal。参与者已经移动但 step 尚未提交、active roots 已初始化但 step 尚未提交、final rename 未完成等窗口都可在重启时根据 participant/manifest/journal 的 persisted facts 前滚；恢复 pending 后若目标 Business Day 更晚，coordinator 再开始下一次 transition。首次 journal 写失败只清理尚无 participant data 的空 pending；已有 participant data 却缺 journal、多个 pending、Session/Workspace day 分歧、时钟倒退、archive 与任何 active root 重叠均显式失败。该协议覆盖 Python 进程异常与文件操作失败，是可恢复的跨模块 partial completion，不宣称 power-loss/fsync durability 或跨目录原子事务。`runtime/home` 与顶层 `memory/` 不参与 claim、move、initialize 或 rollback。
+Maintenance Turn 与 User Turn 使用同一个 `TurnRunner`、`CycleRunner` 和 Phase1/2/3。它不是一次独立裸 LLM 调用，而是在完整情景中继续思考和整理：仍有 Background、Session、Workspace、TurnTrace 和 Working，只改变输入、专用 guidance、ActionEngine view 与 completion policy。
 
-归档完成后的稳定结构是 `archive/<timezone-timestamp>/{transition.json,session,workspace,trash}`。`runtime/` 中只重新建立当前日的 `session/`、`workspace/` active roots；coordinator 保留跨日 `runtime/home` 以及 runtime 下不属于每日参与者的其它目录。旧日 Trash 已退出 active Workspace API，只保留物理归档事实。`transition.json` 只描述物理日切，不写 `settlement_status`、Home pending 或 Maintenance 状态。
+Maintenance Context 与 User Context 相互独立，并使用 actual Home provider，避免待审 runtime override 先成为判断规则。Home Maintenance preparation 注入当前 Session 与 Workspace；Memory Maintenance 由 `ArchivedMaintenanceContext` 绑定目标关闭日的只读 Session background/inspect view 和 Workspace manifest。Maintenance Turn 不写入 User Session completion。
 
-Program 运行期间由内置 scheduler 在配置日界投递 rollover 触发；若程序未运行，启动或任一新 work 前恢复并补做日切。跨午夜 User Turn 先完成旧日 Session 提交，再在下一 Program work 边界归档。日切失败阻止新日 work，Home/Memory Maintenance 失败则只结束对应维护 work。
+Maintenance ActionEngine 只包含：
 
-Home Maintenance 不保存 plan、review result、apply journal 或 status；是否存在实际待处理内容由 active overlay 中的 created/modified/deleted record 与 `SKILL_MEMORY.md` 判断，单纯 copied record 可在 Maintenance 中直接清理。Memory 的启动提醒只检查昨日 Session archive 与同日 MEMORY 是否存在，不扫描更早日期，也不保存 skipped 状态。人工 Memory 命令可以显式指定日期。人工 Home 逐项确认是 Maintenance 内的专用 decision 输入，不是 User Turn append；Program 暂停普通 work dispatch，其他输入继续留在队列。两个 Maintenance work 各自产生明确 outcome，一个失败不回滚或掩盖另一个；后台 scheduler、启动提示和人工命令必须调用同一 runner/service，不复制业务流程。
+- 两类 Turn 可复用的只读 `core.context.inspect`、`core.session.inspect`；
+- 当前 task 的精确 `maintenance.home.*` 或 `maintenance.memory.*` actions；
+- task owner-bound `maintenance.complete`。
 
-`ProgramMaintenanceRunner` 只负责跨模块编排，不解释 Home overlay manifest、Session store 或 MEMORY Markdown：Home pending 和 review/apply 由 Agent Home 提供；指定日期 Session archive 由 Daily coordinator 定位，facts projection 由 Session 提供，Memory eligibility/consolidation 由 MemoryEngine 提供。`ProgramWorkOutcome` 只在当前 Program 内有界保留，不落盘；Home/Memory 的 completed/stopped/skipped/failed 相互独立，失败不会结束 Program 或阻止队列中的另一 Maintenance/User Turn。自动 Memory 若目标文件已经存在，会先通过 Memory 门面验证其非空、可读、未超限，再于读取 Session 之前 skipped；人工 Memory 可以用任意既有 Markdown 格式的同日期文件结合 Session 重写，未指定日期时 Program 取当前 Business Day 的昨日。
+Home 与 Memory Maintenance Turn 不互相暴露 actions，也不提供 `core.answer`、普通 Home mutation、Workspace mutation、Shell 或其它 User actions。成功的 `maintenance.complete` 先由 action owner 校验所有后置条件，再由 `MaintenanceCompletionDetector` 结束 Turn；模型不能用普通文本自行宣布完成，也不能等待人类审批。
 
-长运行 Program 启动时先 `ensure_active_day`，随后只提示 active Home 真实 diff/`SKILL_MEMORY.md` 和昨日非空 Session facts 但缺少 MEMORY。Program work 和 `run_once` 在执行前仍各自 preflight，因此离线期间缺失的 daily rollover 会在下次入口补做。App scheduler 以独立 typed wake-up event 在业务时区午夜触发 rollover，并按配置在 `00:05`、`00:15` 默认投递自动 Home 和昨日 Memory；scheduler 不在自己的线程内调用模块，也不追补进程未运行期间更早的 Maintenance。
+## Cycle 与 Phase
 
-Observation 保持业务所有权与用户终态分离。Daily coordinator 发布 verbose `daily.transition.started`，以及 normal `daily.transition.completed/recovered/failed`；payload 只含 operation id、from/to day、archive timestamp name、是否恢复和稳定错误类型，不含 participant 正文或绝对路径。Home/Memory service 发布各自 verbose Maintenance 细节，Program 仍只以 `program.maintenance.available` 和每个 work 的唯一 `program.work.completed/failed` 表达 normal 用户结果。Program Maintenance 边界捕获的异常只形成 `error_type`、`<work>.execution_failed` failure kind，以及经过白名单的 Runtime reason/cause kind；不把原始异常 message 复制到 outcome 或 normal Observation。所有 emitter 失败都由 Runtime observation helper 隔离，不能改变 journal、archive、Maintenance outcome 或 Program 控制流。
+每个 Cycle 固定顺序执行三个单元：
 
-`DailyLifecycleCoordinator.session_archive_for(day)` 只解释跨模块 transition 并返回 `archive/.../session` 根；Session 再通过只读 `archive_snapshot(day, root)` 校验自己的 manifest/graph。Loop 不读取 Session records，Session 不解析 `transition.json`。
+1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain；
+2. Phase2 只暴露已选 domain 的具体 Action Tools，生成并归一化 ActionCall；
+3. Phase3 装配和执行 ActionBatch，把 ActionResult 反馈写入 TurnTrace，并交给 profile completion detector。
 
-## 输入边界
+Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 要求围绕当前用户请求工作并最终调用 `core.answer`；Maintenance profile 说明这是自治维护、应结合 Background/Session/Workspace、不得生成用户回答或等待审批，并要求仅在 owner 后置条件满足后调用 `maintenance.complete`。
 
-外部输入源、输入命令解析和输入分发由 app 模块负责。Loop 只消费两类已经进入内部边界的输入结果：
+`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module/Phase retry 不丢信号，也不留下半提交语境。
 
-- Program 级 `ProgramInputEvent`：进入 ProgramRunner 的输入队列，用于启动 User Turn、Home Maintenance、指定日期 Memory Maintenance 或结束 Program；
-- Turn 执行中的内部信号：`loop.control.request` 表示结束 Turn 或结束 Program 的控制请求，`context.input.append` 表示追加用户输入。
+## Trap 与失败
 
-控制请求信号本身不改变控制流；运行器在 Phase 或 Cycle 边界只接受 Turn frame 与当前 Turn 完全相同的请求，再构造对应 Runtime 语义异常进入 Trap。无 Turn scope 或旧 Turn 请求会被拒绝，不能中断后续 Turn。普通追加输入同样携带 active Turn scope，由 ContextEngine 校验后在明确边界合并。
+各运行器只在自己的 frame 边界消费 Runtime transfer。结束 Turn/Cycle、Context pressure、Home runtime copy、Workspace trash restore 等由装配层注册精确 handler；未处理异常交 fallback 结束当前 Turn 或 Program。
 
-Loop 只消费精确的 `loop.control.request` 信号，不按 `loop.` namespace 批量消费。未来若增加 `loop.observation`、`loop.metrics` 或其他 loop 命名空间信号，应由各自消费者处理；控制请求消费者不得因为命名空间相同而移除未知信号。
+Action 局部失败留在 ActionResult 中供下一 Cycle 修正。LLM 链耗尽、Context 不变量或 owner preparation failure 经模块 bridge 进入 Runtime，再形成有界 `TurnFailure`。User answer、用户 stop/exit 和正常 Maintenance completion 不伪装为失败。
 
-## Phase 执行单元
+## 模块边界
 
-三个 Phase 执行单元的输入统一为 context 门面、action 门面、LLM 任务运行器、信号总线与当前运行位置；输出为各自的明确产物类型（Phase1Outcome、Phase2Outcome、Phase3Outcome）。
+- 对 app：App 构建并调用 User/Maintenance Turn，Loop 不接收顶层 AppRequest。
+- 对 maintenance：Maintenance task 选择 BusinessDay 和 archive projection，再调用 Maintenance Turn；Loop 不解释 archive journal、Home diff 或 MEMORY 文件。
+- 对 context：只经 ContextEngine 门面构造 MessageStack、消费 control tools/signals 和管理 Turn 生命周期。
+- 对 action：只经 ActionEngine 门面选择 domain/action、归一化调用并执行批次。
+- 对 llm：构造 TaskCall 并消费 provider-neutral TaskResult。
+- 对 runtime：信号经 SignalBus，控制流经 RuntimeException、Trap 和 RuntimeTransfer。
 
-### Phase1：更新语境与决策行动域
-
-Phase1 的工具作用域由 context 的语境控制工具与 action 的域选择工具合并而成。域选择是必选输出，语境整理是可选输出；这通过 TinySoul 的强制工具选择语义表达——工具使用策略要求工具调用，且结果必须包含域选择调用，同时允许包含其他控制调用。
-
-Phase1 的 LLM Task 使用 `framework` profile，并在单次 TaskCall 中显式覆盖为工具必选调用。Phase1 prompt 要求先把当前可见的权威 ActionResult 与既有 WorkingContext milestones/todos 对账：真实任务状态变化时，在选择 domain 的同一次响应中使用 `set_milestone`、`remove_milestone`、`set_todo` 或 `remove_todo` 表达一个或多个完整单项操作；完成项不能继续 pending/in_progress，失败或仅尝试过的项不能标记 done，选择 `core` 收束前当前目标 todo 必须已终态或从未建立。模型返回后，语境类控制调用与域选择调用仍作为一个逻辑步骤处理：前者交 Context 按 sequence 归一化并在 projected Working 上验证，后者解析为已选 domain 集合，Phase1 返回前统一触发批量可行信号原子消费。因此 Phase2 观察到的 WorkingContext 与 Phase1 决策一致，不依赖下一 Cycle 补记。模型输出不满足任务协议时（含缺失必选域选择），以局部结果反馈进入有限次重试；局部策略耗尽后按失败边界处理。
-
-### Phase2：生成行动参数
-
-Phase2 从 action 门面取已选 domain 的行动工具作用域；作用域准备失败收敛为 phase 级结果记入轨迹并结束本执行轮。MessageStack 由 context 构造，overlay 可携带 domain 级 HOW 引导内容。模型返回的 Action Tool Calls 交 action 归一化；行动决策（助手消息与工具调用记录）与归一化失败的局部结果通过轨迹信号记入语境。
-
-Domain 级 HOW 的来源由 `DomainHowProvider` 注入。Agent Home 未接入时默认 provider 返回空内容；接入后同一注入点指向 `home:how_domain:<domain>`，由 Agent Home 映射到 `how_domain/<domain>/DOMAIN.md`，不需要改变 Phase2 执行单元。Phase3 自身不构造 LLM prompt；带内部 LLM task 的 action 通过 action 层共享 `LLMActionTaskRunner` 自动追加 domain HOW 与 action HOW。
-
-### Phase3：采取行动
-
-Phase3 将归一化行动调用经 action 门面装配为批次并执行，归一化失败结果与执行结果按原始顺序合并，经反馈渲染整理为工具结果消息与轨迹载荷，通过轨迹信号记入语境。唯一成功的 `core.answer` 在结果已进入 TurnTrace 后构造 `runtime.turn_output`；多个成功 answer 表示违反 Loop 的唯一输出规则，记录为 Loop 自有 phase note，不伪造成 Action phase result，也不产生 Turn 输出。
-
-Phase3 构造 `ActionExecutionContext` 时注入 SignalBus，使 native action 或后端 executor 可以通过既有信号协议向 context 提交状态变更。当前 app 装配层注册的 `workspace.scan` 使用这一通道提交 workspace 资源摘要。
-
-`ContextSignalConsumer.emit_and_consume` 用于把同一逻辑步骤产生的 Context signals 成组发送并作为一个可重放批次提交。Phase decision、成组 action results 和成组 phase notes 不逐条提交；这既保持信号顺序，也使 Home 缺页发生时能够重放完整批次。Loop 自有 trace note 的稳定 `kind` 由 `LoopTraceNoteKind` 表达。
-
-## Trap 处理器注册
-
-Trap 处理器在装配阶段注册：结束 Turn/Cycle/Program、启动失败、Turn 输出使用精确处理器；Context pressure handler 依次协调 trace fold/heap compaction、Phase1 动态 Background eviction、自动昨日 Memory eviction 和可恢复 Workspace Trash，跳过 action-internal LLM task 在异常 payload 中声明的活动资源，确实回收字符后优先重试当前 Module、否则重试 Phase；Workspace Trash restore handler 恢复压力暂存资源、同步新的 Manifest snapshot 并重试原 Module；Agent Home runtime copy handler 准备副本后重试当前 Module；无进展或未处理 RuntimeException 使用结束 Turn/Program fallback。处理器产生的业务事件通过作用域化信号交对应模块消费。
-
-## 与 app 装配层
-
-TinySoulApp 与 TinySoulAppBuilder 属于 app 模块。App 装配层负责加载配置环境，构建 LLM、Action、Context、SignalBus 与 RuntimeTrap，注册 native action 和 executor，组装输入源、输入分发器与各级 loop runner。
-
-Loop 与 app 的接口保持明确：
-
-- app 创建 ProgramRunner、TurnRunner、CycleRunner 和 Phase 单元；
-- app 将 ProgramInputEvent 投递给 ProgramRunner；
-- app 在 Turn 活跃期间把控制请求转换为 `loop.control.request` 信号；
-- loop 通过 RuntimeTransfer 把结束 Turn 或结束 Program 的控制结果返回给 app 层。
-
-## 与其他模块的关系
-
-- 对 llm：构造 TaskCall，处理任务成功与任务失败两态结果；任务失败走局部反馈重试，模型链耗尽等边界失败由 llm bridge 进入 Trap。
-- 对 action：只经 ActionEngine 门面使用域作用域、行动作用域、归一化、批次装配与执行；实现 executor 所需的 `ActionExecution`、`ActionExecutionContext`、`ActionExecutor` 与结果类型由 Action 顶层包作为公共 SPI 暴露，上层不导入 `action.core`。
-- 对 context：只经 ContextEngine 门面使用语境构造、控制工具、信号消费、输入合并与 Turn 生命周期。
-- 对 memory：Turn preparation 只消费昨日 Background provider，Maintenance runner 只调用 MemoryEngine，不解析 Link/store/Markdown。
-- 对 runtime：信号经 SignalBus，控制流经 Runtime 语义异常与 Trap；loop 自身跨边界失败由 `failures.py` 稳定失败枚举经专门 bridge 映射为 Runtime 通用原因。
-- 对 app：接收 app 已解析的 ProgramInputEvent 与 Turn 内部控制/追加输入信号，不关心外部输入源类型。
-
-## 设计范围
-
-Loop 的核心范围是运行编排、Phase 组合、Runtime 运行转移消费和 Turn/Cycle/Phase 边界信号消费。
-
-Loop 不承担语境状态模型、行动执行、模型调用细节、workspace/Agent Home/Memory 读写、外部输入源、终端渲染或进程装配。运行层级的控制协议由 runtime 定义，Loop 只是其消费者。
+Loop 的设计范围到 Turn 边界为止。Program queue、scheduler、日切、Maintenance plan、外部协议、持久化目录与业务 owner 状态均不得回流到 Loop。

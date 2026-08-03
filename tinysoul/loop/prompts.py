@@ -26,6 +26,7 @@ def phase1_task_prompt(
     *,
     domain_prompt: str,
     feedback: tuple[str, ...] = (),
+    turn_guidance: tuple[str, ...] = (),
 ) -> TaskPrompt:
     sections = [
         "You are in TinySoul Phase1.",
@@ -46,6 +47,7 @@ def phase1_task_prompt(
         ),
         "The action domain selection is mandatory for this phase.",
     ]
+    sections.extend(turn_guidance)
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
     return TaskPrompt(
@@ -81,12 +83,14 @@ def phase2_task_prompt(
     selected_domains: tuple[str, ...],
     domain_how: tuple[str, ...] = (),
     feedback: tuple[str, ...] = (),
+    turn_guidance: tuple[str, ...] = (),
 ) -> TaskPrompt:
     sections = [
         "You are in TinySoul Phase2.",
         "Generate concrete action tool calls for the selected domains.",
         "Only call actions that are useful for the current cycle.",
     ]
+    sections.extend(turn_guidance)
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
     guide_blocks = [

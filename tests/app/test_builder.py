@@ -17,6 +17,7 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.loop import (
     LoopControlKind,
     LoopSettings,
+    TurnSettings,
     TurnCompletion,
     build_control_request_signal,
 )
@@ -55,14 +56,14 @@ def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     memory = config.section_tree("memory")
     session = config.section_tree("session")
     workspace = config.section_tree("workspace")
-    daily = config.section_tree("loop.daily")
+    maintenance = config.section_tree("maintenance")
 
     assert home["root"] == str(tmp_path / "home")
     assert home["runtime_root"] == str(tmp_path / "runtime" / "home")
     assert memory["root"] == str(tmp_path / "memory")
     assert session["root"] == str(tmp_path / "runtime" / "session")
     assert workspace["root"] == str(tmp_path / "runtime" / "workspace")
-    assert daily["archive_root"] == str(tmp_path / "archive")
+    assert maintenance["archive_root"] == str(tmp_path / "archive")
 
 
 def test_app_builder_cleans_project_capability_staging_on_startup(
@@ -124,7 +125,7 @@ def test_agent_workspace_mutation_reaches_endpoint_event_stream(
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
-        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_endpoint(EndpointSettings(token="x" * 32))
         .with_llm_runner(
             FakeLLM(
@@ -201,7 +202,7 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
-        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_turn_completion_handler(recorder)
         .with_llm_runner(
             FakeLLM(
@@ -254,7 +255,7 @@ def test_app_builder_runs_resource_conversion_through_real_action_chain(
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
-        .with_loop_settings(LoopSettings(max_cycles_per_turn=2))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
         .with_llm_runner(
             FakeLLM(
                 (
@@ -324,7 +325,7 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(config)
         .with_app_settings(AppSettings(interactive=False))
-        .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
         .with_llm_runner(
             FakeLLM(
                 (
@@ -725,7 +726,7 @@ def _test_config(
         "memory.root": str(tmp_path / "memory"),
         "session.root": str(tmp_path / "runtime" / "session"),
         "workspace.root": str(tmp_path / "runtime" / "workspace"),
-        "loop.daily.archive_root": str(tmp_path / "archive"),
+        "maintenance.archive_root": str(tmp_path / "archive"),
     }
     if overrides is not None:
         values.update(overrides)

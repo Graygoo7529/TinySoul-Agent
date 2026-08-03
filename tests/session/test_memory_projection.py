@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from tinysoul.loop import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.session import SessionEngine, SessionSettings
 from tinysoul.session.models import SessionOutputRecord
 

@@ -80,6 +80,17 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         "tinysoul/action/catalog/maintenance/actions/memory_consolidate.toml"
         in names
     )
+    assert "tinysoul/app/program.py" in names
+    assert "tinysoul/app/requests.py" in names
+    assert "tinysoul/loop/maintenance/completion.py" in names
+    assert "tinysoul/loop/user/completion.py" in names
+    assert "tinysoul/maintenance/engine.py" in names
+    assert "tinysoul/maintenance/archive/engine.py" in names
+    assert "tinysoul/maintenance/home/task.py" in names
+    assert "tinysoul/maintenance/memory/task.py" in names
+    assert "tinysoul/app/maintenance.py" not in names
+    assert "tinysoul/loop/program.py" not in names
+    assert "tinysoul/maintenance/service.py" not in names
     assert not any(name.startswith("tinysoul/action/catalog/resource/") for name in names)
     assert not any(name.startswith("tinysoul/action/catalog/script/") for name in names)
     assert not any(name.startswith("tinysoul/action/catalog/shell/") for name in names)

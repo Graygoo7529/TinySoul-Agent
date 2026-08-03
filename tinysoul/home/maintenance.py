@@ -8,7 +8,6 @@ from hashlib import sha256
 import json
 from pathlib import Path, PurePosixPath
 from threading import RLock
-from typing import Protocol
 
 from tinysoul.infra.filesystem import (
     TextPrefixRead,
@@ -17,66 +16,14 @@ from tinysoul.infra.filesystem import (
     read_text_prefix,
 )
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm import (
-    AnswerFormat,
-    CallSettings,
-    JsonAnswer,
-    MessageStack,
-    ModelContextOverflowPolicy,
-    SystemMessage,
-    TaskCall,
-    TaskProfile,
-    TaskResult,
-    TaskResultStatus,
-    ToolUse,
-    UserMessage,
-)
-from tinysoul.runtime import (
-    NullObservationEmitter,
-    ObservationEmitter,
-    ObservationEvent,
-    ObservationLevel,
-    RunScope,
-    emit_observation,
-    observation_enabled,
-)
 
 from .errors import (
     AgentHomeContractError,
     AgentHomeIOError,
     AgentHomeInvariantError,
-    AgentHomeReviewError,
 )
 from .layout import AgentHomeLayout
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
-
-
-class HomeMaintenanceMode(StrEnum):
-    """Decision source used for one Home Maintenance run."""
-
-    AUTOMATIC = "automatic"
-    MANUAL = "manual"
-
-
-class HomeMaintenanceDecision(StrEnum):
-    """Allowed disposition for one active Home difference."""
-
-    APPLY = "apply"
-    DISCARD = "discard"
-
-
-class HomeMaintenanceStatus(StrEnum):
-    """Completion status for one in-memory Maintenance run."""
-
-    COMPLETED = "completed"
-    STOPPED = "stopped"
-    FAILED = "failed"
-
-
-class HomeMaintenanceFailure(StrEnum):
-    """Stable local failure kinds for a Maintenance run."""
-
-    REVIEW_FAILED = "review_failed"
 
 
 class HomeMaintenanceResolution(StrEnum):
@@ -236,25 +183,6 @@ class HomeMaintenanceChange:
 
 
 @dataclass(frozen=True)
-class HomeMaintenanceItemOutcome:
-    """Decision summary retained only in the current run outcome."""
-
-    link: str
-    relative_path: str
-    decision: HomeMaintenanceDecision
-
-    def __post_init__(self) -> None:
-        if not self.link or not self.relative_path:
-            raise AgentHomeContractError(
-                "Home maintenance item outcome identity must be non-empty"
-            )
-        if not isinstance(self.decision, HomeMaintenanceDecision):
-            raise AgentHomeContractError(
-                "Home maintenance item outcome decision is invalid"
-            )
-
-
-@dataclass(frozen=True)
 class HomeMaintenancePending:
     """Non-persisted startup eligibility for active Home maintenance work."""
 
@@ -327,150 +255,8 @@ class HomeMaintenanceResolveOutcome:
             )
 
 
-@dataclass(frozen=True)
-class HomeMaintenanceOutcome:
-    """Bounded, non-persisted result of one Home Maintenance run."""
-
-    status: HomeMaintenanceStatus
-    failure: HomeMaintenanceFailure | None = None
-    items: tuple[HomeMaintenanceItemOutcome, ...] = field(default_factory=tuple)
-    copied_cleaned: int = 0
-    consistent_cleaned: int = 0
-    skill_memories_cleared: int = 0
-    remaining_changes: int = 0
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.status, HomeMaintenanceStatus):
-            raise AgentHomeContractError("Home maintenance outcome status is invalid")
-        if self.status is HomeMaintenanceStatus.FAILED:
-            if not isinstance(self.failure, HomeMaintenanceFailure):
-                raise AgentHomeContractError(
-                    "Failed Home maintenance outcome requires a failure kind"
-                )
-        elif self.failure is not None:
-            raise AgentHomeContractError(
-                "Non-failed Home maintenance outcome cannot carry a failure kind"
-            )
-        if any(not isinstance(item, HomeMaintenanceItemOutcome) for item in self.items):
-            raise AgentHomeContractError("Home maintenance outcome items are invalid")
-        for value in (
-            self.copied_cleaned,
-            self.consistent_cleaned,
-            self.skill_memories_cleared,
-            self.remaining_changes,
-        ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise AgentHomeContractError(
-                    "Home maintenance outcome counts must be non-negative integers"
-                )
-        object.__setattr__(self, "items", tuple(self.items))
-
-    @property
-    def applied(self) -> int:
-        return sum(
-            item.decision is HomeMaintenanceDecision.APPLY
-            for item in self.items
-        )
-
-    @property
-    def discarded(self) -> int:
-        return sum(
-            item.decision is HomeMaintenanceDecision.DISCARD
-            for item in self.items
-        )
-
-
-class HomeMaintenanceReviewer(Protocol):
-    """Automatic decision boundary for one bounded Home change."""
-
-    def review(
-        self,
-        change: HomeMaintenanceChange,
-        *,
-        scope: RunScope,
-    ) -> HomeMaintenanceDecision:
-        ...
-
-
-class HomeMaintenanceDecisionProvider(Protocol):
-    """Manual decision boundary; None stops before processing the item."""
-
-    def decide(
-        self,
-        change: HomeMaintenanceChange,
-    ) -> HomeMaintenanceDecision | None:
-        ...
-
-
-class HomeMaintenanceModelRunner(Protocol):
-    def run(self, call: TaskCall) -> TaskResult:
-        ...
-
-
-class LLMHomeMaintenanceReviewer:
-    """Review one Home change through the dedicated JSON-only LLM profile."""
-
-    def __init__(self, runner: HomeMaintenanceModelRunner) -> None:
-        self._runner = runner
-
-    def review(
-        self,
-        change: HomeMaintenanceChange,
-        *,
-        scope: RunScope,
-    ) -> HomeMaintenanceDecision:
-        result = self._runner.run(
-            TaskCall(
-                profile=TaskProfile.HOME_MAINTENANCE,
-                messages=MessageStack.of(
-                    SystemMessage.from_text(
-                        "Review one Agent Home runtime change against current actual "
-                        "Home. Apply only when the runtime version should become the "
-                        "long-term Home fact; otherwise discard it.",
-                        label="home_maintenance_role",
-                    ),
-                    UserMessage.from_json(
-                        change.to_review_json(),
-                        label="home_maintenance_change",
-                    ),
-                    UserMessage.from_text(
-                        'Return exactly one JSON object: {"decision":"apply"} '
-                        'or {"decision":"discard"}.',
-                        label="home_maintenance_output",
-                    ),
-                ),
-                settings=CallSettings(
-                    answer_format=AnswerFormat.JSON_OBJECT,
-                    tool_use=ToolUse.DISABLED,
-                ),
-                scope=scope,
-                context_overflow_policy=ModelContextOverflowPolicy.END_TURN,
-            )
-        )
-        if result.status is TaskResultStatus.FAILURE:
-            raise AgentHomeReviewError(
-                "Home maintenance reviewer output did not satisfy its protocol"
-            )
-        if not isinstance(result.answer, JsonAnswer):
-            raise AgentHomeReviewError(
-                "Home maintenance reviewer did not return a JSON object"
-            )
-        value = result.answer.value
-        if set(value) != {"decision"}:
-            raise AgentHomeReviewError(
-                "Home maintenance reviewer returned unexpected fields"
-            )
-        decision = value.get("decision")
-        try:
-            return HomeMaintenanceDecision(decision)
-        except (TypeError, ValueError) as exc:
-            raise AgentHomeReviewError(
-                "Home maintenance reviewer returned an invalid decision"
-            ) from exc
-
-
 class HomeMaintenanceService:
-    """Recompute, decide, apply, and clear active Home differences."""
+    """Snapshot and atomically resolve active Home differences."""
 
     def __init__(
         self,
@@ -479,7 +265,6 @@ class HomeMaintenanceService:
         overlay: HomeOverlayManager,
         max_preview_chars: int,
         max_write_chars: int,
-        observations: ObservationEmitter | None = None,
     ) -> None:
         if (
             isinstance(max_preview_chars, bool)
@@ -496,7 +281,6 @@ class HomeMaintenanceService:
         self._overlay = overlay
         self._max_preview_chars = max_preview_chars
         self._max_write_chars = max_write_chars
-        self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
 
     def snapshot(self) -> HomeMaintenanceSnapshot:
@@ -580,187 +364,6 @@ class HomeMaintenanceService:
                 resolution=resolution,
                 remaining_changes=remaining,
             )
-
-    def run(
-        self,
-        *,
-        mode: HomeMaintenanceMode,
-        automatic_reviewer: HomeMaintenanceReviewer | None = None,
-        manual_decisions: HomeMaintenanceDecisionProvider | None = None,
-        scope: RunScope | None = None,
-    ) -> HomeMaintenanceOutcome:
-        run_scope = scope or RunScope()
-        self._emit(
-            "home.maintenance.started",
-            "Home Maintenance started.",
-            scope=run_scope,
-            payload={
-                "mode": (
-                    mode.value
-                    if isinstance(mode, HomeMaintenanceMode)
-                    else "invalid"
-                )
-            },
-        )
-        try:
-            outcome = self._run(
-                mode=mode,
-                automatic_reviewer=automatic_reviewer,
-                manual_decisions=manual_decisions,
-                scope=run_scope,
-            )
-        except Exception as exc:
-            self._emit(
-                "home.maintenance.failed",
-                "Home Maintenance failed.",
-                scope=run_scope,
-                payload={
-                    "mode": (
-                        mode.value
-                        if isinstance(mode, HomeMaintenanceMode)
-                        else "invalid"
-                    ),
-                    "error_type": type(exc).__name__,
-                },
-            )
-            raise
-        terminal = {
-            HomeMaintenanceStatus.COMPLETED: "completed",
-            HomeMaintenanceStatus.STOPPED: "stopped",
-            HomeMaintenanceStatus.FAILED: "failed",
-        }[outcome.status]
-        payload: JsonObject = {
-            "mode": mode.value,
-            "applied": outcome.applied,
-            "discarded": outcome.discarded,
-            "copied_cleaned": outcome.copied_cleaned,
-            "consistent_cleaned": outcome.consistent_cleaned,
-            "skill_memories_cleared": outcome.skill_memories_cleared,
-            "remaining_changes": outcome.remaining_changes,
-        }
-        if outcome.failure is not None:
-            payload["failure"] = outcome.failure.value
-        self._emit(
-            f"home.maintenance.{terminal}",
-            f"Home Maintenance {terminal}.",
-            scope=run_scope,
-            payload=payload,
-        )
-        return outcome
-
-    def _run(
-        self,
-        *,
-        mode: HomeMaintenanceMode,
-        automatic_reviewer: HomeMaintenanceReviewer | None = None,
-        manual_decisions: HomeMaintenanceDecisionProvider | None = None,
-        scope: RunScope | None = None,
-    ) -> HomeMaintenanceOutcome:
-        with self._lock:
-            self._validate_decision_boundary(
-                mode,
-                automatic_reviewer=automatic_reviewer,
-                manual_decisions=manual_decisions,
-            )
-            run_scope = scope or RunScope()
-            copied_cleaned, consistent_cleaned = self._clean_deterministic_records()
-            memories = self._skill_memories()
-            changes = tuple(
-                self._build_change(record, memories=memories)
-                for record in self._reviewable_records()
-            )
-            pending_by_skill = _pending_changes_by_skill(changes)
-            cleared_skills: set[str] = set()
-            cleared_memories = 0
-            for skill in sorted(memories):
-                if pending_by_skill.get(skill, 0) == 0:
-                    self._clear_skill_memory(skill, memories[skill])
-                    cleared_skills.add(skill)
-                    cleared_memories += 1
-
-            item_outcomes: list[HomeMaintenanceItemOutcome] = []
-            status = HomeMaintenanceStatus.COMPLETED
-            failure = None
-            for change in changes:
-                try:
-                    decision = self._decision_for(
-                        change,
-                        mode=mode,
-                        automatic_reviewer=automatic_reviewer,
-                        manual_decisions=manual_decisions,
-                        scope=run_scope,
-                    )
-                except AgentHomeReviewError:
-                    status = HomeMaintenanceStatus.FAILED
-                    failure = HomeMaintenanceFailure.REVIEW_FAILED
-                    break
-                if decision is None:
-                    status = HomeMaintenanceStatus.STOPPED
-                    break
-                self._process_change(change, decision)
-                item_outcomes.append(
-                    HomeMaintenanceItemOutcome(
-                        link=change.link,
-                        relative_path=change.relative_path,
-                        decision=decision,
-                    )
-                )
-                self._emit(
-                    "home.maintenance.item.resolved",
-                    "Home Maintenance item resolved.",
-                    scope=run_scope,
-                    payload={
-                        "link": change.link,
-                        "state": change.state.value,
-                        "decision": decision.value,
-                    },
-                )
-                skill = _skill_for_relative(change.relative_path)
-                if skill is not None and skill in pending_by_skill:
-                    pending_by_skill[skill] -= 1
-                    if (
-                        pending_by_skill[skill] == 0
-                        and skill in memories
-                        and skill not in cleared_skills
-                    ):
-                        self._clear_skill_memory(skill, memories[skill])
-                        cleared_skills.add(skill)
-                        cleared_memories += 1
-
-            return HomeMaintenanceOutcome(
-                status=status,
-                failure=failure,
-                items=tuple(item_outcomes),
-                copied_cleaned=copied_cleaned,
-                consistent_cleaned=consistent_cleaned,
-                skill_memories_cleared=cleared_memories,
-                remaining_changes=len(self._reviewable_records()),
-            )
-
-    def _emit(
-        self,
-        name: str,
-        message: str,
-        *,
-        scope: RunScope,
-        payload: JsonObject,
-    ) -> None:
-        if not observation_enabled(
-            self._observations,
-            ObservationLevel.VERBOSE,
-        ):
-            return
-        emit_observation(
-            self._observations,
-            ObservationEvent(
-                name=name,
-                level=ObservationLevel.VERBOSE,
-                source="home.maintenance",
-                scope=scope,
-                message=message,
-                payload=payload,
-            ),
-        )
 
     def pending(self) -> HomeMaintenancePending:
         """Report actual review work without cleaning or mutating the overlay."""
@@ -897,45 +500,6 @@ class HomeMaintenanceService:
             skill_memory=skill_memory,
         )
 
-    def _decision_for(
-        self,
-        change: HomeMaintenanceChange,
-        *,
-        mode: HomeMaintenanceMode,
-        automatic_reviewer: HomeMaintenanceReviewer | None,
-        manual_decisions: HomeMaintenanceDecisionProvider | None,
-        scope: RunScope,
-    ) -> HomeMaintenanceDecision | None:
-        if mode is HomeMaintenanceMode.AUTOMATIC:
-            if automatic_reviewer is None:
-                raise AgentHomeInvariantError(
-                    "Automatic Home maintenance reviewer disappeared"
-                )
-            decision = automatic_reviewer.review(change, scope=scope)
-        else:
-            if manual_decisions is None:
-                raise AgentHomeInvariantError(
-                    "Manual Home maintenance decision provider disappeared"
-                )
-            decision = manual_decisions.decide(change)
-            if decision is None:
-                return None
-        if not isinstance(decision, HomeMaintenanceDecision):
-            raise AgentHomeContractError(
-                "Home maintenance decision provider returned an invalid decision"
-            )
-        return decision
-
-    def _process_change(
-        self,
-        change: HomeMaintenanceChange,
-        decision: HomeMaintenanceDecision,
-    ) -> None:
-        self._verify_change(change)
-        if decision is HomeMaintenanceDecision.APPLY:
-            self._apply(change)
-        self._overlay.clear_record(change.relative_path)
-
     def _verify_change(self, change: HomeMaintenanceChange) -> None:
         record = self._overlay.record_for(change.relative_path)
         if record is None or (
@@ -1012,28 +576,6 @@ class HomeMaintenanceService:
                 f"SKILL_MEMORY changed during maintenance: {skill}"
             )
         self._overlay.clear_record(expected.relative_path)
-
-    @staticmethod
-    def _validate_decision_boundary(
-        mode: HomeMaintenanceMode,
-        *,
-        automatic_reviewer: HomeMaintenanceReviewer | None,
-        manual_decisions: HomeMaintenanceDecisionProvider | None,
-    ) -> None:
-        if not isinstance(mode, HomeMaintenanceMode):
-            raise AgentHomeContractError(
-                "Home maintenance mode must be automatic or manual"
-            )
-        if mode is HomeMaintenanceMode.AUTOMATIC:
-            if automatic_reviewer is None or manual_decisions is not None:
-                raise AgentHomeContractError(
-                    "Automatic Home maintenance requires only an automatic reviewer"
-                )
-        elif manual_decisions is None or automatic_reviewer is not None:
-            raise AgentHomeContractError(
-                "Manual Home maintenance requires only a decision provider"
-            )
-
 
 def _actual_digest(path: Path) -> str:
     if not path.exists():

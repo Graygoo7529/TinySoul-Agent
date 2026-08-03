@@ -42,7 +42,8 @@ from tinysoul.llm.responses import (
     TaskResult,
     TextAnswer,
 )
-from tinysoul.loop import BusinessDay, TurnPreparationRequest
+from tinysoul.loop import TurnPreparationRequest
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 import tinysoul.workspace.engine as workspace_engine_module
@@ -485,7 +486,7 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
     for signal in handler.prepare(
         TurnPreparationRequest(
             turn_id=turn_id,
-            user_input="hello",
+            turn_input="hello",
             business_day=DAY,
             scope=scope,
         )

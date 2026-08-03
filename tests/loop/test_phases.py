@@ -27,14 +27,14 @@ from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
-from tinysoul.loop.completion import UserAnswerCompletionDetector
+from tinysoul.loop.user import UserAnswerCompletionDetector
 from tinysoul.memory import (
     MemoryEngine,
     MemoryLink,
     MemorySettings,
     register_memory_actions,
 )
-from tinysoul.maintenance import MAINTENANCE_ACTIONS
+from tinysoul.maintenance.actions import MAINTENANCE_ACTIONS
 from tinysoul.memory.store import MemoryStore
 from tinysoul.runtime import (
     RUNTIME_TURN_END,

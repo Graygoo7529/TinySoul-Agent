@@ -192,8 +192,6 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 任务配置描述不同任务用途对应的调用设置、候选模型顺序和重试策略。调用设置包含回答格式、工具使用策略、通用调用参数和必备模型能力。配置文件中的键名应使用适合 TOML 的安全写法，并与运行时使用的任务用途名称一致。
 
-内置 `home_maintenance` profile 服务于 Home-owned 自动 reviewer：禁用工具、要求 JSON object、使用较低 temperature 和很小的输出上限。Home 模块仍负责校验业务字段，只接受精确 `apply`/`discard` decision；LLM Task 失败或额外字段不会被猜测修复，也不会把 reasoning 写入 Home review 状态。
-
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 
 内置 `memory_maintenance` profile 服务于 Memory-owned consolidator：禁用工具、要求 JSON object、使用较低 temperature，并为分层 reduce 和最终单日 Markdown body 保留明确输出预算。中间和最终输出都只接受精确 `content` 字段；Memory renderer 只增加日期 H1，validator 负责正文非空、文档大小以及 Home/Memory Link 存在性。完整 Link catalog 只用于本地验证，模型只看到从本次 source 提取且受字符预算约束的有效 Link hints；业务校验失败可以作为有界 feedback 重新执行最终生成，但不会持久化模型输出、reasoning 或候选状态。独立 `memory_search` profile 只对 Memory 模块交付的有界单日候选重排；非法结果由 Memory 回退确定性候选，LLM 模块不解析 `memory:` Link。

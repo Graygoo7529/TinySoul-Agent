@@ -45,7 +45,7 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.maintenance import MAINTENANCE_ACTIONS
+from tinysoul.maintenance.actions import MAINTENANCE_ACTIONS
 from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
 from tests.action_helpers import FunctionActionEngineBuilder, FunctionActionExecutor
 

@@ -4,18 +4,19 @@
 
 App 模块负责 TinySoul 的进程级装配、生命周期、外部输入边界和外部输出边界。它把 infra、llm、action、context、runtime 与 loop 组装成可运行的 TinySoulApp，把终端、API、HTTP、WebSocket 或其他来源的外部输入统一转换为内部输入事件，并把非控制性的运行观察事件路由到终端或嵌入方提供的输出端。
 
-App 不定义 Program/Turn/Cycle/Phase 运行语义，不维护 Context 状态，不执行 Action，不适配模型供应商。运行语义仍由 loop 模块负责；app 只负责把真实世界输入和模块装配接到 loop 的明确边界。
+App 拥有 Program request queue、Program frame 和顶层分派，但不实现 Turn/Cycle/Phase 内核，不维护 Context 状态，不执行 Action，也不适配模型供应商。Program 只把 typed request 分派给 User Turn 或 MaintenanceEngine；可复用 Turn 运行语义仍由 loop 模块负责。
 
 ## 目录组织
 
 ```text
 tinysoul/app/
-  config.py          # AppSettings、输入/输出与 scheduler 配置
+  program.py         # 顶层请求队列、分派与 Program frame
+  requests.py        # UserTurnRequest / MaintenanceRequest / ExitRequest
+  config.py          # AppSettings 与输入/输出配置
   errors.py          # app 契约与不变量错误
   failures.py        # app Runtime bridge 失败枚举
-  gateway.py         # AppCommandGateway 统一命令、控制与决策入口
+  gateway.py         # AppCommandGateway 统一命令与控制入口
   inputs.py          # InputEvent、InputCommandParser、InputDispatcher
-  maintenance.py     # 人工 Home review decision broker
   initializer.py     # package project template 初始化
   outputs.py         # OutputSink、ObservationRouter 与终端渲染
   cli.py             # console script 入口
@@ -24,7 +25,7 @@ tinysoul/app/
   builder.py         # TinySoulAppBuilder 全局装配入口
   sources/
     terminal.py      # 终端输入源
-    scheduler.py     # typed Program event scheduler
+    scheduler.py     # typed Maintenance request scheduler
 ```
 
 可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；只读 Action Catalog 位于 `tinysoul/action/catalog/`。项目模板只保存一份 README、`.gitignore`、`tinysoul.toml` 与 Home，并保存完整、彼此独立的 standard/development config profile。App 初始化前者，但不复制或改写 Action Catalog。
@@ -37,32 +38,32 @@ App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app �
 
 输入处理分为三层：
 
-- `AppCommandGateway` 是唯一外部命令入口；它区分可信终端交互行与普通用户文本，协调 typed control、Maintenance decision 和活跃 Turn Workspace snapshot；
-- `InputCommandParser` 是纯解析器，无副作用；它根据当前是否存在活跃 Turn，把 InputEvent 分类为启动 Turn、追加输入、停止 Turn、Home/Memory Maintenance、拒绝的命令、退出 Program 或忽略。
-- `InputDispatcher` 承担副作用；它将 User Turn、Home Maintenance、指定日期 Memory Maintenance 和 Program 退出等 Program 级输入投递到 ProgramRunner 队列，将 Turn 内追加输入转换为 `context.input.append` 信号，将 Turn 内控制请求转换为 `loop.control.request` 信号。
+- `AppCommandGateway` 是唯一外部命令入口；它区分可信终端命令与普通用户文本，协调 typed control、Maintenance request 和活跃 Turn Workspace snapshot；
+- `InputCommandParser` 是纯解析器，无副作用；它根据当前是否存在活跃 Turn，把 InputEvent 分类为启动 Turn、追加输入、停止 Turn、Daily/Home/Memory Maintenance、拒绝的命令、退出 Program 或忽略；
+- `InputDispatcher` 承担副作用；它将 `UserTurnRequest`、`MaintenanceRequest` 和 `ExitRequest` 投递到 ProgramRunner 队列，将 Turn 内追加输入转换为 `context.input.append` 信号，将 Turn 内控制请求转换为 `loop.control.request` 信号。
 
-Terminal 通过 Gateway 的 interactive 入口保留上下文相关的 `apply/discard/stop`；Endpoint 普通文本通过 user input 入口，不能解释这些决策词，pending decision 时必须走带 decision_id 的 typed API。`source` 只用于审计，不承担授权。
+Maintenance 命令无论 User Turn 是否活跃都进入 Program queue，不解释为 append，也不存在 `apply/discard/stop` decision channel。`source` 只用于审计，不承担授权。
 
 ## Program 输入队列
 
-ProgramRunner 等待的是已分类的 `ProgramInputEvent`，而不是原始字符串。
+ProgramRunner 等待的是 `AppRequest = UserTurnRequest | MaintenanceRequest | ExitRequest`，而不是原始字符串或带 kind 字符串的平行事件模型。
 
-空闲状态下的普通输入变成 `start_turn` 事件；维护指令变成 Home 或 Memory Maintenance event；退出命令变成 `exit_program` 事件。这样 ProgramRunner 阻塞等待时总能被 Program 级事件唤醒，不依赖 SignalBus 唤醒外部输入。
+空闲状态下的普通输入变成 UserTurnRequest，维护指令变成 MaintenanceRequest，退出命令变成 ExitRequest。这样 ProgramRunner 阻塞等待时总能被顶层 request 唤醒，不依赖 SignalBus 唤醒外部输入。
 
 Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，而是由 InputDispatcher 转换为内部信号，由 loop 在 Phase/Cycle 边界消费。Maintenance 是 Program work，即使在 Turn 活跃时也始终排入 Program 队列，不形成 `context.input.append`；它会在当前 Turn 收束后执行。
 
 ## 输入源
 
-终端等外部输入源实现 `InputSource` 协议，只负责生产 InputEvent；时间触发源实现独立的 `ProgramEventSource`，只负责生产已经分类的 Program event：
+终端等外部输入源实现 `InputSource` 协议，只负责生产 InputEvent；时间触发源实现独立的 `ProgramRequestSource`，只负责生产 typed AppRequest：
 
 - `TerminalInputSource` 从 stdin 读取行输入；stdin 到 EOF 时，它提交配置中的首个 Program 退出命令，使阻塞中的 ProgramRunner 通过正常输入/Trap 流程结束；
-- 内置 `MaintenanceScheduler` 是时间驱动的 `ProgramEventSource`，只向 Program 投递 daily rollover/Home Maintenance/Memory Maintenance event，不在 scheduler 线程直接调用业务模块；
+- 内置 `MaintenanceScheduler` 是时间驱动的 `ProgramRequestSource`，只向 Program 投递一个到期的 Daily MaintenanceRequest，不在 scheduler 线程直接调用业务模块；
 - 测试或嵌入式调用可以调用普通文本语义的 `TinySoulApp.submit_input()`；只有受信任的本地命令行适配器使用 `submit_interactive_event()`；
 - HTTP/WebSocket Endpoint 是独立 AppService，通过 AppCommandGateway 提交输入和控制，不伪装成 InputSource；后续长运行传输适配器遵循相同边界。
 
 外部框架只应出现在 source adapter 内部，不应进入 loop、context、action 或 llm 的核心语义。
 
-`TinySoulApp.run()` 依次启动 Program event source、AppService 和外部 input source，并在程序退出或启动失败时按逆序停止全部已启动组件。`run_once()` 不启动这些长运行组件，因此不会创建 scheduler 或 Endpoint 线程，但 ProgramRunner 仍执行 Daily preflight。停止过程采用 best-effort。
+`TinySoulApp.run()` 依次启动 Program request source、AppService 和外部 input source，并在程序退出或启动失败时按逆序停止全部已启动组件。`run_once()` 不启动这些长运行组件，因此不会创建 scheduler 或 Endpoint 线程，但 ProgramRunner 仍执行 Daily preflight。停止过程采用 best-effort。
 
 ## 输出与观察事件
 
@@ -104,7 +105,7 @@ TinySoulAppBuilder 负责：
 - 从统一 ConfigEnvironment 读取各模块 section tree，由 app/capabilities/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
 - 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
 - 调用各模块和已启用 capability 的 registrar 装配 executor，并在 ActionEngine build 前移除禁用 action；
-- 构建 Phase、CycleRunner、TurnRunner、ProgramRunner，并注入默认 IANA business clock 与 DailyLifecycleCoordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
+- 构建共用 Phase/Cycle、User/Maintenance Turn、MaintenanceEngine 与 ProgramRunner，并向 MaintenanceEngine 注入默认 IANA business clock 和 Archive coordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
 - preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
 - 构建 InputCommandParser、InputDispatcher、AppCommandGateway、终端输入源、Endpoint service 和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Workspace、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
@@ -120,23 +121,24 @@ AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared 
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 
-AppBuilder 把同一个 `DailyLifecycleCoordinator` 注入 ProgramRunner 和 `ProgramMaintenanceRunner`，把 HomeEngine、MemoryEngine 与 SessionEngine 作为独立门面注入 runner。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，保留 `runtime/home`；随后检查 active Home 的真实修改/`SKILL_MEMORY.md`，并检查“昨日 Session archive 存在、Session Memory facts projection 非空且昨日 MEMORY 不存在”，以 `program.maintenance.available` 给出非阻塞提示。Home 提示可跳过，overlay 继续保留；Memory 不保存 skipped 状态，只在目标日期仍是昨日时自动提示。
+AppBuilder 构建一个 `MaintenanceEngine` 并注入 `ProgramRunner` 和 Endpoint。MaintenanceEngine 内部组合 `maintenance.archive` 的 DailyLifecycleCoordinator、HomeMaintenanceTask 与 MemoryMaintenanceTask；Home/Memory task 需要推理时再调用各自的 Maintenance Turn。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，随后从 archive catalog 与 Home pending facts 计算 availability，并以 `program.maintenance.available` 给出非阻塞提示。
 
-人工命令为 `/maintenance home` 与 `/maintenance memory [YYYY-MM-DD]`，Memory 未指定日期时默认昨日；Endpoint 以结构化 Maintenance request 表达相同意图。`HomeDecisionBroker` 为 Home Maintenance 提供带 decision identity 的共享 typed channel；终端只在存在 pending change 时消费精确 `apply/discard/stop`，Endpoint 只能通过带 decision_id 的 typed API 提交决策，pending 期间的普通 Endpoint input 返回冲突。`home.maintenance.decision.required/resolved` 经 ObservationRouter 同时通知 Console 与前端，第一个有效 decision 获胜；EOF 或 Program 退出先停止 pending review，避免 Program 阻塞。
+人工命令为 `/maintenance [daily|home]` 与 `/maintenance memory [YYYY-MM-DD] [--rebuild]`；Endpoint 以结构化 `kind=daily|home|memory`、可选 target/rebuild 表达相同意图。人工和 scheduler request 只在 trigger/参数上不同，进入 MaintenanceEngine 后使用同一个 plan、任务路径和 outcome。整个流程自动执行，不存在 decision identity、审批 Endpoint 或 pending 输入阻塞。
 
 `ProjectInstanceLease` 在 AppBuilder 构建业务 Engine 前持有规范化项目根对应的 OS 排他锁。Endpoint 监听成功后，lease 在当前用户运行目录原子发布连接描述，包含 project/instance identity、PID、loopback host、随机端口、进程 token 和协议版本；正常退出时删除描述并释放锁。重复 `start` 必须在任何第二个 WorkspaceEngine 出现前失败。EndpointEngine 是无生命周期的 application facade，EndpointHost 作为 AppService 延迟加载并启停 ASGI server；有界 event buffer 只作为固定 MODEL 的 ObservationRouter sink。
 
-`app.scheduler.enabled` 默认开启，`home_maintenance_time` 默认 `00:05`，`memory_maintenance_time` 默认 `00:15`，均按 `loop.daily.timezone` 的本地墙钟解释，且 Home 必须早于 Memory。进程启动晚于当日时刻时不补跑停机期间的 Maintenance；daily rollover 由 Program 启动/每项 work preflight 补做，Home overlay 保留到下一次 Maintenance，Memory 自动提醒只检查昨日。scheduler 内存游标按 `daily -> Home -> Memory` 顺序投递当日事件，不保存调度状态。
+`maintenance.schedule.enabled` 默认开启，`maintenance.schedule.daily_time` 默认 `00:15`，按 `maintenance.timezone` 的本地墙钟解释。scheduler 每日只投递一个 Daily request；启动晚于当日时刻不追补模型任务，Program 只报告 availability。计划时刻前已运行的进程按时投递；运行中休眠跨过一个或多个时刻时合并为一个当前日 request。Daily preflight 先收束归档，然后运行 Home task，并扫描 archive catalog 中所有仍 eligible 的关闭日 Memory，因此漏掉的维护仍可由提示后的手动请求处理，不依赖持久 scheduler cursor。
 
-这些入口由 App 负责外部触发与装配，但 Home diff/review/apply 归 Agent Home，Session archive projection 归 Session，MEMORY 搜索/召回/重写归 Memory，work 调度与 outcome 归 Loop maintenance runner；CLI、terminal source 和 scheduler 不能直接读写任一业务根。App 不建立 settlement root，也不持久化 review/apply 状态。Program normal 输出固定 `program.maintenance.available`、`program.work.started` 和每项 work 的唯一 `program.work.completed/failed`；外部命令由 App 发布 `app.command.accepted/rejected`，并以 request identity 关联 Turn 或 work。Daily normal terminal 由 Loop owner 发布，Home/Memory 继续发布 verbose Maintenance 细节。
+这些入口由 App 负责外部触发与装配；任务计划、Archive/Home/Memory 编排和 outcome 归 MaintenanceEngine，Home diff mutation 归 Agent Home，Session/Workspace archive projection 归各自 owner，MEMORY 搜索/召回/写入归 Memory。CLI、Endpoint 和 scheduler 不能直接读写业务根。App 不建立 settlement root，也不持久化审批或 review 状态。外部命令发布 `app.command.accepted/rejected`，MaintenanceEngine 发布 `maintenance.started/completed`，Archive owner 发布 `daily.transition.*`。
 
-Stage 7 的无网络 App E2E 关闭 scheduler，以注入的受控 BusinessClock 和直接投递的 typed Program event 验证同一正式装配链：旧日 Turn 写 Home overlay，Program 启动补做 Daily archive，再独立执行 Home/Memory Maintenance，后续 Turn 自动获得昨日 MEMORY，并通过真实 Memory action search/recall 较早日期。fake LLM 只替换 provider runner，不替换 App/Loop/Home/Memory/Session/Action/Context 业务门面。
+无网络 App E2E 应关闭 scheduler，以注入的受控 BusinessClock 和直接投递的 typed AppRequest 验证正式装配链：旧日 User Turn 写 Home overlay，Program preflight 完成 Daily archive，Daily Maintenance 通过 Home/Memory Maintenance Turn 处理变更与记忆，后续 User Turn 自动获得昨日 MEMORY。fake LLM 只替换 provider runner，不替换 App/Maintenance/Loop/Home/Memory/Session/Action/Context 门面。
 
 发布验收另外构建 wheel、检查 package catalog/template 条目、隔离安装 wheel 并从安装包执行 `tinysoul init`。fake-provider CLI E2E 从生成项目启动本地 OpenAI-compatible HTTP provider，实际经过 ConfigEnvironment、provider adapter、Phase1、Phase2、Phase3 和 `core.answer`，不以注入 FakeLLM 代替供应商边界。真实 provider App/CLI smoke 默认 skip，只有显式设置测试开关和已配置项目根时运行。
 
 ## 与其他模块的关系
 
-- 对 loop：app 创建各级 runner，注入 daily settings/coordinator、Maintenance runner 与 scheduler，并向 ProgramRunner 投递 typed ProgramInputEvent；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
+- 对 loop：app 分别创建 User/Maintenance Turn 与共用 Cycle/Phase，并把 UserTurnRequest 分派到 User Turn；Turn 活跃期间通过 SignalBus 发出 loop/control 与 context/input 信号。
+- 对 maintenance：app 构建 MaintenanceEngine、Archive/Home/Memory task 与 scheduler，并把 MaintenanceRequest 分派到唯一维护门面；不解释任务内部事实。
 - 对 runtime：app 注册 Trap handler，并通过 RuntimeAppBridge 映射 app 边界失败。
 - 对 action：app 调用模块 registrar 注册 action executor；具体 action 语义仍由 action 模块调度，由对应业务模块执行。
 - 对 context：app 注入 Home/Memory 的 `BackgroundEntryProvider`，不物化 core、不读取 Agent Home 或 Memory 文件。它同时装配共享 ContextSignalConsumer 和 TurnCompletionPipeline 接入点。

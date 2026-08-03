@@ -95,7 +95,7 @@ Manifest 读写属于 Workspace 模块。Manifest 文件应放在 workspace 根�
 
 Manifest 损坏属于 Workspace 模块边界失败。启动或装配阶段会主动加载并校验 manifest，损坏时映射为 Workspace 启动失败；运行期损坏同样显式失败，不静默重建。Manifest revision 只在资源事实或有效语义描述发生变化时递增，无变化 reconciliation 保持 revision。
 
-Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Program 日协调器按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
+Manifest schema 当前为 v3，新增 ISO business day；读取 v1/v2 时迁移为未标记 legacy state，由 Maintenance Archive coordinator 按 active Session day 认领。磁盘、Manifest 与 WorkingContext 的一致性通过“磁盘事实 -> 完整 reconciliation -> Manifest 原子提交 -> 版本化全量 Context snapshot”建立。任何需要缩减 Workspace 语境的行为必须先改变 active Workspace/Manifest，不能只在 Context 中隐藏仍然 active 的资源。
 
 ## Trash 与压力回收
 
@@ -238,7 +238,7 @@ tinysoul/workspace/
   failures.py
 ```
 
-`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验和 `archive_day(workspace_target, trash_target)`。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Loop coordinator 只调用这些门面，不理解 Workspace 内部资源路径。
+`WorkspaceEngine` 是资源管理门面，除资源操作外提供 active day 初始化/校验、`archive_day(workspace_target, trash_target)` 和归档只读 manifest projection。`WorkspaceReconciler` 维护磁盘发现与 Manifest 提交事务；`projection.py` 只接受与 Turn 相同 business day 的 Manifest；`WorkspaceEngineBuilder` 负责接收已解析设置、校验 module-owned 路径、主动验证 manifest 并装配 store。Maintenance Archive/Memory task 只调用这些门面，不理解 Workspace 内部资源路径。
 
 AppBuilder 的目标职责是：
 

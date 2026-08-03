@@ -65,7 +65,7 @@ active head -> Summary -> Turn -> Action collection -> Action leaf
 
 Daily Lifecycle 归档 Session 根后，`archive_snapshot()` 用同一 manifest/record validator 校验只读图。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、输出、Actions 与 exhausted；不交付 trace 或执行元数据。
 
-SessionEngine 只负责自身初始化、提交、reconciliation、archive 与 projection。Loop 决定 business day 和归档位置；Memory 只消费 typed facts；Context 只消费 Background snapshot；Endpoint 不直接依赖 SessionEngine。
+SessionEngine 只负责自身初始化、提交、reconciliation、archive participant 与只读 projection。Maintenance Archive 决定关闭日与归档位置；Memory Maintenance 只消费 Session 交付的 typed facts/archive view；Context 只消费 Background snapshot；Endpoint 不直接依赖 SessionEngine。
 
 ## 失败边界
 

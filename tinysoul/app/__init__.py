@@ -1,13 +1,7 @@
-"""TinySoul application assembly layer."""
+"""TinySoul application assembly and typed request ingress."""
 
 from .builder import TinySoulAppBuilder
-from .config import (
-    AppSettings,
-    InputCommandSettings,
-    OutputSettings,
-    SchedulerSettings,
-    parse_app_settings,
-)
+from .config import AppSettings, InputCommandSettings, OutputSettings, parse_app_settings
 from .errors import (
     AppContractError,
     AppError,
@@ -16,6 +10,7 @@ from .errors import (
     AppInvariantError,
     AppOutputError,
 )
+from .failures import AppFailureKind
 from .gateway import AppCommandGateway
 from .initializer import (
     ProjectConfigProfile,
@@ -24,13 +19,6 @@ from .initializer import (
     ProjectResetOutcome,
     ProjectResetter,
 )
-from .instance import (
-    AppInstanceIdentity,
-    ProjectInstanceLease,
-    instance_directory,
-    project_identity_for,
-)
-from .failures import AppFailureKind
 from .inputs import (
     CommandReceipt,
     InputCommandParser,
@@ -40,28 +28,35 @@ from .inputs import (
     InputIntentKind,
     InputSink,
     InputSource,
-    MaintenanceRequestKind,
+)
+from .instance import (
+    AppInstanceIdentity,
+    ProjectInstanceLease,
+    instance_directory,
+    project_identity_for,
 )
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
-from .maintenance import HomeDecisionBroker, MaintenanceDecisionSnapshot
+from .requests import AppRequest, ExitRequest, UserTurnRequest
 from .runtime import TinySoulApp
 from .services import AppService
-from .sources import MaintenanceSchedule, MaintenanceScheduler, TerminalInputSource
+from .sources import MaintenanceScheduler, TerminalInputSource
 
 __all__ = [
+    "AppCommandGateway",
     "AppContractError",
     "AppError",
     "AppFailureKind",
     "AppInitializationError",
-    "AppInstanceError",
     "AppInstanceIdentity",
+    "AppInstanceError",
     "AppInvariantError",
     "AppOutputError",
-    "AppSettings",
-    "AppCommandGateway",
+    "AppRequest",
     "AppService",
-    "ConsoleOutputSink",
+    "AppSettings",
     "CommandReceipt",
+    "ConsoleOutputSink",
+    "ExitRequest",
     "InputCommandParser",
     "InputCommandSettings",
     "InputDispatcher",
@@ -70,26 +65,22 @@ __all__ = [
     "InputIntentKind",
     "InputSink",
     "InputSource",
-    "MaintenanceRequestKind",
-    "ObservationRouter",
+    "MaintenanceScheduler",
     "ObservationRoute",
+    "ObservationRouter",
     "OutputSettings",
     "OutputSink",
-    "ProjectInitializationOutcome",
     "ProjectConfigProfile",
+    "ProjectInitializationOutcome",
     "ProjectInitializer",
+    "ProjectInstanceLease",
     "ProjectResetOutcome",
     "ProjectResetter",
-    "ProjectInstanceLease",
     "TerminalInputSource",
-    "HomeDecisionBroker",
-    "MaintenanceDecisionSnapshot",
-    "MaintenanceSchedule",
-    "MaintenanceScheduler",
-    "SchedulerSettings",
     "TinySoulApp",
     "TinySoulAppBuilder",
-    "parse_app_settings",
+    "UserTurnRequest",
     "instance_directory",
+    "parse_app_settings",
     "project_identity_for",
 ]

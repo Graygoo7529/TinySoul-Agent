@@ -15,7 +15,6 @@ from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
 from .errors import (
     RuntimeContractError,
     RuntimeGatewayError,
-    RuntimeInputBlockedError,
     RuntimeInvariantError,
     RuntimeModuleError,
 )
@@ -47,7 +46,6 @@ __all__ = [
     "RuntimeTransferInterrupt",
     "RuntimeContractError",
     "RuntimeGatewayError",
-    "RuntimeInputBlockedError",
     "RuntimeInvariantError",
     "RuntimeModuleError",
     "NullObservationEmitter",

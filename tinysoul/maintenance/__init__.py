@@ -1,4 +1,4 @@
-"""Daily lifecycle and autonomous maintenance domain."""
+"""Daily archive lifecycle and autonomous maintenance orchestration."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from .archive import (
     ActiveDayLease,
+    ArchiveProjection,
     DailyLifecycleCoordinator,
     DailyTransitionJournal,
     DailyTransitionOutcome,
@@ -19,30 +20,27 @@ from .config import (
 from .day import BusinessClock, BusinessDay, IanaBusinessClock
 from .errors import MaintenanceContractError, MaintenanceError, MaintenanceInvariantError
 from .failures import MaintenanceFailureKind
-from .outcomes import (
+from .models import (
+    MaintenanceAvailability,
     MaintenanceOutcome,
+    MaintenancePlan,
+    MaintenanceRequest,
+    MaintenanceScope,
     MaintenanceStatus,
     MaintenanceTaskKind,
     MaintenanceTaskOutcome,
+    MaintenanceTaskPlan,
     MaintenanceTaskStatus,
+    MaintenanceTrigger,
 )
-from .request import MaintenanceRequest, MaintenanceScope, MaintenanceTrigger
+from .schedule import MaintenanceSchedule
+
 if TYPE_CHECKING:
-    from .actions import (
-        MAINTENANCE_ACTIONS,
-        MAINTENANCE_HOME_ACTIONS,
-        MAINTENANCE_MEMORY_ACTIONS,
-        MaintenanceActionController,
-        MaintenanceCompletionDetector,
-        MaintenanceTaskResult,
-        maintenance_action_view,
-        register_maintenance_actions,
-        user_action_view,
-    )
-    from .service import MaintenanceAvailability, ProgramMaintenanceRunner
+    from .engine import MaintenanceEngine
 
 __all__ = [
     "ActiveDayLease",
+    "ArchiveProjection",
     "BusinessClock",
     "BusinessDay",
     "DailyLifecycleCoordinator",
@@ -50,55 +48,32 @@ __all__ = [
     "DailyTransitionOutcome",
     "DailyTransitionStep",
     "IanaBusinessClock",
-    "MAINTENANCE_ACTIONS",
-    "MAINTENANCE_HOME_ACTIONS",
-    "MAINTENANCE_MEMORY_ACTIONS",
-    "MaintenanceActionController",
     "MaintenanceAvailability",
     "MaintenanceContractError",
-    "MaintenanceCompletionDetector",
+    "MaintenanceEngine",
     "MaintenanceError",
     "MaintenanceFailureKind",
     "MaintenanceInvariantError",
     "MaintenanceOutcome",
+    "MaintenancePlan",
     "MaintenanceRequest",
+    "MaintenanceSchedule",
     "MaintenanceScheduleSettings",
     "MaintenanceScope",
     "MaintenanceSettings",
     "MaintenanceStatus",
     "MaintenanceTaskKind",
     "MaintenanceTaskOutcome",
-    "MaintenanceTaskResult",
+    "MaintenanceTaskPlan",
     "MaintenanceTaskStatus",
     "MaintenanceTrigger",
-    "ProgramMaintenanceRunner",
     "parse_maintenance_settings",
-    "maintenance_action_view",
-    "register_maintenance_actions",
-    "user_action_view",
 ]
 
 
 def __getattr__(name: str) -> object:
-    if name in {
-        "MAINTENANCE_ACTIONS",
-        "MAINTENANCE_HOME_ACTIONS",
-        "MAINTENANCE_MEMORY_ACTIONS",
-        "MaintenanceActionController",
-        "MaintenanceCompletionDetector",
-        "MaintenanceTaskResult",
-        "maintenance_action_view",
-        "register_maintenance_actions",
-        "user_action_view",
-    }:
-        from . import actions
+    if name == "MaintenanceEngine":
+        from .engine import MaintenanceEngine
 
-        return getattr(actions, name)
-    if name in {"MaintenanceAvailability", "ProgramMaintenanceRunner"}:
-        from .service import MaintenanceAvailability, ProgramMaintenanceRunner
-
-        return {
-            "MaintenanceAvailability": MaintenanceAvailability,
-            "ProgramMaintenanceRunner": ProgramMaintenanceRunner,
-        }[name]
+        return MaintenanceEngine
     raise AttributeError(name)

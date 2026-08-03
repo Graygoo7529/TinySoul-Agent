@@ -115,6 +115,7 @@ class Phase1Unit:
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
+        turn_guidance: tuple[str, ...] = (),
     ) -> None:
         self._context = context
         self._action = action
@@ -125,6 +126,7 @@ class Phase1Unit:
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
+        self._turn_guidance = tuple(turn_guidance)
 
     def run(self, *, scope: RunScope, cycle_id: str) -> Phase1Outcome:
         feedback: list[str] = []
@@ -141,6 +143,7 @@ class Phase1Unit:
                     phase1_task_prompt(
                         domain_prompt=domain_prompt,
                         feedback=tuple(feedback),
+                        turn_guidance=self._turn_guidance,
                     )
                 )
             except ContextError as exc:
@@ -243,6 +246,7 @@ class Phase2Unit:
         action_bridge: RuntimeActionBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
         observations: ObservationEmitter | None = None,
+        turn_guidance: tuple[str, ...] = (),
     ) -> None:
         self._context = context
         self._action = action
@@ -254,6 +258,7 @@ class Phase2Unit:
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._observations = observations or NullObservationEmitter()
+        self._turn_guidance = tuple(turn_guidance)
 
     def run(
         self,
@@ -286,6 +291,7 @@ class Phase2Unit:
                         selected_domains=selected_domains,
                         domain_how=self._domain_how.guidance_for(selected_domains),
                         feedback=tuple(feedback),
+                        turn_guidance=self._turn_guidance,
                     )
                 )
             except ContextError as exc:

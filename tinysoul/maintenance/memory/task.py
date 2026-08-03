@@ -1,0 +1,151 @@
+"""Memory Maintenance task orchestration around a Maintenance Turn."""
+
+from __future__ import annotations
+
+from tinysoul.infra.json import JsonObject
+from tinysoul.loop import TurnOutcomeStatus
+from tinysoul.loop.maintenance import ArchivedMaintenanceContext
+from tinysoul.loop.turn import TurnRunner
+from tinysoul.memory import MemoryEngine
+from tinysoul.runtime import RunScope
+from tinysoul.session import SessionEngine
+from tinysoul.workspace import WorkspaceEngine
+
+from ..archive import ArchiveProjection
+from ..day import BusinessDay
+from ..models import (
+    MaintenanceTaskKind,
+    MaintenanceTaskOutcome,
+    MaintenanceTaskStatus,
+)
+from .actions import MemoryMaintenanceActionController
+
+
+class MemoryMaintenanceTask:
+    """Build closed-day projections and consolidate durable Memory through a Turn."""
+
+    def __init__(
+        self,
+        *,
+        memory: MemoryEngine,
+        session: SessionEngine,
+        workspace: WorkspaceEngine,
+        archived_context: ArchivedMaintenanceContext,
+        controller: MemoryMaintenanceActionController,
+        turn: TurnRunner,
+    ) -> None:
+        self._memory = memory
+        self._session = session
+        self._workspace = workspace
+        self._archived_context = archived_context
+        self._controller = controller
+        self._turn = turn
+
+    def eligible(
+        self,
+        day: BusinessDay,
+        *,
+        archive: ArchiveProjection | None,
+        rebuild: bool,
+    ) -> bool:
+        if archive is None:
+            return False
+        if not rebuild and self._memory.read_day(day) is not None:
+            return False
+        projection = self._session.memory_facts(day, root=archive.session_root)
+        return self._memory.maintenance_eligible(projection)
+
+    def run(
+        self,
+        *,
+        business_day: BusinessDay,
+        target_day: BusinessDay,
+        archive: ArchiveProjection | None,
+        rebuild: bool,
+        scope: RunScope,
+        request_id: str,
+    ) -> MaintenanceTaskOutcome:
+        if target_day >= business_day:
+            return _skipped(target_day, "target_day_is_open")
+        if archive is None:
+            return _skipped(target_day, "archive_missing")
+        if not rebuild and self._memory.read_day(target_day) is not None:
+            return _skipped(target_day, "memory_exists")
+
+        projection = self._session.memory_facts(
+            target_day,
+            root=archive.session_root,
+        )
+        if not self._memory.maintenance_eligible(projection):
+            return _skipped(target_day, "session_facts_empty")
+        workspace = self._workspace.archive_snapshot(
+            target_day,
+            root=archive.workspace_root,
+        )
+        session_view = self._session.archive_view(
+            target_day,
+            root=archive.session_root,
+        )
+        self._archived_context.bind(session=session_view, workspace=workspace)
+        self._controller.begin(
+            target_day=target_day,
+            projection=projection,
+            workspace=workspace,
+            rebuild_memory=rebuild,
+        )
+        try:
+            outcome = self._turn.run(
+                f"Consolidate durable Memory for the closed Business Day {target_day}.",
+                business_day=business_day,
+                scope=scope,
+                request_id=request_id,
+                input_source="maintenance.memory",
+            )
+            if (
+                outcome.status is not TurnOutcomeStatus.COMPLETED
+                or outcome.completion is None
+                or outcome.completion.get("task") != "memory"
+            ):
+                self._controller.abort()
+                return MaintenanceTaskOutcome(
+                    kind=MaintenanceTaskKind.MEMORY,
+                    status=MaintenanceTaskStatus.FAILED,
+                    target_day=target_day,
+                    reason="maintenance_turn_failed",
+                    details=_turn_failure(outcome),
+                )
+            return MaintenanceTaskOutcome(
+                kind=MaintenanceTaskKind.MEMORY,
+                status=MaintenanceTaskStatus.COMPLETED,
+                target_day=target_day,
+                details=self._controller.finish(),
+            )
+        except Exception:
+            self._controller.abort()
+            raise
+        finally:
+            self._archived_context.clear()
+
+
+def _skipped(day: BusinessDay, reason: str) -> MaintenanceTaskOutcome:
+    return MaintenanceTaskOutcome(
+        kind=MaintenanceTaskKind.MEMORY,
+        status=MaintenanceTaskStatus.SKIPPED,
+        target_day=day,
+        reason=reason,
+    )
+
+
+def _turn_failure(outcome: object) -> JsonObject:
+    status = getattr(outcome, "status", None)
+    failure = getattr(outcome, "failure", None)
+    value: JsonObject = {"turn_status": getattr(status, "value", "failed")}
+    if failure is not None:
+        value.update(
+            {
+                "failure_kind": failure.kind,
+                "failure_module": failure.module,
+                "failure_reason": failure.reason,
+            }
+        )
+    return value

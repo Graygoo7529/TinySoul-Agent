@@ -35,7 +35,7 @@ WebSocket 在连接后 5 秒内发送 token 首帧。服务只绑定 loopback。
 ```
 
 - `401`：token 无效；
-- `409`：Program 未 ready、Maintenance decision required/stale、控制冲突或 Workspace CAS 冲突；
+- `409`：Program 未 ready、控制冲突或 Workspace CAS 冲突；
 - `413`：请求或资源超过 Endpoint 上限；
 - `422`：请求 schema 无效；
 - `500`：安全收敛的模块/服务失败。
@@ -55,8 +55,7 @@ WebSocket 在连接后 5 秒内发送 token 首帧。服务只绑定 loopback。
   "active_day": "2026-07-25",
   "turn_active": false,
   "workspace_revision": 8,
-  "latest_event_sequence": 121,
-  "maintenance_decision_pending": false
+  "latest_event_sequence": 121
 }
 ```
 
@@ -82,7 +81,7 @@ status 不暴露 Session revision。`ready=false` 时继续等待，不得访问
 {"accepted": true, "command_id": "command_123", "kind": "start_turn", "state": "queued"}
 ```
 
-该入口使用与 Terminal 相同的 `InputCommandParser`，因此普通对话、配置的 stop/exit 命令和 `/maintenance ...` 具有一致语义。明确 UI 控件应优先使用 typed control/Maintenance API。pending Maintenance decision 时普通输入返回 `409 maintenance.decision_required`；决策只能通过带 decision id 的 typed API 完成。
+该入口使用与 Terminal 相同的 `InputCommandParser`，因此普通对话、配置的 stop/exit 命令和 `/maintenance ...` 具有一致语义。明确 UI 控件应优先使用 typed control/Maintenance API。Maintenance 命令始终进入 Program queue，不成为活跃 User Turn 的 append，也不等待人工审批。
 
 ### 控制
 
@@ -96,12 +95,10 @@ status 不暴露 Session revision。`ready=false` 时继续等待，不得访问
 
 ## 5. Maintenance
 
-- `GET /v1/maintenance`：availability 与 pending decision 快照；
-- `POST /v1/maintenance`：提交 `kind=home|memory`、可选 Memory `target_day`、command id 与 metadata；
-- `GET /v1/maintenance/decision`：读取 pending decision；
-- `POST /v1/maintenance/decision`：提交 decision id 与 `apply|discard|stop`。
+- `GET /v1/maintenance`：返回 Home pending 计数和所有 eligible closed Memory days；
+- `POST /v1/maintenance`：提交 `kind=daily|home|memory`、可选 Memory `target_day`/`rebuild_memory`、command id 与 metadata。
 
-Terminal 与前端可同时操作。第一个有效 decision 生效，另一端从 `home.maintenance.decision.resolved` 收敛；stale 响应后关闭旧对话框并重新读取 Maintenance 状态。
+Terminal 与前端可同时提交 Maintenance request；请求按进入 Program queue 的顺序串行执行，手动与 scheduler request 走同一 MaintenanceEngine 流程。前端根据 `maintenance.started`、`maintenance.completed` 和重新读取的 availability 收敛状态。
 
 ## 6. Observation 事件
 

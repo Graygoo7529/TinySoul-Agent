@@ -506,6 +506,29 @@ class WorkspaceEngine:
 
         return self.load_manifest()
 
+    def archive_snapshot(
+        self,
+        day: BusinessDay,
+        *,
+        root: Path,
+    ) -> WorkspaceManifest:
+        """Load one archived Workspace manifest through the owner boundary."""
+
+        if not isinstance(day, BusinessDay):
+            raise WorkspaceContractError("Workspace archive day is invalid")
+        if not isinstance(root, Path) or not root.is_absolute():
+            raise WorkspaceContractError(
+                "Workspace archive root must be an absolute path"
+            )
+        manifest = WorkspaceManifestStore(
+            root / ".tinysoul" / "workspace_manifest.json"
+        ).load()
+        if manifest.day != str(day):
+            raise WorkspaceInvariantError(
+                f"Workspace archive day mismatch: {manifest.day} != {day}"
+            )
+        return manifest
+
     def set_description(
         self,
         link: WorkspaceLink | str,

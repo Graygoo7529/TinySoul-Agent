@@ -43,13 +43,13 @@ from tinysoul.endpoint import (
     EndpointSettings,
 )
 from tinysoul.home import (
+    ActualHomeBackgroundEntryProvider,
     AgentHomeEngine,
     AgentHomeEngineBuilder,
     AgentHomeRuntimeCopyTrapHandler,
     HomeActionHowProvider,
     HomeBackgroundEntryProvider,
     HomeDomainHowProvider,
-    LLMHomeMaintenanceReviewer,
     LLMHomeSearchReranker,
     parse_agent_home_settings,
     register_home_actions,
@@ -75,27 +75,49 @@ from tinysoul.maintenance import (
     BusinessClock,
     DailyLifecycleCoordinator,
     IanaBusinessClock,
+    MaintenanceEngine,
     MaintenanceSettings,
-    ProgramMaintenanceRunner,
     parse_maintenance_settings,
 )
 from tinysoul.maintenance.actions import (
-    MaintenanceActionController,
-    register_maintenance_actions,
+    COMMON_MAINTENANCE_READ_ACTIONS,
+    MAINTENANCE_ACTIONS,
+    maintenance_action_view,
     user_action_view,
+)
+from tinysoul.maintenance.home import (
+    HOME_MAINTENANCE_ACTIONS,
+    HomeMaintenanceActionController,
+    HomeMaintenanceTask,
+    register_home_maintenance_actions,
+)
+from tinysoul.maintenance.memory import (
+    MEMORY_MAINTENANCE_ACTIONS,
+    MemoryMaintenanceActionController,
+    MemoryMaintenanceTask,
+    register_memory_maintenance_actions,
 )
 from tinysoul.loop.completion import (
     TurnCompletionHandler,
     TurnCompletionPipeline,
-    UserAnswerCompletionDetector,
 )
 from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
+from tinysoul.loop.maintenance import (
+    ArchivedMaintenanceContext,
+    MaintenanceCompletionDetector,
+    maintenance_turn_guidance,
+)
+from tinysoul.loop.user import (
+    USER_TURN_GUIDANCE,
+    UserAnswerCompletionDetector,
+    user_output_from_completion,
+)
 from .program import ProgramRunner
-from tinysoul.loop.prompts import DomainHowProvider
+from tinysoul.loop.prompts import DomainHowProvider, EmptyDomainHowProvider
 from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
     EndFrameTrapHandler,
@@ -139,7 +161,7 @@ from tinysoul.runtime.bridge import (
     RuntimeWorkspaceBridge,
 )
 from tinysoul.session import SessionEngine, parse_session_settings
-from tinysoul.session.actions import register_session_actions
+from tinysoul.session.actions import SessionInspector, register_session_actions
 from tinysoul.session.errors import SessionError
 from tinysoul.session.projection import (
     SessionTurnCompletionHandler,
@@ -160,7 +182,6 @@ from .config import AppSettings, parse_app_settings
 from .errors import AppError, AppInvariantError
 from .gateway import AppCommandGateway
 from .inputs import InputCommandParser, InputDispatcher, InputSource
-from .maintenance import HomeDecisionBroker
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .runtime import TinySoulApp
 from .sources import MaintenanceScheduler, TerminalInputSource
@@ -385,7 +406,7 @@ class TinySoulAppBuilder:
                     context_trigger_ratio=context_settings.compression_trigger_ratio,
                 )
             )
-            home = self._build_home(config, home_bridge, observations)
+            home = self._build_home(config, home_bridge)
             memory = (
                 self._memory
                 if self._memory is not None
@@ -419,6 +440,15 @@ class TinySoulAppBuilder:
                     memory_bridge,
                 )
             )
+            maintenance_context = self._build_maintenance_context(
+                context_settings,
+                home,
+                memory,
+                observations,
+                context_bridge,
+                home_bridge,
+                memory_bridge,
+            )
             domain_how = self._domain_how or HomeDomainHowProvider(
                 home,
                 runtime_bridge=home_bridge,
@@ -433,12 +463,6 @@ class TinySoulAppBuilder:
                 action_how=action_how,
             )
             memory_consolidator = LLMMemoryConsolidator(llm)
-            maintenance_controller = MaintenanceActionController(
-                home=home,
-                memory=memory,
-                consolidator=memory_consolidator,
-                timezone=maintenance_settings.timezone,
-            )
             process_jobs: SupervisedProcessManager | None = None
             if self._action is not None:
                 action = self._action
@@ -496,7 +520,6 @@ class TinySoulAppBuilder:
                     staging=staging,
                     process_jobs=process_jobs,
                     script_resolver=script_resolver,
-                    maintenance_controller=maintenance_controller,
                 )
             user_action = user_action_view(action)
             try:
@@ -527,6 +550,7 @@ class TinySoulAppBuilder:
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
                 signal_consumer=signal_consumer,
+                turn_guidance=USER_TURN_GUIDANCE,
             )
             phase2 = Phase2Unit(
                 context=context,
@@ -537,6 +561,7 @@ class TinySoulAppBuilder:
                 domain_how=domain_how,
                 signal_consumer=signal_consumer,
                 observations=observations,
+                turn_guidance=USER_TURN_GUIDANCE,
             )
             phase3 = Phase3Unit(
                 context=context,
@@ -557,12 +582,13 @@ class TinySoulAppBuilder:
                 signal_consumer=signal_consumer,
                 observations=observations,
             )
-            turn_runner = TurnRunner(
+            user_turn = TurnRunner(
                 context=context,
                 bus=bus,
                 trap=trap,
                 cycle_runner=cycle_runner,
                 settings=loop_settings.user,
+                completion_to_output=user_output_from_completion,
                 signal_consumer=signal_consumer,
                 completion_pipeline=TurnCompletionPipeline(
                     (
@@ -598,30 +624,128 @@ class TinySoulAppBuilder:
                 workspace=workspace,
                 observations=observations,
             )
-            decision_broker = HomeDecisionBroker(
+            archived_context = ArchivedMaintenanceContext(
+                session_bridge=session_bridge,
+            )
+            home_controller = HomeMaintenanceActionController(home)
+            memory_controller = MemoryMaintenanceActionController(
+                memory=memory,
+                consolidator=memory_consolidator,
+                timezone=maintenance_settings.timezone,
+            )
+            home_maintenance_action = self._build_maintenance_action(
+                kind="home",
+                context=maintenance_context,
+                session=session,
+                context_bridge=context_bridge,
+                session_bridge=session_bridge,
+                action_bridge=action_bridge,
+                observations=observations,
+                home_controller=home_controller,
+                memory_controller=memory_controller,
+            )
+            memory_maintenance_action = self._build_maintenance_action(
+                kind="memory",
+                context=maintenance_context,
+                session=archived_context,
+                context_bridge=context_bridge,
+                session_bridge=session_bridge,
+                action_bridge=action_bridge,
+                observations=observations,
+                home_controller=home_controller,
+                memory_controller=memory_controller,
+            )
+            maintenance_trap = self._build_trap(
+                maintenance_context,
+                home,
+                workspace,
+            )
+            maintenance_module_runner = RuntimeModuleRunner(
+                trap=maintenance_trap,
+                bus=bus,
                 observations=observations,
             )
-            maintenance_runner = ProgramMaintenanceRunner(
-                home=home,
-                memory=memory,
-                session=session,
-                daily_lifecycle=daily_lifecycle,
-                timezone=maintenance_settings.timezone,
-                automatic_home_reviewer=LLMHomeMaintenanceReviewer(llm),
-                memory_consolidator=memory_consolidator,
-                manual_home_decisions=decision_broker,
-            )
-            program_runner = ProgramRunner(
-                turn_runner=turn_runner,
+            maintenance_signal_consumer = ContextSignalConsumer(
+                context=maintenance_context,
                 bus=bus,
-                trap=trap,
-                daily_lifecycle=daily_lifecycle,
-                maintenance_runner=maintenance_runner,
-                retained_outcomes=app_settings.retained_turn_outcomes,
-                business_clock=(
+                module_runner=maintenance_module_runner,
+            )
+            home_maintenance_turn = self._build_maintenance_turn(
+                kind="home",
+                context=maintenance_context,
+                action=home_maintenance_action,
+                llm=llm,
+                bus=bus,
+                trap=maintenance_trap,
+                module_runner=maintenance_module_runner,
+                signal_consumer=maintenance_signal_consumer,
+                settings=loop_settings,
+                preparation=TurnPreparationPipeline(
+                    (
+                        ContextTurnPreparationHandler(
+                            maintenance_context,
+                            runtime_bridge=context_bridge,
+                        ),
+                        SessionTurnPreparationHandler(
+                            session,
+                            runtime_bridge=session_bridge,
+                        ),
+                        WorkspaceTurnPreparationHandler(
+                            workspace,
+                            runtime_bridge=workspace_bridge,
+                        ),
+                    )
+                ),
+                observations=observations,
+            )
+            memory_maintenance_turn = self._build_maintenance_turn(
+                kind="memory",
+                context=maintenance_context,
+                action=memory_maintenance_action,
+                llm=llm,
+                bus=bus,
+                trap=maintenance_trap,
+                module_runner=maintenance_module_runner,
+                signal_consumer=maintenance_signal_consumer,
+                settings=loop_settings,
+                preparation=TurnPreparationPipeline(
+                    (
+                        ContextTurnPreparationHandler(
+                            maintenance_context,
+                            runtime_bridge=context_bridge,
+                        ),
+                        archived_context,
+                    )
+                ),
+                observations=observations,
+            )
+            maintenance_engine = MaintenanceEngine(
+                archive=daily_lifecycle,
+                home=HomeMaintenanceTask(
+                    home=home,
+                    controller=home_controller,
+                    turn=home_maintenance_turn,
+                ),
+                memory=MemoryMaintenanceTask(
+                    memory=memory,
+                    session=session,
+                    workspace=workspace,
+                    archived_context=archived_context,
+                    controller=memory_controller,
+                    turn=memory_maintenance_turn,
+                ),
+                clock=(
                     self._business_clock
                     or IanaBusinessClock(maintenance_settings.timezone)
                 ),
+                observations=observations,
+            )
+            program_runner = ProgramRunner(
+                user_turn=user_turn,
+                maintenance=maintenance_engine,
+                bus=bus,
+                trap=trap,
+                retained_outcomes=app_settings.retained_outcomes,
                 maintenance_bridge=maintenance_bridge,
                 observations=observations,
             )
@@ -630,15 +754,14 @@ class TinySoulAppBuilder:
                 parser=parser,
                 bus=bus,
                 program_inputs=program_runner.input_queue,
-                active_turn_scope=lambda: turn_runner.active_scope,
+                active_turn_scope=lambda: user_turn.active_scope,
                 observations=observations,
                 program_scope=program_runner.scope,
             )
             gateway = AppCommandGateway(
                 dispatcher=dispatcher,
-                decisions=decision_broker,
                 bus=bus,
-                active_turn_scope=lambda: turn_runner.active_scope,
+                active_turn_scope=lambda: user_turn.active_scope,
                 program_scope=program_runner.scope,
             )
             endpoint: EndpointEngine | None = None
@@ -652,8 +775,7 @@ class TinySoulAppBuilder:
                     events=endpoint_events,
                     gateway=gateway,
                     workspace=workspace,
-                    daily_lifecycle=daily_lifecycle,
-                    maintenance=maintenance_runner,
+                    maintenance=maintenance_engine,
                 )
                 services = (
                     EndpointHost(
@@ -672,14 +794,14 @@ class TinySoulAppBuilder:
                         eof_command=app_settings.input_commands.exit_commands[0],
                     ),
                 )
-            program_event_sources = (
+            program_request_sources = (
                 (
                     MaintenanceScheduler(
-                        app_settings.scheduler,
+                        maintenance_settings.schedule,
                         timezone=maintenance_settings.timezone,
                     ),
                 )
-                if app_settings.scheduler.enabled
+                if maintenance_settings.schedule.enabled
                 else ()
             )
             return TinySoulApp(
@@ -687,7 +809,7 @@ class TinySoulAppBuilder:
                 input_dispatcher=dispatcher,
                 gateway=gateway,
                 input_sources=input_sources,
-                program_event_sources=program_event_sources,
+                program_request_sources=program_request_sources,
                 services=services,
                 observations=observations,
                 endpoint=endpoint,
@@ -773,7 +895,6 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         bridge: RuntimeAgentHomeBridge,
-        observations: ObservationEmitter,
     ) -> AgentHomeEngine:
         try:
             settings = config.parse_section(
@@ -783,10 +904,7 @@ class TinySoulAppBuilder:
                     project_root=self._root,
                 ),
             )
-            home = AgentHomeEngineBuilder(
-                settings,
-                observations=observations,
-            ).build()
+            home = AgentHomeEngineBuilder(settings).build()
             return home
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
@@ -936,6 +1054,59 @@ class TinySoulAppBuilder:
                 payload={"error_type": type(exc).__name__},
             ) from exc
 
+    def _build_maintenance_context(
+        self,
+        settings: ContextSettings,
+        home: AgentHomeEngine,
+        memory: MemoryEngine,
+        observations: ObservationEmitter,
+        bridge: RuntimeContextBridge,
+        home_bridge: RuntimeAgentHomeBridge,
+        memory_bridge: RuntimeMemoryBridge,
+    ) -> ContextEngine:
+        """Build an independent Context using actual Home as its baseline."""
+
+        try:
+            return (
+                ContextEngineBuilder(system_text=settings.system_text)
+                .with_journal(settings.journal)
+                .with_observations(observations)
+                .with_budget_max_image_bytes(settings.budget_max_image_bytes)
+                .with_trace_heap(
+                    chunk_max_chars=settings.trace_chunk_max_chars,
+                    branch_factor=settings.trace_branch_factor,
+                    min_hot_entries=settings.trace_min_hot_entries,
+                )
+                .with_trace_inspect_max_chars(settings.trace_inspect_max_chars)
+                .with_compression_trigger_ratio(settings.compression_trigger_ratio)
+                .with_compression_target_ratio(settings.compression_target_ratio)
+                .add_background_provider(
+                    ActualHomeBackgroundEntryProvider(
+                        home=home,
+                        runtime_bridge=home_bridge,
+                    )
+                )
+                .add_background_provider(
+                    MemoryBackgroundEntryProvider(
+                        memory=memory,
+                        runtime_bridge=memory_bridge,
+                    )
+                )
+                .build()
+            )
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+        except ContextError as exc:
+            raise bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+        except AgentHomeError as exc:
+            raise home_bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+
     def _build_session(
         self,
         config: ConfigEnvironment,
@@ -983,12 +1154,12 @@ class TinySoulAppBuilder:
         staging: StagingDirectoryManager,
         process_jobs: SupervisedProcessManager,
         script_resolver: ScriptSourceResolver,
-        maintenance_controller: MaintenanceActionController,
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
                 builder = ActionEngineBuilder(catalog_root)
                 builder.with_observations(observations)
+                builder.disable_actions(*MAINTENANCE_ACTIONS)
                 register_context_actions(
                     builder,
                     context=context,
@@ -1099,10 +1270,6 @@ class TinySoulAppBuilder:
                     ),
                     llm_action=llm_action,
                 )
-                register_maintenance_actions(
-                    builder,
-                    controller=maintenance_controller,
-                )
                 return builder.build()
         except ConfigError as exc:
             raise action_bridge.from_config_error(exc) from exc
@@ -1111,6 +1278,127 @@ class TinySoulAppBuilder:
                 message=str(exc),
                 payload={"error_type": type(exc).__name__},
             ) from exc
+
+    def _build_maintenance_action(
+        self,
+        *,
+        kind: str,
+        context: ContextEngine,
+        session: SessionInspector,
+        context_bridge: RuntimeContextBridge,
+        session_bridge: RuntimeSessionBridge,
+        action_bridge: RuntimeActionBridge,
+        observations: ObservationEmitter,
+        home_controller: HomeMaintenanceActionController,
+        memory_controller: MemoryMaintenanceActionController,
+    ) -> ActionEngine:
+        task_actions = {
+            "home": HOME_MAINTENANCE_ACTIONS,
+            "memory": MEMORY_MAINTENANCE_ACTIONS,
+        }[kind]
+        try:
+            with builtin_action_catalog_root() as catalog_root:
+                builder = ActionEngineBuilder(catalog_root)
+                builder.with_observations(observations)
+                builder.include_actions(
+                    *COMMON_MAINTENANCE_READ_ACTIONS,
+                    *task_actions,
+                )
+                register_context_actions(
+                    builder,
+                    context=context,
+                    runtime_bridge=context_bridge,
+                )
+                register_session_actions(
+                    builder,
+                    session=session,
+                    runtime_bridge=session_bridge,
+                )
+                if kind == "home":
+                    register_home_maintenance_actions(
+                        builder,
+                        controller=home_controller,
+                    )
+                else:
+                    register_memory_maintenance_actions(
+                        builder,
+                        controller=memory_controller,
+                    )
+                return maintenance_action_view(builder.build(), kind=kind)
+        except (ConfigError, ActionError) as exc:
+            if isinstance(exc, ConfigError):
+                raise action_bridge.from_config_error(exc) from exc
+            raise action_bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
+
+    def _build_maintenance_turn(
+        self,
+        *,
+        kind: str,
+        context: ContextEngine,
+        action: ActionEngine,
+        llm: LLMRunner,
+        bus: SignalBus,
+        trap: RuntimeTrap,
+        module_runner: RuntimeModuleRunner,
+        signal_consumer: ContextSignalConsumer,
+        settings: LoopSettings,
+        preparation: TurnPreparationPipeline,
+        observations: ObservationEmitter,
+    ) -> TurnRunner:
+        guidance = maintenance_turn_guidance(kind)
+        phase1 = Phase1Unit(
+            context=context,
+            action=action,
+            llm=llm,
+            bus=bus,
+            retry_limit=settings.phase_retry_limit,
+            signal_consumer=signal_consumer,
+            turn_guidance=guidance,
+        )
+        phase2 = Phase2Unit(
+            context=context,
+            action=action,
+            llm=llm,
+            bus=bus,
+            retry_limit=settings.phase_retry_limit,
+            domain_how=EmptyDomainHowProvider(),
+            signal_consumer=signal_consumer,
+            observations=observations,
+            turn_guidance=guidance,
+        )
+        phase3 = Phase3Unit(
+            context=context,
+            action=action,
+            bus=bus,
+            module_runner=module_runner,
+            signal_consumer=signal_consumer,
+            observations=observations,
+            completion_detector=MaintenanceCompletionDetector(),
+        )
+        cycle = CycleRunner(
+            context=context,
+            bus=bus,
+            trap=trap,
+            phase1=phase1,
+            phase2=phase2,
+            phase3=phase3,
+            signal_consumer=signal_consumer,
+            observations=observations,
+        )
+        return TurnRunner(
+            context=context,
+            bus=bus,
+            trap=trap,
+            cycle_runner=cycle,
+            settings=settings.maintenance,
+            completion_to_output=lambda _completion: None,
+            signal_consumer=signal_consumer,
+            preparation_pipeline=preparation,
+            observations=observations,
+        )
 
     def _build_trap(
         self,

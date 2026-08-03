@@ -14,7 +14,7 @@ Memory 与 Agent Home 平级：
 - Memory 拥有按日期组织的长期经历记录；
 - Session 拥有当日跨 Turn 事实与已归档的不可变 Turn 图；
 - Context 拥有 Turn 内 Background 和 TurnTrace；
-- Loop 只编排 Turn preparation 与 Memory Maintenance，不解析 MEMORY Markdown。
+- Loop 只提供可复用 Turn 内核和 User Turn preparation，不解析 MEMORY Markdown；Memory Maintenance 的计划、archive binding 与 task/action 编排属于 `tinysoul.maintenance.memory`。
 
 Memory 不是 Home 顶层 space，不是 runtime overlay，不参与 Home Review/Apply，也不进入 Daily Rollover archive。
 
@@ -76,7 +76,7 @@ Memory 文档是日期事实的长期提炼，不保存 raw trace、reasoning、
 
 ### 昨日自动 Background
 
-Turn preparation 使用 Program 已捕获的 `BusinessDay` 与 `loop.daily.timezone` 计算精确的昨日，不自行读取系统日期。`MemoryBackgroundEntryProvider` 只查询该日期：
+Turn preparation 使用 Program 已捕获的 `BusinessDay` 与 `maintenance.timezone` 计算精确的昨日，不自行读取系统日期。`MemoryBackgroundEntryProvider` 只查询该日期：
 
 - 文件不存在时不产生 entry，不搜索更早日期；
 - 文件存在时返回 Link 和完整、受上限约束的非空 Markdown，不要求固定章节；
@@ -102,7 +102,7 @@ Search 和 recall 都是 Memory-owned native action。Action executor 只解析�
 
 ## Memory Maintenance
 
-Memory Maintenance 是与 User Turn 同级、与 Home Maintenance 独立的 Program work。它接受明确目标 Business Day，并只消费：
+Memory Maintenance 是 MaintenanceEngine 编排的独立 task。它接受明确目标 Business Day，并把目标关闭日的 ArchiveProjection 绑定为 Maintenance Turn 的 Session/Workspace 情景；真正写入 Memory owner 的 consolidation source 仍是：
 
 ```text
 SessionMemoryFactsProjection(target day)
@@ -110,17 +110,17 @@ SessionMemoryFactsProjection(target day)
 -> complete replacement memory/yyyy/mm/yyyy-mm-dd.md
 ```
 
-Session 负责归档图校验、按需递归 Summary、去重可达 Turn 事实并按 Turn 开始时间稳定排序；Memory 不读取 Session store 或 archive 内部文件。Memory 校验 facts 的开始时间属于目标 Business Day，再把有序 Session facts 与可选同日期旧 MEMORY 作为统一 source 序列执行有界分块和分层 reduce；它不读取其它日期 MEMORY 正文、Workspace、active Home diff 或 `SKILL_MEMORY.md`。
+Session 负责归档图校验、按需递归 Summary、去重可达 Turn 事实并按 Turn 开始时间稳定排序；Workspace 负责交付同日只读 Manifest；Memory/Maintenance 都不读取 Session 或 Workspace 的私有 store。Maintenance Turn 可以 inspect 归档 Session 和 Workspace 以理解一天的情景，再由 `maintenance.memory.consolidate` 把有序 Session facts 与可选同日期旧 MEMORY 交给 Memory owner 执行有界分块和分层 reduce。Memory owner 不读取其它日期 MEMORY 正文、active Home diff 或 `SKILL_MEMORY.md`。
 
-正常自动任务面向尚无目标 MEMORY 的昨日 Session；目标 MEMORY 已存在且是非空、可读、未超限 UTF-8 文本时，在读取 Session 或调用模型前 skipped。人工任务可读取任意既有 Markdown 格式的同日期旧 MEMORY，将其与 Session facts 重新整理为一份新的规范文档。旧正文中的 Link 只作为 source；新输出中的 Link 必须重新通过所有者存在性校验。
+正常 Daily task 面向 archive catalog 中所有尚无有效 MEMORY 的关闭日；目标 MEMORY 已存在且是非空、可读、未超限 UTF-8 文本时，在读取 Session 或调用模型前 skipped。显式 `--rebuild` request 可以读取任意既有 Markdown 格式的同日期旧 MEMORY，将其与 Session facts 重新整理为一份新的规范文档。旧正文中的 Link 只作为 source；新输出中的 Link 必须重新通过所有者存在性校验。
 
 完整 actual Home Link catalog 和其它日期 Memory Link catalog 只用于本地验证，不完整进入模型输入。模型只接收从本次 Session/旧 Memory source 中提取、实际存在且受总字符预算约束的 Link hints；模型仍可生成未列入 hints 但实际存在的 Link，本地 validator 负责接受或以有界错误反馈要求重试。
 
-目标 Session archive 缺失或 projection 无 Turn facts 时返回非持久 `skipped`，对目标 Memory 零写入。自动 work 在目标已存在时于 Session/LLM 之前 `skipped`；人工 work 可结合同日期旧 MEMORY 与 Session 重写。成功时只原子替换单个目标文件，不 append，不保存 candidate、plan、review result 或中间状态。原子替换前的写失败保留旧文件；若替换已经完成但调用方随后观察到进程异常，目标文件就是新的 persisted fact，下一次自动 work 按“目标已存在” skipped，不重复 consolidation。该保证覆盖进程异常和文件操作失败，不扩展为断电/fsync 承诺。
+目标 archive 缺失或 Session projection 无 Turn facts时返回非持久 `skipped`，对目标 Memory 零写入。默认 work 在目标已存在时于 Session/LLM 之前 `skipped`；rebuild work 可结合同日期旧 MEMORY 与 Session 重写。成功时只原子替换单个目标文件，不 append，不保存 candidate、plan、review result 或中间状态。原子替换前的写失败保留旧文件；若替换已经完成但调用方随后观察到进程异常，目标文件就是新的 persisted fact，下一次默认 work 按“目标已存在” skipped。该保证覆盖进程异常和文件操作失败，不扩展为断电/fsync 承诺。
 
 Memory service 只发布 verbose `memory.maintenance.started` 与 `completed/skipped/failed` Observation。事件只含目标日期、rewrite mode、Memory Link、fact/model-call 计数、成功 digest、skip/failure kind 或稳定异常类型，不含 Session facts、旧/新 MEMORY 正文、模型 prompt/reasoning 或绝对路径。Program 在 normal 层另行发布该 work 的唯一结果；Observation emitter 失败不能改变原子写、outcome 或后续 Program work。
 
-启动 eligibility 只检查昨日：昨日 Session projection 非空且昨日 Memory 不存在时提示。不扫描更早日期，不保存 skip 状态，不影响人工指定日期。
+启动 availability 从权威 archive catalog 计算所有 eligible closed days，不只猜测昨日，也不保存平行 skip 状态。手动 Memory request 可以指定其中任意关闭日；`--rebuild` 允许显式重建已有日期。
 
 ## Context 协作
 
@@ -150,6 +150,10 @@ tinysoul/memory/
   errors.py
   failures.py
 
+tinysoul/maintenance/memory/
+  task.py             # archive projection 与 Maintenance Turn 编排
+  actions.py          # owner-bound inspect/consolidate/complete actions
+
 tinysoul/action/catalog/memory/
   domain.toml
   actions/search.toml
@@ -159,7 +163,7 @@ configs/memory.toml
 memory/
 ```
 
-`MemoryEngine` 是唯一业务组装门面，对上层提供 Link/store 查询、Background provider、search/recall、eligibility 和 Maintenance。配置、Action executor、Background provider 与 consolidator 是装配 SPI；store、renderer 和 validator 是模块内部实现，不作为 App/Loop 的平行业务入口。
+`MemoryEngine` 是唯一 Memory 业务门面，对上层提供 Link/store 查询、Background provider、search/recall、eligibility 和原子 consolidation。`tinysoul.maintenance.memory` 拥有目标 archive 绑定、Maintenance Turn 与专用 actions，不复制 Link/store/renderer 规则。配置、普通 Action executor、Background provider 与 consolidator 是装配 SPI；store、renderer 和 validator 是模块内部实现。
 
 Memory 配置位于顶层 `[memory]`，拥有根目录、完整文档上限、search 预算和 consolidation 预算；`memory.maintenance.link_hints_max_chars` 单独限制模型可见 Link hint 值的总字符数。旧 `[home.memory]` 整体删除；Memory 不继承 Home `max_write_chars` 或 Home root。配置加载时不接受旧键别名。
 
@@ -179,7 +183,7 @@ Memory 遵守三层失败语义：
 
 1. 局部 Action/Maintenance 结果：search 无匹配、recall 目标不存在、Session 缺失/为空、模型输出不合规、Link 校验失败或自动目标已存在；
 2. 模块边界异常：配置无法解释、Memory root 不可用、已存文档为空/非 UTF-8/超限、路径不变量破坏或原子写失败；既有 Markdown 不采用当前日期 H1 或章节结构本身不是损坏；
-3. Runtime 语义异常：通过 `MemoryFailureKind` 与专用 Runtime bridge 映射为启动失败、结束当前 User Turn 或结束当前 Maintenance work。
+3. Runtime 语义异常：通过 `MemoryFailureKind` 与专用 Runtime bridge 映射为启动失败、结束当前 User Turn 或结束当前 Maintenance Turn；Maintenance task 再把失败收敛为 typed task outcome。
 
 昨日文件缺失是正常状态；文件存在却不可读不得降级为缺失。Search 遇到无法解释的已发现 Memory 文档时整个 action 失败，不返回无法声明完整性的部分结果。Maintenance 任何原子写前失败都保留旧目标不变；原子替换完成后不再把旧目标视为事实，也不建立额外事务日志回滚新文件。
 
@@ -192,6 +196,6 @@ Memory 遵守三层失败语义：
 - `memory.recall` 仅接受精确 Link，返回完整且受上限约束的单日 Markdown；
 - search/recall 结果只进入 TurnTrace，不修改 Background；
 - Memory 正文中的 Home/Memory Link 都做所有者存在性校验；
-- Memory Maintenance 只读取指定日有序 Session projection 和人工重写时的可选同日任意格式旧 Memory，成功时只增加日期 H1 并原子完整重写；
+- Memory Maintenance Turn 使用指定关闭日的 Session/Workspace projection；consolidation 只读取有序 Session facts 和 rebuild 时的可选同日任意格式旧 Memory，成功时只增加日期 H1 并原子完整重写；
 - 空/缺失 Session 不创建文件；原子替换前失败不改变旧文件，替换后异常通过目标存在性幂等收束；
 - Home Maintenance、Daily Rollover 和普通 Home mutation 对 `memory/` 零写入。

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import time as WallTime
 from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
@@ -52,55 +51,13 @@ class OutputSettings:
 
 
 @dataclass(frozen=True)
-class SchedulerSettings:
-    """Built-in Program event scheduler settings."""
-
-    enabled: bool = True
-    home_maintenance_time: WallTime = WallTime(hour=0, minute=5)
-    memory_maintenance_time: WallTime = WallTime(hour=0, minute=15)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.enabled, bool):
-            raise ConfigError(
-                "App scheduler enabled must be a boolean",
-                key="app.scheduler.enabled",
-                value=self.enabled,
-                expected="bool",
-            )
-        for name in ("home_maintenance_time", "memory_maintenance_time"):
-            value = getattr(self, name)
-            if not isinstance(value, WallTime) or value.tzinfo is not None:
-                raise ConfigError(
-                    "App scheduler time must be a local wall time",
-                    key=f"app.scheduler.{name}",
-                    value=value,
-                    expected="HH:MM",
-                )
-            if value.second or value.microsecond:
-                raise ConfigError(
-                    "App scheduler time must use minute precision",
-                    key=f"app.scheduler.{name}",
-                    value=value.isoformat(),
-                    expected="HH:MM",
-                )
-        if self.home_maintenance_time >= self.memory_maintenance_time:
-            raise ConfigError(
-                "Home Maintenance must be scheduled before Memory Maintenance",
-                key="app.scheduler.memory_maintenance_time",
-                value=self.memory_maintenance_time.isoformat(timespec="minutes"),
-                expected="time after home_maintenance_time",
-            )
-
-
-@dataclass(frozen=True)
 class AppSettings:
     """Process-level TinySoul app settings."""
 
     interactive: bool = True
     input_commands: InputCommandSettings = field(default_factory=InputCommandSettings)
     output: OutputSettings = field(default_factory=OutputSettings)
-    scheduler: SchedulerSettings = field(default_factory=SchedulerSettings)
-    retained_turn_outcomes: int = 32
+    retained_outcomes: int = 32
 
     def __post_init__(self) -> None:
         if not isinstance(self.input_commands, InputCommandSettings):
@@ -117,22 +74,15 @@ class AppSettings:
                 value=type(self.output).__name__,
                 expected="OutputSettings",
             )
-        if not isinstance(self.scheduler, SchedulerSettings):
-            raise ConfigError(
-                "App scheduler settings must be SchedulerSettings",
-                key="app.scheduler",
-                value=type(self.scheduler).__name__,
-                expected="SchedulerSettings",
-            )
         if (
-            isinstance(self.retained_turn_outcomes, bool)
-            or not isinstance(self.retained_turn_outcomes, int)
-            or self.retained_turn_outcomes <= 0
+            isinstance(self.retained_outcomes, bool)
+            or not isinstance(self.retained_outcomes, int)
+            or self.retained_outcomes <= 0
         ):
             raise ConfigError(
-                "App retained_turn_outcomes must be positive",
-                key="app.retained_turn_outcomes",
-                value=self.retained_turn_outcomes,
+                "App retained_outcomes must be positive",
+                key="app.retained_outcomes",
+                value=self.retained_outcomes,
                 expected="positive int",
             )
 
@@ -147,8 +97,7 @@ def parse_app_settings(tree: Mapping[str, object]) -> AppSettings:
             "exit_commands",
             "stop_turn_commands",
             "output",
-            "scheduler",
-            "retained_turn_outcomes",
+            "retained_outcomes",
         },
         key="app",
     )
@@ -171,11 +120,10 @@ def parse_app_settings(tree: Mapping[str, object]) -> AppSettings:
             ),
         ),
         output=_parse_output_settings(tree.get("output")),
-        scheduler=_parse_scheduler_settings(tree.get("scheduler")),
-        retained_turn_outcomes=_optional_int(
+        retained_outcomes=_optional_int(
             tree,
-            "retained_turn_outcomes",
-            default=AppSettings.retained_turn_outcomes,
+            "retained_outcomes",
+            default=AppSettings.retained_outcomes,
         ),
     )
 
@@ -220,37 +168,6 @@ def _parse_output_settings(value: object) -> OutputSettings:
     )
 
 
-def _parse_scheduler_settings(value: object) -> SchedulerSettings:
-    if value is None:
-        return SchedulerSettings()
-    if not isinstance(value, Mapping):
-        raise ConfigError(
-            "App scheduler configuration must be a table",
-            key="app.scheduler",
-            value=value,
-            expected="table",
-        )
-    table = cast(Mapping[str, object], value)
-    reject_unknown_keys(
-        table,
-        {"enabled", "home_maintenance_time", "memory_maintenance_time"},
-        key="app.scheduler",
-    )
-    return SchedulerSettings(
-        enabled=_table_bool(table, "enabled", SchedulerSettings.enabled),
-        home_maintenance_time=_wall_time(
-            table,
-            "home_maintenance_time",
-            SchedulerSettings.home_maintenance_time,
-        ),
-        memory_maintenance_time=_wall_time(
-            table,
-            "memory_maintenance_time",
-            SchedulerSettings.memory_maintenance_time,
-        ),
-    )
-
-
 def _optional_bool(
     tree: Mapping[str, object],
     name: str,
@@ -266,56 +183,6 @@ def _optional_bool(
             expected="bool",
         )
     return value
-
-
-def _table_bool(
-    table: Mapping[str, object],
-    name: str,
-    default: bool,
-) -> bool:
-    value = table.get(name, default)
-    if not isinstance(value, bool):
-        raise ConfigError(
-            "App scheduler configuration value must be a boolean",
-            key=f"app.scheduler.{name}",
-            value=value,
-            expected="bool",
-        )
-    return value
-
-
-def _wall_time(
-    table: Mapping[str, object],
-    name: str,
-    default: WallTime,
-) -> WallTime:
-    value = table.get(name)
-    if value is None:
-        return default
-    if not isinstance(value, str):
-        raise ConfigError(
-            "App scheduler time must be a string",
-            key=f"app.scheduler.{name}",
-            value=value,
-            expected="HH:MM",
-        )
-    try:
-        parsed = WallTime.fromisoformat(value)
-    except ValueError as exc:
-        raise ConfigError(
-            "App scheduler time is invalid",
-            key=f"app.scheduler.{name}",
-            value=value,
-            expected="HH:MM",
-        ) from exc
-    if parsed.second or parsed.microsecond or parsed.tzinfo is not None:
-        raise ConfigError(
-            "App scheduler time must use HH:MM without seconds or timezone",
-            key=f"app.scheduler.{name}",
-            value=value,
-            expected="HH:MM",
-        )
-    return parsed
 
 
 def _optional_int(

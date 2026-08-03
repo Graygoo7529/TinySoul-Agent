@@ -13,6 +13,7 @@ from tinysoul.context import (
 )
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -34,14 +35,9 @@ from tinysoul.runtime import (
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
 from .config import TurnSettings
-from .completion import (
-    TurnCompletion,
-    TurnCompletionPipeline,
-    user_output_from_completion,
-)
+from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
-from tinysoul.maintenance import BusinessDay
 from .errors import LoopInvariantError
 from .failures import LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, failure_from_runtime
@@ -51,7 +47,7 @@ from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
 
 @dataclass(frozen=True)
 class TurnOutcome:
-    """Outcome of one user turn."""
+    """Outcome of one reusable Turn execution."""
 
     context_completion: ContextTurnCompletion | None
     business_day: BusinessDay
@@ -110,7 +106,7 @@ class TurnActivityController(Protocol):
 
 
 class TurnRunner:
-    """Drive cycles until the user turn is answered or stopped."""
+    """Reusable Turn kernel that drives Cycles until profile completion."""
 
     def __init__(
         self,
@@ -134,7 +130,7 @@ class TurnRunner:
         self._trap = trap
         self._cycle_runner = cycle_runner
         self._settings = settings
-        self._completion_to_output = completion_to_output or user_output_from_completion
+        self._completion_to_output = completion_to_output or _no_turn_output
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
@@ -154,7 +150,7 @@ class TurnRunner:
 
     def run(
         self,
-        user_input: str,
+        turn_input: str,
         *,
         business_day: BusinessDay,
         scope: RunScope,
@@ -175,7 +171,7 @@ class TurnRunner:
         completion: JsonObject | None = None
         try:
             try:
-                turn_id = self._context.begin_turn(user_input)
+                turn_id = self._context.begin_turn(turn_input)
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
@@ -193,7 +189,7 @@ class TurnRunner:
             )
             preparation = self._run_preparation(
                 turn_id=turn_id,
-                user_input=user_input,
+                turn_input=turn_input,
                 business_day=business_day,
                 scope=turn_scope,
             )
@@ -322,8 +318,12 @@ class TurnRunner:
                     "metadata": output.metadata,
                 },
             )
-        else:
-            self._emit_non_answered(turn_scope, status=status, failure=failure)
+        elif status is not TurnOutcomeStatus.COMPLETED:
+            self._emit_terminal_without_output(
+                turn_scope,
+                status=status,
+                failure=failure,
+            )
         self._emit(
             turn_scope,
             "turn.completed",
@@ -331,7 +331,7 @@ class TurnRunner:
             "Turn completed.",
             {
                 "turn_id": turn_id,
-                "answered": status is TurnOutcomeStatus.ANSWERED,
+                "has_output": status is TurnOutcomeStatus.ANSWERED,
                 "status": status.value,
                 "completion_committed": completion_committed,
                 "exhausted": exhausted,
@@ -353,7 +353,7 @@ class TurnRunner:
         self,
         *,
         turn_id: str,
-        user_input: str,
+        turn_input: str,
         business_day: BusinessDay,
         scope: RunScope,
     ) -> _TurnBoundary | None:
@@ -367,7 +367,7 @@ class TurnRunner:
                 signals = self._preparation_pipeline.prepare(
                     TurnPreparationRequest(
                         turn_id=turn_id,
-                        user_input=user_input,
+                        turn_input=turn_input,
                         business_day=business_day,
                         scope=scope,
                     )
@@ -557,13 +557,13 @@ class TurnRunner:
             TurnOutcomeStatus.FAILED,
             TurnFailure(
                 reason=RUNTIME_TURN_END,
-                message="Turn ended without an answer.",
+                message="Turn ended without a valid completion.",
                 module="loop",
                 kind=LoopFailureKind.INTERNAL_FAILURE.value,
             ),
         )
 
-    def _emit_non_answered(
+    def _emit_terminal_without_output(
         self,
         scope: RunScope,
         *,
@@ -580,18 +580,22 @@ class TurnRunner:
                 }
             )
         messages = {
-            TurnOutcomeStatus.COMPLETED: "Turn completed without a user answer.",
             TurnOutcomeStatus.EXHAUSTED: "Turn exhausted its cycle limit.",
-            TurnOutcomeStatus.STOPPED: "Turn stopped before producing an answer.",
+            TurnOutcomeStatus.STOPPED: "Turn stopped before completion.",
             TurnOutcomeStatus.FAILED: (
                 failure.message if failure is not None else "Turn failed."
             ),
         }
+        message = messages.get(status)
+        if message is None:
+            raise LoopInvariantError(
+                f"Turn status does not require a terminal event: {status.value}"
+            )
         self._emit(
             scope,
             f"turn.{status.value}",
             ObservationLevel.NORMAL,
-            messages[status],
+            message,
             payload,
         )
 
@@ -616,7 +620,6 @@ class TurnRunner:
                 payload=to_json_object(payload),
             ),
         )
-
     def _set_active_scope(self, scope: RunScope | None) -> None:
         with self._active_scope_lock:
             self._active_scope = scope
@@ -633,3 +636,7 @@ class TurnRunner:
             and transfer.action is RuntimeTransferAction.END
             and transfer.target == turn
         )
+
+
+def _no_turn_output(_completion: JsonObject | None) -> TurnOutput | None:
+    return None

@@ -209,6 +209,14 @@ class SessionEngine:
             refs=snapshot.refs,
         )
 
+    def archive_view(self, day: BusinessDay, *, root: Path) -> "SessionArchiveView":
+        """Open a validated read-only semantic view over a finalized archive."""
+
+        self.archive_snapshot(day, root=root)
+        engine = SessionEngine(replace(self._settings, root=root))
+        engine._require_day(day)
+        return SessionArchiveView(day=day, engine=engine)
+
     def background_snapshot(self, day: BusinessDay) -> SessionBackgroundSnapshot:
         with self._lock:
             self._require_day(day)
@@ -589,6 +597,26 @@ class SessionEngine:
                 f"Session active day mismatch: {manifest.day} != {day}"
             )
         return manifest
+
+
+@dataclass(frozen=True)
+class SessionArchiveView:
+    """Read-only Session Background and inspect surface for Maintenance."""
+
+    day: BusinessDay
+    engine: SessionEngine
+
+    def background_snapshot(self) -> SessionBackgroundSnapshot:
+        return self.engine.background_snapshot(self.day)
+
+    def inspect(
+        self,
+        ref: str | None = None,
+        *,
+        action: str | None = None,
+        continuation: str | None = None,
+    ) -> JsonObject:
+        return self.engine.inspect(ref, action=action, continuation=continuation)
 
 
 def _recent_turn_start(

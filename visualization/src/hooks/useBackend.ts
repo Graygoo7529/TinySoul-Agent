@@ -47,7 +47,6 @@ export function useBackend() {
       }
       if (store.connection.info?.instance_id !== info.instance_id) {
         store.clearEvents();
-        store.setMaintenance(null);
         store.setMaintenanceStatus(null);
       }
       store.setClient(nextClient);
@@ -89,16 +88,10 @@ export function useBackend() {
           }
           if (
             names.has("program.maintenance.available") ||
-            names.has("program.work.started") ||
-            names.has("program.work.completed") ||
-            names.has("program.work.failed") ||
-            names.has("home.maintenance.decision.required") ||
-            names.has("home.maintenance.decision.resolved")
+            names.has("maintenance.started") ||
+            names.has("maintenance.completed")
           ) {
             void refreshMaintenance(nextClient);
-          }
-          if (names.has("home.maintenance.decision.resolved")) {
-            current.setMaintenance(null);
           }
         },
         onError: (error) => {
@@ -172,9 +165,6 @@ async function refreshMaintenance(client: TinySoulClient) {
     const maintenance = await client.maintenanceStatus();
     const store = useAppStore.getState();
     store.setMaintenanceStatus(maintenance);
-    store.setMaintenance(
-      maintenance.decision.pending ? maintenance.decision : null,
-    );
   } catch (error) {
     console.error("Maintenance status recovery failed:", error);
   }
@@ -191,9 +181,6 @@ async function recoverAuthoritativeState(client: TinySoulClient) {
     store.setStatus(status);
     store.setWorkspace(workspace);
     store.setMaintenanceStatus(maintenance);
-    store.setMaintenance(
-      maintenance.decision.pending ? maintenance.decision : null,
-    );
   } catch (error) {
     console.error("Endpoint state recovery failed:", error);
   }

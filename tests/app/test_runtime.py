@@ -17,7 +17,7 @@ from tinysoul.app import (
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import TaskResult
-from tinysoul.loop import LoopSettings
+from tinysoul.loop import LoopSettings, TurnSettings
 from tinysoul.runtime import RuntimeTransferAction, RunLevel
 
 
@@ -85,7 +85,7 @@ def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
-        .with_loop_settings(LoopSettings(max_cycles_per_turn=1))
+        .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
         .with_llm_runner(FakeLLM(()))
         .with_input_source(source)
         .build()
@@ -202,6 +202,6 @@ def _test_config(tmp_path: Path) -> ConfigEnvironment:
             "memory.root": str(tmp_path / "memory"),
             "session.root": str(tmp_path / "runtime" / "session"),
             "workspace.root": str(tmp_path / "runtime" / "workspace"),
-            "loop.daily.archive_root": str(tmp_path / "archive"),
+            "maintenance.archive_root": str(tmp_path / "archive"),
         },
     )

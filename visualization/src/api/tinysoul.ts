@@ -14,8 +14,6 @@ import type {
   ControlRequest,
   EndpointEvent,
   InputRequest,
-  MaintenanceDecision,
-  MaintenanceDecisionRequest,
   MaintenanceRequest,
   MaintenanceStatus,
   TrashItem,
@@ -215,10 +213,6 @@ export class TinySoulClient {
     });
   }
 
-  async maintenanceDecision(): Promise<MaintenanceDecision> {
-    return this.request<MaintenanceDecision>("GET", "/v1/maintenance/decision");
-  }
-
   async maintenanceStatus(): Promise<MaintenanceStatus> {
     return this.request<MaintenanceStatus>("GET", "/v1/maintenance");
   }
@@ -227,11 +221,6 @@ export class TinySoulClient {
     return this.request<CommandReceipt>("POST", "/v1/maintenance", { body: request });
   }
 
-  async resolveMaintenanceDecision(request: MaintenanceDecisionRequest): Promise<CommandReceipt> {
-    return this.request<CommandReceipt>("POST", "/v1/maintenance/decision", {
-      body: request,
-    });
-  }
 }
 
 export class TinySoulApiError extends Error {

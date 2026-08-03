@@ -397,6 +397,71 @@ class HomeOverlayManager:
                     ) from exc
             return True
 
+    def remove_if_empty(self) -> bool:
+        """Remove an empty runtime Home so the next access materializes it anew."""
+
+        with self._lock:
+            manifest = self._reconcile(self._require_manifest())
+            if manifest.records or self._store.operations():
+                return False
+            self._validate_empty_overlay_root()
+            cleared_root = self._runtime_root.with_name(
+                f".{self._runtime_root.name}.cleared-{uuid4().hex}"
+            )
+            try:
+                os.replace(self._runtime_root, cleared_root)
+            except OSError as exc:
+                raise AgentHomeIOError(
+                    f"Failed to isolate empty runtime Home: {exc}"
+                ) from exc
+            try:
+                shutil.rmtree(cleared_root)
+            except OSError as exc:
+                try:
+                    os.replace(cleared_root, self._runtime_root)
+                except OSError as rollback_error:
+                    raise AgentHomeIOError(
+                        "Failed to remove empty runtime Home and restore its root: "
+                        f"{rollback_error}"
+                    ) from exc
+                raise AgentHomeIOError(
+                    f"Failed to remove empty runtime Home: {exc}"
+                ) from exc
+            return True
+
+    def _validate_empty_overlay_root(self) -> None:
+        """Reject unowned content before removing the reconciled overlay root."""
+
+        try:
+            metadata_entries = set(self._store.metadata_root.iterdir())
+            expected_metadata = {self._store.manifest_path}
+            if self._store.operations_root.exists():
+                expected_metadata.add(self._store.operations_root)
+                if any(self._store.operations_root.iterdir()):
+                    raise AgentHomeInvariantError(
+                        "Empty Home overlay still contains operation entries"
+                    )
+            if metadata_entries != expected_metadata:
+                raise AgentHomeInvariantError(
+                    "Empty Home overlay contains unowned metadata"
+                )
+            for path in self._runtime_root.rglob("*"):
+                if (
+                    path == self._store.metadata_root
+                    or self._store.metadata_root in path.parents
+                ):
+                    continue
+                if path.is_symlink() or not path.is_dir():
+                    raise AgentHomeInvariantError(
+                        "Empty Home overlay contains unowned runtime content"
+                    )
+        except AgentHomeInvariantError:
+            raise
+        except OSError as exc:
+            raise AgentHomeIOError(
+                f"Failed to validate empty runtime Home: {exc}"
+            ) from exc
+
     def effective(self, relative_path: str) -> EffectiveHomeResource | None:
         with self._lock:
             _validate_relative_path(relative_path)
@@ -830,6 +895,8 @@ class HomeOverlayManager:
     def _require_manifest(self) -> HomeOverlayManifest:
         manifest = self._store.load()
         if manifest is None:
+            if not self._runtime_root.exists():
+                return self.initialize()
             raise AgentHomeInvariantError("Home overlay is not initialized")
         return manifest
 

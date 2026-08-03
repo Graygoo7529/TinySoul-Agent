@@ -17,7 +17,7 @@ from .inputs import InputDispatcher, InputEvent, InputSource
 from .gateway import AppCommandGateway
 from .outputs import ObservationRouter
 from .services import AppService
-from .sources import ProgramEventSource
+from .sources import ProgramRequestSource
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class TinySoulApp:
     input_dispatcher: InputDispatcher
     gateway: AppCommandGateway
     input_sources: tuple[InputSource, ...] = field(default_factory=tuple)
-    program_event_sources: tuple[ProgramEventSource, ...] = field(default_factory=tuple)
+    program_request_sources: tuple[ProgramRequestSource, ...] = field(default_factory=tuple)
     services: tuple[AppService, ...] = field(default_factory=tuple)
     observations: ObservationRouter = field(default_factory=ObservationRouter)
     endpoint: EndpointEngine | None = None
@@ -38,13 +38,13 @@ class TinySoulApp:
         object.__setattr__(self, "services", tuple(self.services))
         object.__setattr__(
             self,
-            "program_event_sources",
-            tuple(self.program_event_sources),
+            "program_request_sources",
+            tuple(self.program_request_sources),
         )
 
     def run(self) -> ProgramOutcome:
-        started: list[InputSource | ProgramEventSource | AppService] = []
-        for source in self.program_event_sources:
+        started: list[InputSource | ProgramRequestSource | AppService] = []
+        for source in self.program_request_sources:
             try:
                 source.start(self.program_runner)
             except BaseException:
@@ -86,8 +86,7 @@ class TinySoulApp:
         self.gateway.submit_user_event(event)
 
     def submit_interactive_event(self, event: InputEvent) -> None:
-        """Submit a trusted local command line with decision semantics."""
-
+        """Submit a trusted local command line."""
         self.gateway.submit(event)
 
     def submit_user_input(self, text: str, *, source: str = "api") -> None:
@@ -98,7 +97,7 @@ class TinySoulApp:
 
     def _stop_sources(
         self,
-        sources: Sequence[InputSource | ProgramEventSource | AppService],
+        sources: Sequence[InputSource | ProgramRequestSource | AppService],
         *,
         suppress_errors: bool,
     ) -> None:

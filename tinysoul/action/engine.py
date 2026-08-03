@@ -237,6 +237,7 @@ class ActionEngineBuilder:
         self._process_cancel_grace_seconds = 1.0
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._disabled_actions: set[str] = set()
+        self._included_actions: set[str] | None = None
         self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
 
     def register_executor(
@@ -254,6 +255,18 @@ class ActionEngineBuilder:
             if not isinstance(action_name, str) or not action_name:
                 raise ActionContractError("Disabled action name must be non-empty")
             self._disabled_actions.add(action_name)
+        return self
+
+    def include_actions(self, *action_names: str) -> Self:
+        """Build an engine containing exactly the named package actions."""
+
+        if self._included_actions is not None:
+            raise ActionContractError("Included actions can only be configured once")
+        if any(not isinstance(name, str) or not name for name in action_names):
+            raise ActionContractError("Included action names must be non-empty")
+        if len(action_names) != len(set(action_names)):
+            raise ActionContractError("Included action names must be unique")
+        self._included_actions = set(action_names)
         return self
 
     def update_tool_property_schema(
@@ -330,6 +343,15 @@ class ActionEngineBuilder:
                 ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
             },
         ).load(self._catalog_root)
+        if self._included_actions is not None:
+            available = {action.name for action in catalog.actions()}
+            unknown_included = self._included_actions - available
+            if unknown_included:
+                raise ActionContractError(
+                    "Included actions are absent from the package catalog: "
+                    + ", ".join(sorted(unknown_included))
+                )
+            catalog = catalog.with_actions(tuple(sorted(self._included_actions)))
         unknown_disabled = self._disabled_actions - {
             action.name for action in catalog.actions()
         }

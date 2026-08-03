@@ -27,10 +27,7 @@ from tinysoul.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
     AgentHomeSettings,
-    HomeMaintenanceChange,
-    HomeMaintenanceDecision,
-    HomeMaintenanceMode,
-    HomeMaintenanceStatus,
+    HomeMaintenanceResolution,
     HomeSearchDocument,
     HomeSearchRequest,
     HomeSearchSettings,
@@ -75,16 +72,6 @@ class _FakeLLM:
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self._results.popleft()
-
-
-class _ApplyReviewer:
-    def review(
-        self,
-        change: HomeMaintenanceChange,
-        *,
-        scope: RunScope,
-    ) -> HomeMaintenanceDecision:
-        return HomeMaintenanceDecision.APPLY
 
 
 def test_home_top_search_uses_effective_metadata_without_materializing_actual(
@@ -247,15 +234,16 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
     )
     before = home.search_top("committed guidance", top_k=1)
 
-    outcome = home.run_maintenance(
-        mode=HomeMaintenanceMode.AUTOMATIC,
-        automatic_reviewer=_ApplyReviewer(),
+    change = home.maintenance_snapshot().changes[0]
+    outcome = home.resolve_maintenance(
+        change.token,
+        HomeMaintenanceResolution.ACCEPT,
     )
+    home.finalize_maintenance()
     after = home.search_top("committed guidance", top_k=1)
 
     assert before.items[0].title == "Current Review"
-    assert outcome.status is HomeMaintenanceStatus.COMPLETED
-    assert outcome.applied == 1
+    assert outcome.resolution is HomeMaintenanceResolution.ACCEPT
     assert actual.read_text(encoding="utf-8").startswith("# Current Review")
     assert after.items[0].title == "Current Review"
     assert after.items[0].digest == before.items[0].digest

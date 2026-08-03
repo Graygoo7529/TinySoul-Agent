@@ -45,7 +45,6 @@ export interface BackendStatus {
   turn_active: boolean;
   workspace_revision: number;
   latest_event_sequence: number;
-  maintenance_decision_pending: boolean;
 }
 
 export interface BackendError {
@@ -109,17 +108,6 @@ export interface TrashItem {
   moved_at: number;
 }
 
-export interface MaintenanceDecision {
-  pending: boolean;
-  decision_id?: string;
-  change?: {
-    link: string;
-    operation: "create" | "modify" | "delete";
-    baseline_digest?: string;
-    runtime_digest?: string;
-  };
-}
-
 export interface ControlRequest {
   kind: "stop_turn" | "exit_program";
   metadata?: Record<string, unknown>;
@@ -140,8 +128,9 @@ export interface CommandReceipt {
 }
 
 export interface MaintenanceRequest {
-  kind: "home" | "memory";
+  kind: "daily" | "home" | "memory";
   target_day?: string;
+  rebuild_memory?: boolean;
   metadata?: Record<string, unknown>;
   command_id?: string;
 }
@@ -152,9 +141,8 @@ export interface MaintenanceStatus {
     home_change_count: number;
     home_skill_memory_count: number;
     memory_pending: boolean;
-    memory_day: string;
+    memory_days: string[];
   };
-  decision: MaintenanceDecision;
 }
 
 export interface WorkspaceWriteRequest {
@@ -175,12 +163,6 @@ export interface WorkspaceTrashRequest {
 export interface WorkspaceRestoreRequest {
   trash_ref: string;
   expected_revision: number;
-}
-
-export interface MaintenanceDecisionRequest {
-  decision_id: string;
-  decision: "apply" | "discard" | "stop";
-  command_id?: string;
 }
 
 export interface ConnectionInfo {

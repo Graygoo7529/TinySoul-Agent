@@ -10,7 +10,11 @@ from .actions import (
     HomeTopWriteExecutor,
     register_home_actions,
 )
-from .background import HomeBackgroundContentLoader, HomeBackgroundEntryProvider
+from .background import (
+    ActualHomeBackgroundEntryProvider,
+    HomeBackgroundContentLoader,
+    HomeBackgroundEntryProvider,
+)
 from .config import (
     AgentHomeSettings,
     HomeSearchSettings,
@@ -27,7 +31,6 @@ from .errors import (
     AgentHomeError,
     AgentHomeIOError,
     AgentHomeInvariantError,
-    AgentHomeReviewError,
     AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
@@ -45,20 +48,11 @@ from .runtime_copy import (
 )
 from .maintenance import (
     HomeMaintenanceChange,
-    HomeMaintenanceDecision,
-    HomeMaintenanceDecisionProvider,
-    HomeMaintenanceFailure,
-    HomeMaintenanceItemOutcome,
-    HomeMaintenanceMode,
-    HomeMaintenanceOutcome,
     HomeMaintenancePending,
     HomeMaintenanceResolveOutcome,
     HomeMaintenanceResolution,
-    HomeMaintenanceReviewer,
     HomeMaintenanceSnapshot,
-    HomeMaintenanceStatus,
     HomeSkillMemoryContext,
-    LLMHomeMaintenanceReviewer,
 )
 from .overlay import HomeOverlayRecord, HomeOverlayState
 from .metadata import HomeSkillMetadata, parse_home_skill_metadata
@@ -75,6 +69,7 @@ from .search import (
 )
 
 __all__ = [
+    "ActualHomeBackgroundEntryProvider",
     "AgentHomeContractError",
     "AgentHomeEngine",
     "AgentHomeEngineBuilder",
@@ -82,7 +77,6 @@ __all__ = [
     "AgentHomeFailureKind",
     "AgentHomeIOError",
     "AgentHomeInvariantError",
-    "AgentHomeReviewError",
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",
@@ -93,18 +87,10 @@ __all__ = [
     "HomeDomainHowProvider",
     "HomeLink",
     "HomeMaintenanceChange",
-    "HomeMaintenanceDecision",
-    "HomeMaintenanceDecisionProvider",
-    "HomeMaintenanceFailure",
-    "HomeMaintenanceItemOutcome",
-    "HomeMaintenanceMode",
-    "HomeMaintenanceOutcome",
     "HomeMaintenancePending",
     "HomeMaintenanceResolveOutcome",
     "HomeMaintenanceResolution",
-    "HomeMaintenanceReviewer",
     "HomeMaintenanceSnapshot",
-    "HomeMaintenanceStatus",
     "HomePromptMountLink",
     "HomePromptMountPatchExecutor",
     "HomePromptMountWriteExecutor",
@@ -130,7 +116,6 @@ __all__ = [
     "HomeTopSearchService",
     "HomeSkillMemoryContext",
     "HomeSkillMetadata",
-    "LLMHomeMaintenanceReviewer",
     "LLMHomeSearchReranker",
     "parse_agent_home_settings",
     "parse_home_link",

@@ -1,11 +1,10 @@
 """App input source adapters."""
 
 from .terminal import TerminalInputSource
-from .scheduler import MaintenanceSchedule, MaintenanceScheduler, ProgramEventSource
+from .scheduler import MaintenanceScheduler, ProgramRequestSource
 
 __all__ = [
-    "MaintenanceSchedule",
     "MaintenanceScheduler",
-    "ProgramEventSource",
+    "ProgramRequestSource",
     "TerminalInputSource",
 ]

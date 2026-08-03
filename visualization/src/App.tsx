@@ -4,7 +4,6 @@ import { Check, Copy, RefreshCw, TerminalSquare, Loader2 } from "lucide-react";
 import { AppShell } from "./components/AppShell";
 import { ChatView } from "./components/ChatView";
 import { WorkspaceView } from "./components/WorkspaceView";
-import { MaintenanceDialog } from "./components/MaintenanceDialog";
 import { useBackend } from "./hooks/useBackend";
 import { useAppStore } from "./store/appStore";
 
@@ -12,8 +11,6 @@ function AppContent() {
   const {
     activeTab,
     connection,
-    status,
-    setMaintenance,
     setMaintenanceStatus,
   } = useAppStore();
 
@@ -25,18 +22,13 @@ function AppContent() {
       try {
         const maintenance = await client.maintenanceStatus();
         setMaintenanceStatus(maintenance);
-        setMaintenance(
-          maintenance.decision.pending ? maintenance.decision : null,
-        );
       } catch (error) {
         console.error("Maintenance status failed:", error);
       }
     };
     void check();
   }, [
-    status?.maintenance_decision_pending,
     connection.info,
-    setMaintenance,
     setMaintenanceStatus,
   ]);
 
@@ -46,7 +38,6 @@ function AppContent() {
     <>
       {activeTab === "chat" && <ChatView />}
       {activeTab === "workspace" && <WorkspaceView />}
-      <MaintenanceDialog />
     </>
   );
 }

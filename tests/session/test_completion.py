@@ -6,7 +6,7 @@ import pytest
 
 from tinysoul.action import ActionResultStatus
 from tinysoul.context.trace import SealedTurnTrace
-from tinysoul.loop import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.session.completion import project_turn_record
 from tinysoul.session.errors import SessionInvariantError
 from tinysoul.session.models import SessionActionOutcome, SessionOutputRecord

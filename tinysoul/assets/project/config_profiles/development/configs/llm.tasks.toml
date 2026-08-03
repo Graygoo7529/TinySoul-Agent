@@ -28,19 +28,6 @@ switch_wait_seconds = 2.0
 max_cycles = 10
 prefer_successful_model_seconds = 600
 
-[llm.tasks.home_maintenance]
-models = ["gpt_5_6_sol", "gpt_5_5", "kimi_k3", "glm_5_1"]
-required_capabilities = ["text_input"]
-answer_format = "json_object"
-tool_use = "disabled"
-temperature = 0.2
-max_output_tokens = 256
-max_retries_per_model = 2
-retry_wait_seconds = 1.0
-switch_wait_seconds = 2.0
-max_cycles = 10
-prefer_successful_model_seconds = 600
-
 [llm.tasks.home_search]
 models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4", "minimax_m3"]
 required_capabilities = ["text_input"]

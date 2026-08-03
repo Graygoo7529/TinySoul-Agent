@@ -1,4 +1,4 @@
-"""Stable User Turn outcome status and bounded failure details."""
+"""Stable Turn outcome status and bounded failure details."""
 
 from __future__ import annotations
 

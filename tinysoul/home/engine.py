@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from tinysoul.infra.filesystem import TextPrefixRead, file_digest, read_text_prefix
-from tinysoul.runtime import ObservationEmitter, RunScope
+from tinysoul.runtime import RunScope
 
 from .config import AgentHomeSettings, HomeSearchSettings
 from .errors import (
@@ -27,11 +27,7 @@ from .maintenance import (
     HomeMaintenanceResolveOutcome,
     HomeMaintenanceResolution,
     HomeMaintenanceSnapshot,
-    HomeMaintenanceDecisionProvider,
-    HomeMaintenanceMode,
-    HomeMaintenanceOutcome,
     HomeMaintenancePending,
-    HomeMaintenanceReviewer,
     HomeMaintenanceService,
 )
 from .metadata import (
@@ -101,7 +97,6 @@ class AgentHomeEngine:
         max_write_chars: int,
         skill_catalog_max_chars: int,
         search_settings: HomeSearchSettings,
-        observations: ObservationEmitter | None = None,
     ) -> None:
         self._layout = layout
         self._overlay = overlay
@@ -114,7 +109,6 @@ class AgentHomeEngine:
             overlay=overlay,
             max_preview_chars=max_read_chars,
             max_write_chars=max_write_chars,
-            observations=observations,
         )
         self._search = HomeTopSearchService(search_settings)
 
@@ -133,24 +127,6 @@ class AgentHomeEngine:
     def reconcile(self) -> None:
         self._overlay.reconcile()
         self._validate_overlay_semantics()
-
-    def run_maintenance(
-        self,
-        *,
-        mode: HomeMaintenanceMode,
-        automatic_reviewer: HomeMaintenanceReviewer | None = None,
-        manual_decisions: HomeMaintenanceDecisionProvider | None = None,
-        scope: RunScope | None = None,
-    ) -> HomeMaintenanceOutcome:
-        """Review and process the active overlay without persisted decisions."""
-
-        self._validate_overlay_semantics()
-        return self._maintenance.run(
-            mode=mode,
-            automatic_reviewer=automatic_reviewer,
-            manual_decisions=manual_decisions,
-            scope=scope,
-        )
 
     def maintenance_pending(self) -> HomeMaintenancePending:
         """Return reviewable Home work without cleaning active records."""
@@ -181,6 +157,16 @@ class AgentHomeEngine:
         )
         self._validate_overlay_semantics()
         return outcome
+
+    def finalize_maintenance(self) -> bool:
+        """Remove the runtime Home after all current differences are resolved."""
+
+        self._validate_overlay_semantics()
+        if self._maintenance.pending().pending:
+            raise AgentHomeContractError(
+                "Home Maintenance cannot finalize while differences remain"
+            )
+        return self._overlay.remove_if_empty()
 
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)
@@ -241,6 +227,47 @@ class AgentHomeEngine:
                 )
             result[value] = relative
         return tuple(sorted(result))
+
+    def actual_default_background_links(self) -> tuple[str, ...]:
+        """Return default Background links backed only by actual Home."""
+
+        actual = set(self.actual_top_links())
+        core = str(_DEFAULT_BACKGROUND_TOP_LINKS[0])
+        if core not in actual:
+            raise AgentHomeContractError("Actual Home core background is missing")
+        return tuple(
+            str(link) for link in _DEFAULT_BACKGROUND_TOP_LINKS if str(link) in actual
+        )
+
+    def read_actual_top(self, link: HomeTopLink | str) -> str:
+        """Read one top-level entry without consulting the runtime overlay."""
+
+        parsed = HomeTopLink.parse(link) if isinstance(link, str) else link
+        relative = self._layout.relative_for_top(parsed)
+        source = self._layout.source_for_relative(relative)
+        if source.is_symlink() or not source.is_file():
+            raise AgentHomeContractError(
+                f"Actual Home top-level entry does not exist: {parsed}"
+            )
+        return _read_text(source)
+
+    def actual_skill_metadata(self) -> tuple[HomeSkillMetadata, ...]:
+        """Return general HOW metadata parsed only from actual Home."""
+
+        items: list[HomeSkillMetadata] = []
+        for value in self.actual_top_links():
+            link = HomeTopLink.parse(value)
+            if link.space != "how":
+                continue
+            relative = self._layout.relative_for_top(link)
+            prefix = _read_text_prefix(
+                self._layout.source_for_relative(relative),
+                SKILL_FRONTMATTER_MAX_CHARS + 1,
+            )
+            items.append(parse_home_skill_metadata(prefix.text, link=link))
+        result = tuple(sorted(items, key=lambda item: str(item.link)))
+        self._validate_skill_catalog_budget(result)
+        return result
 
     def search_top(
         self,
@@ -858,11 +885,8 @@ class AgentHomeEngineBuilder:
     def __init__(
         self,
         settings: AgentHomeSettings,
-        *,
-        observations: ObservationEmitter | None = None,
     ) -> None:
         self._settings = settings
-        self._observations = observations
 
     def build(self) -> AgentHomeEngine:
         if not self._settings.original_root.exists():
@@ -881,7 +905,6 @@ class AgentHomeEngineBuilder:
             max_write_chars=self._settings.max_write_chars,
             skill_catalog_max_chars=self._settings.skill_catalog_max_chars,
             search_settings=self._settings.search,
-            observations=self._observations,
         )
         engine.reconcile()
         return engine

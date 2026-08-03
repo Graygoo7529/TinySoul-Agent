@@ -5,18 +5,20 @@ from typing import cast
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder
 from tinysoul.context.errors import ContextContractError
-from tinysoul.loop import BusinessDay, LoopSettings, TurnOutcomeStatus
 from tinysoul.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
+    TurnOutcomeStatus,
     TurnOutput,
     TurnPreparationPipeline,
     TurnPreparationRequest,
+    TurnSettings,
     build_turn_output_signal,
 )
 from tinysoul.loop.cycle import CycleOutcome, CycleRunner
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
@@ -197,6 +199,24 @@ class _EmptyCycleRunner:
         return CycleOutcome(cycle_id=f"cycle_{cycle_index}")
 
 
+class _CompletionCycleRunner:
+    def run(
+        self,
+        *,
+        turn_id: str,
+        cycle_index: int,
+        scope: RunScope,
+    ) -> CycleOutcome:
+        return CycleOutcome(
+            cycle_id=f"cycle_{cycle_index}",
+            completion={
+                "kind": "maintenance",
+                "result_id": "maintenance_1",
+                "task": "home",
+            },
+        )
+
+
 @dataclass
 class _CountingEmptyCycleRunner:
     calls: int = 0
@@ -255,7 +275,7 @@ def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _AnsweredCycleRunner()),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
     )
 
     outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
@@ -278,7 +298,7 @@ def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> No
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _ProgramEndCycleRunner()),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
     )
 
     outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
@@ -300,7 +320,7 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         bus=bus,
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
         observations=observations,
     )
@@ -332,7 +352,7 @@ def test_turn_preparation_retry_replays_only_preparation() -> None:
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, cycles),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         preparation_pipeline=TurnPreparationPipeline((preparation,)),
     )
 
@@ -354,7 +374,7 @@ def test_turn_completion_failure_reports_actual_failure_not_output_control() -> 
         bus=bus,
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         completion_pipeline=TurnCompletionPipeline((_FailingCompletion(),)),
         observations=observations,
     )
@@ -378,7 +398,7 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _EmptyCycleRunner()),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         observations=observations,
     )
 
@@ -391,6 +411,30 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     assert exhausted.level is ObservationLevel.NORMAL
 
 
+def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None:
+    observations = _RecordingObservations([], [])
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, _CompletionCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _completion: None,
+        observations=observations,
+    )
+
+    outcome = runner.run("maintain home", business_day=DAY, scope=_program_scope())
+
+    assert outcome.status is TurnOutcomeStatus.COMPLETED
+    completed = [
+        event for event in observations.events if event.name == "turn.completed"
+    ]
+    assert len(completed) == 1
+    assert completed[0].level is ObservationLevel.VERBOSE
+    assert completed[0].payload["status"] == "completed"
+    assert "turn.output" not in {event.name for event in observations.events}
+
+
 def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
     activity = _TurnActivity(remaining=2)
     cycles = _CountingEmptyCycleRunner()
@@ -399,7 +443,7 @@ def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, cycles),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         activity_controller=activity,
     )
 
@@ -418,7 +462,7 @@ def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, _EmptyCycleRunner()),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         activity_controller=activity,
         observations=observations,
     )
@@ -443,7 +487,7 @@ def test_turn_preparation_propagates_program_transfer_without_running_cycle() ->
         bus=SignalBus(),
         trap=_trap(),
         cycle_runner=cast(CycleRunner, cycles),
-        settings=LoopSettings(max_cycles_per_turn=1),
+        settings=TurnSettings(max_cycles=1),
         preparation_pipeline=TurnPreparationPipeline((_EndProgramPreparation(),)),
     )
 

@@ -12,11 +12,11 @@ Runtime 采用 OS 风格的陷入设计：模块内部正常执行时不依赖�
 
 TinySoul 的运行层级从外到内分为 Program、Turn、Cycle、Phase 和 Module。
 
-Program 是程序顶层，当前负责等待用户输入、执行退出指令、调度 User Turn 和独立 Home/Memory Maintenance work。每项新日 work 开始前的确定性 daily rollover 是 Program 边界的前置条件，不是调用 LLM 的 Maintenance Turn；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不能移动或初始化跨日 Home overlay，也不读写顶层 Memory。Program 不直接介入 Phase 或具体模块细节。
+Program 是程序顶层，由 App 拥有 typed request queue 和 Program frame。它把 `UserTurnRequest` 分派给 User Turn，把 `MaintenanceRequest` 分派给 MaintenanceEngine，把 `ExitRequest` 交给 Program trap。每项新日 work 前的确定性 Archive preflight 是 Program 边界前置条件，但其业务归 Maintenance 所有；它只恢复 journal、归档旧日 Session/Workspace/Trash 并打开新日 Session/Workspace，不触发 LLM、不移动跨日 Home overlay，也不读写顶层 Memory。Program 不直接介入 Phase 或具体模块细节。
 
-Turn 是 Program 下的一次顶层任务。当前 User Turn 由用户输入形成，Home/Memory Maintenance 是与 User Turn 同级的 Program work。不同类型 Turn/work 的调度策略可以不同，例如 User Turn 可以接收用户追加输入，Maintenance 执行期间不接收用户输入。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 active overlay 与 actual Home，Memory 重试重新读取指定日期 Session projection 与同日期 MEMORY。
+Turn 是 Program work 中需要 3-stage 推理的一次顶层任务。User Turn 由用户输入形成；Home/Memory task 由 MaintenanceEngine 在 eligible 时启动独立 Maintenance Turn。二者使用相同 Turn/Cycle/Phase 层级，但 preparation、Context 实例、Action view、completion 和输出语义不同。User Turn 可以接收用户追加输入；Maintenance 期间新输入只在 Program queue 排队，不进入当前 Turn。Runtime 不保存 Maintenance 业务状态：Home 重试重新读取 runtime overlay 与 actual Home，Memory 重试重新读取指定日期 Archive projection 与同日期 MEMORY。
 
-Cycle 是 User Turn 内的一次执行轮。User Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
+Cycle 是任一 User/Maintenance Turn 内的一次执行轮。一个 Turn 可以包含多个 Cycle，每个 Cycle 按顺序组织 Phase。
 
 Phase 是执行轮内的执行单元。Phase1 负责更新语境与决策行动域，Phase2 负责生成行动参数，Phase3 负责采取行动。每个 Phase 都可以包含一次或多次模块级任务。Phase 的稳定标识由 Runtime 以 CyclePhase 提供，供业务模块在结果与轨迹元数据中引用同一语义。
 
@@ -60,7 +60,7 @@ Runtime bridge 是模块失败语义和 Runtime 通用原因之间的唯一翻�
 
 Runtime 的陷入结果是运行转移。运行转移应指向运行位置栈中的 frame，使运行器能够明确知道 Trap 处理结束后应重试或结束哪个运行边界。
 
-运行转移只包含重试某个 frame 和结束某个 frame。重试表示恢复例程完成后重新执行目标 frame，使原本被陷入打断的工作继续完成；结束表示结束目标 frame。结束 Program frame 表示退出程序；结束 Turn frame 表示结束当前 User Turn 或 Daily Turn；结束 Cycle frame 表示结束当前执行轮，后续是否进入下一 Cycle 由 Turn 运行器基于当前 Turn 状态决定。程序退出、Turn 中断、Cycle 收束和恢复失败都不需要单独的动作枚举，而是通过结束对应 frame 表达。
+运行转移只包含重试某个 frame 和结束某个 frame。重试表示恢复例程完成后重新执行目标 frame，使原本被陷入打断的工作继续完成；结束表示结束目标 frame。结束 Program frame 表示退出程序；结束 Turn frame 表示结束当前 User Turn 或 Maintenance Turn；结束 Cycle frame 表示结束当前执行轮，后续是否进入下一 Cycle 由 Turn 运行器基于当前 Turn 状态决定。程序退出、Turn 中断、Cycle 收束和恢复失败都不需要单独的动作枚举，而是通过结束对应 frame 表达。
 
 重试目标 frame 必须具备可重放语义。模块级重试只有在模块边界保存了可重放调用时才成立，例如资源操作、Action Invoke 或明确的 LLM Task 调用。否则处理器应选择重试 Phase、Cycle，或结束 Turn。Runtime 不提供从异常抛出点下一行继续执行的语义；若某个问题可以在模块内部继续调度，它不应进入 Trap，而应由模块内部流程或信号系统处理。
 

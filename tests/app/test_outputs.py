@@ -105,7 +105,7 @@ def test_observation_router_filters_each_sink_independently() -> None:
     ]
 
 
-def test_observation_router_broadcasts_command_and_decision_feedback() -> None:
+def test_observation_router_broadcasts_command_and_maintenance_feedback() -> None:
     terminal = _RecordingSink()
     endpoint = _RecordingSink()
     router = ObservationRouter(
@@ -117,8 +117,8 @@ def test_observation_router_broadcasts_command_and_decision_feedback() -> None:
     )
     for name in (
         "app.command.accepted",
-        "home.maintenance.decision.required",
-        "home.maintenance.decision.resolved",
+        "maintenance.started",
+        "maintenance.completed",
     ):
         router.emit(
             ObservationEvent(

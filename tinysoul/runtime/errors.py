@@ -17,7 +17,3 @@ class RuntimeInvariantError(RuntimeModuleError):
 
 class RuntimeGatewayError(RuntimeModuleError):
     """Raised when an external application gateway rejects a request."""
-
-
-class RuntimeInputBlockedError(RuntimeGatewayError):
-    """Raised when application state blocks ordinary user input."""

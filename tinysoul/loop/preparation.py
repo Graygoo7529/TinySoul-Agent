@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import RunScope, Signal
 
-from tinysoul.maintenance import BusinessDay
 from .errors import LoopContractError
 
 
@@ -22,14 +22,14 @@ class TurnPreparationHandler(Protocol):
 @dataclass(frozen=True)
 class TurnPreparationRequest:
     turn_id: str
-    user_input: str
+    turn_input: str
     business_day: BusinessDay
     scope: RunScope
 
     def __post_init__(self) -> None:
-        if not self.turn_id or not self.user_input:
+        if not self.turn_id or not self.turn_input:
             raise LoopContractError(
-                "TurnPreparationRequest requires turn_id and user_input"
+                "TurnPreparationRequest requires turn_id and turn_input"
             )
         if not isinstance(self.business_day, BusinessDay):
             raise LoopContractError(

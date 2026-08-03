@@ -8,11 +8,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import tinysoul.loop.daily as daily_module
+import tinysoul.maintenance.archive.engine as daily_module
 import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator
-from tinysoul.loop.errors import LoopContractError, LoopInvariantError
+from tinysoul.maintenance import BusinessDay, DailyLifecycleCoordinator
+from tinysoul.maintenance.errors import (
+    MaintenanceContractError as LoopContractError,
+    MaintenanceInvariantError as LoopInvariantError,
+)
 from tinysoul.runtime import (
     ObservationEmitter,
     ObservationEvent,

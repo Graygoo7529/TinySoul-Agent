@@ -18,7 +18,6 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 import uvicorn
 
-from tinysoul.home import HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import ObservationLevel
 from tinysoul.workspace import WorkspaceRetention
@@ -47,8 +46,9 @@ class ControlRequest(BaseModel):
 class MaintenanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["home", "memory"]
+    kind: Literal["daily", "home", "memory"]
     target_day: str = ""
+    rebuild_memory: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)
 
@@ -77,14 +77,6 @@ class WorkspaceRestoreRequest(BaseModel):
 
     trash_ref: str = Field(min_length=1)
     expected_revision: int = Field(ge=0)
-
-
-class MaintenanceDecisionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    decision_id: str = Field(min_length=1)
-    decision: Literal["apply", "discard", "stop"]
-    command_id: str = Field(default="", max_length=128)
 
 
 def create_endpoint_app(
@@ -193,6 +185,7 @@ def create_endpoint_app(
         return engine.request_maintenance(
             kind=body.kind,
             target_day=body.target_day,
+            rebuild_memory=body.rebuild_memory,
             metadata=to_json_object(body.metadata),
             command_id=body.command_id,
         )
@@ -275,25 +268,6 @@ def create_endpoint_app(
         return engine.restore_workspace_resource(
             trash_ref=body.trash_ref,
             expected_revision=body.expected_revision,
-        )
-
-    @app.get("/v1/maintenance/decision")
-    async def maintenance_decision() -> JsonObject:
-        return engine.maintenance_decision()
-
-    @app.post("/v1/maintenance/decision")
-    async def resolve_maintenance_decision(
-        body: MaintenanceDecisionRequest,
-    ) -> JsonObject:
-        decision = (
-            None
-            if body.decision == "stop"
-            else HomeMaintenanceDecision(body.decision)
-        )
-        return engine.resolve_maintenance_decision(
-            decision_id=body.decision_id,
-            decision=decision,
-            command_id=body.command_id,
         )
 
     @app.websocket("/v1/events/ws")

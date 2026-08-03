@@ -21,6 +21,7 @@ const STATUS_CONFIG: Record<
   { icon: React.ElementType; color: string; label: string }
 > = {
   answered: { icon: CheckCircle2, color: "var(--success)", label: "Answered" },
+  completed: { icon: CheckCircle2, color: "var(--success)", label: "Completed" },
   failed: { icon: XCircle, color: "var(--danger)", label: "Failed" },
   stopped: { icon: AlertCircle, color: "var(--warning)", label: "Stopped" },
   exhausted: { icon: RefreshCw, color: "var(--warning)", label: "Exhausted" },
@@ -107,7 +108,10 @@ export function MessageBubble({ turn }: MessageBubbleProps) {
               </div>
             ) : (
               <div className="text-muted">
-                {turn.failureMessage || "No response generated."}
+                {turn.failureMessage ||
+                  (turn.status === "completed"
+                    ? "Turn completed."
+                    : "No response generated.")}
               </div>
             )}
           </div>

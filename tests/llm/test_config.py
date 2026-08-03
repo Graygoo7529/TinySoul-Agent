@@ -151,11 +151,6 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert llm_action.settings.temperature == pytest.approx(0.3)
     assert llm_action.settings.max_output_tokens == 2048
 
-    home_maintenance = config.tasks.get(TaskProfile.HOME_MAINTENANCE)
-    assert home_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
-    assert home_maintenance.settings.tool_use is ToolUse.DISABLED
-    assert home_maintenance.settings.temperature == pytest.approx(0.2)
-    assert home_maintenance.settings.max_output_tokens == 256
     home_search = config.tasks.get(TaskProfile.HOME_SEARCH)
     assert home_search.settings.answer_format is AnswerFormat.JSON_OBJECT
     assert home_search.settings.tool_use is ToolUse.DISABLED

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Square, AlertTriangle, Wrench } from "lucide-react";
+import { Send, Square, AlertTriangle } from "lucide-react";
 
 import { randomId } from "../utils/randomId";
 
@@ -14,7 +14,6 @@ export function ChatView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isTurnActive = status?.turn_active ?? false;
-  const maintenancePending = status?.maintenance_decision_pending ?? false;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -90,15 +89,6 @@ export function ChatView() {
       </div>
 
       <div className="composer">
-        {maintenancePending && (
-          <div className="composer-blocker">
-            <Wrench size={13} />
-            <span>
-              Maintenance decision pending. Please resolve it in the Maintenance
-              panel before sending messages.
-            </span>
-          </div>
-        )}
         <div className="composer-inner">
           <textarea
             ref={textareaRef}
@@ -107,7 +97,7 @@ export function ChatView() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            disabled={!client || maintenancePending}
+            disabled={!client}
           />
           <div className="composer-actions">
             {isTurnActive ? (
@@ -122,7 +112,7 @@ export function ChatView() {
               <button
                 className="send-btn"
                 onClick={() => void send()}
-                disabled={!client || !text.trim() || maintenancePending}
+                disabled={!client || !text.trim()}
                 title="Send"
               >
                 <Send size={14} />

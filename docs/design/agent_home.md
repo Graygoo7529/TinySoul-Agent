@@ -4,7 +4,7 @@
 
 本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@AGENT`、严格通用 HOW frontmatter 与自动 metadata 目录、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 HOW metadata 目录、不可逐出的默认 core、effective 存在时同样不可逐出的 allowlisted Context/user Agent Top 正文，以及内部可加载顶层目录；Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 已直接 review active overlay 并写回 actual Home。
+Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 HOW metadata 目录、不可逐出的默认 core、effective 存在时同样不可逐出的 allowlisted Context/user Agent Top 正文，以及内部可加载顶层目录；Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 提供有界 diff snapshot 和 accept/reject/rewrite mutation，推理与任务编排属于 `tinysoul.maintenance.home`。
 
 Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`tinysoul.home` 不再包含 Memory search、Maintenance、配置或 Link/path 映射，也不保留兼容 Link、双读或迁移 API。独立 Memory 设计见 `docs/design/memory.md`。
 
@@ -12,7 +12,7 @@ Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`t
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、知识、技能和行动域 HOW。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 Context 提供 Home-owned 动态顶层目录与内容 provider，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供 Home mutation 门面。Home-owned reviewer 可以调用明确的 LLM Task，但调度属于 Loop。Agent Home 只负责跨日 active overlay、effective view 和 Home Maintenance apply，不参与 Session/Workspace 的每日归档或 Memory Maintenance。
+Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 Context 提供 effective Home 与 actual Home 两种动态顶层 provider，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供普通 runtime mutation 和 Maintenance resolution 门面。Agent Home 不拥有 reviewer、时钟、scheduler 或 Maintenance Turn；它只负责跨日 active overlay、effective/actual view 与单项 Home resolution，不参与 Session/Workspace 的每日归档或 Memory Maintenance。
 
 ## 设计目标
 
@@ -241,28 +241,24 @@ search 的 Home Link 和 effective overlay 规则属于 Agent Home；Infra 不�
 
 ## Maintenance
 
-Home Maintenance 是与 User Turn 同级的 Program work，不属于普通 User Turn 的 Phase 主链路。它可以由内置 scheduler、程序启动后的提示或人工命令触发；scheduler 与输入适配器只投递 Program event，不直接调用 Home。Maintenance 执行期间不接收新的 User Turn 输入，外部输入进入 Program queue 等待。Memory Maintenance 是另一个独立 Program work，详见 `docs/design/memory.md`；Home 不实现其 consolidator、store 或 outcome。
+Home Maintenance 是 `tinysoul.maintenance.home` 拥有的自治任务。它由 MaintenanceEngine 计划，通过独立 Maintenance Turn 在完整 Background/Session/Workspace 情景中逐项处理 runtime Home diff。scheduler、Terminal 和 Endpoint 只投递 MaintenanceRequest，不直接调用 Home；手动与定时触发使用同一任务路径，不等待人工审批。
 
 ### Home Maintenance
 
-Home Maintenance 的输入只包括当前 active `runtime/home`、actual Home，以及 runtime 通用 HOW 包中的 `SKILL_MEMORY.md`。它不读取 Session、Workspace、Trash 或任何 archived Home，也不创建 Home archive、workset、Settlement root 或持久 review 状态。
+Home owner 的 diff 输入只包括当前 active `runtime/home`、actual Home，以及 runtime 通用 HOW 包中的 `SKILL_MEMORY.md`。Maintenance Turn 的 Context 另外使用 actual Home Background，并由 task preparation 注入当前 Session 和 Workspace；Home 模块本身不读取 Session/Workspace，也不创建 Home archive、workset、Settlement root 或持久 review 状态。
 
-一次调用在内存中计算 active overlay 与 actual Home 的差异并立即 apply 或 discard：
+一次任务从当前事实动态构造 snapshot，并通过 owner-bound actions 处理：
 
 1. `copied` 表示仅物化而未被 Agent 修改，无论当前 actual 是否已经变化，都不应把旧 runtime 副本写回；Maintenance 直接清理该 runtime record/content；
-2. `created/modified/deleted` 以 record baseline、runtime 内容和当前 actual 内容构造有界 review 输入；后台模式允许 Agent 全自动 apply/discard，人工模式通过上层注入的 decision provider 在终端逐项确认；Home reviewer 不直接读取 stdin；
-3. apply 使用单文件原子替换或删除更新 actual Home，discard 不修改 actual Home；任一决定完成后都清除对应 runtime record/content，使后续 effective read 回退到 actual Home；
-4. `SKILL_MEMORY.md` 用于 review 对应通用 HOW，但文件自身永不写入 actual Home；该 skill review 完成后清空；
-5. 全部实际 diff 处理后，active overlay 只保留后续新物化或新修改内容；不保存 status、plan、review result 或 apply journal；
-6. 若中断发生在 actual 单文件写入之后、runtime 清理之前，下一次 Maintenance 根据两者已经一致的事实完成清理；未处理项继续保留在 active overlay 并重新 review。
+2. `maintenance.home.list/inspect` 向 Maintenance Turn 提供 token、Link、state、digest 和有界 before/after 内容；token 绑定当前 snapshot，actual/runtime 任一变化都会使旧 token 失效；
+3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；
+4. `SKILL_MEMORY.md` 作为同 skill diff 的上下文，但永不写入 actual；对应 skill 处理完成后清空；
+5. `maintenance.complete` 只有在 snapshot 和 pending 事实均无未处理项时成功；Turn 结束后 controller 再调用 `finalize_maintenance`，校验 runtime root 只含空 overlay 元数据并整体移除 `runtime/home`；
+6. 下一次 Home 访问发现 runtime root 不存在时重新初始化 overlay，并按需从 actual 懒加载。
 
-Home Maintenance 与 User Turn 由 Program 单写者边界串行化，因而 review/apply 期间不会出现新的 runtime mutation。未触发或人工跳过 Home Maintenance 时，active overlay 原样跨 Turn、跨日、跨重启保留，Agent 继续透明读取和修改同一 effective Home。`SKILL_MEMORY.md` 同样保留到下一次 Home Maintenance。
+Home Maintenance 与 User Turn 由 Program 单写者边界串行化。未触发或任务失败时，尚未处理的 overlay 原样跨 Turn、跨日、跨重启保留；已完成的单项 resolution 不回滚。若中断发生在 actual 写入之后、runtime 清理之前，下一次 snapshot 根据 runtime/actual 已一致事实完成确定性清理，不需要持久 review decision。
 
-当前代码已实现 Home-owned `HomeMaintenanceService`、内存态 frozen change/decision/outcome、自动 reviewer 与人工 decision provider 协议。自动 reviewer 使用 JSON-only `home_maintenance` LLM profile，并且只接受精确 `apply`/`discard` 字段；review task failure、缺失 JSON、额外字段或非法 decision 收敛为当次 `FAILED/review_failed` outcome，未处理 overlay 保留。人工 provider 返回 `None` 时在当前未确认项之前停止。change 只携带有界 runtime/actual 文本预览、baseline/runtime/actual digest 和可选同 skill `SKILL_MEMORY`，完整 runtime 内容仅在 apply 前重新校验后由文件边界读取。`maintenance_pending()` 只报告 current actual 与 runtime 仍有真实差异的 created/modified/deleted 和有效 `SKILL_MEMORY.md`，不把纯 copied 或 actual 已一致的恢复残留作为启动提示。Program work、终端逐项输入与 scheduler 已装配；Home 仍不拥有 stdin、时钟或触发策略。
-
-Home service 只发布 verbose `home.maintenance.started`、`home.maintenance.item.resolved` 与 `completed/stopped/failed` Observation。item 事件只含 Link、overlay state 和 apply/discard decision；terminal 事件只含 mode、处理/清理/剩余计数和稳定 failure kind，不包含 runtime/actual 正文、diff、review prompt、模型 reasoning 或路径。Program 在 normal 层另行发布该 work 的唯一结果，因此 Home 事件只服务于详细诊断，且 emitter 失败不得影响 review/apply/cleanup。
-
-overlay cleanup 不保存 review decision。copied record 若遇到 actual 外部变化，先把 runtime 对齐 current actual 或形成 current deletion，再清除 record，旧副本永不写回。created/modified 的 runtime digest 已等于 current actual、或 deleted 对应 actual 已不存在时，Maintenance 直接清理，覆盖“actual 原子写完成但 runtime 清理中断”的恢复窗口。部分 apply/discard 后 reviewer 失败时，已处理项保持已提交，只有仍有真实 diff 的未处理项下次重新 review；`SKILL_MEMORY.md` 清理失败时，已处理 Home change 不会被重新 review，下一次 Maintenance 只重试剩余 memory cleanup。恢复范围是进程异常和文件操作失败，不保存或恢复内存中的 review decision。
+`HomeMaintenanceService` 不调用 LLM、不读取 stdin、不解释自动或手动模式。Maintenance Turn 的推理失败形成 Home task outcome；Home owner 只维护 snapshot/resolution/pending/finalize 契约。事件和 outcome 只携带 Link、state、resolution、digest、计数和稳定错误类型，不包含完整正文、diff、reasoning 或绝对路径。
 
 ## 与 Workspace 的关系
 
@@ -309,7 +305,7 @@ tinysoul/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、动态顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action HOW、actual top-link catalog 和 Home reviewer。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不再提供 Business Day/archive 业务语义，也不承载 LLM review policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。Home search/reviewer 是 Home-owned 独立服务；不建立 Settlement store，也不把业务逻辑放进普通 action executor。
+`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action HOW、Maintenance snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 Business Day/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Maintenance Turn 编排放进 Home。
 
 AppBuilder 的目标职责是：
 
@@ -318,7 +314,8 @@ AppBuilder 的目标职责是：
 3. 将 HomeDomainHowProvider 注入 Phase2Unit，并将 HomeActionHowProvider 注入 LLM action executor；
 4. 将 Home action handler 注册到 ActionEngineBuilder，并向 search executor 注入 `LLMHomeSearchReranker`；
 5. 注册 home runtime copy Trap handler；
-6. 不直接读取 `AGENT.md`、HOW、WHAT 或 WHY 文件，也不读取 Memory 文件。
+6. 为 Maintenance Context 注入 `ActualHomeBackgroundEntryProvider`，为 Home Maintenance task 注册 owner-bound actions；
+7. 不直接读取 `AGENT.md`、HOW、WHAT 或 WHY 文件，也不读取 Memory 文件。
 
 ## 测试与验收
 
@@ -339,8 +336,8 @@ AppBuilder 的目标职责是：
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；
 - Home parser/catalog 拒绝 `memory` space 和 `home:memory@...`；runtime-only Home 内容、tombstone 和 operation recovery 跨日、跨重启保持；
 - 只有通用 HOW runtime 包拥有 `SKILL_MEMORY.md`，跨 Turn/跨日可读写且 Home Maintenance 后清空；
-- Home Maintenance 不创建 archive 或持久状态，apply/discard 后清理 active overlay record，中断后通过仍存在的 active diff 重算；
+- Home Maintenance 不创建 archive 或持久状态，accept/reject/rewrite 后清理 active overlay record，全部解决后移除空 runtime Home，中断后通过仍存在的 active diff 重算；
 - Home Maintenance 对顶层 `memory/` 零读写，Memory Maintenance 验收归独立 Memory 模块；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。
 
-Stage 6 已覆盖 Home/Memory scheduler、启动提示和人工 Home apply 路径；Stage 6.1 已移除 Home 的 Memory 所有权并重连现有 Program work。Stage 7 已覆盖 Home actual write/overlay cleanup、部分 apply/review failure、`SKILL_MEMORY.md` cleanup failure，补充 verbose Observation，并通过完整无网络 App E2E 验证 Daily 后 overlay 保留与 Home commit。
+当前测试覆盖 Home actual write、三种 resolution、stale token、overlay cleanup、空 runtime Home 移除与下一次访问重建；Maintenance task/action/Turn 的完整编排由 `tests/maintenance` 与 AppBuilder 测试覆盖。

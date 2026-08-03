@@ -128,7 +128,13 @@ export interface ChatTurn {
   turnId: string;
   userMessages: string[];
   assistantText?: string;
-  status?: "answered" | "failed" | "stopped" | "exhausted" | "running";
+  status?:
+    | "answered"
+    | "completed"
+    | "failed"
+    | "stopped"
+    | "exhausted"
+    | "running";
   failureMessage?: string;
   cycles: Cycle[];
   topLinks: TopLinkSnapshot[];
@@ -147,7 +153,7 @@ export function useDerivedChat(events: EndpointEvent[]): ChatTurn[] {
   return useMemo(() => buildChatTurns(events), [events]);
 }
 
-function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
+export function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
   const pendingInputs = new Map<string, string>();
   // Track current scope while iterating so we can attribute events without a precise frame.
@@ -225,6 +231,7 @@ function buildChatTurns(events: EndpointEvent[]): ChatTurn[] {
       const completedStatus = (ev.payload?.status as string) || "answered";
       if (
         completedStatus === "answered" ||
+        completedStatus === "completed" ||
         completedStatus === "failed" ||
         completedStatus === "stopped" ||
         completedStatus === "exhausted"

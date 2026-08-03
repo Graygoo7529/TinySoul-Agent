@@ -14,7 +14,6 @@ import type {
   BackendStatus,
   ConnectionInfo,
   EndpointEvent,
-  MaintenanceDecision,
   MaintenanceStatus,
   TopLinkEntry,
   WorkspaceManifest,
@@ -61,7 +60,6 @@ export interface AppState {
   openResource: OpenResource | null;
 
   // Maintenance
-  maintenance: MaintenanceDecision | null;
   maintenanceStatus: MaintenanceStatus | null;
 
   // UI
@@ -83,7 +81,6 @@ export interface AppState {
   openWorkspaceResource: (read: WorkspaceTextRead) => void;
   updateResourceDraft: (draft: string) => void;
   closeResource: () => void;
-  setMaintenance: (maintenance: MaintenanceDecision | null) => void;
   setMaintenanceStatus: (status: MaintenanceStatus | null) => void;
   setActiveTab: (tab: "chat" | "workspace") => void;
   setProjectRoot: (root: string) => void;
@@ -100,7 +97,6 @@ export const useAppStore = create<AppState>()(
       workspaceLoading: false,
       workspaceConflict: false,
       openResource: null,
-      maintenance: null,
       maintenanceStatus: null,
       activeTab: "chat",
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
@@ -162,7 +158,6 @@ export const useAppStore = create<AppState>()(
 
       closeResource: () => set({ openResource: null }),
 
-      setMaintenance: (maintenance) => set({ maintenance }),
       setMaintenanceStatus: (maintenanceStatus) => set({ maintenanceStatus }),
 
       setActiveTab: (activeTab) => set({ activeTab }),

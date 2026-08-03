@@ -1,4 +1,4 @@
-"""Program-level deterministic daily rollover coordination."""
+"""Deterministic daily rollover coordination and archive catalog."""
 
 from __future__ import annotations
 
@@ -25,8 +25,28 @@ from tinysoul.runtime import (
     observation_enabled,
 )
 
-from .day import BusinessDay
-from .errors import MaintenanceContractError, MaintenanceInvariantError
+from ..day import BusinessDay
+from ..errors import MaintenanceContractError, MaintenanceInvariantError
+
+
+@dataclass(frozen=True)
+class ArchiveProjection:
+    """Owner-neutral roots for one finalized Business Day archive."""
+
+    day: BusinessDay
+    root: Path
+    session_root: Path
+    workspace_root: Path
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.day, BusinessDay):
+            raise MaintenanceContractError("Archive projection day is invalid")
+        for name in ("root", "session_root", "workspace_root"):
+            value = getattr(self, name)
+            if not isinstance(value, Path) or not value.is_absolute():
+                raise MaintenanceContractError(
+                    f"Archive projection {name} must be an absolute path"
+                )
 
 
 class DailyTransitionStep(StrEnum):
@@ -383,42 +403,63 @@ class DailyLifecycleCoordinator:
             ),
         )
 
-    def session_archive_for(self, day: BusinessDay) -> Path | None:
-        """Resolve one finalized Session archive without reading Session internals."""
+    def closed_days(self) -> tuple[BusinessDay, ...]:
+        """Return finalized Business Days from authoritative transition journals."""
+
+        with self._lock:
+            return tuple(item.day for item in self._archive_projections())
+
+    def archive_for(self, day: BusinessDay) -> ArchiveProjection | None:
+        """Resolve one finalized archive without reading participant internals."""
 
         with self._lock:
             if not isinstance(day, BusinessDay):
-                raise MaintenanceContractError("Session archive day must be a BusinessDay")
-            if not self._archive_root.exists():
-                return None
-            matches: list[Path] = []
-            for directory in sorted(
-                self._archive_root.iterdir(),
-                key=lambda path: path.name,
-            ):
-                if not directory.is_dir() or directory.name.startswith(".pending-"):
-                    continue
-                journal_path = directory / "transition.json"
-                if not journal_path.is_file():
-                    continue
-                journal = self._load_journal(directory)
-                if journal.archive_name != directory.name:
-                    raise MaintenanceInvariantError(
-                        "Daily archive directory identity does not match its journal"
-                    )
-                if journal.from_day != str(day):
-                    continue
-                session_root = directory / "session"
-                if not session_root.is_dir():
-                    raise MaintenanceInvariantError(
-                        f"Daily archive is missing Session facts: {directory}"
-                    )
-                matches.append(session_root)
+                raise MaintenanceContractError("Archive day must be a BusinessDay")
+            matches = tuple(
+                item for item in self._archive_projections() if item.day == day
+            )
             if len(matches) > 1:
                 raise MaintenanceInvariantError(
-                    f"Multiple Session archives exist for Business Day {day}"
+                    f"Multiple archives exist for Business Day {day}"
                 )
             return matches[0] if matches else None
+
+    def session_archive_for(self, day: BusinessDay) -> Path | None:
+        projection = self.archive_for(day)
+        return projection.session_root if projection is not None else None
+
+    def _archive_projections(self) -> tuple[ArchiveProjection, ...]:
+        if not self._archive_root.exists():
+            return ()
+        projections: list[ArchiveProjection] = []
+        for directory in sorted(self._archive_root.iterdir(), key=lambda path: path.name):
+            if not directory.is_dir() or directory.name.startswith(".pending-"):
+                continue
+            if not (directory / "transition.json").is_file():
+                continue
+            journal = self._load_journal(directory)
+            if journal.archive_name != directory.name:
+                raise MaintenanceInvariantError(
+                    "Daily archive directory identity does not match its journal"
+                )
+            session_root = directory / "session"
+            workspace_root = directory / "workspace"
+            if not session_root.is_dir() or not workspace_root.is_dir():
+                raise MaintenanceInvariantError(
+                    f"Daily archive is missing participant facts: {directory}"
+                )
+            projections.append(
+                ArchiveProjection(
+                    day=BusinessDay.parse(journal.from_day),
+                    root=directory.resolve(),
+                    session_root=session_root.resolve(),
+                    workspace_root=workspace_root.resolve(),
+                )
+            )
+        days = tuple(item.day for item in projections)
+        if len(days) != len(set(days)):
+            raise MaintenanceInvariantError("Multiple archives claim one Business Day")
+        return tuple(projections)
 
     def _validate_layout(self) -> None:
         roots = {
