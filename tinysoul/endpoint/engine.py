@@ -9,9 +9,13 @@ from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceChange, HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.loop import BusinessDay, DailyLifecycleCoordinator, LoopControlKind
+from tinysoul.loop import LoopControlKind
 from tinysoul.loop.errors import LoopContractError, LoopError
-from tinysoul.loop.maintenance import MaintenanceAvailability
+from tinysoul.maintenance import (
+    BusinessDay,
+    DailyLifecycleCoordinator,
+    MaintenanceAvailability,
+)
 from tinysoul.runtime import (
     ObservationLevel,
     RunScope,

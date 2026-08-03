@@ -83,6 +83,28 @@ class ActionEngine:
 
         return tuple((action.domain, action.name) for action in self._catalog.actions())
 
+    def view(self, action_names: tuple[str, ...]) -> "ActionEngine":
+        """Return an immutable catalog view sharing the assembled runtime."""
+
+        if not isinstance(action_names, tuple) or any(
+            not isinstance(name, str) or not name for name in action_names
+        ):
+            raise ActionContractError(
+                "ActionEngine view requires a tuple of non-empty action names"
+            )
+        if len(action_names) != len(set(action_names)):
+            raise ActionContractError("ActionEngine view actions must be unique")
+        return ActionEngine(
+            catalog=self._catalog.with_actions(action_names),
+            normalizer=self._normalizer,
+            builder=self._builder,
+            runner=self._runner,
+            renderer=self._renderer,
+            phase1_scope_builder=self._phase1_scope_builder,
+            phase2_scope_builder=self._phase2_scope_builder,
+            domain_prompt_renderer=self._domain_prompt_renderer,
+        )
+
     def phase1_scope(self) -> ToolScope:
         return self._phase1_scope_builder.build(self._catalog)
 

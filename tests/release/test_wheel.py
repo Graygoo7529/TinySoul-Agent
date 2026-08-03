@@ -74,6 +74,12 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/execution/actions/run_powershell.toml" in names
     assert "tinysoul/action/catalog/execution/actions/run_cmd.toml" in names
     assert "tinysoul/action/catalog/execution/actions/apply.toml" in names
+    assert "tinysoul/action/catalog/maintenance/domain.toml" in names
+    assert "tinysoul/action/catalog/maintenance/actions/complete.toml" in names
+    assert (
+        "tinysoul/action/catalog/maintenance/actions/memory_consolidate.toml"
+        in names
+    )
     assert not any(name.startswith("tinysoul/action/catalog/resource/") for name in names)
     assert not any(name.startswith("tinysoul/action/catalog/script/") for name in names)
     assert not any(name.startswith("tinysoul/action/catalog/shell/") for name in names)
@@ -87,6 +93,7 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     for profile in ("standard", "development"):
         profile_root = f"tinysoul/assets/project/config_profiles/{profile}"
         assert f"{profile_root}/configs/home.toml" in names
+        assert f"{profile_root}/configs/maintenance.toml" in names
         assert f"{profile_root}/configs/session.toml" in names
         assert f"{profile_root}/configs/capabilities.resource.toml" in names
         assert f"{profile_root}/configs/capabilities.web.toml" in names

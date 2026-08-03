@@ -25,10 +25,10 @@ from tinysoul.memory.errors import MemoryError
 from tinysoul.session import SessionEngine, SessionMemoryFactsProjection
 from tinysoul.session.errors import SessionError
 
-from .daily import DailyLifecycleCoordinator
+from .archive import DailyLifecycleCoordinator
 from .day import BusinessDay
-from .errors import LoopContractError, LoopError, LoopInvariantError
-from .work import (
+from .errors import MaintenanceContractError, MaintenanceError, MaintenanceInvariantError
+from .outcomes import (
     ProgramWorkFailureKind,
     ProgramWorkKind,
     ProgramWorkMode,
@@ -52,14 +52,14 @@ class MaintenanceAvailability:
             self.memory_pending,
             bool,
         ):
-            raise LoopContractError("Maintenance availability flags must be booleans")
+            raise MaintenanceContractError("Maintenance availability flags must be booleans")
         for value in (self.home_change_count, self.home_skill_memory_count):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise LoopContractError(
+                raise MaintenanceContractError(
                     "Maintenance availability counts must be non-negative integers"
                 )
         if not isinstance(self.memory_day, BusinessDay):
-            raise LoopContractError("Maintenance availability memory_day is invalid")
+            raise MaintenanceContractError("Maintenance availability memory_day is invalid")
 
     @property
     def pending(self) -> bool:
@@ -107,8 +107,8 @@ class ProgramMaintenanceRunner:
             if self._memory.read_day(target_day) is None:
                 projection = self._memory_projection(target_day)
                 memory_pending = self._memory.maintenance_eligible(projection)
-        except (AgentHomeError, MemoryError, SessionError, LoopError, RuntimeException) as exc:
-            raise LoopInvariantError(
+        except (AgentHomeError, MemoryError, SessionError, MaintenanceError, RuntimeException) as exc:
+            raise MaintenanceInvariantError(
                 f"Maintenance availability check failed: {exc}"
             ) from exc
         return MaintenanceAvailability(
@@ -218,7 +218,7 @@ class ProgramMaintenanceRunner:
                 rewrite_existing=mode is ProgramWorkMode.MANUAL,
                 scope=work_scope,
             )
-        except (MemoryError, SessionError, LoopError, RuntimeException) as exc:
+        except (MemoryError, SessionError, MaintenanceError, RuntimeException) as exc:
             return _failed(
                 kind=ProgramWorkKind.MEMORY_MAINTENANCE,
                 mode=mode,

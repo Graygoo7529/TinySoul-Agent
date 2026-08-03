@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 
 from .errors import SessionContractError, SessionInvariantError
 from .models import SessionSummaryRecord, SessionTurnRecord

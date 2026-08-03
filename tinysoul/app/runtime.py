@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tinysoul.endpoint import EndpointEngine
 
-from tinysoul.loop import ProgramOutcome, ProgramRunner, TurnOutcome
+from tinysoul.loop import TurnOutcome
 
 from .errors import AppInvariantError
+from .program import ProgramOutcome, ProgramRunner
 from .inputs import InputDispatcher, InputEvent, InputSource
 from .gateway import AppCommandGateway
 from .outputs import ObservationRouter

@@ -32,7 +32,7 @@ from .errors import (
     WorkspaceSourceChanged,
     WorkspaceTrashRestoreRequired,
 )
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from .links import WorkspaceLink
 from .manifest import (
     WorkspaceManifest,

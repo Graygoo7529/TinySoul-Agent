@@ -26,6 +26,7 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("home")
     assert catalog.has_domain("memory")
     assert catalog.has_domain("execution")
+    assert catalog.has_domain("maintenance")
     assert not catalog.has_domain("resource")
     assert not catalog.has_domain("shell")
     assert not catalog.has_domain("script")
@@ -87,6 +88,19 @@ def test_load_builtin_catalog() -> None:
     assert wait_seconds["maximum"] == 60
     assert catalog.get_action("execution.wait").runtime.timeout_seconds == 70.0
     assert catalog.get_action("execution.wait").backend.handler == "supervised_process.wait"
+    assert [
+        action.name for action in catalog.actions_in_domain("maintenance")
+    ] == [
+        "maintenance.complete",
+        "maintenance.home.accept",
+        "maintenance.home.inspect",
+        "maintenance.home.list",
+        "maintenance.home.reject",
+        "maintenance.home.rewrite",
+        "maintenance.memory.consolidate",
+        "maintenance.memory.inspect_facts",
+        "maintenance.memory.inspect_workspace",
+    ]
 
 
 def test_catalog_view_by_domain() -> None:

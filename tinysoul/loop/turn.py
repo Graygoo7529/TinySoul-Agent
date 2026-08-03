@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Protocol
+from typing import Callable, Protocol
 
 from tinysoul.context import (
     ContextEngine,
@@ -12,7 +12,7 @@ from tinysoul.context import (
     build_trace_phase_note_signal,
 )
 from tinysoul.context.errors import ContextError
-from tinysoul.infra.json import to_json_object
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -33,11 +33,15 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
-from .config import LoopSettings
-from .completion import TurnCompletion, TurnCompletionPipeline
+from .config import TurnSettings
+from .completion import (
+    TurnCompletion,
+    TurnCompletionPipeline,
+    user_output_from_completion,
+)
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
-from .day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from .errors import LoopInvariantError
 from .failures import LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, failure_from_runtime
@@ -56,6 +60,7 @@ class TurnOutcome:
     exhausted: bool = False
     transfer: RuntimeTransfer | None = None
     failure: TurnFailure | None = None
+    completion: JsonObject | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.business_day, BusinessDay):
@@ -65,6 +70,14 @@ class TurnOutcome:
         if self.status is TurnOutcomeStatus.ANSWERED:
             if self.output is None or self.failure is not None or self.exhausted:
                 raise LoopInvariantError("Answered TurnOutcome is inconsistent")
+        elif self.status is TurnOutcomeStatus.COMPLETED:
+            if (
+                self.completion is None
+                or self.output is not None
+                or self.failure is not None
+                or self.exhausted
+            ):
+                raise LoopInvariantError("Completed TurnOutcome is inconsistent")
         elif self.status is TurnOutcomeStatus.EXHAUSTED:
             if self.output is not None or self.failure is not None or not self.exhausted:
                 raise LoopInvariantError("Exhausted TurnOutcome is inconsistent")
@@ -106,7 +119,8 @@ class TurnRunner:
         bus: SignalBus,
         trap: RuntimeTrap,
         cycle_runner: CycleRunner,
-        settings: LoopSettings,
+        settings: TurnSettings,
+        completion_to_output: Callable[[JsonObject | None], TurnOutput | None] | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
@@ -120,6 +134,7 @@ class TurnRunner:
         self._trap = trap
         self._cycle_runner = cycle_runner
         self._settings = settings
+        self._completion_to_output = completion_to_output or user_output_from_completion
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
@@ -157,6 +172,7 @@ class TurnRunner:
         transfer: RuntimeTransfer | None = None
         failure: TurnFailure | None = None
         stopped = False
+        completion: JsonObject | None = None
         try:
             try:
                 turn_id = self._context.begin_turn(user_input)
@@ -188,7 +204,7 @@ class TurnRunner:
             if transfer is None:
                 cycle_index = 1
                 while True:
-                    if cycle_index > self._settings.max_cycles_per_turn:
+                    if cycle_index > self._settings.max_cycles:
                         controller = self._activity_controller
                         if controller is None or not controller.allow_additional_cycle(
                             turn_id
@@ -209,6 +225,9 @@ class TurnRunner:
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
+                    if cycle.completion is not None:
+                        completion = cycle.completion
+                        break
                     if cycle.transfer is not None:
                         transfer = self._consume_cycle_transfer(cycle, turn_scope)
                         if transfer is not None or failure is not None or stopped:
@@ -239,7 +258,14 @@ class TurnRunner:
                         },
                     )
         try:
-            output = self._consume_turn_output(turn_id)
+            output = self._completion_to_output(completion)
+            legacy_output = self._consume_turn_output(turn_id)
+            if output is None:
+                output = legacy_output
+            elif legacy_output is not None:
+                raise self._loop_bridge.from_loop_error(
+                    LoopInvariantError("Turn produced duplicate completion channels")
+                )
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
             if transfer is None:
@@ -264,6 +290,7 @@ class TurnRunner:
                         business_day=business_day,
                         output=output,
                         exhausted=exhausted,
+                        completion=completion,
                     )
                 )
                 completion_committed = True
@@ -274,6 +301,7 @@ class TurnRunner:
                 failure = failure or captured.failure
         status, failure = self._outcome_status(
             output=output,
+            completion=completion,
             completion_committed=completion_committed,
             exhausted=exhausted,
             stopped=stopped,
@@ -318,6 +346,7 @@ class TurnRunner:
             exhausted=exhausted,
             transfer=transfer,
             failure=failure,
+            completion=completion,
         )
 
     def _run_preparation(
@@ -446,7 +475,7 @@ class TurnRunner:
                 build_trace_phase_note_signal(
                     {
                         "kind": LoopTraceNoteKind.TURN_CYCLE_LIMIT_REACHED.value,
-                        "max_cycles": self._settings.max_cycles_per_turn,
+                        "max_cycles": self._settings.max_cycles,
                     },
                     scope=scope,
                     source="loop.turn",
@@ -507,6 +536,7 @@ class TurnRunner:
         self,
         *,
         output: TurnOutput | None,
+        completion: JsonObject | None,
         completion_committed: bool,
         exhausted: bool,
         stopped: bool,
@@ -515,6 +545,8 @@ class TurnRunner:
     ) -> tuple[TurnOutcomeStatus, TurnFailure | None]:
         if output is not None and completion_committed:
             return TurnOutcomeStatus.ANSWERED, None
+        if completion is not None and completion_committed:
+            return TurnOutcomeStatus.COMPLETED, None
         if failure is not None:
             return TurnOutcomeStatus.FAILED, failure
         if exhausted:
@@ -548,6 +580,7 @@ class TurnRunner:
                 }
             )
         messages = {
+            TurnOutcomeStatus.COMPLETED: "Turn completed without a user answer.",
             TurnOutcomeStatus.EXHAUSTED: "Turn exhausted its cycle limit.",
             TurnOutcomeStatus.STOPPED: "Turn stopped before producing an answer.",
             TurnOutcomeStatus.FAILED: (

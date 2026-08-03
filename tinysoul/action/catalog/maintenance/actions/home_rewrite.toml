@@ -1,0 +1,27 @@
+name = "maintenance.home.rewrite"
+domain = "maintenance"
+
+[tool]
+description = "Resolve one reviewed Home change by writing replacement text to actual Home."
+
+[tool.schema]
+type = "object"
+required = ["token", "text"]
+additionalProperties = false
+
+[tool.schema.properties.token]
+type = "string"
+description = "Current change token returned by maintenance.home.list."
+
+[tool.schema.properties.text]
+type = "string"
+description = "Complete replacement text accepted into actual Home."
+
+[semantic]
+use_when = ["Neither the runtime nor actual version should be accepted unchanged"]
+avoid_when = ["The current runtime change can be accepted or rejected as-is"]
+effects = ["modifying"]
+
+[backend]
+kind = "native"
+handler = "maintenance.home.rewrite"

@@ -1,0 +1,15 @@
+name = "maintenance.complete"
+domain = "maintenance"
+
+[tool]
+description = "Complete the current Maintenance Turn after its owner-enforced postconditions are satisfied."
+schema = { type = "object", properties = {}, required = [], additionalProperties = false }
+
+[semantic]
+use_when = ["All work required by the current Maintenance task has completed"]
+avoid_when = ["Home changes remain unresolved or Memory consolidation has not run"]
+effects = ["read_only"]
+
+[backend]
+kind = "native"
+handler = "maintenance.complete"

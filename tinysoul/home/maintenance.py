@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from hashlib import sha256
+import json
 from pathlib import Path, PurePosixPath
 from threading import RLock
 from typing import Protocol
@@ -75,6 +77,14 @@ class HomeMaintenanceFailure(StrEnum):
     """Stable local failure kinds for a Maintenance run."""
 
     REVIEW_FAILED = "review_failed"
+
+
+class HomeMaintenanceResolution(StrEnum):
+    """Atomic disposition for one token-bound Home change."""
+
+    ACCEPT = "accept"
+    REJECT = "reject"
+    REWRITE = "rewrite"
 
 
 @dataclass(frozen=True)
@@ -180,8 +190,28 @@ class HomeMaintenanceChange:
     def actual_changed_from_baseline(self) -> bool:
         return self.actual_digest != self.baseline_digest
 
+    @property
+    def token(self) -> str:
+        value = {
+            "relative_path": self.relative_path,
+            "state": self.state.value,
+            "baseline_digest": self.baseline_digest,
+            "runtime_digest": self.runtime_digest,
+            "runtime_size": self.runtime_size,
+            "runtime_mtime_ns": self.runtime_mtime_ns,
+            "actual_digest": self.actual_digest,
+        }
+        encoded = json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "home_change_v1_" + sha256(encoded).hexdigest()
+
     def to_review_json(self) -> JsonObject:
         value: JsonObject = {
+            "token": self.token,
             "link": self.link,
             "relative_path": self.relative_path,
             "state": self.state.value,
@@ -241,6 +271,60 @@ class HomeMaintenancePending:
     @property
     def pending(self) -> bool:
         return self.change_count > 0 or self.skill_memory_count > 0
+
+
+@dataclass(frozen=True)
+class HomeMaintenanceSnapshot:
+    """Current bounded Home changes after deterministic reconciliation."""
+
+    changes: tuple[HomeMaintenanceChange, ...] = field(default_factory=tuple)
+    copied_cleaned: int = 0
+    consistent_cleaned: int = 0
+    skill_memories_cleared: int = 0
+
+    def __post_init__(self) -> None:
+        if any(not isinstance(change, HomeMaintenanceChange) for change in self.changes):
+            raise AgentHomeContractError("Home maintenance snapshot changes are invalid")
+        for value in (
+            self.copied_cleaned,
+            self.consistent_cleaned,
+            self.skill_memories_cleared,
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise AgentHomeContractError(
+                    "Home maintenance snapshot counts must be non-negative integers"
+                )
+        object.__setattr__(self, "changes", tuple(self.changes))
+
+    @property
+    def pending(self) -> bool:
+        return bool(self.changes)
+
+
+@dataclass(frozen=True)
+class HomeMaintenanceResolveOutcome:
+    link: str
+    relative_path: str
+    resolution: HomeMaintenanceResolution
+    remaining_changes: int
+
+    def __post_init__(self) -> None:
+        if not self.link or not self.relative_path:
+            raise AgentHomeContractError(
+                "Home maintenance resolve outcome identity must be non-empty"
+            )
+        if not isinstance(self.resolution, HomeMaintenanceResolution):
+            raise AgentHomeContractError(
+                "Home maintenance resolve outcome resolution is invalid"
+            )
+        if (
+            isinstance(self.remaining_changes, bool)
+            or not isinstance(self.remaining_changes, int)
+            or self.remaining_changes < 0
+        ):
+            raise AgentHomeContractError(
+                "Home maintenance remaining_changes must be non-negative"
+            )
 
 
 @dataclass(frozen=True)
@@ -414,6 +498,88 @@ class HomeMaintenanceService:
         self._max_write_chars = max_write_chars
         self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
+
+    def snapshot(self) -> HomeMaintenanceSnapshot:
+        """Return current token-bound changes after deterministic cleanup."""
+
+        with self._lock:
+            copied_cleaned, consistent_cleaned = self._clean_deterministic_records()
+            memories = self._skill_memories()
+            changes = tuple(
+                self._build_change(record, memories=memories)
+                for record in self._reviewable_records()
+            )
+            pending_by_skill = _pending_changes_by_skill(changes)
+            cleared = 0
+            for skill in sorted(memories):
+                if pending_by_skill.get(skill, 0) == 0:
+                    self._clear_skill_memory(skill, memories[skill])
+                    cleared += 1
+            return HomeMaintenanceSnapshot(
+                changes=changes,
+                copied_cleaned=copied_cleaned,
+                consistent_cleaned=consistent_cleaned,
+                skill_memories_cleared=cleared,
+            )
+
+    def resolve(
+        self,
+        token: str,
+        resolution: HomeMaintenanceResolution,
+        *,
+        rewrite_text: str | None = None,
+    ) -> HomeMaintenanceResolveOutcome:
+        """Atomically resolve the current change identified by ``token``."""
+
+        if not isinstance(token, str) or not token:
+            raise AgentHomeContractError(
+                "Home maintenance resolve requires a non-empty token"
+            )
+        if not isinstance(resolution, HomeMaintenanceResolution):
+            raise AgentHomeContractError(
+                "Home maintenance resolution must be accept, reject, or rewrite"
+            )
+        if resolution is HomeMaintenanceResolution.REWRITE:
+            if not isinstance(rewrite_text, str):
+                raise AgentHomeContractError(
+                    "Home maintenance rewrite requires text"
+                )
+            if len(rewrite_text) > self._max_write_chars:
+                raise AgentHomeContractError(
+                    f"Home maintenance rewrite exceeds {self._max_write_chars} characters"
+                )
+        elif rewrite_text is not None:
+            raise AgentHomeContractError(
+                "Only Home maintenance rewrite can carry rewrite_text"
+            )
+
+        with self._lock:
+            self._clean_deterministic_records()
+            memories = self._skill_memories()
+            changes = tuple(
+                self._build_change(record, memories=memories)
+                for record in self._reviewable_records()
+            )
+            matching = tuple(change for change in changes if change.token == token)
+            if len(matching) != 1:
+                raise AgentHomeInvariantError(
+                    "Home maintenance change token is stale or unknown"
+                )
+            change = matching[0]
+            self._verify_change(change)
+            if resolution is HomeMaintenanceResolution.ACCEPT:
+                self._apply(change)
+            elif resolution is HomeMaintenanceResolution.REWRITE:
+                self._rewrite(change, rewrite_text or "")
+            self._overlay.clear_record(change.relative_path)
+            self._clear_resolved_skill_memory(change, memories=memories)
+            remaining = len(self._reviewable_records())
+            return HomeMaintenanceResolveOutcome(
+                link=change.link,
+                relative_path=change.relative_path,
+                resolution=resolution,
+                remaining_changes=remaining,
+            )
 
     def run(
         self,
@@ -809,6 +975,31 @@ class HomeMaintenanceService:
             raise AgentHomeIOError(
                 f"Failed to apply Home maintenance change: {exc}"
             ) from exc
+
+    def _rewrite(self, change: HomeMaintenanceChange, text: str) -> None:
+        actual = self._layout.source_for_relative(change.relative_path)
+        try:
+            atomic_write_bytes(actual, text.encode("utf-8"))
+        except OSError as exc:
+            raise AgentHomeIOError(
+                f"Failed to rewrite Home maintenance change: {exc}"
+            ) from exc
+
+    def _clear_resolved_skill_memory(
+        self,
+        change: HomeMaintenanceChange,
+        *,
+        memories: dict[str, HomeOverlayRecord],
+    ) -> None:
+        skill = _skill_for_relative(change.relative_path)
+        if skill is None or skill not in memories:
+            return
+        if any(
+            _skill_for_relative(record.relative_path) == skill
+            for record in self._reviewable_records()
+        ):
+            return
+        self._clear_skill_memory(skill, memories[skill])
 
     def _clear_skill_memory(
         self,

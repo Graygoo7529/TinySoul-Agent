@@ -7,7 +7,8 @@ from uuid import uuid4
 
 from tinysoul.home import HomeMaintenanceDecision
 from tinysoul.infra.json import JsonObject
-from tinysoul.loop import BusinessDay, LoopControlKind
+from tinysoul.loop import LoopControlKind
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import (
     RunLevel,
     RunScope,

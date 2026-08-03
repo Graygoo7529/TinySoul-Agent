@@ -46,6 +46,7 @@ class CycleOutcome:
     transfer: RuntimeTransfer | None = None
     failure: TurnFailure | None = None
     stopped: bool = False
+    completion: JsonObject | None = None
 
 
 @dataclass(frozen=True)
@@ -212,7 +213,10 @@ class CycleRunner:
                 failure=boundary.failure,
                 stopped=boundary.stopped,
             )
-        return CycleOutcome(cycle_id=cycle_id)
+        return CycleOutcome(
+            cycle_id=cycle_id,
+            completion=phase3_outcome.completion,
+        )
 
     def _emit_phase(
         self,

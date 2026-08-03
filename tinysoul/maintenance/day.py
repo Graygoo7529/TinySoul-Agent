@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .errors import LoopContractError
+from .errors import MaintenanceContractError
 
 
 @dataclass(frozen=True, order=True)
@@ -18,18 +18,18 @@ class BusinessDay:
 
     def __post_init__(self) -> None:
         if not isinstance(self.value, date) or isinstance(self.value, datetime):
-            raise LoopContractError("BusinessDay.value must be a date")
+            raise MaintenanceContractError("BusinessDay.value must be a date")
 
     @classmethod
     def parse(cls, value: str) -> "BusinessDay":
         if not isinstance(value, str) or not value:
-            raise LoopContractError("Business day must be a non-empty ISO date")
+            raise MaintenanceContractError("Business day must be a non-empty ISO date")
         try:
             parsed = date.fromisoformat(value)
         except ValueError as exc:
-            raise LoopContractError(f"Invalid business day: {value}") from exc
+            raise MaintenanceContractError(f"Invalid business day: {value}") from exc
         if parsed.isoformat() != value:
-            raise LoopContractError(f"Business day must use ISO format: {value}")
+            raise MaintenanceContractError(f"Business day must use ISO format: {value}")
         return cls(parsed)
 
     def __str__(self) -> str:
@@ -54,11 +54,11 @@ class IanaBusinessClock:
 
     def __post_init__(self) -> None:
         if not isinstance(self.timezone, str) or not self.timezone:
-            raise LoopContractError("Business clock timezone must be non-empty")
+            raise MaintenanceContractError("Business clock timezone must be non-empty")
         try:
             ZoneInfo(self.timezone)
         except ZoneInfoNotFoundError as exc:
-            raise LoopContractError(
+            raise MaintenanceContractError(
                 f"Unknown IANA business timezone: {self.timezone}"
             ) from exc
 

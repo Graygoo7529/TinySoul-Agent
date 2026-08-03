@@ -27,12 +27,14 @@ from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.loop.completion import UserAnswerCompletionDetector
 from tinysoul.memory import (
     MemoryEngine,
     MemoryLink,
     MemorySettings,
     register_memory_actions,
 )
+from tinysoul.maintenance import MAINTENANCE_ACTIONS
 from tinysoul.memory.store import MemoryStore
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
@@ -132,24 +134,25 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         cycle_id="cycle_1",
         turn_id=turn_id,
     )
-    with pytest.raises(RuntimeException) as raised:
-        Phase3Unit(
-            context=context,
-            action=action,
-            bus=bus,
-            observations=observations,
-        ).run(
-            normalization=phase2.normalization,
-            scope=phase3_scope,
-            cycle_id="cycle_1",
-            turn_id=turn_id,
-        )
+    phase3 = Phase3Unit(
+        context=context,
+        action=action,
+        bus=bus,
+        observations=observations,
+        completion_detector=UserAnswerCompletionDetector(),
+    ).run(
+        normalization=phase2.normalization,
+        scope=phase3_scope,
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
 
     assert phase1.selected_domains == ("core",)
     assert phase2.normalization.calls[0].action_name == "core.answer"
-    assert raised.value.reason == RUNTIME_TURN_OUTPUT
-    assert raised.value.payload["text"] == "done"
-    assert str(raised.value.payload["result_id"]).startswith("action_result_")
+    assert phase3.completion is not None
+    assert phase3.completion["kind"] == "user_answer"
+    assert phase3.completion["text"] == "done"
+    assert str(phase3.completion["result_id"]).startswith("action_result_")
     assert context.trace_kinds() == (
         TraceKind.DECISION,
         TraceKind.ACTION_RESULT,
@@ -678,7 +681,7 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
     )
 
 
-def test_phase3_records_multiple_answers_as_loop_note() -> None:
+def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -707,26 +710,21 @@ def test_phase3_records_multiple_answers_as_loop_note() -> None:
         )
     )
 
-    outcome = Phase3Unit(context=context, action=action, bus=bus).run(
-        normalization=normalization,
-        scope=scope,
-        cycle_id="cycle_1",
-        turn_id=turn_id,
-    )
-    summary = context.end_turn()
+    with pytest.raises(RuntimeException) as raised:
+        Phase3Unit(
+            context=context,
+            action=action,
+            bus=bus,
+            completion_detector=UserAnswerCompletionDetector(),
+        ).run(
+            normalization=normalization,
+            scope=scope,
+            cycle_id="cycle_1",
+            turn_id=turn_id,
+        )
 
-    assert len(outcome.results) == 2
-    assert outcome.phase_results == ()
-    assert context.turn_active is False
-    note_message = summary.trace.entries[-1].message
-    assert isinstance(note_message, UserMessage)
-    note_part = note_message.parts[0]
-    assert isinstance(note_part, JsonPart)
-    note = note_part.value
-    assert note["kind"] == LoopTraceNoteKind.MULTIPLE_TURN_OUTPUTS.value
-    result_ids = note["result_ids"]
-    assert isinstance(result_ids, list)
-    assert len(result_ids) == 2
+    assert raised.value.payload["kind"] == "loop.contract_violation"
+    assert context.turn_active is True
 
 
 def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -> None:
@@ -831,6 +829,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
+            *MAINTENANCE_ACTIONS,
             "workspace.convert_with_markitdown",
             "workspace.convert_with_pypdf",
             "web.discover_pages",
@@ -900,6 +899,7 @@ def _action_engine(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
+            *MAINTENANCE_ACTIONS,
             "workspace.convert_with_markitdown",
             "workspace.convert_with_pypdf",
             "web.discover_pages",

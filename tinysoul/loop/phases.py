@@ -35,7 +35,6 @@ from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolScope, ToolSelection, ToolSpec, ToolUse
 from tinysoul.runtime import (
     CyclePhase,
-    RUNTIME_TURN_OUTPUT,
     RunScope,
     RuntimeException,
     RuntimeModuleRunner,
@@ -54,9 +53,6 @@ from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
 from .signals import LoopTraceNoteKind
-
-ANSWER_ACTION = "core.answer"
-
 
 class LLMRunner(Protocol):
     """The LLM runner surface needed by loop phases."""
@@ -90,6 +86,18 @@ class Phase3Outcome:
 
     results: tuple[ActionResult, ...] = field(default_factory=tuple)
     phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
+    completion: JsonObject | None = None
+
+
+class TurnCompletionDetector(Protocol):
+    """Detect a successful Turn completion from Phase3 action results."""
+
+    def detect(self, results: tuple[ActionResult, ...]) -> JsonObject | None: ...
+
+
+class NoTurnCompletionDetector:
+    def detect(self, results: tuple[ActionResult, ...]) -> JsonObject | None:
+        return None
 
 
 class Phase1Unit:
@@ -424,6 +432,7 @@ class Phase3Unit:
         loop_bridge: RuntimeLoopBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
         observations: ObservationEmitter | None = None,
+        completion_detector: TurnCompletionDetector | None = None,
     ) -> None:
         self._context = context
         self._action = action
@@ -434,6 +443,7 @@ class Phase3Unit:
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._observations = observations or NullObservationEmitter()
+        self._completion_detector = completion_detector or NoTurnCompletionDetector()
 
     def run(
         self,
@@ -476,37 +486,19 @@ class Phase3Unit:
         self._observe_action_results(results, scope=scope)
         self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
         phase_results = preparation.phase_results
-        answer_results = tuple(
-            result
-            for result in results
-            if result.action_name == ANSWER_ACTION
-            and result.status is ActionResultStatus.SUCCESS
-        )
-        if len(answer_results) > 1:
-            self._emit_note(
-                {
-                    "kind": LoopTraceNoteKind.MULTIPLE_TURN_OUTPUTS.value,
-                    "status": "failed",
-                    "phase": CyclePhase.PHASE3.value,
-                    "feedback": (
-                        "Phase3 produced multiple successful core.answer results; "
-                        "produce exactly one final answer."
-                    ),
-                    "result_ids": [result.result_id for result in answer_results],
-                },
-                scope=scope,
-                cycle_id=cycle_id,
-            )
         self._emit_phase_results(
             phase_results,
             scope=scope,
             cycle_id=cycle_id,
         )
-        if len(answer_results) == 1:
-            self._raise_turn_output(answer_results[0])
+        try:
+            completion = self._completion_detector.detect(results)
+        except LoopError as exc:
+            raise self._loop_bridge.from_loop_error(exc) from exc
         return Phase3Outcome(
             results=results,
             phase_results=phase_results,
+            completion=completion,
         )
 
     def _observe_action_results(
@@ -558,34 +550,6 @@ class Phase3Unit:
                     ]
                 },
             )
-
-    def _raise_turn_output(self, result: ActionResult) -> None:
-        text = result.payload.get("text")
-        references_value = result.payload.get("references", [])
-        if not isinstance(text, str) or not text:
-            raise self._loop_bridge.from_loop_error(
-                LoopContractError(
-                    "A successful core.answer result must contain non-empty text"
-                )
-            )
-        if not isinstance(references_value, list) or any(
-            not isinstance(item, str) or not item for item in references_value
-        ):
-            raise self._loop_bridge.from_loop_error(
-                LoopContractError(
-                    "A successful core.answer result must contain string references"
-                )
-            )
-        raise RuntimeException(
-            reason=RUNTIME_TURN_OUTPUT,
-            message="The Turn produced its final output.",
-            payload={
-                "action": ANSWER_ACTION,
-                "result_id": result.result_id,
-                "text": text,
-                "references": references_value,
-            },
-        )
 
     def _emit_action_results(
         self,

@@ -1,0 +1,7 @@
+[maintenance]
+timezone = "Asia/Shanghai"
+archive_root = "archive"
+
+[maintenance.schedule]
+enabled = true
+daily_time = "00:15"

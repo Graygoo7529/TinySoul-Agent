@@ -7,7 +7,7 @@ from typing import Protocol
 
 from tinysoul.runtime import RunScope, Signal
 
-from .day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from .errors import LoopContractError
 
 

@@ -20,6 +20,7 @@ TURN_FAILURE_MESSAGE_MAX_CHARS = 1000
 
 class TurnOutcomeStatus(StrEnum):
     ANSWERED = "answered"
+    COMPLETED = "completed"
     EXHAUSTED = "exhausted"
     STOPPED = "stopped"
     FAILED = "failed"

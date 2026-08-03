@@ -13,9 +13,9 @@ from uuid import uuid4
 from tinysoul.context import build_input_append_signal
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.loop import LoopContractError, LoopControlKind, build_control_request_signal
-from tinysoul.loop.program import ProgramInputEvent
-from tinysoul.loop.day import BusinessDay
-from tinysoul.loop.work import ProgramWorkMode
+from tinysoul.maintenance import BusinessDay, ProgramWorkMode
+
+from .program import ProgramInputEvent
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,

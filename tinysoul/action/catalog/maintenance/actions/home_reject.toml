@@ -1,0 +1,23 @@
+name = "maintenance.home.reject"
+domain = "maintenance"
+
+[tool]
+description = "Reject one reviewed runtime Home change and restore the effective content to actual Home."
+
+[tool.schema]
+type = "object"
+required = ["token"]
+additionalProperties = false
+
+[tool.schema.properties.token]
+type = "string"
+description = "Current change token returned by maintenance.home.list."
+
+[semantic]
+use_when = ["The reviewed runtime change should be discarded"]
+avoid_when = ["The token is stale or the change should be preserved"]
+effects = ["modifying"]
+
+[backend]
+kind = "native"
+handler = "maintenance.home.reject"

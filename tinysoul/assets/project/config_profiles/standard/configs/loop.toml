@@ -1,7 +1,8 @@
 [loop]
-max_cycles_per_turn = 20
 phase_retry_limit = 2
 
-[loop.daily]
-timezone = "Asia/Shanghai"
-archive_root = "archive"
+[loop.user]
+max_cycles = 20
+
+[loop.maintenance]
+max_cycles = 20

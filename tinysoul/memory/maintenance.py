@@ -10,7 +10,7 @@ from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tinysoul.infra.json import JsonObject, dumps_json
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,

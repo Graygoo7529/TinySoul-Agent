@@ -6,9 +6,14 @@ from datetime import datetime, time as WallTime, timedelta
 from threading import Event, RLock, Thread, current_thread
 from typing import Protocol
 
-from tinysoul.loop.day import BusinessClock, BusinessDay, IanaBusinessClock
-from tinysoul.loop.program import ProgramInputEvent
-from tinysoul.loop.work import ProgramWorkMode
+from tinysoul.maintenance import (
+    BusinessClock,
+    BusinessDay,
+    IanaBusinessClock,
+    ProgramWorkMode,
+)
+
+from ..program import ProgramInputEvent
 
 from ..config import SchedulerSettings
 from ..errors import AppContractError

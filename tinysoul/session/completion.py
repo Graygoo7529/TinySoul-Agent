@@ -10,7 +10,7 @@ from tinysoul.context import ContextTurnCompletion
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage
 from tinysoul.llm.tools import ToolKind, ToolResultStatus
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import CyclePhase
 
 from .errors import SessionInvariantError

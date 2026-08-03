@@ -26,18 +26,21 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeLoopBridge
-
-from .daily import DailyLifecycleCoordinator
-from .day import BusinessClock, BusinessDay, IanaBusinessClock
-from .errors import LoopContractError, LoopError
-from .maintenance import ProgramMaintenanceRunner
-from .turn import TurnOutcome, TurnRunner
-from .work import (
+from tinysoul.runtime.bridge import RuntimeMaintenanceBridge
+from tinysoul.maintenance import (
+    BusinessClock,
+    BusinessDay,
+    DailyLifecycleCoordinator,
+    IanaBusinessClock,
+    MaintenanceError,
+    ProgramMaintenanceRunner,
     ProgramWorkMode,
     ProgramWorkOutcome,
     ProgramWorkStatus,
 )
+from tinysoul.loop.turn import TurnOutcome, TurnRunner
+
+from .errors import AppContractError
 
 
 class ProgramInputKind(StrEnum):
@@ -64,41 +67,41 @@ class ProgramInputEvent:
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ProgramInputKind):
-            raise LoopContractError("ProgramInputEvent.kind must be a ProgramInputKind")
+            raise AppContractError("ProgramInputEvent.kind must be a ProgramInputKind")
         if not isinstance(self.text, str):
-            raise LoopContractError("ProgramInputEvent.text must be a string")
+            raise AppContractError("ProgramInputEvent.text must be a string")
         if not isinstance(self.source, str):
-            raise LoopContractError("ProgramInputEvent.source must be a string")
+            raise AppContractError("ProgramInputEvent.source must be a string")
         if self.kind is ProgramInputKind.START_TURN and not self.text:
-            raise LoopContractError("START_TURN program input requires non-empty text")
+            raise AppContractError("START_TURN program input requires non-empty text")
         maintenance_kinds = {
             ProgramInputKind.HOME_MAINTENANCE,
             ProgramInputKind.MEMORY_MAINTENANCE,
         }
         if self.kind in maintenance_kinds:
             if not isinstance(self.mode, ProgramWorkMode):
-                raise LoopContractError(
+                raise AppContractError(
                     "Maintenance program input requires a ProgramWorkMode"
                 )
         elif self.mode is not None:
-            raise LoopContractError(
+            raise AppContractError(
                 "Non-maintenance program input cannot carry a work mode"
             )
         if self.target_day is not None and not isinstance(
             self.target_day,
             BusinessDay,
         ):
-            raise LoopContractError("Program input target_day is invalid")
+            raise AppContractError("Program input target_day is invalid")
         if (
             self.kind is not ProgramInputKind.MEMORY_MAINTENANCE
             and self.target_day is not None
         ):
-            raise LoopContractError(
+            raise AppContractError(
                 "Only Memory Maintenance input can carry target_day"
             )
         object.__setattr__(self, "metadata", to_json_object(self.metadata))
         if not isinstance(self.request_id, str) or not self.request_id.strip():
-            raise LoopContractError("Program input request_id must be non-empty")
+            raise AppContractError("Program input request_id must be non-empty")
         object.__setattr__(self, "request_id", self.request_id.strip())
 
     @classmethod
@@ -203,7 +206,7 @@ class ProgramOutcome:
             or not isinstance(self.turn_count, int)
             or self.turn_count < len(self.turns)
         ):
-            raise LoopContractError(
+            raise AppContractError(
                 "ProgramOutcome.turn_count cannot be smaller than retained turns"
             )
         if (
@@ -211,11 +214,11 @@ class ProgramOutcome:
             or not isinstance(self.work_count, int)
             or self.work_count < len(self.works)
         ):
-            raise LoopContractError(
+            raise AppContractError(
                 "ProgramOutcome.work_count cannot be smaller than retained works"
             )
         if any(not isinstance(work, ProgramWorkOutcome) for work in self.works):
-            raise LoopContractError("ProgramOutcome.works contains an invalid outcome")
+            raise AppContractError("ProgramOutcome.works contains an invalid outcome")
         object.__setattr__(self, "works", tuple(self.works))
 
 
@@ -233,7 +236,7 @@ class ProgramRunner:
         input_queue: Queue[ProgramInputEvent] | None = None,
         retained_outcomes: int = 32,
         business_clock: BusinessClock | None = None,
-        loop_bridge: RuntimeLoopBridge | None = None,
+        maintenance_bridge: RuntimeMaintenanceBridge | None = None,
         observations: ObservationEmitter | None = None,
     ) -> None:
         if (
@@ -241,7 +244,7 @@ class ProgramRunner:
             or not isinstance(retained_outcomes, int)
             or retained_outcomes <= 0
         ):
-            raise LoopContractError("retained_outcomes must be positive")
+            raise AppContractError("retained_outcomes must be positive")
         self._turn_runner = turn_runner
         self._bus = bus
         self._trap = trap
@@ -251,7 +254,7 @@ class ProgramRunner:
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
         self._retained_outcomes = retained_outcomes
         self._business_clock = business_clock or IanaBusinessClock()
-        self._loop_bridge = loop_bridge or RuntimeLoopBridge()
+        self._maintenance_bridge = maintenance_bridge or RuntimeMaintenanceBridge()
         self._observations = observations or NullObservationEmitter()
         self._work_lock = RLock()
 
@@ -351,8 +354,8 @@ class ProgramRunner:
                 now=now,
                 scope=self._scope.push(RunLevel.MODULE, "daily_lifecycle"),
             )
-        except LoopError as exc:
-            raise self._loop_bridge.startup_failure(
+        except MaintenanceError as exc:
+            raise self._maintenance_bridge.startup_failure(
                 message=str(exc),
                 payload={
                     "stage": "daily_rollover",
@@ -366,11 +369,11 @@ class ProgramRunner:
             business_day = self._ensure_active_day()
             runner = self._maintenance_runner
             if runner is None:
-                raise LoopContractError(
+                raise AppContractError(
                     "Program received Maintenance input without a runner"
                 )
             if not isinstance(event.mode, ProgramWorkMode):
-                raise LoopContractError("Maintenance event mode disappeared")
+                raise AppContractError("Maintenance event mode disappeared")
             if event.kind is ProgramInputKind.HOME_MAINTENANCE:
                 return runner.run_home(
                     business_day=business_day,
@@ -387,7 +390,7 @@ class ProgramRunner:
                     source=event.source,
                     scope=self._scope,
                 )
-            raise LoopContractError(
+            raise AppContractError(
                 f"Unsupported Program maintenance input: {event.kind.value}"
             )
 
@@ -397,8 +400,8 @@ class ProgramRunner:
             return
         try:
             availability = runner.availability(business_day)
-        except LoopError as exc:
-            raise self._loop_bridge.startup_failure(
+        except MaintenanceError as exc:
+            raise self._maintenance_bridge.startup_failure(
                 message=str(exc),
                 payload={
                     "stage": "maintenance_reminder",
@@ -476,7 +479,7 @@ class ProgramRunner:
             ObservationEvent(
                 name=name,
                 level=level,
-                source="loop.program",
+                source="app.program",
                 scope=self._scope,
                 message=message,
                 payload=payload,

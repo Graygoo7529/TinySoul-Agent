@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .infra import RuntimeInfraBridge
     from .llm import RuntimeLLMBridge
     from .loop import RuntimeLoopBridge
+    from .maintenance import RuntimeMaintenanceBridge
     from .memory import RuntimeMemoryBridge
     from .session import RuntimeSessionBridge
     from .script import RuntimeScriptBridge
@@ -29,6 +30,7 @@ __all__ = [
     "RuntimeInfraBridge",
     "RuntimeLLMBridge",
     "RuntimeLoopBridge",
+    "RuntimeMaintenanceBridge",
     "RuntimeMemoryBridge",
     "RuntimeSessionBridge",
     "RuntimeScriptBridge",
@@ -71,6 +73,10 @@ def __getattr__(name: str) -> object:
         from .loop import RuntimeLoopBridge
 
         return RuntimeLoopBridge
+    if name == "RuntimeMaintenanceBridge":
+        from .maintenance import RuntimeMaintenanceBridge
+
+        return RuntimeMaintenanceBridge
     if name == "RuntimeMemoryBridge":
         from .memory import RuntimeMemoryBridge
 

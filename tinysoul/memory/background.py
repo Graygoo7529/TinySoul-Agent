@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from tinysoul.context import BackgroundCatalog
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime.bridge import RuntimeMemoryBridge
 
 from .engine import MemoryEngine

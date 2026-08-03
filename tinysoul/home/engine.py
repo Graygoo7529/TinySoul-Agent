@@ -24,6 +24,9 @@ from .links import (
     parse_home_link,
 )
 from .maintenance import (
+    HomeMaintenanceResolveOutcome,
+    HomeMaintenanceResolution,
+    HomeMaintenanceSnapshot,
     HomeMaintenanceDecisionProvider,
     HomeMaintenanceMode,
     HomeMaintenanceOutcome,
@@ -154,6 +157,30 @@ class AgentHomeEngine:
 
         self._validate_overlay_semantics()
         return self._maintenance.pending()
+
+    def maintenance_snapshot(self) -> HomeMaintenanceSnapshot:
+        """Return bounded, token-bound active Home changes."""
+
+        self._validate_overlay_semantics()
+        return self._maintenance.snapshot()
+
+    def resolve_maintenance(
+        self,
+        token: str,
+        resolution: HomeMaintenanceResolution,
+        *,
+        rewrite_text: str | None = None,
+    ) -> HomeMaintenanceResolveOutcome:
+        """Resolve one current Home change through the owner boundary."""
+
+        self._validate_overlay_semantics()
+        outcome = self._maintenance.resolve(
+            token,
+            resolution,
+            rewrite_text=rewrite_text,
+        )
+        self._validate_overlay_semantics()
+        return outcome
 
     def parse_link(self, value: str) -> HomeLink:
         return parse_home_link(value)

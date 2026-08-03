@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from tinysoul.loop.day import BusinessDay
+from tinysoul.maintenance import BusinessDay
 from tinysoul.runtime import ObservationEmitter, RunScope
 from tinysoul.session import SessionMemoryFactsProjection
 

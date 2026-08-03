@@ -71,16 +71,30 @@ from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
 from tinysoul.loop.config import LoopSettings, parse_loop_settings
-from tinysoul.loop.day import BusinessClock, IanaBusinessClock
-from tinysoul.loop.daily import DailyLifecycleCoordinator
-from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
+from tinysoul.maintenance import (
+    BusinessClock,
+    DailyLifecycleCoordinator,
+    IanaBusinessClock,
+    MaintenanceSettings,
+    ProgramMaintenanceRunner,
+    parse_maintenance_settings,
+)
+from tinysoul.maintenance.actions import (
+    MaintenanceActionController,
+    register_maintenance_actions,
+    user_action_view,
+)
+from tinysoul.loop.completion import (
+    TurnCompletionHandler,
+    TurnCompletionPipeline,
+    UserAnswerCompletionDetector,
+)
 from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.cycle import CycleRunner
 from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
-from tinysoul.loop.program import ProgramRunner
-from tinysoul.loop.maintenance import ProgramMaintenanceRunner
+from .program import ProgramRunner
 from tinysoul.loop.prompts import DomainHowProvider
 from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
@@ -116,6 +130,7 @@ from tinysoul.runtime.bridge import (
     RuntimeInfraBridge,
     RuntimeLLMBridge,
     RuntimeLoopBridge,
+    RuntimeMaintenanceBridge,
     RuntimeMemoryBridge,
     RuntimeSessionBridge,
     RuntimeScriptBridge,
@@ -157,6 +172,7 @@ class TinySoulAppBuilder:
     def __init__(self, root: Path | None = None) -> None:
         self._root = root or Path.cwd()
         self._loop_settings: LoopSettings | None = None
+        self._maintenance_settings: MaintenanceSettings | None = None
         self._app_settings: AppSettings | None = None
         self._config_env: ConfigEnvironment | None = None
         self._llm: LLMRunner | None = None
@@ -176,6 +192,13 @@ class TinySoulAppBuilder:
 
     def with_loop_settings(self, settings: LoopSettings) -> "TinySoulAppBuilder":
         self._loop_settings = settings
+        return self
+
+    def with_maintenance_settings(
+        self,
+        settings: MaintenanceSettings,
+    ) -> "TinySoulAppBuilder":
+        self._maintenance_settings = settings
         return self
 
     def with_app_settings(self, settings: AppSettings) -> "TinySoulAppBuilder":
@@ -261,6 +284,7 @@ class TinySoulAppBuilder:
         infra_bridge = RuntimeInfraBridge()
         llm_bridge = RuntimeLLMBridge()
         loop_bridge = RuntimeLoopBridge()
+        maintenance_bridge = RuntimeMaintenanceBridge()
         action_bridge = RuntimeActionBridge()
         context_bridge = RuntimeContextBridge()
         session_bridge = RuntimeSessionBridge()
@@ -285,6 +309,7 @@ class TinySoulAppBuilder:
                     "context",
                     "home",
                     "memory",
+                    "maintenance",
                     "session",
                     "workspace",
                     "capabilities",
@@ -294,6 +319,11 @@ class TinySoulAppBuilder:
                 self._loop_settings
                 if self._loop_settings is not None
                 else self._build_loop_settings(config, loop_bridge)
+            )
+            maintenance_settings = (
+                self._maintenance_settings
+                if self._maintenance_settings is not None
+                else self._build_maintenance_settings(config, maintenance_bridge)
             )
             app_settings = (
                 self._app_settings
@@ -402,6 +432,13 @@ class TinySoulAppBuilder:
                 context=context,
                 action_how=action_how,
             )
+            memory_consolidator = LLMMemoryConsolidator(llm)
+            maintenance_controller = MaintenanceActionController(
+                home=home,
+                memory=memory,
+                consolidator=memory_consolidator,
+                timezone=maintenance_settings.timezone,
+            )
             process_jobs: SupervisedProcessManager | None = None
             if self._action is not None:
                 action = self._action
@@ -459,11 +496,13 @@ class TinySoulAppBuilder:
                     staging=staging,
                     process_jobs=process_jobs,
                     script_resolver=script_resolver,
+                    maintenance_controller=maintenance_controller,
                 )
+            user_action = user_action_view(action)
             try:
                 home.reconcile_prompt_mounts(
-                    domains=action.domain_names(),
-                    actions=action.action_identifiers(),
+                    domains=user_action.domain_names(),
+                    actions=user_action.action_identifiers(),
                 )
             except AgentHomeError as exc:
                 raise home_bridge.startup_failure(
@@ -483,7 +522,7 @@ class TinySoulAppBuilder:
             )
             phase1 = Phase1Unit(
                 context=context,
-                action=action,
+                action=user_action,
                 llm=llm,
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
@@ -491,7 +530,7 @@ class TinySoulAppBuilder:
             )
             phase2 = Phase2Unit(
                 context=context,
-                action=action,
+                action=user_action,
                 llm=llm,
                 bus=bus,
                 retry_limit=loop_settings.phase_retry_limit,
@@ -501,11 +540,12 @@ class TinySoulAppBuilder:
             )
             phase3 = Phase3Unit(
                 context=context,
-                action=action,
+                action=user_action,
                 bus=bus,
                 module_runner=module_runner,
                 signal_consumer=signal_consumer,
                 observations=observations,
+                completion_detector=UserAnswerCompletionDetector(),
             )
             cycle_runner = CycleRunner(
                 context=context,
@@ -522,7 +562,7 @@ class TinySoulAppBuilder:
                 bus=bus,
                 trap=trap,
                 cycle_runner=cycle_runner,
-                settings=loop_settings,
+                settings=loop_settings.user,
                 signal_consumer=signal_consumer,
                 completion_pipeline=TurnCompletionPipeline(
                     (
@@ -553,7 +593,7 @@ class TinySoulAppBuilder:
                 observations=observations,
             )
             daily_lifecycle = DailyLifecycleCoordinator(
-                archive_root=loop_settings.daily.archive_root,
+                archive_root=maintenance_settings.archive_root,
                 session=session,
                 workspace=workspace,
                 observations=observations,
@@ -566,9 +606,9 @@ class TinySoulAppBuilder:
                 memory=memory,
                 session=session,
                 daily_lifecycle=daily_lifecycle,
-                timezone=loop_settings.daily.timezone,
+                timezone=maintenance_settings.timezone,
                 automatic_home_reviewer=LLMHomeMaintenanceReviewer(llm),
-                memory_consolidator=LLMMemoryConsolidator(llm),
+                memory_consolidator=memory_consolidator,
                 manual_home_decisions=decision_broker,
             )
             program_runner = ProgramRunner(
@@ -580,9 +620,9 @@ class TinySoulAppBuilder:
                 retained_outcomes=app_settings.retained_turn_outcomes,
                 business_clock=(
                     self._business_clock
-                    or IanaBusinessClock(loop_settings.daily.timezone)
+                    or IanaBusinessClock(maintenance_settings.timezone)
                 ),
-                loop_bridge=loop_bridge,
+                maintenance_bridge=maintenance_bridge,
                 observations=observations,
             )
             parser = self._input_parser or InputCommandParser(app_settings.input_commands)
@@ -636,7 +676,7 @@ class TinySoulAppBuilder:
                 (
                     MaintenanceScheduler(
                         app_settings.scheduler,
-                        timezone=loop_settings.daily.timezone,
+                        timezone=maintenance_settings.timezone,
                     ),
                 )
                 if app_settings.scheduler.enabled
@@ -698,7 +738,23 @@ class TinySoulAppBuilder:
         try:
             return config.parse_section(
                 "loop",
-                lambda tree: parse_loop_settings(tree, project_root=self._root),
+                parse_loop_settings,
+            )
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+
+    def _build_maintenance_settings(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeMaintenanceBridge,
+    ) -> MaintenanceSettings:
+        try:
+            return config.parse_section(
+                "maintenance",
+                lambda tree: parse_maintenance_settings(
+                    tree,
+                    project_root=self._root,
+                ),
             )
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
@@ -927,6 +983,7 @@ class TinySoulAppBuilder:
         staging: StagingDirectoryManager,
         process_jobs: SupervisedProcessManager,
         script_resolver: ScriptSourceResolver,
+        maintenance_controller: MaintenanceActionController,
     ) -> ActionEngine:
         try:
             with builtin_action_catalog_root() as catalog_root:
@@ -1041,6 +1098,10 @@ class TinySoulAppBuilder:
                         ),
                     ),
                     llm_action=llm_action,
+                )
+                register_maintenance_actions(
+                    builder,
+                    controller=maintenance_controller,
                 )
                 return builder.build()
         except ConfigError as exc:

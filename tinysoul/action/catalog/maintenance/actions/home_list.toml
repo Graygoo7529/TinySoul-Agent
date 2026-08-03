@@ -1,0 +1,15 @@
+name = "maintenance.home.list"
+domain = "maintenance"
+
+[tool]
+description = "List the unresolved, token-bound Home changes in the current Maintenance task."
+schema = { type = "object", properties = {}, required = [], additionalProperties = false }
+
+[semantic]
+use_when = ["The current Home Maintenance task needs its unresolved change catalog"]
+avoid_when = ["The current task is Memory Maintenance"]
+effects = ["read_only"]
+
+[backend]
+kind = "native"
+handler = "maintenance.home.list"
