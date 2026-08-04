@@ -106,7 +106,7 @@ export function MaintenancePanel() {
             </span>
           </button>
           {manualOpen && (
-            <div className="space-y-2 border-t border-line px-3 py-3">
+            <div className="space-y-2.5 border-t border-line px-3 py-3">
               <ManualRow
                 icon={<RefreshCcw size={14} />}
                 title="Daily transition"
@@ -121,32 +121,32 @@ export function MaintenancePanel() {
                 busy={busy === "home"}
                 onRun={() => void run("home")}
               />
-              <div className="rounded-lg bg-bg-sunken px-2.5 py-2">
-                <ManualRow
-                  icon={<MemoryStick size={14} />}
-                  title="Memory maintenance"
-                  description="Distill an archived day's session facts into long-term memory."
-                  busy={busy === "memory"}
-                  onRun={() => void run("memory")}
-                />
-                <div className="mt-2 flex items-center gap-3 border-t border-line pt-2">
-                  <input
-                    value={targetDay}
-                    onChange={(e) => setTargetDay(e.target.value)}
-                    placeholder="YYYY-MM-DD (optional)"
-                    className="h-7 w-40 rounded-md border border-line bg-bg-elev px-2 font-mono text-[12px] outline-none focus:border-accent"
-                  />
-                  <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+              <ManualRow
+                icon={<MemoryStick size={14} />}
+                title="Memory maintenance"
+                description="Distill an archived day's session facts into long-term memory."
+                busy={busy === "memory"}
+                onRun={() => void run("memory")}
+                options={
+                  <>
                     <input
-                      type="checkbox"
-                      checked={rebuild}
-                      onChange={(e) => setRebuild(e.target.checked)}
-                      className="accent-accent"
+                      value={targetDay}
+                      onChange={(e) => setTargetDay(e.target.value)}
+                      placeholder="YYYY-MM-DD (optional)"
+                      className="h-6 w-36 rounded-md border border-line bg-bg-elev px-2 font-mono text-[11px] outline-none focus:border-accent"
                     />
-                    Rebuild existing
-                  </label>
-                </div>
-              </div>
+                    <label className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+                      <input
+                        type="checkbox"
+                        checked={rebuild}
+                        onChange={(e) => setRebuild(e.target.checked)}
+                        className="accent-accent"
+                      />
+                      Rebuild existing
+                    </label>
+                  </>
+                }
+              />
             </div>
           )}
         </div>
@@ -181,27 +181,36 @@ function ManualRow({
   description,
   busy,
   onRun,
+  options,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
   busy: boolean;
   onRun: () => void;
+  options?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className={`flex gap-2.5 ${options ? "" : "items-center"}`}>
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] font-medium">{title}</div>
-        <div className="text-[11px] leading-4 text-fg-muted">{description}</div>
+        <div className="flex items-center gap-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium">{title}</div>
+            <div className="text-[11px] leading-4 text-fg-muted">{description}</div>
+          </div>
+          <span className="flex w-24 shrink-0 justify-end">
+            <Button size="xs" variant="outline" loading={busy} onClick={onRun} className="w-full">
+              Run
+            </Button>
+          </span>
+        </div>
+        {options && (
+          <div className="mt-1.5 flex items-center gap-3">{options}</div>
+        )}
       </div>
-      <span className="flex w-24 shrink-0 justify-end">
-        <Button size="xs" variant="outline" loading={busy} onClick={onRun} className="w-full">
-          Run
-        </Button>
-      </span>
     </div>
   );
 }
