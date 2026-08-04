@@ -71,7 +71,7 @@ export function MaintenancePanel() {
                 icon={<Home size={14} />}
                 text={`Home maintenance pending: ${availability!.home_change_count} changes, ${availability!.home_skill_memory_count} skill memories.`}
                 action={
-                  <Button size="xs" variant="primary" loading={busy === "home"} onClick={() => void run("home")}>
+                  <Button size="xs" variant="primary" className="w-full" loading={busy === "home"} onClick={() => void run("home")}>
                     Run Home
                   </Button>
                 }
@@ -82,7 +82,7 @@ export function MaintenancePanel() {
                 icon={<MemoryStick size={14} />}
                 text={`Memory pending for ${availability!.memory_days.length} day(s): ${availability!.memory_days.join(", ")}.`}
                 action={
-                  <Button size="xs" variant="primary" loading={busy === "memory"} onClick={() => void run("memory")}>
+                  <Button size="xs" variant="primary" className="w-full" loading={busy === "memory"} onClick={() => void run("memory")}>
                     Run Memory
                   </Button>
                 }
@@ -166,9 +166,11 @@ function PendingRow({
 }) {
   return (
     <div className="flex items-center gap-2.5 rounded-lg bg-warning-soft px-3 py-2.5">
-      <span className="shrink-0 text-warning">{icon}</span>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-warning/15 text-warning">
+        {icon}
+      </span>
       <span className="min-w-0 flex-1 text-[12px] leading-4 text-fg">{text}</span>
-      {action}
+      <span className="flex w-24 shrink-0 justify-end">{action}</span>
     </div>
   );
 }
@@ -195,9 +197,11 @@ function ManualRow({
         <div className="text-[12px] font-medium">{title}</div>
         <div className="text-[11px] leading-4 text-fg-muted">{description}</div>
       </div>
-      <Button size="xs" variant="outline" loading={busy} onClick={onRun}>
-        Run
-      </Button>
+      <span className="flex w-24 shrink-0 justify-end">
+        <Button size="xs" variant="outline" loading={busy} onClick={onRun} className="w-full">
+          Run
+        </Button>
+      </span>
     </div>
   );
 }

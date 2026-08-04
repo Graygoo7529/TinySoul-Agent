@@ -78,7 +78,7 @@ export function PhaseCard({
             {phase.tasks.length > 1 ? `${phase.tasks.length} calls` : "context"}
           </span>
         )}
-        {phase.startedAt && (
+        {phase.startedAt && shouldShowDuration(phase.startedAt, phase.completedAt) && (
           <span className="shrink-0 font-mono text-[10px] text-fg-faint">
             {formatDuration(phase.startedAt, phase.completedAt)}
           </span>
@@ -224,6 +224,10 @@ function PhaseDetail({ phase }: { phase: PhaseStep }) {
         )}
     </>
   );
+}
+
+function shouldShowDuration(startedAt: number, completedAt?: number): boolean {
+  return completedAt === undefined || completedAt - startedAt >= 0.1;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
