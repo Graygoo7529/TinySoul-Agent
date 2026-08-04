@@ -10,6 +10,7 @@ from typing import cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
+from tinysoul.loop.config import TurnSettings, parse_turn_settings
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class MaintenanceSettings:
     timezone: str = "Asia/Shanghai"
     archive_root: Path = Path("archive")
     runtime_root: Path = Path("runtime/maintenance")
+    turn: TurnSettings = field(default_factory=TurnSettings)
     schedule: MaintenanceScheduleSettings = field(
         default_factory=MaintenanceScheduleSettings
     )
@@ -79,6 +81,13 @@ class MaintenanceSettings:
                 value=self.runtime_root,
                 expected="path",
             )
+        if not isinstance(self.turn, TurnSettings):
+            raise ConfigError(
+                "Maintenance turn settings are invalid",
+                key="maintenance.turn",
+                value=self.turn,
+                expected="TurnSettings",
+            )
         if not isinstance(self.schedule, MaintenanceScheduleSettings):
             raise ConfigError(
                 "Maintenance schedule is invalid",
@@ -95,7 +104,7 @@ def parse_maintenance_settings(
 ) -> MaintenanceSettings:
     reject_unknown_keys(
         tree,
-        {"timezone", "archive_root", "runtime_root", "schedule"},
+        {"timezone", "archive_root", "runtime_root", "turn", "schedule"},
         key="maintenance",
     )
     timezone = tree.get("timezone", MaintenanceSettings.timezone)
@@ -132,6 +141,7 @@ def parse_maintenance_settings(
         timezone=timezone,
         archive_root=archive_root,
         runtime_root=runtime_root,
+        turn=parse_turn_settings(tree.get("turn"), key="maintenance.turn"),
         schedule=_parse_schedule(tree.get("schedule")),
     )
 

@@ -7,11 +7,11 @@ from tinysoul.context import (
     ContextSignalBatch,
     build_trace_phase_note_signal,
 )
-from tinysoul.loop.pressure import ContextPressureRecovery
+from tinysoul.loop.user.pressure import UserContextPressureRecovery
 from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
-    WorkspaceTrashRestoreTrapHandler,
 )
+from tinysoul.loop.user.trap_handlers import WorkspaceTrashRestoreTrapHandler
 from tinysoul.runtime import (
     CONTEXT_COMPRESSION_REQUIRED,
     CyclePhase,
@@ -66,7 +66,7 @@ def test_context_pressure_trap_retries_current_phase_when_trace_changes(
     context.consume_signals(bus)
 
     result = ContextPressureTrapHandler(
-        ContextPressureRecovery(
+        UserContextPressureRecovery(
             context=context,
             workspace=workspace,
             target_ratio=0.8,

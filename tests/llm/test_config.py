@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -161,11 +161,11 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert memory_search.settings.tool_use is ToolUse.DISABLED
     assert memory_search.settings.temperature == pytest.approx(0.1)
     assert memory_search.settings.max_output_tokens == 512
-    memory_maintenance = config.tasks.get(TaskProfile.MEMORY_MAINTENANCE)
-    assert memory_maintenance.settings.answer_format is AnswerFormat.JSON_OBJECT
-    assert memory_maintenance.settings.tool_use is ToolUse.DISABLED
-    assert memory_maintenance.settings.temperature == pytest.approx(0.2)
-    assert memory_maintenance.settings.max_output_tokens == 4096
+    memory_consolidation = config.tasks.get(TaskProfile.MEMORY_CONSOLIDATION)
+    assert memory_consolidation.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert memory_consolidation.settings.tool_use is ToolUse.DISABLED
+    assert memory_consolidation.settings.temperature == pytest.approx(0.2)
+    assert memory_consolidation.settings.max_output_tokens == 4096
 
 
 def test_llm_config_rejects_model_with_unknown_provider() -> None:

@@ -144,7 +144,7 @@ Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史
 
 每次候选模型尝试在 provider 调用前执行上下文硬水位预检，但一个 LLM Task 内所有候选始终共享上层已经构造的同一个 MessageStack。预检不会为不同模型维护平行 MessageStack，也不修改 ModelChainRunner 的位置状态；若当前 Task 允许 Context 重建，则容量压力立即中止整个 LLM Task，经 Runtime Trap 压缩 Context 后由上层重新构造一个新的 LLM Task。重放仍从既有 preferred model 开始，可能再次调用先前失败的大窗口模型，这是无容量 checkpoint 设计的明确成本。
 
-`ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `RECOMPOSE_CONTEXT`，把硬水位压力映射为 Context 压缩；Home Search、Home Maintenance、Memory Search 与 Memory Maintenance 使用 `END_TURN`，不以模块内部 MessageStack 的容量问题清理当前 Turn Context。维护流程在自身 Program work 边界把该 Runtime 失败收敛为维护失败。
+`ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `RECOMPOSE_CONTEXT`，把硬水位压力映射为当前 Turn Context 压缩；User policy 可以继续清理 active Workspace，Maintenance policy 只回收自己的 Context。Home Search、Memory Search 与 Memory owner consolidation 使用 `END_TURN`，不以模块内部 MessageStack 的容量问题清理 active User Context。
 
 个人项目场景下，模型链默认进行有限但较充分的循环尝试，以容忍暂时网络故障，同时避免错误配置导致调用永久卡住。需要持续等待暂时性故障时，可以显式把 `max_cycles` 配置为无限；永久错误仍只尝试每个候选一次。每次模型尝试、重试、切换和失败通过 ObservationEvent 暴露，并遵守配置的等待间隔。
 
@@ -194,7 +194,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 
-内置 `memory_maintenance` profile 服务于 Memory-owned consolidator：禁用工具、要求 JSON object、使用较低 temperature，并为分层 reduce 和最终单日 Markdown body 保留明确输出预算。中间和最终输出都只接受精确 `content` 字段；Memory renderer 只增加日期 H1，validator 负责正文非空、文档大小以及 Home/Memory Link 存在性。完整 Link catalog 只用于本地验证，模型只看到从本次 source 提取且受字符预算约束的有效 Link hints；业务校验失败可以作为有界 feedback 重新执行最终生成，但不会持久化模型输出、reasoning 或候选状态。独立 `memory_search` profile 只对 Memory 模块交付的有界单日候选重排；非法结果由 Memory 回退确定性候选，LLM 模块不解析 `memory:` Link。
+内置 `memory_consolidation` profile 服务于 Memory-owned consolidator：禁用工具、要求 JSON object、使用较低 temperature，并为分层 reduce 和最终单日 Markdown body 保留明确输出预算。中间和最终输出都只接受精确 `content` 字段；Memory renderer 只增加日期 H1，validator 负责正文非空、文档大小以及 Home/Memory Link 存在性。完整 Link catalog 只用于本地验证，模型只看到从本次 source 提取且受字符预算约束的有效 Link hints；业务校验失败可以作为有界 feedback 重新执行最终生成，但不会持久化模型输出、reasoning 或候选状态。独立 `memory_search` profile 只对 Memory 模块交付的有界单日候选重排。
 
 单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型对通用参数存在固定要求时，该要求可以放入模型额外选项中的通用请求覆盖，并在最终请求阶段解释和覆盖。
 

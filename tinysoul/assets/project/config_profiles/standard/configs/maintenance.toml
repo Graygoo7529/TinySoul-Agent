@@ -3,6 +3,9 @@ timezone = "Asia/Shanghai"
 archive_root = "archive"
 runtime_root = "runtime/maintenance"
 
+[maintenance.turn]
+max_cycles = 20
+
 [maintenance.schedule]
 enabled = true
 daily_time = "00:15"

@@ -20,6 +20,7 @@ from tinysoul.maintenance import (
     MaintenanceOutcome,
     MaintenanceRequest,
 )
+from tinysoul.maintenance.runtime_bridge import MaintenanceRuntimeBridge
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -38,7 +39,6 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
-from tinysoul.runtime.bridge import RuntimeMaintenanceBridge
 
 from .errors import AppContractError
 from .requests import AppRequest, ExitRequest, UserTurnRequest
@@ -106,7 +106,7 @@ class ProgramRunner:
         trap: RuntimeTrap,
         input_queue: Queue[AppRequest] | None = None,
         retained_outcomes: int = 32,
-        maintenance_bridge: RuntimeMaintenanceBridge | None = None,
+        maintenance_bridge: MaintenanceRuntimeBridge | None = None,
         observations: ObservationEmitter | None = None,
     ) -> None:
         if (
@@ -122,7 +122,7 @@ class ProgramRunner:
         self._input_queue: Queue[AppRequest] = input_queue or Queue()
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
         self._retained_outcomes = retained_outcomes
-        self._maintenance_bridge = maintenance_bridge or RuntimeMaintenanceBridge()
+        self._maintenance_bridge = maintenance_bridge or MaintenanceRuntimeBridge()
         self._observations = observations or NullObservationEmitter()
         self._request_lock = RLock()
         self._prepared_transition: DailyTransitionOutcome | None = None

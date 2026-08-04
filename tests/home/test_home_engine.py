@@ -21,7 +21,6 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.home import (
-    ActualHomeBackgroundEntryProvider,
     AgentHomeContractError,
     AgentHomeEngine,
     AgentHomeEngineBuilder,
@@ -39,6 +38,7 @@ from tinysoul.home import (
     HomeTopWriteExecutor,
     HomeTopLink,
 )
+from tinysoul.maintenance.context import ActualHomeBackgroundEntryProvider
 from tinysoul.context import ContextEngineBuilder
 from tinysoul.context.background import BackgroundPatch
 from tinysoul.context.signals import build_background_patch_signal

@@ -1,4 +1,4 @@
-"""Turn runner for one user turn."""
+"""Owner-neutral runner for one Agent Turn."""
 
 from __future__ import annotations
 

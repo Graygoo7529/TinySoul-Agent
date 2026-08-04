@@ -1,4 +1,4 @@
-"""Date-scoped Memory Maintenance tests."""
+"""Date-scoped Memory consolidation tests."""
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ from tinysoul.memory import (
     MemoryEngine,
     MemoryIOError,
     MemoryInvariantError,
-    MemoryMaintenanceFailure,
-    MemoryMaintenanceSettings,
-    MemoryMaintenanceSkipReason,
-    MemoryMaintenanceStatus,
+    MemoryConsolidationFailure,
+    MemoryConsolidationSettings,
+    MemoryConsolidationSkipReason,
+    MemoryConsolidationStatus,
     MemorySettings,
     parse_memory_settings,
 )
@@ -43,7 +43,7 @@ DAY = BusinessDay.parse("2026-07-12")
 ZONE = ZoneInfo("Asia/Shanghai")
 
 
-def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
+def test_memory_consolidation_uses_ordered_sources_and_renders_one_daily_body(
     tmp_path: Path,
 ) -> None:
     known = tmp_path / "home" / "what" / "concept" / "known.md"
@@ -58,15 +58,15 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
     consolidator = _CapturingConsolidator(
         "## Durable facts\n\n- retained <home:what@concept/known>"
     )
-    assert memory.maintenance_eligible(projection)
+    assert memory.consolidation_eligible(projection)
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=projection,
         consolidator=consolidator,
         timezone="Asia/Shanghai",
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.COMPLETED
+    assert outcome.status is MemoryConsolidationStatus.COMPLETED
     assert outcome.fact_count == 3
     assert outcome.document_digest
     request = consolidator.requests[0]
@@ -80,27 +80,27 @@ def test_memory_maintenance_uses_ordered_sources_and_renders_one_daily_body(
         "- retained <home:what@concept/known>\n"
     )
     assert not (tmp_path / "runtime" / "home" / "memory").exists()
-    assert not memory.maintenance_eligible(projection)
+    assert not memory.consolidation_eligible(projection)
 
 
-def test_memory_maintenance_observations_are_verbose_and_content_free(
+def test_memory_consolidation_observations_are_verbose_and_content_free(
     tmp_path: Path,
 ) -> None:
     observations = _RecordingObservations()
     memory = _memory(tmp_path, observations=observations)
-    scope = RunScope().push(RunLevel.MODULE, "memory_maintenance")
+    scope = RunScope().push(RunLevel.MODULE, "memory_consolidation")
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(_fact("private Session fact", 9)),
         consolidator=_CapturingConsolidator("- private consolidated Memory"),
         timezone="Asia/Shanghai",
         scope=scope,
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.COMPLETED
+    assert outcome.status is MemoryConsolidationStatus.COMPLETED
     assert [event.name for event in observations.events] == [
-        "memory.maintenance.started",
-        "memory.maintenance.completed",
+        "memory.consolidation.started",
+        "memory.consolidation.completed",
     ]
     assert all(
         event.level is ObservationLevel.VERBOSE
@@ -122,28 +122,28 @@ def test_missing_and_empty_session_skip_without_touching_memory(tmp_path: Path) 
     target.parent.mkdir(parents=True)
     target.write_text("existing bytes stay unchanged", encoding="utf-8")
 
-    missing = memory.run_maintenance(
+    missing = memory.consolidate(
         projection=None,
         consolidator=None,
         timezone="Asia/Shanghai",
         target_day=DAY,
     )
-    empty = memory.run_maintenance(
+    empty = memory.consolidate(
         projection=_projection(),
         consolidator=None,
         timezone="Asia/Shanghai",
     )
 
-    assert missing.status is MemoryMaintenanceStatus.SKIPPED
-    assert missing.skip_reason is MemoryMaintenanceSkipReason.SESSION_NOT_FOUND
-    assert empty.status is MemoryMaintenanceStatus.SKIPPED
-    assert empty.skip_reason is MemoryMaintenanceSkipReason.SESSION_EMPTY
+    assert missing.status is MemoryConsolidationStatus.SKIPPED
+    assert missing.skip_reason is MemoryConsolidationSkipReason.SESSION_NOT_FOUND
+    assert empty.status is MemoryConsolidationStatus.SKIPPED
+    assert empty.skip_reason is MemoryConsolidationSkipReason.SESSION_EMPTY
     assert target.read_text(encoding="utf-8") == "existing bytes stay unchanged"
     assert [event.name for event in observations.events] == [
-        "memory.maintenance.started",
-        "memory.maintenance.skipped",
-        "memory.maintenance.started",
-        "memory.maintenance.skipped",
+        "memory.consolidation.started",
+        "memory.consolidation.skipped",
+        "memory.consolidation.started",
+        "memory.consolidation.skipped",
     ]
     assert observations.events[1].payload["skip_reason"] == "session_not_found"
     assert observations.events[3].payload["skip_reason"] == "session_empty"
@@ -163,13 +163,13 @@ def test_existing_free_form_memory_is_one_source_and_is_rewritten(
         "## Reorganized\n\n- old fact\n- new fact"
     )
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(_fact("new fact", 9)),
         consolidator=consolidator,
         timezone="Asia/Shanghai",
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.COMPLETED
+    assert outcome.status is MemoryConsolidationStatus.COMPLETED
     request = consolidator.requests[0]
     assert any("Legacy memory" in source for source in request.sources)
     assert any('"kind":"existing_memory"' in source for source in request.sources)
@@ -178,7 +178,7 @@ def test_existing_free_form_memory_is_one_source_and_is_rewritten(
     )
 
 
-def test_automatic_memory_maintenance_validates_then_skips_existing_target(
+def test_automatic_memory_consolidation_validates_then_skips_existing_target(
     tmp_path: Path,
 ) -> None:
     memory = _memory(tmp_path)
@@ -188,23 +188,23 @@ def test_automatic_memory_maintenance_validates_then_skips_existing_target(
     target.write_text(existing, encoding="utf-8")
     consolidator = _CapturingConsolidator("must not replace")
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(_fact("new session fact", 9)),
         consolidator=consolidator,
         timezone="Asia/Shanghai",
         rewrite_existing=False,
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.SKIPPED
-    assert outcome.skip_reason is MemoryMaintenanceSkipReason.MEMORY_EXISTS
+    assert outcome.status is MemoryConsolidationStatus.SKIPPED
+    assert outcome.skip_reason is MemoryConsolidationSkipReason.MEMORY_EXISTS
     assert consolidator.requests == []
     assert target.read_text(encoding="utf-8") == existing
 
     target.write_text("   \n", encoding="utf-8")
     with pytest.raises(MemoryInvariantError, match="empty"):
-        memory.maintenance_eligible(_projection(_fact("new session fact", 9)))
+        memory.consolidation_eligible(_projection(_fact("new session fact", 9)))
     with pytest.raises(MemoryInvariantError, match="empty"):
-        memory.run_maintenance(
+        memory.consolidate(
             projection=_projection(_fact("new session fact", 9)),
             consolidator=consolidator,
             timezone="Asia/Shanghai",
@@ -222,7 +222,7 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     unused.write_text("unused", encoding="utf-8")
     memory = _memory(
         tmp_path,
-        maintenance=MemoryMaintenanceSettings(
+        consolidation=MemoryConsolidationSettings(
             chunk_max_chars=512,
             source_max_chars=10000,
             link_hints_max_chars=64,
@@ -232,7 +232,7 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     )
     runner = _MemoryTaskRunner(repair_link=True)
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(
             _fact("x" * 1800 + " <home:what@concept/known>", 9)
         ),
@@ -241,12 +241,12 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
         scope=RunScope().push(RunLevel.PROGRAM, "program"),
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.COMPLETED
+    assert outcome.status is MemoryConsolidationStatus.COMPLETED
     assert outcome.model_calls > 3
-    assert all(call.profile is TaskProfile.MEMORY_MAINTENANCE for call in runner.calls)
+    assert all(call.profile is TaskProfile.MEMORY_CONSOLIDATION for call in runner.calls)
     assert any(
         any(
-            message.label == "memory_maintenance_feedback"
+            message.label == "memory_consolidation_feedback"
             for message in call.messages.messages
         )
         for call in runner.calls
@@ -255,7 +255,7 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
         repr(call.messages)
         for call in runner.calls
         if any(
-            message.label == "memory_maintenance_output"
+            message.label == "memory_consolidation_output"
             for message in call.messages.messages
         )
     ]
@@ -271,18 +271,18 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
 def test_invalid_memory_output_fails_without_creating_target(tmp_path: Path) -> None:
     memory = _memory(
         tmp_path,
-        maintenance=MemoryMaintenanceSettings(validation_retries=1),
+        consolidation=MemoryConsolidationSettings(validation_retries=1),
     )
     runner = _MemoryTaskRunner(repair_link=False)
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(_fact("fact", 9)),
         consolidator=LLMMemoryConsolidator(runner),
         timezone="Asia/Shanghai",
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.FAILED
-    assert outcome.failure is MemoryMaintenanceFailure.INVALID_OUTPUT
+    assert outcome.status is MemoryConsolidationStatus.FAILED
+    assert outcome.failure is MemoryConsolidationFailure.INVALID_OUTPUT
     assert not _target(tmp_path).exists()
 
 
@@ -294,14 +294,14 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
     other.write_text("any earlier Markdown", encoding="utf-8")
     memory = _memory(tmp_path)
 
-    valid = memory.run_maintenance(
+    valid = memory.consolidate(
         projection=_projection(_fact("fact", 9)),
         consolidator=_CapturingConsolidator(
             "- linked <memory:2026-07-11>"
         ),
         timezone="Asia/Shanghai",
     )
-    assert valid.status is MemoryMaintenanceStatus.COMPLETED
+    assert valid.status is MemoryConsolidationStatus.COMPLETED
 
     invalid_bodies = (
         "# duplicate date heading\n\n- invalid",
@@ -311,19 +311,19 @@ def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
         "- invalid <memory:2026-07-10>",
     )
     for body in invalid_bodies:
-        outcome = memory.run_maintenance(
+        outcome = memory.consolidate(
             projection=_projection(_fact("fact", 9)),
             consolidator=_CapturingConsolidator(body),
             timezone="Asia/Shanghai",
         )
-        assert outcome.status is MemoryMaintenanceStatus.FAILED
-        assert outcome.failure is MemoryMaintenanceFailure.INVALID_OUTPUT
+        assert outcome.status is MemoryConsolidationStatus.FAILED
+        assert outcome.failure is MemoryConsolidationFailure.INVALID_OUTPUT
 
 
 def test_source_budget_failure_does_not_call_consolidator(tmp_path: Path) -> None:
     memory = _memory(
         tmp_path,
-        maintenance=MemoryMaintenanceSettings(
+        consolidation=MemoryConsolidationSettings(
             chunk_max_chars=512,
             source_max_chars=600,
             max_calls=10,
@@ -331,14 +331,14 @@ def test_source_budget_failure_does_not_call_consolidator(tmp_path: Path) -> Non
     )
     consolidator = _CapturingConsolidator("unused")
 
-    outcome = memory.run_maintenance(
+    outcome = memory.consolidate(
         projection=_projection(_fact("x" * 1000, 9)),
         consolidator=consolidator,
         timezone="Asia/Shanghai",
     )
 
-    assert outcome.status is MemoryMaintenanceStatus.FAILED
-    assert outcome.failure is MemoryMaintenanceFailure.INPUT_TOO_LARGE
+    assert outcome.status is MemoryConsolidationStatus.FAILED
+    assert outcome.failure is MemoryConsolidationFailure.INPUT_TOO_LARGE
     assert consolidator.requests == []
     assert not _target(tmp_path).exists()
 
@@ -352,7 +352,7 @@ def test_fact_start_time_must_belong_to_projection_business_day(tmp_path: Path) 
     )
 
     with pytest.raises(MemoryInvariantError):
-        memory.run_maintenance(
+        memory.consolidate(
             projection=_projection(wrong_day_fact),
             consolidator=_CapturingConsolidator("unused"),
             timezone="Asia/Shanghai",
@@ -378,7 +378,7 @@ def test_atomic_write_failure_preserves_existing_memory(
     monkeypatch.setattr(store_module, "atomic_write_text", fail_write)
 
     with pytest.raises(MemoryIOError):
-        memory.run_maintenance(
+        memory.consolidate(
             projection=_projection(_fact("new", 9)),
             consolidator=_CapturingConsolidator("replacement"),
             timezone="Asia/Shanghai",
@@ -386,8 +386,8 @@ def test_atomic_write_failure_preserves_existing_memory(
 
     assert target.read_text(encoding="utf-8") == old
     assert [event.name for event in observations.events] == [
-        "memory.maintenance.started",
-        "memory.maintenance.failed",
+        "memory.consolidation.started",
+        "memory.consolidation.failed",
     ]
     assert observations.events[-1].payload["error_type"] == "MemoryIOError"
 
@@ -413,7 +413,7 @@ def test_completed_replace_then_interruption_retries_as_existing_memory(
     monkeypatch.setattr(store_module.MemoryStore, "write", write_then_interrupt)
 
     with pytest.raises(MemoryIOError, match="after atomic replace"):
-        memory.run_maintenance(
+        memory.consolidate(
             projection=_projection(_fact("new", 9)),
             consolidator=_CapturingConsolidator("- replacement"),
             timezone="Asia/Shanghai",
@@ -424,15 +424,15 @@ def test_completed_replace_then_interruption_retries_as_existing_memory(
     assert home_marker.read_text(encoding="utf-8") == "home remains unchanged"
 
     monkeypatch.setattr(store_module.MemoryStore, "write", original_write)
-    retry = memory.run_maintenance(
+    retry = memory.consolidate(
         projection=_projection(_fact("new", 9)),
         consolidator=_UnexpectedConsolidator(),
         timezone="Asia/Shanghai",
         rewrite_existing=False,
     )
 
-    assert retry.status is MemoryMaintenanceStatus.SKIPPED
-    assert retry.skip_reason is MemoryMaintenanceSkipReason.MEMORY_EXISTS
+    assert retry.status is MemoryConsolidationStatus.SKIPPED
+    assert retry.skip_reason is MemoryConsolidationSkipReason.MEMORY_EXISTS
     assert _target(tmp_path).read_text(encoding="utf-8") == expected
     assert home_marker.read_text(encoding="utf-8") == "home remains unchanged"
 
@@ -440,7 +440,7 @@ def test_completed_replace_then_interruption_retries_as_existing_memory(
 def test_memory_settings_parse_nested_budgets(tmp_path: Path) -> None:
     settings = parse_memory_settings(
         {
-            "maintenance": {
+            "consolidation": {
                 "chunk_max_chars": 2048,
                 "source_max_chars": 8192,
                 "link_hints_max_chars": 1024,
@@ -451,7 +451,7 @@ def test_memory_settings_parse_nested_budgets(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    assert settings.maintenance == MemoryMaintenanceSettings(
+    assert settings.consolidation == MemoryConsolidationSettings(
         chunk_max_chars=2048,
         source_max_chars=8192,
         link_hints_max_chars=1024,
@@ -495,7 +495,7 @@ class _MemoryTaskRunner:
         self.calls.append(call)
         value: JsonObject
         final = any(
-            message.label == "memory_maintenance_output"
+            message.label == "memory_consolidation_output"
             for message in call.messages.messages
         )
         if final:
@@ -524,7 +524,7 @@ class _MemoryTaskRunner:
 def _memory(
     root: Path,
     *,
-    maintenance: MemoryMaintenanceSettings | None = None,
+    consolidation: MemoryConsolidationSettings | None = None,
     observations: ObservationEmitter | None = None,
 ) -> MemoryEngine:
     original = root / "home"
@@ -538,7 +538,7 @@ def _memory(
     return MemoryEngine(
         settings=MemorySettings(
             root=root / "memory",
-            maintenance=maintenance or MemoryMaintenanceSettings(),
+            consolidation=consolidation or MemoryConsolidationSettings(),
         ),
         home_catalog=home,
         observations=observations,

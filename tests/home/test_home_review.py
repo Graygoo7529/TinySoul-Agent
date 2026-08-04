@@ -11,7 +11,7 @@ from tinysoul.home import (
     AgentHomeIOError,
     AgentHomeInvariantError,
     AgentHomeSettings,
-    HomeMaintenanceResolution,
+    HomeReviewResolution,
 )
 
 
@@ -43,24 +43,24 @@ def test_home_maintenance_resolves_accept_reject_and_rewrite(tmp_path: Path) -> 
     home = _home(tmp_path)
 
     home.write_top("home:why@review", "runtime", overwrite=True)
-    accepted = home.maintenance_snapshot().changes[0]
-    outcome = home.resolve_maintenance(
+    accepted = home.review_snapshot().changes[0]
+    outcome = home.resolve_review(
         accepted.token,
-        HomeMaintenanceResolution.ACCEPT,
+        HomeReviewResolution.ACCEPT,
     )
     assert outcome.remaining_reviews == 0
     assert actual.read_text(encoding="utf-8") == "runtime"
 
     home.write_top("home:why@review", "discard", overwrite=True)
-    rejected = home.maintenance_snapshot().changes[0]
-    home.resolve_maintenance(rejected.token, HomeMaintenanceResolution.REJECT)
+    rejected = home.review_snapshot().changes[0]
+    home.resolve_review(rejected.token, HomeReviewResolution.REJECT)
     assert actual.read_text(encoding="utf-8") == "runtime"
 
     home.write_top("home:why@review", "draft", overwrite=True)
-    rewritten = home.maintenance_snapshot().changes[0]
-    home.resolve_maintenance(
+    rewritten = home.review_snapshot().changes[0]
+    home.resolve_review(
         rewritten.token,
-        HomeMaintenanceResolution.REWRITE,
+        HomeReviewResolution.REWRITE,
         rewrite_text="curated",
     )
     assert actual.read_text(encoding="utf-8") == "curated"
@@ -72,11 +72,11 @@ def test_home_maintenance_rejects_stale_change_token(tmp_path: Path) -> None:
     actual.write_text("old", encoding="utf-8")
     home = _home(tmp_path)
     home.write_top("home:why@review", "first", overwrite=True)
-    stale = home.maintenance_snapshot().changes[0]
+    stale = home.review_snapshot().changes[0]
     home.write_top("home:why@review", "second", overwrite=True)
 
     with pytest.raises(AgentHomeInvariantError, match="stale or unknown"):
-        home.resolve_maintenance(stale.token, HomeMaintenanceResolution.ACCEPT)
+        home.resolve_review(stale.token, HomeReviewResolution.ACCEPT)
 
 
 def test_skill_memory_is_an_independent_how_review_until_resolved(
@@ -91,26 +91,26 @@ def test_skill_memory_is_an_independent_how_review_until_resolved(
         "The method may need a clearer final step.",
     )
 
-    first = home.maintenance_snapshot()
-    second = home.maintenance_snapshot()
+    first = home.review_snapshot()
+    second = home.review_snapshot()
 
     assert first.changes == ()
     assert len(first.skill_reviews) == 1
     assert second.skill_reviews[0].token == first.skill_reviews[0].token
-    assert home.maintenance_pending().skill_memory_count == 1
+    assert home.review_pending().skill_memory_count == 1
     assert (
         tmp_path / "runtime" / "home" / "how" / "review" / "SKILL_MEMORY.md"
     ).exists()
 
     review = second.skill_reviews[0]
-    outcome = home.resolve_maintenance(
+    outcome = home.resolve_review(
         review.token,
-        HomeMaintenanceResolution.REJECT,
+        HomeReviewResolution.REJECT,
     )
 
     assert outcome.remaining_reviews == 0
     assert skill.read_text(encoding="utf-8") == _SKILL_TEXT
-    assert home.maintenance_pending().pending is False
+    assert home.review_pending().pending is False
 
 
 def test_skill_memory_review_can_rewrite_actual_how_but_cannot_accept(
@@ -124,19 +124,19 @@ def test_skill_memory_review_can_rewrite_actual_how_but_cannot_accept(
         "home:how/review/SKILL_MEMORY.md",
         "Use the revised method.",
     )
-    review = home.maintenance_snapshot().skill_reviews[0]
+    review = home.review_snapshot().skill_reviews[0]
 
     with pytest.raises(AgentHomeContractError, match="does not have a runtime"):
-        home.resolve_maintenance(
+        home.resolve_review(
             review.token,
-            HomeMaintenanceResolution.ACCEPT,
+            HomeReviewResolution.ACCEPT,
         )
 
-    assert home.maintenance_pending().skill_memory_count == 1
-    review = home.maintenance_snapshot().skill_reviews[0]
-    outcome = home.resolve_maintenance(
+    assert home.review_pending().skill_memory_count == 1
+    review = home.review_snapshot().skill_reviews[0]
+    outcome = home.resolve_review(
         review.token,
-        HomeMaintenanceResolution.REWRITE,
+        HomeReviewResolution.REWRITE,
         rewrite_text=_REWRITTEN_SKILL_TEXT,
     )
 
@@ -155,17 +155,17 @@ def test_skill_memory_invalid_rewrite_preserves_actual_and_review(
         "home:how/review/SKILL_MEMORY.md",
         "The frontmatter should remain valid.",
     )
-    review = home.maintenance_snapshot().skill_reviews[0]
+    review = home.review_snapshot().skill_reviews[0]
 
     with pytest.raises(AgentHomeContractError, match="frontmatter"):
-        home.resolve_maintenance(
+        home.resolve_review(
             review.token,
-            HomeMaintenanceResolution.REWRITE,
+            HomeReviewResolution.REWRITE,
             rewrite_text="invalid HOW",
         )
 
     assert skill.read_text(encoding="utf-8") == _SKILL_TEXT
-    assert home.maintenance_pending().skill_memory_count == 1
+    assert home.review_pending().skill_memory_count == 1
 
 
 def test_home_maintenance_finalize_requires_all_diffs_and_removes_runtime(
@@ -175,23 +175,23 @@ def test_home_maintenance_finalize_requires_all_diffs_and_removes_runtime(
     home.write_top("home:why@new", "new fact", overwrite=False)
 
     with pytest.raises(AgentHomeContractError, match="differences remain"):
-        home.finalize_maintenance()
+        home.remove_resolved_overlay()
 
-    change = home.maintenance_snapshot().changes[0]
-    home.resolve_maintenance(change.token, HomeMaintenanceResolution.ACCEPT)
-    assert home.finalize_maintenance() is True
+    change = home.review_snapshot().changes[0]
+    home.resolve_review(change.token, HomeReviewResolution.ACCEPT)
+    assert home.remove_resolved_overlay() is True
     assert not home.runtime_root.exists()
 
 
 def test_home_maintenance_next_access_recreates_runtime_overlay(tmp_path: Path) -> None:
     home = _home(tmp_path)
-    assert home.finalize_maintenance() is True
+    assert home.remove_resolved_overlay() is True
     assert not home.runtime_root.exists()
 
     home.write_top("home:why@next", "next fact", overwrite=False)
 
     assert home.runtime_root.exists()
-    assert home.maintenance_pending().change_count == 1
+    assert home.review_pending().change_count == 1
 
 
 def test_home_maintenance_does_not_remove_unowned_runtime_metadata(
@@ -202,7 +202,7 @@ def test_home_maintenance_does_not_remove_unowned_runtime_metadata(
     marker.write_text("{}", encoding="utf-8")
 
     with pytest.raises(AgentHomeInvariantError, match="unowned metadata"):
-        home.finalize_maintenance()
+        home.remove_resolved_overlay()
 
     assert marker.exists()
     assert (home.runtime_root / ".tinysoul" / "home_overlay.json").exists()
@@ -220,7 +220,7 @@ def test_home_maintenance_restores_runtime_root_when_final_delete_fails(
     monkeypatch.setattr("tinysoul.home.overlay.shutil.rmtree", fail_remove)
 
     with pytest.raises(AgentHomeIOError, match="Failed to remove empty runtime Home"):
-        home.finalize_maintenance()
+        home.remove_resolved_overlay()
 
     assert home.runtime_root.exists()
     assert (home.runtime_root / ".tinysoul" / "home_overlay.json").exists()

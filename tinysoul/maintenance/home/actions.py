@@ -17,8 +17,8 @@ from tinysoul.action import (
 )
 from tinysoul.home import (
     AgentHomeEngine,
-    HomeMaintenanceChange,
-    HomeMaintenanceResolution,
+    HomeReviewChange,
+    HomeReviewResolution,
     HomeSkillReview,
 )
 from tinysoul.home.errors import AgentHomeError, AgentHomeInvariantError
@@ -65,12 +65,12 @@ class HomeMaintenanceActionController:
                     raise MaintenanceInvariantError(
                         "Home Maintenance Turn ended without maintenance.complete"
                     )
-                pending = self._home.maintenance_pending()
+                pending = self._home.review_pending()
                 if pending.pending:
                     raise MaintenanceInvariantError(
                         "Home Maintenance completed with unresolved runtime differences"
                     )
-                removed = self._home.finalize_maintenance()
+                removed = self._home.remove_resolved_overlay()
                 return {
                     "resolved": state.resolved,
                     "remaining_reviews": 0,
@@ -108,7 +108,7 @@ class HomeMaintenanceActionController:
         name = execution.call.action_name
         params = execution.call.params
         if name == "maintenance.home.list":
-            snapshot = self._home.maintenance_snapshot()
+            snapshot = self._home.review_snapshot()
             return {
                 "count": len(snapshot.reviews),
                 "items": [_review_summary(review) for review in snapshot.reviews],
@@ -123,21 +123,21 @@ class HomeMaintenanceActionController:
             "maintenance.home.rewrite",
         }:
             resolution = {
-                "maintenance.home.accept": HomeMaintenanceResolution.ACCEPT,
-                "maintenance.home.reject": HomeMaintenanceResolution.REJECT,
-                "maintenance.home.rewrite": HomeMaintenanceResolution.REWRITE,
+                "maintenance.home.accept": HomeReviewResolution.ACCEPT,
+                "maintenance.home.reject": HomeReviewResolution.REJECT,
+                "maintenance.home.rewrite": HomeReviewResolution.REWRITE,
             }[name]
             token = _required_text(params, "token")
             if token not in state.inspected_tokens:
                 raise MaintenanceContractError(
                     "Home Maintenance review must be inspected before resolution"
                 )
-            outcome = self._home.resolve_maintenance(
+            outcome = self._home.resolve_review(
                 token,
                 resolution,
                 rewrite_text=(
                     _required_text(params, "text")
-                    if resolution is HomeMaintenanceResolution.REWRITE
+                    if resolution is HomeReviewResolution.REWRITE
                     else None
                 ),
             )
@@ -149,8 +149,8 @@ class HomeMaintenanceActionController:
                 "remaining_reviews": outcome.remaining_reviews,
             }
         if name == "maintenance.complete":
-            snapshot = self._home.maintenance_snapshot()
-            if snapshot.pending or self._home.maintenance_pending().pending:
+            snapshot = self._home.review_snapshot()
+            if snapshot.pending or self._home.review_pending().pending:
                 raise MaintenanceContractError(
                     "Home Maintenance still has unresolved reviews"
                 )
@@ -161,7 +161,7 @@ class HomeMaintenanceActionController:
     def _review(self, token: str):
         matches = tuple(
             review
-            for review in self._home.maintenance_snapshot().reviews
+            for review in self._home.review_snapshot().reviews
             if review.token == token
         )
         if len(matches) != 1:
@@ -208,8 +208,8 @@ def _required_text(params: JsonObject, name: str) -> str:
     return value
 
 
-def _review_summary(review: HomeMaintenanceChange | HomeSkillReview) -> JsonObject:
-    if isinstance(review, HomeMaintenanceChange):
+def _review_summary(review: HomeReviewChange | HomeSkillReview) -> JsonObject:
+    if isinstance(review, HomeReviewChange):
         return {
             "kind": "change",
             "token": review.token,

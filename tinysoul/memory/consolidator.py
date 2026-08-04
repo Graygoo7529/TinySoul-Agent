@@ -21,23 +21,23 @@ from tinysoul.llm import (
 )
 from tinysoul.runtime import RunScope
 
-from .maintenance import (
+from .consolidation import (
     MemoryConsolidationError,
     MemoryConsolidationRequest,
     MemoryConsolidationResult,
-    MemoryMaintenanceFailure,
+    MemoryConsolidationFailure,
     validate_memory_body,
 )
 
 
-class MemoryMaintenanceModelRunner(Protocol):
+class MemoryConsolidationModelRunner(Protocol):
     def run(self, call: TaskCall) -> TaskResult: ...
 
 
 class LLMMemoryConsolidator:
     """Hierarchically reduce ordered daily sources through one LLM profile."""
 
-    def __init__(self, runner: MemoryMaintenanceModelRunner) -> None:
+    def __init__(self, runner: MemoryConsolidationModelRunner) -> None:
         self._runner = runner
 
     def consolidate(
@@ -88,7 +88,7 @@ class LLMMemoryConsolidator:
                 feedback = (str(exc)[:1000],)
         if last_error is None:
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.CONSOLIDATION_FAILED,
+                MemoryConsolidationFailure.CONSOLIDATION_FAILED,
                 "Memory consolidation ended without a result",
             )
         raise last_error
@@ -116,7 +116,7 @@ class LLMMemoryConsolidator:
                             "facts in their supplied chronological order, deduplicate "
                             "repeated facts, do not invent facts, and preserve useful "
                             "Home and Memory links in angle-bracket form.",
-                            label="memory_maintenance_reduce_role",
+                            label="memory_consolidation_reduce_role",
                         ),
                         UserMessage.from_json(
                             {
@@ -124,12 +124,12 @@ class LLMMemoryConsolidator:
                                 "sources": chunk,
                                 "target_max_chars": target_chars,
                             },
-                            label="memory_maintenance_reduce_input",
+                            label="memory_consolidation_reduce_input",
                         ),
                         UserMessage.from_text(
                             'Return exactly {"content":"Markdown body"}. Do not '
                             "include a level-1 heading.",
-                            label="memory_maintenance_reduce_output",
+                            label="memory_consolidation_reduce_output",
                         ),
                     ),
                     budget=budget,
@@ -138,7 +138,7 @@ class LLMMemoryConsolidator:
                 content = _content(value)
                 if len(content) > target_chars:
                     raise MemoryConsolidationError(
-                        MemoryMaintenanceFailure.INVALID_OUTPUT,
+                        MemoryConsolidationFailure.INVALID_OUTPUT,
                         "Memory reduce output exceeds its target size",
                     )
                 reduced.append(content)
@@ -164,7 +164,7 @@ class LLMMemoryConsolidator:
                 "not include a level-1 heading. Home links use <home:space@name> "
                 "and Memory links use <memory:YYYY-MM-DD>. Link hints are useful "
                 "known references, not an exhaustive catalog.",
-                label="memory_maintenance_role",
+                label="memory_consolidation_role",
             ),
             UserMessage.from_json(
                 {
@@ -173,21 +173,21 @@ class LLMMemoryConsolidator:
                     "home_link_hints": list(request.home_link_hints),
                     "memory_link_hints": list(request.memory_link_hints),
                 },
-                label="memory_maintenance_candidate",
+                label="memory_consolidation_candidate",
             ),
         ]
         if feedback:
             messages.append(
                 UserMessage.from_json(
                     {"validation_errors": list(feedback)},
-                    label="memory_maintenance_feedback",
+                    label="memory_consolidation_feedback",
                 )
             )
         messages.append(
             UserMessage.from_text(
                 'Return exactly {"content":"Markdown body"}. The body must be '
                 "non-empty and must not contain a level-1 heading.",
-                label="memory_maintenance_output",
+                label="memory_consolidation_output",
             )
         )
         return _content(
@@ -208,7 +208,7 @@ class LLMMemoryConsolidator:
         budget.consume()
         result = self._runner.run(
             TaskCall(
-                profile=TaskProfile.MEMORY_MAINTENANCE,
+                profile=TaskProfile.MEMORY_CONSOLIDATION,
                 messages=messages,
                 settings=CallSettings(
                     answer_format=AnswerFormat.JSON_OBJECT,
@@ -220,13 +220,13 @@ class LLMMemoryConsolidator:
         )
         if result.status is TaskResultStatus.FAILURE:
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.CONSOLIDATION_FAILED,
-                "Memory maintenance LLM task failed",
+                MemoryConsolidationFailure.CONSOLIDATION_FAILED,
+                "Memory consolidation LLM task failed",
             )
         if not isinstance(result.answer, JsonAnswer):
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.INVALID_OUTPUT,
-                "Memory maintenance did not return a JSON object",
+                MemoryConsolidationFailure.INVALID_OUTPUT,
+                "Memory consolidation did not return a JSON object",
             )
         return result.answer.value
 
@@ -239,7 +239,7 @@ class _CallBudget:
     def consume(self) -> None:
         if self.used >= self._limit:
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.CONSOLIDATION_FAILED,
+                MemoryConsolidationFailure.CONSOLIDATION_FAILED,
                 "Memory consolidation exhausted its model call budget",
             )
         self.used += 1
@@ -280,7 +280,7 @@ def _pack_sources(
             added = len(source)
         if len(source) > max_chars:
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.INPUT_TOO_LARGE,
+                MemoryConsolidationFailure.INPUT_TOO_LARGE,
                 "Memory source fragment exceeds its chunk budget",
             )
         current.append(source)
@@ -293,13 +293,13 @@ def _pack_sources(
 def _content(value: JsonObject) -> str:
     if set(value) != {"content"}:
         raise MemoryConsolidationError(
-            MemoryMaintenanceFailure.INVALID_OUTPUT,
+            MemoryConsolidationFailure.INVALID_OUTPUT,
             "Memory output must contain only content",
         )
     item = value.get("content")
     if not isinstance(item, str) or not item.strip():
         raise MemoryConsolidationError(
-            MemoryMaintenanceFailure.INVALID_OUTPUT,
+            MemoryConsolidationFailure.INVALID_OUTPUT,
             "Memory output content must be non-empty text",
         )
     return item.strip()

@@ -24,7 +24,7 @@ class TaskProfile(StrEnum):
     LLM_ACTION = "llm_action"
     HOME_SEARCH = "home_search"
     MEMORY_SEARCH = "memory_search"
-    MEMORY_MAINTENANCE = "memory_maintenance"
+    MEMORY_CONSOLIDATION = "memory_consolidation"
 
 
 class ModelContextOverflowPolicy(StrEnum):

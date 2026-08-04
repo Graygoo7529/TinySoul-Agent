@@ -26,7 +26,7 @@ from tinysoul.maintenance import (
     MaintenanceTaskStatus,
     MaintenanceTrigger,
 )
-from tinysoul.maintenance.turn_boundary import propagate_outer_turn_transfer
+from tinysoul.maintenance.turn import MaintenanceTurnEntry
 from tinysoul.maintenance.memory import ArchivedMemoryMaintenanceContext
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
@@ -57,8 +57,15 @@ def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
         transfer=transfer,
     )
 
+    entry = MaintenanceTurnEntry(_TurnRunner(outcome), kind="home")
     with pytest.raises(RuntimeTransferInterrupt) as captured:
-        propagate_outer_turn_transfer(outcome)
+        entry.run(
+            "review home",
+            business_day=DAY,
+            scope=scope,
+            request_id="request",
+            input_source="test",
+        )
 
     assert captured.value.transfer == transfer
 
@@ -170,6 +177,15 @@ class _UserTurn:
             business_day=business_day,
             status=TurnOutcomeStatus.STOPPED,
         )
+
+
+class _TurnRunner:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def run(self, turn_input, *, business_day, scope, request_id, input_source):
+        del turn_input, business_day, scope, request_id, input_source
+        return self._outcome
 
 
 class _FailingMaintenance:

@@ -229,7 +229,7 @@ class ActionEngineBuilder:
     """Assemble an ActionEngine from a catalog root and registered handlers."""
 
     def __init__(self, catalog_root: Path) -> None:
-        self._catalog_root = catalog_root
+        self._catalog_roots = [catalog_root]
         self._executors = ExecutorRegistry()
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
@@ -239,6 +239,14 @@ class ActionEngineBuilder:
         self._disabled_actions: set[str] = set()
         self._included_actions: set[str] | None = None
         self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
+
+    def add_catalog_root(self, catalog_root: Path) -> Self:
+        """Add one package-owned catalog fragment to this engine."""
+
+        if catalog_root in self._catalog_roots:
+            raise ActionContractError("Action catalog root is already registered")
+        self._catalog_roots.append(catalog_root)
+        return self
 
     def register_executor(
         self,
@@ -342,7 +350,7 @@ class ActionEngineBuilder:
             backend_kind_options_validators={
                 ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
             },
-        ).load(self._catalog_root)
+        ).load_many(self._catalog_roots)
         if self._included_actions is not None:
             available = {action.name for action in catalog.actions()}
             unknown_included = self._included_actions - available

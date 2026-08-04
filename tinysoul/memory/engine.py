@@ -12,11 +12,11 @@ from tinysoul.session import SessionMemoryFactsProjection
 from .config import MemorySettings
 from .errors import MemoryContractError
 from .links import MemoryLink
-from .maintenance import (
+from .consolidation import (
     HomeTopLinkCatalog,
     MemoryConsolidator,
-    MemoryMaintenanceOutcome,
-    MemoryMaintenanceService,
+    MemoryConsolidationOutcome,
+    MemoryConsolidationService,
 )
 from .search import MemorySearchReranker, MemorySearchResult, MemorySearchService
 from .store import MemoryDocument, MemoryStore
@@ -31,7 +31,7 @@ class MemoryRecallResult:
 
 
 class MemoryEngine:
-    """Single facade for Memory reads, search, and Maintenance."""
+    """Single facade for Memory reads, search, and consolidation."""
 
     def __init__(
         self,
@@ -47,10 +47,10 @@ class MemoryEngine:
             max_document_chars=settings.max_document_chars,
         )
         self._search = MemorySearchService(store=self._store, settings=settings.search)
-        self._maintenance = MemoryMaintenanceService(
+        self._consolidation = MemoryConsolidationService(
             store=self._store,
             home_catalog=home_catalog,
-            settings=settings.maintenance,
+            settings=settings.consolidation,
             observations=observations,
         )
 
@@ -62,7 +62,7 @@ class MemoryEngine:
         return self._store.links()
 
     def exists(self, day: BusinessDay) -> bool:
-        return self._maintenance.memory_exists(day)
+        return self._consolidation.memory_exists(day)
 
     def read_day(self, day: BusinessDay) -> MemoryDocument | None:
         if not isinstance(day, BusinessDay):
@@ -99,13 +99,13 @@ class MemoryEngine:
             scope=scope,
         )
 
-    def maintenance_eligible(
+    def consolidation_eligible(
         self,
         projection: SessionMemoryFactsProjection | None,
     ) -> bool:
-        return self._maintenance.eligible(projection)
+        return self._consolidation.eligible(projection)
 
-    def run_maintenance(
+    def consolidate(
         self,
         *,
         projection: SessionMemoryFactsProjection | None,
@@ -114,8 +114,8 @@ class MemoryEngine:
         target_day: BusinessDay | None = None,
         rewrite_existing: bool = True,
         scope: RunScope | None = None,
-    ) -> MemoryMaintenanceOutcome:
-        return self._maintenance.run(
+    ) -> MemoryConsolidationOutcome:
+        return self._consolidation.run(
             projection=projection,
             consolidator=consolidator,
             timezone=timezone,

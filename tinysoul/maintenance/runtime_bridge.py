@@ -1,4 +1,4 @@
-"""Maintenance-to-Runtime semantic bridge."""
+"""Maintenance-owned mapping into generic Runtime failures."""
 
 from __future__ import annotations
 
@@ -12,8 +12,12 @@ from tinysoul.maintenance.errors import (
 )
 from tinysoul.maintenance.failures import MaintenanceFailureKind
 
-from ..exception import RUNTIME_PROGRAM_END, RUNTIME_STARTUP_FAILED, RuntimeException
-from ._payload import config_error_payload, exception_payload, runtime_exception
+from tinysoul.runtime import RUNTIME_PROGRAM_END, RUNTIME_STARTUP_FAILED, RuntimeException
+from tinysoul.runtime.bridge._payload import (
+    config_error_payload,
+    exception_payload,
+    runtime_exception,
+)
 
 
 MAINTENANCE_RUNTIME_REASON_MAP: dict[MaintenanceFailureKind, str] = {
@@ -24,7 +28,7 @@ MAINTENANCE_RUNTIME_REASON_MAP: dict[MaintenanceFailureKind, str] = {
 
 
 @dataclass(frozen=True)
-class RuntimeMaintenanceBridge:
+class MaintenanceRuntimeBridge:
     def from_failure(
         self,
         kind: MaintenanceFailureKind,

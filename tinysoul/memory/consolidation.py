@@ -22,7 +22,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.session.memory import SessionMemoryFact, SessionMemoryFactsProjection
 
-from .config import MemoryMaintenanceSettings
+from .config import MemoryConsolidationSettings
 from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryLink
 from .store import MemoryStore
@@ -34,15 +34,15 @@ class HomeTopLinkCatalog(Protocol):
     def actual_top_links(self) -> tuple[str, ...]: ...
 
 
-class MemoryMaintenanceStatus(StrEnum):
-    """Result status for one non-persisted Memory Maintenance run."""
+class MemoryConsolidationStatus(StrEnum):
+    """Result status for one non-persisted Memory consolidation run."""
 
     COMPLETED = "completed"
     SKIPPED = "skipped"
     FAILED = "failed"
 
 
-class MemoryMaintenanceSkipReason(StrEnum):
+class MemoryConsolidationSkipReason(StrEnum):
     """Stable reasons for a Memory run that intentionally writes nothing."""
 
     SESSION_NOT_FOUND = "session_not_found"
@@ -50,7 +50,7 @@ class MemoryMaintenanceSkipReason(StrEnum):
     MEMORY_EXISTS = "memory_exists"
 
 
-class MemoryMaintenanceFailure(StrEnum):
+class MemoryConsolidationFailure(StrEnum):
     """Stable local failures that preserve the prior MEMORY file."""
 
     INPUT_TOO_LARGE = "input_too_large"
@@ -158,14 +158,14 @@ class MemoryConsolidationResult:
 
 
 @dataclass(frozen=True)
-class MemoryMaintenanceOutcome:
-    """Bounded, non-persisted outcome for one Memory Maintenance run."""
+class MemoryConsolidationOutcome:
+    """Bounded, non-persisted outcome for one Memory consolidation run."""
 
     day: BusinessDay
     link: str
-    status: MemoryMaintenanceStatus
-    skip_reason: MemoryMaintenanceSkipReason | None = None
-    failure: MemoryMaintenanceFailure | None = None
+    status: MemoryConsolidationStatus
+    skip_reason: MemoryConsolidationSkipReason | None = None
+    failure: MemoryConsolidationFailure | None = None
     fact_count: int = 0
     model_calls: int = 0
     document_digest: str = ""
@@ -175,10 +175,10 @@ class MemoryMaintenanceOutcome:
             raise MemoryContractError("Memory outcome day is invalid")
         if str(MemoryLink.parse(self.link)) != self.link:
             raise MemoryContractError("Memory outcome link is invalid")
-        if not isinstance(self.status, MemoryMaintenanceStatus):
+        if not isinstance(self.status, MemoryConsolidationStatus):
             raise MemoryContractError("Memory outcome status is invalid")
-        if self.status is MemoryMaintenanceStatus.SKIPPED:
-            if not isinstance(self.skip_reason, MemoryMaintenanceSkipReason):
+        if self.status is MemoryConsolidationStatus.SKIPPED:
+            if not isinstance(self.skip_reason, MemoryConsolidationSkipReason):
                 raise MemoryContractError(
                     "Skipped Memory outcome requires a skip reason"
                 )
@@ -186,8 +186,8 @@ class MemoryMaintenanceOutcome:
             raise MemoryContractError(
                 "Non-skipped Memory outcome cannot carry a skip reason"
             )
-        if self.status is MemoryMaintenanceStatus.FAILED:
-            if not isinstance(self.failure, MemoryMaintenanceFailure):
+        if self.status is MemoryConsolidationStatus.FAILED:
+            if not isinstance(self.failure, MemoryConsolidationFailure):
                 raise MemoryContractError(
                     "Failed Memory outcome requires a failure kind"
                 )
@@ -201,7 +201,7 @@ class MemoryMaintenanceOutcome:
                 raise MemoryContractError(
                     f"Memory outcome {name} cannot be negative"
                 )
-        if self.status is MemoryMaintenanceStatus.COMPLETED:
+        if self.status is MemoryConsolidationStatus.COMPLETED:
             if not self.document_digest:
                 raise MemoryContractError(
                     "Completed Memory outcome requires a document digest"
@@ -224,12 +224,12 @@ class MemoryConsolidator(Protocol):
 class MemoryConsolidationError(MemoryError):
     """A bounded consolidation failure suitable for a run outcome."""
 
-    def __init__(self, failure: MemoryMaintenanceFailure, message: str) -> None:
+    def __init__(self, failure: MemoryConsolidationFailure, message: str) -> None:
         super().__init__(message)
         self.failure = failure
 
 
-class MemoryMaintenanceService:
+class MemoryConsolidationService:
     """Consolidate one Session projection into one atomic actual MEMORY."""
 
     def __init__(
@@ -237,13 +237,13 @@ class MemoryMaintenanceService:
         *,
         store: MemoryStore,
         home_catalog: HomeTopLinkCatalog,
-        settings: MemoryMaintenanceSettings,
+        settings: MemoryConsolidationSettings,
         observations: ObservationEmitter | None = None,
     ) -> None:
-        if not isinstance(settings, MemoryMaintenanceSettings):
-            raise MemoryContractError("Memory maintenance settings are invalid")
+        if not isinstance(settings, MemoryConsolidationSettings):
+            raise MemoryContractError("Memory consolidation settings are invalid")
         if not isinstance(store, MemoryStore):
-            raise MemoryContractError("Memory maintenance store is invalid")
+            raise MemoryContractError("Memory consolidation store is invalid")
         if not hasattr(home_catalog, "actual_top_links"):
             raise MemoryContractError("Memory Home link catalog is invalid")
         self._store = store
@@ -273,7 +273,7 @@ class MemoryMaintenanceService:
         target_day: BusinessDay | None = None,
         rewrite_existing: bool = True,
         scope: RunScope | None = None,
-    ) -> MemoryMaintenanceOutcome:
+    ) -> MemoryConsolidationOutcome:
         run_scope = scope or RunScope()
         day = projection.day if projection is not None else target_day
         started_payload: JsonObject = {
@@ -285,8 +285,8 @@ class MemoryMaintenanceService:
             ),
         }
         self._emit(
-            "memory.maintenance.started",
-            "Memory Maintenance started.",
+            "memory.consolidation.started",
+            "Memory consolidation started.",
             scope=run_scope,
             payload=started_payload,
         )
@@ -301,8 +301,8 @@ class MemoryMaintenanceService:
             )
         except Exception as exc:
             self._emit(
-                "memory.maintenance.failed",
-                "Memory Maintenance failed.",
+                "memory.consolidation.failed",
+                "Memory consolidation failed.",
                 scope=run_scope,
                 payload={
                     **started_payload,
@@ -311,9 +311,9 @@ class MemoryMaintenanceService:
             )
             raise
         terminal = {
-            MemoryMaintenanceStatus.COMPLETED: "completed",
-            MemoryMaintenanceStatus.SKIPPED: "skipped",
-            MemoryMaintenanceStatus.FAILED: "failed",
+            MemoryConsolidationStatus.COMPLETED: "completed",
+            MemoryConsolidationStatus.SKIPPED: "skipped",
+            MemoryConsolidationStatus.FAILED: "failed",
         }[outcome.status]
         payload: JsonObject = {
             "target_day": str(outcome.day),
@@ -328,8 +328,8 @@ class MemoryMaintenanceService:
         if outcome.document_digest:
             payload["document_digest"] = outcome.document_digest
         self._emit(
-            f"memory.maintenance.{terminal}",
-            f"Memory Maintenance {terminal}.",
+            f"memory.consolidation.{terminal}",
+            f"Memory consolidation {terminal}.",
             scope=run_scope,
             payload=payload,
         )
@@ -344,7 +344,7 @@ class MemoryMaintenanceService:
         target_day: BusinessDay | None = None,
         rewrite_existing: bool = True,
         scope: RunScope | None = None,
-    ) -> MemoryMaintenanceOutcome:
+    ) -> MemoryConsolidationOutcome:
         with self._lock:
             zone = _business_zone(timezone)
             if projection is None:
@@ -354,7 +354,7 @@ class MemoryMaintenanceService:
                     )
                 return _skipped(
                     target_day,
-                    MemoryMaintenanceSkipReason.SESSION_NOT_FOUND,
+                    MemoryConsolidationSkipReason.SESSION_NOT_FOUND,
                 )
             if target_day is not None and target_day != projection.day:
                 raise MemoryContractError(
@@ -362,7 +362,7 @@ class MemoryMaintenanceService:
                 )
             day = projection.day
             if not projection.has_facts:
-                return _skipped(day, MemoryMaintenanceSkipReason.SESSION_EMPTY)
+                return _skipped(day, MemoryConsolidationSkipReason.SESSION_EMPTY)
             if not isinstance(rewrite_existing, bool):
                 raise MemoryContractError(
                     "Memory rewrite_existing must be a boolean"
@@ -372,7 +372,7 @@ class MemoryMaintenanceService:
                 if not rewrite_existing and existing is not None:
                     return _skipped(
                         day,
-                        MemoryMaintenanceSkipReason.MEMORY_EXISTS,
+                        MemoryConsolidationSkipReason.MEMORY_EXISTS,
                     )
                 sources = self._sources(
                     projection,
@@ -399,7 +399,7 @@ class MemoryMaintenanceService:
                 )
             if consolidator is None:
                 raise MemoryContractError(
-                    "Non-empty Memory Maintenance requires a consolidator"
+                    "Non-empty Memory consolidation requires a consolidator"
                 )
             request = MemoryConsolidationRequest(
                 day=day,
@@ -421,7 +421,7 @@ class MemoryMaintenanceService:
                 )
                 if result.model_calls > self._settings.max_calls:
                     raise MemoryConsolidationError(
-                        MemoryMaintenanceFailure.CONSOLIDATION_FAILED,
+                        MemoryConsolidationFailure.CONSOLIDATION_FAILED,
                         "Memory consolidator exceeded the model call budget",
                     )
                 document = validate_memory_body(
@@ -438,10 +438,10 @@ class MemoryMaintenanceService:
                     fact_count=len(projection.facts),
                 )
             saved = self._store.write(_link_for_day(day), document)
-            return MemoryMaintenanceOutcome(
+            return MemoryConsolidationOutcome(
                 day=day,
                 link=str(saved.link),
-                status=MemoryMaintenanceStatus.COMPLETED,
+                status=MemoryConsolidationStatus.COMPLETED,
                 fact_count=len(projection.facts),
                 model_calls=result.model_calls,
                 document_digest=saved.digest,
@@ -465,7 +465,7 @@ class MemoryMaintenanceService:
             ObservationEvent(
                 name=name,
                 level=ObservationLevel.VERBOSE,
-                source="memory.maintenance",
+                source="memory.consolidation",
                 scope=scope,
                 message=message,
                 payload=payload,
@@ -479,7 +479,7 @@ class MemoryMaintenanceService:
         document = self._store.read(link)
         if len(document.text) > self._settings.source_max_chars:
             raise MemoryConsolidationError(
-                MemoryMaintenanceFailure.INPUT_TOO_LARGE,
+                MemoryConsolidationFailure.INPUT_TOO_LARGE,
                 "Existing MEMORY exceeds the total source limit",
             )
         return document.text
@@ -499,7 +499,7 @@ class MemoryMaintenanceService:
             source_chars += len(source)
             if source_chars > self._settings.source_max_chars:
                 raise MemoryConsolidationError(
-                    MemoryMaintenanceFailure.INPUT_TOO_LARGE,
+                    MemoryConsolidationFailure.INPUT_TOO_LARGE,
                     "Memory sources exceed the total source limit",
                 )
             sources.append(source)
@@ -543,7 +543,7 @@ def validate_memory_body(
 ) -> str:
     if not isinstance(body, str) or not body.strip():
         raise MemoryConsolidationError(
-            MemoryMaintenanceFailure.INVALID_OUTPUT,
+            MemoryConsolidationFailure.INVALID_OUTPUT,
             "Memory output cannot discard all non-empty Session facts",
         )
     errors: list[str] = []
@@ -578,7 +578,7 @@ def validate_memory_body(
         errors.append("rendered MEMORY exceeds the document size limit")
     if errors:
         raise MemoryConsolidationError(
-            MemoryMaintenanceFailure.INVALID_OUTPUT,
+            MemoryConsolidationFailure.INVALID_OUTPUT,
             "; ".join(errors[:8]),
         )
     return document
@@ -650,13 +650,13 @@ def _validate_fact_day(
 def _business_zone(value: str) -> ZoneInfo:
     if not isinstance(value, str) or not value:
         raise MemoryContractError(
-            "Memory Maintenance timezone must be a non-empty IANA name"
+            "Memory consolidation timezone must be a non-empty IANA name"
         )
     try:
         return ZoneInfo(value)
     except ZoneInfoNotFoundError as exc:
         raise MemoryContractError(
-            f"Memory Maintenance timezone is unknown: {value}"
+            f"Memory consolidation timezone is unknown: {value}"
         ) from exc
 
 
@@ -694,26 +694,26 @@ def _link_hints_size(
 
 def _skipped(
     day: BusinessDay,
-    reason: MemoryMaintenanceSkipReason,
-) -> MemoryMaintenanceOutcome:
-    return MemoryMaintenanceOutcome(
+    reason: MemoryConsolidationSkipReason,
+) -> MemoryConsolidationOutcome:
+    return MemoryConsolidationOutcome(
         day=day,
         link=str(_link_for_day(day)),
-        status=MemoryMaintenanceStatus.SKIPPED,
+        status=MemoryConsolidationStatus.SKIPPED,
         skip_reason=reason,
     )
 
 
 def _failed(
     day: BusinessDay,
-    failure: MemoryMaintenanceFailure,
+    failure: MemoryConsolidationFailure,
     *,
     fact_count: int,
-) -> MemoryMaintenanceOutcome:
-    return MemoryMaintenanceOutcome(
+) -> MemoryConsolidationOutcome:
+    return MemoryConsolidationOutcome(
         day=day,
         link=str(_link_for_day(day)),
-        status=MemoryMaintenanceStatus.FAILED,
+        status=MemoryConsolidationStatus.FAILED,
         failure=failure,
         fact_count=fact_count,
     )

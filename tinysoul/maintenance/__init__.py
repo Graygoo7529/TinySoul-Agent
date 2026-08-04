@@ -18,6 +18,7 @@ from .config import (
     parse_maintenance_settings,
 )
 from .availability import MaintenanceAvailabilityStore
+from .builder import MaintenanceBuilder
 from .day import BusinessClock, IanaBusinessClock
 from .errors import (
     MaintenanceContractError,
@@ -38,6 +39,7 @@ from .models import (
     MaintenanceTrigger,
 )
 from .schedule import MaintenanceSchedule
+from .runtime_bridge import MaintenanceRuntimeBridge
 
 if TYPE_CHECKING:
     from .engine import MaintenanceEngine
@@ -53,6 +55,7 @@ __all__ = [
     "IanaBusinessClock",
     "MaintenanceAvailability",
     "MaintenanceAvailabilityStore",
+    "MaintenanceBuilder",
     "MaintenanceContractError",
     "MaintenanceEngine",
     "MaintenanceError",
@@ -61,6 +64,7 @@ __all__ = [
     "MaintenanceTaskExecutionError",
     "MaintenanceOutcome",
     "MaintenanceRequest",
+    "MaintenanceRuntimeBridge",
     "MaintenanceSchedule",
     "MaintenanceScheduleSettings",
     "MaintenanceScope",

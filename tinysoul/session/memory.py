@@ -1,4 +1,4 @@
-"""Read-only Session facts projected for Memory Maintenance."""
+"""Read-only Session facts for closed-day Memory consolidation."""
 
 from __future__ import annotations
 

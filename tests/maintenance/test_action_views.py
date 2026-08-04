@@ -1,39 +1,34 @@
 from __future__ import annotations
 
-import pytest
-
-from tinysoul.action import (
-    ActionEngineBuilder,
-    ActionResult,
-    builtin_action_catalog_root,
-)
+from tinysoul.action import ActionEngineBuilder, builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.loop.maintenance import MaintenanceCompletionDetector
-from tinysoul.maintenance.actions import (
-    COMMON_MAINTENANCE_READ_ACTIONS,
-    maintenance_action_view,
-    user_action_view,
-)
-from tinysoul.maintenance.errors import MaintenanceContractError
+from tinysoul.maintenance.actions import COMMON_MAINTENANCE_READ_ACTIONS
 from tinysoul.maintenance.home import HOME_MAINTENANCE_ACTIONS
 from tinysoul.maintenance.memory import MEMORY_MAINTENANCE_ACTIONS
+from tinysoul.maintenance.resources import maintenance_action_catalog_root
+from tinysoul.maintenance.turn import MaintenanceCompletionDetector
+from tinysoul.action import ActionResult
 from tests.action_helpers import FunctionActionExecutor
 
 
-def test_turn_action_views_reuse_read_actions_and_isolate_task_actions() -> None:
+def test_user_catalog_physically_excludes_maintenance_actions() -> None:
     with builtin_action_catalog_root() as root:
         catalog = ActionCatalogLoader().load(root)
-        builder = ActionEngineBuilder(root)
-        for handler in sorted({item.backend.handler for item in catalog.actions()}):
-            builder.register_executor(handler, FunctionActionExecutor(_stub))
-        action = builder.build()
 
-    user_names = _names(user_action_view(action))
-    home_names = _names(maintenance_action_view(action, kind="home"))
-    memory_names = _names(maintenance_action_view(action, kind="memory"))
+    names = {item.name for item in catalog.actions()}
+    assert "core.answer" in names
+    assert not any(name.startswith("maintenance.") for name in names)
+    assert all(domain.name != "maintenance" for domain in catalog.domains())
 
-    assert "core.answer" in user_names
-    assert not any(name.startswith("maintenance.") for name in user_names)
+
+def test_exact_maintenance_catalogs_reuse_common_reads_and_isolate_tasks() -> None:
+    home = _build_exact((*COMMON_MAINTENANCE_READ_ACTIONS, *HOME_MAINTENANCE_ACTIONS))
+    memory = _build_exact(
+        (*COMMON_MAINTENANCE_READ_ACTIONS, *MEMORY_MAINTENANCE_ACTIONS)
+    )
+
+    home_names = _names(home)
+    memory_names = _names(memory)
     assert home_names == set(COMMON_MAINTENANCE_READ_ACTIONS) | set(
         HOME_MAINTENANCE_ACTIONS
     )
@@ -43,40 +38,6 @@ def test_turn_action_views_reuse_read_actions_and_isolate_task_actions() -> None
     assert "core.answer" not in home_names | memory_names
     assert "maintenance.memory.consolidate" not in home_names
     assert "maintenance.home.accept" not in memory_names
-
-
-def test_action_builder_can_construct_an_exact_maintenance_catalog() -> None:
-    selected = (*COMMON_MAINTENANCE_READ_ACTIONS, *HOME_MAINTENANCE_ACTIONS)
-    with builtin_action_catalog_root() as root:
-        catalog = ActionCatalogLoader().load(root)
-        builder = ActionEngineBuilder(root).include_actions(*selected)
-        handlers = {
-            item.backend.handler
-            for item in catalog.actions()
-            if item.name in selected
-        }
-        for handler in handlers:
-            builder.register_executor(handler, FunctionActionExecutor(_stub))
-        action = builder.build()
-
-    assert _names(action) == set(selected)
-
-
-def test_maintenance_action_view_rejects_missing_common_inspect_actions() -> None:
-    with builtin_action_catalog_root() as root:
-        catalog = ActionCatalogLoader().load(root)
-        builder = ActionEngineBuilder(root).include_actions(*HOME_MAINTENANCE_ACTIONS)
-        handlers = {
-            item.backend.handler
-            for item in catalog.actions()
-            if item.name in HOME_MAINTENANCE_ACTIONS
-        }
-        for handler in handlers:
-            builder.register_executor(handler, FunctionActionExecutor(_stub))
-        action = builder.build()
-
-    with pytest.raises(MaintenanceContractError, match="core.context.inspect"):
-        maintenance_action_view(action, kind="home")
 
 
 def test_maintenance_completion_requires_owner_completion_action() -> None:
@@ -106,6 +67,22 @@ def test_maintenance_completion_requires_owner_completion_action() -> None:
         "result_id": completed.result_id,
         "task": "home",
     }
+
+
+def _build_exact(selected: tuple[str, ...]):
+    with (
+        builtin_action_catalog_root() as core_root,
+        maintenance_action_catalog_root() as maintenance_root,
+    ):
+        catalog = ActionCatalogLoader().load_many((core_root, maintenance_root))
+        builder = ActionEngineBuilder(core_root).add_catalog_root(maintenance_root)
+        builder.include_actions(*selected)
+        handlers = {
+            item.backend.handler for item in catalog.actions() if item.name in selected
+        }
+        for handler in handlers:
+            builder.register_executor(handler, FunctionActionExecutor(_stub))
+        return builder.build()
 
 
 def _names(action) -> set[str]:

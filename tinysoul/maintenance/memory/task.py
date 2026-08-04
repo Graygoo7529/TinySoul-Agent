@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from tinysoul.infra.time import BusinessDay
-from tinysoul.loop import TurnOutcomeStatus
-from tinysoul.loop.turn import TurnRunner
 from tinysoul.memory import MemoryEngine, MemoryIOError
 from tinysoul.runtime import RunScope
 from tinysoul.session import SessionEngine, SessionIOError
@@ -17,7 +15,7 @@ from ..models import (
     MaintenanceTaskOutcome,
     MaintenanceTaskStatus,
 )
-from ..turn_boundary import propagate_outer_turn_transfer, turn_failure_details
+from ..turn import MaintenanceTurnEntry
 from .actions import MemoryMaintenanceActionController
 from .context import ArchivedMemoryMaintenanceContext
 
@@ -33,7 +31,7 @@ class MemoryMaintenanceTask:
         workspace: WorkspaceEngine,
         archived_context: ArchivedMemoryMaintenanceContext,
         controller: MemoryMaintenanceActionController,
-        turn: TurnRunner,
+        turn: MaintenanceTurnEntry,
     ) -> None:
         self._memory = memory
         self._session = session
@@ -54,7 +52,7 @@ class MemoryMaintenanceTask:
         if not rebuild and self._memory.read_day(day) is not None:
             return False
         projection = self._session.memory_facts(day, root=archive.session_root)
-        return self._memory.maintenance_eligible(projection)
+        return self._memory.consolidation_eligible(projection)
 
     def run(
         self,
@@ -77,7 +75,7 @@ class MemoryMaintenanceTask:
             target_day,
             root=archive.session_root,
         )
-        if not self._memory.maintenance_eligible(projection):
+        if not self._memory.consolidation_eligible(projection):
             return _skipped(target_day, "session_facts_empty")
         workspace = self._workspace.archive_snapshot(
             target_day,
@@ -111,12 +109,7 @@ class MemoryMaintenanceTask:
                 request_id=request_id,
                 input_source="maintenance.memory",
             )
-            propagate_outer_turn_transfer(outcome)
-            if (
-                outcome.status is not TurnOutcomeStatus.COMPLETED
-                or outcome.completion is None
-                or outcome.completion.get("task") != "memory"
-            ):
+            if not outcome.completed:
                 self._controller.abort()
                 completed = True
                 return MaintenanceTaskOutcome(
@@ -124,7 +117,7 @@ class MemoryMaintenanceTask:
                     status=MaintenanceTaskStatus.FAILED,
                     target_day=target_day,
                     reason="maintenance_turn_failed",
-                    details=turn_failure_details(outcome),
+                    details=outcome.details,
                 )
             result = MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.MEMORY,

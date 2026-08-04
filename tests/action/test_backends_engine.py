@@ -45,7 +45,6 @@ from tinysoul.action.core.specs import (
     ActionToolSpec,
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
-from tinysoul.maintenance.actions import MAINTENANCE_ACTIONS
 from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
 from tests.action_helpers import FunctionActionEngineBuilder, FunctionActionExecutor
 
@@ -418,7 +417,6 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
                 *SCRIPT_ACTIONS,
                 *SHELL_ACTIONS,
                 *EXECUTION_LIFECYCLE_ACTIONS,
-                *MAINTENANCE_ACTIONS,
                 "workspace.convert_with_markitdown",
             "workspace.convert_with_pypdf",
             "web.discover_pages",

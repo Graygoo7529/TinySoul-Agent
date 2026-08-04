@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, TypeVar, cast
@@ -57,6 +57,30 @@ class ActionCatalogLoader:
         )
 
     def load(self, root_path: Path) -> ActionCatalog:
+        return self.load_many((root_path,))
+
+    def load_many(self, root_paths: Iterable[Path]) -> ActionCatalog:
+        """Load and merge domain packages from one or more catalog roots."""
+
+        roots = tuple(root_paths)
+        if not roots:
+            raise ConfigError(
+                "Action catalog requires at least one root",
+                key="action.catalog",
+                expected="non-empty roots",
+            )
+        domains: list[ActionDomainSpec] = []
+        actions: list[ActionSpec] = []
+        for root_path in roots:
+            loaded_domains, loaded_actions = self._load_root(root_path)
+            domains.extend(loaded_domains)
+            actions.extend(loaded_actions)
+        return ActionCatalog(domains=domains, actions=actions)
+
+    def _load_root(
+        self,
+        root_path: Path,
+    ) -> tuple[list[ActionDomainSpec], list[ActionSpec]]:
         if not root_path.exists():
             raise ConfigError(
                 "Action catalog root does not exist",
@@ -105,7 +129,7 @@ class ActionCatalogLoader:
                     key=f"{action_path}.backend.options",
                 )
                 actions.append(action)
-        return ActionCatalog(domains=domains, actions=actions)
+        return domains, actions
 
     def _validate_backend_options(self, backend: ActionBackendSpec, *, key: str) -> None:
         validator = self._backend_kind_options_validators.get(backend.kind)

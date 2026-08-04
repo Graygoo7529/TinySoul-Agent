@@ -5,7 +5,7 @@ from __future__ import annotations
 from tinysoul.action import ActionResult, ActionResultStatus
 from tinysoul.infra.json import JsonObject
 
-from ..errors import LoopInvariantError
+from tinysoul.loop.errors import LoopInvariantError
 
 MAINTENANCE_COMPLETION = "maintenance"
 

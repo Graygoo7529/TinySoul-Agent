@@ -601,7 +601,7 @@ class SessionEngine:
 
 @dataclass(frozen=True)
 class SessionArchiveView:
-    """Read-only Session Background and inspect surface for Maintenance."""
+    """Read-only Session Background and inspect surface for archived consumers."""
 
     day: BusinessDay
     engine: SessionEngine

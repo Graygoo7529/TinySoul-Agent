@@ -28,7 +28,7 @@ from .metadata import parse_home_skill_metadata
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 
 
-class HomeMaintenanceResolution(StrEnum):
+class HomeReviewResolution(StrEnum):
     """Atomic disposition for one token-bound Home change."""
 
     ACCEPT = "accept"
@@ -65,7 +65,7 @@ class HomeSkillMemoryContext:
 
 
 @dataclass(frozen=True)
-class HomeMaintenanceChange:
+class HomeReviewChange:
     """Bounded three-way review facts for one active overlay difference."""
 
     link: str
@@ -84,7 +84,7 @@ class HomeMaintenanceChange:
     def __post_init__(self) -> None:
         if not self.link or not self.relative_path:
             raise AgentHomeContractError(
-                "Home maintenance change identity must be non-empty"
+                "Home review change identity must be non-empty"
             )
         if self.state not in {
             HomeOverlayState.CREATED,
@@ -92,7 +92,7 @@ class HomeMaintenanceChange:
             HomeOverlayState.DELETED,
         }:
             raise AgentHomeContractError(
-                "Home maintenance change must be created, modified, or deleted"
+                "Home review change must be created, modified, or deleted"
             )
         if (
             isinstance(self.runtime_size, bool)
@@ -103,7 +103,7 @@ class HomeMaintenanceChange:
             or self.runtime_mtime_ns < 0
         ):
             raise AgentHomeContractError(
-                "Home maintenance runtime metadata must be non-negative integers"
+                "Home review runtime metadata must be non-negative integers"
             )
         if not isinstance(self.actual_exists, bool) or any(
             not isinstance(value, bool)
@@ -112,18 +112,18 @@ class HomeMaintenanceChange:
                 self.actual_truncated,
             )
         ):
-            raise AgentHomeContractError("Home maintenance preview flags are invalid")
+            raise AgentHomeContractError("Home review preview flags are invalid")
         if self.actual_exists != bool(self.actual_digest):
             raise AgentHomeContractError(
-                "Home maintenance actual identity is inconsistent"
+                "Home review actual identity is inconsistent"
             )
         if self.state is HomeOverlayState.DELETED and self.runtime_digest:
             raise AgentHomeContractError(
-                "Deleted Home maintenance change cannot have runtime content"
+                "Deleted Home review change cannot have runtime content"
             )
         if self.state is not HomeOverlayState.DELETED and not self.runtime_digest:
             raise AgentHomeContractError(
-                "Non-deleted Home maintenance change requires runtime content"
+                "Non-deleted Home review change requires runtime content"
             )
     @property
     def actual_changed_from_baseline(self) -> bool:
@@ -233,12 +233,12 @@ class HomeSkillReview:
         }
 
 
-HomeMaintenanceReview = HomeMaintenanceChange | HomeSkillReview
+HomeReview = HomeReviewChange | HomeSkillReview
 
 
 @dataclass(frozen=True)
-class HomeMaintenancePending:
-    """Non-persisted startup eligibility for active Home maintenance work."""
+class HomeReviewPending:
+    """Non-persisted startup eligibility for active Home review work."""
 
     change_count: int = 0
     skill_memory_count: int = 0
@@ -247,7 +247,7 @@ class HomeMaintenancePending:
         for value in (self.change_count, self.skill_memory_count):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise AgentHomeContractError(
-                    "Home maintenance pending counts must be non-negative integers"
+                    "Home review pending counts must be non-negative integers"
                 )
 
     @property
@@ -256,23 +256,23 @@ class HomeMaintenancePending:
 
 
 @dataclass(frozen=True)
-class HomeMaintenanceSnapshot:
+class HomeReviewSnapshot:
     """Current bounded Home reviews after deterministic reconciliation."""
 
-    changes: tuple[HomeMaintenanceChange, ...] = field(default_factory=tuple)
+    changes: tuple[HomeReviewChange, ...] = field(default_factory=tuple)
     skill_reviews: tuple[HomeSkillReview, ...] = field(default_factory=tuple)
     copied_cleaned: int = 0
     consistent_cleaned: int = 0
     skill_memories_cleared: int = 0
 
     def __post_init__(self) -> None:
-        if any(not isinstance(change, HomeMaintenanceChange) for change in self.changes):
-            raise AgentHomeContractError("Home maintenance snapshot changes are invalid")
+        if any(not isinstance(change, HomeReviewChange) for change in self.changes):
+            raise AgentHomeContractError("Home review snapshot changes are invalid")
         if any(
             not isinstance(review, HomeSkillReview) for review in self.skill_reviews
         ):
             raise AgentHomeContractError(
-                "Home maintenance snapshot HOW reviews are invalid"
+                "Home review snapshot HOW reviews are invalid"
             )
         for value in (
             self.copied_cleaned,
@@ -281,13 +281,13 @@ class HomeMaintenanceSnapshot:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise AgentHomeContractError(
-                    "Home maintenance snapshot counts must be non-negative integers"
+                    "Home review snapshot counts must be non-negative integers"
                 )
         object.__setattr__(self, "changes", tuple(self.changes))
         object.__setattr__(self, "skill_reviews", tuple(self.skill_reviews))
 
     @property
-    def reviews(self) -> tuple[HomeMaintenanceReview, ...]:
+    def reviews(self) -> tuple[HomeReview, ...]:
         return (*self.changes, *self.skill_reviews)
 
     @property
@@ -296,20 +296,20 @@ class HomeMaintenanceSnapshot:
 
 
 @dataclass(frozen=True)
-class HomeMaintenanceResolveOutcome:
+class HomeReviewResolveOutcome:
     link: str
     relative_path: str
-    resolution: HomeMaintenanceResolution
+    resolution: HomeReviewResolution
     remaining_reviews: int
 
     def __post_init__(self) -> None:
         if not self.link or not self.relative_path:
             raise AgentHomeContractError(
-                "Home maintenance resolve outcome identity must be non-empty"
+                "Home review resolve outcome identity must be non-empty"
             )
-        if not isinstance(self.resolution, HomeMaintenanceResolution):
+        if not isinstance(self.resolution, HomeReviewResolution):
             raise AgentHomeContractError(
-                "Home maintenance resolve outcome resolution is invalid"
+                "Home review resolve outcome resolution is invalid"
             )
         if (
             isinstance(self.remaining_reviews, bool)
@@ -317,11 +317,11 @@ class HomeMaintenanceResolveOutcome:
             or self.remaining_reviews < 0
         ):
             raise AgentHomeContractError(
-                "Home maintenance remaining_reviews must be non-negative"
+                "Home review remaining_reviews must be non-negative"
             )
 
 
-class HomeMaintenanceService:
+class HomeReviewService:
     """Snapshot and atomically resolve active Home differences."""
 
     def __init__(
@@ -341,7 +341,7 @@ class HomeMaintenanceService:
             or max_write_chars <= 0
         ):
             raise AgentHomeContractError(
-                "Home maintenance limits must be positive integers"
+                "Home review limits must be positive integers"
             )
         self._layout = layout
         self._overlay = overlay
@@ -349,7 +349,7 @@ class HomeMaintenanceService:
         self._max_write_chars = max_write_chars
         self._lock = RLock()
 
-    def snapshot(self) -> HomeMaintenanceSnapshot:
+    def snapshot(self) -> HomeReviewSnapshot:
         """Return current token-bound reviews after deterministic cleanup."""
 
         with self._lock:
@@ -367,7 +367,7 @@ class HomeMaintenanceService:
                 self._build_skill_review(skill, memories[skill])
                 for skill in sorted(memories)
             )
-            return HomeMaintenanceSnapshot(
+            return HomeReviewSnapshot(
                 changes=changes,
                 skill_reviews=skill_reviews,
                 copied_cleaned=copied_cleaned,
@@ -378,32 +378,32 @@ class HomeMaintenanceService:
     def resolve(
         self,
         token: str,
-        resolution: HomeMaintenanceResolution,
+        resolution: HomeReviewResolution,
         *,
         rewrite_text: str | None = None,
-    ) -> HomeMaintenanceResolveOutcome:
+    ) -> HomeReviewResolveOutcome:
         """Atomically resolve the current review identified by ``token``."""
 
         if not isinstance(token, str) or not token:
             raise AgentHomeContractError(
-                "Home maintenance resolve requires a non-empty token"
+                "Home review resolve requires a non-empty token"
             )
-        if not isinstance(resolution, HomeMaintenanceResolution):
+        if not isinstance(resolution, HomeReviewResolution):
             raise AgentHomeContractError(
-                "Home maintenance resolution must be accept, reject, or rewrite"
+                "Home review resolution must be accept, reject, or rewrite"
             )
-        if resolution is HomeMaintenanceResolution.REWRITE:
+        if resolution is HomeReviewResolution.REWRITE:
             if not isinstance(rewrite_text, str):
                 raise AgentHomeContractError(
-                    "Home maintenance rewrite requires text"
+                    "Home review rewrite requires text"
                 )
             if len(rewrite_text) > self._max_write_chars:
                 raise AgentHomeContractError(
-                    f"Home maintenance rewrite exceeds {self._max_write_chars} characters"
+                    f"Home review rewrite exceeds {self._max_write_chars} characters"
                 )
         elif rewrite_text is not None:
             raise AgentHomeContractError(
-                "Only Home maintenance rewrite can carry rewrite_text"
+                "Only Home review rewrite can carry rewrite_text"
             )
 
         with self._lock:
@@ -424,10 +424,10 @@ class HomeMaintenanceService:
             )
             if len(matching) != 1:
                 raise AgentHomeInvariantError(
-                    "Home maintenance review token is stale or unknown"
+                    "Home review review token is stale or unknown"
                 )
             review = matching[0]
-            if isinstance(review, HomeMaintenanceChange):
+            if isinstance(review, HomeReviewChange):
                 self._resolve_change(review, resolution, rewrite_text=rewrite_text)
             else:
                 self._resolve_skill_review(
@@ -440,19 +440,19 @@ class HomeMaintenanceService:
                 record.state is not HomeOverlayState.DELETED
                 for record in self._skill_memories().values()
             )
-            return HomeMaintenanceResolveOutcome(
+            return HomeReviewResolveOutcome(
                 link=review.link,
                 relative_path=review.relative_path,
                 resolution=resolution,
                 remaining_reviews=remaining,
             )
 
-    def pending(self) -> HomeMaintenancePending:
+    def pending(self) -> HomeReviewPending:
         """Report actual review work without cleaning or mutating the overlay."""
 
         with self._lock:
             changes = len(self._reviewable_records())
-            return HomeMaintenancePending(
+            return HomeReviewPending(
                 change_count=changes,
                 skill_memory_count=sum(
                     record.state is not HomeOverlayState.DELETED
@@ -527,7 +527,7 @@ class HomeMaintenanceService:
     def _build_change(
         self,
         record: HomeOverlayRecord,
-    ) -> HomeMaintenanceChange:
+    ) -> HomeReviewChange:
         if (
             record.state is not HomeOverlayState.DELETED
             and record.size > self._max_write_chars
@@ -538,7 +538,7 @@ class HomeMaintenanceService:
         link = self._layout.link_for_relative(record.relative_path)
         if link is None:
             raise AgentHomeInvariantError(
-                f"Home maintenance cannot map overlay path to a Link: {record.relative_path}"
+                f"Home review cannot map overlay path to a Link: {record.relative_path}"
             )
         actual = self._layout.source_for_relative(record.relative_path)
         actual_digest = _actual_digest(actual)
@@ -547,7 +547,7 @@ class HomeMaintenanceService:
         if record.state is not HomeOverlayState.DELETED:
             runtime = self._layout.runtime_for_relative(record.relative_path)
             runtime_read = _preview(runtime, self._max_preview_chars)
-        return HomeMaintenanceChange(
+        return HomeReviewChange(
             link=str(link),
             relative_path=record.relative_path,
             state=record.state,
@@ -580,7 +580,7 @@ class HomeMaintenanceService:
         link = self._layout.link_for_relative(relative_path)
         if link is None:
             raise AgentHomeInvariantError(
-                f"Home maintenance cannot map HOW review target: {relative_path}"
+                f"Home review cannot map HOW review target: {relative_path}"
             )
         actual = self._layout.source_for_relative(relative_path)
         actual_digest = _actual_digest(actual)
@@ -611,15 +611,15 @@ class HomeMaintenanceService:
 
     def _resolve_change(
         self,
-        change: HomeMaintenanceChange,
-        resolution: HomeMaintenanceResolution,
+        change: HomeReviewChange,
+        resolution: HomeReviewResolution,
         *,
         rewrite_text: str | None,
     ) -> None:
         self._verify_change(change)
-        if resolution is HomeMaintenanceResolution.ACCEPT:
+        if resolution is HomeReviewResolution.ACCEPT:
             self._apply(change)
-        elif resolution is HomeMaintenanceResolution.REWRITE:
+        elif resolution is HomeReviewResolution.REWRITE:
             self._validate_rewrite(change.relative_path, rewrite_text or "")
             self._rewrite_relative(change.relative_path, rewrite_text or "")
         self._overlay.clear_record(change.relative_path)
@@ -627,17 +627,17 @@ class HomeMaintenanceService:
     def _resolve_skill_review(
         self,
         review: HomeSkillReview,
-        resolution: HomeMaintenanceResolution,
+        resolution: HomeReviewResolution,
         *,
         rewrite_text: str | None,
         expected_memory: HomeOverlayRecord,
     ) -> None:
-        if resolution is HomeMaintenanceResolution.ACCEPT:
+        if resolution is HomeReviewResolution.ACCEPT:
             raise AgentHomeContractError(
                 "Home HOW review does not have a runtime version to accept"
             )
         self._verify_skill_review(review, expected_memory=expected_memory)
-        if resolution is HomeMaintenanceResolution.REWRITE:
+        if resolution is HomeReviewResolution.REWRITE:
             self._validate_rewrite(review.relative_path, rewrite_text or "")
             self._rewrite_relative(review.relative_path, rewrite_text or "")
         self._clear_skill_memory(review.skill, expected_memory)
@@ -648,7 +648,7 @@ class HomeMaintenanceService:
         link = self._layout.link_for_relative(relative_path)
         if link is None:
             raise AgentHomeInvariantError(
-                f"Home maintenance cannot map rewrite target: {relative_path}"
+                f"Home review cannot map rewrite target: {relative_path}"
             )
         if (
             isinstance(link, HomeTopLink)
@@ -657,7 +657,7 @@ class HomeMaintenanceService:
         ):
             parse_home_skill_metadata(text, link=link)
 
-    def _verify_change(self, change: HomeMaintenanceChange) -> None:
+    def _verify_change(self, change: HomeReviewChange) -> None:
         record = self._overlay.record_for(change.relative_path)
         if record is None or (
             record.state is not change.state
@@ -667,17 +667,17 @@ class HomeMaintenanceService:
             or record.mtime_ns != change.runtime_mtime_ns
         ):
             raise AgentHomeInvariantError(
-                f"Home overlay changed during maintenance: {change.relative_path}"
+                f"Home overlay changed during review: {change.relative_path}"
             )
         actual_digest = _actual_digest(
             self._layout.source_for_relative(change.relative_path)
         )
         if actual_digest != change.actual_digest:
             raise AgentHomeInvariantError(
-                f"Actual Home changed during maintenance: {change.relative_path}"
+                f"Actual Home changed during review: {change.relative_path}"
             )
 
-    def _apply(self, change: HomeMaintenanceChange) -> None:
+    def _apply(self, change: HomeReviewChange) -> None:
         actual = self._layout.source_for_relative(change.relative_path)
         try:
             if change.state is HomeOverlayState.DELETED:
@@ -694,7 +694,7 @@ class HomeMaintenanceService:
             raise
         except OSError as exc:
             raise AgentHomeIOError(
-                f"Failed to apply Home maintenance change: {exc}"
+                f"Failed to apply Home review change: {exc}"
             ) from exc
 
     def _verify_skill_review(
@@ -706,14 +706,14 @@ class HomeMaintenanceService:
         current = self._overlay.record_for(expected_memory.relative_path)
         if current != expected_memory:
             raise AgentHomeInvariantError(
-                f"SKILL_MEMORY changed during maintenance: {review.skill}"
+                f"SKILL_MEMORY changed during review: {review.skill}"
             )
         actual_digest = _actual_digest(
             self._layout.source_for_relative(review.relative_path)
         )
         if actual_digest != review.actual_digest:
             raise AgentHomeInvariantError(
-                f"Actual HOW changed during maintenance: {review.relative_path}"
+                f"Actual HOW changed during review: {review.relative_path}"
             )
 
     def _rewrite_relative(self, relative_path: str, text: str) -> None:
@@ -722,7 +722,7 @@ class HomeMaintenanceService:
             atomic_write_bytes(actual, text.encode("utf-8"))
         except OSError as exc:
             raise AgentHomeIOError(
-                f"Failed to rewrite Home maintenance change: {exc}"
+                f"Failed to rewrite Home review change: {exc}"
             ) from exc
 
     def _clear_skill_memory(
@@ -733,7 +733,7 @@ class HomeMaintenanceService:
         current = self._overlay.record_for(expected.relative_path)
         if current != expected:
             raise AgentHomeInvariantError(
-                f"SKILL_MEMORY changed during maintenance: {skill}"
+                f"SKILL_MEMORY changed during review: {skill}"
             )
         self._overlay.clear_record(expected.relative_path)
 
@@ -742,7 +742,7 @@ def _actual_digest(path: Path) -> str:
         return ""
     if not path.is_file():
         raise AgentHomeInvariantError(
-            f"Actual Home maintenance target is not a regular file: {path}"
+            f"Actual Home review target is not a regular file: {path}"
         )
     try:
         return file_digest(path)
@@ -755,11 +755,11 @@ def _preview(path: Path, max_chars: int) -> TextPrefixRead:
         return read_text_prefix(path, max_chars=max_chars)
     except UnicodeDecodeError as exc:
         raise AgentHomeContractError(
-            f"Home maintenance content is not UTF-8 text: {path}"
+            f"Home review content is not UTF-8 text: {path}"
         ) from exc
     except OSError as exc:
         raise AgentHomeIOError(
-            f"Failed to read Home maintenance content: {exc}"
+            f"Failed to read Home review content: {exc}"
         ) from exc
 
 

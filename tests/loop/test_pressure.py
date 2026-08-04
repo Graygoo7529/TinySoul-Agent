@@ -5,11 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from tinysoul.context import ContextEngineBuilder, ContextSignalBatch
-from tinysoul.loop.pressure import (
-    ContextPressureRecovery,
-    PressureRecoveryStatus,
-    _required_chars,
-)
+from tinysoul.loop.pressure import PressureRecoveryStatus, required_chars
+from tinysoul.loop.user.pressure import UserContextPressureRecovery
+from tinysoul.maintenance.turn import MaintenanceContextPressureRecovery
 from tinysoul.runtime import RunLevel, RunScope
 from tinysoul.workspace import (
     WorkspaceEngineBuilder,
@@ -43,7 +41,7 @@ def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     ) == ()
     context.complete_preparation()
 
-    result = ContextPressureRecovery(
+    result = UserContextPressureRecovery(
         context=context,
         workspace=workspace,
         target_ratio=0.8,
@@ -59,7 +57,7 @@ def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
 
 
 def test_model_pressure_converts_target_token_gap_to_char_reclaim() -> None:
-    required = _required_chars(
+    required = required_chars(
         {
             "context_window_tokens": 100,
             "estimated_message_tokens": 70,
@@ -85,7 +83,7 @@ def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> 
     scope = _scope(turn_id)
     context.complete_preparation()
 
-    result = ContextPressureRecovery(
+    result = UserContextPressureRecovery(
         context=context,
         workspace=workspace,
         target_ratio=0.8,
@@ -126,7 +124,7 @@ def test_pressure_recovery_preserves_active_action_resource_links(
     ) == ()
     context.complete_preparation()
 
-    result = ContextPressureRecovery(
+    result = UserContextPressureRecovery(
         context=context,
         workspace=workspace,
         target_ratio=0.8,
@@ -142,6 +140,27 @@ def test_pressure_recovery_preserves_active_action_resource_links(
     assert result.status is PressureRecoveryStatus.RECOVERED
     assert {record.link for record in workspace.snapshot().resources} == {
         "workspace:protected.txt"
+    }
+
+
+def test_maintenance_pressure_never_reclaims_active_workspace(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.write_text(
+        "workspace:active.txt",
+        "active work",
+        retention=WorkspaceRetention.EPHEMERAL,
+    )
+    context = ContextEngineBuilder(system_text="system").build()
+    turn_id = context.begin_turn("maintain memory")
+    context.complete_preparation()
+
+    MaintenanceContextPressureRecovery(context).recover(
+        payload={"estimated_chars": 1000, "max_chars": 100},
+        scope=_scope(turn_id),
+    )
+
+    assert {record.link for record in workspace.snapshot().resources} == {
+        "workspace:active.txt"
     }
 
 

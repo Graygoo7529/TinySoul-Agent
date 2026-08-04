@@ -21,6 +21,7 @@ tinysoul/app/
   outputs.py         # OutputSink、ObservationRouter 与终端渲染
   cli.py             # console script 入口
   runtime.py         # TinySoulApp 生命周期入口
+  runtime_policy.py  # Program-only Runtime trap
   services.py        # Endpoint 等长运行 AppService 生命周期协议
   builder.py         # TinySoulAppBuilder 全局装配入口
   sources/
@@ -28,7 +29,7 @@ tinysoul/app/
     scheduler.py     # typed Maintenance request scheduler
 ```
 
-可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；只读 Action Catalog 位于 `tinysoul/action/catalog/`。项目模板只保存一份 README、`.gitignore`、`tinysoul.toml` 与 Home，并保存完整、彼此独立的 standard/development config profile。App 初始化前者，但不复制或改写 Action Catalog。
+可编辑项目模板位于 `tinysoul/assets/project/` 并作为 package data 发布；User 只读 Action Catalog 位于 `tinysoul/action/catalog/`，Maintenance 专用 fragment 位于 `tinysoul/maintenance/catalog/`。项目模板不复制或改写任一 catalog。
 
 App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app 装配或输入边界失败映射为 Runtime 可理解的启动失败或控制流失败。
 
@@ -103,12 +104,12 @@ TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
 - 从统一 ConfigEnvironment 读取各模块 section tree，由 app/capabilities/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
-- 构建 LLMTaskRunner、ContextEngine、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、ActionEngine、SignalBus 和 RuntimeTrap；
-- 调用各模块和已启用 capability 的 registrar 装配 executor，并在 ActionEngine build 前移除禁用 action；
-- 构建共用 Phase/Cycle、User/Maintenance Turn、MaintenanceEngine 与 ProgramRunner，并向 MaintenanceEngine 注入默认 IANA business clock 和 Archive coordinator；测试或嵌入方可通过 `with_business_clock` 注入同一窄 `BusinessClock` 协议，不改变生产默认时区语义；
-- preparation 顺序固定为 Context 聚合 Home/Memory Background provider、Session、Workspace；把幂等 Session completion 放在外部 `with_turn_completion_handler` 注册项前；
+- 构建进程级 LLMTaskRunner、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、SignalBus、Program trap 与外部服务；
+- 调用 `loop.user.UserTurnBuilder` 构造 User Context、ActionEngine、runtime policy 和轻量 `UserTurnEntry`；User builder 内部调用各 owner/capability registrar，App 不知道 executor 或 Phase；
+- 调用 `maintenance.MaintenanceBuilder` 构造 Archive/Home/Memory task、两套 Maintenance Context/Action/trap/Turn entry 和唯一 MaintenanceEngine；测试或嵌入方仍可通过 `with_business_clock` 注入同一窄 `BusinessClock`；
+- User override API 显式命名为 `with_user_action_engine`、`with_user_context_engine`、`with_user_domain_how`、`with_user_turn_completion_handler`，不保留无 owner 的旧 alias；
 - 构建 InputCommandParser、InputDispatcher、AppCommandGateway、终端输入源、Endpoint service 和内置 scheduler；
-- 构建 ObservationRouter，把同一 emitter 注入 LLM、Action、Runtime、Workspace、Daily coordinator、Home/Memory Maintenance service 和各级 Loop runner；
+- 构建 ObservationRouter，把同一 emitter 交给 owner builder 与进程级组件；
 - 返回 TinySoulApp。
 
 AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
@@ -123,7 +124,7 @@ AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared 
 
 AppBuilder 构建一个 `MaintenanceEngine` 并注入 `ProgramRunner` 和 Endpoint。MaintenanceEngine 内部组合 `maintenance.archive` 的 DailyLifecycleCoordinator、持久 Availability store、HomeMaintenanceTask 与 MemoryMaintenanceTask；Home/Memory task 需要推理时再调用各自的 Maintenance Turn。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，再增量登记本次归档日、校验既有 Memory 待办、重算 Home pending 并原子保存唯一 availability；该步骤完成后 Endpoint 才能对外就绪。Program 以 `program.maintenance.available` 给出包含一个聚合 Home 待办和全部 Memory 日期的非阻塞提示，Observation 只通知前端重新读取 Endpoint 投影，不在启动时运行 Home/Memory Turn。
 
-Program 运行期的 availability、User request preflight 或 Maintenance request 若遇到 Maintenance contract/invariant failure，统一经 `RuntimeMaintenanceBridge` 转换为 `runtime.program_end`，由当前 Program trap 形成 `ProgramOutcome.transfer`；启动 `prepare()` 的 preflight 仍映射为 `runtime.startup_failed`。Maintenance Turn 已经决议的外层 Program transfer 只展开和消费一次，不重复进入 Trap。未知 Python 异常原样传播，不能伪装成 task failure。
+Program 运行期的 availability、User request preflight 或 Maintenance request 若遇到 Maintenance contract/invariant failure，统一经 Maintenance-owned `MaintenanceRuntimeBridge` 转换为 `runtime.program_end`，由 Program-only trap 形成 `ProgramOutcome.transfer`；通用 `runtime.bridge` 不导入 Maintenance。启动 `prepare()` 的 preflight 仍映射为 `runtime.startup_failed`。Maintenance-owned typed Turn entry 已经决议的外层 Program transfer 只展开和消费一次，不重复进入 Trap。
 
 人工命令为 `/maintenance [daily|home]` 与 `/maintenance memory YYYY-MM-DD [--rebuild]`；Endpoint 以结构化 `kind=daily|home|memory` 表达相同意图，其中 Memory 必须提供 target，rebuild 只对该目标生效。人工和 scheduler request 只在 trigger/参数上不同，进入 MaintenanceEngine 后使用同一个任务选择、执行路径和 outcome；不存在持久 `MaintenancePlan`。整个流程自动执行，不存在 decision identity、审批 Endpoint 或 pending 输入阻塞。
 

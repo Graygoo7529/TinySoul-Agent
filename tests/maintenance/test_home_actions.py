@@ -9,12 +9,12 @@ from tinysoul.action import (
     ActionFramework,
     ActionResult,
     ActionResultStatus,
-    builtin_action_catalog_root,
 )
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
 from tinysoul.maintenance.home import HomeMaintenanceActionController
+from tinysoul.maintenance.resources import maintenance_action_catalog_root
 from tinysoul.runtime import RunLevel, RunScope
 
 
@@ -64,7 +64,7 @@ def test_home_actions_require_inspect_before_resolving_how_review(
         {"token": token},
     )
     assert premature.status is ActionResultStatus.FAILED
-    assert home.maintenance_pending().skill_memory_count == 1
+    assert home.review_pending().skill_memory_count == 1
 
     inspected = _execute(
         controller,
@@ -93,7 +93,7 @@ def _execute(
     action_name: str,
     params: JsonObject,
 ) -> ActionResult:
-    with builtin_action_catalog_root() as root:
+    with maintenance_action_catalog_root() as root:
         action = ActionCatalogLoader().load(root).get_action(action_name)
     return controller.execute(
         ActionExecution(

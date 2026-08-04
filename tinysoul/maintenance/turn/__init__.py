@@ -1,9 +1,10 @@
 """Maintenance Turn policy, preparation, prompts, completion, and outcomes."""
 
 from .completion import MaintenanceCompletionDetector
-from .outcomes import TurnOutcome
+from .entry import MaintenanceTurnEntry, MaintenanceTurnResult
 from .prompts import maintenance_turn_guidance
-from ..preparation import (
+from .runtime import MaintenanceContextPressureRecovery, build_maintenance_turn_trap
+from tinysoul.loop.preparation import (
     TurnPreparationHandler,
     TurnPreparationPipeline,
     TurnPreparationRequest,
@@ -11,9 +12,12 @@ from ..preparation import (
 
 __all__ = [
     "MaintenanceCompletionDetector",
-    "TurnOutcome",
+    "MaintenanceContextPressureRecovery",
+    "MaintenanceTurnEntry",
+    "MaintenanceTurnResult",
     "TurnPreparationHandler",
     "TurnPreparationPipeline",
     "TurnPreparationRequest",
+    "build_maintenance_turn_trap",
     "maintenance_turn_guidance",
 ]

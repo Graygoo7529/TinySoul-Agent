@@ -23,7 +23,7 @@ class TurnSettings:
         ):
             raise ConfigError(
                 "Turn max_cycles must be positive",
-                key="loop.turn.max_cycles",
+                key="turn.max_cycles",
                 value=self.max_cycles,
                 expected="positive int",
             )
@@ -34,7 +34,6 @@ class LoopSettings:
     """Runtime settings owned by the Loop module."""
 
     user: TurnSettings = field(default_factory=TurnSettings)
-    maintenance: TurnSettings = field(default_factory=TurnSettings)
     phase_retry_limit: int = 2
 
     def __post_init__(self) -> None:
@@ -43,13 +42,6 @@ class LoopSettings:
                 "Loop user settings must be TurnSettings",
                 key="loop.user",
                 value=self.user,
-                expected="TurnSettings",
-            )
-        if not isinstance(self.maintenance, TurnSettings):
-            raise ConfigError(
-                "Loop maintenance settings must be TurnSettings",
-                key="loop.maintenance",
-                value=self.maintenance,
                 expected="TurnSettings",
             )
         if (
@@ -70,15 +62,11 @@ def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
 
     reject_unknown_keys(
         tree,
-        {"user", "maintenance", "phase_retry_limit"},
+        {"user", "phase_retry_limit"},
         key="loop",
     )
     return LoopSettings(
-        user=_parse_turn_settings(tree.get("user"), key="loop.user"),
-        maintenance=_parse_turn_settings(
-            tree.get("maintenance"),
-            key="loop.maintenance",
-        ),
+        user=parse_turn_settings(tree.get("user"), key="loop.user"),
         phase_retry_limit=_optional_int(
             tree,
             "phase_retry_limit",
@@ -88,7 +76,7 @@ def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
     )
 
 
-def _parse_turn_settings(value: object, *, key: str) -> TurnSettings:
+def parse_turn_settings(value: object, *, key: str) -> TurnSettings:
     if value is None:
         return TurnSettings()
     if not isinstance(value, Mapping):

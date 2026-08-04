@@ -23,12 +23,12 @@ from .links import (
     HomeTopLink,
     parse_home_link,
 )
-from .maintenance import (
-    HomeMaintenanceResolveOutcome,
-    HomeMaintenanceResolution,
-    HomeMaintenanceSnapshot,
-    HomeMaintenancePending,
-    HomeMaintenanceService,
+from .review import (
+    HomeReviewResolveOutcome,
+    HomeReviewResolution,
+    HomeReviewSnapshot,
+    HomeReviewPending,
+    HomeReviewService,
 )
 from .metadata import (
     SKILL_FRONTMATTER_MAX_CHARS,
@@ -86,7 +86,7 @@ class HomeResourceMutation:
 
 
 class AgentHomeEngine:
-    """Own effective Home lookup, runtime mutation, and prompt mount state."""
+    """Own effective Home lookup, runtime mutation, review, and prompt mounts."""
 
     def __init__(
         self,
@@ -104,7 +104,7 @@ class AgentHomeEngine:
         self._max_write_chars = max_write_chars
         self._skill_catalog_max_chars = skill_catalog_max_chars
         self._prompt_mount_links: frozenset[HomePromptMountLink] | None = None
-        self._maintenance = HomeMaintenanceService(
+        self._review = HomeReviewService(
             layout=layout,
             overlay=overlay,
             max_preview_chars=max_read_chars,
@@ -128,29 +128,29 @@ class AgentHomeEngine:
         self._overlay.reconcile()
         self._validate_overlay_semantics()
 
-    def maintenance_pending(self) -> HomeMaintenancePending:
+    def review_pending(self) -> HomeReviewPending:
         """Return reviewable Home work without cleaning active records."""
 
         self._validate_overlay_semantics()
-        return self._maintenance.pending()
+        return self._review.pending()
 
-    def maintenance_snapshot(self) -> HomeMaintenanceSnapshot:
+    def review_snapshot(self) -> HomeReviewSnapshot:
         """Return bounded, token-bound active Home reviews."""
 
         self._validate_overlay_semantics()
-        return self._maintenance.snapshot()
+        return self._review.snapshot()
 
-    def resolve_maintenance(
+    def resolve_review(
         self,
         token: str,
-        resolution: HomeMaintenanceResolution,
+        resolution: HomeReviewResolution,
         *,
         rewrite_text: str | None = None,
-    ) -> HomeMaintenanceResolveOutcome:
+    ) -> HomeReviewResolveOutcome:
         """Resolve one current Home review through the owner boundary."""
 
         self._validate_overlay_semantics()
-        outcome = self._maintenance.resolve(
+        outcome = self._review.resolve(
             token,
             resolution,
             rewrite_text=rewrite_text,
@@ -158,13 +158,13 @@ class AgentHomeEngine:
         self._validate_overlay_semantics()
         return outcome
 
-    def finalize_maintenance(self) -> bool:
+    def remove_resolved_overlay(self) -> bool:
         """Remove the runtime Home after all current differences are resolved."""
 
         self._validate_overlay_semantics()
-        if self._maintenance.pending().pending:
+        if self._review.pending().pending:
             raise AgentHomeContractError(
-                "Home Maintenance cannot finalize while differences remain"
+                "Home review cannot remove the overlay while differences remain"
             )
         return self._overlay.remove_if_empty()
 

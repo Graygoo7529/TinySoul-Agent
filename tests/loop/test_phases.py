@@ -34,7 +34,6 @@ from tinysoul.memory import (
     MemorySettings,
     register_memory_actions,
 )
-from tinysoul.maintenance.actions import MAINTENANCE_ACTIONS
 from tinysoul.memory.store import MemoryStore
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
@@ -828,7 +827,6 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
-            *MAINTENANCE_ACTIONS,
             "workspace.convert_with_markitdown",
             "workspace.convert_with_pypdf",
             "web.discover_pages",
@@ -898,7 +896,6 @@ def _action_engine(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
-            *MAINTENANCE_ACTIONS,
             "workspace.convert_with_markitdown",
             "workspace.convert_with_pypdf",
             "web.discover_pages",

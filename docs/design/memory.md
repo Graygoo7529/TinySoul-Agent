@@ -118,7 +118,7 @@ Session 负责归档图校验、按需递归 Summary、去重可达 Turn 事实�
 
 目标 archive 缺失或 Session projection 无 Turn facts时返回非持久 `skipped`，对目标 Memory 零写入。默认 work 在目标已存在时于 Session/LLM 之前 `skipped`；rebuild work 可结合同日期旧 MEMORY 与 Session 重写。成功时只原子替换单个目标文件，不 append，不保存 candidate、plan、review result 或中间状态。原子替换前的写失败保留旧文件；若替换已经完成但调用方随后观察到进程异常，目标文件就是新的 persisted fact，下一次默认 work 按“目标已存在” skipped。该保证覆盖进程异常和文件操作失败，不扩展为断电/fsync 承诺。
 
-Memory service 只发布 verbose `memory.maintenance.started` 与 `completed/skipped/failed` Observation。事件只含目标日期、rewrite mode、Memory Link、fact/model-call 计数、成功 digest、skip/failure kind 或稳定异常类型，不含 Session facts、旧/新 MEMORY 正文、模型 prompt/reasoning 或绝对路径。Program 在 normal 层另行发布该 work 的唯一结果；Observation emitter 失败不能改变原子写、outcome 或后续 Program work。
+Memory consolidation service 只发布 verbose `memory.consolidation.started` 与 `completed/skipped/failed` Observation。事件只含目标日期、rewrite mode、Memory Link、fact/model-call 计数、成功 digest、skip/failure kind 或稳定异常类型，不含 Session facts、旧/新 MEMORY 正文、模型 prompt/reasoning 或绝对路径。Program 在 normal 层另行发布该 work 的唯一结果；Observation emitter 失败不能改变原子写、outcome 或后续 Program work。
 
 启动 availability 不扫描全部 archive catalog。每次 Archive 完成或恢复后，Maintenance 只在该日 Session facts 非空且有效 MEMORY 缺失时增量登记日期；尚未完成的日期跨重启保留，已有有效 MEMORY 的日期在刷新时幂等删除。该列表属于 Maintenance-owned 待办投影，不是 Memory 的第二份文档状态；执行前 Memory owner仍重新校验目标。手动 Memory request 可以显式指定任意关闭日；`--rebuild` 允许重建已有日期而不要求该日先出现在待办列表。
 
@@ -144,7 +144,7 @@ tinysoul/memory/
   links.py
   store.py
   search.py
-  maintenance.py
+  consolidation.py          # owner-neutral eligibility/validation/atomic write
   consolidator.py
   actions.py
   errors.py
@@ -163,9 +163,9 @@ configs/memory.toml
 memory/
 ```
 
-`MemoryEngine` 是唯一 Memory 业务门面，对上层提供 Link/store 查询、Background provider、search/recall、eligibility 和原子 consolidation。`tinysoul.maintenance.memory` 拥有目标 archive 绑定、Maintenance Turn 与专用 actions，不复制 Link/store/renderer 规则。配置、普通 Action executor、Background provider 与 consolidator 是装配 SPI；store、renderer 和 validator 是模块内部实现。
+`MemoryEngine` 是唯一 Memory 业务门面，对上层提供 Link/store 查询、Background provider、search/recall、`consolidation_eligible()` 和原子 `consolidate()`。这些能力不知道 Maintenance request、scheduler 或 Turn；`tinysoul.maintenance.memory` 拥有目标 archive 绑定、Maintenance Turn 与专用 actions，并调用 Memory 门面而不复制 Link/store/renderer 规则。
 
-Memory 配置位于顶层 `[memory]`，拥有根目录、完整文档上限、search 预算和 consolidation 预算；`memory.maintenance.link_hints_max_chars` 单独限制模型可见 Link hint 值的总字符数。旧 `[home.memory]` 整体删除；Memory 不继承 Home `max_write_chars` 或 Home root。配置加载时不接受旧键别名。
+Memory 配置位于顶层 `[memory]`，拥有根目录、完整文档上限、search 预算和 `[memory.consolidation]` 预算；`memory.consolidation.link_hints_max_chars` 单独限制模型可见 Link hint 值的总字符数。旧 `[memory.maintenance]` 与 `[home.memory]` 都不接受；Memory 不继承 Home `max_write_chars` 或 Home root。
 
 Memory 只依赖：
 

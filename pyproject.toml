@@ -47,6 +47,10 @@ include = ["tinysoul*"]
     "catalog/*/*.toml",
     "catalog/*/actions/*.toml",
 ]
+"tinysoul.maintenance" = [
+    "catalog/*/*.toml",
+    "catalog/*/actions/*.toml",
+]
 "tinysoul.assets" = [
     "project/*",
     "project/.gitignore",

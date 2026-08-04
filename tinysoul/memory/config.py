@@ -15,11 +15,11 @@ DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
 DEFAULT_SEARCH_TOP_K = 5
 DEFAULT_SEARCH_MAX_TOP_K = 10
 DEFAULT_SEARCH_SUMMARY_MAX_CHARS = 320
-DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS = 12000
-DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS = 240000
-DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS = 4096
-DEFAULT_MAINTENANCE_MAX_CALLS = 48
-DEFAULT_MAINTENANCE_VALIDATION_RETRIES = 2
+DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS = 12000
+DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS = 240000
+DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS = 4096
+DEFAULT_CONSOLIDATION_MAX_CALLS = 48
+DEFAULT_CONSOLIDATION_VALIDATION_RETRIES = 2
 
 
 @dataclass(frozen=True)
@@ -54,12 +54,12 @@ class MemorySearchSettings:
 
 
 @dataclass(frozen=True)
-class MemoryMaintenanceSettings:
-    chunk_max_chars: int = DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS
-    source_max_chars: int = DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS
-    link_hints_max_chars: int = DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS
-    max_calls: int = DEFAULT_MAINTENANCE_MAX_CALLS
-    validation_retries: int = DEFAULT_MAINTENANCE_VALIDATION_RETRIES
+class MemoryConsolidationSettings:
+    chunk_max_chars: int = DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS
+    source_max_chars: int = DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS
+    link_hints_max_chars: int = DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS
+    max_calls: int = DEFAULT_CONSOLIDATION_MAX_CALLS
+    validation_retries: int = DEFAULT_CONSOLIDATION_VALIDATION_RETRIES
 
     def __post_init__(self) -> None:
         for name in (
@@ -70,26 +70,26 @@ class MemoryMaintenanceSettings:
         ):
             _positive_setting(
                 getattr(self, name),
-                key=f"memory.maintenance.{name}",
+                key=f"memory.consolidation.{name}",
             )
         if self.chunk_max_chars < 512:
             raise ConfigError(
-                "Memory maintenance chunk budget is too small",
-                key="memory.maintenance.chunk_max_chars",
+                "Memory consolidation chunk budget is too small",
+                key="memory.consolidation.chunk_max_chars",
                 value=self.chunk_max_chars,
                 expected="int >= 512",
             )
         if self.source_max_chars < self.chunk_max_chars:
             raise ConfigError(
-                "Memory maintenance source budget must cover one chunk",
-                key="memory.maintenance.source_max_chars",
+                "Memory consolidation source budget must cover one chunk",
+                key="memory.consolidation.source_max_chars",
                 value=self.source_max_chars,
                 expected="int >= chunk_max_chars",
             )
         if self.max_calls < 2:
             raise ConfigError(
-                "Memory maintenance call budget must allow reduce and final calls",
-                key="memory.maintenance.max_calls",
+                "Memory consolidation call budget must allow reduce and final calls",
+                key="memory.consolidation.max_calls",
                 value=self.max_calls,
                 expected="int >= 2",
             )
@@ -99,8 +99,8 @@ class MemoryMaintenanceSettings:
             or self.validation_retries < 0
         ):
             raise ConfigError(
-                "Memory maintenance validation retries cannot be negative",
-                key="memory.maintenance.validation_retries",
+                "Memory consolidation validation retries cannot be negative",
+                key="memory.consolidation.validation_retries",
                 value=self.validation_retries,
                 expected="non-negative int",
             )
@@ -111,8 +111,8 @@ class MemorySettings:
     root: Path
     max_document_chars: int = DEFAULT_MAX_DOCUMENT_CHARS
     search: MemorySearchSettings = field(default_factory=MemorySearchSettings)
-    maintenance: MemoryMaintenanceSettings = field(
-        default_factory=MemoryMaintenanceSettings
+    consolidation: MemoryConsolidationSettings = field(
+        default_factory=MemoryConsolidationSettings
     )
 
     def __post_init__(self) -> None:
@@ -134,12 +134,12 @@ class MemorySettings:
                 value=type(self.search).__name__,
                 expected="MemorySearchSettings",
             )
-        if not isinstance(self.maintenance, MemoryMaintenanceSettings):
+        if not isinstance(self.consolidation, MemoryConsolidationSettings):
             raise ConfigError(
-                "Memory maintenance settings are invalid",
-                key="memory.maintenance",
-                value=type(self.maintenance).__name__,
-                expected="MemoryMaintenanceSettings",
+                "Memory consolidation settings are invalid",
+                key="memory.consolidation",
+                value=type(self.consolidation).__name__,
+                expected="MemoryConsolidationSettings",
             )
 
 
@@ -150,7 +150,7 @@ def parse_memory_settings(
 ) -> MemorySettings:
     reject_unknown_keys(
         tree,
-        {"root", "max_document_chars", "search", "maintenance"},
+        {"root", "max_document_chars", "search", "consolidation"},
         key="memory",
     )
     root = _path(tree.get("root"), default=project_root / "memory")
@@ -163,7 +163,7 @@ def parse_memory_settings(
             prefix="memory",
         ),
         search=_parse_search(tree.get("search")),
-        maintenance=_parse_maintenance(tree.get("maintenance")),
+        consolidation=_parse_consolidation(tree.get("consolidation")),
     )
 
 
@@ -182,8 +182,8 @@ def _parse_search(value: object) -> MemorySearchSettings:
     )
 
 
-def _parse_maintenance(value: object) -> MemoryMaintenanceSettings:
-    tree = _table(value, key="memory.maintenance")
+def _parse_consolidation(value: object) -> MemoryConsolidationSettings:
+    tree = _table(value, key="memory.consolidation")
     reject_unknown_keys(
         tree,
         {
@@ -193,14 +193,14 @@ def _parse_maintenance(value: object) -> MemoryMaintenanceSettings:
             "max_calls",
             "validation_retries",
         },
-        key="memory.maintenance",
+        key="memory.consolidation",
     )
-    return MemoryMaintenanceSettings(
-        chunk_max_chars=_int(tree, "chunk_max_chars", DEFAULT_MAINTENANCE_CHUNK_MAX_CHARS, prefix="memory.maintenance"),
-        source_max_chars=_int(tree, "source_max_chars", DEFAULT_MAINTENANCE_SOURCE_MAX_CHARS, prefix="memory.maintenance"),
-        link_hints_max_chars=_int(tree, "link_hints_max_chars", DEFAULT_MAINTENANCE_LINK_HINTS_MAX_CHARS, prefix="memory.maintenance"),
-        max_calls=_int(tree, "max_calls", DEFAULT_MAINTENANCE_MAX_CALLS, prefix="memory.maintenance"),
-        validation_retries=_int(tree, "validation_retries", DEFAULT_MAINTENANCE_VALIDATION_RETRIES, prefix="memory.maintenance"),
+    return MemoryConsolidationSettings(
+        chunk_max_chars=_int(tree, "chunk_max_chars", DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS, prefix="memory.consolidation"),
+        source_max_chars=_int(tree, "source_max_chars", DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS, prefix="memory.consolidation"),
+        link_hints_max_chars=_int(tree, "link_hints_max_chars", DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS, prefix="memory.consolidation"),
+        max_calls=_int(tree, "max_calls", DEFAULT_CONSOLIDATION_MAX_CALLS, prefix="memory.consolidation"),
+        validation_retries=_int(tree, "validation_retries", DEFAULT_CONSOLIDATION_VALIDATION_RETRIES, prefix="memory.consolidation"),
     )
 
 

@@ -19,8 +19,8 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.memory import (
     MemoryConsolidator,
     MemoryEngine,
-    MemoryMaintenanceOutcome,
-    MemoryMaintenanceStatus,
+    MemoryConsolidationOutcome,
+    MemoryConsolidationStatus,
 )
 from tinysoul.memory.errors import MemoryError
 from tinysoul.session import SessionMemoryFactsProjection
@@ -43,7 +43,7 @@ class _MemoryTaskState:
     projection: SessionMemoryFactsProjection
     workspace: WorkspaceManifest | None
     rebuild_memory: bool
-    outcome: MemoryMaintenanceOutcome | None = None
+    outcome: MemoryConsolidationOutcome | None = None
     completed: bool = False
 
 
@@ -153,7 +153,7 @@ class MemoryMaintenanceActionController:
                 raise MaintenanceContractError(
                     "Memory consolidation already ran in this Maintenance Turn"
                 )
-            state.outcome = self._memory.run_maintenance(
+            state.outcome = self._memory.consolidate(
                 projection=state.projection,
                 consolidator=self._consolidator,
                 timezone=self._timezone,
@@ -167,7 +167,7 @@ class MemoryMaintenanceActionController:
                 raise MaintenanceContractError(
                     "Memory Maintenance must consolidate before completion"
                 )
-            if state.outcome.status is MemoryMaintenanceStatus.FAILED:
+            if state.outcome.status is MemoryConsolidationStatus.FAILED:
                 raise MaintenanceContractError(
                     "Memory Maintenance consolidation failed"
                 )
@@ -204,7 +204,7 @@ def register_memory_maintenance_actions(
     return builder
 
 
-def _outcome_json(outcome: MemoryMaintenanceOutcome) -> JsonObject:
+def _outcome_json(outcome: MemoryConsolidationOutcome) -> JsonObject:
     value: JsonObject = {
         "day": str(outcome.day),
         "link": outcome.link,

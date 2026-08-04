@@ -336,7 +336,7 @@ tinysoul/capabilities/       # 只有存在真实轻量能力时才建立
     service.py
 ```
 
-`tinysoul/action/catalog` 是框架版本化的只读 package resource，由 `builtin_action_catalog_root()` 在 App 装配期物化，并在同一资源上下文内完成解析。构建后的 `ActionEngine` 只持有已经校验的内部 catalog，不依赖资源路径继续存在。项目模板不复制 catalog，不提供 `[action].catalog_root` 或其它替换入口；修改内置 action 定义必须随 TinySoul 包版本发布。未来只有在多 catalog 组合具有明确所有权、冲突与安全语义后才能重新设计，不能用任意项目路径覆盖当前内置 catalog。
+`tinysoul/action/catalog` 是框架与 User 主线版本化的只读 package resource，由 `builtin_action_catalog_root()` 物化。`ActionCatalogLoader.load_many()` 与 `ActionEngineBuilder.add_catalog_root()` 允许上层 owner 组合多个 package-owned fragment，合并后仍由 `ActionCatalog` 强制 domain/action identity 唯一；这不是任意项目路径插件入口。Maintenance fragment 物理位于 `tinysoul/maintenance/catalog`，只由 `MaintenanceBuilder` 与 core catalog 组合，再通过 `include_actions()` 构造 Home/Memory 精确 surface；User builder只加载 Action 自有 root，因此从不需要识别或排除 Maintenance。构建后的 `ActionEngine` 只持有已校验的内部 catalog，项目模板不复制 catalog，也不提供 `[action].catalog_root`。
 
 ### TOML catalog
 

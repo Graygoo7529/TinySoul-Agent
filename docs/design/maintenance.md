@@ -15,13 +15,22 @@ Maintenance 分开处理两类工作：
 
 ```text
 tinysoul/maintenance/
+  builder.py                 # 完整 Maintenance branch 装配入口
   engine.py                  # 单一门面、availability 刷新和任务编排
   models.py                  # request/availability/outcome
   availability.py            # 唯一持久提示单
-  config.py                  # timezone/archive/runtime/schedule 设置
+  config.py                  # timezone/archive/runtime/turn/schedule 设置
   schedule.py                # due 计算
   day.py                     # BusinessClock 与时区策略
-  actions.py                 # per-Turn ActionEngine view
+  actions.py                 # 双 catalog root 的精确 ActionEngine 装配
+  context.py                 # actual Home Maintenance Context
+  runtime_bridge.py          # Maintenance -> Runtime 单向映射
+  resources.py               # Maintenance Action Catalog package resource
+  catalog/maintenance/       # maintenance.* actions，User catalog 不包含
+  turn/
+    entry.py                 # typed task-facing Turn boundary
+    runtime.py               # Context-only pressure/trap policy
+    completion.py / prompts.py
   errors.py / failures.py
   archive/
     engine.py                # 日切 journal、恢复、archive catalog
@@ -33,7 +42,7 @@ tinysoul/maintenance/
     actions.py               # facts/workspace inspect、consolidate、complete
 ```
 
-Archive/Home/Memory 包不互相读取私有 store。Engine 只依赖它们公开的窄 task/catalog 协议。
+Archive/Home/Memory 包不互相读取私有 store。`MaintenanceBuilder` 独立构造 Home/Memory Context、ActionEngine、trap 和 typed Turn entry；Engine 只依赖公开的窄 task/catalog 协议。`[maintenance.turn]` 拥有 Maintenance cycle budget，`[loop]` 不再包含 maintenance 配置键。
 
 ## Request 与 Program
 
@@ -97,7 +106,7 @@ Home 不参与日切或 archive。`ArchiveProjection` 只暴露 BusinessDay、ar
 
 ## Home Task
 
-Home task 先让 Home owner 确定性清理 copied/consistent 残留。若没有真实 diff 或 HOW review，则 finalize 并移除空 `runtime/home`；否则启动 Home Maintenance Turn。
+Home task 先通过 Home owner 的中性 `review_pending()` / `review_snapshot()` 能力确定性清理 copied/consistent 残留。若没有真实 diff 或 HOW review，则调用 `remove_resolved_overlay()` 移除空 `runtime/home`；否则启动 Home Maintenance Turn。
 
 Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景。专用 actions 逐个列出和 inspect snapshot token，然后选择：
 
@@ -105,7 +114,7 @@ Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景
 - `reject`: 保留 actual；
 - `rewrite`: 将整理后的完整正文提交到 actual。
 
-每个成功 resolution 都清理对应 overlay record/content。`SKILL_MEMORY.md` 是独立的 `skill_how_review`：`list/inspect` 暴露 actual HOW 与临时记忆，只有 inspect 后才能 `reject` 或 `rewrite`；`accept` 对该 review 明确失败。HOW rewrite 在写 actual 前重新校验 frontmatter，非法正文不会覆盖 actual 或清理 review。`maintenance.complete` 只有在 Home owner 确认所有 diff 与 SKILL_MEMORY 均已处理时成功；Turn 后 controller 再调用 `finalize_maintenance()`，正常结果是 `runtime/home` 不存在。下次需要 Home 时重新创建 overlay 并从 actual 懒加载。
+每个成功 resolution 都通过 `resolve_review()` 清理对应 overlay record/content。`SKILL_MEMORY.md` 是独立的 `skill_how_review`：`list/inspect` 暴露 actual HOW 与临时记忆，只有 inspect 后才能 `reject` 或 `rewrite`；`accept` 对该 review 明确失败。HOW rewrite 在写 actual 前重新校验 frontmatter。`maintenance.complete` 只有在 Home owner 确认所有 review 均已处理时成功；Turn 后 controller 再调用 `remove_resolved_overlay()`，正常结果是 `runtime/home` 不存在。
 
 ## Memory Task
 
@@ -113,13 +122,13 @@ Memory target 必须小于当前 BusinessDay且存在 ArchiveProjection。默认
 
 Task 让 Session owner从 archive Session root 生成 facts projection，让 Workspace owner 从 archive Workspace root 生成只读 manifest，并把二者绑定到 `ArchivedMemoryMaintenanceContext`。绑定同时校验 `session.day == target_day`、`workspace.day == str(target_day)`（若存在）和 preparation request 的 `business_day == target_day`。Memory Maintenance Turn 因而能在关闭日的 Session/Workspace 情景中继续梳理，而不是只接收脱离上下文的一段 prompt。
 
-`maintenance.memory.consolidate` 将 Session facts 和 rebuild 时的同日旧 MEMORY 交给 Memory owner；Memory 完成 Link 校验、分层 consolidation、日期 H1 渲染和单文件原子替换。`maintenance.complete` 要求 consolidation 已产生非失败 outcome。
+`maintenance.memory.consolidate` 将 Session facts 和 rebuild 时的同日旧 MEMORY 交给 Memory owner 的 `consolidate()`；Memory 以 `[memory.consolidation]` 预算完成 Link 校验、分层 consolidation、日期 H1 渲染和单文件原子替换，但不知道 Maintenance request、scheduler 或 Turn。`maintenance.complete` 要求 consolidation 已产生非失败 outcome。
 
 ## Turn 与 Action 隔离
 
-User Turn 和 Maintenance Turn 共用 `loop.turn`、`loop.cycle` 与 3-stage phases，但使用独立 Context、prompt guidance、completion detector 和 ActionEngine。
+User Turn 和 Maintenance Turn 共用 owner-neutral `loop` kernel，但 profile 分别归 `loop.user` 与 `maintenance.turn`。Maintenance 的 Home/Memory profile 又分别使用独立 Context、trap、prompt guidance、completion detector 和 ActionEngine。
 
-- User ActionEngine 显式排除所有 `maintenance.*`；
+- User ActionEngine 只加载 `tinysoul.action` catalog，物理上不存在 `maintenance.*`；
 - Home Turn 只见通用 inspect 与 Home Maintenance actions；
 - Memory Turn 只见通用 inspect 与 Memory Maintenance actions；
 - `core.context.inspect`、`core.session.inspect` 是可复用的只读 common actions；
@@ -137,7 +146,8 @@ Maintenance Context 与 User Context 具有相同的 Background/Session/Workspac
 - `MaintenancePlan` 不是领域协议；Engine 直接从 typed request 与 availability 快照选择任务；
 - MaintenanceEngine 不伪造没有 RuntimeModuleRunner owner 的 `MODULE` frame；Program scope 由 App 传入，真正的 Module frame 只由可重放的 RuntimeModuleRunner 建立；
 - Event 只通知 availability 失效，Endpoint GET 才交付持久提示单；
-- action catalog 的物理存在不等于对某个 Turn 可见；
+- Maintenance catalog 只属于 `tinysoul.maintenance` package data，通用 Action/User catalog 不认识它；
+- Maintenance Context pressure 不得调用 active Workspace cleanup、trash restore 或 Home runtime copy；
 - User Turn 永远不能选择或调用 maintenance domain；
 - Maintenance task 不能等待审批或阻塞在外部 decision；
 - ArchiveProjection 是关闭日定位的唯一跨模块事实；

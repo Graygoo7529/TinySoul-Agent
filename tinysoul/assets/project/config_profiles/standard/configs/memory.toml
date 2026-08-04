@@ -8,7 +8,7 @@ default_top_k = 5
 max_top_k = 10
 summary_max_chars = 320
 
-[memory.maintenance]
+[memory.consolidation]
 chunk_max_chars = 12000
 source_max_chars = 240000
 link_hints_max_chars = 4096

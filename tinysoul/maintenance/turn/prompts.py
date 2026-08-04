@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..errors import LoopContractError
+from ..errors import MaintenanceContractError
 
 
 def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
@@ -25,4 +25,4 @@ def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
             "Reflect on the closed day's archived Session facts and Workspace projection.",
             "Consolidate the durable Memory document before completing.",
         )
-    raise LoopContractError(f"Unknown Maintenance Turn kind: {kind}")
+    raise MaintenanceContractError(f"Unknown Maintenance Turn kind: {kind}")

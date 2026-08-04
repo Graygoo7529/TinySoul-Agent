@@ -41,7 +41,7 @@ switch_wait_seconds = 2.0
 max_cycles = 10
 prefer_successful_model_seconds = 600
 
-[llm.tasks.memory_maintenance]
+[llm.tasks.memory_consolidation]
 models = ["gpt_5_6_sol", "gpt_5_5", "kimi_k3", "glm_5_1"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"

@@ -11,7 +11,6 @@ from .actions import (
     register_home_actions,
 )
 from .background import (
-    ActualHomeBackgroundEntryProvider,
     HomeBackgroundContentLoader,
     HomeBackgroundEntryProvider,
 )
@@ -46,13 +45,13 @@ from .links import (
 from .runtime_copy import (
     AgentHomeRuntimeCopyTrapHandler,
 )
-from .maintenance import (
-    HomeMaintenanceChange,
-    HomeMaintenancePending,
-    HomeMaintenanceReview,
-    HomeMaintenanceResolveOutcome,
-    HomeMaintenanceResolution,
-    HomeMaintenanceSnapshot,
+from .review import (
+    HomeReviewChange,
+    HomeReviewPending,
+    HomeReview,
+    HomeReviewResolveOutcome,
+    HomeReviewResolution,
+    HomeReviewSnapshot,
     HomeSkillReview,
     HomeSkillMemoryContext,
 )
@@ -71,7 +70,6 @@ from .search import (
 )
 
 __all__ = [
-    "ActualHomeBackgroundEntryProvider",
     "AgentHomeContractError",
     "AgentHomeEngine",
     "AgentHomeEngineBuilder",
@@ -88,12 +86,12 @@ __all__ = [
     "HomeBackgroundEntry",
     "HomeDomainHowProvider",
     "HomeLink",
-    "HomeMaintenanceChange",
-    "HomeMaintenancePending",
-    "HomeMaintenanceReview",
-    "HomeMaintenanceResolveOutcome",
-    "HomeMaintenanceResolution",
-    "HomeMaintenanceSnapshot",
+    "HomeReviewChange",
+    "HomeReviewPending",
+    "HomeReview",
+    "HomeReviewResolveOutcome",
+    "HomeReviewResolution",
+    "HomeReviewSnapshot",
     "HomePromptMountLink",
     "HomePromptMountPatchExecutor",
     "HomePromptMountWriteExecutor",

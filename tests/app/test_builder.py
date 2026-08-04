@@ -204,7 +204,7 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
-        .with_turn_completion_handler(recorder)
+        .with_user_turn_completion_handler(recorder)
         .with_llm_runner(
             FakeLLM(
                 (

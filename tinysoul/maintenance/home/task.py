@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from tinysoul.home import AgentHomeEngine, AgentHomeIOError
 from tinysoul.infra.time import BusinessDay
-from tinysoul.loop import TurnOutcomeStatus
-from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import RunScope
 
 from ..errors import MaintenanceTaskExecutionError
@@ -14,7 +12,7 @@ from ..models import (
     MaintenanceTaskOutcome,
     MaintenanceTaskStatus,
 )
-from ..turn_boundary import propagate_outer_turn_transfer, turn_failure_details
+from ..turn import MaintenanceTurnEntry
 from .actions import HomeMaintenanceActionController
 
 
@@ -26,17 +24,17 @@ class HomeMaintenanceTask:
         *,
         home: AgentHomeEngine,
         controller: HomeMaintenanceActionController,
-        turn: TurnRunner,
+        turn: MaintenanceTurnEntry,
     ) -> None:
         self._home = home
         self._controller = controller
         self._turn = turn
 
     def pending(self) -> bool:
-        return self._home.maintenance_pending().pending
+        return self._home.review_pending().pending
 
     def pending_counts(self) -> tuple[int, int]:
-        pending = self._home.maintenance_pending()
+        pending = self._home.review_pending()
         return pending.change_count, pending.skill_memory_count
 
     def run(
@@ -46,9 +44,9 @@ class HomeMaintenanceTask:
         scope: RunScope,
         request_id: str,
     ) -> MaintenanceTaskOutcome:
-        snapshot = self._home.maintenance_snapshot()
+        snapshot = self._home.review_snapshot()
         if not snapshot.pending:
-            removed = self._home.finalize_maintenance()
+            removed = self._home.remove_resolved_overlay()
             return MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.HOME,
                 status=MaintenanceTaskStatus.SKIPPED,
@@ -71,19 +69,14 @@ class HomeMaintenanceTask:
                 request_id=request_id,
                 input_source="maintenance.home",
             )
-            propagate_outer_turn_transfer(outcome)
-            if (
-                outcome.status is not TurnOutcomeStatus.COMPLETED
-                or outcome.completion is None
-                or outcome.completion.get("task") != "home"
-            ):
+            if not outcome.completed:
                 self._controller.abort()
                 completed = True
                 return MaintenanceTaskOutcome(
                     kind=MaintenanceTaskKind.HOME,
                     status=MaintenanceTaskStatus.FAILED,
                     reason="maintenance_turn_failed",
-                    details=turn_failure_details(outcome),
+                    details=outcome.details,
                 )
             details = self._controller.finish()
             completed = True

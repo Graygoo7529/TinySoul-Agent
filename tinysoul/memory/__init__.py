@@ -3,7 +3,7 @@
 from .actions import MemoryRecallExecutor, MemorySearchExecutor, register_memory_actions
 from .background import MemoryBackgroundEntryProvider
 from .config import (
-    MemoryMaintenanceSettings,
+    MemoryConsolidationSettings,
     MemorySearchSettings,
     MemorySettings,
     parse_memory_settings,
@@ -13,16 +13,16 @@ from .engine import MemoryEngine, MemoryRecallResult
 from .errors import MemoryContractError, MemoryError, MemoryIOError, MemoryInvariantError
 from .failures import MemoryFailureKind
 from .links import MemoryLink
-from .maintenance import (
+from .consolidation import (
     HomeTopLinkCatalog,
     MemoryConsolidationError,
     MemoryConsolidationRequest,
     MemoryConsolidationResult,
     MemoryConsolidator,
-    MemoryMaintenanceFailure,
-    MemoryMaintenanceOutcome,
-    MemoryMaintenanceSkipReason,
-    MemoryMaintenanceStatus,
+    MemoryConsolidationFailure,
+    MemoryConsolidationOutcome,
+    MemoryConsolidationSkipReason,
+    MemoryConsolidationStatus,
 )
 from .search import (
     LLMMemorySearchReranker,
@@ -49,11 +49,11 @@ __all__ = [
     "MemoryIOError",
     "MemoryInvariantError",
     "MemoryLink",
-    "MemoryMaintenanceFailure",
-    "MemoryMaintenanceOutcome",
-    "MemoryMaintenanceSettings",
-    "MemoryMaintenanceSkipReason",
-    "MemoryMaintenanceStatus",
+    "MemoryConsolidationFailure",
+    "MemoryConsolidationOutcome",
+    "MemoryConsolidationSettings",
+    "MemoryConsolidationSkipReason",
+    "MemoryConsolidationStatus",
     "MemoryRecallExecutor",
     "MemoryRecallResult",
     "MemorySearchCandidate",

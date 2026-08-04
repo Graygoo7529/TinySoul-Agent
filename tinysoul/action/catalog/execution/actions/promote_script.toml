@@ -2,7 +2,7 @@ name = "execution.promote_script"
 domain = "execution"
 
 [tool]
-description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general HOW. Home Maintenance later reviews the resulting Home diff."
+description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general HOW. The resulting Home diff is reviewed before it reaches actual Home."
 
 [tool.schema]
 type = "object"

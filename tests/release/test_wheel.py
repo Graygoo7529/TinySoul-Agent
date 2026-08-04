@@ -74,15 +74,15 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/action/catalog/execution/actions/run_powershell.toml" in names
     assert "tinysoul/action/catalog/execution/actions/run_cmd.toml" in names
     assert "tinysoul/action/catalog/execution/actions/apply.toml" in names
-    assert "tinysoul/action/catalog/maintenance/domain.toml" in names
-    assert "tinysoul/action/catalog/maintenance/actions/complete.toml" in names
+    assert "tinysoul/maintenance/catalog/maintenance/domain.toml" in names
+    assert "tinysoul/maintenance/catalog/maintenance/actions/complete.toml" in names
     assert (
-        "tinysoul/action/catalog/maintenance/actions/memory_consolidate.toml"
+        "tinysoul/maintenance/catalog/maintenance/actions/memory_consolidate.toml"
         in names
     )
     assert "tinysoul/app/program.py" in names
     assert "tinysoul/app/requests.py" in names
-    assert "tinysoul/loop/maintenance/completion.py" in names
+    assert "tinysoul/maintenance/turn/completion.py" in names
     assert "tinysoul/loop/user/completion.py" in names
     assert "tinysoul/maintenance/engine.py" in names
     assert "tinysoul/maintenance/archive/engine.py" in names

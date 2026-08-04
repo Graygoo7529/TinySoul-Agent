@@ -27,7 +27,7 @@ from tinysoul.home import (
     AgentHomeEngine,
     AgentHomeEngineBuilder,
     AgentHomeSettings,
-    HomeMaintenanceResolution,
+    HomeReviewResolution,
     HomeSearchDocument,
     HomeSearchRequest,
     HomeSearchSettings,
@@ -234,16 +234,16 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
     )
     before = home.search_top("committed guidance", top_k=1)
 
-    change = home.maintenance_snapshot().changes[0]
-    outcome = home.resolve_maintenance(
+    change = home.review_snapshot().changes[0]
+    outcome = home.resolve_review(
         change.token,
-        HomeMaintenanceResolution.ACCEPT,
+        HomeReviewResolution.ACCEPT,
     )
-    home.finalize_maintenance()
+    home.remove_resolved_overlay()
     after = home.search_top("committed guidance", top_k=1)
 
     assert before.items[0].title == "Current Review"
-    assert outcome.resolution is HomeMaintenanceResolution.ACCEPT
+    assert outcome.resolution is HomeReviewResolution.ACCEPT
     assert actual.read_text(encoding="utf-8").startswith("# Current Review")
     assert after.items[0].title == "Current Review"
     assert after.items[0].digest == before.items[0].digest

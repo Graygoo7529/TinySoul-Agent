@@ -12,7 +12,7 @@ Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`t
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、知识、技能和行动域 HOW。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 Context 提供 effective Home 与 actual Home 两种动态顶层 provider，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供普通 runtime mutation 和 Maintenance resolution 门面。Agent Home 不拥有 reviewer、时钟、scheduler 或 Maintenance Turn；它只负责跨日 active overlay、effective/actual view 与单项 Home resolution，不参与 Session/Workspace 的每日归档或 Memory Maintenance。
+Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供普通 runtime mutation；Maintenance-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Maintenance task、reviewer、时钟、scheduler 或 Maintenance Turn。
 
 ## 设计目标
 
@@ -22,7 +22,7 @@ Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 wor
 4. Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件；Action 内部 LLM task 只依赖 `ActionHowProvider` 协议。
 5. HOW、WHAT 和 WHY 的目录结构由 Agent Home 解释，不泄漏到 AppBuilder。
 6. Agent Home 运行时副本错误有明确 failure kind 和 Runtime bridge 映射。
-7. Home Maintenance 作为独立 Program work 接入，不混入 User Turn 的 Phase 主链路；Memory Maintenance 由 Memory 模块独立拥有。
+7. Home Maintenance 作为独立 Program work 接入，不混入 User Turn 主线；Home 只提供中性 Review 能力，任务/Turn/Action 由 Maintenance 模块拥有。Memory 同样只提供 Consolidation owner 能力。
 
 ## 链接语义
 
@@ -253,12 +253,12 @@ Home owner 的 diff 输入只包括当前 active `runtime/home`、actual Home，
 2. `maintenance.home.list/inspect` 向 Maintenance Turn 提供 token、Link、state、digest 和有界 before/after 内容；token 绑定当前 snapshot，actual/runtime 任一变化都会使旧 token 失效；
 3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；HOW rewrite 在写入前重新校验 frontmatter，非法正文保持 actual 和 review 不变；
 4. `SKILL_MEMORY.md` 是独立的 `skill_how_review`，不是普通 diff 的附件；`inspect` 返回 actual HOW 和临时记忆，只有 inspect 后才能 `reject`/`rewrite`，对应 skill 处理完成后清空；
-5. `maintenance.complete` 只有在 snapshot 和 pending 事实均无未处理项时成功；Turn 结束后 controller 再调用 `finalize_maintenance`，校验 runtime root 只含空 overlay 元数据并整体移除 `runtime/home`；
+5. `maintenance.complete` 只有在 snapshot 和 pending 事实均无未处理项时成功；Turn 结束后 controller 再调用 `remove_resolved_overlay()`，校验 runtime root 只含空 overlay 元数据并整体移除 `runtime/home`；
 6. 下一次 Home 访问发现 runtime root 不存在时重新初始化 overlay，并按需从 actual 懒加载。
 
 Home Maintenance 与 User Turn 由 Program 单写者边界串行化。未触发或任务失败时，尚未处理的 overlay 原样跨 Turn、跨日、跨重启保留；已完成的单项 resolution 不回滚。若中断发生在 actual 写入之后、runtime 清理之前，下一次 snapshot 根据 runtime/actual 已一致事实完成确定性清理，不需要持久 review decision。
 
-`HomeMaintenanceService` 不调用 LLM、不读取 stdin、不解释自动或手动模式。Maintenance Turn 的推理失败形成 Home task outcome；Home owner 只维护 snapshot/resolution/pending/finalize 契约。事件和 outcome 只携带 Link、state、resolution、digest、计数和稳定错误类型，不包含完整正文、diff、reasoning 或绝对路径。
+`HomeReviewService` 不调用 LLM、不读取 stdin、不解释自动或手动模式。Maintenance Turn 的推理失败形成 Home task outcome；Home owner 只维护 `review_snapshot`、`resolve_review`、`review_pending` 和 `remove_resolved_overlay` 契约。事件和 outcome 只携带 Link、state、resolution、digest、计数和稳定错误类型，不包含完整正文、diff、reasoning 或绝对路径。
 
 ## 与 Workspace 的关系
 
@@ -297,7 +297,7 @@ tinysoul/home/
   layout.py
   overlay.py
   search.py
-  maintenance.py
+  review.py
   runtime_copy.py
   guidance.py
   actions.py
