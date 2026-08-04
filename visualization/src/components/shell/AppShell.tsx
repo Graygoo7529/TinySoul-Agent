@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Layers, RefreshCw, Wrench } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import { useDerivedChat } from "../../derive/chat";
+import { maintenanceTaskCount } from "../../derive/maintenance";
 import { Button, IconButton } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Sidebar } from "./Sidebar";
@@ -37,6 +38,7 @@ export function AppShell() {
   const maintenancePending =
     maintenanceStatus?.availability.home_pending ||
     maintenanceStatus?.availability.memory_pending;
+  const maintenanceCount = maintenanceTaskCount(maintenanceStatus);
 
   const connected = connection.status === "connected";
 
@@ -60,7 +62,9 @@ export function AppShell() {
             disabled={!connected}
           >
             <Wrench size={12} />
-            {maintenancePending ? "Maintenance available" : "Maintenance"}
+            {maintenancePending
+              ? `Maintenance available (${maintenanceCount})`
+              : "Maintenance"}
           </Button>
           <IconButton
             label="Background context"

@@ -46,6 +46,14 @@ def test_input_parser_supports_all_maintenance_scopes_and_rebuild() -> None:
         InputEvent("/maintenance memory tomorrow"),
         turn_active=False,
     )
+    missing_target = parser.parse(
+        InputEvent("/maintenance memory"),
+        turn_active=False,
+    )
+    rebuild_without_target = parser.parse(
+        InputEvent("/maintenance memory --rebuild"),
+        turn_active=False,
+    )
 
     assert daily.maintenance_scope is MaintenanceScope.DAILY
     assert home.maintenance_scope is MaintenanceScope.HOME
@@ -53,6 +61,8 @@ def test_input_parser_supports_all_maintenance_scopes_and_rebuild() -> None:
     assert memory.target_day == BusinessDay.parse("2026-07-12")
     assert memory.rebuild_memory is True
     assert invalid.kind is InputIntentKind.REJECTED
+    assert missing_target.kind is InputIntentKind.REJECTED
+    assert rebuild_without_target.kind is InputIntentKind.REJECTED
 
 
 def test_dispatcher_routes_user_input_to_queue_or_active_turn_signal() -> None:

@@ -36,7 +36,7 @@ export function StatusBar() {
           </span>
         </>
       )}
-      <span className="ml-auto font-mono text-fg-faint">
+      <span className="ml-auto hidden font-mono text-fg-faint sm:inline">
         {connection.info ? `${connection.info.host}:${connection.info.port}` : "—"}
       </span>
     </footer>

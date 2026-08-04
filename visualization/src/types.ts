@@ -116,16 +116,26 @@ export interface CommandReceipt {
   state: string;
 }
 
-export interface MaintenanceRequest {
-  kind: "daily" | "home" | "memory";
-  target_day?: string;
-  rebuild_memory?: boolean;
+interface MaintenanceRequestBase {
   metadata?: Record<string, unknown>;
   command_id?: string;
 }
 
+export type MaintenanceRequest =
+  | (MaintenanceRequestBase & {
+      kind: "daily" | "home";
+      target_day?: never;
+      rebuild_memory?: never;
+    })
+  | (MaintenanceRequestBase & {
+      kind: "memory";
+      target_day: string;
+      rebuild_memory?: boolean;
+    });
+
 export interface MaintenanceStatus {
   availability: {
+    checked_day: string;
     home_pending: boolean;
     home_change_count: number;
     home_skill_memory_count: number;

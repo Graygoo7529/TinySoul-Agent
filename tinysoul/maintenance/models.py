@@ -63,6 +63,10 @@ class MaintenanceRequest:
             raise MaintenanceContractError(
                 "Only Memory Maintenance can target an explicit day"
             )
+        if self.scope is MaintenanceScope.MEMORY and self.target_day is None:
+            raise MaintenanceContractError(
+                "Memory Maintenance requires an explicit target day"
+            )
         if not isinstance(self.rebuild_memory, bool):
             raise MaintenanceContractError("Maintenance rebuild_memory must be boolean")
         if self.scope is not MaintenanceScope.MEMORY and self.rebuild_memory:

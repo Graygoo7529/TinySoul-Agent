@@ -41,7 +41,7 @@ Archive/Home/Memory 包不互相读取私有 store。Engine 只依赖它们公�
 
 - `scope`: `daily | home | memory`；
 - `trigger`: `manual | scheduled`；
-- Memory 可选 `target_day` 与 `rebuild_memory`；
+- Memory 必须提供 `target_day`，可选 `rebuild_memory`；
 - request identity、source 与有界 metadata。
 
 Program 不按 trigger 分叉业务流程。所有 MaintenanceRequest 都串行调用 `MaintenanceEngine.run()`；trigger 只用于审计。User Turn 活跃期间收到的 Maintenance 命令进入 Program queue，在当前 Turn 收束后执行，不成为 `context.input.append`。
@@ -52,10 +52,10 @@ Program 不按 trigger 分叉业务流程。所有 MaintenanceRequest 都串行�
 /maintenance
 /maintenance daily
 /maintenance home
-/maintenance memory [YYYY-MM-DD] [--rebuild]
+/maintenance memory YYYY-MM-DD [--rebuild]
 ```
 
-Endpoint 使用同一参数语义。scheduler 根据 `[maintenance.schedule]` 每天投递一个 scheduled Daily request。计划时刻之后才启动的进程不追补启动前的 LLM work，只由 Program 发布 availability；计划时刻前已经运行的进程按时投递，运行中跨日休眠则合并为一个当前日 request。scheduler 不保存持久 cursor，不执行模块逻辑，也不等待结果。
+Endpoint 使用同一参数语义。scheduler 根据 `[maintenance.schedule]` 每天投递一个 scheduled Daily request。计划时刻之后才启动的进程不追补启动前的 LLM work，只由 Program 发布包含 Home 聚合任务和全部 Memory 日期的 availability；计划时刻前已经运行的进程按时投递，运行中跨日休眠则合并为一个当前日 request。scheduler 不保存持久 cursor，不执行模块逻辑，也不等待结果。
 
 ## Engine 流程
 
@@ -64,7 +64,7 @@ Endpoint 使用同一参数语义。scheduler 根据 `[maintenance.schedule]` �
 1. 用 BusinessClock 捕获当前 BusinessDay；
 2. 调用 Archive preflight，恢复 pending journal 或把旧 active Session/Workspace/Trash 归档并建立新日 roots；
 3. 若本次形成或恢复 Archive，只校验该关闭日的 Session facts 与 MEMORY，并增量登记 Memory 待办；随后校验既有日期、重算 Home 计数并原子写入 availability；
-4. `daily` 运行 Home，并运行 availability 中按日排序的 Memory 待办；`home` 只运行 Home；`memory` 运行显式目标或当前待办；
+4. `daily` 运行 Home，并且只在昨日位于 availability 时运行该日一个 Memory task；更早的待办保持不变；`home` 只运行 Home；`memory` 只运行请求中的明确目标；
 5. 每个 task 独立形成 completed/skipped/failed outcome；明确的 task failure 不回滚已完成 task，也不阻止其它目标，未知异常和 Runtime transfer 传播；
 6. 完成后再次刷新 availability，并聚合为 `completed | partial | skipped | failed` MaintenanceOutcome。
 
@@ -72,7 +72,7 @@ Archive preflight 不变量失败是 Program 边界失败，因为在日切完�
 
 ## Availability
 
-Maintenance 在 module-owned runtime root 原子保存唯一 `availability.json`。它包含本次检查的 Business Day、去重排序的 Memory 日期列表和当前 Home diff/SKILL_MEMORY 计数。Memory 列表只在 Archive 完成或恢复时增量加入日期，在有效 MEMORY 已存在时删除；Home 状态每次从 owner 重算，不建立 Home task journal。
+Maintenance 在 module-owned runtime root 原子保存唯一 `availability.json`。它包含本次检查的 Business Day、去重排序的全部 Memory 待办日期和当前 Home diff/SKILL_MEMORY 计数。Memory 列表只在 Archive 完成或恢复时增量加入日期，在有效 MEMORY 已存在时删除；Home 状态每次从 owner 重算，不建立 Home task journal。展示层把 Home pending 计为至多一个聚合任务，把每个 Memory 日期计为一个独立任务。
 
 该投影是前端提示的唯一事实来源，但不是业务提交依据。Memory task 执行前仍解析对应 ArchiveProjection 并调用 Memory owner eligibility；Home task 仍由 Home owner重新检查 diff。文件缺失表示尚未完成启动刷新，文件损坏或与 Archive 不变量冲突必须失败，不能解释为空提示单。
 
@@ -132,6 +132,8 @@ Maintenance Context 与 User Context 具有相同的 Background/Session/Workspac
 
 - 新日 User Turn 只依赖确定性 Archive preflight，不依赖模型成功；
 - manual/scheduled 不复制流程或结果类型；
+- manual/scheduled Daily 都只选择当前 Maintenance BusinessDay 的昨日 Memory，不自动消费更早欠账；
+- Memory scope 必须携带明确 target day，一个 request 至多运行一个 Memory Turn；
 - `MaintenancePlan` 不是领域协议；Engine 直接从 typed request 与 availability 快照选择任务；
 - MaintenanceEngine 不伪造没有 RuntimeModuleRunner owner 的 `MODULE` frame；Program scope 由 App 传入，真正的 Module frame 只由可重放的 RuntimeModuleRunner 建立；
 - Event 只通知 availability 失效，Endpoint GET 才交付持久提示单；

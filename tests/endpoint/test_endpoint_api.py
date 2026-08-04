@@ -119,6 +119,14 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         )
     ]
 
+    missing_target = client.post(
+        "/v1/maintenance",
+        headers=_auth(),
+        json={"kind": "memory"},
+    )
+    assert missing_target.status_code == 422
+    assert missing_target.json()["error"]["code"] == "maintenance.target_day_required"
+
 
 def test_endpoint_hides_unexpected_exception_details(
     tmp_path: Path,

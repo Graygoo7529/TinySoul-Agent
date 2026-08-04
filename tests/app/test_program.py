@@ -19,6 +19,8 @@ from tinysoul.maintenance import (
     MaintenanceTrigger,
 )
 from tinysoul.runtime import (
+    ObservationEvent,
+    ObservationLevel,
     RUNTIME_PROGRAM_END,
     RunLevel,
     RuntimeTrap,
@@ -63,6 +65,42 @@ def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
     assert len(outcome.maintenance) == 1
 
 
+def test_program_startup_reports_complete_maintenance_availability() -> None:
+    queue: Queue[AppRequest] = Queue()
+    queue.put(ExitRequest(request_id="exit_1"))
+    maintenance = _Maintenance(
+        availability=MaintenanceAvailability(
+            checked_day=DAY,
+            home_change_count=2,
+            home_skill_memory_count=1,
+            memory_days=(
+                BusinessDay.parse("2026-08-01"),
+                BusinessDay.parse("2026-08-02"),
+            ),
+        )
+    )
+    observations = _RecordingObservations()
+    runner = ProgramRunner(
+        user_turn=_UserTurn(),
+        maintenance=maintenance,
+        bus=SignalBus(),
+        trap=_trap(),
+        input_queue=queue,
+        observations=observations,
+    )
+
+    runner.run()
+
+    event = next(
+        event
+        for event in observations.events
+        if event.name == "program.maintenance.available"
+    )
+    assert event.payload == maintenance.availability().to_json()
+    assert event.payload["home_pending"] is True
+    assert event.payload["memory_days"] == ["2026-08-01", "2026-08-02"]
+
+
 class _UserTurn:
     def __init__(self) -> None:
         self.inputs: list[str] = []
@@ -78,15 +116,16 @@ class _UserTurn:
 
 
 class _Maintenance:
-    def __init__(self) -> None:
+    def __init__(self, *, availability: MaintenanceAvailability | None = None) -> None:
         self.requests: list[MaintenanceRequest] = []
+        self._availability = availability or MaintenanceAvailability(checked_day=DAY)
 
     def preflight(self, *, scope=None):
         del scope
         return DailyTransitionOutcome(active_day=DAY)
 
     def availability(self):
-        return MaintenanceAvailability(checked_day=DAY)
+        return self._availability
 
     @contextmanager
     def active_day_lease(self):
@@ -100,6 +139,18 @@ class _Maintenance:
             business_day=DAY,
             status=MaintenanceStatus.SKIPPED,
         )
+
+
+class _RecordingObservations:
+    def __init__(self) -> None:
+        self.events: list[ObservationEvent] = []
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        del level
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
 
 
 def _trap() -> RuntimeTrap:

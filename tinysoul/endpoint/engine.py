@@ -224,6 +224,12 @@ class EndpointEngine:
                 code="maintenance.rebuild_invalid",
                 message="Only Memory Maintenance accepts rebuild_memory.",
             )
+        if kind == "memory" and not target_day:
+            raise EndpointRequestError(
+                status_code=422,
+                code="maintenance.target_day_required",
+                message="Memory Maintenance requires target_day.",
+            )
         day = None
         if target_day:
             if kind != "memory":

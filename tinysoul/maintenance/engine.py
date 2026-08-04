@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import RLock
 from typing import Protocol
 
@@ -176,14 +176,27 @@ class MaintenanceEngine:
                 )
 
             if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.MEMORY}:
-                targets = self._memory_targets(request, availability)
+                targets = self._memory_targets(
+                    request,
+                    availability,
+                    business_day=business_day,
+                )
                 if not targets:
+                    target_day = (
+                        _previous_day(business_day)
+                        if request.scope is MaintenanceScope.DAILY
+                        else request.target_day
+                    )
                     outcomes.append(
                         MaintenanceTaskOutcome(
                             kind=MaintenanceTaskKind.MEMORY,
                             status=MaintenanceTaskStatus.SKIPPED,
-                            target_day=request.target_day,
-                            reason="no_eligible_closed_day",
+                            target_day=target_day,
+                            reason=(
+                                "previous_day_not_pending"
+                                if request.scope is MaintenanceScope.DAILY
+                                else "no_eligible_closed_day"
+                            ),
                         )
                     )
                 for target in targets:
@@ -303,19 +316,28 @@ class MaintenanceEngine:
         self,
         request: MaintenanceRequest,
         availability: MaintenanceAvailability,
+        *,
+        business_day: BusinessDay,
     ) -> tuple[BusinessDay, ...]:
-        if request.target_day is not None:
-            archive = self._archive.archive_for(request.target_day)
-            return (
-                (request.target_day,)
-                if self._memory.eligible(
-                    request.target_day,
-                    archive=archive,
-                    rebuild=request.rebuild_memory,
-                )
-                else ()
+        if request.scope is MaintenanceScope.DAILY:
+            target_day = _previous_day(business_day)
+            return (target_day,) if target_day in availability.memory_days else ()
+
+        target_day = request.target_day
+        if target_day is None:
+            raise MaintenanceInvariantError(
+                "Memory Maintenance request has no target day"
             )
-        return availability.memory_days
+        archive = self._archive.archive_for(target_day)
+        return (
+            (target_day,)
+            if self._memory.eligible(
+                target_day,
+                archive=archive,
+                rebuild=request.rebuild_memory,
+            )
+            else ()
+        )
 
     @staticmethod
     def _archive_outcome(
@@ -393,3 +415,7 @@ def _aggregate_status(
     if failed:
         return MaintenanceStatus.PARTIAL
     return MaintenanceStatus.COMPLETED
+
+
+def _previous_day(day: BusinessDay) -> BusinessDay:
+    return BusinessDay(day.value - timedelta(days=1))

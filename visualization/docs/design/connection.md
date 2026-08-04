@@ -31,7 +31,7 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 
 ## 身份与状态校验
 
-- `GET /v1/status` 返回 instance/project identity、active day、turn active、workspace revision、最新 event sequence 和 maintenance decision pending 状态。
+- `GET /v1/status` 返回 instance/project identity、active day、turn active、workspace revision 和最新 event sequence；Maintenance 权威状态由 `GET /v1/maintenance` 单独返回。
 - 若 status 中的 identity 与连接描述不一致，立即断开并回到未连接状态。
 - `ready=false` 时继续轮询重试，不能绕过 Daily 初始化访问本地目录。
 
@@ -39,7 +39,7 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 
 - **HTTP 补拉**：`GET /v1/events?after=<seq>&mode=model&limit=200`。
 - **WebSocket**：`/v1/events/ws`，首帧发送 `{"token": "...", "after": <seq>, "mode": "model"}`。
-- 首次连接使用 `after=0`，避免跳过启动 Maintenance 提示。
+- 首次连接使用 `after=0` 补拉当前实例事件；启动 Maintenance 提示以首次连接读取的权威 availability 为依据，不依赖瞬时事件。
 - 断线重连使用客户端最后提交到 store 的 sequence。
 - raw event store 以 `(instance_id, sequence)` 去重并保持因果顺序。
 - 收到 `gap=true` 时清空临时执行视图，并重新读取 status、Workspace Manifest、Maintenance 权威投影。
@@ -48,7 +48,7 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 
 - token 只保存在 Tauri/React 当前内存，不写入 localStorage、日志或 URL。
 - 所有 HTTP 请求携带 `Authorization: Bearer <token>`。
-- 401 表示 token 错误；409 表示 Maintenance decision 待处理、revision/digest 过期或状态冲突。
+- 401 表示 token 错误；409 表示 Program 尚未就绪、revision/digest 过期或其它状态冲突。
 
 ## 前端实现要点
 
@@ -56,3 +56,4 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 - `src/hooks/useBackend.ts` 负责发现、身份校验、状态轮询、WebSocket 连接与 gap 恢复。
 - `src/api/events.ts` 管理 WebSocket 重连与事件分页。
 - `src/store/appStore.ts` 保存当前连接、原始事件流、Workspace 缓存与 UI 选择。
+- 首次连接读取到待办时只自动打开一次 Maintenance 面板；Home 显示为一个聚合任务，Memory 按日期逐项提交，后续失效事件只刷新投影。

@@ -15,6 +15,7 @@ from tinysoul.maintenance import (
     DailyTransitionOutcome,
     MaintenanceAvailability,
     MaintenanceAvailabilityStore,
+    MaintenanceContractError,
     MaintenanceEngine,
     MaintenanceInvariantError,
     MaintenanceRequest,
@@ -44,8 +45,32 @@ def test_preflight_registers_only_the_new_archive_day(tmp_path: Path) -> None:
     assert archive.requested_days == [DAY_TWO]
 
 
-def test_daily_maintenance_processes_persisted_memory_days_and_clears_them(
+def test_preflight_projects_home_and_all_memory_backlog(tmp_path: Path) -> None:
+    archive = _Archive(tmp_path, (DAY_ONE,))
+    engine, store = _engine(
+        tmp_path,
+        archive=archive,
+        home=_Home(pending=True),
+    )
+    store.save(
+        MaintenanceAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
+    )
+
+    engine.preflight()
+
+    availability = store.require()
+    assert availability.home_pending
+    assert availability.home_change_count == 1
+    assert availability.memory_days == (DAY_ONE,)
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    (MaintenanceTrigger.MANUAL, MaintenanceTrigger.SCHEDULED),
+)
+def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
     tmp_path: Path,
+    trigger: MaintenanceTrigger,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE, DAY_TWO))
     home = _Home(pending=True)
@@ -66,19 +91,44 @@ def test_daily_maintenance_processes_persisted_memory_days_and_clears_them(
     outcome = engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.DAILY,
-            trigger=MaintenanceTrigger.SCHEDULED,
+            trigger=trigger,
         )
     )
 
     assert [task.kind for task in outcome.tasks] == [
         MaintenanceTaskKind.HOME,
         MaintenanceTaskKind.MEMORY,
-        MaintenanceTaskKind.MEMORY,
     ]
-    assert memory.ran == [DAY_ONE, DAY_TWO]
+    assert memory.ran == [DAY_TWO]
     assert home.runs == 1
-    assert store.require().memory_days == ()
+    assert store.require().memory_days == (DAY_ONE,)
     assert not store.require().home_pending
+
+
+def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
+    tmp_path: Path,
+) -> None:
+    archive = _Archive(tmp_path, (DAY_ONE,))
+    memory = _Memory()
+    engine, store = _engine(tmp_path, archive=archive, memory=memory)
+    store.save(
+        MaintenanceAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
+    )
+
+    outcome = engine.run(
+        MaintenanceRequest(
+            scope=MaintenanceScope.DAILY,
+            trigger=MaintenanceTrigger.SCHEDULED,
+        )
+    )
+
+    memory_outcome = outcome.tasks[-1]
+    assert memory_outcome.kind is MaintenanceTaskKind.MEMORY
+    assert memory_outcome.status is MaintenanceTaskStatus.SKIPPED
+    assert memory_outcome.target_day == DAY_TWO
+    assert memory_outcome.reason == "previous_day_not_pending"
+    assert memory.ran == []
+    assert store.require().memory_days == (DAY_ONE,)
 
 
 def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> None:
@@ -93,6 +143,7 @@ def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> N
         MaintenanceRequest(
             scope=MaintenanceScope.MEMORY,
             trigger=MaintenanceTrigger.MANUAL,
+            target_day=DAY_ONE,
         )
     )
 
@@ -101,6 +152,14 @@ def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> N
     restarted, _ = _engine(tmp_path, archive=archive, memory=memory)
     restarted.preflight()
     assert restarted.availability().memory_days == (DAY_ONE,)
+
+
+def test_memory_request_requires_explicit_target_day() -> None:
+    with pytest.raises(MaintenanceContractError, match="explicit target day"):
+        MaintenanceRequest(
+            scope=MaintenanceScope.MEMORY,
+            trigger=MaintenanceTrigger.MANUAL,
+        )
 
 
 def test_manual_and_scheduled_home_requests_use_the_same_task_path(

@@ -179,6 +179,8 @@ class InputCommandParser:
                         raise MaintenanceContractError("too many arguments")
             except (BusinessDayError, MaintenanceContractError):
                 return self._rejected(event, text)
+            if target is None:
+                return self._rejected(event, text)
             return self._intent(
                 InputIntentKind.MAINTENANCE,
                 event,
@@ -196,7 +198,7 @@ class InputCommandParser:
             text=text,
             error=(
                 "Use /maintenance [daily|home] or "
-                "/maintenance memory [YYYY-MM-DD] [--rebuild]."
+                "/maintenance memory YYYY-MM-DD [--rebuild]."
             ),
         )
 

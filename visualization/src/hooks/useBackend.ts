@@ -64,7 +64,7 @@ export function useBackend() {
       store.setClient(nextClient);
       store.setStatus(status);
       store.setConnection({ status: "connected", info });
-      void refreshMaintenance(nextClient);
+      void refreshMaintenance(nextClient, { prompt: true });
       void refreshWorkspace(nextClient);
 
       const stream = new TinySoulEventStream(info, 0, "model", {
@@ -228,9 +228,21 @@ function handleEventSideEffects(
   }
 }
 
-async function refreshMaintenance(client: TinySoulClient) {  try {
+async function refreshMaintenance(
+  client: TinySoulClient,
+  options: { prompt?: boolean } = {},
+) {
+  try {
     const maintenance = await client.maintenanceStatus();
-    useAppStore.getState().setMaintenanceStatus(maintenance);
+    const store = useAppStore.getState();
+    store.setMaintenanceStatus(maintenance);
+    if (
+      options.prompt &&
+      (maintenance.availability.home_pending ||
+        maintenance.availability.memory_pending)
+    ) {
+      store.setMaintenanceOpen(true);
+    }
   } catch (error) {
     console.error("Maintenance status recovery failed:", error);
   }
