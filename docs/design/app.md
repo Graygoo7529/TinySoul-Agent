@@ -123,6 +123,8 @@ AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared 
 
 AppBuilder 构建一个 `MaintenanceEngine` 并注入 `ProgramRunner` 和 Endpoint。MaintenanceEngine 内部组合 `maintenance.archive` 的 DailyLifecycleCoordinator、持久 Availability store、HomeMaintenanceTask 与 MemoryMaintenanceTask；Home/Memory task 需要推理时再调用各自的 Maintenance Turn。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，再增量登记本次归档日、校验既有 Memory 待办、重算 Home pending 并原子保存唯一 availability；该步骤完成后 Endpoint 才能对外就绪。Program 以 `program.maintenance.available` 给出非阻塞提示，Observation 只通知前端重新读取 Endpoint 投影。
 
+Program 运行期的 availability、User request preflight 或 Maintenance request 若遇到 Maintenance contract/invariant failure，统一经 `RuntimeMaintenanceBridge` 转换为 `runtime.program_end`，由当前 Program trap 形成 `ProgramOutcome.transfer`；启动 `prepare()` 的 preflight 仍映射为 `runtime.startup_failed`。Maintenance Turn 已经决议的外层 Program transfer 只展开和消费一次，不重复进入 Trap。未知 Python 异常原样传播，不能伪装成 task failure。
+
 人工命令为 `/maintenance [daily|home]` 与 `/maintenance memory [YYYY-MM-DD] [--rebuild]`；Endpoint 以结构化 `kind=daily|home|memory`、可选 target/rebuild 表达相同意图。人工和 scheduler request 只在 trigger/参数上不同，进入 MaintenanceEngine 后使用同一个任务选择、执行路径和 outcome；不存在持久 `MaintenancePlan`。整个流程自动执行，不存在 decision identity、审批 Endpoint 或 pending 输入阻塞。
 
 `ProjectInstanceLease` 在 AppBuilder 构建业务 Engine 前持有规范化项目根对应的 OS 排他锁。Endpoint 监听成功后，lease 在当前用户运行目录原子发布连接描述，包含 project/instance identity、PID、loopback host、随机端口、进程 token 和协议版本；正常退出时删除描述并释放锁。重复 `start` 必须在任何第二个 WorkspaceEngine 出现前失败。EndpointEngine 是无生命周期的 application facade，EndpointHost 作为 AppService 延迟加载并启停 ASGI server；有界 event buffer 只作为固定 MODEL 的 ObservationRouter sink。

@@ -49,9 +49,11 @@ from .runtime_copy import (
 from .maintenance import (
     HomeMaintenanceChange,
     HomeMaintenancePending,
+    HomeMaintenanceReview,
     HomeMaintenanceResolveOutcome,
     HomeMaintenanceResolution,
     HomeMaintenanceSnapshot,
+    HomeSkillReview,
     HomeSkillMemoryContext,
 )
 from .overlay import HomeOverlayRecord, HomeOverlayState
@@ -88,6 +90,7 @@ __all__ = [
     "HomeLink",
     "HomeMaintenanceChange",
     "HomeMaintenancePending",
+    "HomeMaintenanceReview",
     "HomeMaintenanceResolveOutcome",
     "HomeMaintenanceResolution",
     "HomeMaintenanceSnapshot",
@@ -115,6 +118,7 @@ __all__ = [
     "HomeSearchSettings",
     "HomeTopSearchService",
     "HomeSkillMemoryContext",
+    "HomeSkillReview",
     "HomeSkillMetadata",
     "LLMHomeSearchReranker",
     "parse_agent_home_settings",

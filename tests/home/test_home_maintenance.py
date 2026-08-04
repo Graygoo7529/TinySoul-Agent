@@ -15,6 +15,27 @@ from tinysoul.home import (
 )
 
 
+_SKILL_TEXT = """---
+title: Review HOW
+description: Review working guidance.
+---
+
+# Review HOW
+
+Keep the current method.
+"""
+
+_REWRITTEN_SKILL_TEXT = """---
+title: Review HOW
+description: Review working guidance.
+---
+
+# Review HOW
+
+Use the revised method.
+"""
+
+
 def test_home_maintenance_resolves_accept_reject_and_rewrite(tmp_path: Path) -> None:
     actual = tmp_path / "home" / "why" / "review.md"
     actual.parent.mkdir(parents=True)
@@ -27,7 +48,7 @@ def test_home_maintenance_resolves_accept_reject_and_rewrite(tmp_path: Path) -> 
         accepted.token,
         HomeMaintenanceResolution.ACCEPT,
     )
-    assert outcome.remaining_changes == 0
+    assert outcome.remaining_reviews == 0
     assert actual.read_text(encoding="utf-8") == "runtime"
 
     home.write_top("home:why@review", "discard", overwrite=True)
@@ -56,6 +77,95 @@ def test_home_maintenance_rejects_stale_change_token(tmp_path: Path) -> None:
 
     with pytest.raises(AgentHomeInvariantError, match="stale or unknown"):
         home.resolve_maintenance(stale.token, HomeMaintenanceResolution.ACCEPT)
+
+
+def test_skill_memory_is_an_independent_how_review_until_resolved(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
+    home = _home(tmp_path)
+    home.write_resource(
+        "home:how/review/SKILL_MEMORY.md",
+        "The method may need a clearer final step.",
+    )
+
+    first = home.maintenance_snapshot()
+    second = home.maintenance_snapshot()
+
+    assert first.changes == ()
+    assert len(first.skill_reviews) == 1
+    assert second.skill_reviews[0].token == first.skill_reviews[0].token
+    assert home.maintenance_pending().skill_memory_count == 1
+    assert (
+        tmp_path / "runtime" / "home" / "how" / "review" / "SKILL_MEMORY.md"
+    ).exists()
+
+    review = second.skill_reviews[0]
+    outcome = home.resolve_maintenance(
+        review.token,
+        HomeMaintenanceResolution.REJECT,
+    )
+
+    assert outcome.remaining_reviews == 0
+    assert skill.read_text(encoding="utf-8") == _SKILL_TEXT
+    assert home.maintenance_pending().pending is False
+
+
+def test_skill_memory_review_can_rewrite_actual_how_but_cannot_accept(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
+    home = _home(tmp_path)
+    home.write_resource(
+        "home:how/review/SKILL_MEMORY.md",
+        "Use the revised method.",
+    )
+    review = home.maintenance_snapshot().skill_reviews[0]
+
+    with pytest.raises(AgentHomeContractError, match="does not have a runtime"):
+        home.resolve_maintenance(
+            review.token,
+            HomeMaintenanceResolution.ACCEPT,
+        )
+
+    assert home.maintenance_pending().skill_memory_count == 1
+    review = home.maintenance_snapshot().skill_reviews[0]
+    outcome = home.resolve_maintenance(
+        review.token,
+        HomeMaintenanceResolution.REWRITE,
+        rewrite_text=_REWRITTEN_SKILL_TEXT,
+    )
+
+    assert outcome.remaining_reviews == 0
+    assert skill.read_text(encoding="utf-8") == _REWRITTEN_SKILL_TEXT
+
+
+def test_skill_memory_invalid_rewrite_preserves_actual_and_review(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
+    home = _home(tmp_path)
+    home.write_resource(
+        "home:how/review/SKILL_MEMORY.md",
+        "The frontmatter should remain valid.",
+    )
+    review = home.maintenance_snapshot().skill_reviews[0]
+
+    with pytest.raises(AgentHomeContractError, match="frontmatter"):
+        home.resolve_maintenance(
+            review.token,
+            HomeMaintenanceResolution.REWRITE,
+            rewrite_text="invalid HOW",
+        )
+
+    assert skill.read_text(encoding="utf-8") == _SKILL_TEXT
+    assert home.maintenance_pending().skill_memory_count == 1
 
 
 def test_home_maintenance_finalize_requires_all_diffs_and_removes_runtime(

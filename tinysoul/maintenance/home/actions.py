@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import RLock
 
 from tinysoul.action import (
@@ -15,7 +15,12 @@ from tinysoul.action import (
     ActionResult,
     ActionResultStage,
 )
-from tinysoul.home import AgentHomeEngine, HomeMaintenanceResolution
+from tinysoul.home import (
+    AgentHomeEngine,
+    HomeMaintenanceChange,
+    HomeMaintenanceResolution,
+    HomeSkillReview,
+)
 from tinysoul.home.errors import AgentHomeError, AgentHomeInvariantError
 from tinysoul.infra.json import JsonObject
 
@@ -35,6 +40,7 @@ HOME_MAINTENANCE_ACTIONS = (
 class _HomeTaskState:
     completed: bool = False
     resolved: int = 0
+    inspected_tokens: set[str] = field(default_factory=set)
 
 
 class HomeMaintenanceActionController:
@@ -67,7 +73,7 @@ class HomeMaintenanceActionController:
                 removed = self._home.finalize_maintenance()
                 return {
                     "resolved": state.resolved,
-                    "remaining_changes": 0,
+                    "remaining_reviews": 0,
                     "runtime_home_removed": removed,
                 }
             finally:
@@ -104,21 +110,13 @@ class HomeMaintenanceActionController:
         if name == "maintenance.home.list":
             snapshot = self._home.maintenance_snapshot()
             return {
-                "count": len(snapshot.changes),
-                "items": [
-                    {
-                        "token": change.token,
-                        "link": change.link,
-                        "state": change.state.value,
-                        "baseline_digest": change.baseline_digest,
-                        "runtime_digest": change.runtime_digest,
-                        "actual_digest": change.actual_digest,
-                    }
-                    for change in snapshot.changes
-                ],
+                "count": len(snapshot.reviews),
+                "items": [_review_summary(review) for review in snapshot.reviews],
             }
         if name == "maintenance.home.inspect":
-            return self._change(_required_text(params, "token")).to_review_json()
+            review = self._review(_required_text(params, "token"))
+            state.inspected_tokens.add(review.token)
+            return review.to_review_json()
         if name in {
             "maintenance.home.accept",
             "maintenance.home.reject",
@@ -129,8 +127,13 @@ class HomeMaintenanceActionController:
                 "maintenance.home.reject": HomeMaintenanceResolution.REJECT,
                 "maintenance.home.rewrite": HomeMaintenanceResolution.REWRITE,
             }[name]
+            token = _required_text(params, "token")
+            if token not in state.inspected_tokens:
+                raise MaintenanceContractError(
+                    "Home Maintenance review must be inspected before resolution"
+                )
             outcome = self._home.resolve_maintenance(
-                _required_text(params, "token"),
+                token,
                 resolution,
                 rewrite_text=(
                     _required_text(params, "text")
@@ -138,31 +141,32 @@ class HomeMaintenanceActionController:
                     else None
                 ),
             )
+            state.inspected_tokens.discard(token)
             state.resolved += 1
             return {
                 "link": outcome.link,
                 "resolution": outcome.resolution.value,
-                "remaining_changes": outcome.remaining_changes,
+                "remaining_reviews": outcome.remaining_reviews,
             }
         if name == "maintenance.complete":
             snapshot = self._home.maintenance_snapshot()
             if snapshot.pending or self._home.maintenance_pending().pending:
                 raise MaintenanceContractError(
-                    "Home Maintenance still has unresolved runtime differences"
+                    "Home Maintenance still has unresolved reviews"
                 )
             state.completed = True
             return {"completed": True, "task": "home"}
         raise MaintenanceContractError(f"Unknown Home Maintenance action: {name}")
 
-    def _change(self, token: str):
+    def _review(self, token: str):
         matches = tuple(
-            change
-            for change in self._home.maintenance_snapshot().changes
-            if change.token == token
+            review
+            for review in self._home.maintenance_snapshot().reviews
+            if review.token == token
         )
         if len(matches) != 1:
             raise AgentHomeInvariantError(
-                "Home Maintenance change token is stale or unknown"
+                "Home Maintenance review token is stale or unknown"
             )
         return matches[0]
 
@@ -202,6 +206,29 @@ def _required_text(params: JsonObject, name: str) -> str:
             f"Home Maintenance parameter {name} must be non-empty text"
         )
     return value
+
+
+def _review_summary(review: HomeMaintenanceChange | HomeSkillReview) -> JsonObject:
+    if isinstance(review, HomeMaintenanceChange):
+        return {
+            "kind": "change",
+            "token": review.token,
+            "link": review.link,
+            "state": review.state.value,
+            "baseline_digest": review.baseline_digest,
+            "runtime_digest": review.runtime_digest,
+            "actual_digest": review.actual_digest,
+            "allowed_resolutions": ["accept", "reject", "rewrite"],
+        }
+    return {
+        "kind": "skill_how_review",
+        "token": review.token,
+        "link": review.link,
+        "skill": review.skill,
+        "actual_digest": review.actual_digest,
+        "skill_memory_digest": review.skill_memory.digest,
+        "allowed_resolutions": ["reject", "rewrite"],
+    }
 
 
 def _success(execution: ActionExecution, payload: JsonObject) -> ActionResult:

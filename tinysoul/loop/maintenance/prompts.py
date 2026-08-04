@@ -21,6 +21,7 @@ def maintenance_turn_guidance(kind: str) -> tuple[str, ...]:
     if kind == "memory":
         return (
             *common,
+            "Treat the task's closed Business Day as the scene's temporal frame.",
             "Reflect on the closed day's archived Session facts and Workspace projection.",
             "Consolidate the durable Memory document before completing.",
         )

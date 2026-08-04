@@ -135,7 +135,7 @@ class AgentHomeEngine:
         return self._maintenance.pending()
 
     def maintenance_snapshot(self) -> HomeMaintenanceSnapshot:
-        """Return bounded, token-bound active Home changes."""
+        """Return bounded, token-bound active Home reviews."""
 
         self._validate_overlay_semantics()
         return self._maintenance.snapshot()
@@ -147,7 +147,7 @@ class AgentHomeEngine:
         *,
         rewrite_text: str | None = None,
     ) -> HomeMaintenanceResolveOutcome:
-        """Resolve one current Home change through the owner boundary."""
+        """Resolve one current Home review through the owner boundary."""
 
         self._validate_overlay_semantics()
         outcome = self._maintenance.resolve(

@@ -17,7 +17,6 @@ from tinysoul.runtime import (
     ObservationEmitter,
     ObservationEvent,
     ObservationLevel,
-    RunLevel,
     RunScope,
     emit_observation,
     observation_enabled,
@@ -128,7 +127,7 @@ class MaintenanceEngine:
             transition = self._archive.ensure_active_day(
                 business_day,
                 now=now,
-                scope=run_scope.push(RunLevel.MODULE, "archive"),
+                scope=run_scope,
             )
             self._reconcile_availability(transition, scope=run_scope)
             return transition
@@ -147,7 +146,7 @@ class MaintenanceEngine:
     ) -> MaintenanceOutcome:
         """Run manual and scheduled requests through the exact same workflow."""
 
-        run_scope = scope or RunScope().push(RunLevel.PROGRAM, "program")
+        run_scope = scope or RunScope()
         with self._lock:
             transition = self.preflight(scope=run_scope)
             business_day = transition.active_day
@@ -170,7 +169,7 @@ class MaintenanceEngine:
                         MaintenanceTaskKind.HOME,
                         lambda: self._home.run(
                             business_day=business_day,
-                            scope=run_scope.push(RunLevel.MODULE, "maintenance.home"),
+                            scope=run_scope,
                             request_id=request.request_id,
                         ),
                     )
@@ -196,10 +195,7 @@ class MaintenanceEngine:
                                 target_day=target,
                                 archive=self._archive.archive_for(target),
                                 rebuild=request.rebuild_memory,
-                                scope=run_scope.push(
-                                    RunLevel.MODULE,
-                                    "maintenance.memory",
-                                ),
+                                scope=run_scope,
                                 request_id=request.request_id,
                             ),
                             target_day=target,

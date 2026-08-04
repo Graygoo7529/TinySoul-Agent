@@ -12,14 +12,14 @@ from tinysoul.maintenance.errors import (
 )
 from tinysoul.maintenance.failures import MaintenanceFailureKind
 
-from ..exception import RUNTIME_STARTUP_FAILED, RUNTIME_TURN_END, RuntimeException
+from ..exception import RUNTIME_PROGRAM_END, RUNTIME_STARTUP_FAILED, RuntimeException
 from ._payload import config_error_payload, exception_payload, runtime_exception
 
 
 MAINTENANCE_RUNTIME_REASON_MAP: dict[MaintenanceFailureKind, str] = {
     MaintenanceFailureKind.CONFIGURATION_FAILED: RUNTIME_STARTUP_FAILED,
-    MaintenanceFailureKind.CONTRACT_VIOLATION: RUNTIME_TURN_END,
-    MaintenanceFailureKind.INVARIANT_VIOLATION: RUNTIME_TURN_END,
+    MaintenanceFailureKind.CONTRACT_VIOLATION: RUNTIME_PROGRAM_END,
+    MaintenanceFailureKind.INVARIANT_VIOLATION: RUNTIME_PROGRAM_END,
 }
 
 

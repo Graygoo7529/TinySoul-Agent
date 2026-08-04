@@ -97,7 +97,7 @@ Home 不参与日切或 archive。`ArchiveProjection` 只暴露 BusinessDay、ar
 
 ## Home Task
 
-Home task 先让 Home owner 确定性清理 copied/consistent 残留。若没有真实 diff，则 finalize 并移除空 `runtime/home`；否则启动 Home Maintenance Turn。
+Home task 先让 Home owner 确定性清理 copied/consistent 残留。若没有真实 diff 或 HOW review，则 finalize 并移除空 `runtime/home`；否则启动 Home Maintenance Turn。
 
 Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景。专用 actions 逐个列出和 inspect snapshot token，然后选择：
 
@@ -105,13 +105,13 @@ Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景
 - `reject`: 保留 actual；
 - `rewrite`: 将整理后的完整正文提交到 actual。
 
-每个成功 resolution 都清理对应 overlay record/content。`maintenance.complete` 只有在 Home owner 确认所有 diff 与 SKILL_MEMORY 均已处理时成功；Turn 后 controller 再调用 `finalize_maintenance()`，正常结果是 `runtime/home` 不存在。下次需要 Home 时重新创建 overlay 并从 actual 懒加载。
+每个成功 resolution 都清理对应 overlay record/content。`SKILL_MEMORY.md` 是独立的 `skill_how_review`：`list/inspect` 暴露 actual HOW 与临时记忆，只有 inspect 后才能 `reject` 或 `rewrite`；`accept` 对该 review 明确失败。HOW rewrite 在写 actual 前重新校验 frontmatter，非法正文不会覆盖 actual 或清理 review。`maintenance.complete` 只有在 Home owner 确认所有 diff 与 SKILL_MEMORY 均已处理时成功；Turn 后 controller 再调用 `finalize_maintenance()`，正常结果是 `runtime/home` 不存在。下次需要 Home 时重新创建 overlay 并从 actual 懒加载。
 
 ## Memory Task
 
 Memory target 必须小于当前 BusinessDay且存在 ArchiveProjection。默认任务在目标已有有效 MEMORY 时 skipped；显式 `--rebuild` 才允许重写。
 
-Task 让 Session owner从 archive Session root 生成 facts projection，让 Workspace owner 从 archive Workspace root 生成只读 manifest，并把二者绑定到 `ArchivedMaintenanceContext`。Memory Maintenance Turn 因而能在关闭日的 Session/Workspace 情景中继续梳理，而不是只接收脱离上下文的一段 prompt。
+Task 让 Session owner从 archive Session root 生成 facts projection，让 Workspace owner 从 archive Workspace root 生成只读 manifest，并把二者绑定到 `ArchivedMemoryMaintenanceContext`。绑定同时校验 `session.day == target_day`、`workspace.day == str(target_day)`（若存在）和 preparation request 的 `business_day == target_day`。Memory Maintenance Turn 因而能在关闭日的 Session/Workspace 情景中继续梳理，而不是只接收脱离上下文的一段 prompt。
 
 `maintenance.memory.consolidate` 将 Session facts 和 rebuild 时的同日旧 MEMORY 交给 Memory owner；Memory 完成 Link 校验、分层 consolidation、日期 H1 渲染和单文件原子替换。`maintenance.complete` 要求 consolidation 已产生非失败 outcome。
 
@@ -133,6 +133,7 @@ Maintenance Context 与 User Context 具有相同的 Background/Session/Workspac
 - 新日 User Turn 只依赖确定性 Archive preflight，不依赖模型成功；
 - manual/scheduled 不复制流程或结果类型；
 - `MaintenancePlan` 不是领域协议；Engine 直接从 typed request 与 availability 快照选择任务；
+- MaintenanceEngine 不伪造没有 RuntimeModuleRunner owner 的 `MODULE` frame；Program scope 由 App 传入，真正的 Module frame 只由可重放的 RuntimeModuleRunner 建立；
 - Event 只通知 availability 失效，Endpoint GET 才交付持久提示单；
 - action catalog 的物理存在不等于对某个 Turn 可见；
 - User Turn 永远不能选择或调用 maintenance domain；

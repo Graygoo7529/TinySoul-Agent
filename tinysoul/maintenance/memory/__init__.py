@@ -5,10 +5,12 @@ from .actions import (
     MemoryMaintenanceActionController,
     register_memory_maintenance_actions,
 )
+from .context import ArchivedMemoryMaintenanceContext
 from .task import MemoryMaintenanceTask
 
 __all__ = [
     "MEMORY_MAINTENANCE_ACTIONS",
+    "ArchivedMemoryMaintenanceContext",
     "MemoryMaintenanceActionController",
     "MemoryMaintenanceTask",
     "register_memory_maintenance_actions",

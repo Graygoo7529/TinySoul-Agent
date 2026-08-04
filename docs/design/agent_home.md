@@ -251,8 +251,8 @@ Home owner 的 diff 输入只包括当前 active `runtime/home`、actual Home，
 
 1. `copied` 表示仅物化而未被 Agent 修改，无论当前 actual 是否已经变化，都不应把旧 runtime 副本写回；Maintenance 直接清理该 runtime record/content；
 2. `maintenance.home.list/inspect` 向 Maintenance Turn 提供 token、Link、state、digest 和有界 before/after 内容；token 绑定当前 snapshot，actual/runtime 任一变化都会使旧 token 失效；
-3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；
-4. `SKILL_MEMORY.md` 作为同 skill diff 的上下文，但永不写入 actual；对应 skill 处理完成后清空；
+3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；HOW rewrite 在写入前重新校验 frontmatter，非法正文保持 actual 和 review 不变；
+4. `SKILL_MEMORY.md` 是独立的 `skill_how_review`，不是普通 diff 的附件；`inspect` 返回 actual HOW 和临时记忆，只有 inspect 后才能 `reject`/`rewrite`，对应 skill 处理完成后清空；
 5. `maintenance.complete` 只有在 snapshot 和 pending 事实均无未处理项时成功；Turn 结束后 controller 再调用 `finalize_maintenance`，校验 runtime root 只含空 overlay 元数据并整体移除 `runtime/home`；
 6. 下一次 Home 访问发现 runtime root 不存在时重新初始化 overlay，并按需从 actual 懒加载。
 

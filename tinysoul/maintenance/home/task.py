@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from tinysoul.home import AgentHomeEngine, AgentHomeIOError
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.loop.turn import TurnRunner
@@ -15,6 +14,7 @@ from ..models import (
     MaintenanceTaskOutcome,
     MaintenanceTaskStatus,
 )
+from ..turn_boundary import propagate_outer_turn_transfer, turn_failure_details
 from .actions import HomeMaintenanceActionController
 
 
@@ -71,6 +71,7 @@ class HomeMaintenanceTask:
                 request_id=request_id,
                 input_source="maintenance.home",
             )
+            propagate_outer_turn_transfer(outcome)
             if (
                 outcome.status is not TurnOutcomeStatus.COMPLETED
                 or outcome.completion is None
@@ -82,7 +83,7 @@ class HomeMaintenanceTask:
                     kind=MaintenanceTaskKind.HOME,
                     status=MaintenanceTaskStatus.FAILED,
                     reason="maintenance_turn_failed",
-                    details=_turn_failure(outcome),
+                    details=turn_failure_details(outcome),
                 )
             details = self._controller.finish()
             completed = True
@@ -96,20 +97,3 @@ class HomeMaintenanceTask:
         finally:
             if not completed:
                 self._controller.abort()
-
-
-def _turn_failure(outcome: object) -> JsonObject:
-    status = getattr(outcome, "status", None)
-    failure = getattr(outcome, "failure", None)
-    value: JsonObject = {
-        "turn_status": getattr(status, "value", "failed"),
-    }
-    if failure is not None:
-        value.update(
-            {
-                "failure_kind": failure.kind,
-                "failure_module": failure.module,
-                "failure_reason": failure.reason,
-            }
-        )
-    return value

@@ -23,6 +23,8 @@ from .errors import (
     AgentHomeInvariantError,
 )
 from .layout import AgentHomeLayout
+from .links import HomeTopLink
+from .metadata import parse_home_skill_metadata
 from .overlay import HomeOverlayManager, HomeOverlayRecord, HomeOverlayState
 
 
@@ -36,7 +38,7 @@ class HomeMaintenanceResolution(StrEnum):
 
 @dataclass(frozen=True)
 class HomeSkillMemoryContext:
-    """Bounded runtime-only memory attached to changes for one general HOW skill."""
+    """Bounded runtime-only reference for one general HOW review."""
 
     skill: str
     link: str
@@ -79,8 +81,6 @@ class HomeMaintenanceChange:
     actual_digest: str
     actual_text: str
     actual_truncated: bool
-    skill_memory: HomeSkillMemoryContext | None = None
-
     def __post_init__(self) -> None:
         if not self.link or not self.relative_path:
             raise AgentHomeContractError(
@@ -125,14 +125,6 @@ class HomeMaintenanceChange:
             raise AgentHomeContractError(
                 "Non-deleted Home maintenance change requires runtime content"
             )
-        if self.skill_memory is not None and not isinstance(
-            self.skill_memory,
-            HomeSkillMemoryContext,
-        ):
-            raise AgentHomeContractError(
-                "Home maintenance skill_memory context is invalid"
-            )
-
     @property
     def actual_changed_from_baseline(self) -> bool:
         return self.actual_digest != self.baseline_digest
@@ -158,6 +150,7 @@ class HomeMaintenanceChange:
 
     def to_review_json(self) -> JsonObject:
         value: JsonObject = {
+            "kind": "change",
             "token": self.token,
             "link": self.link,
             "relative_path": self.relative_path,
@@ -176,10 +169,71 @@ class HomeMaintenanceChange:
                 "truncated": self.actual_truncated,
                 "changed_from_baseline": self.actual_changed_from_baseline,
             },
+            "allowed_resolutions": ["accept", "reject", "rewrite"],
         }
-        if self.skill_memory is not None:
-            value["skill_memory"] = self.skill_memory.to_json()
         return value
+
+
+@dataclass(frozen=True)
+class HomeSkillReview:
+    """Token-bound review of actual HOW using its runtime-only skill memory."""
+
+    skill: str
+    link: str
+    relative_path: str
+    actual_digest: str
+    actual_text: str
+    actual_truncated: bool
+    skill_memory: HomeSkillMemoryContext
+
+    def __post_init__(self) -> None:
+        if not self.skill or not self.link or not self.relative_path:
+            raise AgentHomeContractError(
+                "Home HOW review identity fields must be non-empty"
+            )
+        if not self.actual_digest:
+            raise AgentHomeContractError("Home HOW review requires actual content")
+        if not isinstance(self.actual_text, str) or not isinstance(
+            self.actual_truncated,
+            bool,
+        ):
+            raise AgentHomeContractError("Home HOW review preview is invalid")
+        if not isinstance(self.skill_memory, HomeSkillMemoryContext):
+            raise AgentHomeContractError("Home HOW review memory is invalid")
+
+    @property
+    def token(self) -> str:
+        value = {
+            "relative_path": self.relative_path,
+            "actual_digest": self.actual_digest,
+            "skill_memory_digest": self.skill_memory.digest,
+        }
+        encoded = json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "home_skill_review_v1_" + sha256(encoded).hexdigest()
+
+    def to_review_json(self) -> JsonObject:
+        return {
+            "kind": "skill_how_review",
+            "token": self.token,
+            "skill": self.skill,
+            "link": self.link,
+            "relative_path": self.relative_path,
+            "actual": {
+                "digest": self.actual_digest,
+                "text": self.actual_text,
+                "truncated": self.actual_truncated,
+            },
+            "skill_memory": self.skill_memory.to_json(),
+            "allowed_resolutions": ["reject", "rewrite"],
+        }
+
+
+HomeMaintenanceReview = HomeMaintenanceChange | HomeSkillReview
 
 
 @dataclass(frozen=True)
@@ -203,9 +257,10 @@ class HomeMaintenancePending:
 
 @dataclass(frozen=True)
 class HomeMaintenanceSnapshot:
-    """Current bounded Home changes after deterministic reconciliation."""
+    """Current bounded Home reviews after deterministic reconciliation."""
 
     changes: tuple[HomeMaintenanceChange, ...] = field(default_factory=tuple)
+    skill_reviews: tuple[HomeSkillReview, ...] = field(default_factory=tuple)
     copied_cleaned: int = 0
     consistent_cleaned: int = 0
     skill_memories_cleared: int = 0
@@ -213,6 +268,12 @@ class HomeMaintenanceSnapshot:
     def __post_init__(self) -> None:
         if any(not isinstance(change, HomeMaintenanceChange) for change in self.changes):
             raise AgentHomeContractError("Home maintenance snapshot changes are invalid")
+        if any(
+            not isinstance(review, HomeSkillReview) for review in self.skill_reviews
+        ):
+            raise AgentHomeContractError(
+                "Home maintenance snapshot HOW reviews are invalid"
+            )
         for value in (
             self.copied_cleaned,
             self.consistent_cleaned,
@@ -223,10 +284,15 @@ class HomeMaintenanceSnapshot:
                     "Home maintenance snapshot counts must be non-negative integers"
                 )
         object.__setattr__(self, "changes", tuple(self.changes))
+        object.__setattr__(self, "skill_reviews", tuple(self.skill_reviews))
+
+    @property
+    def reviews(self) -> tuple[HomeMaintenanceReview, ...]:
+        return (*self.changes, *self.skill_reviews)
 
     @property
     def pending(self) -> bool:
-        return bool(self.changes)
+        return bool(self.reviews)
 
 
 @dataclass(frozen=True)
@@ -234,7 +300,7 @@ class HomeMaintenanceResolveOutcome:
     link: str
     relative_path: str
     resolution: HomeMaintenanceResolution
-    remaining_changes: int
+    remaining_reviews: int
 
     def __post_init__(self) -> None:
         if not self.link or not self.relative_path:
@@ -246,12 +312,12 @@ class HomeMaintenanceResolveOutcome:
                 "Home maintenance resolve outcome resolution is invalid"
             )
         if (
-            isinstance(self.remaining_changes, bool)
-            or not isinstance(self.remaining_changes, int)
-            or self.remaining_changes < 0
+            isinstance(self.remaining_reviews, bool)
+            or not isinstance(self.remaining_reviews, int)
+            or self.remaining_reviews < 0
         ):
             raise AgentHomeContractError(
-                "Home maintenance remaining_changes must be non-negative"
+                "Home maintenance remaining_reviews must be non-negative"
             )
 
 
@@ -284,26 +350,29 @@ class HomeMaintenanceService:
         self._lock = RLock()
 
     def snapshot(self) -> HomeMaintenanceSnapshot:
-        """Return current token-bound changes after deterministic cleanup."""
+        """Return current token-bound reviews after deterministic cleanup."""
 
         with self._lock:
-            copied_cleaned, consistent_cleaned = self._clean_deterministic_records()
+            (
+                copied_cleaned,
+                consistent_cleaned,
+                skill_memories_cleared,
+            ) = self._clean_deterministic_records()
             memories = self._skill_memories()
             changes = tuple(
-                self._build_change(record, memories=memories)
+                self._build_change(record)
                 for record in self._reviewable_records()
             )
-            pending_by_skill = _pending_changes_by_skill(changes)
-            cleared = 0
-            for skill in sorted(memories):
-                if pending_by_skill.get(skill, 0) == 0:
-                    self._clear_skill_memory(skill, memories[skill])
-                    cleared += 1
+            skill_reviews = tuple(
+                self._build_skill_review(skill, memories[skill])
+                for skill in sorted(memories)
+            )
             return HomeMaintenanceSnapshot(
                 changes=changes,
+                skill_reviews=skill_reviews,
                 copied_cleaned=copied_cleaned,
                 consistent_cleaned=consistent_cleaned,
-                skill_memories_cleared=cleared,
+                skill_memories_cleared=skill_memories_cleared,
             )
 
     def resolve(
@@ -313,7 +382,7 @@ class HomeMaintenanceService:
         *,
         rewrite_text: str | None = None,
     ) -> HomeMaintenanceResolveOutcome:
-        """Atomically resolve the current change identified by ``token``."""
+        """Atomically resolve the current review identified by ``token``."""
 
         if not isinstance(token, str) or not token:
             raise AgentHomeContractError(
@@ -341,28 +410,41 @@ class HomeMaintenanceService:
             self._clean_deterministic_records()
             memories = self._skill_memories()
             changes = tuple(
-                self._build_change(record, memories=memories)
+                self._build_change(record)
                 for record in self._reviewable_records()
             )
-            matching = tuple(change for change in changes if change.token == token)
+            skill_reviews = tuple(
+                self._build_skill_review(skill, memories[skill])
+                for skill in sorted(memories)
+            )
+            matching = tuple(
+                review
+                for review in (*changes, *skill_reviews)
+                if review.token == token
+            )
             if len(matching) != 1:
                 raise AgentHomeInvariantError(
-                    "Home maintenance change token is stale or unknown"
+                    "Home maintenance review token is stale or unknown"
                 )
-            change = matching[0]
-            self._verify_change(change)
-            if resolution is HomeMaintenanceResolution.ACCEPT:
-                self._apply(change)
-            elif resolution is HomeMaintenanceResolution.REWRITE:
-                self._rewrite(change, rewrite_text or "")
-            self._overlay.clear_record(change.relative_path)
-            self._clear_resolved_skill_memory(change, memories=memories)
-            remaining = len(self._reviewable_records())
+            review = matching[0]
+            if isinstance(review, HomeMaintenanceChange):
+                self._resolve_change(review, resolution, rewrite_text=rewrite_text)
+            else:
+                self._resolve_skill_review(
+                    review,
+                    resolution,
+                    rewrite_text=rewrite_text,
+                    expected_memory=memories[review.skill],
+                )
+            remaining = len(self._reviewable_records()) + sum(
+                record.state is not HomeOverlayState.DELETED
+                for record in self._skill_memories().values()
+            )
             return HomeMaintenanceResolveOutcome(
-                link=change.link,
-                relative_path=change.relative_path,
+                link=review.link,
+                relative_path=review.relative_path,
                 resolution=resolution,
-                remaining_changes=remaining,
+                remaining_reviews=remaining,
             )
 
     def pending(self) -> HomeMaintenancePending:
@@ -378,11 +460,15 @@ class HomeMaintenanceService:
                 ),
             )
 
-    def _clean_deterministic_records(self) -> tuple[int, int]:
+    def _clean_deterministic_records(self) -> tuple[int, int, int]:
         copied_cleaned = 0
         consistent_cleaned = 0
+        skill_memories_cleared = 0
         for record in self._overlay.records():
             if _is_skill_memory(record.relative_path):
+                if record.state is HomeOverlayState.DELETED:
+                    self._overlay.clear_record(record.relative_path)
+                    skill_memories_cleared += 1
                 continue
             if record.state is HomeOverlayState.COPIED:
                 self._clean_copied(record)
@@ -390,7 +476,7 @@ class HomeMaintenanceService:
             elif self._record_matches_actual(record):
                 self._overlay.clear_record(record.relative_path)
                 consistent_cleaned += 1
-        return copied_cleaned, consistent_cleaned
+        return copied_cleaned, consistent_cleaned, skill_memories_cleared
 
     def _clean_copied(self, record: HomeOverlayRecord) -> None:
         actual = self._layout.source_for_relative(record.relative_path)
@@ -441,8 +527,6 @@ class HomeMaintenanceService:
     def _build_change(
         self,
         record: HomeOverlayRecord,
-        *,
-        memories: dict[str, HomeOverlayRecord],
     ) -> HomeMaintenanceChange:
         if (
             record.state is not HomeOverlayState.DELETED
@@ -463,22 +547,6 @@ class HomeMaintenanceService:
         if record.state is not HomeOverlayState.DELETED:
             runtime = self._layout.runtime_for_relative(record.relative_path)
             runtime_read = _preview(runtime, self._max_preview_chars)
-        skill = _skill_for_relative(record.relative_path)
-        skill_memory = None
-        if skill is not None and skill in memories:
-            memory_record = memories[skill]
-            if memory_record.state is not HomeOverlayState.DELETED:
-                memory_path = self._layout.runtime_for_relative(
-                    memory_record.relative_path
-                )
-                memory_read = _preview(memory_path, self._max_preview_chars)
-                skill_memory = HomeSkillMemoryContext(
-                    skill=skill,
-                    link=f"home:how/{skill}/SKILL_MEMORY.md",
-                    digest=memory_record.runtime_digest,
-                    text=memory_read.text,
-                    truncated=memory_read.truncated,
-                )
         return HomeMaintenanceChange(
             link=str(link),
             relative_path=record.relative_path,
@@ -497,8 +565,97 @@ class HomeMaintenanceService:
             actual_truncated=(
                 actual_read.truncated if actual_read is not None else False
             ),
-            skill_memory=skill_memory,
         )
+
+    def _build_skill_review(
+        self,
+        skill: str,
+        memory_record: HomeOverlayRecord,
+    ) -> HomeSkillReview:
+        if memory_record.state is HomeOverlayState.DELETED:
+            raise AgentHomeInvariantError(
+                f"Deleted SKILL_MEMORY remained reviewable: {skill}"
+            )
+        relative_path = f"how/{skill}/SKILL.md"
+        link = self._layout.link_for_relative(relative_path)
+        if link is None:
+            raise AgentHomeInvariantError(
+                f"Home maintenance cannot map HOW review target: {relative_path}"
+            )
+        actual = self._layout.source_for_relative(relative_path)
+        actual_digest = _actual_digest(actual)
+        if not actual_digest:
+            raise AgentHomeInvariantError(
+                f"SKILL_MEMORY has no actual HOW review target: {skill}"
+            )
+        actual_read = _preview(actual, self._max_preview_chars)
+        memory_read = _preview(
+            self._layout.runtime_for_relative(memory_record.relative_path),
+            self._max_preview_chars,
+        )
+        return HomeSkillReview(
+            skill=skill,
+            link=str(link),
+            relative_path=relative_path,
+            actual_digest=actual_digest,
+            actual_text=actual_read.text,
+            actual_truncated=actual_read.truncated,
+            skill_memory=HomeSkillMemoryContext(
+                skill=skill,
+                link=f"home:how/{skill}/SKILL_MEMORY.md",
+                digest=memory_record.runtime_digest,
+                text=memory_read.text,
+                truncated=memory_read.truncated,
+            ),
+        )
+
+    def _resolve_change(
+        self,
+        change: HomeMaintenanceChange,
+        resolution: HomeMaintenanceResolution,
+        *,
+        rewrite_text: str | None,
+    ) -> None:
+        self._verify_change(change)
+        if resolution is HomeMaintenanceResolution.ACCEPT:
+            self._apply(change)
+        elif resolution is HomeMaintenanceResolution.REWRITE:
+            self._validate_rewrite(change.relative_path, rewrite_text or "")
+            self._rewrite_relative(change.relative_path, rewrite_text or "")
+        self._overlay.clear_record(change.relative_path)
+
+    def _resolve_skill_review(
+        self,
+        review: HomeSkillReview,
+        resolution: HomeMaintenanceResolution,
+        *,
+        rewrite_text: str | None,
+        expected_memory: HomeOverlayRecord,
+    ) -> None:
+        if resolution is HomeMaintenanceResolution.ACCEPT:
+            raise AgentHomeContractError(
+                "Home HOW review does not have a runtime version to accept"
+            )
+        self._verify_skill_review(review, expected_memory=expected_memory)
+        if resolution is HomeMaintenanceResolution.REWRITE:
+            self._validate_rewrite(review.relative_path, rewrite_text or "")
+            self._rewrite_relative(review.relative_path, rewrite_text or "")
+        self._clear_skill_memory(review.skill, expected_memory)
+
+    def _validate_rewrite(self, relative_path: str, text: str) -> None:
+        """Validate owner-specific rewrite semantics before touching actual Home."""
+
+        link = self._layout.link_for_relative(relative_path)
+        if link is None:
+            raise AgentHomeInvariantError(
+                f"Home maintenance cannot map rewrite target: {relative_path}"
+            )
+        if (
+            isinstance(link, HomeTopLink)
+            and link.space == "how"
+            and relative_path == f"how/{link.name}/SKILL.md"
+        ):
+            parse_home_skill_metadata(text, link=link)
 
     def _verify_change(self, change: HomeMaintenanceChange) -> None:
         record = self._overlay.record_for(change.relative_path)
@@ -540,30 +697,33 @@ class HomeMaintenanceService:
                 f"Failed to apply Home maintenance change: {exc}"
             ) from exc
 
-    def _rewrite(self, change: HomeMaintenanceChange, text: str) -> None:
-        actual = self._layout.source_for_relative(change.relative_path)
+    def _verify_skill_review(
+        self,
+        review: HomeSkillReview,
+        *,
+        expected_memory: HomeOverlayRecord,
+    ) -> None:
+        current = self._overlay.record_for(expected_memory.relative_path)
+        if current != expected_memory:
+            raise AgentHomeInvariantError(
+                f"SKILL_MEMORY changed during maintenance: {review.skill}"
+            )
+        actual_digest = _actual_digest(
+            self._layout.source_for_relative(review.relative_path)
+        )
+        if actual_digest != review.actual_digest:
+            raise AgentHomeInvariantError(
+                f"Actual HOW changed during maintenance: {review.relative_path}"
+            )
+
+    def _rewrite_relative(self, relative_path: str, text: str) -> None:
+        actual = self._layout.source_for_relative(relative_path)
         try:
             atomic_write_bytes(actual, text.encode("utf-8"))
         except OSError as exc:
             raise AgentHomeIOError(
                 f"Failed to rewrite Home maintenance change: {exc}"
             ) from exc
-
-    def _clear_resolved_skill_memory(
-        self,
-        change: HomeMaintenanceChange,
-        *,
-        memories: dict[str, HomeOverlayRecord],
-    ) -> None:
-        skill = _skill_for_relative(change.relative_path)
-        if skill is None or skill not in memories:
-            return
-        if any(
-            _skill_for_relative(record.relative_path) == skill
-            for record in self._reviewable_records()
-        ):
-            return
-        self._clear_skill_memory(skill, memories[skill])
 
     def _clear_skill_memory(
         self,
@@ -610,24 +770,6 @@ def _is_skill_memory(relative_path: str) -> bool:
         and parts[0] == "how"
         and parts[2] == "SKILL_MEMORY.md"
     )
-
-
-def _skill_for_relative(relative_path: str) -> str | None:
-    parts = PurePosixPath(relative_path).parts
-    if len(parts) >= 3 and parts[0] == "how" and parts[2] != "SKILL_MEMORY.md":
-        return parts[1]
-    return None
-
-
-def _pending_changes_by_skill(
-    changes: tuple[HomeMaintenanceChange, ...],
-) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for change in changes:
-        skill = _skill_for_relative(change.relative_path)
-        if skill is not None:
-            result[skill] = result.get(skill, 0) + 1
-    return result
 
 
 def _digest_bytes(value: bytes) -> str:

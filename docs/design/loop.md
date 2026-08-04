@@ -27,7 +27,6 @@ tinysoul/loop/
     prompts.py               # User Turn guidance
     outcomes.py              # User Turn outcome exports
   maintenance/
-    preparation.py           # archived Session/Workspace binding
     completion.py            # maintenance.complete completion
     prompts.py               # Maintenance guidance
     outcomes.py              # Maintenance Turn outcome exports
@@ -65,7 +64,7 @@ User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input
 
 Maintenance Turn 与 User Turn 使用同一个 `TurnRunner`、`CycleRunner` 和 Phase1/2/3。它不是一次独立裸 LLM 调用，而是在完整情景中继续思考和整理：仍有 Background、Session、Workspace、TurnTrace 和 Working，只改变输入、专用 guidance、ActionEngine view 与 completion policy。
 
-Maintenance Context 与 User Context 相互独立，并使用 actual Home provider，避免待审 runtime override 先成为判断规则。Home Maintenance preparation 注入当前 Session 与 Workspace；Memory Maintenance 由 `ArchivedMaintenanceContext` 绑定目标关闭日的只读 Session background/inspect view 和 Workspace manifest。Maintenance Turn 不写入 User Session completion。
+Maintenance Context 与 User Context 相互独立，并使用 actual Home provider，避免待审 runtime override 先成为判断规则。Home Maintenance preparation 注入当前 Session 与 Workspace；目标关闭日的 Session/Workspace 绑定属于 `tinysoul.maintenance.memory.ArchivedMemoryMaintenanceContext`，它校验 archive projection、Session/Workspace 日期和 Memory Turn 的 `BusinessDay` 一致后，向 Turn preparation 提供只读情景信号。Maintenance Turn 不写入 User Session completion。
 
 Maintenance ActionEngine 只包含：
 
@@ -89,7 +88,7 @@ Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 
 
 ## Trap 与失败
 
-各运行器只在自己的 frame 边界消费 Runtime transfer。结束 Turn/Cycle、Context pressure、Home runtime copy、Workspace trash restore 等由装配层注册精确 handler；未处理异常交 fallback 结束当前 Turn 或 Program。
+各运行器只在自己的 frame 边界消费 Runtime transfer。结束 Turn/Cycle、Context pressure、Home runtime copy、Workspace trash restore 等由装配层注册精确 handler；指向外层 Turn/Program 的 transfer 由 `RuntimeTransferInterrupt` 原样展开，不能被 Maintenance task 降级成普通 task failure；未处理异常交 fallback 结束当前 Turn 或 Program。
 
 Action 局部失败留在 ActionResult 中供下一 Cycle 修正。LLM 链耗尽、Context 不变量或 owner preparation failure 经模块 bridge 进入 Runtime，再形成有界 `TurnFailure`。User answer、用户 stop/exit 和正常 Maintenance completion 不伪装为失败。
 

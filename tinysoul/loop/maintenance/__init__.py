@@ -2,7 +2,6 @@
 
 from .completion import MaintenanceCompletionDetector
 from .outcomes import TurnOutcome
-from .preparation import ArchivedMaintenanceContext
 from .prompts import maintenance_turn_guidance
 from ..preparation import (
     TurnPreparationHandler,
@@ -11,7 +10,6 @@ from ..preparation import (
 )
 
 __all__ = [
-    "ArchivedMaintenanceContext",
     "MaintenanceCompletionDetector",
     "TurnOutcome",
     "TurnPreparationHandler",

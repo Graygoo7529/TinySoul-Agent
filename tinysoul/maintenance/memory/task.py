@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import TurnOutcomeStatus
-from tinysoul.loop.maintenance import ArchivedMaintenanceContext
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.memory import MemoryEngine, MemoryIOError
 from tinysoul.runtime import RunScope
@@ -19,7 +17,9 @@ from ..models import (
     MaintenanceTaskOutcome,
     MaintenanceTaskStatus,
 )
+from ..turn_boundary import propagate_outer_turn_transfer, turn_failure_details
 from .actions import MemoryMaintenanceActionController
+from .context import ArchivedMemoryMaintenanceContext
 
 
 class MemoryMaintenanceTask:
@@ -31,7 +31,7 @@ class MemoryMaintenanceTask:
         memory: MemoryEngine,
         session: SessionEngine,
         workspace: WorkspaceEngine,
-        archived_context: ArchivedMaintenanceContext,
+        archived_context: ArchivedMemoryMaintenanceContext,
         controller: MemoryMaintenanceActionController,
         turn: TurnRunner,
     ) -> None:
@@ -89,7 +89,11 @@ class MemoryMaintenanceTask:
         )
         completed = False
         try:
-            self._archived_context.bind(session=session_view, workspace=workspace)
+            self._archived_context.bind(
+                target_day=target_day,
+                session=session_view,
+                workspace=workspace,
+            )
             self._controller.begin(
                 target_day=target_day,
                 projection=projection,
@@ -97,12 +101,17 @@ class MemoryMaintenanceTask:
                 rebuild_memory=rebuild,
             )
             outcome = self._turn.run(
-                f"Consolidate durable Memory for the closed Business Day {target_day}.",
-                business_day=business_day,
+                (
+                    "Consolidate durable Memory for the closed Business Day "
+                    f"{target_day}. Treat that closed day and its archived timestamps "
+                    "as this Turn's temporal context, not the wall-clock execution day."
+                ),
+                business_day=target_day,
                 scope=scope,
                 request_id=request_id,
                 input_source="maintenance.memory",
             )
+            propagate_outer_turn_transfer(outcome)
             if (
                 outcome.status is not TurnOutcomeStatus.COMPLETED
                 or outcome.completion is None
@@ -115,7 +124,7 @@ class MemoryMaintenanceTask:
                     status=MaintenanceTaskStatus.FAILED,
                     target_day=target_day,
                     reason="maintenance_turn_failed",
-                    details=_turn_failure(outcome),
+                    details=turn_failure_details(outcome),
                 )
             result = MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.MEMORY,
@@ -140,18 +149,3 @@ def _skipped(day: BusinessDay, reason: str) -> MaintenanceTaskOutcome:
         target_day=day,
         reason=reason,
     )
-
-
-def _turn_failure(outcome: object) -> JsonObject:
-    status = getattr(outcome, "status", None)
-    failure = getattr(outcome, "failure", None)
-    value: JsonObject = {"turn_status": getattr(status, "value", "failed")}
-    if failure is not None:
-        value.update(
-            {
-                "failure_kind": failure.kind,
-                "failure_module": failure.module,
-                "failure_reason": failure.reason,
-            }
-        )
-    return value

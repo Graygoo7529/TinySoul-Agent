@@ -2,7 +2,7 @@ name = "maintenance.home.accept"
 domain = "maintenance"
 
 [tool]
-description = "Accept one reviewed runtime Home change into actual Home using its current change token."
+description = "Accept one inspected runtime Home change into actual Home using its current review token."
 
 [tool.schema]
 type = "object"
@@ -11,11 +11,11 @@ additionalProperties = false
 
 [tool.schema.properties.token]
 type = "string"
-description = "Current change token returned by maintenance.home.list."
+description = "Current change review token returned by maintenance.home.list."
 
 [semantic]
 use_when = ["The reviewed runtime change should become actual Home content"]
-avoid_when = ["The token is stale or the change has not been inspected"]
+avoid_when = ["The item is a HOW review, the token is stale, or the change has not been inspected"]
 effects = ["modifying"]
 
 [backend]

@@ -102,7 +102,7 @@ Search 和 recall 都是 Memory-owned native action。Action executor 只解析�
 
 ## Memory Maintenance
 
-Memory Maintenance 是 MaintenanceEngine 编排的独立 task。它接受明确目标 Business Day，并把目标关闭日的 ArchiveProjection 绑定为 Maintenance Turn 的 Session/Workspace 情景；真正写入 Memory owner 的 consolidation source 仍是：
+Memory Maintenance 是 MaintenanceEngine 编排的独立 task。它接受明确目标 Business Day，并由 Maintenance-owned `ArchivedMemoryMaintenanceContext` 把目标关闭日的 ArchiveProjection 绑定为 Maintenance Turn 的 Session/Workspace 情景；绑定要求 Session、Workspace（若存在）和 Turn preparation 的日期都等于目标日。MaintenanceOutcome 仍记录当前执行日，Memory Turn 的 `BusinessDay` 则使用目标关闭日，使默认 Background 自然加载目标日前一日 MEMORY。真正写入 Memory owner 的 consolidation source 仍是：
 
 ```text
 SessionMemoryFactsProjection(target day)

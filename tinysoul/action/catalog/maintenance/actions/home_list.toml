@@ -2,11 +2,11 @@ name = "maintenance.home.list"
 domain = "maintenance"
 
 [tool]
-description = "List the unresolved, token-bound Home changes in the current Maintenance task."
+description = "List unresolved token-bound runtime changes and HOW reviews in the current Home Maintenance task."
 schema = { type = "object", properties = {}, required = [], additionalProperties = false }
 
 [semantic]
-use_when = ["The current Home Maintenance task needs its unresolved change catalog"]
+use_when = ["The current Home Maintenance task needs its unresolved review catalog"]
 avoid_when = ["The current task is Memory Maintenance"]
 effects = ["read_only"]
 

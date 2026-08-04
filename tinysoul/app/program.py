@@ -29,9 +29,11 @@ from tinysoul.runtime import (
     RunLevel,
     RunScope,
     RuntimeException,
+    RuntimeInvariantError,
     RuntimeTrap,
     RuntimeTransfer,
     RuntimeTransferAction,
+    RuntimeTransferInterrupt,
     SignalBus,
     emit_observation,
     observation_enabled,
@@ -160,16 +162,7 @@ class ProgramRunner:
         )
         with self._request_lock:
             transition = self._preflight()
-            with self._maintenance.active_day_lease() as leased_day:
-                if leased_day != transition.active_day:
-                    raise AppContractError("Active Business Day changed before User Turn")
-                return self._user_turn.run(
-                    request.text,
-                    business_day=leased_day,
-                    scope=self._scope,
-                    request_id=request.request_id,
-                    input_source=request.source,
-                )
+            return self._run_user_request(request, transition=transition)
 
     def run(self) -> ProgramOutcome:
         turns: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)
@@ -179,10 +172,24 @@ class ProgramRunner:
         turn_count = 0
         maintenance_count = 0
         with self._request_lock:
-            transition = self._prepared_transition or self._preflight()
+            if self._prepared_transition is None:
+                self._preflight()
             self._prepared_transition = None
         self._emit("program.started", "Program started.", {})
-        self._emit_availability(self._maintenance.availability())
+        try:
+            self._emit_availability(self._maintenance.availability())
+        except MaintenanceError as exc:
+            transfer = self._capture_maintenance_failure(
+                exc,
+                stage="availability",
+            )
+            return self._outcome(
+                turns,
+                maintenance,
+                turn_count,
+                maintenance_count,
+                transfer,
+            )
         while True:
             request = self._input_queue.get()
             if isinstance(request, ExitRequest):
@@ -195,19 +202,31 @@ class ProgramRunner:
                     transfer,
                 )
             if isinstance(request, UserTurnRequest):
-                outcome = self.run_once(
-                    request.text,
-                    request_id=request.request_id,
-                    source=request.source,
-                )
+                try:
+                    with self._request_lock:
+                        transition = self._maintenance.preflight(scope=self._scope)
+                        outcome = self._run_user_request(
+                            request,
+                            transition=transition,
+                        )
+                except MaintenanceError as exc:
+                    transfer = self._capture_maintenance_failure(
+                        exc,
+                        stage="user_preflight",
+                        request_id=request.request_id,
+                    )
+                    return self._outcome(
+                        turns,
+                        maintenance,
+                        turn_count,
+                        maintenance_count,
+                        transfer,
+                    )
                 turns.append(outcome)
                 turn_count += 1
                 transfer = outcome.transfer
-                if (
-                    transfer is not None
-                    and transfer.target.level is RunLevel.PROGRAM
-                    and transfer.action is RuntimeTransferAction.END
-                ):
+                if transfer is not None and transfer.target.level is not RunLevel.TURN:
+                    transfer = self._consume_program_transfer(transfer)
                     return self._outcome(
                         turns,
                         maintenance,
@@ -217,8 +236,31 @@ class ProgramRunner:
                     )
                 continue
             if isinstance(request, MaintenanceRequest):
-                with self._request_lock:
-                    outcome = self._maintenance.run(request, scope=self._scope)
+                try:
+                    with self._request_lock:
+                        outcome = self._maintenance.run(request, scope=self._scope)
+                except RuntimeTransferInterrupt as interrupt:
+                    transfer = self._consume_program_transfer(interrupt.transfer)
+                    return self._outcome(
+                        turns,
+                        maintenance,
+                        turn_count,
+                        maintenance_count,
+                        transfer,
+                    )
+                except MaintenanceError as exc:
+                    transfer = self._capture_maintenance_failure(
+                        exc,
+                        stage="maintenance_request",
+                        request_id=request.request_id,
+                    )
+                    return self._outcome(
+                        turns,
+                        maintenance,
+                        turn_count,
+                        maintenance_count,
+                        transfer,
+                    )
                 maintenance.append(outcome)
                 maintenance_count += 1
                 continue
@@ -232,6 +274,66 @@ class ProgramRunner:
                 message=str(exc),
                 payload={"stage": "daily_rollover"},
             ) from exc
+
+    def _run_user_request(
+        self,
+        request: UserTurnRequest,
+        *,
+        transition: DailyTransitionOutcome,
+    ) -> TurnOutcome:
+        with self._maintenance.active_day_lease() as leased_day:
+            if leased_day != transition.active_day:
+                raise AppContractError("Active Business Day changed before User Turn")
+            return self._user_turn.run(
+                request.text,
+                business_day=leased_day,
+                scope=self._scope,
+                request_id=request.request_id,
+                input_source=request.source,
+            )
+
+    def _capture_maintenance_failure(
+        self,
+        error: MaintenanceError,
+        *,
+        stage: str,
+        request_id: str = "",
+    ) -> RuntimeTransfer:
+        runtime_error = self._maintenance_bridge.from_maintenance_error(
+            error,
+            payload={
+                "stage": stage,
+                **({"request_id": request_id} if request_id else {}),
+            },
+        )
+        result = self._trap.capture(runtime_error, self._scope)
+        for signal in result.signals:
+            self._bus.emit(signal)
+        self._emit(
+            "runtime.trap",
+            runtime_error.message,
+            {
+                "reason": runtime_error.reason,
+                "transfer_action": result.transfer.action.value,
+                "transfer_target": str(result.transfer.target),
+            },
+        )
+        return self._consume_program_transfer(result.transfer)
+
+    def _consume_program_transfer(
+        self,
+        transfer: RuntimeTransfer,
+    ) -> RuntimeTransfer:
+        program_frame = self._scope.current()
+        if transfer.target != program_frame:
+            raise RuntimeInvariantError(
+                f"Program received a transfer for another frame: {transfer}"
+            )
+        if transfer.action is not RuntimeTransferAction.END:
+            raise RuntimeInvariantError(
+                f"Program frame is not replayable and cannot consume: {transfer}"
+            )
+        return transfer
 
     def _emit_availability(self, availability: MaintenanceAvailability) -> None:
         if not availability.pending:

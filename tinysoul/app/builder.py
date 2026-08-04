@@ -93,6 +93,7 @@ from tinysoul.maintenance.home import (
     register_home_maintenance_actions,
 )
 from tinysoul.maintenance.memory import (
+    ArchivedMemoryMaintenanceContext,
     MEMORY_MAINTENANCE_ACTIONS,
     MemoryMaintenanceActionController,
     MemoryMaintenanceTask,
@@ -108,7 +109,6 @@ from tinysoul.loop.phases import LLMRunner, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.pressure import ContextPressureRecovery
 from tinysoul.loop.maintenance import (
-    ArchivedMaintenanceContext,
     MaintenanceCompletionDetector,
     maintenance_turn_guidance,
 )
@@ -623,7 +623,7 @@ class TinySoulAppBuilder:
                 workspace=workspace,
                 observations=observations,
             )
-            archived_context = ArchivedMaintenanceContext(
+            archived_context = ArchivedMemoryMaintenanceContext(
                 session_bridge=session_bridge,
             )
             home_controller = HomeMaintenanceActionController(home)

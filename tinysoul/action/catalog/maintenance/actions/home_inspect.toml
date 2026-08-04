@@ -2,7 +2,7 @@ name = "maintenance.home.inspect"
 domain = "maintenance"
 
 [tool]
-description = "Inspect one token-bound Home change and its bounded runtime, actual, and skill-memory review facts."
+description = "Inspect one token-bound Home review and its bounded actual, runtime, and optional skill-memory facts."
 
 [tool.schema]
 type = "object"
@@ -11,10 +11,10 @@ additionalProperties = false
 
 [tool.schema.properties.token]
 type = "string"
-description = "Change token returned by maintenance.home.list."
+description = "Review token returned by maintenance.home.list."
 
 [semantic]
-use_when = ["A listed Home change must be reviewed before resolution"]
+use_when = ["A listed Home item must be reviewed before resolution"]
 avoid_when = ["The current task is Memory Maintenance"]
 effects = ["read_only"]
 

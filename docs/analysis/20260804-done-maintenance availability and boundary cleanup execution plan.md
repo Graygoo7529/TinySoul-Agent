@@ -89,14 +89,19 @@ Maintenance request
 - Archive 已增加严格 `archive/catalog.json` 日期索引。Archive projection 由本次 transition 直接交付，按日期查询只读取索引指向的目标 journal，不再扫描全部关闭日。
 - Engine 已删除 `MaintenancePlan`、`MaintenanceTaskPlan`、`plan()` 与 `missed_memory_days()`；manual/scheduled request 进入同一路径，Memory 失败日期保留到下一次启动，Home 完成后按 owner 事实清除 runtime Home。
 - `BusinessDay` 已移动到 `tinysoul.infra.time`；旧 Maintenance 重导出、旧 journal 字段解释、Turn output signal/trap 及相关 Runtime reason 已删除。Task failure 只收敛明确 owner 异常，未知异常和 Runtime transfer 继续传播。
+- 本轮边界复核已完成：Home `SKILL_MEMORY.md` 被建模为独立 `skill_how_review`，`list/inspect` 与 `reject/rewrite` 由 Home owner 绑定 token，只有 inspect 后才能解决；HOW rewrite 在 actual 写入前复用严格 frontmatter parser，非法内容不会覆盖 actual 或清理临时记忆。
+- Maintenance task 新增统一外层 transfer 展开 helper；指向 Turn 之外的 transfer 原样抛出给 Program，不降级为普通 task failure。MaintenanceEngine 不再伪造没有 `RuntimeModuleRunner` owner 的 `MODULE` frame，调用方 Program scope 直接贯穿 Archive/Home/Memory task。
+- Memory 归档情景适配器已从 `loop.maintenance` 移入 `tinysoul.maintenance.memory.ArchivedMemoryMaintenanceContext`，绑定时校验目标日、Session day、Workspace day，prepare 时校验 Memory Turn business day；Memory Turn 使用目标关闭日，MaintenanceOutcome 仍记录执行日。
+- Program 运行期 availability、User preflight 与 Maintenance request 的 `MaintenanceError` 统一经过 RuntimeMaintenanceBridge 收束为 `runtime.program_end`；启动 prepare 仍使用 `runtime.startup_failed`，未知 Python 异常保持传播。
 
 ## 验证
 
 - 聚焦 Maintenance/App/Endpoint/Loop：通过。
-- Fast：`830 passed, 2 skipped, 22 deselected`。
-- Full：`831 passed, 2 skipped, 21 deselected`。
+- Fast：`839 passed, 2 skipped, 22 deselected`。
+- Full：`840 passed, 2 skipped, 21 deselected`。
 - `ty check`：通过。
 - `visualization`：`pnpm test` 通过（3 tests），`pnpm build` 通过。
+- 边界回归：`33 passed`，覆盖 Home HOW review/非法 rewrite、Program maintenance failure、外层 Runtime transfer、无伪 Module frame 与归档情景日期不变量。
 
 ## 验收条件
 
