@@ -3,9 +3,11 @@ import { Send, Square } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import { randomId } from "../../utils/randomId";
 
-export function Composer() {
+export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
   const client = useAppStore((s) => s.client);
-  const turnActive = useAppStore((s) => s.status?.turn_active ?? false);
+  const statusTurnActive = useAppStore((s) => s.status?.turn_active ?? false);
+  // The derived event stream is fresher than the 2s status poll; trust either.
+  const turnActive = hasRunningTurn || statusTurnActive;
   const connected = useAppStore((s) => s.connection.status === "connected");
   const recordLocalInput = useAppStore((s) => s.recordLocalInput);
   const pushToast = useAppStore((s) => s.pushToast);

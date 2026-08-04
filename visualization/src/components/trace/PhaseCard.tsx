@@ -8,8 +8,7 @@ import {
 } from "lucide-react";
 import type { ModelTask, PhaseStep } from "../../derive/model";
 import { phaseHeadline, selectedDomains, selectIntent } from "../../derive/stageSummary";
-import { formatDuration, formatTokens } from "../../utils/format";
-import { Badge } from "../ui/Badge";
+import { formatDuration } from "../../utils/format";
 import { Markdown } from "../markdown/Markdown";
 import { ControlOpsView } from "./ControlOpsView";
 import { ActionCard } from "./ActionCard";
@@ -88,7 +87,7 @@ export function PhaseCard({
 
       {open && (
         <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">
-          <PhaseDetail phase={phase} onOpenTask={onOpenTask} />
+          <PhaseDetail phase={phase} />
         </div>
       )}
     </div>
@@ -137,13 +136,7 @@ function CollapsedChips({ phase }: { phase: PhaseStep }) {
 
 /* --------------------------- expanded body -------------------------- */
 
-function PhaseDetail({
-  phase,
-  onOpenTask,
-}: {
-  phase: PhaseStep;
-  onOpenTask: (task: ModelTask, phase: PhaseStep) => void;
-}) {
+function PhaseDetail({ phase }: { phase: PhaseStep }) {
   const reasoning = phase.tasks
     .map((t) => t.response?.reasoning?.summary)
     .find((r) => r);
@@ -222,17 +215,6 @@ function PhaseDetail({
         </div>
       )}
 
-      {phase.tasks.length > 0 && (
-        <div className="space-y-1.5">
-          <SectionLabel>
-            LLM calls{phase.phase === "phase3" ? " (inside actions)" : ""}
-          </SectionLabel>
-          {phase.tasks.map((task) => (
-            <LlmCallRow key={task.taskId} task={task} onOpen={() => onOpenTask(task, phase)} />
-          ))}
-        </div>
-      )}
-
       {phase.tasks.length === 0 &&
         phase.actions.length === 0 &&
         phase.controlOps.length === 0 && (
@@ -241,41 +223,6 @@ function PhaseDetail({
           </div>
         )}
     </>
-  );
-}
-
-function LlmCallRow({ task, onOpen }: { task: ModelTask; onOpen: () => void }) {
-  const usage = task.response?.usage;
-  const input = numOf(usage?.input_tokens ?? usage?.prompt_tokens);
-  const output = numOf(usage?.output_tokens ?? usage?.completion_tokens);
-  return (
-    <button
-      onClick={onOpen}
-      className="flex w-full items-center gap-2 rounded-lg border border-line bg-bg-sunken px-2.5 py-1.5 text-left transition-colors hover:border-line-strong hover:bg-hover"
-    >
-      <Brain size={12} className="shrink-0 text-accent" />
-      <Badge tone="accent" className="font-mono text-[10px]">
-        {task.profile ?? "task"}
-      </Badge>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">
-        {task.request?.model_id ?? task.response?.model_id ?? task.taskId}
-      </span>
-      {(input || output) && (
-        <span className="shrink-0 font-mono text-[10px] text-fg-faint">
-          {formatTokens(input)}→{formatTokens(output)}
-        </span>
-      )}
-      {task.status === "completed" ? (
-        <Badge tone="green">done</Badge>
-      ) : task.status === "failed" ? (
-        <Badge tone="red">failed</Badge>
-      ) : (
-        <Badge tone="accent">
-          <span className="animate-pulse-dot">●</span>
-        </Badge>
-      )}
-      <span className="shrink-0 text-[10px] text-fg-faint">message stack ›</span>
-    </button>
   );
 }
 
@@ -295,8 +242,4 @@ function PhaseStateIcon({ status }: { status: PhaseStep["status"] }) {
     return <Loader2 size={14} className="animate-spin-slow shrink-0 text-accent" />;
   }
   return <CircleDashed size={14} className="shrink-0 text-fg-faint" />;
-}
-
-function numOf(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

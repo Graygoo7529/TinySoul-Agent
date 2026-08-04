@@ -75,7 +75,7 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
             </div>
           )}
 
-          {running && turn.cycles.length > 0 && (
+          {running && (
             <div className="flex px-1">
               <Button
                 variant="ghost"
@@ -84,7 +84,7 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
                 onClick={() => openTurnDetail(turn.turnId)}
               >
                 <PanelRightOpen size={12} />
-                Live trace
+                Details
               </Button>
             </div>
           )}

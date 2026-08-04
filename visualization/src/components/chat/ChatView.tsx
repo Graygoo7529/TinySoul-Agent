@@ -51,7 +51,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
           </div>
         )}
       </div>
-      <Composer />
+      <Composer hasRunningTurn={turns.some((t) => t.status === "running")} />
     </div>
   );
 }
