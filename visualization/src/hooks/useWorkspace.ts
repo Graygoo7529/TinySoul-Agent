@@ -46,7 +46,7 @@ export function useWorkspace() {
         return read;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        store.setWorkspace(null, message);
+        store.pushToast("error", message);
       }
     },
     [client, store],
@@ -85,7 +85,7 @@ export function useWorkspace() {
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
-        store.setWorkspace(null, message);
+        store.pushToast("error", message);
       }
     },
     [client, store],
@@ -116,7 +116,7 @@ export function useWorkspace() {
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
-        store.setWorkspace(null, message);
+        store.pushToast("error", message);
       }
     },
     [client, store],
@@ -143,7 +143,7 @@ export function useWorkspace() {
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
-        store.setWorkspace(null, message);
+        store.pushToast("error", message);
       }
     },
     [client, store],
@@ -156,7 +156,7 @@ export function useWorkspace() {
       return items;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      store.setWorkspace(null, message);
+      store.pushToast("error", message);
       return [];
     }
   }, [client, store]);
@@ -178,7 +178,7 @@ export function useWorkspace() {
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
-        store.setWorkspace(null, message);
+        store.pushToast("error", message);
       }
     },
     [client, store],

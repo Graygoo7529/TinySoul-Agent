@@ -2,15 +2,15 @@
  * Central UI state store.
  *
  * The store keeps the connection handle, raw event stream, workspace cache,
- * and UI selections. Heavy derived state (grouped turns, current top links,
- * active LLM tasks) is computed in hooks/components to avoid keeping multiple
- * copies of the event list.
+ * and UI selections. Heavy derived state (grouped turns, working context) is
+ * computed in `derive/` from the event list to avoid duplicated copies.
  */
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import type {
+  AppTab,
   BackendStatus,
   ConnectionInfo,
   EndpointEvent,
@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
+import { randomId } from "../utils/randomId";
 
 export interface ConnectionState {
   status:
@@ -41,6 +42,14 @@ export interface OpenResource {
   draft: string;
 }
 
+export type ThemeMode = "light" | "dark";
+
+export interface ToastItem {
+  id: string;
+  kind: "success" | "error" | "info";
+  text: string;
+}
+
 export interface AppState {
   // Connection
   connection: ConnectionState;
@@ -51,6 +60,12 @@ export interface AppState {
   status: BackendStatus | null;
   events: EndpointEvent[];
   maxEvents: number;
+  eventStreamInterrupted: boolean;
+  streamReconnecting: boolean;
+
+  // Locally echoed user inputs (command_id → text) so the chat view can show
+  // user messages immediately; the backend command events carry no text.
+  localInputs: { commandId: string; text: string }[];
 
   // Workspace
   workspace: WorkspaceManifest | null;
@@ -63,9 +78,14 @@ export interface AppState {
   maintenanceStatus: MaintenanceStatus | null;
 
   // UI
-  activeTab: "chat" | "workspace";
+  activeTab: AppTab;
+  theme: ThemeMode;
   projectRoot: string;
-  eventStreamInterrupted: boolean;
+  detailTurnId: string | null;
+  backgroundOpen: boolean;
+  settingsOpen: boolean;
+  maintenanceOpen: boolean;
+  toasts: ToastItem[];
 
   // Actions
   setConnection: (connection: ConnectionState) => void;
@@ -74,16 +94,27 @@ export interface AppState {
   setStatus: (status: BackendStatus | null) => void;
   appendEvents: (events: EndpointEvent[]) => void;
   clearEvents: () => void;
+  setEventStreamInterrupted: (interrupted: boolean) => void;
+  setStreamReconnecting: (reconnecting: boolean) => void;
+  recordLocalInput: (commandId: string, text: string) => void;
   setWorkspace: (workspace: WorkspaceManifest | null, error?: string) => void;
   setWorkspaceLoading: (loading: boolean) => void;
   setWorkspaceConflict: (conflict: boolean) => void;
-  setEventStreamInterrupted: (interrupted: boolean) => void;
   openWorkspaceResource: (read: WorkspaceTextRead) => void;
   updateResourceDraft: (draft: string) => void;
   closeResource: () => void;
   setMaintenanceStatus: (status: MaintenanceStatus | null) => void;
-  setActiveTab: (tab: "chat" | "workspace") => void;
+  setActiveTab: (tab: AppTab) => void;
+  setTheme: (theme: ThemeMode) => void;
+  toggleTheme: () => void;
   setProjectRoot: (root: string) => void;
+  openTurnDetail: (turnId: string) => void;
+  closeTurnDetail: () => void;
+  setBackgroundOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
+  setMaintenanceOpen: (open: boolean) => void;
+  pushToast: (kind: ToastItem["kind"], text: string) => void;
+  dismissToast: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -93,14 +124,22 @@ export const useAppStore = create<AppState>()(
       status: null,
       events: [],
       maxEvents: 2000,
+      eventStreamInterrupted: false,
+      streamReconnecting: false,
+      localInputs: [],
       workspace: null,
       workspaceLoading: false,
       workspaceConflict: false,
       openResource: null,
       maintenanceStatus: null,
       activeTab: "chat",
+      theme: "light",
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
-      eventStreamInterrupted: false,
+      detailTurnId: null,
+      backgroundOpen: false,
+      settingsOpen: false,
+      maintenanceOpen: false,
+      toasts: [],
 
       setConnection: (connection) => set({ connection }),
       setClient: (client) => set({ client }),
@@ -110,14 +149,14 @@ export const useAppStore = create<AppState>()(
       appendEvents: (events) => {
         if (events.length === 0) return;
         set((state) => {
-          const merged = [...state.events, ...events].sort(
-            (a, b) => a.sequence - b.sequence,
-          );
+          const merged = [...state.events, ...events];
           const unique = new Map<number, EndpointEvent>();
           for (const ev of merged) {
             unique.set(ev.sequence, ev);
           }
-          const next = Array.from(unique.values());
+          const next = Array.from(unique.values()).sort(
+            (a, b) => a.sequence - b.sequence,
+          );
           if (next.length > state.maxEvents) {
             next.splice(0, next.length - state.maxEvents);
           }
@@ -126,13 +165,19 @@ export const useAppStore = create<AppState>()(
       },
 
       clearEvents: () => set({ events: [] }),
+      setEventStreamInterrupted: (eventStreamInterrupted) =>
+        set({ eventStreamInterrupted }),
+      setStreamReconnecting: (streamReconnecting) => set({ streamReconnecting }),
+
+      recordLocalInput: (commandId, text) =>
+        set((state) => ({
+          localInputs: [...state.localInputs.slice(-99), { commandId, text }],
+        })),
 
       setWorkspace: (workspace, error) =>
         set({ workspace, workspaceLoading: false, workspaceError: error }),
-      setWorkspaceLoading: (loading) => set({ workspaceLoading: loading }),
+      setWorkspaceLoading: (workspaceLoading) => set({ workspaceLoading }),
       setWorkspaceConflict: (workspaceConflict) => set({ workspaceConflict }),
-      setEventStreamInterrupted: (eventStreamInterrupted) =>
-        set({ eventStreamInterrupted }),
 
       openWorkspaceResource: (read) =>
         set({
@@ -161,11 +206,30 @@ export const useAppStore = create<AppState>()(
       setMaintenanceStatus: (maintenanceStatus) => set({ maintenanceStatus }),
 
       setActiveTab: (activeTab) => set({ activeTab }),
+      setTheme: (theme) => set({ theme }),
+      toggleTheme: () =>
+        set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
       setProjectRoot: (projectRoot) => set({ projectRoot }),
+      openTurnDetail: (detailTurnId) => set({ detailTurnId }),
+      closeTurnDetail: () => set({ detailTurnId: null }),
+      setBackgroundOpen: (backgroundOpen) => set({ backgroundOpen }),
+      setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+      setMaintenanceOpen: (maintenanceOpen) => set({ maintenanceOpen }),
+
+      pushToast: (kind, text) =>
+        set((state) => ({
+          toasts: [...state.toasts.slice(-4), { id: randomId(), kind, text }],
+        })),
+      dismissToast: (id) =>
+        set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
     }),
     {
       name: "tinysoul-ui-state",
-      partialize: (state) => ({ projectRoot: state.projectRoot }),
+      partialize: (state) => ({
+        projectRoot: state.projectRoot,
+        theme: state.theme,
+        activeTab: state.activeTab,
+      }),
     },
   ),
 );

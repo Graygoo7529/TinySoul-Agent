@@ -3,8 +3,11 @@
  *
  * Connects to `/v1/events/ws`, authenticates with the process-local token,
  * and delivers normalized `EndpointEvent` objects to a listener. The manager
- * handles reconnection and gap detection; the consumer decides how to
- * reconcile state when a gap occurs.
+ * handles reconnection with exponential backoff and gap detection; the
+ * consumer decides how to reconcile state when a gap occurs.
+ *
+ * The server reads the auth frame exactly once at connection start, so any
+ * cursor/mode change is applied by reconnecting.
  */
 
 import type { ConnectionInfo, EndpointEvent, ObservationLevel } from "../types";
@@ -24,11 +27,16 @@ export interface EventStreamCallbacks {
   onMessage: (msg: EventStreamMessage) => void;
   onError: (error: Error) => void;
   onClose: (wasClean: boolean) => void;
+  onReconnecting?: (attempt: number, delayMs: number) => void;
 }
+
+const BASE_RECONNECT_MS = 1000;
+const MAX_RECONNECT_MS = 30000;
 
 export class TinySoulEventStream {
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
   private closed = false;
 
   constructor(
@@ -36,7 +44,6 @@ export class TinySoulEventStream {
     private after: number,
     private mode: ObservationLevel,
     private callbacks: EventStreamCallbacks,
-    private options: { reconnectDelayMs?: number; maxReconnectDelayMs?: number } = {},
   ) {}
 
   connect() {
@@ -58,9 +65,9 @@ export class TinySoulEventStream {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string) as EventStreamMessage;
-        if (data.type === "events") {
-          this.after = data.next_sequence;
-        } else if (data.type === "heartbeat") {
+        if (data.type === "authenticated") {
+          this.reconnectAttempt = 0;
+        } else if (data.type === "events" || data.type === "heartbeat") {
           this.after = data.next_sequence;
         }
         this.callbacks.onMessage(data);
@@ -84,20 +91,37 @@ export class TinySoulEventStream {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
-    const base = this.options.reconnectDelayMs ?? 1000;
-    const max = this.options.maxReconnectDelayMs ?? 30000;
-    const delay = Math.min(base, max);
+    this.reconnectAttempt += 1;
+    const delay = Math.min(
+      BASE_RECONNECT_MS * 2 ** (this.reconnectAttempt - 1),
+      MAX_RECONNECT_MS,
+    );
+    this.callbacks.onReconnecting?.(this.reconnectAttempt, delay);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
   }
 
+  /** Apply a new observation mode by reconnecting (server reads auth once). */
   setMode(mode: ObservationLevel) {
+    if (mode === this.mode) return;
     this.mode = mode;
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ token: this.info.token, after: this.after, mode }));
+    this.restart();
+  }
+
+  private restart() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+    if (this.ws) {
+      const ws = this.ws;
+      this.ws = null;
+      ws.onclose = null;
+      ws.close();
+    }
+    this.connect();
   }
 
   close() {

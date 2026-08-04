@@ -4,45 +4,50 @@
 
 ## 定位与边界
 
-- **仅前端**：`kimi-agent` 的编辑范围限定在 `visualization/` 目录；不修改后端 Python/Rust 业务代码。
+- **仅前端**：编辑范围限定在 `visualization/` 目录；不修改后端 Python/Rust 业务代码。
 - **纯连接模式**：Tauri 不启动、不持有、不停止 Python 进程；前端只读取 App 发布的项目实例连接描述，发现并连接当前已运行的 Endpoint。
 - **后端为真相源**：Workspace 通过 Endpoint REST 管理；Agent 运行过程与真实模型语境通过 Observation 展示。前端不直接读取 `runtime/`、`home/`、`memory/` 或 `archive/`。
-- **MODEL 级事件订阅**：WebSocket 始终订阅 `model` 等级事件，前端按事件名称、scope、identity 在本地切割展示 normal/verbose/model 信息。
+- **MODEL 级事件订阅**：WebSocket 始终订阅 `model` 等级事件；前端在本地按名称、scope、identity 派生展示。服务端只在连接起始读一次鉴权帧，切换游标/等级通过重连实现。
 
 ## 核心设计原则
 
-1. **对话优先**：主界面是用户与 Agent 的聊天历史，内部执行细节默认隐藏。
-2. **渐进展开**：点击后可展开 Turn → Cycle → Phase → Action/Result → LLM Context 的多层结构。
-3. **运行时语义可视化**：每个 Cycle 展开后能看到 Phase1 选了哪些 domain、Phase2 计划了哪些 action、Phase3 执行结果如何。
-4. **全局背景独立显示**：Background Context 是跨 Turn 的全局面板，不嵌在单个 Turn 内部。
-5. **冷静聚焦的视觉**：深色主题、充足留白、清晰排版、克制动效。
+1. **对话优先**：主界面是用户轮（user message + agent answer）构成的聊天历史，内部执行细节默认收纳。
+2. **运行状态动态披露**：进行中的用户轮在主对话界面实时展示当前阶段、正在执行的 action、todo/milestone 快照与滚动 activity feed。
+3. **Turn 内部细节滑窗**：每个用户轮可从右侧拉出细节滑窗，按 Cycle → Phase 呈现 control ops（domain 选择、背景加载、todo/milestone 维护）、每次 LLM 调用的完整 message stack、action 输入输出与执行状态，并支持导出该轮完整 trace（Markdown / JSON）。
+4. **语义化呈现**：domain、link、todo/milestone、脚本与命令执行、工作区变更等都有专属的视觉表达；结构化 JSON 用可折叠语法着色树渲染。
+5. **全局背景独立显示**：Background Context 是跨 Turn 的全局面板，不嵌在单个 Turn 内部。
+6. **三档明度的中性工具风**：浅色为主、亮暗双主题，CSS 变量驱动，圆角与阴影克制（详见 visual-system.md）。
 
 ## 整体布局
 
 ```text
-+-----------------------------------------------------------+
-|  Sidebar  |  Header (title + Connect / Context / Maint.)  |
-|  64px     +-----------------------------------------------+
-|           |                                               |
-|  Chat     |              Main Content Area                |
-|  Files    |              (Chat / Workspace)               |
-|           +-----------------------------------------------+
-|  Settings |              Status Bar                       |
-+-----------------------------------------------------------+
++---------------------------------------------------------------+
+| Nav    |  Header (title + turn badge + Maintenance / Context) |
+| 52px   +------------------------------------------------------+
+| Chat   |                                                      |
+| Work-  |              Main Content Area                       |  <= Turn Trace Drawer
+| space  |              (Chat / Workspace / Monitor)            |     (right slide-over)
+| Monitor+------------------------------------------------------+
+| Theme  |              Status Bar                              |
+| Settings                                                      |
++---------------------------------------------------------------+
 ```
 
-- **左侧 Sidebar**：Chat、Files（Workspace）、Settings。
-- **顶部 Header**：连接状态、Background Context 开关、Maintenance 入口、Settings 入口。
-- **主内容区**：根据 active tab 渲染对应视图。
-- **右侧 Background Context**：全局侧边栏，展示当前加载的 top links。
-- **底部 Status Bar**：连接状态、active day、workspace revision、turn active 等。
+## 代码结构
 
-## 连接与生命周期
+- `src/api/` — Endpoint HTTP 客户端与 WebSocket 事件流（指数退避重连、gap 检测）。
+- `src/derive/` — 从扁平事件流派生对话模型：`chat.ts`（Turn/Cycle/Phase/control ops/working state/activity feed/usage）、`model.ts`（派生类型）、`export.ts`（turn trace 导出）。
+- `src/store/appStore.ts` — Zustand store：连接、事件、workspace 缓存、UI 状态（主题、滑窗、toast）；仅持久化 projectRoot / theme / activeTab。
+- `src/components/ui/` — 设计系统基元（Button/Badge/Card/Modal/Tabs/Toast/JsonTree/Collapsible/CopyButton/EmptyState）。
+- `src/components/markdown/` — 复用的 Markdown 渲染模块（react-markdown + GFM），服务于最终回答、工作区文档预览、背景内容等。
+- `src/components/chat/` — 主对话界面（消息列表、LiveStatus 运行状态卡、Composer）。
+- `src/components/trace/` — Turn 细节滑窗（Cycle/Phase/ControlOps/LlmCall/MessageStack/ActionCard 与各 domain 渲染器）。
+- `src/components/workspace/` — 工作区视图（目录树、编辑器 + Markdown 预览、二进制预览、回收站）。
+- `src/components/monitor/` — 原始观察事件监视器（等级过滤、搜索、payload 展开）。
+- `src/components/shell/` — 应用外壳（导航、Header、StatusBar、设置、背景面板、维护面板、断连引导）。
 
-详见 [connection.md](./connection.md)。
+## 连接与恢复
 
-## 各视图设计
-
-- [chat.md](./chat.md) — 对话、执行轨迹、运行时语义展开。
-- [workspace.md](./workspace.md) — 工作区文件管理与编辑器。
-- [visual-system.md](./visual-system.md) — 视觉 token 与组件风格。
+- 实例发现由 Rust 侧 `discover_backend` 完成（identity = 规范化路径 SHA256），HTTP 轮询 `/v1/status` 检测后端重启。
+- WS gap 时清空事件派生视图并重读 status/manifest/maintenance，界面顶部给出提示条。
+- 用户输入采用本地回声：提交时记录 command_id → 文本，派生层在 command accepted 后回填到对应 Turn；非本端输入（如 Terminal）从首个 message stack 的 `user_input` 段恢复。

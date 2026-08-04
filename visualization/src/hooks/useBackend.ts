@@ -52,11 +52,14 @@ export function useBackend() {
       store.setClient(nextClient);
       store.setStatus(status);
       store.setConnection({ status: "connected", info });
+      void refreshMaintenance(nextClient);
+      void refreshWorkspace(nextClient);
 
       const stream = new TinySoulEventStream(info, 0, "model", {
         onMessage: (message) => {
           const current = useAppStore.getState();
           if (message.type === "authenticated") {
+            current.setStreamReconnecting(false);
             if (
               message.instance_id !== info.instance_id ||
               message.project_identity !== info.project_identity
@@ -73,6 +76,10 @@ export function useBackend() {
           if (message.gap) {
             current.clearEvents();
             current.setEventStreamInterrupted(true);
+            current.pushToast(
+              "info",
+              "Event stream gap detected; state was re-synchronized from the backend.",
+            );
             void recoverAuthoritativeState(nextClient);
           }
           current.appendEvents(message.events);
@@ -101,6 +108,9 @@ export function useBackend() {
         },
         onClose: (wasClean) => {
           if (!wasClean) console.warn("Event stream closed unexpectedly");
+        },
+        onReconnecting: () => {
+          useAppStore.getState().setStreamReconnecting(true);
         },
       });
       stream.connect();
@@ -138,6 +148,7 @@ export function useBackend() {
           status: "not_running",
           error: error instanceof Error ? error.message : String(error),
         });
+        store.pushToast("error", "Connection to the TinySoul backend was lost.");
       }
     };
     pollRef.current = setInterval(() => void tick(), POLL_INTERVAL_MS);
@@ -164,10 +175,18 @@ export function useBackend() {
 async function refreshMaintenance(client: TinySoulClient) {
   try {
     const maintenance = await client.maintenanceStatus();
-    const store = useAppStore.getState();
-    store.setMaintenanceStatus(maintenance);
+    useAppStore.getState().setMaintenanceStatus(maintenance);
   } catch (error) {
     console.error("Maintenance status recovery failed:", error);
+  }
+}
+
+async function refreshWorkspace(client: TinySoulClient) {
+  try {
+    const manifest = await client.workspaceManifest();
+    useAppStore.getState().setWorkspace(manifest);
+  } catch (error) {
+    console.error("Workspace manifest load failed:", error);
   }
 }
 

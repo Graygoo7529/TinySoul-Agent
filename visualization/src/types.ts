@@ -25,17 +25,6 @@ export interface EndpointEvent {
   created_at: number;
 }
 
-export interface BackendReady {
-  type: "endpoint.ready";
-  protocol_version: number;
-  host: string;
-  port: number;
-  token: string;
-  instance_id: string;
-  project_identity: string;
-  project_root: string;
-}
-
 export interface BackendStatus {
   protocol_version: number;
   instance_id: string;
@@ -183,4 +172,4 @@ export interface TopLinkEntry {
   evictable: boolean;
 }
 
-export type AppTab = "chat" | "workspace";
+export type AppTab = "chat" | "workspace" | "monitor";

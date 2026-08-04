@@ -1,6 +1,6 @@
 # TinySoul Desktop Frontend
 
-A polished Tauri 2 + React + TypeScript + Vite desktop interface for TinySoul. It connects to the local Endpoint backend, presents agent interactions as a conversation, and provides a workspace file manager that never touches the local filesystem directly.
+A Tauri 2 + React + TypeScript + Vite desktop interface for TinySoul. It connects to the local Endpoint backend, presents agent interactions as a conversation with full runtime transparency, and provides a workspace file manager that never touches the local filesystem directly.
 
 ## Development
 
@@ -31,75 +31,62 @@ tinysoul start --root <project-root> --mode normal
 
 The frontend discovers that project instance automatically. When no instance is available it shows the recommended command and a retry action; it never starts or stops the backend.
 
-> The backend executable must be on PATH as `tinysoul` (or `tinysoul.exe` on Windows). For this project you can install it with `pip install -e .` from the repository root.
-
 Build the production bundle:
 
 ```bash
 pnpm tauri build
 ```
 
+Checks:
+
+```bash
+pnpm test    # vitest
+pnpm build   # tsc + vite build
+```
+
 ## Architecture
 
 - `src-tauri/src/lib.rs` — Tauri Rust boundary that locates and validates the App-owned project connection record.
-- `src/api/tinysoul.ts` — HTTP client for the Endpoint API.
-- `src/api/events.ts` — WebSocket event stream manager with reconnection and gap detection.
-- `src/store/appStore.ts` — Zustand store for connection state, events, workspace cache, UI selections, and persisted project root.
-- `src/hooks/useDerivedChat.ts` — Derives conversation turns, cycles, phases, actions, and model tasks from the raw event stream following AGENT.md semantics.
-- `src/components/` — React UI components.
-
-## Design
-
-The UI follows a "conversation first, progressive disclosure" pattern:
-
-- Chat is a single message history between the user and the agent.
-- Each assistant message can expand to reveal its internal execution.
-- Execution details follow AGENT.md semantics: **Turn → Cycle → Phase → Action/Result → LLM Context**.
-- The event stream always runs at `model` level; the frontend decides how much to surface.
+- `src/api/` — Endpoint HTTP client and WebSocket event stream (exponential-backoff reconnect, gap detection).
+- `src/derive/` — Derives the conversation model from the flat event stream: turns → cycles → phases, Phase1 control operations, working-state projection, activity feed, token usage, and turn trace export.
+- `src/store/appStore.ts` — Zustand store for connection, events, workspace cache, UI state (theme, drawer, toasts); persists project root / theme / tab only.
+- `src/components/ui/` + `src/components/markdown/` — design-system primitives and the shared Markdown renderer.
+- `src/components/chat/ | trace/ | workspace/ | monitor/ | shell/` — feature surfaces.
 
 ## Features
 
 ### Chat
 
-- Conversation-style history with user and assistant bubbles.
-- Live activity indicator while a turn is running (current phase and action).
-- Expandable execution trace per assistant message following **Turn → Cycle → Phase → Action/Result → LLM Context**.
-- **Cycles** — Each cycle shows selected domains, a Phase stepper, and Phase cards.
-- **Phase cards** — Phase1 context/domain selection, Phase2 planned actions, Phase3 executed results and workspace effects.
-- **LLM Context** — Nested inside each Phase, grouped by semantic sections (identity, inputs, background, working, trace, task, decision, action results).
-- Robust status normalization so `success`, `completed`, `failed`, `timeout`, `planned`, and `running` states render correctly.
+- Conversation of user turns: user bubbles on the right, agent rows on the left.
+- Final answers rendered as Markdown (GFM).
+- **Live status disclosure** while a turn runs: current phase and model/action activity, a 3-stage phase stepper, the todo/milestone working snapshot, and a rolling semantic activity feed (context loading, domain selection, action execution, workspace changes…).
 
-### Action Execution Cards
+### Turn Trace Drawer
 
-Phase 3 action results are rendered as mock computer UIs:
+- Every turn opens a right-side detail drawer (live while running): overview stats, final working context, the full activity list, and per-cycle phase cards.
+- Phase1 shows semantic control operations — selected action domains, todo/milestone maintenance, background load/evict.
+- Phase2 shows planned actions with generated parameters; Phase3 shows executed actions with status, typed failures, and domain-aware output rendering (documents, terminal stdout/stderr with exit codes, web results), plus raw JSON fallbacks.
+- Every LLM call expands to its full constructed **message stack**, grouped into semantic sections (identity / user inputs / background / turn trace / working / task prompt) with per-message roles, labels, parts, tool calls and reasoning.
+- **Trace export**: the complete turn — every LLM message stack, every action input/output — as a Markdown document or structured JSON.
 
-- **Document editing** — `workspace.write`, `workspace.rewrite`, `workspace.patch`, and `script.write` show a file preview with line count and save status.
-- **Script execution** — `script.run_*` actions render a code-terminal view with language, arguments, stdout, stderr, and exit code.
-- **Shell commands** — `shell.run_*` actions render a terminal window with the command, working directory, output, and exit code.
-- **Long-running processes** — supervised process results show job state, elapsed time, execution id, stdout/stderr, and candidate changes.
-- Each card still exposes the raw action payload and result JSON for advanced debugging.
+### Monitor
 
-### Background Context
-
-- A global **Background Context** side panel shows the currently loaded top links independent of any turn.
-- Links are updated from `context.background.snapshot` / `context.background.changed` events and are evicted as the backend decides.
+- Raw observation event stream with level filtering (normal/verbose/model), text search, scope frames and expandable payloads.
 
 ### Workspace
 
-- Manifest summary (file count, size, kind breakdown).
-- Browse resources, read text, edit in place, and save with digest CAS.
-- Create new resources.
-- Move resources to trash and restore them.
+- Directory tree derived from the manifest, search filter, trash list with restore.
+- Text editor with live Markdown preview (source / split / preview), digest+revision CAS, and explicit conflict resolution (keep draft, Overwrite / Reload).
+- Binary resources preview (images render) and download.
 
-### Settings
+### Global
 
-- Project root directory is persisted across restarts.
-- The root can be changed from the Settings dialog and reconnects to that project's running instance.
+- Background Context panel: the currently loaded top-level links with rendered content.
+- Maintenance dialog: daily / home / memory requests with availability hints.
+- Light/dark themes, toast notifications, connection status bar with day/revision/turn state.
 
 ## Notes
 
-- The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/workspace`, Session, Home, or Memory directly.
+- The frontend only communicates through the authenticated loopback Endpoint. It does not read `runtime/`, Session, Home, or Memory directly.
 - The backend is owned by the visible Terminal that ran `tinysoul start`; closing the frontend only disconnects it.
-- The default window is intentionally compact (720×520) for a user-level desktop assistant.
 - Design documents are in `docs/design/`; completed plans and active execution plans are in `docs/plans/`.
-- Future backend capabilities that could extend the UI are recorded in `docs/plans/20260721-plan-future-backend-capabilities.md`.
