@@ -408,12 +408,9 @@ function applyModelRequest(
   if (working) turn.working = working;
 
   turn.usage.calls += 1;
-  addActivity(
-    turn,
-    "llm",
-    `Calling ${task.request.model_id}`,
-    `${PHASE_META[phaseName].title} · ${task.request.profile}`,
-  );
+  // Keep the chat-level activity feed free of concrete model identifiers;
+  // the trace drawer remains the place for those details.
+  addActivity(turn, "llm", "Thinking", PHASE_META[phaseName].title);
 }
 
 function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
@@ -676,10 +673,8 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
   if (runningTask) {
     return {
       phase: activePhase.phase,
-      label: `${PHASE_META[activePhase.phase].title}`,
-      detail: runningTask.request
-        ? `calling ${runningTask.request.model_id}`
-        : "waiting for model",
+      label: PHASE_META[activePhase.phase].title,
+      detail: "thinking",
     };
   }
   return { phase: activePhase.phase, label: PHASE_META[activePhase.phase].title };

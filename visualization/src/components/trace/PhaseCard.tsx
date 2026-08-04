@@ -40,9 +40,17 @@ export function PhaseCard({
         running ? "border-accent/40" : "border-line"
       }`}
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
-        className={`flex w-full items-center gap-2 px-2.5 py-2 text-left ${
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
+        className={`flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left ${
           running ? "bg-accent-soft/50" : "bg-bg-sunken"
         }`}
       >
@@ -55,12 +63,28 @@ export function PhaseCard({
           {phaseHeadline(phase)}
         </span>
         <CollapsedChips phase={phase} />
+        {phase.tasks.length > 0 && (
+          <span
+            role="button"
+            tabIndex={0}
+            title="View the LLM message stack"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenTask(phase.tasks[phase.tasks.length - 1], phase);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white"
+          >
+            <Brain size={10} />
+            {phase.tasks.length > 1 ? `${phase.tasks.length} calls` : "context"}
+          </span>
+        )}
         {phase.startedAt && (
           <span className="shrink-0 font-mono text-[10px] text-fg-faint">
             {formatDuration(phase.startedAt, phase.completedAt)}
           </span>
         )}
-      </button>
+      </div>
 
       {open && (
         <div className="space-y-3 border-t border-line bg-bg-elev px-3 py-3">

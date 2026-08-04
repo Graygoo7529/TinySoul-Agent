@@ -153,7 +153,7 @@ describe("buildChatTurns", () => {
     const [turn] = buildChatTurns(realisticTurnEvents(), []);
     const texts = turn.activity.map((a) => a.text).join("\n");
     expect(texts).toContain("Selected domains: workspace");
-    expect(texts).toContain("Calling model-x");
+    expect(texts).toContain("Thinking");
     expect(texts).toContain("workspace.write succeeded");
   });
 });

@@ -85,16 +85,9 @@ export function LlmCallDrawer({
 
         {request?.tools && request.tools.length > 0 && (
           <DrawerSection title={`Tools offered (${request.tools.length})`}>
-            <div className="flex flex-wrap gap-1">
+            <div className="space-y-1.5">
               {request.tools.map((tool) => (
-                <span
-                  key={tool.name}
-                  title={tool.description}
-                  className="inline-flex items-center gap-1 rounded-md border border-line bg-bg-elev px-1.5 py-0.5 font-mono text-[10px] text-fg-muted"
-                >
-                  <Wrench size={9} />
-                  {tool.name}
-                </span>
+                <ToolSpecRow key={tool.name} tool={tool} />
               ))}
             </div>
           </DrawerSection>
@@ -154,6 +147,48 @@ export function LlmCallDrawer({
         )}
       </div>
     </aside>
+  );
+}
+
+function ToolSpecRow({ tool }: { tool: import("../../derive/model").ToolSpecView }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-line bg-bg-sunken">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+      >
+        <ChevronRight
+          size={12}
+          className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        <Wrench size={11} className="shrink-0 text-fg-faint" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-medium text-fg">
+          {tool.name}
+        </span>
+        {tool.kind && (
+          <Badge tone={tool.kind === "control" ? "accent" : "gray"} className="text-[10px]">
+            {tool.kind}
+          </Badge>
+        )}
+        {tool.strict && <Badge tone="yellow" className="text-[10px]">strict</Badge>}
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-line px-3 py-2.5">
+          {tool.description && (
+            <p className="text-[12px] leading-5 text-fg-muted">{tool.description}</p>
+          )}
+          {tool.parameters !== undefined && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
+                Parameters schema
+              </div>
+              <JsonTree value={tool.parameters} defaultExpanded={false} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

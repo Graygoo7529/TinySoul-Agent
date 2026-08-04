@@ -10,7 +10,7 @@
 
 进行中的用户轮在 Agent 行内展示实时状态卡，全部从观察事件流派生：
 
-- **浮动最新状态**：只突出当前最新的一条语义活动（加载背景、设置 todo、选择 domain、调用模型、执行 action…），新活动以动画上浮替换旧条目，旧条目以渐淡轨迹残留在下方——不同时陈列三个阶段。
+- **浮动最新状态**：只突出当前最新的一条语义活动（加载背景、设置 todo、选择 domain、正在思考、执行 action…；不暴露具体模型名，模型细节归细节滑窗），新活动以动画上浮替换旧条目，旧条目以渐淡轨迹残留在下方——不同时陈列三个阶段；状态卡右上角有停止按钮可中断当前轮。
 - **独立工作态区域**：todo 列表（状态图标、进行中高亮、完成划线）与 milestone 胶囊在状态卡下部常驻，由 Phase1 control tools 与 message stack 的 `working` 段共同推导。
 
 ## Turn 内部细节滑窗
@@ -24,7 +24,7 @@
   - Stage1：折叠直接展示选中的 domain 胶囊（如 `home` `core`），文案为 "Selected N domains" / 运行中 "Maintaining context and selecting domains…"。
   - Stage2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent），文案为 "Planned 1 action: core.answer" / "Executing workspace.write (2/3)" / "3 actions executed · 1 failed"。
   - Stage 展开后呈现完整语义：推理思考（reasoning summary，Markdown 渲染）、control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、action 输入输出、工作区变更、LLM 调用行。
-- **LLM 子滑窗**：stage 详情中的每次 LLM 调用行可点击，从主滑窗**左侧**进一步拉出独立子滑窗，展示该次调用的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区与逐条 message 均可折叠）与 Response（reasoning / answer / tool calls / usage）。
+- **LLM 子滑窗**：stage 折叠行右侧有 accent 胶囊按钮（Brain 图标 + "context"/"N calls"），不展开 stage 即可直接唤出；stage 详情内每次 LLM 调用行也可点击。子滑窗从主滑窗**左侧**拉出，展示该次调用的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区与逐条 message 均可折叠）、Tools offered（每个工具可展开查看 description、kind 与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。
 - **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 调用（Request+Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
 
 ## Action 输入输出渲染

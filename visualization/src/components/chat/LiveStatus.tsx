@@ -4,11 +4,14 @@ import {
   Flag,
   ListChecks,
   Loader2,
+  Square,
   XCircle,
 } from "lucide-react";
 import type { ActivityItem, ChatTurn } from "../../derive/model";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
+import { useAppStore } from "../../store/appStore";
+import { randomId } from "../../utils/randomId";
 import { activityColors, activityIcons } from "../trace/semantic";
 
 /**
@@ -43,6 +46,7 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
           <div className="shrink-0 font-mono text-[11px] text-fg-faint">
             {formatDuration(turn.startedAt)}
           </div>
+          <StopButton />
         </div>
         {/* fading trail of what just happened */}
         <div className="mt-1 space-y-0.5 pl-[26px]">
@@ -64,8 +68,7 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
   );
 }
 
-function StatusLine({ item, prominent }: { item: ActivityItem; prominent?: boolean }) {
-  const Icon = activityIcons[item.kind] ?? Circle;
+function StatusLine({ item, prominent }: { item: ActivityItem; prominent?: boolean }) {  const Icon = activityIcons[item.kind] ?? Circle;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Icon
@@ -138,8 +141,33 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
   );
 }
 
-export function TodoIcon({ status }: { status: string }) {
-  switch (status) {
+function StopButton() {
+  const client = useAppStore((s) => s.client);
+  const pushToast = useAppStore((s) => s.pushToast);
+  const stop = async () => {
+    if (!client) return;
+    try {
+      await client.submitControl({ kind: "stop_turn", command_id: randomId() });
+    } catch (error) {
+      pushToast(
+        "error",
+        `Failed to stop the turn: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  return (
+    <button
+      onClick={() => void stop()}
+      title="Stop this turn"
+      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md bg-danger-soft px-2 text-[11px] font-medium text-danger transition-colors hover:bg-danger/20"
+    >
+      <Square size={10} />
+      Stop
+    </button>
+  );
+}
+
+export function TodoIcon({ status }: { status: string }) {  switch (status) {
     case "done":
       return <CheckCircle2 size={13} className="shrink-0 text-success" />;
     case "in_progress":
