@@ -62,6 +62,10 @@ export interface AppState {
   maxEvents: number;
   eventStreamInterrupted: boolean;
   streamReconnecting: boolean;
+  /** The backend stopped answering the status poll after a successful
+   * connection (e.g. wedged mid-turn). The UI stays on the connected views
+   * and shows a banner instead of dropping to the disconnected screen. */
+  backendUnreachable: boolean;
 
   // Locally echoed user inputs (command_id → text) so the chat view can show
   // user messages immediately; the backend command events carry no text.
@@ -96,6 +100,7 @@ export interface AppState {
   clearEvents: () => void;
   setEventStreamInterrupted: (interrupted: boolean) => void;
   setStreamReconnecting: (reconnecting: boolean) => void;
+  setBackendUnreachable: (unreachable: boolean) => void;
   recordLocalInput: (commandId: string, text: string) => void;
   setWorkspace: (workspace: WorkspaceManifest | null, error?: string) => void;
   setWorkspaceLoading: (loading: boolean) => void;
@@ -126,6 +131,7 @@ export const useAppStore = create<AppState>()(
       maxEvents: 2000,
       eventStreamInterrupted: false,
       streamReconnecting: false,
+      backendUnreachable: false,
       localInputs: [],
       workspace: null,
       workspaceLoading: false,
@@ -168,6 +174,7 @@ export const useAppStore = create<AppState>()(
       setEventStreamInterrupted: (eventStreamInterrupted) =>
         set({ eventStreamInterrupted }),
       setStreamReconnecting: (streamReconnecting) => set({ streamReconnecting }),
+      setBackendUnreachable: (backendUnreachable) => set({ backendUnreachable }),
 
       recordLocalInput: (commandId, text) =>
         set((state) => ({

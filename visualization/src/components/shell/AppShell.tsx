@@ -26,6 +26,7 @@ export function AppShell() {
   const setMaintenanceOpen = useAppStore((s) => s.setMaintenanceOpen);
   const maintenanceStatus = useAppStore((s) => s.maintenanceStatus);
   const status = useAppStore((s) => s.status);
+  const backendUnreachable = useAppStore((s) => s.backendUnreachable);
 
   const turns = useDerivedChat(events, localInputs);
   const detailTurn = useMemo(
@@ -72,6 +73,13 @@ export function AppShell() {
         </header>
 
         <main className="min-h-0 flex-1">
+          {backendUnreachable && connected && (
+            <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-1.5 text-[12px] text-warning">
+              <RefreshCw size={12} className="animate-spin-slow" />
+              The backend is not responding — the conversation stays in place
+              and reconnects automatically.
+            </div>
+          )}
           {connected ? (
             activeTab === "chat" ? (
               <ChatView turns={turns} />

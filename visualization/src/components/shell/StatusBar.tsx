@@ -4,6 +4,7 @@ export function StatusBar() {
   const connection = useAppStore((s) => s.connection);
   const status = useAppStore((s) => s.status);
   const reconnecting = useAppStore((s) => s.streamReconnecting);
+  const unreachable = useAppStore((s) => s.backendUnreachable);
   const connected = connection.status === "connected";
 
   return (
@@ -12,16 +13,18 @@ export function StatusBar() {
         <span
           className={`h-1.5 w-1.5 rounded-full ${
             connected
-              ? reconnecting
+              ? unreachable || reconnecting
                 ? "bg-warning"
                 : "bg-success"
               : "bg-danger"
           }`}
         />
         {connected
-          ? reconnecting
-            ? "reconnecting…"
-            : "connected"
+          ? unreachable
+            ? "not responding…"
+            : reconnecting
+              ? "reconnecting…"
+              : "connected"
           : connection.status}
       </span>
       {status && (

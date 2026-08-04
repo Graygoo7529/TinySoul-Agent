@@ -86,17 +86,20 @@ export function Composer() {
               Enter to send · Shift+Enter for newline
               {turnActive && " · sent while running becomes appended input"}
             </div>
-            {turnActive ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => void stop()}
-                  title="Stop the current turn"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger-soft text-danger transition-colors hover:bg-danger/20"
-                >
-                  <Square size={13} />
-                </button>
-                <SendButton canSend={canSend} sending={sending} onClick={() => void send()} />
-              </div>
+            {/*
+             * The send position adapts: while a turn runs and there is no
+             * pending text it becomes the stop button, so the primary action
+             * is always "interrupt the agent"; with pending text it stays a
+             * send button (appended input).
+             */}
+            {turnActive && !text.trim() ? (
+              <button
+                onClick={() => void stop()}
+                title="Stop the current turn"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90"
+              >
+                <Square size={13} />
+              </button>
             ) : (
               <SendButton canSend={canSend} sending={sending} onClick={() => void send()} />
             )}

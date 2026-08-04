@@ -85,11 +85,7 @@ export function LlmCallDrawer({
 
         {request?.tools && request.tools.length > 0 && (
           <DrawerSection title={`Tools offered (${request.tools.length})`}>
-            <div className="space-y-1.5">
-              {request.tools.map((tool) => (
-                <ToolSpecRow key={tool.name} tool={tool} />
-              ))}
-            </div>
+            <ToolsOffered tools={request.tools} />
           </DrawerSection>
         )}
 
@@ -150,40 +146,56 @@ export function LlmCallDrawer({
   );
 }
 
-function ToolSpecRow({ tool }: { tool: import("../../derive/model").ToolSpecView }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Tools offered to the model: capsule tags; clicking a tag reveals the full
+ * tool information sent to the model for selection — description, kind,
+ * strictness and the parameters schema.
+ */
+function ToolsOffered({ tools }: { tools: import("../../derive/model").ToolSpecView[] }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const current = tools.find((t) => t.name === selected) ?? null;
   return (
-    <div className="rounded-lg border border-line bg-bg-sunken">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
-      >
-        <ChevronRight
-          size={12}
-          className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
-        />
-        <Wrench size={11} className="shrink-0 text-fg-faint" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-medium text-fg">
-          {tool.name}
-        </span>
-        {tool.kind && (
-          <Badge tone={tool.kind === "control" ? "accent" : "gray"} className="text-[10px]">
-            {tool.kind}
-          </Badge>
-        )}
-        {tool.strict && <Badge tone="yellow" className="text-[10px]">strict</Badge>}
-      </button>
-      {open && (
-        <div className="space-y-2 border-t border-line px-3 py-2.5">
-          {tool.description && (
-            <p className="text-[12px] leading-5 text-fg-muted">{tool.description}</p>
+    <div>
+      <div className="flex flex-wrap gap-1">
+        {tools.map((tool) => (
+          <button
+            key={tool.name}
+            onClick={() => setSelected(selected === tool.name ? null : tool.name)}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors ${
+              selected === tool.name
+                ? "border-accent bg-accent text-white"
+                : "border-line bg-bg-elev text-fg-muted hover:border-accent/50 hover:text-accent"
+            }`}
+          >
+            <Wrench size={9} />
+            {tool.name}
+          </button>
+        ))}
+      </div>
+      {current && (
+        <div className="animate-fade-in mt-2 space-y-2 rounded-lg border border-line bg-bg-elev px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[12px] font-medium text-accent">{current.name}</span>
+            {current.kind && (
+              <Badge tone={current.kind === "control" ? "accent" : "gray"} className="text-[10px]">
+                {current.kind}
+              </Badge>
+            )}
+            {current.strict && (
+              <Badge tone="yellow" className="text-[10px]">
+                strict
+              </Badge>
+            )}
+          </div>
+          {current.description && (
+            <p className="text-[12px] leading-5 text-fg-muted">{current.description}</p>
           )}
-          {tool.parameters !== undefined && (
+          {current.parameters !== undefined && (
             <div>
               <div className="mb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
                 Parameters schema
               </div>
-              <JsonTree value={tool.parameters} defaultExpanded={false} />
+              <JsonTree value={current.parameters} defaultExpanded={false} />
             </div>
           )}
         </div>

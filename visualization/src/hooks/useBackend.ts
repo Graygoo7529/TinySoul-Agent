@@ -34,6 +34,7 @@ export function useBackend() {
     store.setEventStream(undefined);
     store.setClient(undefined);
     store.setStatus(null);
+    store.setBackendUnreachable(false);
     store.setConnection({ status: "connecting" });
     try {
       const info = await resolveConnectionInfo(projectRoot);
@@ -144,25 +145,25 @@ export function useBackend() {
       return;
     }
     const tick = async () => {
+      const store = useAppStore.getState();
       try {
         const status = await client.status();
-        const store = useAppStore.getState();
         const knownId = store.connection.info?.instance_id;
         if (knownId && status.instance_id !== knownId) {
-          throw new Error("TinySoul backend restarted");
+          // A different instance now answers: the backend was restarted.
+          // Re-run discovery so a changed port/token is picked up.
+          store.setBackendUnreachable(false);
+          void connect(store.projectRoot);
+          return;
         }
+        store.setBackendUnreachable(false);
         store.setStatus(status);
-      } catch (error) {
-        const store = useAppStore.getState();
-        store.eventStream?.close();
-        store.setEventStream(undefined);
-        store.setClient(undefined);
-        store.setStatus(null);
-        store.setConnection({
-          status: "not_running",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        store.pushToast("error", "Connection to the TinySoul backend was lost.");
+      } catch {
+        // The backend stopped answering after a successful connection
+        // (wedged mid-turn, overloaded, …). Keep the connected UI alive and
+        // keep polling; only surface a banner. A genuine restart is detected
+        // via the instance check above once it answers again.
+        store.setBackendUnreachable(true);
       }
     };
     pollRef.current = setInterval(() => void tick(), POLL_INTERVAL_MS);
@@ -172,7 +173,7 @@ export function useBackend() {
         pollRef.current = null;
       }
     };
-  }, [connectionStatus, client]);
+  }, [connectionStatus, client, connect]);
 
   // Retry initializing backend until it reports ready.
   useEffect(() => {
