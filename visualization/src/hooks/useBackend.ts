@@ -97,24 +97,7 @@ export function useBackend() {
             void recoverAuthoritativeState(nextClient);
           }
           current.appendEvents(message.events);
-          const names = new Set(message.events.map((event) => event.name));
-          if (
-            names.has("turn.started") ||
-            names.has("context.background.snapshot")
-          ) {
-            current.setEventStreamInterrupted(false);
-          }
-          if (names.has("workspace.changed")) {
-            void handleWorkspaceChanged(nextClient, message.events);
-          }
-          if (
-            names.has("program.maintenance.available") ||
-            names.has("maintenance.started") ||
-            names.has("maintenance.completed") ||
-            names.has("maintenance.availability.changed")
-          ) {
-            void refreshMaintenance(nextClient);
-          }
+          handleEventSideEffects(nextClient, message.events);
         },
         onError: (error) => {
           // Avoid logging MODEL payload which may contain sensitive data.
@@ -158,6 +141,11 @@ export function useBackend() {
         }
         store.setBackendUnreachable(false);
         store.setStatus(status);
+        // Reconcile the event stream: if the WS silently stalled (the
+        // backend kept buffering but stopped pushing), our local cursor falls
+        // behind latest_event_sequence. Catch up via the REST replay so
+        // terminal events (turn.failed/completed, …) are never missed.
+        void reconcileEvents(client, status.latest_event_sequence);
       } catch {
         // The backend stopped answering after a successful connection
         // (wedged mid-turn, overloaded, …). Keep the connected UI alive and
@@ -187,8 +175,60 @@ export function useBackend() {
   return { connect };
 }
 
-async function refreshMaintenance(client: TinySoulClient) {
-  try {
+/**
+ * Pull events the WS may have missed. Runs from the local event cursor;
+ * dedupe by sequence in the store makes overlap with live WS delivery safe.
+ */
+async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
+  const store = useAppStore.getState();
+  let cursor =
+    store.events.length > 0 ? store.events[store.events.length - 1].sequence : 0;
+  if (latestSequence <= cursor) return;
+  // Bounded: at most a few pages per poll tick.
+  for (let i = 0; i < 3 && cursor < latestSequence; i++) {
+    try {
+      const page = await client.replayEvents(cursor, "model", 1000);
+      if (page.gap) {
+        store.clearEvents();
+        store.setEventStreamInterrupted(true);
+        await recoverAuthoritativeState(client);
+        store.appendEvents(page.events);
+        return;
+      }
+      if (page.events.length === 0) return;
+      store.appendEvents(page.events);
+      handleEventSideEffects(client, page.events);
+      cursor = page.next_sequence;
+    } catch {
+      return; // next poll tick retries
+    }
+  }
+}
+
+/** Shared post-ingest triggers for both WS delivery and REST reconciliation. */
+function handleEventSideEffects(
+  client: TinySoulClient,
+  events: { name: string; payload: Record<string, unknown> }[],
+) {
+  const store = useAppStore.getState();
+  const names = new Set(events.map((event) => event.name));
+  if (names.has("turn.started") || names.has("context.background.snapshot")) {
+    store.setEventStreamInterrupted(false);
+  }
+  if (names.has("workspace.changed")) {
+    void handleWorkspaceChanged(client, events);
+  }
+  if (
+    names.has("program.maintenance.available") ||
+    names.has("maintenance.started") ||
+    names.has("maintenance.completed") ||
+    names.has("maintenance.availability.changed")
+  ) {
+    void refreshMaintenance(client);
+  }
+}
+
+async function refreshMaintenance(client: TinySoulClient) {  try {
     const maintenance = await client.maintenanceStatus();
     useAppStore.getState().setMaintenanceStatus(maintenance);
   } catch (error) {

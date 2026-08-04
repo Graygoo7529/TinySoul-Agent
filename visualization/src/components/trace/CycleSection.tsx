@@ -36,11 +36,13 @@ export function CycleSection({
           className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
         />
         <span className="text-sm font-semibold">Cycle {cycle.index}</span>
-        <Badge tone={running ? "accent" : "green"}>
+        <Badge tone={running ? "accent" : cycle.status === "ended" ? "gray" : "green"}>
           {running ? (
             <>
               <span className="animate-pulse-dot">●</span> running
             </>
+          ) : cycle.status === "ended" ? (
+            "ended"
           ) : (
             "completed"
           )}

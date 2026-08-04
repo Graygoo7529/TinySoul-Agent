@@ -216,7 +216,7 @@ export interface PhaseStep {
 export interface Cycle {
   cycleId: string;
   index: number;
-  status: "running" | "completed";
+  status: "running" | "completed" | "ended";
   phases: PhaseStep[];
   startedAt: number;
   completedAt?: number;

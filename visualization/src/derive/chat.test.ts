@@ -149,6 +149,30 @@ describe("buildChatTurns", () => {
     expect(turn.userMessages).toEqual(["hello agent"]);
   });
 
+  it("marks a turn failed on turn.failed/turn.completed and stops the clock", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }, 2),
+      event("loop.phase.completed", phaseScope("phase1"), { phase: "phase1" }, 3),
+      event("turn.failed", turnScope, {
+        status: "failed",
+        reason: "runtime.turn_end",
+        module: "loop",
+        kind: "loop.contract_violation",
+      }, 4),
+      event("turn.completed", turnScope, {
+        turn_id: "turn_1",
+        has_output: false,
+        status: "failed",
+      }, 5),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    expect(turn.status).toBe("failed");
+    // turn.completed is the final boundary and refines endedAt.
+    expect(turn.endedAt).toBe(5);
+    expect(turn.currentActivity).toBeUndefined();
+  });
+
   it("builds a semantic activity feed", () => {
     const [turn] = buildChatTurns(realisticTurnEvents(), []);
     const texts = turn.activity.map((a) => a.text).join("\n");

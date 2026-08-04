@@ -647,6 +647,14 @@ function finalizeTurn(turn: ChatTurn) {
     if (phase3?.status === "completed") {
       cycle.status = "completed";
       cycle.completedAt = phase3.completedAt;
+    } else if (
+      turn.status !== "running" &&
+      !cycle.phases.some((p) => p.status === "running")
+    ) {
+      // The turn ended (failed/stopped/exhausted) before this cycle ran its
+      // full 3-phase course — don't leave it looking alive.
+      cycle.status = "ended";
+      cycle.completedAt = turn.endedAt;
     }
   });
   turn.summary = computeTurnSummary(turn);
