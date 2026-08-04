@@ -44,6 +44,7 @@ class TinySoulApp:
 
     def run(self) -> ProgramOutcome:
         started: list[InputSource | ProgramRequestSource | AppService] = []
+        self.program_runner.prepare()
         for source in self.program_request_sources:
             try:
                 source.start(self.program_runner)

@@ -18,13 +18,15 @@ Endpoint 与 Terminal 共同依附一个 `tinysoul start` 进程和同一组业�
 
 ## 输入与反馈
 
-Terminal 与 Endpoint 的普通文本都进入 AppCommandGateway，再由同一 InputCommandParser/InputDispatcher 解释。typed control、Home/Memory Maintenance request 与带 decision id 的确认也进入 Gateway。所有 accepted/rejected receipt、Turn、Maintenance 和 decision 生命周期反馈都经 ObservationEmitter/Router 同时分发到 Console 与 Endpoint sink。
+Terminal 与 Endpoint 的普通文本都进入 AppCommandGateway，再由同一 InputCommandParser/InputDispatcher 解释。typed control 与 Home/Memory Maintenance request 也进入 Gateway。所有 accepted/rejected receipt、Turn 和 Maintenance 生命周期反馈都经 ObservationEmitter/Router 同时分发到 Console 与 Endpoint sink。
 
 Console route 由 `tinysoul start --mode` 选择 normal/verbose/model；Endpoint route 固定接收 model，因此前端总能按真实事件切割展示完整层次。Endpoint 不复制 Loop、Action 或 Context 状态机。
 
 ## Observation
 
 Event buffer 只保存有界 Observation envelope，并以单调 sequence 支持 HTTP replay 和 WebSocket 断线续传。淘汰产生 gap；客户端清理 event-derived 临时执行视图，并重新读取 status、Maintenance 与 Workspace 权威投影。Context Background、Phase、Action 与 LLM MessageStack 没有 REST snapshot，gap 后不能伪造缺失轨迹。
+
+Maintenance availability 与事件严格分工：Program 在 Endpoint ready 前完成 Archive preflight 和唯一持久 availability 刷新；`GET /v1/maintenance` 只读取这份 Maintenance-owned 投影，不扫描 Archive。前端连接后先读取 GET；收到 `program.maintenance.available`、`maintenance.completed` 或 `maintenance.availability.changed` 后重新读取。事件丢失或进程重启不会丢失提示事实，Endpoint 也不建立第二份前端专用状态。
 
 WebSocket 在没有新事件时按 `EndpointSettings.websocket_heartbeat_seconds` 发送 heartbeat，默认间隔为 15 秒。该设置只控制连接存活反馈，不改变 event sequence、replay 或 gap 语义。
 

@@ -6,7 +6,7 @@ from tinysoul.action import ActionResult, ActionResultStatus
 from tinysoul.infra.json import JsonObject
 
 from ..errors import LoopContractError
-from ..signals import TurnOutput
+from ..outcomes import TurnOutput
 
 USER_ANSWER_COMPLETION = "user_answer"
 

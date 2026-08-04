@@ -120,7 +120,7 @@ Session 负责归档图校验、按需递归 Summary、去重可达 Turn 事实�
 
 Memory service 只发布 verbose `memory.maintenance.started` 与 `completed/skipped/failed` Observation。事件只含目标日期、rewrite mode、Memory Link、fact/model-call 计数、成功 digest、skip/failure kind 或稳定异常类型，不含 Session facts、旧/新 MEMORY 正文、模型 prompt/reasoning 或绝对路径。Program 在 normal 层另行发布该 work 的唯一结果；Observation emitter 失败不能改变原子写、outcome 或后续 Program work。
 
-启动 availability 从权威 archive catalog 计算所有 eligible closed days，不只猜测昨日，也不保存平行 skip 状态。手动 Memory request 可以指定其中任意关闭日；`--rebuild` 允许显式重建已有日期。
+启动 availability 不扫描全部 archive catalog。每次 Archive 完成或恢复后，Maintenance 只在该日 Session facts 非空且有效 MEMORY 缺失时增量登记日期；尚未完成的日期跨重启保留，已有有效 MEMORY 的日期在刷新时幂等删除。该列表属于 Maintenance-owned 待办投影，不是 Memory 的第二份文档状态；执行前 Memory owner仍重新校验目标。手动 Memory request 可以显式指定任意关闭日；`--rebuild` 允许重建已有日期而不要求该日先出现在待办列表。
 
 ## Context 协作
 

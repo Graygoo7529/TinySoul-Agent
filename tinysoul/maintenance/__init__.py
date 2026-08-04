@@ -17,19 +17,23 @@ from .config import (
     MaintenanceSettings,
     parse_maintenance_settings,
 )
-from .day import BusinessClock, BusinessDay, IanaBusinessClock
-from .errors import MaintenanceContractError, MaintenanceError, MaintenanceInvariantError
+from .availability import MaintenanceAvailabilityStore
+from .day import BusinessClock, IanaBusinessClock
+from .errors import (
+    MaintenanceContractError,
+    MaintenanceError,
+    MaintenanceInvariantError,
+    MaintenanceTaskExecutionError,
+)
 from .failures import MaintenanceFailureKind
 from .models import (
     MaintenanceAvailability,
     MaintenanceOutcome,
-    MaintenancePlan,
     MaintenanceRequest,
     MaintenanceScope,
     MaintenanceStatus,
     MaintenanceTaskKind,
     MaintenanceTaskOutcome,
-    MaintenanceTaskPlan,
     MaintenanceTaskStatus,
     MaintenanceTrigger,
 )
@@ -42,20 +46,20 @@ __all__ = [
     "ActiveDayLease",
     "ArchiveProjection",
     "BusinessClock",
-    "BusinessDay",
     "DailyLifecycleCoordinator",
     "DailyTransitionJournal",
     "DailyTransitionOutcome",
     "DailyTransitionStep",
     "IanaBusinessClock",
     "MaintenanceAvailability",
+    "MaintenanceAvailabilityStore",
     "MaintenanceContractError",
     "MaintenanceEngine",
     "MaintenanceError",
     "MaintenanceFailureKind",
     "MaintenanceInvariantError",
+    "MaintenanceTaskExecutionError",
     "MaintenanceOutcome",
-    "MaintenancePlan",
     "MaintenanceRequest",
     "MaintenanceSchedule",
     "MaintenanceScheduleSettings",
@@ -64,7 +68,6 @@ __all__ = [
     "MaintenanceStatus",
     "MaintenanceTaskKind",
     "MaintenanceTaskOutcome",
-    "MaintenanceTaskPlan",
     "MaintenanceTaskStatus",
     "MaintenanceTrigger",
     "parse_maintenance_settings",

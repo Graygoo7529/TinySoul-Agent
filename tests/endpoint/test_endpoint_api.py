@@ -22,9 +22,9 @@ from tinysoul.endpoint import (
 )
 from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import LoopControlKind
 from tinysoul.maintenance import (
-    BusinessDay,
     DailyLifecycleCoordinator,
     MaintenanceAvailability,
     MaintenanceScope,
@@ -101,6 +101,7 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     assert gateway.controls[0][0] is LoopControlKind.EXIT_PROGRAM
 
     maintenance = client.get("/v1/maintenance", headers=_auth()).json()
+    assert maintenance["availability"]["checked_day"] == str(DAY)
     assert maintenance["availability"]["home_pending"] is False
     response = client.post(
         "/v1/maintenance",
@@ -383,9 +384,8 @@ class _EndpointMaintenance:
     def active_day_lease(self):
         return self.daily.active_day_lease()
 
-    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability:
-        assert business_day == DAY
-        return MaintenanceAvailability()
+    def availability(self) -> MaintenanceAvailability:
+        return MaintenanceAvailability(checked_day=DAY)
 
 
 @dataclass

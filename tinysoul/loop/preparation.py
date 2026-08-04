@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunScope, Signal
 
 from .errors import LoopContractError

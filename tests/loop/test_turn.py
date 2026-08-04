@@ -13,12 +13,11 @@ from tinysoul.loop import (
     TurnPreparationPipeline,
     TurnPreparationRequest,
     TurnSettings,
-    build_turn_output_signal,
 )
 from tinysoul.loop.cycle import CycleOutcome, CycleRunner
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import (
     ObservationEvent,
     ObservationLevel,
@@ -162,10 +161,7 @@ class _RecordingObservations:
         self.timeline.append(event.name)
 
 
-@dataclass
 class _OutputCycleRunner:
-    bus: SignalBus
-
     def run(
         self,
         *,
@@ -173,18 +169,9 @@ class _OutputCycleRunner:
         cycle_index: int,
         scope: RunScope,
     ) -> CycleOutcome:
-        frame = scope.nearest(RunLevel.TURN)
-        assert frame is not None
-        self.bus.emit(
-            build_turn_output_signal(
-                TurnOutput(text="done", result_id="answer_1"),
-                scope=scope,
-                source="test",
-            )
-        )
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
-            transfer=RuntimeTransfer.end(frame),
+            completion={"kind": "user_answer"},
         )
 
 
@@ -319,8 +306,12 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         context=context,
         bus=bus,
         trap=_trap(),
-        cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _completion: TurnOutput(
+            text="done",
+            result_id="answer_1",
+        ),
         completion_pipeline=TurnCompletionPipeline((recorder,)),
         observations=observations,
     )
@@ -373,8 +364,12 @@ def test_turn_completion_failure_reports_actual_failure_not_output_control() -> 
         context=context,
         bus=bus,
         trap=_trap(),
-        cycle_runner=cast(CycleRunner, _OutputCycleRunner(bus)),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
         settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _completion: TurnOutput(
+            text="done",
+            result_id="answer_1",
+        ),
         completion_pipeline=TurnCompletionPipeline((_FailingCompletion(),)),
         observations=observations,
     )

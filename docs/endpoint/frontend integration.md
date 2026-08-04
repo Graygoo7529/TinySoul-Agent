@@ -95,10 +95,10 @@ status 不暴露 Session revision。`ready=false` 时继续等待，不得访问
 
 ## 5. Maintenance
 
-- `GET /v1/maintenance`：返回 Home pending 计数和所有 eligible closed Memory days；
+- `GET /v1/maintenance`：返回 Home pending 计数和持久提示单中的 Memory dates；
 - `POST /v1/maintenance`：提交 `kind=daily|home|memory`、可选 Memory `target_day`/`rebuild_memory`、command id 与 metadata。
 
-Terminal 与前端可同时提交 Maintenance request；请求按进入 Program queue 的顺序串行执行，手动与 scheduler request 走同一 MaintenanceEngine 流程。前端根据 `maintenance.started`、`maintenance.completed` 和重新读取的 availability 收敛状态。
+Terminal 与前端可同时提交 Maintenance request；请求按进入 Program queue 的顺序串行执行，手动与 scheduler request 走同一 MaintenanceEngine 流程。前端连接后先读取 availability；收到 `program.maintenance.available`、`maintenance.started`、`maintenance.completed` 或 `maintenance.availability.changed` 时只重新读取 `GET /v1/maintenance`，不从事件 payload 建立第二份状态。
 
 ## 6. Observation 事件
 

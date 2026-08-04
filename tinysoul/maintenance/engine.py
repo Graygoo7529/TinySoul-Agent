@@ -8,7 +8,10 @@ from datetime import datetime
 from threading import RLock
 from typing import Protocol
 
+from tinysoul.home import AgentHomeIOError, AgentHomeInvariantError
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import BusinessDay
+from tinysoul.memory import MemoryIOError, MemoryInvariantError
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -19,23 +22,23 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
+from tinysoul.session import SessionIOError, SessionInvariantError
+from tinysoul.workspace import WorkspaceIOError, WorkspaceInvariantError
 
 from .archive import ArchiveProjection, DailyTransitionOutcome
-from .day import BusinessClock, BusinessDay
-from .errors import MaintenanceInvariantError
+from .availability import MaintenanceAvailabilityStore
+from .day import BusinessClock
+from .errors import MaintenanceInvariantError, MaintenanceTaskExecutionError
 from .models import (
     MaintenanceAvailability,
     MaintenanceOutcome,
-    MaintenancePlan,
     MaintenanceRequest,
     MaintenanceScope,
     MaintenanceStatus,
     MaintenanceTaskKind,
     MaintenanceTaskOutcome,
-    MaintenanceTaskPlan,
     MaintenanceTaskStatus,
 )
-from .schedule import missed_memory_days
 
 
 class ArchiveMaintenance(Protocol):
@@ -50,8 +53,6 @@ class ArchiveMaintenance(Protocol):
         now: datetime,
         scope: RunScope,
     ) -> DailyTransitionOutcome: ...
-
-    def closed_days(self) -> tuple[BusinessDay, ...]: ...
 
     def archive_for(self, day: BusinessDay) -> ArchiveProjection | None: ...
 
@@ -94,7 +95,7 @@ class MemoryMaintenanceRunner(Protocol):
 
 
 class MaintenanceEngine:
-    """Plan and execute all maintenance through one serial, non-interactive path."""
+    """Discover and execute maintenance through one serial, non-interactive path."""
 
     def __init__(
         self,
@@ -102,12 +103,14 @@ class MaintenanceEngine:
         archive: ArchiveMaintenance,
         home: HomeMaintenanceRunner,
         memory: MemoryMaintenanceRunner,
+        availability_store: MaintenanceAvailabilityStore,
         clock: BusinessClock,
         observations: ObservationEmitter | None = None,
     ) -> None:
         self._archive = archive
         self._home = home
         self._memory = memory
+        self._availability_store = availability_store
         self._clock = clock
         self._observations = observations or NullObservationEmitter()
         self._lock = RLock()
@@ -116,72 +119,25 @@ class MaintenanceEngine:
         return self._archive.active_day_lease()
 
     def preflight(self, *, scope: RunScope | None = None) -> DailyTransitionOutcome:
-        """Recover or apply rollover before any Program request uses daily state."""
+        """Recover rollover and persist the unique availability projection."""
 
-        now = self._clock.now()
-        business_day = BusinessDay(now.date())
-        return self._archive.ensure_active_day(
-            business_day,
-            now=now,
-            scope=(scope or RunScope()).push(RunLevel.MODULE, "archive"),
-        )
+        run_scope = scope or RunScope()
+        with self._lock:
+            now = self._clock.now()
+            business_day = BusinessDay(now.date())
+            transition = self._archive.ensure_active_day(
+                business_day,
+                now=now,
+                scope=run_scope.push(RunLevel.MODULE, "archive"),
+            )
+            self._reconcile_availability(transition, scope=run_scope)
+            return transition
 
-    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability:
-        home_change_count, home_skill_memory_count = self._home.pending_counts()
-        memory_days = missed_memory_days(
-            (day for day in self._archive.closed_days() if day < business_day),
-            eligible=lambda day: self._memory.eligible(
-                day,
-                archive=self._archive.archive_for(day),
-                rebuild=False,
-            ),
-        )
-        return MaintenanceAvailability(
-            home_change_count=home_change_count,
-            home_skill_memory_count=home_skill_memory_count,
-            memory_days=memory_days,
-        )
+    def availability(self) -> MaintenanceAvailability:
+        """Read the persisted prompt sheet without rediscovering owner facts."""
 
-    def plan(
-        self,
-        request: MaintenanceRequest,
-        *,
-        transition: DailyTransitionOutcome,
-    ) -> MaintenancePlan:
-        business_day = transition.active_day
-        availability = self.availability(business_day)
-        tasks: list[MaintenanceTaskPlan] = []
-        if transition.archive_path is not None:
-            tasks.append(
-                MaintenanceTaskPlan(
-                    kind=MaintenanceTaskKind.ARCHIVE,
-                    eligible=True,
-                    target_day=self._archived_day(transition),
-                )
-            )
-        if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.HOME}:
-            tasks.append(
-                MaintenanceTaskPlan(
-                    kind=MaintenanceTaskKind.HOME,
-                    eligible=availability.home_pending,
-                    reason="" if availability.home_pending else "no_home_differences",
-                )
-            )
-        if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.MEMORY}:
-            memory_days = self._memory_targets(request, availability)
-            tasks.append(
-                MaintenanceTaskPlan(
-                    kind=MaintenanceTaskKind.MEMORY,
-                    eligible=bool(memory_days),
-                    target_day=(memory_days[0] if len(memory_days) == 1 else None),
-                    reason=("" if memory_days else "no_eligible_closed_day"),
-                )
-            )
-        return MaintenancePlan(
-            request=request,
-            business_day=business_day,
-            tasks=tuple(tasks),
-        )
+        with self._lock:
+            return self._availability_store.require()
 
     def run(
         self,
@@ -194,7 +150,8 @@ class MaintenanceEngine:
         run_scope = scope or RunScope().push(RunLevel.PROGRAM, "program")
         with self._lock:
             transition = self.preflight(scope=run_scope)
-            plan = self.plan(request, transition=transition)
+            business_day = transition.active_day
+            availability = self.availability()
             self._emit(
                 "maintenance.started",
                 "Maintenance started.",
@@ -202,15 +159,17 @@ class MaintenanceEngine:
                 scope=run_scope,
             )
             outcomes: list[MaintenanceTaskOutcome] = []
-            if transition.archive_path is not None:
-                outcomes.append(self._archive_outcome(transition))
+            outcomes.extend(
+                self._archive_outcome(archive)
+                for archive in transition.archives
+            )
 
             if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.HOME}:
                 outcomes.append(
                     self._run_task(
                         MaintenanceTaskKind.HOME,
                         lambda: self._home.run(
-                            business_day=plan.business_day,
+                            business_day=business_day,
                             scope=run_scope.push(RunLevel.MODULE, "maintenance.home"),
                             request_id=request.request_id,
                         ),
@@ -218,7 +177,6 @@ class MaintenanceEngine:
                 )
 
             if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.MEMORY}:
-                availability = self.availability(plan.business_day)
                 targets = self._memory_targets(request, availability)
                 if not targets:
                     outcomes.append(
@@ -234,7 +192,7 @@ class MaintenanceEngine:
                         self._run_task(
                             MaintenanceTaskKind.MEMORY,
                             lambda target=target: self._memory.run(
-                                business_day=plan.business_day,
+                                business_day=business_day,
                                 target_day=target,
                                 archive=self._archive.archive_for(target),
                                 rebuild=request.rebuild_memory,
@@ -248,9 +206,13 @@ class MaintenanceEngine:
                         )
                     )
 
+            self._reconcile_availability(
+                DailyTransitionOutcome(active_day=business_day),
+                scope=run_scope,
+            )
             outcome = MaintenanceOutcome(
                 request_id=request.request_id,
-                business_day=plan.business_day,
+                business_day=business_day,
                 status=_aggregate_status(tuple(outcomes)),
                 tasks=tuple(outcomes),
             )
@@ -261,6 +223,85 @@ class MaintenanceEngine:
                 scope=run_scope,
             )
             return outcome
+
+    def _reconcile_availability(
+        self,
+        transition: DailyTransitionOutcome,
+        *,
+        scope: RunScope,
+    ) -> MaintenanceAvailability:
+        try:
+            return self._refresh_availability(transition, scope=scope)
+        except (
+            AgentHomeIOError,
+            AgentHomeInvariantError,
+            MemoryIOError,
+            MemoryInvariantError,
+            SessionIOError,
+            SessionInvariantError,
+            WorkspaceIOError,
+            WorkspaceInvariantError,
+        ) as exc:
+            raise MaintenanceInvariantError(
+                f"Maintenance availability refresh failed: {type(exc).__name__}"
+            ) from exc
+
+    def _refresh_availability(
+        self,
+        transition: DailyTransitionOutcome,
+        *,
+        scope: RunScope,
+    ) -> MaintenanceAvailability:
+        previous = self._availability_store.load()
+        pending = set(previous.memory_days if previous is not None else ())
+        for day in tuple(pending):
+            if day >= transition.active_day:
+                raise MaintenanceInvariantError(
+                    "Maintenance availability contains an open Business Day"
+                )
+            archive = self._archive.archive_for(day)
+            if archive is None:
+                raise MaintenanceInvariantError(
+                    f"Maintenance availability references a missing archive: {day}"
+                )
+            if not self._memory.eligible(day, archive=archive, rebuild=False):
+                pending.remove(day)
+
+        for transitioned_archive in transition.archives:
+            archive = self._archive.archive_for(transitioned_archive.day)
+            if archive is None:
+                raise MaintenanceInvariantError(
+                    "Daily transition archive is absent from the authoritative catalog"
+                )
+            if archive.root != transitioned_archive.root:
+                raise MaintenanceInvariantError(
+                    "Daily transition archive identity does not match its projection"
+                )
+            if self._memory.eligible(
+                transitioned_archive.day,
+                archive=archive,
+                rebuild=False,
+            ):
+                pending.add(transitioned_archive.day)
+            else:
+                pending.discard(transitioned_archive.day)
+
+        home_change_count, home_skill_memory_count = self._home.pending_counts()
+        availability = MaintenanceAvailability(
+            checked_day=transition.active_day,
+            home_change_count=home_change_count,
+            home_skill_memory_count=home_skill_memory_count,
+            memory_days=tuple(pending),
+        )
+        self._availability_store.save(availability)
+        if previous != availability:
+            self._emit(
+                "maintenance.availability.changed",
+                "Maintenance availability changed.",
+                availability.to_json(),
+                scope=scope,
+            )
+        return availability
 
     def _memory_targets(
         self,
@@ -280,34 +321,18 @@ class MaintenanceEngine:
             )
         return availability.memory_days
 
+    @staticmethod
     def _archive_outcome(
-        self,
-        transition: DailyTransitionOutcome,
+        archive: ArchiveProjection,
     ) -> MaintenanceTaskOutcome:
         return MaintenanceTaskOutcome(
             kind=MaintenanceTaskKind.ARCHIVE,
             status=MaintenanceTaskStatus.COMPLETED,
-            target_day=self._archived_day(transition),
-            details={"resumed": transition.resumed},
+            target_day=archive.day,
         )
 
-    def _archived_day(self, transition: DailyTransitionOutcome) -> BusinessDay:
-        assert transition.archive_path is not None
-        target = transition.archive_path.resolve()
-        matches = tuple(
-            day
-            for day in self._archive.closed_days()
-            if (projection := self._archive.archive_for(day)) is not None
-            and projection.root == target
-        )
-        if len(matches) != 1:
-            raise MaintenanceInvariantError(
-                "Daily transition archive is absent from the authoritative catalog"
-            )
-        return matches[0]
-
+    @staticmethod
     def _run_task(
-        self,
         kind: MaintenanceTaskKind,
         run: Callable[[], MaintenanceTaskOutcome],
         *,
@@ -315,13 +340,26 @@ class MaintenanceEngine:
     ) -> MaintenanceTaskOutcome:
         try:
             return run()
-        except Exception as exc:
+        except (
+            MaintenanceTaskExecutionError,
+            AgentHomeIOError,
+            MemoryIOError,
+            SessionIOError,
+            WorkspaceIOError,
+        ) as exc:
+            cause = exc.__cause__
             return MaintenanceTaskOutcome(
                 kind=kind,
                 status=MaintenanceTaskStatus.FAILED,
                 target_day=target_day,
                 reason="task_failed",
-                details={"error_type": type(exc).__name__},
+                details={
+                    "error_type": (
+                        type(cause).__name__
+                        if cause is not None
+                        else type(exc).__name__
+                    )
+                },
             )
 
     def _emit(

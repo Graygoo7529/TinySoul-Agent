@@ -11,7 +11,8 @@ import pytest
 import tinysoul.maintenance.archive.engine as daily_module
 import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
-from tinysoul.maintenance import BusinessDay, DailyLifecycleCoordinator
+from tinysoul.infra.time import BusinessDay
+from tinysoul.maintenance import DailyLifecycleCoordinator
 from tinysoul.maintenance.errors import (
     MaintenanceContractError as LoopContractError,
     MaintenanceInvariantError as LoopInvariantError,
@@ -63,7 +64,7 @@ def test_daily_lifecycle_initializes_session_and_workspace_only(
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     assert outcome.active_day == NEW_DAY
-    assert outcome.archive_path is None
+    assert outcome.archives == ()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
     assert _home_manifest_bytes(home) == home_manifest_before
@@ -96,7 +97,8 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
 
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
-    archive = outcome.archive_path
+    assert len(outcome.archives) == 1
+    archive = outcome.archives[0].root
     assert archive == tmp_path / "archive" / "20260712T000001.123456+0800"
     assert archive is not None
     assert (archive / "session" / "turns" / "turn_old.json").is_file()
@@ -175,7 +177,7 @@ def test_daily_rollover_resume_does_not_touch_home(
     home.write_resource("home:how/refactor/notes.md", "keep home")
     home_manifest_before = _home_manifest_bytes(home)
 
-    with pytest.raises(LoopInvariantError, match="injected Workspace failure"):
+    with pytest.raises(LoopInvariantError, match="WorkspaceIOError"):
         coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     pending = tuple((tmp_path / "archive").glob(".pending-*"))
@@ -192,9 +194,9 @@ def test_daily_rollover_resume_does_not_touch_home(
     ).ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     assert resumed.resumed is True
-    assert resumed.archive_path is not None
-    assert (resumed.archive_path / "workspace" / "old.md").is_file()
-    assert not (resumed.archive_path / "home").exists()
+    assert len(resumed.archives) == 1
+    assert (resumed.archives[0].root / "workspace" / "old.md").is_file()
+    assert not (resumed.archives[0].root / "home").exists()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
     assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
@@ -223,7 +225,7 @@ def test_daily_initial_journal_failure_discards_empty_pending_and_keeps_old_day(
     _assert_protected_state(home, marker, protected_before)
 
     monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
-    assert coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME).archive_path
+    assert coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME).archives
 
 
 def test_daily_resumes_session_move_when_step_journal_write_failed(
@@ -262,7 +264,7 @@ def test_daily_resumes_session_move_when_step_journal_write_failed(
     monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
     resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
     assert resumed.resumed is True
-    assert resumed.archive_path is not None
+    assert resumed.archives
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
     _assert_protected_state(home, marker, protected_before)
@@ -305,9 +307,9 @@ def test_daily_resumes_after_trash_move_before_workspace_move(
     monkeypatch.setattr(workspace_engine_module.os, "replace", original_replace)
     resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
     assert resumed.resumed is True
-    assert resumed.archive_path is not None
-    assert (resumed.archive_path / "workspace" / "keep-window.md").is_file()
-    assert (resumed.archive_path / "trash").is_dir()
+    assert resumed.archives
+    assert (resumed.archives[0].root / "workspace" / "keep-window.md").is_file()
+    assert (resumed.archives[0].root / "trash").is_dir()
     _assert_protected_state(home, marker, protected_before)
 
 
@@ -340,7 +342,7 @@ def test_daily_resumes_after_active_init_before_step_journal_write(
     monkeypatch.setattr(daily_module, "atomic_write_text", original_write)
     resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
     assert resumed.resumed is True
-    assert resumed.archive_path is not None
+    assert resumed.archives
     _assert_protected_state(home, marker, protected_before)
 
 
@@ -387,7 +389,7 @@ def test_daily_resumes_final_archive_rename_failure(
     monkeypatch.setattr(daily_module.os, "replace", original_replace)
     resumed = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
     assert resumed.resumed is True
-    assert resumed.archive_path is not None
+    assert resumed.archives
     assert [event.name for event in observations.events[-2:]] == [
         "daily.transition.started",
         "daily.transition.recovered",
@@ -427,20 +429,21 @@ def test_daily_recovers_pending_then_rolls_forward_again_for_current_day(
     )
     assert len(archives) == 2
     assert outcome.active_day == THIRD_DAY
+    assert tuple(item.day for item in outcome.archives) == (OLD_DAY, NEW_DAY)
     assert session.active_day == THIRD_DAY
     assert workspace.active_day == THIRD_DAY
     assert not tuple((tmp_path / "archive").glob(".pending-*"))
     _assert_protected_state(home, marker, protected_before)
 
 
-def test_finalized_legacy_transition_still_resolves_session_archive(
+def test_finalized_legacy_transition_is_rejected(
     tmp_path: Path,
 ) -> None:
     _, _, _, coordinator = _daily_system(tmp_path)
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
-    assert outcome.archive_path is not None
-    transition_path = outcome.archive_path / "transition.json"
+    assert outcome.archives
+    transition_path = outcome.archives[0].root / "transition.json"
     transition = json.loads(transition_path.read_text(encoding="utf-8"))
     transition["completed_steps"].insert(2, "home_archived")
     transition["settlement_status"] = "pending"
@@ -449,12 +452,11 @@ def test_finalized_legacy_transition_still_resolves_session_archive(
         encoding="utf-8",
     )
 
-    assert coordinator.session_archive_for(OLD_DAY) == (
-        outcome.archive_path / "session"
-    )
+    with pytest.raises(LoopInvariantError, match="journal fields are invalid"):
+        coordinator.session_archive_for(OLD_DAY)
 
 
-def test_legacy_pending_transition_with_home_requires_manual_recovery(
+def test_pending_transition_with_home_requires_manual_recovery(
     tmp_path: Path,
 ) -> None:
     _, _, home, coordinator = _daily_system(tmp_path)
@@ -472,8 +474,7 @@ def test_legacy_pending_transition_with_home_requires_manual_recovery(
                 "to_day": str(NEW_DAY),
                 "archive_name": "20260712T000001.123456+0800",
                 "started_at": ROLLOVER_TIME.isoformat(),
-                "completed_steps": ["session_archived", "home_archived"],
-                "settlement_status": "pending",
+                "completed_steps": ["session_archived"],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -505,14 +506,14 @@ def test_legacy_untagged_workspace_inherits_session_day_without_moving_home(
 
     outcome = coordinator.ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
-    assert outcome.archive_path is not None
-    assert (outcome.archive_path / "workspace" / "legacy.md").is_file()
-    assert not (outcome.archive_path / "home").exists()
+    assert outcome.archives
+    assert (outcome.archives[0].root / "workspace" / "legacy.md").is_file()
+    assert not (outcome.archives[0].root / "home").exists()
     assert legacy_home.read_text(encoding="utf-8") == "legacy home"
     home.reconcile()
     assert home.read_resource("home:how/legacy/notes.txt").text == "legacy home"
     transition = json.loads(
-        (outcome.archive_path / "transition.json").read_text(encoding="utf-8")
+        (outcome.archives[0].root / "transition.json").read_text(encoding="utf-8")
     )
     assert transition["from_day"] == str(OLD_DAY)
 

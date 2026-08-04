@@ -18,7 +18,7 @@ from tinysoul.infra.continuation import (
     continue_json_sequence,
 )
 from tinysoul.infra.json import JsonObject, dumps_json
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 
 from .background import (
     project_overflow_background,

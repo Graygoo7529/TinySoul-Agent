@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from tinysoul.home import AgentHomeEngine
+from tinysoul.home import AgentHomeEngine, AgentHomeIOError
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.runtime import RunScope
 
-from ..day import BusinessDay
+from ..errors import MaintenanceTaskExecutionError
 from ..models import (
     MaintenanceTaskKind,
     MaintenanceTaskOutcome,
@@ -60,8 +61,9 @@ class HomeMaintenanceTask:
                 },
             )
 
-        self._controller.begin()
+        completed = False
         try:
+            self._controller.begin()
             outcome = self._turn.run(
                 "Review and resolve every current runtime Home difference.",
                 business_day=business_day,
@@ -75,6 +77,7 @@ class HomeMaintenanceTask:
                 or outcome.completion.get("task") != "home"
             ):
                 self._controller.abort()
+                completed = True
                 return MaintenanceTaskOutcome(
                     kind=MaintenanceTaskKind.HOME,
                     status=MaintenanceTaskStatus.FAILED,
@@ -82,14 +85,17 @@ class HomeMaintenanceTask:
                     details=_turn_failure(outcome),
                 )
             details = self._controller.finish()
+            completed = True
             return MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.HOME,
                 status=MaintenanceTaskStatus.COMPLETED,
                 details=details,
             )
-        except Exception:
-            self._controller.abort()
-            raise
+        except AgentHomeIOError as exc:
+            raise MaintenanceTaskExecutionError("Home Maintenance task failed") from exc
+        finally:
+            if not completed:
+                self._controller.abort()
 
 
 def _turn_failure(outcome: object) -> JsonObject:

@@ -76,6 +76,7 @@ from tinysoul.maintenance import (
     DailyLifecycleCoordinator,
     IanaBusinessClock,
     MaintenanceEngine,
+    MaintenanceAvailabilityStore,
     MaintenanceSettings,
     parse_maintenance_settings,
 )
@@ -122,7 +123,6 @@ from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
     EndFrameTrapHandler,
     EndTurnOrProgramTrapHandler,
-    TurnOutputTrapHandler,
     WorkspaceTrashRestoreTrapHandler,
 )
 from tinysoul.loop.turn import TurnRunner
@@ -133,7 +133,6 @@ from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
-    RUNTIME_TURN_OUTPUT,
     WORKSPACE_TRASH_RESTORE_REQUIRED,
     ObservationEmitter,
     ObservationLevel,
@@ -733,6 +732,9 @@ class TinySoulAppBuilder:
                     archived_context=archived_context,
                     controller=memory_controller,
                     turn=memory_maintenance_turn,
+                ),
+                availability_store=MaintenanceAvailabilityStore(
+                    maintenance_settings.runtime_root
                 ),
                 clock=(
                     self._business_clock
@@ -1408,7 +1410,6 @@ class TinySoulAppBuilder:
     ) -> RuntimeTrap:
         registry = TrapHandlerRegistry()
         registry.register(RUNTIME_TURN_END, EndFrameTrapHandler(RunLevel.TURN))
-        registry.register(RUNTIME_TURN_OUTPUT, TurnOutputTrapHandler())
         registry.register(RUNTIME_CYCLE_END, EndFrameTrapHandler(RunLevel.CYCLE))
         registry.register(RUNTIME_PROGRAM_END, EndFrameTrapHandler(RunLevel.PROGRAM))
         registry.register(RUNTIME_STARTUP_FAILED, EndFrameTrapHandler(RunLevel.PROGRAM))

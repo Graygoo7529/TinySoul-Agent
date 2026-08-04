@@ -13,3 +13,7 @@ class MaintenanceContractError(MaintenanceError):
 
 class MaintenanceInvariantError(MaintenanceError):
     """Raised when persisted maintenance facts are inconsistent."""
+
+
+class MaintenanceTaskExecutionError(MaintenanceError):
+    """Raised when one task fails at a known recoverable module boundary."""

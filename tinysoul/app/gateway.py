@@ -7,7 +7,8 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.loop import LoopControlKind
-from tinysoul.maintenance import BusinessDay, MaintenanceScope
+from tinysoul.infra.time import BusinessDay
+from tinysoul.maintenance import MaintenanceScope
 from tinysoul.runtime import RunLevel, RunScope, RuntimeGatewayError, SignalBus
 from tinysoul.workspace import WorkspaceManifest, workspace_snapshot_signal
 

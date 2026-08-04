@@ -8,8 +8,8 @@ from tinysoul.app.requests import AppRequest, ExitRequest, UserTurnRequest
 from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnOutcome
+from tinysoul.infra.time import BusinessDay
 from tinysoul.maintenance import (
-    BusinessDay,
     DailyTransitionOutcome,
     MaintenanceAvailability,
     MaintenanceOutcome,
@@ -85,9 +85,8 @@ class _Maintenance:
         del scope
         return DailyTransitionOutcome(active_day=DAY)
 
-    def availability(self, business_day):
-        assert business_day == DAY
-        return MaintenanceAvailability()
+    def availability(self):
+        return MaintenanceAvailability(checked_day=DAY)
 
     @contextmanager
     def active_day_lease(self):

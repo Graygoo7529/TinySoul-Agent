@@ -8,7 +8,6 @@ from .exception import (
     RUNTIME_PROGRAM_END,
     RUNTIME_STARTUP_FAILED,
     RUNTIME_TURN_END,
-    RUNTIME_TURN_OUTPUT,
     RuntimeException,
 )
 from .frame_runner import RuntimeModuleRunner, RuntimeTransferInterrupt
@@ -40,7 +39,6 @@ __all__ = [
     "RUNTIME_PROGRAM_END",
     "RUNTIME_STARTUP_FAILED",
     "RUNTIME_TURN_END",
-    "RUNTIME_TURN_OUTPUT",
     "RuntimeException",
     "RuntimeModuleRunner",
     "RuntimeTransferInterrupt",

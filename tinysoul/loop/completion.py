@@ -7,10 +7,10 @@ from typing import Protocol
 
 from tinysoul.context import ContextTurnCompletion
 from tinysoul.infra.json import JsonObject
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 
 from .errors import LoopContractError
-from .signals import TurnOutput
+from .outcomes import TurnOutput
 
 
 @dataclass(frozen=True)

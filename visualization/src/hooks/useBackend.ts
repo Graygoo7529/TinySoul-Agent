@@ -89,7 +89,8 @@ export function useBackend() {
           if (
             names.has("program.maintenance.available") ||
             names.has("maintenance.started") ||
-            names.has("maintenance.completed")
+            names.has("maintenance.completed") ||
+            names.has("maintenance.availability.changed")
           ) {
             void refreshMaintenance(nextClient);
           }

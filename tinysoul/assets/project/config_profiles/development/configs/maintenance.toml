@@ -1,6 +1,7 @@
 [maintenance]
 timezone = "Asia/Shanghai"
 archive_root = "archive"
+runtime_root = "runtime/maintenance"
 
 [maintenance.schedule]
 enabled = true

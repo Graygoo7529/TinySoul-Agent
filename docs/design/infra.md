@@ -4,7 +4,7 @@
 
 Infra 提供项目底层运行设施。它不表达具体业务语义，也不拥有上层模块的领域配置。
 
-Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写和 Python 依赖可用性检查。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Workspace 或具体 capability 的业务细节；日志和通用进程运行不属于 Infra 当前职责。
+Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、Python 依赖可用性检查和 owner-neutral 的 `BusinessDay` 值对象。每项基础能力都保持小而明确的边界，避免反向了解 Loop、Action、LLM、Workspace 或具体 capability 的业务细节；业务时区、业务日切策略、日志和通用进程运行不属于 Infra 当前职责。
 
 ## 配置边界
 

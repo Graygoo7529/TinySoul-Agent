@@ -13,7 +13,7 @@ import tinysoul.memory.store as store_module
 from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm import JsonAnswer, RawResponse, TaskCall, TaskProfile, TaskResult
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from tinysoul.memory import (
     LLMMemoryConsolidator,
     MemoryLink,

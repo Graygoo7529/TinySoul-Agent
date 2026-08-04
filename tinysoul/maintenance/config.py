@@ -43,6 +43,7 @@ class MaintenanceScheduleSettings:
 class MaintenanceSettings:
     timezone: str = "Asia/Shanghai"
     archive_root: Path = Path("archive")
+    runtime_root: Path = Path("runtime/maintenance")
     schedule: MaintenanceScheduleSettings = field(
         default_factory=MaintenanceScheduleSettings
     )
@@ -71,6 +72,13 @@ class MaintenanceSettings:
                 value=self.archive_root,
                 expected="path",
             )
+        if not isinstance(self.runtime_root, Path):
+            raise ConfigError(
+                "Maintenance runtime_root must be a path",
+                key="maintenance.runtime_root",
+                value=self.runtime_root,
+                expected="path",
+            )
         if not isinstance(self.schedule, MaintenanceScheduleSettings):
             raise ConfigError(
                 "Maintenance schedule is invalid",
@@ -87,7 +95,7 @@ def parse_maintenance_settings(
 ) -> MaintenanceSettings:
     reject_unknown_keys(
         tree,
-        {"timezone", "archive_root", "schedule"},
+        {"timezone", "archive_root", "runtime_root", "schedule"},
         key="maintenance",
     )
     timezone = tree.get("timezone", MaintenanceSettings.timezone)
@@ -109,9 +117,21 @@ def parse_maintenance_settings(
     archive_root = Path(archive_value)
     if not archive_root.is_absolute():
         archive_root = (project_root or Path.cwd()) / archive_root
+    runtime_value = tree.get("runtime_root", "runtime/maintenance")
+    if not isinstance(runtime_value, str) or not runtime_value:
+        raise ConfigError(
+            "Maintenance runtime_root must be a non-empty path string",
+            key="maintenance.runtime_root",
+            value=runtime_value,
+            expected="str",
+        )
+    runtime_root = Path(runtime_value)
+    if not runtime_root.is_absolute():
+        runtime_root = (project_root or Path.cwd()) / runtime_root
     return MaintenanceSettings(
         timezone=timezone,
         archive_root=archive_root,
+        runtime_root=runtime_root,
         schedule=_parse_schedule(tree.get("schedule")),
     )
 

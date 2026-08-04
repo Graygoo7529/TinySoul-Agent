@@ -13,8 +13,9 @@ from threading import RLock
 from typing import Protocol
 from uuid import uuid4
 
-from tinysoul.infra.filesystem import atomic_write_text
+from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.time import BusinessDay, BusinessDayError
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -24,9 +25,16 @@ from tinysoul.runtime import (
     emit_observation,
     observation_enabled,
 )
+from tinysoul.session import SessionIOError, SessionInvariantError
+from tinysoul.workspace import WorkspaceIOError, WorkspaceInvariantError
 
-from ..day import BusinessDay
 from ..errors import MaintenanceContractError, MaintenanceInvariantError
+
+
+_CATALOG_SCHEMA_VERSION = 1
+_CATALOG_FIELDS = {"schema_version", "entries"}
+_CATALOG_ENTRY_FIELDS = {"day", "archive_name"}
+_MAX_CATALOG_CHARS = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -70,8 +78,11 @@ class DailyTransitionJournal:
             raise MaintenanceContractError("Daily journal schema_version must be 1")
         if not self.operation_id or not self.archive_name or not self.started_at:
             raise MaintenanceContractError("Daily journal identity fields must be non-empty")
-        BusinessDay.parse(self.from_day)
-        BusinessDay.parse(self.to_day)
+        try:
+            BusinessDay.parse(self.from_day)
+            BusinessDay.parse(self.to_day)
+        except BusinessDayError as exc:
+            raise MaintenanceContractError("Daily journal contains an invalid day") from exc
         steps = tuple(self.completed_steps)
         if len(steps) != len(set(steps)):
             raise MaintenanceContractError("Daily journal steps must be unique")
@@ -98,15 +109,22 @@ class DailyTransitionJournal:
 
     @classmethod
     def from_json(cls, value: JsonObject) -> "DailyTransitionJournal":
+        expected_fields = {
+            "schema_version",
+            "operation_id",
+            "from_day",
+            "to_day",
+            "archive_name",
+            "started_at",
+            "completed_steps",
+        }
+        if set(value) != expected_fields:
+            raise MaintenanceContractError("Daily journal fields are invalid")
         steps_value = value.get("completed_steps", [])
         if not isinstance(steps_value, list):
             raise MaintenanceContractError("Daily journal completed_steps must be a list")
         try:
-            steps = tuple(
-                DailyTransitionStep(item)
-                for item in steps_value
-                if item != "home_archived"
-            )
+            steps = tuple(DailyTransitionStep(item) for item in steps_value)
         except (TypeError, ValueError) as exc:
             raise MaintenanceContractError("Daily journal contains an unknown step") from exc
         return cls(
@@ -123,8 +141,20 @@ class DailyTransitionJournal:
 @dataclass(frozen=True)
 class DailyTransitionOutcome:
     active_day: BusinessDay
-    archive_path: Path | None = None
+    archives: tuple[ArchiveProjection, ...] = field(default_factory=tuple)
     resumed: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.active_day, BusinessDay):
+            raise MaintenanceContractError("Daily transition active day is invalid")
+        if any(not isinstance(item, ArchiveProjection) for item in self.archives):
+            raise MaintenanceContractError("Daily transition archives are invalid")
+        days = tuple(item.day for item in self.archives)
+        if len(days) != len(set(days)):
+            raise MaintenanceContractError("Daily transition archive days must be unique")
+        if any(day >= self.active_day for day in days):
+            raise MaintenanceContractError("Daily transition archived day must be closed")
+        object.__setattr__(self, "archives", tuple(self.archives))
 
 
 class ActiveDayLease:
@@ -263,9 +293,17 @@ class DailyLifecycleCoordinator:
             except MaintenanceInvariantError as exc:
                 self._emit_failed(run_scope, target_day, exc)
                 raise
-            except Exception as exc:
+            except (
+                OSError,
+                SessionIOError,
+                SessionInvariantError,
+                WorkspaceIOError,
+                WorkspaceInvariantError,
+            ) as exc:
                 self._emit_failed(run_scope, target_day, exc)
-                raise MaintenanceInvariantError(f"Daily rollover failed: {exc}") from exc
+                raise MaintenanceInvariantError(
+                    f"Daily rollover failed: {type(exc).__name__}"
+                ) from exc
 
     def _ensure_active_day_locked(
         self,
@@ -296,15 +334,24 @@ class DailyLifecycleCoordinator:
                 resumed=True,
             )
             active = BusinessDay.parse(journal.to_day)
+            recovered = self._projection_for_archive(
+                BusinessDay.parse(journal.from_day),
+                archive,
+            )
             if active != target_day:
-                return self._ensure_active_day_locked(
+                following = self._ensure_active_day_locked(
                     target_day,
                     now=now,
                     scope=scope,
                 )
+                return DailyTransitionOutcome(
+                    active_day=following.active_day,
+                    archives=(recovered, *following.archives),
+                    resumed=True,
+                )
             return DailyTransitionOutcome(
                 active_day=target_day,
-                archive_path=archive,
+                archives=(recovered,),
                 resumed=True,
             )
 
@@ -336,7 +383,23 @@ class DailyLifecycleCoordinator:
         )
         return DailyTransitionOutcome(
             active_day=target_day,
-            archive_path=archive,
+            archives=(self._projection_for_archive(active, archive),),
+        )
+
+    @staticmethod
+    def _projection_for_archive(day: BusinessDay, archive: Path) -> ArchiveProjection:
+        root = archive.resolve()
+        session_root = root / "session"
+        workspace_root = root / "workspace"
+        if not session_root.is_dir() or not workspace_root.is_dir():
+            raise MaintenanceInvariantError(
+                "Daily archive is missing participant facts"
+            )
+        return ArchiveProjection(
+            day=day,
+            root=root,
+            session_root=session_root.resolve(),
+            workspace_root=workspace_root.resolve(),
         )
 
     def _emit_transition(
@@ -403,63 +466,117 @@ class DailyLifecycleCoordinator:
             ),
         )
 
-    def closed_days(self) -> tuple[BusinessDay, ...]:
-        """Return finalized Business Days from authoritative transition journals."""
-
-        with self._lock:
-            return tuple(item.day for item in self._archive_projections())
-
     def archive_for(self, day: BusinessDay) -> ArchiveProjection | None:
-        """Resolve one finalized archive without reading participant internals."""
+        """Resolve one finalized archive through the durable date index."""
 
         with self._lock:
             if not isinstance(day, BusinessDay):
                 raise MaintenanceContractError("Archive day must be a BusinessDay")
-            matches = tuple(
-                item for item in self._archive_projections() if item.day == day
-            )
-            if len(matches) > 1:
+            archive_name = self._load_catalog().get(day)
+            if archive_name is None:
+                return None
+            archive = self._archive_root / archive_name
+            if not archive.is_dir():
                 raise MaintenanceInvariantError(
-                    f"Multiple archives exist for Business Day {day}"
+                    f"Archive catalog points to a missing directory: {archive_name}"
                 )
-            return matches[0] if matches else None
+            journal = self._load_journal(archive)
+            if journal.archive_name != archive_name or journal.from_day != str(day):
+                raise MaintenanceInvariantError(
+                    "Archive catalog identity does not match its journal"
+                )
+            return self._projection_for_archive(day, archive)
 
     def session_archive_for(self, day: BusinessDay) -> Path | None:
         projection = self.archive_for(day)
         return projection.session_root if projection is not None else None
 
-    def _archive_projections(self) -> tuple[ArchiveProjection, ...]:
-        if not self._archive_root.exists():
-            return ()
-        projections: list[ArchiveProjection] = []
-        for directory in sorted(self._archive_root.iterdir(), key=lambda path: path.name):
-            if not directory.is_dir() or directory.name.startswith(".pending-"):
-                continue
-            if not (directory / "transition.json").is_file():
-                continue
-            journal = self._load_journal(directory)
-            if journal.archive_name != directory.name:
+    def _load_catalog(self) -> dict[BusinessDay, str]:
+        path = self._archive_root / "catalog.json"
+        if not path.exists():
+            return {}
+        try:
+            read = read_text_prefix(path, max_chars=_MAX_CATALOG_CHARS)
+        except (OSError, UnicodeError) as exc:
+            raise MaintenanceInvariantError(
+                f"Failed to read Daily archive catalog: {type(exc).__name__}"
+            ) from exc
+        if read.truncated:
+            raise MaintenanceInvariantError("Daily archive catalog is too large")
+        try:
+            raw = json.loads(read.text)
+            value = to_json_object(raw)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise MaintenanceInvariantError(
+                "Daily archive catalog is not valid JSON"
+            ) from exc
+        if set(value) != _CATALOG_FIELDS:
+            raise MaintenanceInvariantError("Daily archive catalog fields are invalid")
+        if value.get("schema_version") != _CATALOG_SCHEMA_VERSION:
+            raise MaintenanceInvariantError("Daily archive catalog schema is unsupported")
+        entries = value.get("entries")
+        if not isinstance(entries, list):
+            raise MaintenanceInvariantError("Daily archive catalog entries are invalid")
+        result: dict[BusinessDay, str] = {}
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != _CATALOG_ENTRY_FIELDS:
+                raise MaintenanceInvariantError("Daily archive catalog entry is invalid")
+            day_value = entry.get("day")
+            archive_name = entry.get("archive_name")
+            if not isinstance(day_value, str):
                 raise MaintenanceInvariantError(
-                    "Daily archive directory identity does not match its journal"
+                    "Daily archive catalog entry day is invalid"
                 )
-            session_root = directory / "session"
-            workspace_root = directory / "workspace"
-            if not session_root.is_dir() or not workspace_root.is_dir():
+            if (
+                not isinstance(archive_name, str)
+                or not archive_name
+                or Path(archive_name).name != archive_name
+                or archive_name.startswith(".")
+            ):
                 raise MaintenanceInvariantError(
-                    f"Daily archive is missing participant facts: {directory}"
+                    "Daily archive catalog entry archive_name is invalid"
                 )
-            projections.append(
-                ArchiveProjection(
-                    day=BusinessDay.parse(journal.from_day),
-                    root=directory.resolve(),
-                    session_root=session_root.resolve(),
-                    workspace_root=workspace_root.resolve(),
+            try:
+                day = BusinessDay.parse(day_value)
+            except (BusinessDayError, TypeError) as exc:
+                raise MaintenanceInvariantError(
+                    "Daily archive catalog entry day is invalid"
+                ) from exc
+            if day in result:
+                raise MaintenanceInvariantError(
+                    f"Multiple archives claim one Business Day: {day}"
                 )
+            result[day] = archive_name
+        return result
+
+    def _save_catalog_entry(
+        self,
+        day: BusinessDay,
+        archive_name: str,
+    ) -> None:
+        entries = self._load_catalog()
+        previous = entries.get(day)
+        if previous is not None and previous != archive_name:
+            raise MaintenanceInvariantError(
+                f"Multiple archives claim one Business Day: {day}"
             )
-        days = tuple(item.day for item in projections)
-        if len(days) != len(set(days)):
-            raise MaintenanceInvariantError("Multiple archives claim one Business Day")
-        return tuple(projections)
+        entries[day] = archive_name
+        value: JsonObject = {
+            "schema_version": _CATALOG_SCHEMA_VERSION,
+            "entries": [
+                {"day": str(item_day), "archive_name": entries[item_day]}
+                for item_day in sorted(entries)
+            ],
+        }
+        try:
+            atomic_write_text(
+                self._archive_root / "catalog.json",
+                json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            )
+        except OSError as exc:
+            raise MaintenanceInvariantError(
+                f"Failed to write Daily archive catalog: {type(exc).__name__}"
+            ) from exc
 
     def _validate_layout(self) -> None:
         roots = {
@@ -531,11 +648,13 @@ class DailyLifecycleCoordinator:
             archive_name=archive_name,
             started_at=now.isoformat(),
         )
+        saved = False
         try:
             self._save_journal(pending, journal)
-        except Exception:
-            shutil.rmtree(pending, ignore_errors=True)
-            raise
+            saved = True
+        finally:
+            if not saved:
+                shutil.rmtree(pending, ignore_errors=True)
         return pending, journal
 
     def _resume(
@@ -547,7 +666,7 @@ class DailyLifecycleCoordinator:
         to_day = BusinessDay.parse(journal.to_day)
         if (pending / "home").exists():
             raise MaintenanceInvariantError(
-                "Legacy pending Daily transition already contains Home; "
+                "Pending Daily transition contains forbidden Home data; "
                 "manual recovery is required"
             )
 
@@ -584,6 +703,7 @@ class DailyLifecycleCoordinator:
         archive = self._archive_root / journal.archive_name
         if archive.exists():
             raise MaintenanceInvariantError(f"Daily archive already exists: {archive}")
+        self._save_catalog_entry(from_day, journal.archive_name)
         try:
             os.replace(pending, archive)
         except OSError as exc:

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from tinysoul.infra.time import BusinessDay
+from tinysoul.memory import MemoryIOError
 from tinysoul.maintenance import (
     ArchiveProjection,
-    BusinessDay,
     DailyTransitionOutcome,
+    MaintenanceAvailability,
+    MaintenanceAvailabilityStore,
     MaintenanceEngine,
     MaintenanceInvariantError,
     MaintenanceRequest,
@@ -21,7 +24,6 @@ from tinysoul.maintenance import (
     MaintenanceTaskStatus,
     MaintenanceTrigger,
 )
-from tinysoul.runtime import RunScope
 
 
 TODAY = BusinessDay.parse("2026-08-03")
@@ -29,17 +31,36 @@ DAY_ONE = BusinessDay.parse("2026-08-01")
 DAY_TWO = BusinessDay.parse("2026-08-02")
 
 
-def test_daily_maintenance_processes_home_and_all_missed_memory_days(
+def test_preflight_registers_only_the_new_archive_day(tmp_path: Path) -> None:
+    archive = _Archive(tmp_path, (DAY_ONE, DAY_TWO), transition_day=DAY_TWO)
+    memory = _Memory()
+    engine, store = _engine(tmp_path, archive=archive, memory=memory)
+
+    engine.preflight()
+
+    availability = store.require()
+    assert availability.checked_day == TODAY
+    assert availability.memory_days == (DAY_TWO,)
+    assert archive.requested_days == [DAY_TWO]
+
+
+def test_daily_maintenance_processes_persisted_memory_days_and_clears_them(
     tmp_path: Path,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE, DAY_TWO))
     home = _Home(pending=True)
     memory = _Memory()
-    engine = MaintenanceEngine(
+    engine, store = _engine(
+        tmp_path,
         archive=archive,
         home=home,
         memory=memory,
-        clock=_Clock(),
+    )
+    store.save(
+        MaintenanceAvailability(
+            checked_day=TODAY,
+            memory_days=(DAY_ONE, DAY_TWO),
+        )
     )
 
     outcome = engine.run(
@@ -56,6 +77,30 @@ def test_daily_maintenance_processes_home_and_all_missed_memory_days(
     ]
     assert memory.ran == [DAY_ONE, DAY_TWO]
     assert home.runs == 1
+    assert store.require().memory_days == ()
+    assert not store.require().home_pending
+
+
+def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> None:
+    archive = _Archive(tmp_path, (DAY_ONE,))
+    memory = _Memory(fail_days={DAY_ONE})
+    engine, store = _engine(tmp_path, archive=archive, memory=memory)
+    store.save(
+        MaintenanceAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
+    )
+
+    outcome = engine.run(
+        MaintenanceRequest(
+            scope=MaintenanceScope.MEMORY,
+            trigger=MaintenanceTrigger.MANUAL,
+        )
+    )
+
+    assert outcome.tasks[0].status is MaintenanceTaskStatus.FAILED
+    assert store.require().memory_days == (DAY_ONE,)
+    restarted, _ = _engine(tmp_path, archive=archive, memory=memory)
+    restarted.preflight()
+    assert restarted.availability().memory_days == (DAY_ONE,)
 
 
 def test_manual_and_scheduled_home_requests_use_the_same_task_path(
@@ -63,14 +108,15 @@ def test_manual_and_scheduled_home_requests_use_the_same_task_path(
 ) -> None:
     outcomes = []
     homes = []
-    for trigger in (MaintenanceTrigger.MANUAL, MaintenanceTrigger.SCHEDULED):
+    for index, trigger in enumerate(
+        (MaintenanceTrigger.MANUAL, MaintenanceTrigger.SCHEDULED)
+    ):
         home = _Home(pending=True)
         homes.append(home)
-        engine = MaintenanceEngine(
-            archive=_Archive(tmp_path, ()),
+        engine, _store = _engine(
+            tmp_path / str(index),
+            archive=_Archive(tmp_path / str(index), ()),
             home=home,
-            memory=_Memory(),
-            clock=_Clock(),
         )
         outcomes.append(
             engine.run(
@@ -88,15 +134,14 @@ def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     ]
 
 
-def test_explicit_memory_rebuild_targets_only_requested_closed_day(
+def test_explicit_memory_rebuild_does_not_require_pending_entry(
     tmp_path: Path,
 ) -> None:
     memory = _Memory(existing={DAY_ONE})
-    engine = MaintenanceEngine(
+    engine, store = _engine(
+        tmp_path,
         archive=_Archive(tmp_path, (DAY_ONE, DAY_TWO)),
-        home=_Home(),
         memory=memory,
-        clock=_Clock(),
     )
 
     engine.run(
@@ -109,30 +154,54 @@ def test_explicit_memory_rebuild_targets_only_requested_closed_day(
     )
 
     assert memory.ran == [DAY_ONE]
+    assert store.require().memory_days == ()
 
 
 def test_archive_outcome_requires_authoritative_catalog_identity(
     tmp_path: Path,
 ) -> None:
-    engine = MaintenanceEngine(
+    archive = _Archive(tmp_path, (DAY_ONE,), transition_day=DAY_ONE)
+    archive.transition_path = (tmp_path / "unknown-archive").resolve()
+    engine, _store = _engine(tmp_path, archive=archive)
+
+    with pytest.raises(MaintenanceInvariantError, match="identity"):
+        engine.preflight()
+
+
+def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
+    engine, _store = _engine(
+        tmp_path,
         archive=_Archive(tmp_path, ()),
-        home=_Home(),
-        memory=_Memory(),
-        clock=_Clock(),
-    )
-    transition = DailyTransitionOutcome(
-        active_day=TODAY,
-        archive_path=(tmp_path / "unknown-archive").resolve(),
+        home=_Home(unexpected_failure=True),
     )
 
-    with pytest.raises(MaintenanceInvariantError, match="authoritative catalog"):
-        engine.plan(
+    with pytest.raises(AttributeError, match="unexpected"):
+        engine.run(
             MaintenanceRequest(
-                scope=MaintenanceScope.DAILY,
+                scope=MaintenanceScope.HOME,
                 trigger=MaintenanceTrigger.MANUAL,
-            ),
-            transition=transition,
+            )
         )
+
+
+def _engine(
+    root: Path,
+    *,
+    archive: "_Archive",
+    home: "_Home | None" = None,
+    memory: "_Memory | None" = None,
+) -> tuple[MaintenanceEngine, MaintenanceAvailabilityStore]:
+    store = MaintenanceAvailabilityStore(root / "runtime" / "maintenance")
+    return (
+        MaintenanceEngine(
+            archive=archive,
+            home=home or _Home(),
+            memory=memory or _Memory(),
+            availability_store=store,
+            clock=_Clock(),
+        ),
+        store,
+    )
 
 
 @dataclass
@@ -147,8 +216,14 @@ class _Clock:
 
 
 class _Archive:
-    def __init__(self, root: Path, days: tuple[BusinessDay, ...]) -> None:
-        self._days = days
+    def __init__(
+        self,
+        root: Path,
+        days: tuple[BusinessDay, ...],
+        *,
+        transition_day: BusinessDay | None = None,
+    ) -> None:
+        self._transition_day = transition_day
         self._projections = {
             day: ArchiveProjection(
                 day=day,
@@ -158,19 +233,39 @@ class _Archive:
             )
             for day in days
         }
+        self.transition_path = (
+            self._projections[transition_day].root
+            if transition_day is not None
+            else None
+        )
+        self.requested_days: list[BusinessDay] = []
 
     def ensure_active_day(self, target_day, *, now, scope=None):
         del now, scope
-        return DailyTransitionOutcome(active_day=target_day)
+        transition_day = self._transition_day
+        self._transition_day = None
+        if transition_day is None:
+            return DailyTransitionOutcome(active_day=target_day)
+        projection = self._projections[transition_day]
+        if self.transition_path != projection.root:
+            assert self.transition_path is not None
+            projection = ArchiveProjection(
+                day=projection.day,
+                root=self.transition_path,
+                session_root=projection.session_root,
+                workspace_root=projection.workspace_root,
+            )
+        return DailyTransitionOutcome(
+            active_day=target_day,
+            archives=(projection,),
+        )
 
     @contextmanager
     def active_day_lease(self):
         yield TODAY
 
-    def closed_days(self):
-        return self._days
-
     def archive_for(self, day):
+        self.requested_days.append(day)
         return self._projections.get(day)
 
 
@@ -178,12 +273,15 @@ class _Archive:
 class _Home:
     pending: bool = False
     runs: int = 0
+    unexpected_failure: bool = False
 
     def pending_counts(self) -> tuple[int, int]:
         return (1, 0) if self.pending else (0, 0)
 
     def run(self, *, business_day, scope, request_id):
         del business_day, scope, request_id
+        if self.unexpected_failure:
+            raise AttributeError("unexpected task bug")
         self.runs += 1
         self.pending = False
         return MaintenanceTaskOutcome(
@@ -196,6 +294,7 @@ class _Home:
 class _Memory:
     existing: set[BusinessDay] = field(default_factory=set)
     ran: list[BusinessDay] = field(default_factory=list)
+    fail_days: set[BusinessDay] = field(default_factory=set)
 
     def eligible(self, day, *, archive, rebuild):
         return archive is not None and (rebuild or day not in self.existing)
@@ -212,6 +311,8 @@ class _Memory:
     ):
         del business_day, archive, rebuild, scope, request_id
         self.ran.append(target_day)
+        if target_day in self.fail_days:
+            raise MemoryIOError("known owner failure")
         self.existing.add(target_day)
         return MaintenanceTaskOutcome(
             kind=MaintenanceTaskKind.MEMORY,

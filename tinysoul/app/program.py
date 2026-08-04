@@ -11,9 +11,9 @@ from typing import Protocol
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.turn import TurnOutcome
 from tinysoul.maintenance import (
-    BusinessDay,
     DailyTransitionOutcome,
     MaintenanceAvailability,
     MaintenanceError,
@@ -63,7 +63,7 @@ class ProgramMaintenanceEngine(Protocol):
 
     def preflight(self, *, scope: RunScope | None = None) -> DailyTransitionOutcome: ...
 
-    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability: ...
+    def availability(self) -> MaintenanceAvailability: ...
 
     def run(
         self,
@@ -123,6 +123,7 @@ class ProgramRunner:
         self._maintenance_bridge = maintenance_bridge or RuntimeMaintenanceBridge()
         self._observations = observations or NullObservationEmitter()
         self._request_lock = RLock()
+        self._prepared_transition: DailyTransitionOutcome | None = None
 
     @property
     def scope(self) -> RunScope:
@@ -136,6 +137,14 @@ class ProgramRunner:
         if not isinstance(request, (UserTurnRequest, MaintenanceRequest, ExitRequest)):
             raise AppContractError("Program received an invalid request")
         self._input_queue.put(request)
+
+    def prepare(self) -> DailyTransitionOutcome:
+        """Finish startup rollover and availability before services become ready."""
+
+        with self._request_lock:
+            transition = self._preflight()
+            self._prepared_transition = transition
+            return transition
 
     def run_once(
         self,
@@ -169,11 +178,11 @@ class ProgramRunner:
         )
         turn_count = 0
         maintenance_count = 0
-        transition = self._preflight()
+        with self._request_lock:
+            transition = self._prepared_transition or self._preflight()
+            self._prepared_transition = None
         self._emit("program.started", "Program started.", {})
-        self._emit_availability(
-            self._maintenance.availability(transition.active_day)
-        )
+        self._emit_availability(self._maintenance.availability())
         while True:
             request = self._input_queue.get()
             if isinstance(request, ExitRequest):

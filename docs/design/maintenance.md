@@ -2,7 +2,7 @@
 
 ## 定位
 
-`tinysoul.maintenance` 拥有 TinySoul 的业务日、确定性日切、归档 catalog、到期计算，以及 Archive/Home/Memory 维护任务的计划和编排。Maintenance 与 User Turn 是同级 Program work，但不是另一套 Program：App 的同一个 request queue 将 MaintenanceRequest 分派给唯一 MaintenanceEngine。
+`tinysoul.maintenance` 拥有 TinySoul 的业务时钟、确定性日切、归档 catalog、持久 availability，以及 Archive/Home/Memory 维护任务的编排。Maintenance 与 User Turn 是同级 Program work，但不是另一套 Program：App 的同一个 request queue 将 MaintenanceRequest 分派给唯一 MaintenanceEngine。跨模块共用的 `BusinessDay` 值对象属于 Infra；业务时区和日切策略仍属于 Maintenance。
 
 Maintenance 分开处理两类工作：
 
@@ -15,11 +15,12 @@ Maintenance 分开处理两类工作：
 
 ```text
 tinysoul/maintenance/
-  engine.py                  # 单一门面、plan 和任务编排
-  models.py                  # request/plan/availability/outcome
-  config.py                  # timezone/archive/schedule 设置
-  schedule.py                # due 与 missed-work 计算
-  day.py                     # BusinessDay / BusinessClock
+  engine.py                  # 单一门面、availability 刷新和任务编排
+  models.py                  # request/availability/outcome
+  availability.py            # 唯一持久提示单
+  config.py                  # timezone/archive/runtime/schedule 设置
+  schedule.py                # due 计算
+  day.py                     # BusinessClock 与时区策略
   actions.py                 # per-Turn ActionEngine view
   errors.py / failures.py
   archive/
@@ -62,20 +63,29 @@ Endpoint 使用同一参数语义。scheduler 根据 `[maintenance.schedule]` �
 
 1. 用 BusinessClock 捕获当前 BusinessDay；
 2. 调用 Archive preflight，恢复 pending journal 或把旧 active Session/Workspace/Trash 归档并建立新日 roots；
-3. 从 authoritative archive catalog、Home pending 和 Memory eligibility 构造 MaintenancePlan；
-4. `daily` 运行 Home，并运行所有 eligible closed Memory days；`home` 只运行 Home；`memory` 运行显式目标或所有 eligible closed days；
-5. 每个 task 独立形成 completed/skipped/failed outcome；一个 task 失败不回滚已完成 task，也不阻止其它目标；
-6. 聚合为 `completed | partial | skipped | failed` MaintenanceOutcome。
+3. 若本次形成或恢复 Archive，只校验该关闭日的 Session facts 与 MEMORY，并增量登记 Memory 待办；随后校验既有日期、重算 Home 计数并原子写入 availability；
+4. `daily` 运行 Home，并运行 availability 中按日排序的 Memory 待办；`home` 只运行 Home；`memory` 运行显式目标或当前待办；
+5. 每个 task 独立形成 completed/skipped/failed outcome；明确的 task failure 不回滚已完成 task，也不阻止其它目标，未知异常和 Runtime transfer 传播；
+6. 完成后再次刷新 availability，并聚合为 `completed | partial | skipped | failed` MaintenanceOutcome。
 
 Archive preflight 不变量失败是 Program 边界失败，因为在日切完成前不能开始新日 work。Home/Memory task 内异常被收敛为只含稳定 error type 的 task failure，不把正文、reasoning 或绝对路径放入 outcome。
 
+## Availability
+
+Maintenance 在 module-owned runtime root 原子保存唯一 `availability.json`。它包含本次检查的 Business Day、去重排序的 Memory 日期列表和当前 Home diff/SKILL_MEMORY 计数。Memory 列表只在 Archive 完成或恢复时增量加入日期，在有效 MEMORY 已存在时删除；Home 状态每次从 owner 重算，不建立 Home task journal。
+
+该投影是前端提示的唯一事实来源，但不是业务提交依据。Memory task 执行前仍解析对应 ArchiveProjection 并调用 Memory owner eligibility；Home task 仍由 Home owner重新检查 diff。文件缺失表示尚未完成启动刷新，文件损坏或与 Archive 不变量冲突必须失败，不能解释为空提示单。
+
+这种增量列表同时覆盖多日停机和失败重试：历史欠账由列表保留，新增欠账来自本次 Archive，已完成项由有效 MEMORY 幂等清理。因此正常路径既不扫描所有 Archive，也不把“昨日”当作唯一可能目标。
+
 ## Archive
 
-Archive 是完全确定性的维护包，不触发 Turn。`DailyLifecycleCoordinator` 使用 `.pending-<operation-id>/transition.json` 记录步骤：Session 归档、Workspace/Trash 归档、新 active roots 初始化、final rename。进程异常后根据 journal 与 participant persisted facts 前滚。
+Archive 是完全确定性的维护包，不触发 Turn。`DailyLifecycleCoordinator` 使用 `.pending-<operation-id>/transition.json` 记录步骤：Session 归档、Workspace/Trash 归档、新 active roots 初始化、catalog entry 写入和 final rename。`archive/catalog.json` 是按 BusinessDay 定位归档目录的严格索引，归档完成时原子更新；进程异常后根据 journal 与 participant persisted facts 前滚，不通过扫描全部已关闭日恢复索引。
 
 完成目录为：
 
 ```text
+archive/catalog.json        # BusinessDay -> finalized archive name
 archive/<timezone-timestamp>/
   transition.json
   session/
@@ -122,6 +132,8 @@ Maintenance Context 与 User Context 具有相同的 Background/Session/Workspac
 
 - 新日 User Turn 只依赖确定性 Archive preflight，不依赖模型成功；
 - manual/scheduled 不复制流程或结果类型；
+- `MaintenancePlan` 不是领域协议；Engine 直接从 typed request 与 availability 快照选择任务；
+- Event 只通知 availability 失效，Endpoint GET 才交付持久提示单；
 - action catalog 的物理存在不等于对某个 Turn 可见；
 - User Turn 永远不能选择或调用 maintenance domain；
 - Maintenance task 不能等待审批或阻塞在外部 decision；

@@ -43,7 +43,7 @@ from tinysoul.llm.responses import (
     TextAnswer,
 )
 from tinysoul.loop import TurnPreparationRequest
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.runtime.bridge import RuntimeWorkspaceBridge
 import tinysoul.workspace.engine as workspace_engine_module

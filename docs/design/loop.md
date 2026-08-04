@@ -57,7 +57,7 @@ User Turn preparation 按以下顺序构造情景：
 2. Session 投影当前业务日的跨 Turn 历史；
 3. Workspace reconcile 当前业务日并投影 Manifest。
 
-User ActionEngine 使用普通 effective catalog，并明确排除整个 `maintenance` domain。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 转换为 Turn completion，经 TurnOutput Trap 形成用户输出。默认 completion pipeline 先由 Session 校验 sealed entries 并幂等写入 schema v4 User Turn record，再运行其它后处理。
+User ActionEngine 使用普通 effective catalog，并明确排除整个 `maintenance` domain。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；不存在平行 output Trap 或 Signal。默认 completion pipeline 先由 Session 校验 sealed entries 并幂等写入 schema v4 User Turn record，再运行其它后处理。
 
 User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
 

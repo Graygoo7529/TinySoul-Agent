@@ -26,7 +26,7 @@ from tinysoul.memory.errors import MemoryError
 from tinysoul.session import SessionMemoryFactsProjection
 from tinysoul.workspace import WorkspaceManifest
 
-from ..day import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from ..errors import MaintenanceContractError, MaintenanceInvariantError
 
 MEMORY_MAINTENANCE_ACTIONS = (

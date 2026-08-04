@@ -2,20 +2,43 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from tinysoul.runtime import (
     RUNTIME_CYCLE_END,
     RUNTIME_PROGRAM_END,
     RUNTIME_TURN_END,
-    RUNTIME_TURN_OUTPUT,
     RuntimeException,
 )
+from tinysoul.infra.json import JsonObject, to_json_object
 
 from .errors import LoopContractError
 
 TURN_FAILURE_MESSAGE_MAX_CHARS = 1000
+
+
+@dataclass(frozen=True)
+class TurnOutput:
+    """Validated user-facing output produced by a completed Turn."""
+
+    text: str
+    result_id: str
+    references: tuple[str, ...] = ()
+    metadata: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.text:
+            raise LoopContractError("TurnOutput.text must be non-empty")
+        if not self.result_id:
+            raise LoopContractError("TurnOutput.result_id must be non-empty")
+        for reference in self.references:
+            if not isinstance(reference, str) or not reference:
+                raise LoopContractError(
+                    "TurnOutput.references must contain non-empty strings"
+                )
+        object.__setattr__(self, "references", tuple(self.references))
+        object.__setattr__(self, "metadata", to_json_object(self.metadata))
 
 
 class TurnOutcomeStatus(StrEnum):
@@ -65,7 +88,6 @@ def failure_from_runtime(exc: RuntimeException) -> TurnFailure | None:
     if exc.reason in {
         RUNTIME_CYCLE_END,
         RUNTIME_PROGRAM_END,
-        RUNTIME_TURN_OUTPUT,
     }:
         return None
     if exc.reason == RUNTIME_TURN_END and not (

@@ -1,12 +1,10 @@
-"""Daily Maintenance due calculation and missed-work detection."""
+"""Daily Maintenance due calculation."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
 from .config import MaintenanceScheduleSettings
-from .day import BusinessDay
 from .errors import MaintenanceContractError
 from .models import MaintenanceRequest, MaintenanceScope, MaintenanceTrigger
 
@@ -57,19 +55,6 @@ class MaintenanceSchedule:
         if candidate <= now:
             candidate += timedelta(days=1)
         return max(0.05, (candidate - now).total_seconds())
-
-
-def missed_memory_days(
-    closed_days: Iterable[BusinessDay],
-    *,
-    eligible: Callable[[BusinessDay], bool],
-) -> tuple[BusinessDay, ...]:
-    """Return authoritative closed days whose Memory work remains eligible."""
-
-    result = tuple(day for day in sorted(set(closed_days)) if eligible(day))
-    if any(not isinstance(day, BusinessDay) for day in result):
-        raise MaintenanceContractError("Missed-work catalog contains an invalid day")
-    return result
 
 
 def _require_aware(value: datetime) -> None:

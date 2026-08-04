@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import TurnOutcomeStatus
 from tinysoul.loop.maintenance import ArchivedMaintenanceContext
 from tinysoul.loop.turn import TurnRunner
-from tinysoul.memory import MemoryEngine
+from tinysoul.memory import MemoryEngine, MemoryIOError
 from tinysoul.runtime import RunScope
-from tinysoul.session import SessionEngine
-from tinysoul.workspace import WorkspaceEngine
+from tinysoul.session import SessionEngine, SessionIOError
+from tinysoul.workspace import WorkspaceEngine, WorkspaceIOError
 
 from ..archive import ArchiveProjection
-from ..day import BusinessDay
+from ..errors import MaintenanceTaskExecutionError
 from ..models import (
     MaintenanceTaskKind,
     MaintenanceTaskOutcome,
@@ -86,14 +87,15 @@ class MemoryMaintenanceTask:
             target_day,
             root=archive.session_root,
         )
-        self._archived_context.bind(session=session_view, workspace=workspace)
-        self._controller.begin(
-            target_day=target_day,
-            projection=projection,
-            workspace=workspace,
-            rebuild_memory=rebuild,
-        )
+        completed = False
         try:
+            self._archived_context.bind(session=session_view, workspace=workspace)
+            self._controller.begin(
+                target_day=target_day,
+                projection=projection,
+                workspace=workspace,
+                rebuild_memory=rebuild,
+            )
             outcome = self._turn.run(
                 f"Consolidate durable Memory for the closed Business Day {target_day}.",
                 business_day=business_day,
@@ -107,6 +109,7 @@ class MemoryMaintenanceTask:
                 or outcome.completion.get("task") != "memory"
             ):
                 self._controller.abort()
+                completed = True
                 return MaintenanceTaskOutcome(
                     kind=MaintenanceTaskKind.MEMORY,
                     status=MaintenanceTaskStatus.FAILED,
@@ -114,16 +117,19 @@ class MemoryMaintenanceTask:
                     reason="maintenance_turn_failed",
                     details=_turn_failure(outcome),
                 )
-            return MaintenanceTaskOutcome(
+            result = MaintenanceTaskOutcome(
                 kind=MaintenanceTaskKind.MEMORY,
                 status=MaintenanceTaskStatus.COMPLETED,
                 target_day=target_day,
                 details=self._controller.finish(),
             )
-        except Exception:
-            self._controller.abort()
-            raise
+            completed = True
+            return result
+        except (MemoryIOError, SessionIOError, WorkspaceIOError) as exc:
+            raise MaintenanceTaskExecutionError("Memory Maintenance task failed") from exc
         finally:
+            if not completed:
+                self._controller.abort()
             self._archived_context.clear()
 
 

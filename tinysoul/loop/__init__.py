@@ -7,22 +7,17 @@ from typing import TYPE_CHECKING
 from .config import LoopSettings, TurnSettings, parse_loop_settings
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .failures import LoopFailureKind
-from .outcomes import TurnFailure, TurnOutcomeStatus
+from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput
 from .signals import (
     SIGNAL_CONTROL_REQUEST,
-    SIGNAL_TURN_OUTPUT,
     SIGNAL_NAMESPACE,
     LoopControlKind,
     LoopControlRequest,
     LoopTraceNoteKind,
-    TurnOutput,
     build_control_request_signal,
-    build_turn_output_signal,
     consume_control_requests,
     consume_control_signal_requests,
-    consume_turn_outputs,
     parse_control_request_signal,
-    parse_turn_output_signal,
 )
 from .completion import (
     TurnCompletion,
@@ -65,7 +60,6 @@ __all__ = [
     "Phase3Outcome",
     "Phase3Unit",
     "SIGNAL_CONTROL_REQUEST",
-    "SIGNAL_TURN_OUTPUT",
     "SIGNAL_NAMESPACE",
     "TurnOutcome",
     "TurnOutcomeStatus",
@@ -80,12 +74,9 @@ __all__ = [
     "TurnRunner",
     "TurnSettings",
     "build_control_request_signal",
-    "build_turn_output_signal",
     "consume_control_requests",
     "consume_control_signal_requests",
-    "consume_turn_outputs",
     "parse_control_request_signal",
-    "parse_turn_output_signal",
     "parse_loop_settings",
 ]
 

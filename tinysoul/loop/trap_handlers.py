@@ -19,7 +19,6 @@ from tinysoul.workspace.projection import workspace_snapshot_signal
 
 from .errors import LoopInvariantError
 from .pressure import ContextPressureRecovery
-from .signals import TurnOutput, build_turn_output_signal
 
 
 @dataclass(frozen=True)
@@ -124,47 +123,6 @@ class WorkspaceTrashRestoreTrapHandler:
         if current is None:
             return _end_user_scope(snap)
         return TrapResult(transfer=RuntimeTransfer.retry(current))
-
-
-@dataclass(frozen=True)
-class TurnOutputTrapHandler:
-    """Publish validated Turn output and end the active Turn frame."""
-
-    def handle(self, snap: TrapSnap) -> TrapResult:
-        text = snap.payload.get("text")
-        result_id = snap.payload.get("result_id")
-        references_value = snap.payload.get("references", [])
-        if not isinstance(text, str) or not text:
-            raise LoopInvariantError("Turn output trap requires non-empty text")
-        if not isinstance(result_id, str) or not result_id:
-            raise LoopInvariantError("Turn output trap requires non-empty result_id")
-        if not isinstance(references_value, list):
-            raise LoopInvariantError("Turn output trap references must be a string list")
-        references: list[str] = []
-        for item in references_value:
-            if not isinstance(item, str) or not item:
-                raise LoopInvariantError(
-                    "Turn output trap references must contain non-empty strings"
-                )
-            references.append(item)
-        output = TurnOutput(
-            text=text,
-            result_id=result_id,
-            references=tuple(references),
-            metadata={
-                "action": snap.payload.get("action", "core.answer"),
-            },
-        )
-        return TrapResult(
-            transfer=RuntimeTransfer.end(_nearest(snap, RunLevel.TURN)),
-            signals=(
-                build_turn_output_signal(
-                    output,
-                    scope=snap.scope,
-                    source="loop.turn_output_trap",
-                ),
-            ),
-        )
 
 
 def _nearest(snap: TrapSnap, level: RunLevel) -> RunFrame:

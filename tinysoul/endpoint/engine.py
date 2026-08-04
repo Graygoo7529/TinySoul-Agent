@@ -8,12 +8,13 @@ from contextlib import AbstractContextManager
 from typing import Protocol
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.time import BusinessDay, BusinessDayError
 from tinysoul.loop import LoopControlKind
 from tinysoul.loop.errors import LoopError
 from tinysoul.maintenance import (
-    BusinessDay,
     MaintenanceAvailability,
     MaintenanceContractError,
+    MaintenanceError,
     MaintenanceScope,
 )
 from tinysoul.runtime import (
@@ -44,7 +45,7 @@ class EndpointCommandReceipt(Protocol):
 
 
 class EndpointMaintenanceStatus(Protocol):
-    def availability(self, business_day: BusinessDay) -> MaintenanceAvailability: ...
+    def availability(self) -> MaintenanceAvailability: ...
 
     def active_day_lease(self) -> AbstractContextManager[BusinessDay]: ...
 
@@ -233,7 +234,7 @@ class EndpointEngine:
                 )
             try:
                 day = BusinessDay.parse(target_day)
-            except MaintenanceContractError as exc:
+            except (BusinessDayError, MaintenanceContractError) as exc:
                 raise EndpointRequestError(
                     status_code=422,
                     code="maintenance.target_day_invalid",
@@ -461,9 +462,8 @@ class EndpointEngine:
 
     def maintenance_status(self) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease() as day:
-                availability = self._maintenance.availability(day).to_json()
-        except LoopError as exc:
+            availability = self._maintenance.availability().to_json()
+        except (LoopError, MaintenanceError) as exc:
             raise _not_ready(exc) from exc
         return {"availability": availability}
 

@@ -64,6 +64,7 @@ def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     assert session["root"] == str(tmp_path / "runtime" / "session")
     assert workspace["root"] == str(tmp_path / "runtime" / "workspace")
     assert maintenance["archive_root"] == str(tmp_path / "archive")
+    assert maintenance["runtime_root"] == str(tmp_path / "runtime" / "maintenance")
 
 
 def test_app_builder_cleans_project_capability_staging_on_startup(
@@ -727,6 +728,7 @@ def _test_config(
         "session.root": str(tmp_path / "runtime" / "session"),
         "workspace.root": str(tmp_path / "runtime" / "workspace"),
         "maintenance.archive_root": str(tmp_path / "archive"),
+        "maintenance.runtime_root": str(tmp_path / "runtime" / "maintenance"),
     }
     if overrides is not None:
         values.update(overrides)

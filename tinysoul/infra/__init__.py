@@ -43,6 +43,7 @@ from .staging import (
     StagingDirectoryManager,
     StagingError,
 )
+from .time import BusinessDay, BusinessDayError
 from .continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
     ContinuationError,
@@ -80,6 +81,8 @@ __all__ = [
     "StagingError",
     "TextLineSliceRead",
     "TextPrefixRead",
+    "BusinessDay",
+    "BusinessDayError",
     "atomic_copy_file",
     "atomic_write_bytes",
     "atomic_write_text",

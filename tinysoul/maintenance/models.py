@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject, to_json_object
 
-from .day import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from .errors import MaintenanceContractError
 
 
@@ -91,43 +91,6 @@ class MaintenanceRequest:
 
 
 @dataclass(frozen=True)
-class MaintenanceTaskPlan:
-    kind: MaintenanceTaskKind
-    eligible: bool
-    target_day: BusinessDay | None = None
-    reason: str = ""
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.kind, MaintenanceTaskKind):
-            raise MaintenanceContractError("Maintenance task plan kind is invalid")
-        if not isinstance(self.eligible, bool):
-            raise MaintenanceContractError("Maintenance task eligibility must be boolean")
-        if self.target_day is not None and not isinstance(self.target_day, BusinessDay):
-            raise MaintenanceContractError("Maintenance task plan target_day is invalid")
-        if not isinstance(self.reason, str):
-            raise MaintenanceContractError("Maintenance task plan reason must be text")
-
-
-@dataclass(frozen=True)
-class MaintenancePlan:
-    request: MaintenanceRequest
-    business_day: BusinessDay
-    tasks: tuple[MaintenanceTaskPlan, ...]
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.request, MaintenanceRequest):
-            raise MaintenanceContractError("Maintenance plan request is invalid")
-        if not isinstance(self.business_day, BusinessDay):
-            raise MaintenanceContractError("Maintenance plan business_day is invalid")
-        if any(not isinstance(item, MaintenanceTaskPlan) for item in self.tasks):
-            raise MaintenanceContractError("Maintenance plan tasks are invalid")
-        kinds = tuple(item.kind for item in self.tasks)
-        if len(kinds) != len(set(kinds)):
-            raise MaintenanceContractError("Maintenance plan task kinds must be unique")
-        object.__setattr__(self, "tasks", tuple(self.tasks))
-
-
-@dataclass(frozen=True)
 class MaintenanceTaskOutcome:
     kind: MaintenanceTaskKind
     status: MaintenanceTaskStatus
@@ -188,11 +151,14 @@ class MaintenanceOutcome:
 
 @dataclass(frozen=True)
 class MaintenanceAvailability:
+    checked_day: BusinessDay
     home_change_count: int = 0
     home_skill_memory_count: int = 0
     memory_days: tuple[BusinessDay, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.checked_day, BusinessDay):
+            raise MaintenanceContractError("Maintenance availability checked day is invalid")
         for value in (self.home_change_count, self.home_skill_memory_count):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MaintenanceContractError(
@@ -218,6 +184,7 @@ class MaintenanceAvailability:
 
     def to_json(self) -> JsonObject:
         return {
+            "checked_day": str(self.checked_day),
             "home_pending": self.home_pending,
             "home_change_count": self.home_change_count,
             "home_skill_memory_count": self.home_skill_memory_count,

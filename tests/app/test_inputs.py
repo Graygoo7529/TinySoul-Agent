@@ -15,8 +15,8 @@ from tinysoul.loop import (
     LoopControlKind,
     consume_control_requests,
 )
+from tinysoul.infra.time import BusinessDay
 from tinysoul.maintenance import (
-    BusinessDay,
     MaintenanceRequest,
     MaintenanceScope,
     MaintenanceTrigger,

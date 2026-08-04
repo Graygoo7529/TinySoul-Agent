@@ -12,9 +12,9 @@ from uuid import uuid4
 
 from tinysoul.context import build_input_append_signal
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.time import BusinessDay, BusinessDayError
 from tinysoul.loop import LoopControlKind, build_control_request_signal
 from tinysoul.maintenance import (
-    BusinessDay,
     MaintenanceContractError,
     MaintenanceRequest,
     MaintenanceScope,
@@ -177,7 +177,7 @@ class InputCommandParser:
                         target = BusinessDay.parse(argument)
                     else:
                         raise MaintenanceContractError("too many arguments")
-            except MaintenanceContractError:
+            except (BusinessDayError, MaintenanceContractError):
                 return self._rejected(event, text)
             return self._intent(
                 InputIntentKind.MAINTENANCE,

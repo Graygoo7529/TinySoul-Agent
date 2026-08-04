@@ -13,7 +13,7 @@ from tinysoul.context import (
 )
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject, to_json_object
-from tinysoul.maintenance import BusinessDay
+from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -40,9 +40,9 @@ from .context_signals import ContextSignalConsumer
 from .cycle import CycleOutcome, CycleRunner
 from .errors import LoopInvariantError
 from .failures import LoopFailureKind
-from .outcomes import TurnFailure, TurnOutcomeStatus, failure_from_runtime
+from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
 from .preparation import TurnPreparationPipeline, TurnPreparationRequest
-from .signals import LoopTraceNoteKind, TurnOutput, consume_turn_outputs
+from .signals import LoopTraceNoteKind
 
 
 @dataclass(frozen=True)
@@ -255,13 +255,6 @@ class TurnRunner:
                     )
         try:
             output = self._completion_to_output(completion)
-            legacy_output = self._consume_turn_output(turn_id)
-            if output is None:
-                output = legacy_output
-            elif legacy_output is not None:
-                raise self._loop_bridge.from_loop_error(
-                    LoopInvariantError("Turn produced duplicate completion channels")
-                )
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
             if transfer is None:
@@ -432,20 +425,6 @@ class TurnRunner:
                     }
                 ),
             )
-
-    def _consume_turn_output(self, turn_id: str) -> TurnOutput | None:
-        if not turn_id:
-            return None
-        matching: list[TurnOutput] = []
-        for signal, output in consume_turn_outputs(self._bus):
-            frame = signal.scope.nearest(RunLevel.TURN)
-            if frame is not None and frame.name == turn_id:
-                matching.append(output)
-        if len(matching) > 1:
-            raise self._loop_bridge.from_loop_error(
-                LoopInvariantError("A Turn produced multiple output signals")
-            )
-        return matching[0] if matching else None
 
     def _consume_cycle_transfer(
         self,

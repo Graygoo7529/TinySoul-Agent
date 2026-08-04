@@ -79,6 +79,16 @@ class _RecordingService:
         self.stopped += 1
 
 
+@dataclass
+class _AvailabilityAwareService(_RecordingService):
+    availability_path: Path = Path()
+    availability_existed_at_start: bool = False
+
+    def start(self) -> None:
+        super().start()
+        self.availability_existed_at_start = self.availability_path.is_file()
+
+
 def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
@@ -122,6 +132,28 @@ def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     assert source.started == 1
     assert source.stopped == 1
     assert service.stopped == 1
+
+
+def test_tinysoul_app_prepares_availability_before_starting_services(
+    tmp_path: Path,
+) -> None:
+    service = _AvailabilityAwareService(
+        availability_path=tmp_path / "runtime" / "maintenance" / "availability.json"
+    )
+    source = _SubmittingSource((InputEvent("exit", source="unit"),))
+    built = (
+        TinySoulAppBuilder(root=tmp_path)
+        .with_config_environment(_test_config(tmp_path))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_input_source(source)
+        .build()
+    )
+    app = replace(built, services=(service,))
+
+    app.run()
+
+    assert service.availability_existed_at_start is True
 
 
 def test_tinysoul_app_stops_started_sources_when_later_start_fails(
@@ -203,5 +235,8 @@ def _test_config(tmp_path: Path) -> ConfigEnvironment:
             "session.root": str(tmp_path / "runtime" / "session"),
             "workspace.root": str(tmp_path / "runtime" / "workspace"),
             "maintenance.archive_root": str(tmp_path / "archive"),
+            "maintenance.runtime_root": str(
+                tmp_path / "runtime" / "maintenance"
+            ),
         },
     )
