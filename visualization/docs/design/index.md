@@ -49,5 +49,7 @@
 ## 连接与恢复
 
 - 实例发现由 Rust 侧 `discover_backend` 完成（identity = 规范化路径 SHA256），HTTP 轮询 `/v1/status` 检测后端重启。
+- 浏览器开发模式（无 Tauri shell）可用 `?host=&port=&token=` 查询参数直连（持久化到 localStorage），用于截图验收与纯前端调试。
 - WS gap 时清空事件派生视图并重读 status/manifest/maintenance，界面顶部给出提示条。
 - 用户输入采用本地回声：提交时记录 command_id → 文本，派生层在 command accepted 后回填到对应 Turn；非本端输入（如 Terminal）从首个 message stack 的 `user_input` 段恢复。
+- Turn trace 导出通过 Tauri dialog 选择目录、Rust 命令 `write_export_files` 写盘（校验相对路径防逃逸）；浏览器模式回退为单文件下载。

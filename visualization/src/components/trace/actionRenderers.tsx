@@ -20,13 +20,31 @@ export function ActionInputPreview({ action }: { action: ActionRecord }) {
   const command = str(params.command);
   const text = str(params.text) ?? str(params.content) ?? str(params.instruction);
   const query = str(params.query);
+  const guideBlocks = blocksOf(params.guide_blocks);
+  const inputBlocks = blocksOf(params.input_blocks);
 
   const rows: ReactNode[] = [];
 
-  if (name === "core.answer" && text) {
+  if (name === "core.answer") {
+    // core.answer composes the final reply through its own LLM call; the
+    // inputs are task prompt blocks, not the answer text itself.
     return (
-      <div className="rounded-lg border border-line bg-bg-elev px-3 py-2">
-        <Markdown>{text}</Markdown>
+      <div className="space-y-1.5">
+        {[...guideBlocks, ...inputBlocks].map((block, i) => (
+          <div key={i} className="rounded-lg border border-line bg-bg-elev px-2.5 py-1.5">
+            {block.label && (
+              <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
+                {block.label}
+              </div>
+            )}
+            <div className="text-[12px] leading-5 whitespace-pre-wrap text-fg-muted">
+              {block.text}
+            </div>
+          </div>
+        ))}
+        {guideBlocks.length + inputBlocks.length === 0 && (
+          <JsonTree value={params} defaultExpanded={false} />
+        )}
       </div>
     );
   }
@@ -73,6 +91,15 @@ export function ActionInputPreview({ action }: { action: ActionRecord }) {
 export function ActionResultBody({ action }: { action: ActionRecord }) {
   const payload = action.result?.payload;
   if (!payload) return null;
+
+  // core.answer carries the composed final reply text.
+  if (action.action === "core.answer" && str(payload.text)) {
+    return (
+      <div className="rounded-lg border border-line bg-bg-elev px-3 py-2">
+        <Markdown>{str(payload.text)!}</Markdown>
+      </div>
+    );
+  }
 
   const stdout = str(payload.stdout) ?? str(payload.output);
   const stderr = str(payload.stderr);
@@ -165,6 +192,18 @@ function ResultRow({ item }: { item: unknown }) {
 }
 
 /* ------------------------------- helpers ----------------------------- */
+
+function blocksOf(value: unknown): { label: string | null; text: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => item as Record<string, unknown>)
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      label: str(item.label),
+      text: str(item.text) ?? "",
+    }))
+    .filter((block) => block.text.length > 0);
+}
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;

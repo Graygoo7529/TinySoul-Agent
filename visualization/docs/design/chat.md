@@ -10,24 +10,22 @@
 
 进行中的用户轮在 Agent 行内展示实时状态卡，全部从观察事件流派生：
 
-- **当前活动**：当前 Phase 标题、正在调用的模型或正在执行的 action 及关键参数、已进行时长。
-- **Phase stepper**：当前 cycle 内三段执行单元（Context & Domains / Action Planning / Action Execution）的 idle/running/completed 状态。
-- **工作态快照**：由 Phase1 control tools（`set_todo`/`set_milestone` 等）与 message stack 的 `working` 段共同推导的 todo 列表（状态图标）与 milestone  chips。
-- **Activity feed**：滚动语义事件流——背景加载/逐出、todo/milestone 变更、domain 选择、模型调用、action 执行与结果、工作区变更、最终回答。
+- **浮动最新状态**：只突出当前最新的一条语义活动（加载背景、设置 todo、选择 domain、调用模型、执行 action…），新活动以动画上浮替换旧条目，旧条目以渐淡轨迹残留在下方——不同时陈列三个阶段。
+- **独立工作态区域**：todo 列表（状态图标、进行中高亮、完成划线）与 milestone 胶囊在状态卡下部常驻，由 Phase1 control tools 与 message stack 的 `working` 段共同推导。
 
 ## Turn 内部细节滑窗
 
-每个用户轮可从右侧拉出细节滑窗（运行中亦可，标注 live）：
+每个用户轮可从右侧拉出细节滑窗（运行中实时更新，标注 live）：
 
 - **Overview**：cycles / LLM calls / tokens / actions 统计与最终回答摘要。
 - **Working Context**：该轮最终 todo/milestone 状态。
-- **Activity**：该轮完整语义事件列表。
-- **Cycle → Phase 卡片**：
-  - **Phase1（更新语境与决策行动域）**：control operations 语义行（domain 选择 chips、todo/milestone 设置/移除、背景加载/逐出 links）+ 背景变更 + LLM 调用。
-  - **Phase2（生成行动参数）**：planned action 卡片（参数语义预览 + 原始 JSON）。
-  - **Phase3（采取行动）**：executed action 卡片（状态、失败 failure 三通道、domain 感知输出渲染）+ 工作区变更。
-- **LLM 调用卡片**：profile、model/provider、attempt、状态、token 用量；展开后呈现完整 message stack（按 Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，逐条 role/label/parts/tool_calls/reasoning）、offered tools 与响应。
-- **Trace 导出**：导出该轮完整发生的每一次 LLM 调用的 message stack 及全部 action 输入输出，Markdown（可读文档）或 JSON（结构投影）。
+- **Cycle 卡片（可折叠）**：折叠时显示状态徽标、选中的 action domain 胶囊标签、动作/LLM 调用/耗时统计；展开后呈现三个默认折叠的 stage 行。
+- **Stage 行（折叠即语义）**：不再解释"stage 是什么"，而是直接陈述"stage 做了什么"——
+  - Stage1：折叠直接展示选中的 domain 胶囊（如 `home` `core`），文案为 "Selected N domains" / 运行中 "Maintaining context and selecting domains…"。
+  - Stage2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent），文案为 "Planned 1 action: core.answer" / "Executing workspace.write (2/3)" / "3 actions executed · 1 failed"。
+  - Stage 展开后呈现完整语义：推理思考（reasoning summary，Markdown 渲染）、control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、action 输入输出、工作区变更、LLM 调用行。
+- **LLM 子滑窗**：stage 详情中的每次 LLM 调用行可点击，从主滑窗**左侧**进一步拉出独立子滑窗，展示该次调用的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区与逐条 message 均可折叠）与 Response（reasoning / answer / tool calls / usage）。
+- **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 调用（Request+Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
 
 ## Action 输入输出渲染
 

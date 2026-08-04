@@ -1,124 +1,107 @@
 import {
-  Brain,
   CheckCircle2,
   Circle,
-  CircleDashed,
-  FileText,
   Flag,
-  Layers,
   ListChecks,
   Loader2,
   XCircle,
 } from "lucide-react";
-import type { ActivityItem, ChatTurn, PhaseName } from "../../derive/model";
-import { PHASE_META } from "../../derive/model";
-import { formatDuration, formatTime } from "../../utils/format";
+import type { ActivityItem, ChatTurn } from "../../derive/model";
+import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
-
-const phaseOrder: PhaseName[] = ["phase1", "phase2", "phase3"];
+import { activityColors, activityIcons } from "../trace/semantic";
 
 /**
- * Live status disclosure for a running turn: current activity, phase
- * progress, working-context snapshot (todos / milestones) and a rolling
- * activity feed — all derived from the observation event stream.
+ * Live status disclosure for a running turn.
+ *
+ * Instead of a static 3-stage stepper, the latest semantic activity floats
+ * in with an animation and is replaced as the turn progresses (context
+ * loaded → todo set → domain selected → model thinking → action executing…).
+ * A steady zone below keeps the current todos and milestones visible.
  */
 export function LiveStatus({ turn }: { turn: ChatTurn }) {
   useNow(true, 1000);
-  const activity = turn.currentActivity;
-  const recent = turn.activity.slice(-8).reverse();
+  const activity = turn.activity;
+  const latest = activity[activity.length - 1];
+  const trail = activity.slice(-3, -1).reverse();
 
   return (
-    <div className="rounded-xl border border-line bg-bg-elev">
-      {/* current activity */}
-      <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
-        <Loader2 size={15} className="animate-spin-slow shrink-0 text-accent" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium">
-            {activity?.label ?? "Thinking…"}
+    <div className="overflow-hidden rounded-xl border border-line bg-bg-elev">
+      {/* floating latest status */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="flex items-center gap-2.5">
+          <Loader2 size={15} className="animate-spin-slow shrink-0 text-accent" />
+          <div className="relative min-w-0 flex-1">
+            {latest ? (
+              <div key={activity.length} className="animate-status-in">
+                <StatusLine item={latest} prominent />
+              </div>
+            ) : (
+              <div className="text-[13px] font-medium text-fg-muted">Thinking…</div>
+            )}
           </div>
-          {activity?.detail && (
-            <div className="mt-0.5 truncate font-mono text-[11px] text-fg-faint">
-              {activity.detail}
-            </div>
-          )}
+          <div className="shrink-0 font-mono text-[11px] text-fg-faint">
+            {formatDuration(turn.startedAt)}
+          </div>
         </div>
-        <div className="shrink-0 font-mono text-[11px] text-fg-faint">
-          {formatDuration(turn.startedAt)}
+        {/* fading trail of what just happened */}
+        <div className="mt-1 space-y-0.5 pl-[26px]">
+          {trail.map((item, i) => (
+            <div
+              key={`${item.time}-${i}`}
+              className="transition-opacity"
+              style={{ opacity: 0.45 - i * 0.18 }}
+            >
+              <StatusLine item={item} />
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="space-y-3 px-4 py-3">
-        <PhaseStepper turn={turn} />
-        <WorkingSnapshot turn={turn} />
-        {recent.length > 0 && (
-          <div>
-            <div className="mb-1.5 text-[11px] font-medium tracking-wide text-fg-faint uppercase">
-              Activity
-            </div>
-            <div className="space-y-1">
-              {recent.map((item, i) => (
-                <ActivityRow key={`${item.time}-${i}`} item={item} dimmed={i > 3} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* steady working-state zone */}
+      <WorkingZone turn={turn} />
     </div>
   );
 }
 
-function PhaseStepper({ turn }: { turn: ChatTurn }) {
-  const cycle = turn.cycles[turn.cycles.length - 1];
+function StatusLine({ item, prominent }: { item: ActivityItem; prominent?: boolean }) {
+  const Icon = activityIcons[item.kind] ?? Circle;
   return (
-    <div className="flex items-center gap-1.5">
-      {cycle && (
-        <span className="mr-1 shrink-0 rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
-          cycle {cycle.index}
+    <div className="flex min-w-0 items-center gap-2">
+      <Icon
+        size={prominent ? 13 : 11}
+        className={`shrink-0 ${activityColors[item.kind] ?? "text-fg-faint"}`}
+      />
+      <span
+        className={`truncate ${
+          prominent ? "text-[13px] font-medium text-fg" : "text-[11px] text-fg-muted"
+        }`}
+        title={item.detail}
+      >
+        {item.text}
+      </span>
+      {prominent && item.detail && (
+        <span className="truncate font-mono text-[11px] text-fg-faint">
+          {item.detail}
         </span>
       )}
-      {phaseOrder.map((name, i) => {
-        const phase = cycle?.phases.find((p) => p.phase === name);
-        const state = phase?.status ?? "idle";
-        return (
-          <div key={name} className="flex min-w-0 flex-1 items-center gap-1.5">
-            <div
-              className={`flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors ${
-                state === "running"
-                  ? "bg-accent-soft text-accent"
-                  : state === "completed"
-                    ? "bg-success-soft text-success"
-                    : "bg-bg-sunken text-fg-faint"
-              }`}
-              title={PHASE_META[name].subtitle}
-            >
-              {state === "completed" ? (
-                <CheckCircle2 size={11} className="shrink-0" />
-              ) : state === "running" ? (
-                <Loader2 size={11} className="animate-spin-slow shrink-0" />
-              ) : (
-                <CircleDashed size={11} className="shrink-0" />
-              )}
-              <span className="truncate">{i + 1}. {PHASE_META[name].title}</span>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
 
-function WorkingSnapshot({ turn }: { turn: ChatTurn }) {
+function WorkingZone({ turn }: { turn: ChatTurn }) {
   const { todos, milestones } = turn.working;
   if (todos.length === 0 && milestones.length === 0) return null;
+  const done = todos.filter((t) => t.status === "done").length;
   return (
-    <div className="rounded-lg bg-bg-sunken px-3 py-2">
+    <div className="border-t border-line bg-bg-sunken/60 px-4 py-2.5">
       {milestones.length > 0 && (
         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          <Flag size={11} className="text-warning" />
+          <Flag size={11} className="shrink-0 text-warning" />
           {milestones.map((m) => (
             <span
               key={m.key}
-              className="rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] text-warning"
+              className="animate-status-in rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] text-warning"
             >
               {m.content}
             </span>
@@ -126,25 +109,29 @@ function WorkingSnapshot({ turn }: { turn: ChatTurn }) {
         </div>
       )}
       {todos.length > 0 && (
-        <div className="space-y-1">
-          {todos.map((todo) => (
-            <div key={todo.key} className="flex items-center gap-2 text-[12px]">
-              <TodoIcon status={todo.status} />
-              <span
-                className={
-                  todo.status === "done"
-                    ? "text-fg-faint line-through"
-                    : todo.status === "cancelled"
+        <div>
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-fg-faint uppercase">
+            <ListChecks size={10} />
+            Todos · {done}/{todos.length}
+          </div>
+          <div className="space-y-1">
+            {todos.map((todo) => (
+              <div key={todo.key} className="animate-status-in flex items-center gap-2 text-[12px]">
+                <TodoIcon status={todo.status} />
+                <span
+                  className={
+                    todo.status === "done" || todo.status === "cancelled"
                       ? "text-fg-faint line-through"
                       : todo.status === "in_progress"
-                        ? "text-fg"
+                        ? "font-medium text-fg"
                         : "text-fg-muted"
-                }
-              >
-                {todo.content}
-              </span>
-            </div>
-          ))}
+                  }
+                >
+                  {todo.content}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -164,50 +151,4 @@ export function TodoIcon({ status }: { status: string }) {
   }
 }
 
-const activityIcons = {
-  phase: Layers,
-  context: FileText,
-  todo: ListChecks,
-  milestone: Flag,
-  domain: Layers,
-  llm: Brain,
-  action: Loader2,
-  workspace: FileText,
-  answer: CheckCircle2,
-  info: Circle,
-  error: XCircle,
-} as const;
 
-const activityColors: Record<string, string> = {
-  phase: "text-fg-faint",
-  context: "text-info",
-  todo: "text-accent",
-  milestone: "text-warning",
-  domain: "text-accent",
-  llm: "text-fg-muted",
-  action: "text-fg-muted",
-  workspace: "text-info",
-  answer: "text-success",
-  info: "text-fg-faint",
-  error: "text-danger",
-};
-
-function ActivityRow({ item, dimmed }: { item: ActivityItem; dimmed: boolean }) {
-  const Icon = activityIcons[item.kind] ?? Circle;
-  return (
-    <div
-      className={`flex items-center gap-2 text-[12px] ${dimmed ? "opacity-55" : ""}`}
-    >
-      <Icon
-        size={12}
-        className={`shrink-0 ${activityColors[item.kind] ?? "text-fg-faint"}`}
-      />
-      <span className="min-w-0 flex-1 truncate text-fg-muted" title={item.detail}>
-        {item.text}
-      </span>
-      <span className="shrink-0 font-mono text-[10px] text-fg-faint">
-        {formatTime(item.time)}
-      </span>
-    </div>
-  );
-}

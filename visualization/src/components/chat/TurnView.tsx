@@ -1,4 +1,4 @@
-import { AlertTriangle, PanelRightOpen } from "lucide-react";
+import { AlertTriangle, Bot, PanelRightOpen } from "lucide-react";
 import type { ChatTurn } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
@@ -27,8 +27,8 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
       ))}
 
       <div className="flex gap-2.5">
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-[11px] font-bold text-white shadow-sm">
-          TS
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-sm">
+          <Bot size={15} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           {running && <LiveStatus turn={turn} />}
@@ -58,7 +58,7 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
                 <>
                   <span className="text-[11px] text-fg-faint">·</span>
                   <span className="text-[11px] text-fg-faint">
-                    {turn.usage.calls} calls · {formatTokens(turn.usage.promptTokens)}+
+                    {turn.usage.calls} calls · {formatTokens(turn.usage.promptTokens)} →{" "}
                     {formatTokens(turn.usage.completionTokens)} tokens
                   </span>
                 </>

@@ -1,12 +1,24 @@
 /** Connect the UI to the Terminal-owned TinySoul Endpoint. */
 
 import { useCallback, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
+import { resolveConnectionInfo } from "../api/connection";
 import { useAppStore } from "../store/appStore";
 import type { ConnectionInfo } from "../types";
+
+/** Identity checks are enforced for lease-discovered connections; the web
+ * dev fallback (query/localStorage) carries no identity and skips them. */
+function identityMatches(info: ConnectionInfo, other: {
+  instance_id: string;
+  project_identity: string;
+}): boolean {
+  if (!info.instance_id) return true;
+  return (
+    info.instance_id === other.instance_id &&
+    info.project_identity === other.project_identity
+  );
+}
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -24,19 +36,14 @@ export function useBackend() {
     store.setStatus(null);
     store.setConnection({ status: "connecting" });
     try {
-      const info = (await invoke("discover_backend", {
-        projectRoot,
-      })) as ConnectionInfo | null;
+      const info = await resolveConnectionInfo(projectRoot);
       if (!info) {
         store.setConnection({ status: "not_running" });
         return;
       }
       const nextClient = new TinySoulClient(info);
       const status = await nextClient.status();
-      if (
-        status.instance_id !== info.instance_id ||
-        status.project_identity !== info.project_identity
-      ) {
+      if (!identityMatches(info, status)) {
         throw new Error(
           "TinySoul instance identity does not match this project",
         );
@@ -45,7 +52,11 @@ export function useBackend() {
         store.setConnection({ status: "initializing", info });
         return;
       }
-      if (store.connection.info?.instance_id !== info.instance_id) {
+      if (
+        info.instance_id &&
+        store.connection.info?.instance_id &&
+        store.connection.info.instance_id !== info.instance_id
+      ) {
         store.clearEvents();
         store.setMaintenanceStatus(null);
       }
@@ -61,8 +72,10 @@ export function useBackend() {
           if (message.type === "authenticated") {
             current.setStreamReconnecting(false);
             if (
-              message.instance_id !== info.instance_id ||
-              message.project_identity !== info.project_identity
+              !identityMatches(info, {
+                instance_id: message.instance_id,
+                project_identity: message.project_identity,
+              })
             ) {
               current.setConnection({
                 status: "error",
@@ -134,7 +147,8 @@ export function useBackend() {
       try {
         const status = await client.status();
         const store = useAppStore.getState();
-        if (status.instance_id !== store.connection.info?.instance_id) {
+        const knownId = store.connection.info?.instance_id;
+        if (knownId && status.instance_id !== knownId) {
           throw new Error("TinySoul backend restarted");
         }
         store.setStatus(status);

@@ -155,6 +155,21 @@ body {
   animation: slide-in-right 0.22s ease-out;
 }
 
+/* floating live status: the newest activity slides up and settles */
+@keyframes status-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-status-in {
+  animation: status-in 0.28s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

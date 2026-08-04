@@ -10,29 +10,15 @@ import { formatSize, shorten } from "../../utils/format";
  * The constructed message stack of one LLM call. Messages are grouped into
  * semantic context sections (identity / user inputs / background / working /
  * turn trace / task prompt) derived from their labels, matching how the
- * Context module composes the stack.
+ * Context module composes the stack. Sections and individual messages are
+ * collapsible.
  */
 export function MessageStackView({ messages }: { messages: ModelMessage[] }) {
   const sections = groupSections(messages);
   return (
     <div className="space-y-2">
       {sections.map((section) => (
-        <div key={section.name}>
-          <div className="mb-1 flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${section.color}`} />
-            <span className="text-[11px] font-semibold tracking-wide text-fg-muted uppercase">
-              {section.name}
-            </span>
-            <span className="text-[10px] text-fg-faint">
-              {section.messages.length} msg
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {section.messages.map((message) => (
-              <MessageView key={message.index} message={message.value} index={message.index} />
-            ))}
-          </div>
-        </div>
+        <SectionView key={section.name} section={section} />
       ))}
     </div>
   );
@@ -41,17 +27,18 @@ export function MessageStackView({ messages }: { messages: ModelMessage[] }) {
 interface Section {
   name: string;
   color: string;
+  defaultOpen: boolean;
   messages: { index: number; value: ModelMessage }[];
 }
 
-const sectionColors: Record<string, string> = {
-  Identity: "bg-purple-400",
-  "User Inputs": "bg-blue-400",
-  Background: "bg-teal-400",
-  "Working Context": "bg-amber-400",
-  "Turn Trace": "bg-orange-400",
-  "Task Prompt": "bg-pink-400",
-  Other: "bg-gray-400",
+const sectionStyle: Record<string, { color: string; defaultOpen: boolean }> = {
+  Identity: { color: "bg-purple-400", defaultOpen: false },
+  "User Inputs": { color: "bg-blue-400", defaultOpen: true },
+  Background: { color: "bg-teal-400", defaultOpen: false },
+  "Working Context": { color: "bg-amber-400", defaultOpen: true },
+  "Turn Trace": { color: "bg-orange-400", defaultOpen: false },
+  "Task Prompt": { color: "bg-pink-400", defaultOpen: false },
+  Other: { color: "bg-gray-400", defaultOpen: false },
 };
 
 function sectionOf(message: ModelMessage): string {
@@ -70,7 +57,7 @@ function sectionOf(message: ModelMessage): string {
   ) {
     return "Turn Trace";
   }
-  if (!label) return "Task Prompt";
+  if (label.startsWith("task_prompt") || !label) return "Task Prompt";
   return "Other";
 }
 
@@ -96,9 +83,50 @@ function groupSections(messages: ModelMessage[]): Section[] {
     .filter((name) => map.has(name))
     .map((name) => ({
       name,
-      color: sectionColors[name] ?? sectionColors.Other,
+      color: sectionStyle[name].color,
+      defaultOpen: sectionStyle[name].defaultOpen,
       messages: map.get(name)!,
     }));
+}
+
+function SectionView({ section }: { section: Section }) {
+  const [open, setOpen] = useState(section.defaultOpen);
+  const totalChars = section.messages.reduce(
+    (sum, m) =>
+      sum +
+      m.value.parts.reduce(
+        (s, part) => s + (part.text?.length ?? JSON.stringify(part.value ?? "").length),
+        0,
+      ),
+    0,
+  );
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="mb-1 flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-hover"
+      >
+        <ChevronRight
+          size={12}
+          className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        <span className={`h-2 w-2 rounded-full ${section.color}`} />
+        <span className="text-[11px] font-semibold tracking-wide text-fg-muted uppercase">
+          {section.name}
+        </span>
+        <span className="text-[10px] text-fg-faint">
+          {section.messages.length} msg · {formatSize(totalChars)}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1.5">
+          {section.messages.map((message) => (
+            <MessageView key={message.index} message={message.value} index={message.index} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ----------------------------- message ------------------------------ */
@@ -132,7 +160,7 @@ function MessageView({ message, index }: { message: ModelMessage; index: number 
           {message.role}
         </Badge>
         {message.label && (
-          <span className="rounded bg-hover px-1 py-0.5 font-mono text-[10px] text-fg-muted">
+          <span className="truncate rounded bg-hover px-1 py-0.5 font-mono text-[10px] text-fg-muted">
             {message.label}
           </span>
         )}
@@ -185,7 +213,7 @@ function MessageView({ message, index }: { message: ModelMessage; index: number 
   );
 }
 
-const TEXT_CLAMP = 900;
+const TEXT_CLAMP = 1200;
 
 function PartView({ part }: { part: MessagePart }) {
   const [expanded, setExpanded] = useState(false);
@@ -198,7 +226,7 @@ function PartView({ part }: { part: MessagePart }) {
           <div className="absolute top-1 right-1">
             <CopyButton text={() => text} />
           </div>
-          <pre className="font-sans text-[12px] leading-5 whitespace-pre-wrap break-words text-fg">
+          <pre className="pr-14 font-sans text-[12px] leading-5 whitespace-pre-wrap break-words text-fg">
             {clamped ? text.slice(0, TEXT_CLAMP) + " …" : text}
           </pre>
           {text.length > TEXT_CLAMP && (

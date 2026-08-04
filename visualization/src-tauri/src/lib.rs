@@ -37,7 +37,11 @@ fn discover_backend(project_root: String) -> Result<Option<BackendConnection>, S
     let text = match fs::read_to_string(&record_path) {
         Ok(value) => value,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("TinySoul connection record cannot be read: {error}")),
+        Err(error) => {
+            return Err(format!(
+                "TinySoul connection record cannot be read: {error}"
+            ))
+        }
     };
     let record: InstanceRecord = serde_json::from_str(&text)
         .map_err(|error| format!("TinySoul connection record is invalid: {error}"))?;
@@ -102,11 +106,55 @@ fn instance_directory() -> Result<PathBuf, String> {
         .join("instances"))
 }
 
+#[derive(Deserialize, Debug)]
+struct ExportFileInput {
+    path: String,
+    contents: String,
+}
+
+/// Write the turn trace export bundle under a user-picked directory.
+/// Every path must stay relative to `base_dir`; returns the export root.
+#[tauri::command]
+fn write_export_files(base_dir: String, files: Vec<ExportFileInput>) -> Result<String, String> {
+    let base = Path::new(&base_dir);
+    if !base.is_dir() {
+        return Err("The chosen export directory does not exist".to_string());
+    }
+    for file in &files {
+        let relative = Path::new(&file.path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(format!("Invalid export path: {}", file.path));
+        }
+        let target = base.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create export directory: {e}"))?;
+        }
+        fs::write(&target, &file.contents)
+            .map_err(|e| format!("Cannot write {}: {e}", target.display()))?;
+    }
+    // The bundle root is the first path component shared by all files.
+    let root = files
+        .first()
+        .and_then(|f| Path::new(&f.path).components().next())
+        .map(|c| base.join(c.as_os_str()))
+        .unwrap_or_else(|| base.to_path_buf());
+    Ok(root.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![discover_backend])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            discover_backend,
+            write_export_files
+        ])
         .run(tauri::generate_context!())
         .expect("error while running TinySoul visualization");
 }

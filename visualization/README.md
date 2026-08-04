@@ -67,7 +67,7 @@ pnpm build   # tsc + vite build
 - Phase1 shows semantic control operations — selected action domains, todo/milestone maintenance, background load/evict.
 - Phase2 shows planned actions with generated parameters; Phase3 shows executed actions with status, typed failures, and domain-aware output rendering (documents, terminal stdout/stderr with exit codes, web results), plus raw JSON fallbacks.
 - Every LLM call expands to its full constructed **message stack**, grouped into semantic sections (identity / user inputs / background / turn trace / working / task prompt) with per-message roles, labels, parts, tool calls and reasoning.
-- **Trace export**: the complete turn — every LLM message stack, every action input/output — as a Markdown document or structured JSON.
+- **Trace export**: pick a directory and the app writes a folder per turn — `turn.json` + `trace.md` at the root and one `cycle-N/phaseM-llm-K-<profile>.json` per LLM call (full request message stack + response). In browser dev mode it falls back to a single JSON download.
 
 ### Monitor
 

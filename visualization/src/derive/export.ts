@@ -358,6 +358,62 @@ function describeControlOp(op: ControlOp): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Folder export (one directory per turn, cycle subdirectories)        */
+/* ------------------------------------------------------------------ */
+
+export interface ExportFile {
+  /** Path relative to the export root, using forward slashes. */
+  path: string;
+  contents: string;
+}
+
+export interface TurnExportBundle {
+  dirName: string;
+  files: ExportFile[];
+}
+
+/**
+ * Build the on-disk export layout for a turn:
+ *
+ *   tinysoul-turn-<id>-<timestamp>/
+ *     turn.json                      full structured projection
+ *     trace.md                       readable document
+ *     cycle-1/phase1-llm-1-<profile>.json   request + response per LLM call
+ */
+export function buildTurnExportBundle(turn: ChatTurn): TurnExportBundle {
+  const date = new Date(turn.startedAt * 1000);
+  const stamp = date
+    .toISOString()
+    .replace(/[:T]/g, "-")
+    .slice(0, 19);
+  const dirName = `tinysoul-turn-${turn.turnId}-${stamp}`;
+  const files: ExportFile[] = [
+    { path: "turn.json", contents: turnTraceToJson(turn) },
+    { path: "trace.md", contents: turnTraceToMarkdown(turn) },
+  ];
+  for (const cycle of turn.cycles) {
+    for (const phase of cycle.phases) {
+      phase.tasks.forEach((task, index) => {
+        const profile = (task.profile ?? "task").replace(/[^\w.-]+/g, "_");
+        files.push({
+          path: `cycle-${cycle.index}/${phase.phase}-llm-${index + 1}-${profile}.json`,
+          contents: JSON.stringify(
+            {
+              cycle: cycle.index,
+              phase: phase.phase,
+              ...serializeTask(task),
+            },
+            null,
+            2,
+          ),
+        });
+      });
+    }
+  }
+  return { dirName, files };
+}
+
+/* ------------------------------------------------------------------ */
 /* Download helpers                                                    */
 /* ------------------------------------------------------------------ */
 

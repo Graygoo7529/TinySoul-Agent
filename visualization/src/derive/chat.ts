@@ -512,7 +512,11 @@ function parseControlOp(call: ToolCallView): ControlOp {
   const args = (call.arguments ?? {}) as Record<string, unknown>;
   switch (call.name) {
     case "select_action_domains":
-      return { kind: "select_domains", domains: asStringArray(args.domains) };
+      return {
+        kind: "select_domains",
+        domains: asStringArray(args.domains),
+        intent: asString(args.intent),
+      };
     case "set_todo":
       return {
         kind: "set_todo",

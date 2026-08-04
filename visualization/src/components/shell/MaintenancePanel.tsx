@@ -1,14 +1,20 @@
 import { useState } from "react";
-import { Home, MemoryStick, RefreshCcw } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronRight,
+  Home,
+  MemoryStick,
+  RefreshCcw,
+} from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import { randomId } from "../../utils/randomId";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
 /**
- * Maintenance trigger dialog. Daily archive, Home and Memory maintenance are
- * Program-level work dispatched through the Endpoint; this dialog only
- * submits requests.
+ * Maintenance dialog. The persisted availability projection leads: when
+ * nothing is pending the manual commands stay collapsed behind a disclosure;
+ * when something is pending the relevant action is presented directly.
  */
 export function MaintenancePanel() {
   const open = useAppStore((s) => s.maintenanceOpen);
@@ -19,9 +25,13 @@ export function MaintenancePanel() {
   const [targetDay, setTargetDay] = useState("");
   const [rebuild, setRebuild] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
 
   if (!open) return null;
   const availability = maintenance?.availability;
+  const homePending = availability?.home_pending ?? false;
+  const memoryPending = availability?.memory_pending ?? false;
+  const anyPending = homePending || memoryPending;
 
   const run = async (kind: "daily" | "home" | "memory") => {
     if (!client) return;
@@ -48,92 +58,146 @@ export function MaintenancePanel() {
   return (
     <Modal title="Maintenance" onClose={() => setOpen(false)}>
       <div className="space-y-3">
-        {availability && (
-          <div className="rounded-lg bg-bg-sunken px-3 py-2 text-[12px] text-fg-muted">
-            {availability.home_pending
-              ? `Home maintenance pending: ${availability.home_change_count} changes, ${availability.home_skill_memory_count} skill memories.`
-              : "Home is up to date."}{" "}
-            {availability.memory_pending
-              ? `Memory pending for ${availability.memory_days.length} day(s): ${availability.memory_days.join(", ")}.`
-              : "No pending memory days."}
+        {/* availability */}
+        {!anyPending ? (
+          <div className="flex items-center gap-2.5 rounded-lg bg-success-soft px-3 py-2.5 text-[13px] text-success">
+            <CheckCircle2 size={15} className="shrink-0" />
+            Everything is up to date — no maintenance is pending.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {homePending && (
+              <PendingRow
+                icon={<Home size={14} />}
+                text={`Home maintenance pending: ${availability!.home_change_count} changes, ${availability!.home_skill_memory_count} skill memories.`}
+                action={
+                  <Button size="xs" variant="primary" loading={busy === "home"} onClick={() => void run("home")}>
+                    Run Home
+                  </Button>
+                }
+              />
+            )}
+            {memoryPending && (
+              <PendingRow
+                icon={<MemoryStick size={14} />}
+                text={`Memory pending for ${availability!.memory_days.length} day(s): ${availability!.memory_days.join(", ")}.`}
+                action={
+                  <Button size="xs" variant="primary" loading={busy === "memory"} onClick={() => void run("memory")}>
+                    Run Memory
+                  </Button>
+                }
+              />
+            )}
           </div>
         )}
 
-        <MaintenanceRow
-          icon={<RefreshCcw size={15} />}
-          title="Daily transition"
-          description="Archive the previous business day (session, workspace, trash) and initialize the current day."
-          action={
-            <Button size="xs" variant="outline" loading={busy === "daily"} onClick={() => void run("daily")}>
-              Run
-            </Button>
-          }
-        />
-        <MaintenanceRow
-          icon={<Home size={15} />}
-          title="Home maintenance"
-          description="Review the runtime home overlay and commit accepted changes into the actual Agent Home."
-          action={
-            <Button size="xs" variant="outline" loading={busy === "home"} onClick={() => void run("home")}>
-              Run
-            </Button>
-          }
-        />
-        <div className="rounded-lg border border-line px-3 py-2.5">
-          <MaintenanceRow
-            icon={<MemoryStick size={15} />}
-            title="Memory maintenance"
-            description="Distill an archived day's session facts into a long-term memory document."
-            action={
-              <Button size="xs" variant="outline" loading={busy === "memory"} onClick={() => void run("memory")}>
-                Run
-              </Button>
-            }
-          />
-          <div className="mt-2 flex items-center gap-3 border-t border-line pt-2">
-            <input
-              value={targetDay}
-              onChange={(e) => setTargetDay(e.target.value)}
-              placeholder="YYYY-MM-DD (optional)"
-              className="h-7 w-40 rounded-md border border-line bg-bg-elev px-2 font-mono text-[12px] outline-none focus:border-accent"
+        {/* manual commands */}
+        <div className="rounded-lg border border-line">
+          <button
+            onClick={() => setManualOpen(!manualOpen)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left"
+          >
+            <ChevronRight
+              size={13}
+              className={`text-fg-faint transition-transform ${manualOpen ? "rotate-90" : ""}`}
             />
-            <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
-              <input
-                type="checkbox"
-                checked={rebuild}
-                onChange={(e) => setRebuild(e.target.checked)}
-                className="accent-accent"
+            <span className="text-[13px] font-medium text-fg-muted">
+              Manual maintenance commands
+            </span>
+          </button>
+          {manualOpen && (
+            <div className="space-y-2 border-t border-line px-3 py-3">
+              <ManualRow
+                icon={<RefreshCcw size={14} />}
+                title="Daily transition"
+                description="Archive the previous business day and initialize the current one."
+                busy={busy === "daily"}
+                onRun={() => void run("daily")}
               />
-              Rebuild existing memory
-            </label>
-          </div>
+              <ManualRow
+                icon={<Home size={14} />}
+                title="Home maintenance"
+                description="Review the runtime home overlay and commit accepted changes."
+                busy={busy === "home"}
+                onRun={() => void run("home")}
+              />
+              <div className="rounded-lg bg-bg-sunken px-2.5 py-2">
+                <ManualRow
+                  icon={<MemoryStick size={14} />}
+                  title="Memory maintenance"
+                  description="Distill an archived day's session facts into long-term memory."
+                  busy={busy === "memory"}
+                  onRun={() => void run("memory")}
+                />
+                <div className="mt-2 flex items-center gap-3 border-t border-line pt-2">
+                  <input
+                    value={targetDay}
+                    onChange={(e) => setTargetDay(e.target.value)}
+                    placeholder="YYYY-MM-DD (optional)"
+                    className="h-7 w-40 rounded-md border border-line bg-bg-elev px-2 font-mono text-[12px] outline-none focus:border-accent"
+                  />
+                  <label className="flex items-center gap-1.5 text-[12px] text-fg-muted">
+                    <input
+                      type="checkbox"
+                      checked={rebuild}
+                      onChange={(e) => setRebuild(e.target.checked)}
+                      className="accent-accent"
+                    />
+                    Rebuild existing
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </Modal>
   );
 }
 
-function MaintenanceRow({
+function PendingRow({
+  icon,
+  text,
+  action,
+}: {
+  icon: React.ReactNode;
+  text: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg bg-warning-soft px-3 py-2.5">
+      <span className="shrink-0 text-warning">{icon}</span>
+      <span className="min-w-0 flex-1 text-[12px] leading-4 text-fg">{text}</span>
+      {action}
+    </div>
+  );
+}
+
+function ManualRow({
   icon,
   title,
   description,
-  action,
+  busy,
+  onRun,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
-  action: React.ReactNode;
+  busy: boolean;
+  onRun: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+    <div className="flex items-center gap-2.5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
         {icon}
-      </div>
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium">{title}</div>
+        <div className="text-[12px] font-medium">{title}</div>
         <div className="text-[11px] leading-4 text-fg-muted">{description}</div>
       </div>
-      {action}
+      <Button size="xs" variant="outline" loading={busy} onClick={onRun}>
+        Run
+      </Button>
     </div>
   );
 }

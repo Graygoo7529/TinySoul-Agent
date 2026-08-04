@@ -132,7 +132,7 @@ export interface ActionRecord {
 /* ------------------------------------------------------------------ */
 
 export type ControlOp =
-  | { kind: "select_domains"; domains: string[] }
+  | { kind: "select_domains"; domains: string[]; intent?: string }
   | { kind: "set_todo"; key: string; content: string; status: string }
   | { kind: "remove_todo"; key: string }
   | { kind: "set_milestone"; key: string; content: string }

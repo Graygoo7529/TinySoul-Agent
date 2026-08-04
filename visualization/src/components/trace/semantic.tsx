@@ -6,13 +6,21 @@
 
 import {
   Brain,
+  CheckCircle2,
+  Circle,
   FileText,
-  Globe,
+  Flag,
   Home,
+  Layers,
   Lightbulb,
+  ListChecks,
+  Loader2,
   MemoryStick,
+  Sparkles,
   Terminal,
+  Globe,
   Wrench,
+  XCircle,
 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
 
@@ -139,3 +147,33 @@ export function actionIcon(domain: string) {
       return Wrench;
   }
 }
+
+/* -------------------------- activity visuals ------------------------- */
+
+export const activityIcons = {
+  phase: Layers,
+  context: FileText,
+  todo: ListChecks,
+  milestone: Flag,
+  domain: Sparkles,
+  llm: Brain,
+  action: Loader2,
+  workspace: FileText,
+  answer: CheckCircle2,
+  info: Circle,
+  error: XCircle,
+} as const;
+
+export const activityColors: Record<string, string> = {
+  phase: "text-fg-faint",
+  context: "text-info",
+  todo: "text-accent",
+  milestone: "text-warning",
+  domain: "text-accent",
+  llm: "text-fg-muted",
+  action: "text-warning",
+  workspace: "text-info",
+  answer: "text-success",
+  info: "text-fg-faint",
+  error: "text-danger",
+};

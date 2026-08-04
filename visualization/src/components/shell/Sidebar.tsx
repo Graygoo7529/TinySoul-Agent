@@ -1,4 +1,4 @@
-import { Activity, FolderTree, MessageSquareText, Moon, Settings, Sun } from "lucide-react";
+import { Activity, Bot, FolderTree, MessageSquareText, Moon, Settings, Sun } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import type { AppTab } from "../../types";
 
@@ -18,8 +18,8 @@ export function Sidebar() {
 
   return (
     <nav className="flex w-[52px] shrink-0 flex-col items-center border-r border-line bg-bg-elev py-3">
-      <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 text-xs font-bold text-white shadow-sm">
-        TS
+      <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-sm">
+        <Bot size={18} />
       </div>
       <div className="flex flex-col gap-1">
         {navItems.map(({ tab, label, icon: Icon }) => (

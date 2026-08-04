@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "TinySoul",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1080,
-        "minHeight": 680,
+        "width": 1160,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 640,
         "resizable": true,
         "fullscreen": false,
         "visible": true
