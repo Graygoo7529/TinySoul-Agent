@@ -37,7 +37,7 @@ effects = ["modifying"]
 examples = ["Write workspace:scripts/normalize.py to update Markdown files in the Workspace"]
 
 [runtime]
-timeout_seconds = 180
+timeout_seconds = 240
 parallel_policy = "serial"
 
 [backend]

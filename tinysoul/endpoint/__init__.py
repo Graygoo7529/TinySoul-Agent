@@ -16,6 +16,7 @@ from .errors import (
 )
 from .events import EndpointEventBuffer, EndpointEventEnvelope, EndpointEventPage
 from .failures import EndpointFailureKind
+from .journal import EndpointEventJournal
 
 __all__ = [
     "EndpointContractError",
@@ -24,6 +25,7 @@ __all__ = [
     "EndpointError",
     "EndpointEventBuffer",
     "EndpointEventEnvelope",
+    "EndpointEventJournal",
     "EndpointEventPage",
     "EndpointFailureKind",
     "EndpointHost",

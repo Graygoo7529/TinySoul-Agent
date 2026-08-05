@@ -248,6 +248,7 @@ class InputDispatcher:
         active_turn_scope: Callable[[], RunScope | None],
         observations: ObservationEmitter | None = None,
         program_scope: RunScope | None = None,
+        request_turn_cancel: Callable[[LoopControlKind], bool] | None = None,
     ) -> None:
         self._parser = parser
         self._bus = bus
@@ -257,6 +258,7 @@ class InputDispatcher:
         self._program_scope = program_scope or RunScope().push(
             RunLevel.PROGRAM, "program"
         )
+        self._request_turn_cancel = request_turn_cancel
 
     def submit(self, event: InputEvent) -> CommandReceipt:
         turn_scope = self._active_turn_scope()
@@ -392,11 +394,17 @@ class InputDispatcher:
         return self._accepted(intent, "queued", self._program_scope)
 
     def _emit_control(self, kind: LoopControlKind, text: str, scope: RunScope) -> None:
+        # Emit the authoritative control signal first, then fire the
+        # cooperative cancel token so that any in-flight LLM call or action
+        # batch converges quickly. The signal is consumed at the next cycle
+        # boundary regardless of the token.
         self._bus.emit(
             build_control_request_signal(
                 kind, scope=scope, source="app.inputs", text=text
             )
         )
+        if self._request_turn_cancel is not None:
+            self._request_turn_cancel(kind)
 
     def _accepted(
         self, intent: InputIntent, state: str, scope: RunScope

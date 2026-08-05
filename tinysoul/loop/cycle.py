@@ -8,6 +8,7 @@ from typing import Callable, TypeVar
 from tinysoul.context import ContextEngine
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
+from tinysoul.llm.errors import TaskCancelled
 from tinysoul.runtime import (
     CyclePhase,
     NullObservationEmitter,
@@ -29,6 +30,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
+from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopInvariantError
 from .outcomes import TurnFailure, failure_from_runtime
@@ -47,6 +49,7 @@ class CycleOutcome:
     failure: TurnFailure | None = None
     stopped: bool = False
     completion: JsonObject | None = None
+    phase1_selection_failed: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class _PhaseRun:
     transfer: RuntimeTransfer | None = None
     failure: TurnFailure | None = None
     ended: bool = False
+    cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,7 @@ class CycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        cancellation: TurnCancellation | None = None,
     ) -> CycleOutcome:
         if cycle_index <= 0:
             raise self._loop_bridge.from_loop_error(
@@ -118,9 +123,15 @@ class CycleRunner:
         self._emit_phase(phase1_scope, CyclePhase.PHASE1, started=True)
         phase1 = self._run_phase(
             phase1_scope,
-            lambda: self._phase1.run(scope=phase1_scope, cycle_id=cycle_id),
+            lambda: self._phase1.run(
+                scope=phase1_scope,
+                cycle_id=cycle_id,
+                cancellation=cancellation,
+            ),
         )
         self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)
+        if phase1.cancelled:
+            return self._cancelled_outcome(cycle_id, phase1_scope, cancellation)
         if phase1.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -133,6 +144,11 @@ class CycleRunner:
         if not isinstance(phase1_outcome, Phase1Outcome):
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError("Phase1 returned an invalid outcome")
+            )
+        if phase1_outcome.selection_failed:
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                phase1_selection_failed=True,
             )
 
         boundary = self._boundary(phase1_scope)
@@ -153,9 +169,12 @@ class CycleRunner:
                 scope=phase2_scope,
                 cycle_id=cycle_id,
                 turn_id=turn_id,
+                cancellation=cancellation,
             ),
         )
         self._emit_phase_result(phase2_scope, CyclePhase.PHASE2, phase2)
+        if phase2.cancelled:
+            return self._cancelled_outcome(cycle_id, phase2_scope, cancellation)
         if phase2.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -188,9 +207,12 @@ class CycleRunner:
                 scope=phase3_scope,
                 cycle_id=cycle_id,
                 turn_id=turn_id,
+                cancellation=cancellation,
             ),
         )
         self._emit_phase_result(phase3_scope, CyclePhase.PHASE3, phase3)
+        if phase3.cancelled:
+            return self._cancelled_outcome(cycle_id, phase3_scope, cancellation)
         if phase3.transfer is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
@@ -277,6 +299,11 @@ class CycleRunner:
         while True:
             try:
                 return _PhaseRun(value=phase())
+            except TaskCancelled:
+                # A Turn-level cancel fired while a phase LLM call was in
+                # flight. The pending control signal is consumed at the
+                # cycle boundary, which stays authoritative for control flow.
+                return _PhaseRun(cancelled=True)
             except RuntimeTransferInterrupt as interrupt:
                 boundary = self._from_interrupt(interrupt)
                 transfer = boundary.transfer
@@ -307,6 +334,51 @@ class CycleRunner:
                 raise self._loop_bridge.from_loop_error(
                     LoopInvariantError(f"Unsupported phase transfer: {transfer}")
                 )
+
+    def _cancelled_outcome(
+        self,
+        cycle_id: str,
+        scope: RunScope,
+        cancellation: TurnCancellation | None,
+    ) -> CycleOutcome:
+        """Converge an in-flight cancel through the boundary control signals."""
+
+        boundary = self._boundary(scope)
+        if boundary is None:
+            # Defensive: the token fired but no control signal is pending
+            # (it may have been consumed by an earlier boundary). Fall back
+            # to the recorded control kind.
+            kind = cancellation.kind if cancellation is not None else None
+            if kind is LoopControlKind.EXIT_PROGRAM:
+                boundary = self._capture(
+                    RuntimeException(
+                        reason=RUNTIME_PROGRAM_END,
+                        message="Program exit requested.",
+                        payload={"source": "loop.cancel"},
+                    ),
+                    scope,
+                    failure=False,
+                )
+            else:
+                captured = self._capture(
+                    RuntimeException(
+                        reason=RUNTIME_TURN_END,
+                        message="Turn stop requested.",
+                        payload={"source": "loop.cancel"},
+                    ),
+                    scope,
+                    failure=False,
+                )
+                boundary = _CycleBoundary(
+                    transfer=captured.transfer,
+                    stopped=True,
+                )
+        return CycleOutcome(
+            cycle_id=cycle_id,
+            transfer=boundary.transfer,
+            failure=boundary.failure,
+            stopped=boundary.stopped,
+        )
 
     def _boundary(self, scope: RunScope) -> _CycleBoundary | None:
         try:

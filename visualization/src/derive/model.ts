@@ -228,6 +228,19 @@ export interface TurnUsage {
   completionTokens: number;
 }
 
+export interface TurnActionStats {
+  total: number;
+  success: number;
+  failed: number;
+  timeout: number;
+}
+
+export interface TurnFailureInfo {
+  reason?: string;
+  module?: string;
+  kind?: string;
+}
+
 export interface CurrentActivity {
   phase?: PhaseName;
   label: string;
@@ -240,12 +253,18 @@ export interface ChatTurn {
   assistantText?: string;
   status: TurnStatus;
   failureMessage?: string;
+  failure?: TurnFailureInfo;
   cycles: Cycle[];
   working: WorkingState;
   topLinks: TopLinkSnapshot[];
   activity: ActivityItem[];
   currentActivity?: CurrentActivity;
   usage: TurnUsage;
+  actionStats: TurnActionStats;
+  modelName?: string;
+  /** True when this turn was rebuilt from Endpoint history after reconnect. */
+  recovered: boolean;
+  latestSequence: number;
   startedAt: number;
   endedAt?: number;
   summary: string;

@@ -22,6 +22,7 @@ import type {
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 import { randomId } from "../utils/randomId";
+import { retainEvents } from "./eventRetention";
 
 export interface ConnectionState {
   status:
@@ -66,6 +67,16 @@ export interface AppState {
    * connection (e.g. wedged mid-turn). The UI stays on the connected views
    * and shows a banner instead of dropping to the disconnected screen. */
   backendUnreachable: boolean;
+  /** Highest sequence loaded by a full history recovery; used to mark
+   * reconstituted turns. Null until the first recovery completes. */
+  recoveredThroughSequence: number | null;
+  /** True while a stop_turn command has been accepted but the turn has not
+   * yet emitted a terminal observation. */
+  stopPending: boolean;
+  /** True while a history page fetch (connect recovery / load earlier) runs. */
+  historyLoading: boolean;
+  /** Model-event sequences hydrated for detail/export; skip re-skeletonizing. */
+  pinnedFullSequences: number[];
 
   // Locally echoed user inputs (command_id → text) so the chat view can show
   // user messages immediately; the backend command events carry no text.
@@ -97,10 +108,15 @@ export interface AppState {
   setEventStream: (stream?: TinySoulEventStream) => void;
   setStatus: (status: BackendStatus | null) => void;
   appendEvents: (events: EndpointEvent[]) => void;
+  replaceEvents: (events: EndpointEvent[]) => void;
   clearEvents: () => void;
   setEventStreamInterrupted: (interrupted: boolean) => void;
   setStreamReconnecting: (reconnecting: boolean) => void;
   setBackendUnreachable: (unreachable: boolean) => void;
+  setRecoveredThroughSequence: (sequence: number | null) => void;
+  setStopPending: (pending: boolean) => void;
+  setHistoryLoading: (loading: boolean) => void;
+  pinFullSequences: (sequences: number[]) => void;
   recordLocalInput: (commandId: string, text: string) => void;
   setWorkspace: (workspace: WorkspaceManifest | null, error?: string) => void;
   setWorkspaceLoading: (loading: boolean) => void;
@@ -128,10 +144,14 @@ export const useAppStore = create<AppState>()(
       connection: { status: "idle" },
       status: null,
       events: [],
-      maxEvents: 2000,
+      maxEvents: 12000,
       eventStreamInterrupted: false,
       streamReconnecting: false,
       backendUnreachable: false,
+      recoveredThroughSequence: null,
+      stopPending: false,
+      historyLoading: false,
+      pinnedFullSequences: [],
       localInputs: [],
       workspace: null,
       workspaceLoading: false,
@@ -155,26 +175,53 @@ export const useAppStore = create<AppState>()(
       appendEvents: (events) => {
         if (events.length === 0) return;
         set((state) => {
-          const merged = [...state.events, ...events];
-          const unique = new Map<number, EndpointEvent>();
-          for (const ev of merged) {
-            unique.set(ev.sequence, ev);
-          }
-          const next = Array.from(unique.values()).sort(
-            (a, b) => a.sequence - b.sequence,
-          );
-          if (next.length > state.maxEvents) {
-            next.splice(0, next.length - state.maxEvents);
-          }
-          return { events: next };
+          const pinned = new Set(state.pinnedFullSequences);
+          const nextEvents = retainEvents([...state.events, ...events], {
+            maxEvents: state.maxEvents,
+            pinnedFullSequences: pinned,
+          });
+          const live = new Set(nextEvents.map((event) => event.sequence));
+          return {
+            events: nextEvents,
+            pinnedFullSequences: [...pinned].filter((sequence) =>
+              live.has(sequence),
+            ),
+          };
         });
       },
 
-      clearEvents: () => set({ events: [] }),
+      replaceEvents: (events) =>
+        set((state) => ({
+          events: retainEvents(events, {
+            maxEvents: state.maxEvents,
+            pinnedFullSequences: new Set(state.pinnedFullSequences),
+          }),
+          pinnedFullSequences: state.pinnedFullSequences.filter((sequence) =>
+            events.some((event) => event.sequence === sequence),
+          ),
+        })),
+
+      clearEvents: () =>
+        set({
+          events: [],
+          recoveredThroughSequence: null,
+          stopPending: false,
+          pinnedFullSequences: [],
+        }),
       setEventStreamInterrupted: (eventStreamInterrupted) =>
         set({ eventStreamInterrupted }),
       setStreamReconnecting: (streamReconnecting) => set({ streamReconnecting }),
       setBackendUnreachable: (backendUnreachable) => set({ backendUnreachable }),
+      setRecoveredThroughSequence: (recoveredThroughSequence) =>
+        set({ recoveredThroughSequence }),
+      setStopPending: (stopPending) => set({ stopPending }),
+      setHistoryLoading: (historyLoading) => set({ historyLoading }),
+      pinFullSequences: (sequences) =>
+        set((state) => ({
+          pinnedFullSequences: [
+            ...new Set([...state.pinnedFullSequences, ...sequences]),
+          ],
+        })),
 
       recordLocalInput: (commandId, text) =>
         set((state) => ({

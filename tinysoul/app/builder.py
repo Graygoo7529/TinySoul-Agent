@@ -6,11 +6,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from tinysoul.action import ActionEngine
+from tinysoul.action.config import ActionSettings, parse_action_settings
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
 from tinysoul.context import ContextEngine, ContextSettings, parse_context_settings
 from tinysoul.endpoint import (
     EndpointEngine,
     EndpointEventBuffer,
+    EndpointEventJournal,
     EndpointHost,
     EndpointReady,
     EndpointSettings,
@@ -48,6 +50,7 @@ from tinysoul.runtime import (
     SignalBus,
 )
 from tinysoul.runtime.bridge import (
+    RuntimeActionBridge,
     RuntimeAgentHomeBridge,
     RuntimeAppBridge,
     RuntimeContextBridge,
@@ -199,6 +202,7 @@ class TinySoulAppBuilder:
         infra_bridge = RuntimeInfraBridge()
         llm_bridge = RuntimeLLMBridge()
         loop_bridge = RuntimeLoopBridge()
+        action_bridge = RuntimeActionBridge()
         maintenance_bridge = MaintenanceRuntimeBridge()
         context_bridge = RuntimeContextBridge()
         session_bridge = RuntimeSessionBridge()
@@ -218,6 +222,7 @@ class TinySoulAppBuilder:
                 {
                     "config",
                     "app",
+                    "action",
                     "loop",
                     "llm",
                     "context",
@@ -245,6 +250,7 @@ class TinySoulAppBuilder:
                 else self._build_app_settings(config, app_bridge)
             )
             context_settings = self._build_context_settings(config, context_bridge)
+            action_settings = self._build_action_settings(config, action_bridge)
             capabilities_settings = self._build_capabilities_settings(
                 config,
                 script_bridge,
@@ -266,9 +272,24 @@ class TinySoulAppBuilder:
                 for sink in output_sinks
             )
             if self._endpoint_settings is not None:
+                journal = None
+                if self._endpoint_settings.journal_enabled:
+                    journal_root = (
+                        self._endpoint_settings.journal_root
+                        or (self._root / "runtime" / "endpoint" / "events")
+                    )
+                    journal = EndpointEventJournal(
+                        journal_root,
+                        max_segment_bytes=(
+                            self._endpoint_settings.journal_segment_bytes
+                        ),
+                        max_total_bytes=self._endpoint_settings.journal_total_bytes,
+                    )
                 endpoint_events = EndpointEventBuffer(
                     capacity=self._endpoint_settings.event_capacity,
                     max_bytes=self._endpoint_settings.event_bytes,
+                    page_bytes=self._endpoint_settings.event_page_bytes,
+                    journal=journal,
                 )
                 output_routes = (
                     *output_routes,
@@ -333,6 +354,7 @@ class TinySoulAppBuilder:
                 workspace=workspace,
                 bus=bus,
                 observations=observations,
+                action_settings=action_settings,
             )
             if self._user_context is not None:
                 user_builder.with_context(self._user_context)
@@ -355,6 +377,7 @@ class TinySoulAppBuilder:
                 bus=bus,
                 observations=observations,
                 clock=self._business_clock,
+                action_settings=action_settings,
             ).build()
             program_trap = build_program_trap()
             program_runner = ProgramRunner(
@@ -374,6 +397,7 @@ class TinySoulAppBuilder:
                 active_turn_scope=lambda: user_turn.active_scope,
                 observations=observations,
                 program_scope=program_runner.scope,
+                request_turn_cancel=user_turn.request_cancel,
             )
             gateway = AppCommandGateway(
                 dispatcher=dispatcher,
@@ -479,6 +503,16 @@ class TinySoulAppBuilder:
                 "loop",
                 parse_loop_settings,
             )
+        except ConfigError as exc:
+            raise bridge.from_config_error(exc) from exc
+
+    def _build_action_settings(
+        self,
+        config: ConfigEnvironment,
+        bridge: RuntimeActionBridge,
+    ) -> ActionSettings:
+        try:
+            return config.parse_section("action", parse_action_settings)
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc
 

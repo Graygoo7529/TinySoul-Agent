@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 import { resolveConnectionInfo } from "../api/connection";
+import { hydrateSkeletonEvents, replayAllEvents } from "../api/history";
 import { useAppStore } from "../store/appStore";
-import type { ConnectionInfo } from "../types";
+import { selectLatestSequence } from "../store/appStore";
+import type { ConnectionInfo, EndpointEvent } from "../types";
 
 /** Identity checks are enforced for lease-discovered connections; the web
  * dev fallback (query/localStorage) carries no identity and skips them. */
@@ -53,11 +55,12 @@ export function useBackend() {
         store.setConnection({ status: "initializing", info });
         return;
       }
-      if (
+      const instanceChanged = Boolean(
         info.instance_id &&
-        store.connection.info?.instance_id &&
-        store.connection.info.instance_id !== info.instance_id
-      ) {
+          store.connection.info?.instance_id &&
+          store.connection.info.instance_id !== info.instance_id,
+      );
+      if (instanceChanged) {
         store.clearEvents();
         store.setMaintenanceStatus(null);
       }
@@ -67,7 +70,14 @@ export function useBackend() {
       void refreshMaintenance(nextClient, { prompt: true });
       void refreshWorkspace(nextClient);
 
-      const stream = new TinySoulEventStream(info, 0, "model", {
+      // Full REST replay restores today's conversation + MessageStack trace
+      // from the Endpoint journal before the live stream attaches.
+      const latest = await recoverEventHistory(nextClient, {
+        toastOnRestore:
+          instanceChanged || useAppStore.getState().events.length === 0,
+      });
+
+      const stream = new TinySoulEventStream(info, latest, "model", {
         onMessage: (message) => {
           const current = useAppStore.getState();
           if (message.type === "authenticated") {
@@ -95,6 +105,8 @@ export function useBackend() {
               "Event stream gap detected; state was re-synchronized from the backend.",
             );
             void recoverAuthoritativeState(nextClient);
+            void recoverEventHistory(nextClient, { toastOnRestore: false });
+            return;
           }
           current.appendEvents(message.events);
           handleEventSideEffects(nextClient, message.events);
@@ -176,6 +188,90 @@ export function useBackend() {
 }
 
 /**
+ * Page the Endpoint event log from `after=0` (or a prefix) into the store.
+ * Returns the latest sequence so the WebSocket can attach without a flood.
+ */
+export async function recoverEventHistory(
+  client: TinySoulClient,
+  options: { toastOnRestore?: boolean } = {},
+): Promise<number> {
+  const store = useAppStore.getState();
+  store.setHistoryLoading(true);
+  try {
+    const { events, gap, nextSequence } = await replayAllEvents(client);
+    store.replaceEvents(events);
+    const latest =
+      events.length > 0
+        ? events[events.length - 1].sequence
+        : nextSequence;
+    store.setRecoveredThroughSequence(latest);
+    if (gap) {
+      store.setEventStreamInterrupted(true);
+    }
+    if (options.toastOnRestore && events.length > 0) {
+      store.pushToast(
+        "info",
+        "Restored today's conversation and turn traces from the backend.",
+      );
+    }
+    handleEventSideEffects(client, events);
+    await recoverAuthoritativeState(client);
+    return latest;
+  } catch (error) {
+    console.error("Event history recovery failed:", error);
+    return selectLatestSequence(useAppStore.getState().events);
+  } finally {
+    useAppStore.getState().setHistoryLoading(false);
+  }
+}
+
+/** Pull earlier retained journal events that were trimmed from the local window. */
+export async function loadEarlierEvents(client: TinySoulClient): Promise<boolean> {
+  const store = useAppStore.getState();
+  const oldest = store.events[0]?.sequence;
+  if (!oldest || oldest <= 1) return false;
+  store.setHistoryLoading(true);
+  try {
+    const { events } = await replayAllEvents(client, {
+      after: 0,
+      maxPages: 50,
+    });
+    const earlier = events.filter((event) => event.sequence < oldest);
+    if (earlier.length === 0) return false;
+    store.replaceEvents([...earlier, ...store.events]);
+    return true;
+  } catch (error) {
+    console.error("Load earlier events failed:", error);
+    store.pushToast(
+      "error",
+      `Failed to load earlier history: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return false;
+  } finally {
+    useAppStore.getState().setHistoryLoading(false);
+  }
+}
+
+/** Replace skeletonized model payloads for one turn with journal deep-reads. */
+export async function hydrateTurnEvents(
+  client: TinySoulClient,
+  sequences: number[],
+): Promise<void> {
+  if (sequences.length === 0) return;
+  try {
+    const hydrated = await hydrateSkeletonEvents(client, sequences);
+    if (hydrated.length === 0) return;
+    const store = useAppStore.getState();
+    store.pinFullSequences(hydrated.map((event) => event.sequence));
+    store.appendEvents(hydrated);
+  } catch (error) {
+    console.error("Turn event hydration failed:", error);
+  }
+}
+
+/**
  * Pull events the WS may have missed. Runs from the local event cursor;
  * dedupe by sequence in the store makes overlap with live WS delivery safe.
  */
@@ -189,10 +285,8 @@ async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
     try {
       const page = await client.replayEvents(cursor, "model", 1000);
       if (page.gap) {
-        store.clearEvents();
         store.setEventStreamInterrupted(true);
-        await recoverAuthoritativeState(client);
-        store.appendEvents(page.events);
+        await recoverEventHistory(client, { toastOnRestore: false });
         return;
       }
       if (page.events.length === 0) return;
@@ -208,12 +302,21 @@ async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
 /** Shared post-ingest triggers for both WS delivery and REST reconciliation. */
 function handleEventSideEffects(
   client: TinySoulClient,
-  events: { name: string; payload: Record<string, unknown> }[],
+  events: EndpointEvent[],
 ) {
   const store = useAppStore.getState();
   const names = new Set(events.map((event) => event.name));
   if (names.has("turn.started") || names.has("context.background.snapshot")) {
     store.setEventStreamInterrupted(false);
+  }
+  if (
+    names.has("turn.stopped") ||
+    names.has("turn.failed") ||
+    names.has("turn.completed") ||
+    names.has("turn.answered") ||
+    names.has("turn.exhausted")
+  ) {
+    store.setStopPending(false);
   }
   if (names.has("workspace.changed")) {
     void handleWorkspaceChanged(client, events);

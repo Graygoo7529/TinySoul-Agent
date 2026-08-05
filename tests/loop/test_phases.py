@@ -497,6 +497,54 @@ def test_phase1_retries_invalid_domain_selection() -> None:
 
     assert outcome.selected_domains == ("core",)
     assert outcome.attempts == 2
+    assert outcome.selection_failed is False
+
+
+def test_phase1_exhausted_retries_return_local_selection_failure() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_bad",
+                    name="select_action_domains",
+                    arguments={"domains": ["missing"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_bad_2",
+                    name="select_action_domains",
+                    arguments={"domains": ["also_missing"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+        .push(RunLevel.PHASE, CyclePhase.PHASE1.value)
+    )
+
+    outcome = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        retry_limit=2,
+    ).run(scope=scope, cycle_id="cycle_1")
+
+    assert outcome.selected_domains == ()
+    assert outcome.selection_failed is True
+    assert outcome.attempts == 2
+    assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
 
 
 def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:

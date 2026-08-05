@@ -9,6 +9,7 @@ import {
 import type { ActivityItem, ChatTurn } from "../../derive/model";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
+import { useAppStore } from "../../store/appStore";
 import { activityColors, activityIcons } from "../trace/semantic";
 
 /**
@@ -21,18 +22,30 @@ import { activityColors, activityIcons } from "../trace/semantic";
  */
 export function LiveStatus({ turn }: { turn: ChatTurn }) {
   useNow(true, 1000);
+  const stopPending = useAppStore((s) => s.stopPending);
   const activity = turn.activity;
   const latest = activity[activity.length - 1];
   const trail = activity.slice(-3, -1).reverse();
+  const runningAction = findRunningAction(turn);
+  const runningPhase = turn.currentActivity?.phase;
 
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-bg-elev">
       {/* floating latest status */}
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center gap-2.5">
-          <Loader2 size={15} className="animate-spin-slow shrink-0 text-accent" />
+          <Loader2
+            size={15}
+            className={`animate-spin-slow shrink-0 ${
+              stopPending ? "text-danger" : "text-accent"
+            }`}
+          />
           <div className="relative min-w-0 flex-1">
-            {latest ? (
+            {stopPending ? (
+              <div className="animate-status-in text-[13px] font-medium text-danger">
+                Stopping turn…
+              </div>
+            ) : latest ? (
               <div key={activity.length} className="animate-status-in">
                 <StatusLine item={latest} prominent />
               </div>
@@ -40,8 +53,23 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
               <div className="text-[13px] font-medium text-fg-muted">Thinking…</div>
             )}
           </div>
-          <div className="shrink-0 font-mono text-[11px] text-fg-faint">
-            {formatDuration(turn.startedAt)}
+          <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint">
+            <div>{formatDuration(turn.startedAt)}</div>
+            {runningAction && (
+              <div title={runningAction.action}>
+                action {formatDuration(runningAction.startedAt)}
+              </div>
+            )}
+            {!runningAction && runningPhase && turn.cycles.length > 0 && (
+              <div>
+                {runningPhase}{" "}
+                {formatDuration(
+                  [...turn.cycles].reverse().flatMap((c) => c.phases)
+                    .find((p) => p.phase === runningPhase && p.status === "running")
+                    ?.startedAt ?? turn.startedAt,
+                )}
+              </div>
+            )}
           </div>
         </div>
         {/* fading trail of what just happened */}
@@ -64,7 +92,14 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
   );
 }
 
-function StatusLine({ item, prominent }: { item: ActivityItem; prominent?: boolean }) {  const Icon = activityIcons[item.kind] ?? Circle;
+function StatusLine({
+  item,
+  prominent,
+}: {
+  item: ActivityItem;
+  prominent?: boolean;
+}) {
+  const Icon = activityIcons[item.kind] ?? Circle;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Icon
@@ -137,7 +172,8 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
   );
 }
 
-export function TodoIcon({ status }: { status: string }) {  switch (status) {
+export function TodoIcon({ status }: { status: string }) {
+  switch (status) {
     case "done":
       return <CheckCircle2 size={13} className="shrink-0 text-success" />;
     case "in_progress":
@@ -147,6 +183,16 @@ export function TodoIcon({ status }: { status: string }) {  switch (status) {
     default:
       return <Circle size={13} className="shrink-0 text-fg-faint" />;
   }
+}
+
+function findRunningAction(turn: ChatTurn) {
+  for (let i = turn.cycles.length - 1; i >= 0; i--) {
+    const phase3 = turn.cycles[i].phases.find((p) => p.phase === "phase3");
+    if (!phase3) continue;
+    const running = [...phase3.actions].reverse().find((a) => !a.result);
+    if (running) return running;
+  }
+  return null;
 }
 
 

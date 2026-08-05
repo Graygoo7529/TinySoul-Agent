@@ -55,11 +55,17 @@ WebSocket 在连接后 5 秒内发送 token 首帧。服务只绑定 loopback。
   "active_day": "2026-07-25",
   "turn_active": false,
   "workspace_revision": 8,
-  "latest_event_sequence": 121
+  "latest_event_sequence": 121,
+  "event_journal": {
+    "enabled": true,
+    "degraded": false,
+    "oldest_sequence": 1,
+    "latest_sequence": 121
+  }
 }
 ```
 
-status 不暴露 Session revision。`ready=false` 时继续等待，不得访问本地业务目录绕过 Daily 初始化。
+status 不暴露 Session revision。`event_journal` 是只读摘要（是否启用、是否写失败降级、保留的 sequence 范围），不参与控制流。`ready=false` 时继续等待，不得访问本地业务目录绕过 Daily 初始化。
 
 ## 4. 统一输入
 
@@ -108,7 +114,11 @@ HTTP replay：
 GET /v1/events?after=0&mode=model&limit=200
 ```
 
-响应含 `events`、`next_sequence`、`gap`。WebSocket 地址为 `/v1/events/ws`，首帧：
+响应含 `events`、`next_sequence`、`gap`。协议字段不变。服务端以内存 buffer 为热缓存；`after` 早于内存窗口时从 Endpoint 事件 Journal（`runtime/endpoint/events/` 分段 NDJSON）深读；超出 journal 保留范围才 `gap=true`。单页可按字节预算提前收页（默认约 1MB），因此即便 `limit` 较大也可能返回更少事件——以 `next_sequence` 继续分页。
+
+连接 / 重连 / `instance_id` 变化后，前端应从 `after=0` 分页全量 REST 重放恢复当天对话与完整 MessageStack，再将 WebSocket 挂到最新 sequence；不得依赖已删除的 Session REST。
+
+WebSocket 地址为 `/v1/events/ws`，首帧：
 
 ```json
 {"token": "...", "after": 0, "mode": "model"}
@@ -144,7 +154,9 @@ GET /v1/events?after=0&mode=model&limit=200
 
 `llm.model.request.payload.messages` 是实际构造的 provider-neutral MessageStack。Session Background、Context heap head、Working 和 Task prompt 均从这里按 label/内容展示。前端不得把 model payload 写入持久 store、日志或遥测。
 
-`gap=true` 时清理 event-derived live Turn/Cycle/Phase/Task 视图，并重新读取 status、Maintenance 和 Workspace Manifest。不要调用已删除的 Session REST 补造模型历史；在下一次真实 MessageStack 或 Background snapshot 到来前标记轨迹不完整。未提交 Workspace 编辑草稿不得因 gap 被清除。
+`gap=true` 时清理 event-derived live Turn/Cycle/Phase/Task 视图，并重新从 `after=0` 分页重放可保留的 journal/内存事件，同时重新读取 status、Maintenance 和 Workspace Manifest。不要调用已删除的 Session REST 补造模型历史；对 journal 已淘汰的前缀标记轨迹不完整。未提交 Workspace 编辑草稿不得因 gap 被清除。
+
+`stop_turn` 经 Gateway 立即置位 Turn 取消令牌并放弃在途 LLM 等待；前端应在 receipt 后展示 stopping 态，并等待 `turn.stopped` / `turn.failed` / 其它终端 NORMAL 事件闭合。长 Turn 期间 `/v1/health`、`/v1/status`、`/v1/control` 与 WS 心跳应保持可服务。
 
 ## 7. Workspace
 

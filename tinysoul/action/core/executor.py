@@ -91,6 +91,9 @@ class ActionExecutionContext:
     control: ActionExecutionControl = field(default_factory=ActionExecutionControl)
     signal_bus: SignalBus | None = None
     module_runner: RuntimeModuleRunner | None = None
+    # Owner-provided cooperative cancel poll (e.g. a Turn cancel token).
+    # The batch runner converts it into per-execution cancel requests.
+    cancelled: Callable[[], bool] | None = None
 
 
 class ActionExecutor(Protocol):

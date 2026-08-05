@@ -34,6 +34,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeContextBridge, RuntimeLoopBridge
 
+from .cancellation import TurnCancellation
 from .config import TurnSettings
 from .completion import TurnCompletion, TurnCompletionPipeline
 from .context_signals import ContextSignalConsumer
@@ -42,7 +43,7 @@ from .errors import LoopInvariantError
 from .failures import LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput, failure_from_runtime
 from .preparation import TurnPreparationPipeline, TurnPreparationRequest
-from .signals import LoopTraceNoteKind
+from .signals import LoopControlKind, LoopTraceNoteKind
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,7 @@ class TurnRunner:
         self._activity_controller = activity_controller
         self._observations = observations or NullObservationEmitter()
         self._active_scope: RunScope | None = None
+        self._active_cancellation: TurnCancellation | None = None
         self._active_scope_lock = Lock()
 
     @property
@@ -147,6 +149,16 @@ class TurnRunner:
 
         with self._active_scope_lock:
             return self._active_scope
+
+    def request_active_cancel(self, kind: LoopControlKind) -> bool:
+        """Fire the active Turn's cooperative cancel token, if one exists."""
+
+        with self._active_scope_lock:
+            cancellation = self._active_cancellation
+        if cancellation is None:
+            return False
+        cancellation.request(kind)
+        return True
 
     def run(
         self,
@@ -175,7 +187,8 @@ class TurnRunner:
             except ContextError as exc:
                 raise self._context_bridge.from_context_error(exc) from exc
             turn_scope = scope.push(RunLevel.TURN, turn_id)
-            self._set_active_scope(turn_scope)
+            cancellation = TurnCancellation()
+            self._set_active_scope(turn_scope, cancellation)
             self._emit(
                 turn_scope,
                 "turn.started",
@@ -199,6 +212,7 @@ class TurnRunner:
                 stopped = preparation.stopped
             if transfer is None:
                 cycle_index = 1
+                consecutive_phase1_failures = 0
                 while True:
                     if cycle_index > self._settings.max_cycles:
                         controller = self._activity_controller
@@ -217,10 +231,27 @@ class TurnRunner:
                         turn_id=turn_id,
                         cycle_index=cycle_index,
                         scope=turn_scope,
+                        cancellation=cancellation,
                     )
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
+                    if cycle.phase1_selection_failed:
+                        consecutive_phase1_failures += 1
+                        if consecutive_phase1_failures >= 3:
+                            failure = TurnFailure(
+                                reason=RUNTIME_TURN_END,
+                                message=(
+                                    "Phase1 did not produce a valid domain "
+                                    "selection after repeated cycles."
+                                ),
+                                module="loop",
+                                kind=LoopFailureKind.CONTRACT_VIOLATION.value,
+                            )
+                            break
+                        cycle_index += 1
+                        continue
+                    consecutive_phase1_failures = 0
                     if cycle.completion is not None:
                         completion = cycle.completion
                         break
@@ -599,9 +630,14 @@ class TurnRunner:
                 payload=to_json_object(payload),
             ),
         )
-    def _set_active_scope(self, scope: RunScope | None) -> None:
+    def _set_active_scope(
+        self,
+        scope: RunScope | None,
+        cancellation: TurnCancellation | None = None,
+    ) -> None:
         with self._active_scope_lock:
             self._active_scope = scope
+            self._active_cancellation = cancellation if scope is not None else None
 
     @staticmethod
     def _is_turn_end(

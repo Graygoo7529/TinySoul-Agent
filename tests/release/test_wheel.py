@@ -162,7 +162,8 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         "use-tinysoul-context-and-link.md"
     ) in names
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
-    assert "tinysoul/action/config.py" not in names
+    assert "tinysoul/action/config.py" in names
+    assert "tinysoul/endpoint/journal.py" in names
     assert "tinysoul/action/backends/native.py" not in names
     assert "tinysoul/action/backends/script.py" not in names
 

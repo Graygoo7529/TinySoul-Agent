@@ -1,8 +1,11 @@
-import { useState } from "react";
-import { Brain, Clock, FolderOutput, Hash, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Brain, Clock, FolderOutput, Hash, History, X } from "lucide-react";
 import type { ChatTurn, ModelTask, PhaseStep } from "../../derive/model";
 import { exportTurnTrace } from "../../api/exportTrace";
+import { buildChatTurns } from "../../derive/chat";
+import { hydrateTurnEvents } from "../../hooks/useBackend";
 import { useAppStore } from "../../store/appStore";
+import { skeletonSequencesForTurn } from "../../store/eventRetention";
 import { formatDateTime, formatDuration, formatTokens } from "../../utils/format";
 import { Button, IconButton } from "../ui/Button";
 import { SectionCard } from "../ui/Card";
@@ -21,13 +24,46 @@ import { LlmCallDrawer, MAIN_DRAWER_WIDTH } from "./LlmCallDrawer";
 export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
   const closeTurnDetail = useAppStore((s) => s.closeTurnDetail);
   const pushToast = useAppStore((s) => s.pushToast);
+  const client = useAppStore((s) => s.client);
   const [selected, setSelected] = useState<{ task: ModelTask; phase: PhaseStep } | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
+
+  useEffect(() => {
+    if (!client) return;
+    const sequences = skeletonSequencesForTurn(
+      useAppStore.getState().events,
+      turn.turnId,
+    );
+    if (sequences.length === 0) return;
+    let cancelled = false;
+    setHydrating(true);
+    void hydrateTurnEvents(client, sequences).finally(() => {
+      if (!cancelled) setHydrating(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, turn.turnId]);
 
   const doExport = async () => {
     setExporting(true);
     try {
-      const outcome = await exportTurnTrace(turn);
+      const state = useAppStore.getState();
+      if (client) {
+        const sequences = skeletonSequencesForTurn(state.events, turn.turnId);
+        await hydrateTurnEvents(client, sequences);
+      }
+      const fresh =
+        buildChatTurns(
+          useAppStore.getState().events,
+          useAppStore.getState().localInputs,
+          {
+            recoveredThroughSequence:
+              useAppStore.getState().recoveredThroughSequence,
+          },
+        ).find((item) => item.turnId === turn.turnId) ?? turn;
+      const outcome = await exportTurnTrace(fresh);
       if (outcome.kind === "written") {
         pushToast("success", `Turn trace exported to ${outcome.location}`);
       } else if (outcome.kind === "downloaded") {
@@ -59,6 +95,15 @@ export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">Turn Trace</span>
               <TurnStatusBadge status={turn.status} />
+              {turn.recovered && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-fg-faint">
+                  <History size={11} />
+                  restored
+                </span>
+              )}
+              {hydrating && (
+                <span className="text-[11px] text-fg-faint">loading detail…</span>
+              )}
               {turn.status === "running" && (
                 <span className="animate-pulse-dot text-[11px] font-medium text-accent">
                   live

@@ -68,6 +68,14 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     status = client.get("/v1/status", headers=_auth()).json()
     assert status["ready"] is True
     assert status["active_day"] == str(DAY)
+    assert status["event_journal"]["enabled"] is False
+    assert status["event_journal"]["degraded"] is False
+    assert status["event_journal"] == {
+        "enabled": False,
+        "degraded": False,
+        "oldest_sequence": None,
+        "latest_sequence": 0,
+    }
     openapi = client.get("/openapi.json", headers=_auth()).json()
     assert "/v1/events" in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]

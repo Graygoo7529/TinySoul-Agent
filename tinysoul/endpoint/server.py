@@ -152,16 +152,21 @@ def create_endpoint_app(
             {"error_type": type(error).__name__},
         )
 
+    # Handlers below call blocking engine methods (locks, disk, gateway).
+    # They are plain ``def`` so FastAPI executes them on the AnyIO thread
+    # pool; the event loop stays free to serve health checks, WebSocket
+    # frames and control requests even while one call blocks.
+
     @app.get("/v1/health")
     async def health() -> JsonObject:
         return {"ok": True}
 
     @app.get("/v1/status")
-    async def status() -> JsonObject:
+    def status() -> JsonObject:
         return engine.status()
 
     @app.post("/v1/input", status_code=202)
-    async def submit_input(body: InputRequest) -> JsonObject:
+    def submit_input(body: InputRequest) -> JsonObject:
         return engine.submit_user_input(
             body.text,
             to_json_object(body.metadata),
@@ -169,7 +174,7 @@ def create_endpoint_app(
         )
 
     @app.post("/v1/control", status_code=202)
-    async def submit_control(body: ControlRequest) -> JsonObject:
+    def submit_control(body: ControlRequest) -> JsonObject:
         return engine.submit_control(
             EndpointControlKind(body.kind),
             to_json_object(body.metadata),
@@ -177,11 +182,11 @@ def create_endpoint_app(
         )
 
     @app.get("/v1/maintenance")
-    async def maintenance_status() -> JsonObject:
+    def maintenance_status() -> JsonObject:
         return engine.maintenance_status()
 
     @app.post("/v1/maintenance", status_code=202)
-    async def request_maintenance(body: MaintenanceRequest) -> JsonObject:
+    def request_maintenance(body: MaintenanceRequest) -> JsonObject:
         return engine.request_maintenance(
             kind=body.kind,
             target_day=body.target_day,
@@ -191,7 +196,7 @@ def create_endpoint_app(
         )
 
     @app.get("/v1/events")
-    async def events(
+    def events(
         after: int = Query(default=0, ge=0),
         mode: ObservationLevel = Query(default=ObservationLevel.NORMAL),
         limit: int = Query(default=200, ge=1, le=1000),
@@ -199,15 +204,15 @@ def create_endpoint_app(
         return engine.replay_events(after=after, mode=mode, limit=limit).to_json()
 
     @app.get("/v1/workspace/manifest")
-    async def workspace_manifest() -> JsonObject:
+    def workspace_manifest() -> JsonObject:
         return engine.workspace_manifest()
 
     @app.get("/v1/workspace/resource")
-    async def workspace_resource(link: str = Query(min_length=1)) -> JsonObject:
+    def workspace_resource(link: str = Query(min_length=1)) -> JsonObject:
         return engine.read_workspace_text(link)
 
     @app.get("/v1/workspace/blob")
-    async def workspace_blob(link: str = Query(min_length=1)) -> Response:
+    def workspace_blob(link: str = Query(min_length=1)) -> Response:
         blob = engine.read_workspace_blob(link)
         return Response(
             content=blob.data,
@@ -220,7 +225,7 @@ def create_endpoint_app(
         )
 
     @app.put("/v1/workspace/resource")
-    async def write_workspace_resource(body: WorkspaceWriteRequest) -> JsonObject:
+    def write_workspace_resource(body: WorkspaceWriteRequest) -> JsonObject:
         retention = (
             WorkspaceRetention(body.retention) if body.retention is not None else None
         )
@@ -234,7 +239,7 @@ def create_endpoint_app(
         )
 
     @app.put("/v1/workspace/blob")
-    async def write_workspace_blob(
+    def write_workspace_blob(
         body: bytes = Body(media_type="application/octet-stream"),
         link: str = Query(min_length=1),
         overwrite: bool = Query(default=False),
@@ -252,11 +257,11 @@ def create_endpoint_app(
         )
 
     @app.get("/v1/workspace/trash")
-    async def workspace_trash() -> JsonObject:
+    def workspace_trash() -> JsonObject:
         return engine.workspace_trash()
 
     @app.post("/v1/workspace/trash")
-    async def trash_workspace_resource(body: WorkspaceTrashRequest) -> JsonObject:
+    def trash_workspace_resource(body: WorkspaceTrashRequest) -> JsonObject:
         return engine.trash_workspace_resource(
             link=body.link,
             expected_digest=body.expected_digest,
@@ -264,7 +269,7 @@ def create_endpoint_app(
         )
 
     @app.post("/v1/workspace/restore")
-    async def restore_workspace_resource(body: WorkspaceRestoreRequest) -> JsonObject:
+    def restore_workspace_resource(body: WorkspaceRestoreRequest) -> JsonObject:
         return engine.restore_workspace_resource(
             trash_ref=body.trash_ref,
             expected_revision=body.expected_revision,

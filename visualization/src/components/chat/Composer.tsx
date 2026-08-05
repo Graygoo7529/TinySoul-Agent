@@ -11,6 +11,8 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
   const connected = useAppStore((s) => s.connection.status === "connected");
   const recordLocalInput = useAppStore((s) => s.recordLocalInput);
   const pushToast = useAppStore((s) => s.pushToast);
+  const stopPending = useAppStore((s) => s.stopPending);
+  const setStopPending = useAppStore((s) => s.setStopPending);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -48,10 +50,19 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
   };
 
   const stop = async () => {
-    if (!client) return;
+    if (!client || stopPending) return;
+    setStopPending(true);
     try {
-      await client.submitControl({ kind: "stop_turn", command_id: randomId() });
+      const receipt = await client.submitControl({
+        kind: "stop_turn",
+        command_id: randomId(),
+      });
+      if (!receipt.accepted) {
+        setStopPending(false);
+        pushToast("error", "The backend rejected the stop request.");
+      }
     } catch (error) {
+      setStopPending(false);
       pushToast(
         "error",
         `Failed to stop the turn: ${error instanceof Error ? error.message : String(error)}`,
@@ -97,8 +108,9 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
             {turnActive && !text.trim() ? (
               <button
                 onClick={() => void stop()}
-                title="Stop the current turn"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90"
+                disabled={stopPending}
+                title={stopPending ? "Stopping…" : "Stop the current turn"}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-danger text-white shadow-sm transition-colors hover:bg-danger/90 disabled:opacity-60"
               >
                 <Square size={13} />
               </button>

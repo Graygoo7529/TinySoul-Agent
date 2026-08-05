@@ -52,22 +52,22 @@ def test_load_builtin_catalog() -> None:
     assert reason.backend.handler == "core.reason"
     write = catalog.get_action("workspace.write")
     assert write.backend.kind is ActionBackendKind.LLM_ACTION
-    assert write.runtime.timeout_seconds == 180.0
+    assert write.runtime.timeout_seconds == 240.0
     assert write.backend.options == {
         "max_output_tokens": 16384,
         "max_output_chars": 50000,
     }
     rewrite = catalog.get_action("workspace.rewrite")
     assert rewrite.backend.kind is ActionBackendKind.LLM_ACTION
-    assert rewrite.runtime.timeout_seconds == 180.0
+    assert rewrite.runtime.timeout_seconds == 240.0
     assert rewrite.backend.options == write.backend.options
     assert catalog.get_action("execution.write_script").backend.options == {
         "max_output_tokens": 16384,
         "max_output_chars": 100000,
     }
-    assert catalog.get_action("execution.write_script").runtime.timeout_seconds == 180.0
-    assert catalog.get_action("execution.rewrite_script").runtime.timeout_seconds == 180.0
-    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 90.0
+    assert catalog.get_action("execution.write_script").runtime.timeout_seconds == 240.0
+    assert catalog.get_action("execution.rewrite_script").runtime.timeout_seconds == 240.0
+    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 180.0
     assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
     assert (
@@ -88,6 +88,20 @@ def test_load_builtin_catalog() -> None:
     assert wait_seconds["maximum"] == 60
     assert catalog.get_action("execution.wait").runtime.timeout_seconds == 70.0
     assert catalog.get_action("execution.wait").backend.handler == "supervised_process.wait"
+
+
+def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> None:
+    with builtin_action_catalog_root() as root:
+        catalog = ActionCatalogLoader(
+            llm_action_timeout_seconds=300.0,
+        ).load(root)
+
+    assert catalog.get_action("core.answer").runtime.timeout_seconds == 300.0
+    assert catalog.get_action("core.reason").runtime.timeout_seconds == 300.0
+    assert catalog.get_action("workspace.describe").runtime.timeout_seconds == 300.0
+    assert catalog.get_action("workspace.write").runtime.timeout_seconds == 240.0
+    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 180.0
+    assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
 
 
 def test_catalog_view_by_domain() -> None:

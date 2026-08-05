@@ -36,7 +36,7 @@ effects = ["modifying"]
 examples = ["Rewrite workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 
 [runtime]
-timeout_seconds = 180
+timeout_seconds = 240
 parallel_policy = "serial"
 
 [runtime.hooks]

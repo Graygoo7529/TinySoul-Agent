@@ -40,6 +40,10 @@ from .result import (
 )
 from .specs import ActionBackendKind, ActionParallelPolicy
 
+# Poll interval for the owner-provided cooperative cancel flag while a
+# batch waits on executions. Keeps stop latency well under one second.
+_CANCEL_POLL_SECONDS = 0.25
+
 
 class BatchConcurrencyPlanner:
     """Split executions into serial groups based on action parallel policy."""
@@ -169,24 +173,40 @@ class ActionBatchRunner:
                 future = pool.submit(self._run_one, execution, execution_context)
                 futures[future] = execution
                 contexts[future] = execution_context
+            cancel_poll = context.cancelled
             pending: set[Future[ActionResult]] = set(futures)
             while pending:
                 timeout = self._remaining_timeout(futures[future] for future in pending)
+                wait_timeout = timeout
+                if cancel_poll is not None:
+                    wait_timeout = (
+                        _CANCEL_POLL_SECONDS
+                        if timeout is None
+                        else min(timeout, _CANCEL_POLL_SECONDS)
+                    )
                 done, pending = wait(
                     pending,
-                    timeout=timeout,
+                    timeout=wait_timeout,
                     return_when=FIRST_COMPLETED,
                 )
                 if not done and pending:
-                    expired = {
-                        future
-                        for future in pending
-                        if futures[future].framework.is_expired()
-                    }
+                    owner_cancelled = cancel_poll is not None and cancel_poll()
+                    expired = (
+                        set(pending)
+                        if owner_cancelled
+                        else {
+                            future
+                            for future in pending
+                            if futures[future].framework.is_expired()
+                        }
+                    )
                     if not expired:
                         continue
+                    cancel_reason = (
+                        "turn_cancelled" if owner_cancelled else "timeout"
+                    )
                     for future in expired:
-                        contexts[future].control.request_cancel("timeout")
+                        contexts[future].control.request_cancel(cancel_reason)
                     cancelled_done, _ = wait(
                         expired,
                         timeout=self._cancel_grace_seconds(
@@ -205,8 +225,17 @@ class ActionBatchRunner:
                         results.append(
                             self._timeout_result(
                                 execution,
-                                model_feedback="Action timed out during execution.",
-                                reason="execution_timeout",
+                                model_feedback=(
+                                    "Action stopped after Turn cancellation "
+                                    "was requested."
+                                    if owner_cancelled
+                                    else "Action timed out during execution."
+                                ),
+                                reason=(
+                                    "cancelled"
+                                    if owner_cancelled
+                                    else "execution_timeout"
+                                ),
                                 frame_data={
                                     "cancel_requested": True,
                                     "executor_started": True,
@@ -340,6 +369,10 @@ class ActionBatchRunner:
             if execution.action.backend.kind in {
                 ActionBackendKind.SUBPROCESS,
                 ActionBackendKind.SUPERVISED_PROCESS,
+                # Nested LLM tasks abandon their provider wait cooperatively
+                # within a short poll slice; give them time to converge to a
+                # local result instead of reporting a leaked worker.
+                ActionBackendKind.LLM_ACTION,
             }:
                 return max(
                     self._cooperative_cancel_grace_seconds,

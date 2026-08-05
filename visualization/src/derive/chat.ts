@@ -10,6 +10,8 @@
 
 import { useMemo } from "react";
 import type { EndpointEvent, ScopeFrame } from "../types";
+import { useAppStore } from "../store/appStore";
+import { isSkeletonPayload } from "../store/eventRetention";
 import type {
   ActionFailure,
   ActionRecord,
@@ -36,19 +38,30 @@ export interface LocalInputEcho {
   text: string;
 }
 
+export interface BuildChatOptions {
+  recoveredThroughSequence?: number | null;
+}
+
 export function useDerivedChat(
   events: EndpointEvent[],
   localInputs: LocalInputEcho[] = [],
 ): ChatTurn[] {
+  const recoveredThroughSequence = useAppStore(
+    (state) => state.recoveredThroughSequence,
+  );
   return useMemo(
-    () => buildChatTurns(events, localInputs),
-    [events, localInputs],
+    () =>
+      buildChatTurns(events, localInputs, {
+        recoveredThroughSequence,
+      }),
+    [events, localInputs, recoveredThroughSequence],
   );
 }
 
 export function buildChatTurns(
   events: EndpointEvent[],
   localInputs: LocalInputEcho[] = [],
+  options: BuildChatOptions = {},
 ): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
   // command_id → text, for attaching locally-echoed input once the backend
@@ -91,6 +104,7 @@ export function buildChatTurns(
     if (phaseFrame && isPhase(phaseFrame.name)) currentPhase = phaseFrame.name;
 
     const turn = getTurn(turns, turnId, ev.created_at);
+    turn.latestSequence = Math.max(turn.latestSequence, ev.sequence);
 
     switch (ev.name) {
       case "turn.started": {
@@ -117,6 +131,11 @@ export function buildChatTurns(
       case "turn.failed": {
         turn.status = "failed";
         turn.failureMessage = ev.message;
+        turn.failure = {
+          reason: asString(ev.payload?.reason),
+          module: asString(ev.payload?.module),
+          kind: asString(ev.payload?.kind),
+        };
         turn.endedAt = ev.created_at;
         addActivity(turn, "error", "Turn failed", ev.message);
         break;
@@ -172,7 +191,20 @@ export function buildChatTurns(
     }
   }
 
+  const recoveredThrough = options.recoveredThroughSequence ?? null;
   for (const turn of turns.values()) {
+    if (
+      recoveredThrough !== null &&
+      turn.latestSequence <= recoveredThrough
+    ) {
+      turn.recovered = true;
+      if (turn.status === "running") {
+        turn.status = "stopped";
+        turn.endedAt = turn.endedAt ?? turn.startedAt;
+        turn.failureMessage =
+          turn.failureMessage || "Interrupted by backend restart";
+      }
+    }
     finalizeTurn(turn);
   }
 
@@ -199,6 +231,9 @@ function getTurn(
       topLinks: [],
       activity: [],
       usage: { calls: 0, promptTokens: 0, completionTokens: 0 },
+      actionStats: { total: 0, success: 0, failed: 0, timeout: 0 },
+      recovered: false,
+      latestSequence: 0,
       startedAt,
       summary: "",
     };
@@ -383,29 +418,38 @@ function applyModelRequest(
     phase.tasks.push(task);
   }
   const p = ev.payload;
+  const skeleton = isSkeletonPayload(p);
   task.request = {
     profile: asString(p.profile) || "unknown",
     model_id: asString(p.model_id) || "unknown",
     provider_id: asString(p.provider_id) || "unknown",
     provider_model: asString(p.provider_model),
     attempt: asNumber(p.attempt) || 1,
-    messages: normalizeMessages(p.messages),
-    tools: Array.isArray(p.tools) ? (p.tools as ModelRequest["tools"]) : undefined,
-    tool_selection: p.tool_selection,
+    messages: skeleton ? [] : normalizeMessages(p.messages),
+    tools:
+      !skeleton && Array.isArray(p.tools)
+        ? (p.tools as ModelRequest["tools"])
+        : undefined,
+    tool_selection: skeleton ? undefined : p.tool_selection,
   };
   task.profile = task.request.profile;
-
-  // Recover the user input from the first observed message stack when the
-  // command echo was not local (e.g. input came from the Terminal).
-  if (turn.userMessages.length === 0) {
-    const inputText = extractUserInput(task.request.messages);
-    if (inputText) turn.userMessages.push(inputText);
+  if (!turn.modelName && task.request.model_id !== "unknown") {
+    turn.modelName = task.request.provider_model || task.request.model_id;
   }
 
-  // The working-context section is the authoritative working snapshot; adopt
-  // it when it is machine-readable, correcting the op-derived projection.
-  const working = extractWorkingSnapshot(task.request.messages);
-  if (working) turn.working = working;
+  if (!skeleton) {
+    // Recover the user input from the first observed message stack when the
+    // command echo was not local (e.g. input came from the Terminal).
+    if (turn.userMessages.length === 0) {
+      const inputText = extractUserInput(task.request.messages);
+      if (inputText) turn.userMessages.push(inputText);
+    }
+
+    // The working-context section is the authoritative working snapshot; adopt
+    // it when it is machine-readable, correcting the op-derived projection.
+    const working = extractWorkingSnapshot(task.request.messages);
+    if (working) turn.working = working;
+  }
 
   turn.usage.calls += 1;
   // Keep the chat-level activity feed free of concrete model identifiers;
@@ -416,6 +460,7 @@ function applyModelRequest(
 function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
   const taskId = asString(ev.payload?.task_id);
   if (!taskId) return;
+  const skeleton = isSkeletonPayload(ev.payload);
   for (const cycle of turn.cycles) {
     for (const phase of cycle.phases) {
       const task = phase.tasks.find((t) => t.taskId === taskId);
@@ -426,13 +471,18 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
         provider_id: asString(p.provider_id) || "unknown",
         stop_reason: asString(p.stop_reason),
         answer_text: asString(p.answer_text),
-        tool_calls: normalizeToolCalls(p.tool_calls),
+        tool_calls: skeleton ? undefined : normalizeToolCalls(p.tool_calls),
         usage: asRecord(p.usage),
-        metadata: asRecord(p.metadata),
-        reasoning: p.reasoning as ModelResponse["reasoning"],
+        metadata: skeleton ? undefined : asRecord(p.metadata),
+        reasoning: skeleton
+          ? undefined
+          : (p.reasoning as ModelResponse["reasoning"]),
       };
+      if (!turn.modelName && task.response.model_id !== "unknown") {
+        turn.modelName = task.response.model_id;
+      }
       accumulateUsage(turn, task.response.usage);
-      if (phase.phase === "phase1" && task.response.tool_calls) {
+      if (!skeleton && phase.phase === "phase1" && task.response.tool_calls) {
         for (const call of task.response.tool_calls) {
           const op = parseControlOp(call);
           phase.controlOps.push(op);
@@ -657,6 +707,7 @@ function finalizeTurn(turn: ChatTurn) {
       cycle.completedAt = turn.endedAt;
     }
   });
+  turn.actionStats = computeActionStats(turn);
   turn.summary = computeTurnSummary(turn);
   turn.currentActivity = turn.status === "running" ? computeCurrentActivity(turn) : undefined;
 }
@@ -688,8 +739,7 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
   return { phase: activePhase.phase, label: PHASE_META[activePhase.phase].title };
 }
 
-function computeTurnSummary(turn: ChatTurn): string {
-  const cycleCount = turn.cycles.length;
+function collectExecutedActions(turn: ChatTurn): Map<string, ActionRecord> {
   const executed = new Map<string, ActionRecord>();
   for (const cycle of turn.cycles) {
     for (const phase of cycle.phases) {
@@ -701,20 +751,38 @@ function computeTurnSummary(turn: ChatTurn): string {
       }
     }
   }
-  const domains = new Set<string>();
+  return executed;
+}
+
+function computeActionStats(turn: ChatTurn): ChatTurn["actionStats"] {
+  const executed = collectExecutedActions(turn);
   let success = 0;
   let failed = 0;
+  let timeout = 0;
+  for (const action of executed.values()) {
+    const status = action.result?.status;
+    if (status === "success") success++;
+    else if (status === "timeout") timeout++;
+    else if (status && status !== "success") failed++;
+  }
+  return { total: executed.size, success, failed, timeout };
+}
+
+function computeTurnSummary(turn: ChatTurn): string {
+  const cycleCount = turn.cycles.length;
+  const executed = collectExecutedActions(turn);
+  const domains = new Set<string>();
   for (const action of executed.values()) {
     domains.add(action.domain);
-    if (action.result?.status === "success") success++;
-    else if (action.result && action.result.status !== "success") failed++;
   }
+  const { success, failed, timeout } = turn.actionStats;
   const parts: string[] = [];
   if (cycleCount > 0) parts.push(`${cycleCount} cycle${cycleCount > 1 ? "s" : ""}`);
   if (executed.size > 0) parts.push(`${executed.size} action${executed.size > 1 ? "s" : ""}`);
   if (domains.size > 0) parts.push(Array.from(domains).join(", "));
   if (success > 0) parts.push(`${success} ok`);
   if (failed > 0) parts.push(`${failed} failed`);
+  if (timeout > 0) parts.push(`${timeout} timeout`);
   return parts.length ? parts.join(" · ") : turn.status === "running" ? "Thinking…" : "No activity";
 }
 

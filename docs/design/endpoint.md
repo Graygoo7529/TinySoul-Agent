@@ -6,9 +6,9 @@ Endpoint 是本地桌面客户端与 TinySoul App 的外部协议适配层。它
 
 Endpoint 由三个边界组成：
 
-- `EndpointEventBuffer` 作为 Observation sink，提供有界进程内 sequence replay；
+- `EndpointEventBuffer` 作为 Observation sink，提供有界内存热缓存与 sequence replay；可选 `EndpointEventJournal` 将同一 envelope 以分段 NDJSON 持久化到 `runtime/endpoint/events/`，支持重启后续号与深读；
 - `EndpointEngine` 把可信协议请求转换为 AppCommandGateway 或 WorkspaceEngine 调用；
-- ASGI/EndpointHost 负责 loopback bind、鉴权、HTTP schema、WebSocket 与服务生命周期。
+- ASGI/EndpointHost 负责 loopback bind、鉴权、HTTP schema、WebSocket 与服务生命周期。阻塞业务 handler 使用同步 `def`（线程池），避免冻结事件循环。
 
 ## 进程与安全
 
@@ -24,7 +24,7 @@ Console route 由 `tinysoul start --mode` 选择 normal/verbose/model；Endpoint
 
 ## Observation
 
-Event buffer 只保存有界 Observation envelope，并以单调 sequence 支持 HTTP replay 和 WebSocket 断线续传。淘汰产生 gap；客户端清理 event-derived 临时执行视图，并重新读取 status、Maintenance 与 Workspace 权威投影。Context Background、Phase、Action 与 LLM MessageStack 没有 REST snapshot，gap 后不能伪造缺失轨迹。
+Event buffer 保存有界 Observation envelope，并以单调 sequence 支持 HTTP replay 和 WebSocket 断线续传。Journal 在默认启用时 best-effort 追加同一 envelope；写失败只降级为内存路径并在 `GET /v1/status.event_journal` 暴露摘要，不反向影响业务。内存窗口外的 `after` 从 journal 深读；journal 滚动淘汰最旧段后，对该前缀的 replay 才产生 gap。客户端清理 event-derived 临时执行视图，并重新读取 status、Maintenance 与 Workspace 权威投影。不提供 Session REST snapshot；完整 MessageStack 仍只来自 observation 流（含 journal 恢复）。
 
 Maintenance availability 与事件严格分工：Program 在 Endpoint ready 前完成 Archive preflight 和唯一持久 availability 刷新；`GET /v1/maintenance` 只读取这份 Maintenance-owned 投影，不扫描 Archive。前端连接后先读取 GET；收到 `program.maintenance.available`、`maintenance.completed` 或 `maintenance.availability.changed` 后重新读取。事件丢失或进程重启不会丢失提示事实，Endpoint 也不建立第二份前端专用状态。
 
@@ -34,7 +34,7 @@ WebSocket 在没有新事件时按 `EndpointSettings.websocket_heartbeat_seconds
 
 ## Workspace
 
-Workspace REST 持有 Daily active-day lease，并调用同一 WorkspaceEngine：
+Workspace REST 持有 Daily active-day 读 lease（与 User Turn 共享读；日切持写），并调用同一 WorkspaceEngine：
 
 - manifest 与有界 text/blob read；
 - revision/digest CAS text/blob write；

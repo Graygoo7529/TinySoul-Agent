@@ -144,6 +144,7 @@ class EndpointEngine:
             "turn_active": turn_scope is not None,
             "workspace_revision": workspace_revision,
             "latest_event_sequence": self._events.latest_sequence,
+            "event_journal": self._events.journal_status(),
         }
 
     def submit_user_input(

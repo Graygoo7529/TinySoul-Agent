@@ -25,6 +25,13 @@ export interface EndpointEvent {
   created_at: number;
 }
 
+export interface EventJournalStatus {
+  enabled: boolean;
+  degraded: boolean;
+  oldest_sequence: number | null;
+  latest_sequence: number;
+}
+
 export interface BackendStatus {
   protocol_version: number;
   instance_id: string;
@@ -34,6 +41,7 @@ export interface BackendStatus {
   turn_active: boolean;
   workspace_revision: number;
   latest_event_sequence: number;
+  event_journal?: EventJournalStatus;
 }
 
 export interface BackendError {

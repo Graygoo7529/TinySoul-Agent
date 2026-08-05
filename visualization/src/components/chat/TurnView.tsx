@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, PanelRightOpen } from "lucide-react";
+import { AlertTriangle, Bot, History, PanelRightOpen } from "lucide-react";
 import type { ChatTurn } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
@@ -15,6 +15,7 @@ import { LiveStatus } from "./LiveStatus";
 export function TurnView({ turn }: { turn: ChatTurn }) {
   const openTurnDetail = useAppStore((s) => s.openTurnDetail);
   const running = turn.status === "running";
+  const stats = turn.actionStats;
 
   return (
     <div className="animate-fade-in space-y-3">
@@ -40,26 +41,64 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
           )}
 
           {turn.status === "failed" && (
-            <div className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-[13px] text-danger">
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-              <span className="break-words">{turn.failureMessage || "Turn failed"}</span>
+            <div className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-[13px] text-danger">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                <span className="break-words">
+                  {turn.failureMessage || "Turn failed"}
+                </span>
+              </div>
+              {(turn.failure?.module ||
+                turn.failure?.kind ||
+                turn.failure?.reason) && (
+                <div className="mt-1.5 pl-[23px] font-mono text-[11px] text-danger/80">
+                  {[
+                    turn.failure.module,
+                    turn.failure.kind,
+                    turn.failure.reason,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              )}
             </div>
           )}
 
           {!running && (
             <div className="flex flex-wrap items-center gap-2 px-1">
               <TurnStatusBadge status={turn.status} />
+              {turn.recovered && (
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] text-fg-faint"
+                  title="Restored from backend history after reconnect"
+                >
+                  <History size={11} />
+                  restored
+                </span>
+              )}
               <span className="text-[11px] text-fg-faint">
                 {formatDuration(turn.startedAt, turn.endedAt)}
               </span>
               <span className="text-[11px] text-fg-faint">·</span>
               <span className="text-[11px] text-fg-muted">{turn.summary}</span>
+              {stats.total > 0 && (
+                <>
+                  <span className="text-[11px] text-fg-faint">·</span>
+                  <span className="text-[11px] text-fg-faint">
+                    {stats.success} ok
+                    {stats.failed > 0 ? ` · ${stats.failed} failed` : ""}
+                    {stats.timeout > 0 ? ` · ${stats.timeout} timeout` : ""}
+                  </span>
+                </>
+              )}
               {turn.usage.calls > 0 && (
                 <>
                   <span className="text-[11px] text-fg-faint">·</span>
                   <span className="text-[11px] text-fg-faint">
-                    {turn.usage.calls} calls · {formatTokens(turn.usage.promptTokens)} →{" "}
-                    {formatTokens(turn.usage.completionTokens)} tokens
+                    {turn.usage.calls} calls ·{" "}
+                    {formatTokens(turn.usage.promptTokens)} →{" "}
+                    {formatTokens(turn.usage.completionTokens)}
+                    {turn.modelName ? ` · ${turn.modelName}` : ""}
                   </span>
                 </>
               )}

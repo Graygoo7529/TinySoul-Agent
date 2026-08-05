@@ -72,6 +72,7 @@ class _AnsweredCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         frame = scope.nearest(RunLevel.TURN)
         assert frame is not None
@@ -88,6 +89,7 @@ class _ProgramEndCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         frame = scope.nearest(RunLevel.PROGRAM)
         assert frame is not None
@@ -107,6 +109,7 @@ class _CountingCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         self.calls += 1
         frame = scope.nearest(RunLevel.TURN)
@@ -168,6 +171,7 @@ class _OutputCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
@@ -182,6 +186,7 @@ class _EmptyCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         return CycleOutcome(cycle_id=f"cycle_{cycle_index}")
 
@@ -193,6 +198,7 @@ class _CompletionCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
@@ -214,6 +220,7 @@ class _CountingEmptyCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        **_kwargs: object,
     ) -> CycleOutcome:
         self.calls += 1
         return CycleOutcome(cycle_id=f"cycle_{cycle_index}")

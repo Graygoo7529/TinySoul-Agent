@@ -9,10 +9,10 @@ import json
 import os
 from pathlib import Path
 import shutil
-from threading import RLock
 from typing import Protocol
 from uuid import uuid4
 
+from tinysoul.infra.concurrency import ReadWriteLock
 from tinysoul.infra.filesystem import atomic_write_text, read_text_prefix
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import BusinessDay, BusinessDayError
@@ -158,12 +158,18 @@ class DailyTransitionOutcome:
 
 
 class ActiveDayLease:
-    """Hold Daily rollover exclusion while accessing active-day modules."""
+    """Hold shared rollover exclusion while accessing active-day modules.
+
+    The lease is the read side of the coordinator lock: any number of
+    active-day users (a running User Turn, Endpoint status and Workspace
+    requests) may hold it concurrently. Only the daily rollover takes the
+    exclusive write side, so lease holders never block each other.
+    """
 
     def __init__(
         self,
         *,
-        lock: RLock,
+        lock: ReadWriteLock,
         session: SessionDailyLifecycle,
         workspace: WorkspaceDailyLifecycle,
     ) -> None:
@@ -173,7 +179,7 @@ class ActiveDayLease:
         self._entered = False
 
     def __enter__(self) -> BusinessDay:
-        self._lock.acquire()
+        self._lock.acquire_read()
         self._entered = True
         session_day = self._session.active_day
         workspace_day = self._workspace.active_day
@@ -196,7 +202,7 @@ class ActiveDayLease:
     def _release(self) -> None:
         if self._entered:
             self._entered = False
-            self._lock.release()
+            self._lock.release_read()
 
 
 class SessionDailyLifecycle(Protocol):
@@ -255,7 +261,7 @@ class DailyLifecycleCoordinator:
         self._session = session
         self._workspace = workspace
         self._observations = observations or NullObservationEmitter()
-        self._lock = RLock()
+        self._lock = ReadWriteLock()
 
     def active_day_lease(self) -> ActiveDayLease:
         """Exclude rollover while one caller reads or mutates active-day state."""
@@ -273,7 +279,7 @@ class DailyLifecycleCoordinator:
         now: datetime,
         scope: RunScope | None = None,
     ) -> DailyTransitionOutcome:
-        with self._lock:
+        with self._lock.write_locked():
             if not isinstance(target_day, BusinessDay):
                 raise MaintenanceContractError("Daily target must be a BusinessDay")
             if not isinstance(now, datetime) or now.tzinfo is None:
@@ -469,7 +475,7 @@ class DailyLifecycleCoordinator:
     def archive_for(self, day: BusinessDay) -> ArchiveProjection | None:
         """Resolve one finalized archive through the durable date index."""
 
-        with self._lock:
+        with self._lock.read_locked():
             if not isinstance(day, BusinessDay):
                 raise MaintenanceContractError("Archive day must be a BusinessDay")
             archive_name = self._load_catalog().get(day)

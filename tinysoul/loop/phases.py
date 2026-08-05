@@ -29,6 +29,7 @@ from tinysoul.llm.requests import (
     CallSettings,
     ModelContextOverflowPolicy,
     TaskCall,
+    TaskCancellation,
     TaskProfile,
 )
 from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
@@ -49,6 +50,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, RuntimeLoopBridge
 
+from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
@@ -69,6 +71,7 @@ class Phase1Outcome:
     selected_domains: tuple[str, ...]
     control_results: tuple[ControlResult, ...] = field(default_factory=tuple)
     attempts: int = 1
+    selection_failed: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,13 @@ class Phase1Unit:
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._turn_guidance = tuple(turn_guidance)
 
-    def run(self, *, scope: RunScope, cycle_id: str) -> Phase1Outcome:
+    def run(
+        self,
+        *,
+        scope: RunScope,
+        cycle_id: str,
+        cancellation: TurnCancellation | None = None,
+    ) -> Phase1Outcome:
         feedback: list[str] = []
         domain_prompt = self._action.phase1_domain_prompt()
         last_control_results: tuple[ControlResult, ...] = ()
@@ -163,6 +172,7 @@ class Phase1Unit:
                     context_overflow_policy=(
                         ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
                     ),
+                    cancellation=_turn_task_cancellation(cancellation),
                 )
             )
             if result.status is TaskResultStatus.FAILURE:
@@ -170,16 +180,16 @@ class Phase1Unit:
                 continue
 
             selection = self._action.normalize_domain_selection(result.tool_calls)
-            if selection.feedback:
-                feedback.extend(selection.feedback)
-                continue
             control_calls = tuple(
                 call
                 for call in result.tool_calls
                 if call.name != self._action.phase1_domain_tool_name()
             )
             try:
-                normalization = self._context.normalize_controls(control_calls, scope=scope)
+                normalization = self._context.normalize_controls(
+                    control_calls,
+                    scope=scope,
+                )
                 consume_results = self._signal_consumer.emit_and_consume(
                     normalization.signals,
                     scope=scope,
@@ -199,14 +209,30 @@ class Phase1Unit:
                     scope=scope,
                     cycle_id=cycle_id,
                 )
+            if selection.feedback:
+                feedback.extend(selection.feedback)
+                continue
+            if not selection.selected_domains:
+                feedback.append("Phase1 did not select any action domain.")
+                continue
             return Phase1Outcome(
                 selected_domains=selection.selected_domains,
                 control_results=last_control_results,
                 attempts=attempt,
             )
-        raise self._loop_bridge.from_loop_error(
-            LoopContractError("Phase1 did not produce a valid domain selection"),
-            payload={"feedback": list(feedback)},
+        self._emit_phase_note(
+            {
+                "kind": LoopTraceNoteKind.PHASE1_TASK_FAILED.value,
+                "feedback": list(feedback),
+            },
+            scope=scope,
+            cycle_id=cycle_id,
+        )
+        return Phase1Outcome(
+            selected_domains=(),
+            control_results=last_control_results,
+            attempts=self._retry_limit,
+            selection_failed=True,
         )
 
     def _emit_phase_note(
@@ -267,6 +293,7 @@ class Phase2Unit:
         scope: RunScope,
         cycle_id: str,
         turn_id: str = "",
+        cancellation: TurnCancellation | None = None,
     ) -> Phase2Outcome:
         try:
             preparation = self._action.phase2_scope(
@@ -306,6 +333,7 @@ class Phase2Unit:
                     context_overflow_policy=(
                         ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
                     ),
+                    cancellation=_turn_task_cancellation(cancellation),
                 )
             )
             if result.status is TaskResultStatus.FAILURE:
@@ -458,6 +486,7 @@ class Phase3Unit:
         scope: RunScope,
         cycle_id: str,
         turn_id: str = "",
+        cancellation: TurnCancellation | None = None,
     ) -> Phase3Outcome:
         try:
             preparation = self._action.prepare_batch(
@@ -471,6 +500,11 @@ class Phase3Unit:
                 context=ActionExecutionContext(
                     signal_bus=self._bus,
                     module_runner=self._module_runner,
+                    cancelled=(
+                        cancellation.requested
+                        if cancellation is not None
+                        else None
+                    ),
                 ),
             )
         except ActionError as exc:
@@ -651,6 +685,18 @@ def _merge_tool_scopes(
 
 def _required_tool_settings() -> CallSettings:
     return CallSettings(answer_format=AnswerFormat.NONE, tool_use=ToolUse.REQUIRED)
+
+
+def _turn_task_cancellation(
+    cancellation: TurnCancellation | None,
+) -> TaskCancellation | None:
+    if cancellation is None:
+        return None
+    return TaskCancellation(
+        cancelled=cancellation.requested,
+        remaining_seconds=lambda: None,
+        reason=lambda: "turn_cancelled",
+    )
 
 
 def _task_result_feedback(result: TaskResult) -> str:

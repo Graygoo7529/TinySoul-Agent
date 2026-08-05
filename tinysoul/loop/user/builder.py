@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tinysoul.action import ActionEngine
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
+from tinysoul.action.config import ActionSettings
 from tinysoul.capabilities import CapabilitiesSettings
 from tinysoul.capabilities.script import ScriptSourceResolver
 from tinysoul.capabilities.supervised_process import SupervisedProcessManager
@@ -71,12 +72,14 @@ class UserTurnBuilder:
         workspace: WorkspaceEngine,
         bus: SignalBus,
         observations: ObservationEmitter,
+        action_settings: ActionSettings | None = None,
     ) -> None:
         self._root = root
         self._context_settings = context_settings
         self._loop_settings = loop_settings
         self._capabilities_settings = capabilities_settings
         self._runtime_env = dict(runtime_env)
+        self._action_settings = action_settings or ActionSettings()
         self._llm = llm
         self._home = home
         self._memory = memory
@@ -172,6 +175,9 @@ class UserTurnBuilder:
                 staging=staging,
                 process_jobs=process_jobs,
                 script_resolver=script_resolver,
+                llm_action_timeout_seconds=(
+                    self._action_settings.llm_action_timeout_seconds
+                ),
             )
         try:
             self._home.reconcile_prompt_mounts(

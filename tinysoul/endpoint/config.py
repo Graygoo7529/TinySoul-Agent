@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from ipaddress import ip_address
+from pathlib import Path
 from uuid import uuid4
 
 from .errors import EndpointContractError
@@ -20,6 +21,11 @@ class EndpointSettings:
     project_identity: str = ""
     event_capacity: int = 2000
     event_bytes: int = 32 * 1024 * 1024
+    event_page_bytes: int = 1024 * 1024
+    journal_enabled: bool = True
+    journal_root: Path | None = None
+    journal_segment_bytes: int = 8 * 1024 * 1024
+    journal_total_bytes: int = 256 * 1024 * 1024
     websocket_heartbeat_seconds: float = 15.0
     max_request_bytes: int = 8 * 1024 * 1024
     max_resource_chars: int = 2 * 1024 * 1024
@@ -55,10 +61,17 @@ class EndpointSettings:
             raise EndpointContractError(
                 "Endpoint websocket heartbeat must be positive"
             )
+        if not isinstance(self.journal_enabled, bool):
+            raise EndpointContractError("Endpoint journal_enabled must be a bool")
+        if self.journal_root is not None and not isinstance(self.journal_root, Path):
+            raise EndpointContractError("Endpoint journal_root must be a Path")
         object.__setattr__(self, "instance_id", instance_id.strip())
         for name in (
             "event_capacity",
             "event_bytes",
+            "event_page_bytes",
+            "journal_segment_bytes",
+            "journal_total_bytes",
             "max_request_bytes",
             "max_resource_chars",
             "max_resource_bytes",
@@ -66,3 +79,7 @@ class EndpointSettings:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise EndpointContractError(f"Endpoint {name} must be positive")
+        if self.journal_segment_bytes > self.journal_total_bytes:
+            raise EndpointContractError(
+                "Endpoint journal_segment_bytes cannot exceed journal_total_bytes"
+            )

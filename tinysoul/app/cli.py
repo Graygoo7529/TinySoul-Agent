@@ -5,16 +5,20 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from secrets import token_urlsafe
+import signal as signal_module
 import sys
 from collections.abc import Sequence
+from types import FrameType
 
 from tinysoul.endpoint import EndpointError, EndpointSettings
 from tinysoul.infra import ConfigEnvironment, ConfigError
-from tinysoul.runtime import ObservationLevel, RuntimeException
+from tinysoul.loop import LoopControlKind
+from tinysoul.runtime import ObservationLevel, RuntimeException, RuntimeGatewayError
 
 from .builder import TinySoulAppBuilder
 from .config import parse_app_settings
 from .errors import AppError
+from .gateway import AppCommandGateway
 from .initializer import ProjectConfigProfile, ProjectInitializer, ProjectResetter
 from .instance import ProjectInstanceLease
 from .outputs import ConsoleOutputSink
@@ -174,10 +178,70 @@ def _start(argv: Sequence[str]) -> int:
             if args.once is not None:
                 outcome = app.run_once(args.once)
                 return 0 if outcome.status.value == "answered" else 1
-            app.run()
+            escalation = _SigintEscalation(app.gateway)
+            previous_handler = signal_module.signal(
+                signal_module.SIGINT,
+                escalation.handle,
+            )
+            try:
+                app.run()
+            finally:
+                signal_module.signal(signal_module.SIGINT, previous_handler)
             return 0
     except KeyboardInterrupt:
         return 130
     except (ConfigError, EndpointError, RuntimeException, AppError) as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
+
+
+class _SigintEscalation:
+    """Graded Ctrl-C handling for interactive runs.
+
+    The first Ctrl-C stops the active Turn (or requests Program exit when
+    idle); the next one requests Program exit; a further press falls back
+    to a hard KeyboardInterrupt. Requests go through the same trusted
+    command gateway as Terminal and Endpoint input.
+    """
+
+    def __init__(self, gateway: AppCommandGateway) -> None:
+        self._gateway = gateway
+        self._stop_requested = False
+        self._exit_requested = False
+
+    def handle(self, signum: int, frame: FrameType | None) -> None:
+        if self._exit_requested:
+            raise KeyboardInterrupt
+        try:
+            if not self._stop_requested and self._gateway.active_turn_scope is not None:
+                if self._request(LoopControlKind.STOP_TURN):
+                    self._stop_requested = True
+                    print(
+                        "tinysoul: stopping the current turn "
+                        "(press Ctrl-C again to exit)",
+                        file=sys.stderr,
+                    )
+                    return
+            self._exit_requested = True
+            if self._request(LoopControlKind.EXIT_PROGRAM):
+                print(
+                    "tinysoul: exiting (press Ctrl-C again to force quit)",
+                    file=sys.stderr,
+                )
+                return
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            pass
+        raise KeyboardInterrupt
+
+    def _request(self, kind: LoopControlKind) -> bool:
+        try:
+            receipt = self._gateway.request_control(
+                kind,
+                source="terminal.sigint",
+                text=kind.value,
+            )
+        except RuntimeGatewayError:
+            return False
+        return receipt.accepted

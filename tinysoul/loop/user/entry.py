@@ -5,6 +5,7 @@ from __future__ import annotations
 from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunScope
 
+from ..signals import LoopControlKind
 from ..turn import TurnOutcome, TurnRunner
 
 
@@ -15,6 +16,11 @@ class UserTurnEntry:
     @property
     def active_scope(self) -> RunScope | None:
         return self._runner.active_scope
+
+    def request_cancel(self, kind: LoopControlKind) -> bool:
+        """Fire the active Turn's cooperative cancel token, if any."""
+
+        return self._runner.request_active_cancel(kind)
 
     def run(
         self,

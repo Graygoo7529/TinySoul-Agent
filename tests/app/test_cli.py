@@ -21,6 +21,13 @@ class _FakeConfig:
         )
 
 
+class _FakeGateway:
+    active_turn_scope = None
+
+    def request_control(self, kind, *, source, text="", metadata=None):
+        return SimpleNamespace(accepted=True)
+
+
 class _FakeApp:
     def __init__(
         self,
@@ -29,6 +36,7 @@ class _FakeApp:
         self.once_inputs: list[str] = []
         self.status = status
         self.run_count = 0
+        self.gateway = _FakeGateway()
 
     def run_once(self, user_input: str):
         self.once_inputs.append(user_input)

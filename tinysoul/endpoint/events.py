@@ -11,6 +11,7 @@ from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.runtime import ObservationEvent, ObservationLevel
 
 from .errors import EndpointContractError, EndpointInvariantError
+from .journal import EndpointEventJournal
 
 
 @dataclass(frozen=True)
@@ -55,20 +56,49 @@ class EndpointEventPage:
 class EndpointEventBuffer:
     """Output sink retaining a bounded, ordered event replay window."""
 
-    def __init__(self, *, capacity: int, max_bytes: int) -> None:
-        if capacity <= 0 or max_bytes <= 0:
+    def __init__(
+        self,
+        *,
+        capacity: int,
+        max_bytes: int,
+        page_bytes: int = 1024 * 1024,
+        journal: EndpointEventJournal | None = None,
+    ) -> None:
+        if capacity <= 0 or max_bytes <= 0 or page_bytes <= 0:
             raise EndpointContractError("Endpoint event bounds must be positive")
         self._capacity = capacity
         self._max_bytes = max_bytes
+        self._page_bytes = page_bytes
+        self._journal = journal
         self._events: deque[EndpointEventEnvelope] = deque()
         self._bytes = 0
-        self._sequence = 0
+        self._sequence = journal.latest_sequence if journal is not None else 0
         self._condition = Condition()
 
     @property
     def latest_sequence(self) -> int:
         with self._condition:
             return self._sequence
+
+    @property
+    def journal(self) -> EndpointEventJournal | None:
+        return self._journal
+
+    def journal_status(self) -> JsonObject:
+        journal = self._journal
+        if journal is None:
+            return {
+                "enabled": False,
+                "degraded": False,
+                "oldest_sequence": None,
+                "latest_sequence": 0,
+            }
+        return {
+            "enabled": True,
+            "degraded": journal.degraded,
+            "oldest_sequence": journal.oldest_sequence,
+            "latest_sequence": journal.latest_sequence,
+        }
 
     def write(self, event: ObservationEvent) -> None:
         with self._condition:
@@ -110,6 +140,8 @@ class EndpointEventBuffer:
                 removed = self._events.popleft()
                 self._bytes -= removed.size_bytes
             self._condition.notify_all()
+        if self._journal is not None:
+            self._journal.append(envelope)
 
     def replay(
         self,
@@ -121,19 +153,63 @@ class EndpointEventBuffer:
         if after < 0 or limit <= 0:
             raise EndpointContractError("Endpoint replay bounds are invalid")
         with self._condition:
-            oldest = self._events[0].sequence if self._events else self._sequence + 1
-            gap = after < oldest - 1
-            events = tuple(
-                event
-                for event in self._events
-                if event.sequence > after and _level_rank(event.level) <= _level_rank(mode)
-            )[:limit]
-            next_sequence = events[-1].sequence if events else self._sequence
-            return EndpointEventPage(
-                events=events,
-                next_sequence=next_sequence,
-                gap=gap,
-            )
+            memory = tuple(self._events)
+            sequence = self._sequence
+            journal = self._journal
+            page_bytes = self._page_bytes
+
+        memory_oldest = memory[0].sequence if memory else sequence + 1
+        retained_oldest = memory_oldest
+        if journal is not None and not journal.degraded:
+            journal_oldest = journal.oldest_sequence
+            if journal_oldest is not None:
+                retained_oldest = journal_oldest
+        gap = after < retained_oldest - 1
+
+        selected: list[EndpointEventEnvelope] = []
+        used_bytes = 0
+
+        def _accept(event: EndpointEventEnvelope) -> bool:
+            nonlocal used_bytes
+            if _level_rank(event.level) > _level_rank(mode):
+                return True
+            if selected and used_bytes + event.size_bytes > page_bytes:
+                return False
+            selected.append(event)
+            used_bytes += event.size_bytes
+            return len(selected) < limit
+
+        need_journal = (
+            journal is not None
+            and not journal.degraded
+            and after < memory_oldest - 1
+        )
+        if need_journal:
+            for event in journal.read_after(
+                after=after,
+                mode=mode,
+                limit=limit,
+            ):
+                if event.sequence >= memory_oldest:
+                    break
+                if not _accept(event):
+                    break
+
+        if len(selected) < limit and (
+            not selected or used_bytes < page_bytes
+        ):
+            for event in memory:
+                if event.sequence <= after:
+                    continue
+                if not _accept(event):
+                    break
+
+        next_sequence = selected[-1].sequence if selected else sequence
+        return EndpointEventPage(
+            events=tuple(selected),
+            next_sequence=next_sequence,
+            gap=gap,
+        )
 
     def wait_after(
         self,

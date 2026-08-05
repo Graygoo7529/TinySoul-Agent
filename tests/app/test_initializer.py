@@ -27,7 +27,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert result == 0
     assert (root / "tinysoul.toml").is_file()
     assert (root / "configs" / "home.toml").is_file()
-    assert not (root / "configs" / "action.toml").exists()
+    assert (root / "configs" / "action.toml").is_file()
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
     assert (root / "README.md").is_file()

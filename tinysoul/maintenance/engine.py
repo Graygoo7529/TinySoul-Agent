@@ -135,8 +135,10 @@ class MaintenanceEngine:
     def availability(self) -> MaintenanceAvailability:
         """Read the persisted prompt sheet without rediscovering owner facts."""
 
-        with self._lock:
-            return self._availability_store.require()
+        # The store is written with atomic replacement, so this read must
+        # not queue behind the engine lock: a long Maintenance run would
+        # otherwise block the Endpoint availability endpoint for minutes.
+        return self._availability_store.require()
 
     def run(
         self,

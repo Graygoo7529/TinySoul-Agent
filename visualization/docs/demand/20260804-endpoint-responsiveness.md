@@ -1,6 +1,6 @@
 # 需求：Endpoint 在 Turn 执行期间必须保持可服务（含一次挂起实录）
 
-日期：2026-08-04 · 提出方：前端（visualization） · 状态：pending
+日期：2026-08-04 · 提出方：前端（visualization） · 状态：done
 
 ## 观察实录
 
@@ -17,6 +17,11 @@
 1. **Endpoint 服务与 Program 执行解耦**：无论当前 Turn 处于哪个阶段（包括长时间 LLM 调用、workspace.write 的 LLM 组合、action 批次执行），HTTP 与 WS 都必须保持响应；`/v1/health`、`/v1/status`、`/v1/events`、`/v1/control` 的延迟应与空闲时一致。
 2. **stop_turn 必须始终可下达**：控制通道是用户中断失控 Turn 的唯一手段，其可用性不应依赖当前 Turn 的执行状态。
 3. 若挂起由后端内部锁/同步调用引起（本次疑似与 workspace.write 相关），建议排查该路径；如需要前端提供更细的复现步骤或事件序列，可以再补充。
+
+## 落地结果
+
+- 后端：阻塞 HTTP handler 改为同步 `def`（线程池）；`ActiveDayLease` 共享读 / 日切写；Turn 取消令牌 + LLM 可中断等待；Ctrl-C 分级。
+- 前端：状态轮询失败保留现场；`stop_turn` 有 stopping 反馈；instance 变化自动重发现。
 
 ## 前端侧已做的配合
 

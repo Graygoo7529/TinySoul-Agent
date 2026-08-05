@@ -1,15 +1,28 @@
 import { useEffect, useRef } from "react";
-import { MessageSquareText, RefreshCw } from "lucide-react";
+import { History, MessageSquareText, RefreshCw } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import type { ChatTurn } from "../../derive/model";
+import { loadEarlierEvents } from "../../hooks/useBackend";
 import { EmptyState } from "../ui/EmptyState";
+import { Button } from "../ui/Button";
 import { Composer } from "./Composer";
 import { TurnView } from "./TurnView";
 
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const interrupted = useAppStore((s) => s.eventStreamInterrupted);
+  const historyLoading = useAppStore((s) => s.historyLoading);
+  const events = useAppStore((s) => s.events);
+  const client = useAppStore((s) => s.client);
+  const journal = useAppStore((s) => s.status?.event_journal);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pinnedToBottom = useRef(true);
+
+  const localOldest = events[0]?.sequence ?? 0;
+  const journalOldest = journal?.oldest_sequence ?? null;
+  const canLoadEarlier =
+    !!client &&
+    localOldest > 1 &&
+    (journalOldest === null || journalOldest < localOldest);
 
   // Follow the stream while the user stays near the bottom.
   useEffect(() => {
@@ -45,6 +58,22 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
           />
         ) : (
           <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+            {canLoadEarlier && (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={historyLoading}
+                  onClick={() => {
+                    if (!client) return;
+                    void loadEarlierEvents(client);
+                  }}
+                >
+                  <History size={12} />
+                  {historyLoading ? "Loading…" : "Load earlier history"}
+                </Button>
+              </div>
+            )}
             {turns.map((turn) => (
               <TurnView key={turn.turnId} turn={turn} />
             ))}

@@ -1,5 +1,6 @@
 """Public infrastructure facade."""
 
+from .concurrency import ConcurrencyContractError, ReadWriteLock
 from .config import (
     ConfigEnvironment,
     ConfigError,
@@ -53,6 +54,7 @@ from .continuation import (
     continue_json_sequence,
 )
 __all__ = [
+    "ConcurrencyContractError",
     "ConfigEnvironment",
     "ConfigError",
     "ConfigFileToml",
@@ -77,6 +79,7 @@ __all__ = [
     "MIN_CONTINUATION_PAGE_CHARS",
     "OpaqueContinuationCodec",
     "ProjectConfig",
+    "ReadWriteLock",
     "StagingDirectoryManager",
     "StagingError",
     "TextLineSliceRead",

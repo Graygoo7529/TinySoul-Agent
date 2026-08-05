@@ -171,6 +171,25 @@ describe("buildChatTurns", () => {
     // turn.completed is the final boundary and refines endedAt.
     expect(turn.endedAt).toBe(5);
     expect(turn.currentActivity).toBeUndefined();
+    expect(turn.failure).toEqual({
+      reason: "runtime.turn_end",
+      module: "loop",
+      kind: "loop.contract_violation",
+    });
+  });
+
+  it("marks recovered historical turns and closes interrupted running ones", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+    ];
+    const latest = events[events.length - 1].sequence;
+    const [turn] = buildChatTurns(events, [], {
+      recoveredThroughSequence: latest,
+    });
+    expect(turn.recovered).toBe(true);
+    expect(turn.status).toBe("stopped");
+    expect(turn.failureMessage).toContain("restart");
   });
 
   it("builds a semantic activity feed", () => {

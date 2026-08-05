@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event, Thread
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
@@ -38,6 +39,7 @@ from .model_chain import (
 from .models import ModelCapability, ModelRegistry, ModelSpec
 from .observation_payloads import task_request_observation, task_response_observation
 from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
+from .provider.base import ProviderAdapter
 from .requests import (
     CallSettings,
     ModelContextOverflowPolicy,
@@ -363,7 +365,8 @@ class LLMTaskRunner:
                 )
             try:
                 _check_cancellation(call)
-                response = provider.invoke(
+                response = _invoke_provider(
+                    provider,
                     ProviderRequest(
                         model=model,
                         messages=call.messages,
@@ -375,7 +378,8 @@ class LLMTaskRunner:
                         max_output_tokens=settings.max_output_tokens,
                         provider_options=dict(model.provider_options.values),
                         timeout_seconds=_remaining_seconds(call),
-                    )
+                    ),
+                    call,
                 )
             except ProviderError as exc:
                 if exc.kind is ProviderErrorKind.CONTEXT_LIMIT:
@@ -584,6 +588,51 @@ def _effective_max_output_tokens(
 def _check_cancellation(call: TaskCall) -> None:
     if call.cancellation is not None:
         call.cancellation.check()
+
+
+_PROVIDER_CANCEL_POLL_SECONDS = 0.1
+
+
+def _invoke_provider(
+    provider: ProviderAdapter,
+    request: ProviderRequest,
+    call: TaskCall,
+) -> RawResponse:
+    """Invoke the provider, abandoning the wait when the task is cancelled.
+
+    Without a cancellation contract the provider call runs inline. With
+    one, the blocking call runs on a daemon worker thread while this
+    thread waits in short slices and re-checks the cancel/deadline hooks.
+    On cancellation the in-flight request is orphaned: it completes or
+    times out in the background and its result is discarded without
+    touching any task state.
+    """
+
+    cancellation = call.cancellation
+    if cancellation is None:
+        return provider.invoke(request)
+    responses: list[RawResponse] = []
+    errors: list[BaseException] = []
+    done = Event()
+
+    def _worker() -> None:
+        try:
+            responses.append(provider.invoke(request))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    Thread(
+        target=_worker,
+        name="tinysoul-llm-provider",
+        daemon=True,
+    ).start()
+    while not done.wait(_PROVIDER_CANCEL_POLL_SECONDS):
+        cancellation.check()
+    if errors:
+        raise errors[0]
+    return responses[0]
 
 
 def _remaining_seconds(call: TaskCall) -> float | None:

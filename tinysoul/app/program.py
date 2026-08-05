@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from queue import Queue
+from queue import Empty, Queue
 from threading import RLock
 from typing import Protocol
 from uuid import uuid4
@@ -191,7 +191,7 @@ class ProgramRunner:
                 transfer,
             )
         while True:
-            request = self._input_queue.get()
+            request = self._next_request()
             if isinstance(request, ExitRequest):
                 transfer = self._request_program_end(request)
                 return self._outcome(
@@ -265,6 +265,21 @@ class ProgramRunner:
                 maintenance_count += 1
                 continue
             raise AppContractError("Program queue contained an unknown request")
+
+    def _next_request(self) -> AppRequest:
+        """Wait for the next request in slices so signal handlers can run.
+
+        An unbounded ``Queue.get()`` on Windows blocks in a native wait
+        that never yields to the interpreter, so a Ctrl-C handler would
+        not run until the next request arrives. Sliced waits keep the
+        main thread responsive to SIGINT while idle.
+        """
+
+        while True:
+            try:
+                return self._input_queue.get(timeout=0.5)
+            except Empty:
+                continue
 
     def _preflight(self) -> DailyTransitionOutcome:
         try:

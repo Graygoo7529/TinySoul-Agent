@@ -239,6 +239,7 @@ class ActionEngineBuilder:
         self._disabled_actions: set[str] = set()
         self._included_actions: set[str] | None = None
         self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
+        self._llm_action_timeout_seconds: float | None = None
 
     def add_catalog_root(self, catalog_root: Path) -> Self:
         """Add one package-owned catalog fragment to this engine."""
@@ -345,11 +346,26 @@ class ActionEngineBuilder:
         self._observations = observations
         return self
 
+    def with_llm_action_timeout_seconds(self, seconds: float) -> Self:
+        """Set the project default timeout for llm_action without a dedicated value."""
+
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or seconds <= 0
+        ):
+            raise ActionContractError(
+                "llm_action_timeout_seconds must be a positive number"
+            )
+        self._llm_action_timeout_seconds = float(seconds)
+        return self
+
     def build(self) -> ActionEngine:
         catalog = ActionCatalogLoader(
             backend_kind_options_validators={
                 ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
             },
+            llm_action_timeout_seconds=self._llm_action_timeout_seconds,
         ).load_many(self._catalog_roots)
         if self._included_actions is not None:
             available = {action.name for action in catalog.actions()}

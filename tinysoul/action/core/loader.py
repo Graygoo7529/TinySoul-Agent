@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, TypeVar, cast
@@ -50,10 +51,27 @@ class ActionCatalogLoader:
             ActionBackendKind, ActionBackendOptionsValidator
         ]
         | None = None,
+        llm_action_timeout_seconds: float | None = None,
     ) -> None:
+        if llm_action_timeout_seconds is not None and (
+            isinstance(llm_action_timeout_seconds, bool)
+            or not isinstance(llm_action_timeout_seconds, (int, float))
+            or llm_action_timeout_seconds <= 0
+        ):
+            raise ConfigError(
+                "llm_action_timeout_seconds must be positive",
+                key="action.llm_action_timeout_seconds",
+                value=llm_action_timeout_seconds,
+                expected="positive number",
+            )
         self._parser = parser or ActionTomlParser()
         self._backend_kind_options_validators = dict(
             backend_kind_options_validators or {}
+        )
+        self._llm_action_timeout_seconds = (
+            float(llm_action_timeout_seconds)
+            if llm_action_timeout_seconds is not None
+            else None
         )
 
     def load(self, root_path: Path) -> ActionCatalog:
@@ -119,10 +137,16 @@ class ActionCatalogLoader:
                 continue
             for action_path in sorted(action_dir.glob("*.toml"), key=lambda path: path.name):
                 action_data = ConfigFileToml(action_path).data
+                action_table = _as_table(action_data, key=str(action_path))
                 action = self._parser.parse_action(
-                    _as_table(action_data, key=str(action_path)),
+                    action_table,
                     source=str(action_path),
                     default_runtime=default_runtime,
+                )
+                action = self._apply_llm_action_timeout(
+                    action,
+                    action_table=action_table,
+                    source=str(action_path),
                 )
                 self._validate_backend_options(
                     action.backend,
@@ -130,6 +154,29 @@ class ActionCatalogLoader:
                 )
                 actions.append(action)
         return domains, actions
+
+    def _apply_llm_action_timeout(
+        self,
+        action: ActionSpec,
+        *,
+        action_table: Mapping[str, object],
+        source: str,
+    ) -> ActionSpec:
+        if (
+            self._llm_action_timeout_seconds is None
+            or action.backend.kind is not ActionBackendKind.LLM_ACTION
+        ):
+            return action
+        runtime_table = _optional_table(action_table, "runtime", key=source)
+        if "timeout_seconds" in runtime_table:
+            return action
+        return replace(
+            action,
+            runtime=replace(
+                action.runtime,
+                timeout_seconds=self._llm_action_timeout_seconds,
+            ),
+        )
 
     def _validate_backend_options(self, backend: ActionBackendSpec, *, key: str) -> None:
         validator = self._backend_kind_options_validators.get(backend.kind)
