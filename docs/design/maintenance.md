@@ -106,7 +106,7 @@ Home 不参与日切或 archive。`ArchiveProjection` 只暴露 BusinessDay、ar
 
 ## Home Task
 
-Home task 先通过 Home owner 的中性 `review_pending()` / `review_snapshot()` 能力确定性清理 copied/consistent 残留。若没有真实 diff 或 HOW review，则调用 `remove_resolved_overlay()` 移除空 `runtime/home`；否则启动 Home Maintenance Turn。
+Home task 先通过 Home owner 的中性 `review_pending()` / `review_snapshot()` 能力确定性清理 copied/consistent 残留。若没有真实 diff 或 skill review，则调用 `remove_resolved_overlay()` 移除空 `runtime/home`；否则启动 Home Maintenance Turn。
 
 Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景。专用 actions 逐个列出和 inspect snapshot token，然后选择：
 
@@ -114,7 +114,7 @@ Home Turn 使用 actual Home Background，加当前 Session 与 Workspace 情景
 - `reject`: 保留 actual；
 - `rewrite`: 将整理后的完整正文提交到 actual。
 
-每个成功 resolution 都通过 `resolve_review()` 清理对应 overlay record/content。`SKILL_MEMORY.md` 是独立的 `skill_how_review`：`list/inspect` 暴露 actual HOW 与临时记忆，只有 inspect 后才能 `reject` 或 `rewrite`；`accept` 对该 review 明确失败。HOW rewrite 在写 actual 前重新校验 frontmatter。`maintenance.complete` 只有在 Home owner 确认所有 review 均已处理时成功；Turn 后 controller 再调用 `remove_resolved_overlay()`，正常结果是 `runtime/home` 不存在。
+每个成功 resolution 都通过 `resolve_review()` 清理对应 overlay record/content。`SKILL_MEMORY.md` 是独立的 `skill_review`：`list/inspect` 暴露 actual skill 与临时记忆，只有 inspect 后才能 `reject` 或 `rewrite`；`accept` 对该 review 明确失败。skill rewrite 在写 actual 前重新校验 frontmatter。`maintenance.complete` 只有在 Home owner 确认所有 review 均已处理时成功；Turn 后 controller 再调用 `remove_resolved_overlay()`，正常结果是 `runtime/home` 不存在。
 
 ## Memory Task
 

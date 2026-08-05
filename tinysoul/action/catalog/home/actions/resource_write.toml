@@ -7,9 +7,9 @@ schema = { type = "object", properties = { link = { type = "string", description
 
 [semantic]
 use_when = ["A progressive Agent Home reference or code resource should be created or fully replaced"]
-avoid_when = ["A top-level WHAT, WHY, or HOW entry should change", "A long-term Memory should change"]
+avoid_when = ["A top-level Agent or skill entry should change", "A long-term Memory should change"]
 effects = ["modifying"]
-examples = ["Create home:how/refactor/references/checklist.md for later skill use"]
+examples = ["Create home:skills/refactor/references/checklist.md for later skill use"]
 
 [runtime]
 parallel_policy = "serial"

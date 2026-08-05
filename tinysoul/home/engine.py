@@ -196,7 +196,7 @@ class AgentHomeEngine:
         return tuple(str(link) for link in self._effective_top_links())
 
     def skill_metadata(self) -> tuple[HomeSkillMetadata, ...]:
-        """Return bounded discovery metadata for all effective general HOW skills."""
+        """Return bounded discovery metadata for all effective general skills."""
 
         return self._skill_metadata_catalog()
 
@@ -252,12 +252,12 @@ class AgentHomeEngine:
         return _read_text(source)
 
     def actual_skill_metadata(self) -> tuple[HomeSkillMetadata, ...]:
-        """Return general HOW metadata parsed only from actual Home."""
+        """Return general skill metadata parsed only from actual Home."""
 
         items: list[HomeSkillMetadata] = []
         for value in self.actual_top_links():
             link = HomeTopLink.parse(value)
-            if link.space != "how":
+            if link.space != "skills":
                 continue
             relative = self._layout.relative_for_top(link)
             prefix = _read_text_prefix(
@@ -277,7 +277,7 @@ class AgentHomeEngine:
         reranker: HomeSearchReranker | None = None,
         scope: RunScope | None = None,
     ) -> HomeSearchResult:
-        """Search effective WHAT/WHY/HOW metadata without runtime copying."""
+        """Search effective general skill metadata without runtime copying."""
 
         self._validate_overlay_semantics()
         documents: list[HomeSearchDocument] = []
@@ -317,7 +317,11 @@ class AgentHomeEngine:
             path = self._layout.runtime_for_relative(relative)
             digest = record.runtime_digest
         prefix = _read_text_prefix(path, self._search.prefix_max_chars)
-        metadata = self._skill_metadata_for_link(link) if link.space == "how" else None
+        metadata = (
+            self._skill_metadata_for_link(link)
+            if link.space == "skills"
+            else None
+        )
         return HomeSearchDocument(
             link=link,
             text_prefix=prefix.text,
@@ -374,7 +378,7 @@ class AgentHomeEngine:
         if not domain:
             return None
         return self._read_optional_prompt_mount(
-            HomePromptMountLink("how_domain", domain)
+            HomePromptMountLink("skills_domain", domain)
         )
 
     def guidance_for_action(self, domain: str, action_name: str) -> str | None:
@@ -385,7 +389,7 @@ class AgentHomeEngine:
         if action_name.startswith(prefix):
             action_key = action_name[len(prefix) :]
         return self._read_optional_prompt_mount(
-            HomePromptMountLink("how_action", f"{domain}/{action_key}")
+            HomePromptMountLink("skills_action", f"{domain}/{action_key}")
         )
 
     def reconcile_prompt_mounts(
@@ -399,7 +403,7 @@ class AgentHomeEngine:
         domain_names = _validated_names(domains, label="Action Catalog domains")
         action_identifiers = _validated_action_identifiers(actions)
         expected = {
-            HomePromptMountLink("how_domain", domain)
+            HomePromptMountLink("skills_domain", domain)
             for domain in domain_names
         }
         for domain, action_name in action_identifiers:
@@ -409,7 +413,7 @@ class AgentHomeEngine:
                 )
             action_key = action_name[len(domain) + 1 :]
             expected.add(
-                HomePromptMountLink("how_action", f"{domain}/{action_key}")
+                HomePromptMountLink("skills_action", f"{domain}/{action_key}")
             )
 
         existing_relatives = set(self._layout.actual_prompt_mount_relatives())
@@ -529,7 +533,7 @@ class AgentHomeEngine:
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
         self._validate_write_text(text)
-        if parsed.space == "how":
+        if parsed.space == "skills":
             self._validate_projected_skill_catalog(
                 parsed,
                 parse_home_skill_metadata(text, link=parsed),
@@ -557,7 +561,7 @@ class AgentHomeEngine:
     ) -> HomeResourceMutation:
         parsed = self._mutable_top_link(link)
         relative = self._require_top_relative(parsed)
-        if parsed.space == "how":
+        if parsed.space == "skills":
             current = _read_text(self._effective_top_path(parsed, relative))
             if not isinstance(old_text, str) or not old_text:
                 raise AgentHomeContractError("Home patch old_text must be non-empty")
@@ -717,17 +721,17 @@ class AgentHomeEngine:
         memory_name = path.name.upper()
         if memory_name.endswith("_MEMORY.MD"):
             if not (
-                link.space == "how"
+                link.space == "skills"
                 and path.name == "SKILL_MEMORY.md"
                 and len(path.parts) == 2
             ):
                 raise AgentHomeContractError(
-                    "Only how/<skill>/SKILL_MEMORY.md runtime memory is allowed"
+                    "Only skills/<skill>/SKILL_MEMORY.md runtime memory is allowed"
                 )
-            skill = HomeTopLink("how", path.parts[0])
+            skill = HomeTopLink("skills", path.parts[0])
             if self._resolve_top_relative(skill) is None:
                 raise AgentHomeContractError(
-                    f"SKILL_MEMORY.md requires an existing general HOW skill: {skill}"
+                    f"SKILL_MEMORY.md requires an existing general skill: {skill}"
                 )
 
     def _require_prompt_mount(self, link: HomePromptMountLink) -> None:
@@ -765,7 +769,7 @@ class AgentHomeEngine:
             if name.upper().endswith("_MEMORY.MD"):
                 if not (
                     len(parts) == 3
-                    and parts[0] == "how"
+                    and parts[0] == "skills"
                     and parts[2] == "SKILL_MEMORY.md"
                 ):
                     raise AgentHomeInvariantError(
@@ -775,11 +779,14 @@ class AgentHomeEngine:
                     raise AgentHomeInvariantError(
                         f"Runtime-only SKILL_MEMORY has an actual baseline: {relative}"
                     )
-                if self._resolve_top_relative(HomeTopLink("how", parts[1])) is None:
+                if (
+                    self._resolve_top_relative(HomeTopLink("skills", parts[1]))
+                    is None
+                ):
                     raise AgentHomeInvariantError(
-                        f"Runtime SKILL_MEMORY has no general HOW skill: {relative}"
+                        f"Runtime SKILL_MEMORY has no general skill: {relative}"
                     )
-            if parts and parts[0] in {"how_domain", "how_action"}:
+            if parts and parts[0] in {"skills_domain", "skills_action"}:
                 if self._layout.prompt_mount_link_for_relative(relative) is None:
                     raise AgentHomeInvariantError(
                         f"Invalid runtime Home prompt mount path: {relative}"
@@ -793,20 +800,20 @@ class AgentHomeEngine:
     ) -> tuple[HomeSkillMetadata, ...]:
         items = tuple(
             self._skill_metadata_for_link(link)
-            for link in self._effective_how_links()
+            for link in self._effective_skill_links()
             if link not in exclude
         )
         self._validate_skill_catalog_budget(items)
         return items
 
-    def _effective_how_links(self) -> tuple[HomeTopLink, ...]:
+    def _effective_skill_links(self) -> tuple[HomeTopLink, ...]:
         relatives = set(self._layout.actual_top_relatives())
         relatives.update(record.relative_path for record in self._overlay.records())
         links = {
             link
             for relative in relatives
             if (link := self._layout.top_link_for_relative(relative)) is not None
-            and link.space == "how"
+            and link.space == "skills"
             and self._resolve_top_relative(link) is not None
         }
         return tuple(sorted(links, key=str))
@@ -846,7 +853,7 @@ class AgentHomeEngine:
         total = sum(item.catalog_chars for item in items)
         if total > self._skill_catalog_max_chars:
             raise AgentHomeContractError(
-                "General HOW metadata catalog exceeds "
+                "General skill metadata catalog exceeds "
                 f"{self._skill_catalog_max_chars} characters"
             )
 
@@ -951,9 +958,9 @@ def _mutation(link: str, record: HomeOverlayRecord) -> HomeResourceMutation:
 
 def _is_top_entry_resource(link: HomeResourceLink) -> bool:
     path = PurePosixPath(link.relative_path)
-    if link.space in {"agent", "what", "why"} and path.suffix.lower() == ".md":
+    if link.space == "agent" and path.suffix.lower() == ".md":
         return True
-    return link.space == "how" and path.name == "SKILL.md"
+    return link.space == "skills" and path.name == "SKILL.md"
 
 
 def _validated_names(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:

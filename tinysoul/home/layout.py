@@ -35,22 +35,18 @@ class AgentHomeLayout:
     def relative_for_top(self, link: HomeTopLink) -> str:
         if link.space == "agent":
             return f"agent/{link.name}.md"
-        if link.space == "how":
-            _require_single_segment(link.name, label="Home HOW skill name")
-            return f"how/{link.name}/SKILL.md"
-        if link.space == "what":
-            return f"what/{link.name}.md"
-        if link.space == "why":
-            return f"why/{link.name}.md"
+        if link.space == "skills":
+            _require_single_segment(link.name, label="Home skill name")
+            return f"skills/{link.name}/SKILL.md"
         raise AgentHomeInvariantError(f"Unsupported Home top space: {link.space}")
 
     def relative_for_resource(self, link: HomeResourceLink) -> str:
         return f"{link.space}/{link.relative_path}"
 
     def relative_for_prompt_mount(self, link: HomePromptMountLink) -> str:
-        if link.space == "how_domain":
-            return f"how_domain/{link.name}/DOMAIN.md"
-        return f"how_action/{link.name}.md"
+        if link.space == "skills_domain":
+            return f"skills_domain/{link.name}/DOMAIN.md"
+        return f"skills_action/{link.name}.md"
 
     def source_for_relative(self, relative_path: str) -> Path:
         return self._under_content_root(relative_path)
@@ -92,18 +88,8 @@ class AgentHomeLayout:
         if len(parts) >= 2 and parts[0] == "agent":
             name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
             return HomeTopLink("agent", name)
-        if (
-            len(parts) >= 3
-            and parts[0] == "what"
-            and parts[1] in {"entity", "concept"}
-        ):
-            name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
-            return HomeTopLink("what", name)
-        if len(parts) >= 2 and parts[0] == "why":
-            name = _without_markdown_suffix(PurePosixPath(*parts[1:]))
-            return HomeTopLink("why", name)
-        if len(parts) == 3 and parts[0] == "how" and parts[2] == "SKILL.md":
-            return HomeTopLink("how", parts[1])
+        if len(parts) == 3 and parts[0] == "skills" and parts[2] == "SKILL.md":
+            return HomeTopLink("skills", parts[1])
         return None
 
     def prompt_mount_link_for_relative(
@@ -111,11 +97,19 @@ class AgentHomeLayout:
         relative_path: str,
     ) -> HomePromptMountLink | None:
         parts = PurePosixPath(relative_path).parts
-        if len(parts) == 3 and parts[0] == "how_domain" and parts[2] == "DOMAIN.md":
-            return HomePromptMountLink("how_domain", parts[1])
-        if len(parts) == 3 and parts[0] == "how_action" and parts[2].endswith(".md"):
+        if (
+            len(parts) == 3
+            and parts[0] == "skills_domain"
+            and parts[2] == "DOMAIN.md"
+        ):
+            return HomePromptMountLink("skills_domain", parts[1])
+        if (
+            len(parts) == 3
+            and parts[0] == "skills_action"
+            and parts[2].endswith(".md")
+        ):
             return HomePromptMountLink(
-                "how_action",
+                "skills_action",
                 f"{parts[1]}/{PurePosixPath(parts[2]).stem}",
             )
         return None
@@ -130,8 +124,8 @@ class AgentHomeLayout:
         parts = PurePosixPath(relative_path).parts
         if len(parts) < 2 or parts[0] in {
             ".tinysoul",
-            "how_domain",
-            "how_action",
+            "skills_domain",
+            "skills_action",
         }:
             return None
         return HomeResourceLink(parts[0], PurePosixPath(*parts[1:]).as_posix())

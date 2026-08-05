@@ -40,7 +40,7 @@ Workspace 不负责：
 
 - 把文件正文写入 BackgroundContext、WorkingContext 或 Session record；
 - 决定 Phase1/Phase2 的行动策略；
-- 维护 Agent Home 的 WHAT/WHY/HOW 或 Memory 模块的 MEMORY；
+- 维护 Agent Home 的 skills 或 Memory 模块的 MEMORY；
 - 解析终端、HTTP、WebSocket 等外部输入；
 - 直接修改 Context 内存状态。
 

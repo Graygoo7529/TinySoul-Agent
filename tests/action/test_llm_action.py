@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tinysoul.action.backends.llm_action import (
-    ActionHow,
+    ActionSkillGuidance,
     LLMActionTaskRunner,
     parse_llm_action_options,
 )
@@ -127,11 +127,11 @@ class TestReferenceResolver:
         )
 
 
-class TestActionHowProvider:
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
+class TestActionSkillProvider:
+    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         assert domain == "core"
         assert action_name == "core.reason"
-        return ActionHow(
+        return ActionSkillGuidance(
             domain=("Use the core domain style.",),
             action=("Use the project rewrite style.",),
         )
@@ -322,7 +322,7 @@ def test_llm_action_preserves_failure_returned_after_completion_reserve() -> Non
     assert len(llm.calls) == 1
 
 
-def test_llm_action_injects_domain_and_action_how_as_guide_blocks() -> None:
+def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -330,7 +330,7 @@ def test_llm_action_injects_domain_and_action_how_as_guide_blocks() -> None:
         llm_action=LLMActionTaskRunner(
             llm_runner=llm,
             context=context,
-            action_how=TestActionHowProvider(),
+            action_skills=TestActionSkillProvider(),
         ),
     )
     execution = _execution(
@@ -345,13 +345,13 @@ def test_llm_action_injects_domain_and_action_how_as_guide_blocks() -> None:
 
     assert result.status is ActionResultStatus.SUCCESS
     labels = tuple(message.label for message in llm.calls[0].messages.messages)
-    assert "task_prompt:guide:domain_how:1" in labels
-    assert "task_prompt:guide:action_how:1" in labels
-    domain_text = _text_for_label(llm.calls[0], "task_prompt:guide:domain_how:1")
-    action_text = _text_for_label(llm.calls[0], "task_prompt:guide:action_how:1")
-    assert "# Domain HOW" in domain_text
+    assert "task_prompt:guide:domain_skill:1" in labels
+    assert "task_prompt:guide:action_skill:1" in labels
+    domain_text = _text_for_label(llm.calls[0], "task_prompt:guide:domain_skill:1")
+    action_text = _text_for_label(llm.calls[0], "task_prompt:guide:action_skill:1")
+    assert "# Domain Skill" in domain_text
     assert "Use the core domain style." in domain_text
-    assert "# Action HOW" in action_text
+    assert "# Action Skill" in action_text
     assert "Use the project rewrite style." in action_text
 
 
@@ -396,7 +396,7 @@ def test_llm_action_context_pressure_carries_active_resource_links() -> None:
         "core.reason",
         {
             "target_link": "workspace:target.md",
-            "reference_links": ["workspace:reference.md", "home:why/example"],
+            "reference_links": ["workspace:reference.md", "home:skills/example"],
         },
     )
 
@@ -413,7 +413,7 @@ def test_llm_action_context_pressure_carries_active_resource_links() -> None:
     assert exc_info.value.payload["protected_resource_links"] == [
         "workspace:target.md",
         "workspace:reference.md",
-        "home:why/example",
+        "home:skills/example",
     ]
 
 

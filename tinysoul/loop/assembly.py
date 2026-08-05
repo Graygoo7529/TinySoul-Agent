@@ -28,7 +28,7 @@ from .phases import (
     TurnCompletionDetector,
 )
 from .preparation import TurnPreparationPipeline
-from .prompts import DomainHowProvider, EmptyDomainHowProvider
+from .prompts import DomainSkillProvider, EmptyDomainSkillProvider
 from .turn import TurnActivityController, TurnRunner
 
 
@@ -46,7 +46,7 @@ def build_turn_kernel(
     preparation_pipeline: TurnPreparationPipeline | None = None,
     completion_pipeline: TurnCompletionPipeline | None = None,
     completion_to_output: Callable[[JsonObject | None], TurnOutput | None] | None = None,
-    domain_how: DomainHowProvider | None = None,
+    domain_skills: DomainSkillProvider | None = None,
     activity_controller: TurnActivityController | None = None,
     observations: ObservationEmitter | None = None,
 ) -> TurnRunner:
@@ -78,7 +78,7 @@ def build_turn_kernel(
         llm=llm,
         bus=bus,
         retry_limit=phase_retry_limit,
-        domain_how=domain_how or EmptyDomainHowProvider(),
+        domain_skills=domain_skills or EmptyDomainSkillProvider(),
         signal_consumer=signal_consumer,
         observations=emitter,
         turn_guidance=turn_guidance,

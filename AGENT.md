@@ -20,7 +20,7 @@
 
 模型轮/LLM Call/LLM Task：一次独立模型调用。其输入是上层已经构造好的 MessageStack、当前 TaskPrompt、模型侧工具作用域和输出约束；LLM 模块负责模型选择、供应商适配、重试与结果解释，不负责业务状态变更或实际工具执行。
 
-任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载 domain HOW；Action 内部的 LLM Task 可同时挂载 domain HOW 与 action HOW。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
+任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载领域 Skill；Action 内部的 LLM Task 可同时挂载领域 Skill 与动作 Skill。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
 
 行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛为成功、失败或超时。需要跨 Cycle 监督的外部任务可以保留 Turn-scoped job，但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
 
@@ -46,15 +46,15 @@
 
 链接/Link：跨模块传递的稳定资源身份，不是可由任意模块拼接的物理路径。Link 由所属 owner 解析、校验和映射，主要分为五类：
 
-- `home:<space>@<logical-path>` 表示可进入 Background 的 Home 顶层知识；`agent` 存放身份规约与用户偏好，`what` 存放实体和概念，`why` 存放原因与解释，`how` 存放通用技能。
+- `home:<space>@<logical-path>` 表示可进入 Background 的 Home 顶层内容；`agent` 存放身份规约与用户偏好，`skills` 存放通用技能。
 - `home:<space>/<resource-path>` 表示只能由 Action 渐进读取或使用的 Home 资源，保留真实扩展名。
 - `memory:YYYY-MM-DD` 表示一日长期记忆；`<memory:YYYY-MM-DD>` 表示需要按需召回的引用，不表示正文内联。
 - `workspace:<relative-path>` 表示当日工作区资源句柄。
-- `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>` 表示局部自动 prompt mount，只进入对应 Phase 或 Action 内部任务，不作为普通 Background 或资源读取入口。
+- `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>` 表示局部自动 prompt mount，只进入对应 Phase 或 Action 内部任务，不作为普通 Background 或资源读取入口。
 
 工作区/Workspace：当前 Business Day 的可操作资源空间。磁盘文件是内容事实，manifest 是资源索引和摘要，WorkingContext 只接收同一状态的 Link/summary 投影。文件正文通常不进入 Context；显式有界读取可作为当前交互结果，LLM 辅助的资源操作则在 Action 内部按 `target_link` 和 `reference_links` 局部读取，并在提交前复验来源版本。
 
-Agent Home：Agent 的持久身份规约、用户偏好、WHAT、WHY、HOW 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层知识可进入 Background，渐进资源只通过 Action 使用，domain/action HOW 只在对应任务局部挂载。
+Agent Home：Agent 的持久身份规约、用户偏好、通用 Skill 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层内容可进入 Background，渐进资源只通过 Action 使用，领域/动作 Skill 只在对应任务局部挂载。
 
 长期记忆/Memory：与 Home 平级的日期记忆，每个已提炼 Business Day 对应一份自由结构 Markdown，并以 `memory:YYYY-MM-DD` 标识。普通 User Turn 对 Memory 只读：精确昨日记忆存在时可自动进入 Background，缺失时不回退；其它日期通过 search/recall 按需进入 TurnTrace。Memory Maintenance 从已关闭日期的 Session facts 生成或明确重建单日文档。
 
@@ -100,7 +100,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - `context` 只拥有当前 Turn 的 User Inputs、Background、TurnTrace 和 Working，并按固定顺序构造 MessageStack。Home、Memory、Session、Workspace 通过明确投影提供内容，不能反向拥有整个 Context。
 - `session` 只保存当日已完成 Turn 的不可变业务事实，并从同一事实图派生历史 Background、渐进检查和 Memory facts；它不是通用日志或前端审计库。
 - `workspace` 是 `workspace:` 资源链接和当日工作区的唯一 owner，负责磁盘事实、manifest、版本一致性、文件变更、Trash 和归档投影。Context 只接收链接和摘要，文件正文只能在明确、有界的 Action 执行期读取。
-- `home` 是 `home:` 内容和 HOW 的唯一 owner。actual Home 在普通运行中只读，User Turn 的改动写入跨日 runtime overlay；Home Maintenance 才能把审核后的变更提交回 actual Home。长期日期记忆不属于 Home。
+- `home` 是 `home:` 内容和 Skill 的唯一 owner。actual Home 在普通运行中只读，User Turn 的改动写入跨日 runtime overlay；Home Maintenance 才能把审核后的变更提交回 actual Home。长期日期记忆不属于 Home。
 - `memory` 是 `memory:YYYY-MM-DD` 日期记忆的唯一 owner。普通 User Turn 只读，昨日记忆可作为 Background，其余日期按需召回；Memory Maintenance 对单日文档执行原子完整写入。
 - `maintenance` 拥有业务时钟、确定性日切、归档以及 Home/Memory 维护任务的编排。Archive、Home、Memory 的私有存储仍由各自 owner 解释，维护任务之间不互读私有实现。
 - `capabilities` 只承载无独立持久化和生命周期的具体能力，通过 Action 注册自身服务和执行器；不得另建与 Workspace、Home、Memory 或 Session 平行的状态模块。
@@ -110,7 +110,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 
 - Phase1 只确定行动域并处理语境控制意图，Phase2 在已选域内生成 ActionCall，Phase3 执行 ActionBatch；每个调用都应归一化为可记录、可反馈的结果。
 - Context 的 Background、TurnTrace、Working 和 task prompt 是不同语义层：Background 提供可复用背景，Trace 记录本轮行为，Working 表达当前工作状态，task prompt 只服务当前 LLM Task。资源正文不因存在链接而自动进入 Context。
-- Link 是跨模块资源身份，不是物理路径拼接约定。`home:`、`memory:`、`workspace:` 各自由 owner 解析；顶层知识、渐进资源、工作区资源和局部 HOW mount 不得混用。
+- Link 是跨模块资源身份，不是物理路径拼接约定。`home:`、`memory:`、`workspace:` 各自由 owner 解析；顶层内容、渐进资源、工作区资源和局部 Skill mount 不得混用。
 - Session、Workspace、Home overlay 和 Memory 文档的写入都必须在 owner 的一致性边界完成，使用校验、reconcile、CAS 或原子替换保证不会产生半提交状态。LLM 生成期间读取的资源集合必须在提交时复验。
 - User Turn 与 Maintenance Turn 都在完整情景中运行；Maintenance 是自治的 Program work，不等待人工审批，不把维护状态塞入 User Session，也不让维护请求绕过 Program 队列。
 

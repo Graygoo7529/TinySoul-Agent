@@ -29,28 +29,28 @@ def test_background_load_evict_and_render() -> None:
     background = BackgroundContext(journal="today so far")
     background.load(
         BackgroundEntry(
-            link="home:what@concept/tinysoul",
+            link="home:skills@tinysoul",
             content="TinySoul is an agent.",
         )
     )
-    assert background.has("home:what@concept/tinysoul")
+    assert background.has("home:skills@tinysoul")
     messages = background.render_messages()
     assert isinstance(messages[0], UserMessage)
     assert messages[0].label == "background:journal"
-    assert messages[1].label == "background:home:what@concept/tinysoul"
+    assert messages[1].label == "background:home:skills@tinysoul"
 
-    background.evict("home:what@concept/tinysoul")
-    assert not background.has("home:what@concept/tinysoul")
+    background.evict("home:skills@tinysoul")
+    assert not background.has("home:skills@tinysoul")
     with pytest.raises(ContextContractError):
-        background.evict("home:what@concept/tinysoul")
+        background.evict("home:skills@tinysoul")
 
 
 def test_background_load_replaces_same_link() -> None:
     background = BackgroundContext()
-    background.load(BackgroundEntry(link="home:why@q", content="old"))
+    background.load(BackgroundEntry(link="home:skills@q", content="old"))
     background.load(
         BackgroundEntry(
-            link="home:why@q",
+            link="home:skills@q",
             content="new",
             source=BackgroundSource.PHASE1,
         )
@@ -65,12 +65,12 @@ def test_background_patch_sequence_validates_projected_loaded_links() -> None:
     background = BackgroundContext()
     problems = background.check_patch_sequence(
         (
-            BackgroundPatch(load_links=("home:what@concept/x",)),
-            BackgroundPatch(evict_links=("home:what@concept/x",)),
-            BackgroundPatch(evict_links=("home:what@concept/x",)),
+            BackgroundPatch(load_links=("home:skills@x",)),
+            BackgroundPatch(evict_links=("home:skills@x",)),
+            BackgroundPatch(evict_links=("home:skills@x",)),
         ),
-        loadable_links=("home:what@concept/x",),
-        evictable_links=("home:what@concept/x",),
+        loadable_links=("home:skills@x",),
+        evictable_links=("home:skills@x",),
     )
 
     assert problems[0] == ""
@@ -82,11 +82,11 @@ def test_background_patch_rejects_load_evict_conflict() -> None:
     background = BackgroundContext()
     problem = background.check_patch(
         BackgroundPatch(
-            load_links=("home:what@concept/x",),
-            evict_links=("home:what@concept/x",),
+            load_links=("home:skills@x",),
+            evict_links=("home:skills@x",),
         ),
-        loadable_links=("home:what@concept/x",),
-        evictable_links=("home:what@concept/x",),
+        loadable_links=("home:skills@x",),
+        evictable_links=("home:skills@x",),
     )
 
     assert "cannot load and evict" in problem
@@ -96,10 +96,10 @@ def test_background_patch_rejects_duplicate_links() -> None:
     background = BackgroundContext()
     problem = background.check_patch(
         BackgroundPatch(
-            load_links=("home:what@concept/x", "home:what@concept/x")
+            load_links=("home:skills@x", "home:skills@x")
         ),
-        loadable_links=("home:what@concept/x",),
-        evictable_links=("home:what@concept/x",),
+        loadable_links=("home:skills@x",),
+        evictable_links=("home:skills@x",),
     )
 
     assert "duplicate load link" in problem

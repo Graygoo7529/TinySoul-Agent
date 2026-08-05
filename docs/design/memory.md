@@ -10,7 +10,7 @@ Memory 是 TinySoul 的长期日期记忆模块。它将指定 Business Day 的 
 
 Memory 与 Agent Home 平级：
 
-- Agent Home 拥有当前有效的身份规约、用户偏好、WHAT、WHY 和 HOW；
+- Agent Home 拥有当前有效的身份规约、用户偏好和 skills；
 - Memory 拥有按日期组织的长期经历记录；
 - Session 拥有当日跨 Turn 事实与已归档的不可变 Turn 图；
 - Context 拥有 Turn 内 Background 和 TurnTrace；

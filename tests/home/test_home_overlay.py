@@ -45,11 +45,11 @@ def test_legacy_home_memory_path_and_link_are_rejected(tmp_path: Path) -> None:
 def test_home_overlay_mutations_survive_restart_without_touching_original(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "home" / "how" / "refactor" / "references" / "check.md"
+    source = tmp_path / "home" / "skills" / "refactor" / "references" / "check.md"
     source.parent.mkdir(parents=True)
     source.write_text("before", encoding="utf-8")
     home = _home(tmp_path)
-    link = "home:how/refactor/references/check.md"
+    link = "home:skills/refactor/references/check.md"
 
     with pytest.raises(AgentHomeRuntimeCopyRequired):
         home.read_resource(link)
@@ -62,7 +62,7 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
         expected_digest=copied.digest,
     )
     created = home.write_resource(
-        "home:how/refactor/references/new.md",
+        "home:skills/refactor/references/new.md",
         "new resource",
     )
 
@@ -73,7 +73,7 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
     restarted = _home(tmp_path)
     assert restarted.read_resource(link).text == "after"
     assert restarted.read_resource(
-        "home:how/refactor/references/new.md"
+        "home:skills/refactor/references/new.md"
     ).text == "new resource"
 
     deleted = restarted.delete_resource(
@@ -95,8 +95,8 @@ def test_home_overlay_mutations_survive_restart_without_touching_original(
         ).read_text(encoding="utf-8")
     )
     records = {item["relative_path"]: item for item in manifest["records"]}
-    assert records["how/refactor/references/check.md"]["state"] == "deleted"
-    assert records["how/refactor/references/new.md"]["mtime_ns"] > 0
+    assert records["skills/refactor/references/check.md"]["state"] == "deleted"
+    assert records["skills/refactor/references/new.md"]["mtime_ns"] > 0
 
 
 def test_runtime_only_top_is_catalogued_across_restart_and_tombstone_hides_it(
@@ -105,57 +105,57 @@ def test_runtime_only_top_is_catalogued_across_restart_and_tombstone_hides_it(
     home = _home(tmp_path)
 
     created = home.write_top(
-        "home:what@entity/tiny_soul",
+        "home:agent@entity/tiny_soul",
         "runtime entity",
     )
 
     assert created.state is HomeOverlayState.CREATED
-    assert "home:what@entity/tiny_soul" in home.loadable_background_links()
-    assert home.read_top("home:what@entity/tiny_soul") == "runtime entity"
+    assert "home:agent@entity/tiny_soul" in home.loadable_background_links()
+    assert home.read_top("home:agent@entity/tiny_soul") == "runtime entity"
     assert not (
-        tmp_path / "home" / "what" / "entity" / "tiny_soul.md"
+        tmp_path / "home" / "agent" / "entity" / "tiny_soul.md"
     ).exists()
 
     restarted = _home(tmp_path)
-    assert "home:what@entity/tiny_soul" in restarted.loadable_background_links()
-    deleted = restarted.delete_top("home:what@entity/tiny_soul")
+    assert "home:agent@entity/tiny_soul" in restarted.loadable_background_links()
+    deleted = restarted.delete_top("home:agent@entity/tiny_soul")
 
     assert deleted.state is HomeOverlayState.DELETED
-    assert "home:what@entity/tiny_soul" not in restarted.loadable_background_links()
+    assert "home:agent@entity/tiny_soul" not in restarted.loadable_background_links()
     with pytest.raises(AgentHomeContractError, match="does not exist"):
-        restarted.read_top("home:what@entity/tiny_soul")
+        restarted.read_top("home:agent@entity/tiny_soul")
 
 
 def test_top_tombstone_hides_actual_without_modifying_it(tmp_path: Path) -> None:
-    source = tmp_path / "home" / "why" / "obsolete.md"
+    source = tmp_path / "home" / "agent" / "obsolete.md"
     source.parent.mkdir(parents=True)
     source.write_text("actual reason", encoding="utf-8")
     home = _home(tmp_path)
 
-    deleted = home.delete_top("home:why@obsolete")
+    deleted = home.delete_top("home:agent@obsolete")
 
     assert deleted.state is HomeOverlayState.DELETED
     assert source.read_text(encoding="utf-8") == "actual reason"
-    assert "home:why@obsolete" not in home.loadable_background_links()
+    assert "home:agent@obsolete" not in home.loadable_background_links()
 
 
 def test_materialized_top_remains_effective_when_actual_changes_externally(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "home" / "why" / "stable.md"
+    source = tmp_path / "home" / "agent" / "stable.md"
     source.parent.mkdir(parents=True)
     source.write_text("baseline", encoding="utf-8")
     home = _home(tmp_path)
-    link = home.parse_link("home:why@stable")
+    link = home.parse_link("home:agent@stable")
     assert home.ensure_runtime_copy(link) is True
 
     source.write_text("external change", encoding="utf-8")
 
-    assert home.read_top("home:why@stable") == "baseline"
-    assert "home:why@stable" in home.loadable_background_links()
+    assert home.read_top("home:agent@stable") == "baseline"
+    assert "home:agent@stable" in home.loadable_background_links()
 
 
-def test_top_mutation_enforces_what_classification_core_and_link_rules(
+def test_top_mutation_enforces_current_namespaces_core_and_link_rules(
     tmp_path: Path,
 ) -> None:
     core = tmp_path / "home" / "agent" / "AGENT.md"
@@ -163,10 +163,12 @@ def test_top_mutation_enforces_what_classification_core_and_link_rules(
     core.write_text("core before", encoding="utf-8")
     home = _home(tmp_path)
 
-    with pytest.raises(AgentHomeContractError, match="entity/<name>"):
+    with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
         home.write_top("home:what@missing_kind", "value")
-    with pytest.raises(AgentHomeContractError, match="entity/<name>"):
-        home.write_top("home:what@event/invalid_kind", "value")
+    with pytest.raises(AgentHomeContractError, match="Unsupported Home"):
+        home.write_top("home:why@old_reason", "value")
+    with pytest.raises(AgentHomeContractError, match="one skill name segment"):
+        home.write_top("home:skills@nested/invalid", _SKILL_TEXT)
 
     patched = home.patch_top(
         "home:agent@AGENT",
@@ -182,25 +184,25 @@ def test_top_mutation_enforces_what_classification_core_and_link_rules(
         home.write_top("home:memory@2026-07-11", "changed", overwrite=True)
 
 
-def test_what_classification_is_part_of_the_canonical_link(tmp_path: Path) -> None:
-    entity = tmp_path / "home" / "what" / "entity" / "duplicate.md"
-    concept = tmp_path / "home" / "what" / "concept" / "duplicate.md"
-    entity.parent.mkdir(parents=True)
-    concept.parent.mkdir(parents=True)
-    entity.write_text("entity", encoding="utf-8")
-    concept.write_text("concept", encoding="utf-8")
+def test_agent_and_skill_top_namespaces_have_distinct_identities(tmp_path: Path) -> None:
+    agent = tmp_path / "home" / "agent" / "duplicate.md"
+    skill = tmp_path / "home" / "skills" / "duplicate" / "SKILL.md"
+    agent.parent.mkdir(parents=True)
+    skill.parent.mkdir(parents=True)
+    agent.write_text("agent", encoding="utf-8")
+    skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
 
     assert home.loadable_background_links() == (
-        "home:what@concept/duplicate",
-        "home:what@entity/duplicate",
+        "home:agent@duplicate",
+        "home:skills@duplicate",
     )
 
 
 def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
     tmp_path: Path,
 ) -> None:
-    actual = tmp_path / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+    actual = tmp_path / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
     actual.parent.mkdir(parents=True)
     actual.write_text("actual guidance", encoding="utf-8")
     home = _home(tmp_path)
@@ -209,16 +211,16 @@ def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
         actions=(("workspace", "workspace.rewrite"),),
     )
     assert home.ensure_runtime_copy(
-        home.parse_link("home:how_domain:workspace")
+        home.parse_link("home:skills_domain:workspace")
     ) is True
 
     assert home.guidance_for_action("workspace", "workspace.rewrite") is None
     written = home.write_prompt_mount(
-        "home:how_action:workspace/rewrite",
+        "home:skills_action:workspace/rewrite",
         "runtime action guidance",
     )
     patched = home.patch_prompt_mount(
-        "home:how_action:workspace/rewrite",
+        "home:skills_action:workspace/rewrite",
         old_text="runtime action",
         new_text="updated action",
     )
@@ -231,7 +233,7 @@ def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
     assert home.guidance_for_domain("workspace") == "actual guidance"
     assert actual.read_text(encoding="utf-8") == "actual guidance"
     with pytest.raises(AgentHomeContractError, match="not defined"):
-        home.write_prompt_mount("home:how_domain:session", "invalid")
+        home.write_prompt_mount("home:skills_domain:session", "invalid")
 
     home.reconcile_prompt_mounts(domains=(), actions=())
     assert actual.read_text(encoding="utf-8") == "actual guidance"
@@ -248,37 +250,37 @@ def test_prompt_mounts_follow_action_catalog_and_mutate_only_runtime(
 def test_skill_memory_exists_only_in_general_how_runtime_package(
     tmp_path: Path,
 ) -> None:
-    skill = tmp_path / "home" / "how" / "refactor" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "refactor" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = _home(tmp_path)
 
     created = home.write_resource(
-        "home:how/refactor/SKILL_MEMORY.md",
+        "home:skills/refactor/SKILL_MEMORY.md",
         "temporary feedback",
     )
 
     assert created.state is HomeOverlayState.CREATED
-    assert home.read_resource("home:how/refactor/SKILL_MEMORY.md").text == (
+    assert home.read_resource("home:skills/refactor/SKILL_MEMORY.md").text == (
         "temporary feedback"
     )
     assert not (skill.parent / "SKILL_MEMORY.md").exists()
     restarted = _home(tmp_path)
-    assert restarted.read_resource("home:how/refactor/SKILL_MEMORY.md").text == (
+    assert restarted.read_resource("home:skills/refactor/SKILL_MEMORY.md").text == (
         "temporary feedback"
     )
 
     for link in (
-        "home:how/missing/SKILL_MEMORY.md",
-        "home:how/refactor/DOMAIN_MEMORY.md",
-        "home:why/SKILL_MEMORY.md",
+        "home:skills/missing/SKILL_MEMORY.md",
+        "home:skills/refactor/DOMAIN_MEMORY.md",
+        "home:agent/SKILL_MEMORY.md",
     ):
         with pytest.raises(AgentHomeContractError):
             home.write_resource(link, "invalid")
 
 
 def test_actual_home_rejects_runtime_only_skill_memory(tmp_path: Path) -> None:
-    invalid = tmp_path / "home" / "how" / "refactor" / "SKILL_MEMORY.md"
+    invalid = tmp_path / "home" / "skills" / "refactor" / "SKILL_MEMORY.md"
     invalid.parent.mkdir(parents=True)
     invalid.write_text("invalid actual memory", encoding="utf-8")
 
@@ -346,7 +348,7 @@ def test_home_builder_migrates_day_bound_manifest_to_cross_day_schema(
     (
         "home:what/entity.md",
         "home:why/QA_rule.md",
-        "home:how/refactor/SKILL.md",
+        "home:skills/refactor/SKILL.md",
         "home:memory/old.md",
     ),
 )
@@ -383,19 +385,19 @@ def test_home_operation_recovers_file_replaced_before_manifest_commit(
 
     with pytest.raises(AgentHomeIOError, match="injected"):
         manager.write(
-            "how/refactor/references/recovered.md",
+            "skills/refactor/references/recovered.md",
             "recover me",
             overwrite=False,
             expected_digest="",
         )
 
-    target = runtime / "how" / "refactor" / "references" / "recovered.md"
+    target = runtime / "skills" / "refactor" / "references" / "recovered.md"
     assert target.read_text(encoding="utf-8") == "recover me"
     assert tuple((runtime / ".tinysoul" / "operations").iterdir())
 
     recovered = HomeOverlayManager(original_root=original, runtime_root=runtime)
     manifest = recovered.initialize()
-    effective = recovered.effective("how/refactor/references/recovered.md")
+    effective = recovered.effective("skills/refactor/references/recovered.md")
 
     assert effective is not None
     assert effective.state is HomeOverlayState.CREATED
@@ -413,7 +415,7 @@ def test_home_patch_enforces_complete_resource_write_limit(tmp_path: Path) -> No
             max_write_chars=8,
         )
     ).build()
-    link = "home:how/refactor/references/limited.md"
+    link = "home:skills/refactor/references/limited.md"
     home.write_resource(link, "before")
 
     with pytest.raises(AgentHomeContractError, match="exceeds"):

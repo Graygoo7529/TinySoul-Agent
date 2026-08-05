@@ -11,13 +11,13 @@ Web domain 当前暴露四个独立 action：
 3. `web.fetch_with_defuddle`：优先使用本机 Defuddle CLI 提取已知网页；
 4. `web.fetch_with_trafilatura`：使用 wheel 基础依赖 Trafilatura 的网页提取 fallback。
 
-两个 fetch action 行为相同但 adapter 的安装方式、提取质量和失败模式不同，因此保留可显式选择的 action，并由 domain HOW 引导优先顺序。它们不会在一次 action 内自动串联或触发新的 Agent cycle。
+两个 fetch action 行为相同但 adapter 的安装方式、提取质量和失败模式不同，因此保留可显式选择的 action，并由 domain skill 引导优先顺序。它们不会在一次 action 内自动串联或触发新的 Agent cycle。
 
 ## Kimi Search 边界
 
 Kimi Search 是 Web capability-owned provider 封装，不是 TinySoul LLM task：
 
-- 不读取 Context、MessageStack、Home HOW 或 `[llm]` provider 配置；
+- 不读取 Context、MessageStack、Home skill 或 `[llm]` provider 配置；
 - 独立读取 `[capabilities.web.search_by_kimi]` 和其声明的 `KIMI_SEARCH_API_KEY` 环境变量；
 - 在固定 subprocess worker 内执行 Kimi `$web_search` builtin-function loop；worker 先把 SDK message 转为动态 JSON，再按 Kimi 协议解释 builtin call，不依赖 OpenAI SDK 面向普通 function 的静态 tool-call 类型；
 - worker 只接收 query、provider endpoint/model 和各项上限，最终把供应商输出校验为 `{answer, results[]}`；
@@ -35,7 +35,7 @@ Kimi Search 的 capability-owned 执行契约固定为非思考搜索，默认�
 
 Web Action 把稳定 failure reason 映射为 capability-owned 模型恢复方向，并在失败或 timeout 的模型可见 payload 中固定返回 `{failure: {reason, disposition}}`。`disposition` 使用 Web 自有 `StrEnum`，只包含 `retry_same`、`change_request`、`use_fallback` 和 `stop`。HTTP 状态和 provider error type 等有界 facts 只用于本地分类与 trace 诊断，不复制进模型 payload。只有明确的暂时网络/DNS、HTTP 408/425/429/5xx 和已知瞬时 provider error 才是 `retry_same`；参数、URL、安全范围和资源上限问题是 `change_request`；provider/extractor 协议和可替代处理失败是 `use_fallback`；凭据、依赖、worker/Workspace 环境失败及未知原因保守为 `stop`。
 
-该协议不实现自动重试、不保存 provider health、不改变 ActionResult 通用类型，也不强制 Loop 转移。Web domain HOW 负责解释模型应如何消费 disposition：原样重试仅允许一次有界瞬时恢复；`change_request` 必须实质修改调用；`use_fallback` 不得重复同一调用；`stop` 在当前 Turn 停止使用受影响能力。已有证据足够时应继续用户目标，而不是为了尝试其它 Web action 继续扩展检索。
+该协议不实现自动重试、不保存 provider health、不改变 ActionResult 通用类型，也不强制 Loop 转移。Web domain skill 负责解释模型应如何消费 disposition：原样重试仅允许一次有界瞬时恢复；`change_request` 必须实质修改调用；`use_fallback` 不得重复同一调用；`stop` 在当前 Turn 停止使用受影响能力。已有证据足够时应继续用户目标，而不是为了尝试其它 Web action 继续扩展检索。
 
 ## Page Discovery 边界
 

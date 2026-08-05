@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from tinysoul.llm.message_rendering import (
     MessageContentRenderer,

@@ -14,7 +14,7 @@ type = "string"
 description = "Current review token returned by maintenance.home.list."
 
 [semantic]
-use_when = ["The runtime change should be discarded or the reviewed HOW needs no update"]
+use_when = ["The runtime change should be discarded or the reviewed skill needs no update"]
 avoid_when = ["The token is stale or the review has not been inspected"]
 effects = ["modifying"]
 

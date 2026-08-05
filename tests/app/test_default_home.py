@@ -19,8 +19,8 @@ from tinysoul.home import (
     AgentHomeEngineBuilder,
     AgentHomeSettings,
     HomeBackgroundEntryProvider,
-    HomeActionHowProvider,
-    HomeDomainHowProvider,
+    HomeActionSkillProvider,
+    HomeDomainSkillProvider,
     HomeResourceLink,
     HomeTopLink,
 )
@@ -36,11 +36,7 @@ _EXPECTED_TOP_LINKS = {
     "home:agent@identity/identity",
     "home:agent@identity/soul",
     "home:agent@user/user",
-    "home:how@tinysoul-docs",
-    "home:what@concept/context-and-links",
-    "home:what@concept/daily-lifecycle",
-    "home:what@entity/tiny-soul",
-    "home:why@why-is-updating-home-important",
+    "home:skills@tinysoul-docs",
 }
 
 
@@ -55,7 +51,7 @@ def test_packaged_default_home_is_valid_in_an_isolated_project(
         for item in home.skill_metadata()
     ] == [
         (
-            "home:how@tinysoul-docs",
+            "home:skills@tinysoul-docs",
             "TinySoul Documentation",
             "Navigate TinySoul Context and Link semantics and load the right "
             "top-level knowledge or progressive resource for the current task.",
@@ -68,13 +64,9 @@ def test_packaged_default_home_is_valid_in_an_isolated_project(
         top_k=10,
     )
 
-    assert {
-        "home:how@tinysoul-docs",
-        "home:what@concept/context-and-links",
-        "home:what@concept/daily-lifecycle",
-        "home:what@entity/tiny-soul",
-        "home:why@why-is-updating-home-important",
-    }.issubset({item.link for item in result.items})
+    assert {item.link for item in result.items} == {
+        "home:skills@tinysoul-docs"
+    }
 
 
 def test_packaged_default_home_exposes_only_context_visible_load_targets(
@@ -95,13 +87,10 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     )
     assert catalog.evictable_default_links == ()
     assert [(item.link, item.title) for item in catalog.items] == [
-        ("home:how@tinysoul-docs", "TinySoul Documentation")
+        ("home:skills@tinysoul-docs", "TinySoul Documentation")
     ]
 
-    targets = (
-        "home:what@entity/tiny-soul",
-        "home:why@why-is-updating-home-important",
-    )
+    targets = ("home:skills@tinysoul-docs",)
     for link in (*catalog.default_links, *targets):
         home.ensure_runtime_copy(HomeTopLink.parse(link))
 
@@ -130,8 +119,7 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
     assert "background:home:agent@context/turn-trace" in initial_labels
     assert "background:home:agent@context/working" in initial_labels
     assert "background:home:agent@user/user" in initial_labels
-    assert "background:home:what@entity/tiny-soul" not in initial_labels
-    assert "background:home:why@why-is-updating-home-important" not in initial_labels
+    assert "background:home:skills@tinysoul-docs" not in initial_labels
     assert CONTROL_EVICT_BACKGROUND not in {
         tool.name for tool in context.control_scope().tools
     }
@@ -169,17 +157,17 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     assert "authoritative successful mutation or apply ActionResult" in core
 
     for domain in ("web", "execution", "workspace"):
-        home.ensure_runtime_copy(home.parse_link(f"home:how_domain:{domain}"))
+        home.ensure_runtime_copy(home.parse_link(f"home:skills_domain:{domain}"))
     home.ensure_runtime_copy(
-        home.parse_link("home:how_action:workspace/rewrite")
+        home.parse_link("home:skills_action:workspace/rewrite")
     )
-    home.ensure_runtime_copy(home.parse_link("home:how_action:workspace/write"))
-    domain_guidance = HomeDomainHowProvider(home).guidance_for(("web", "execution"))
-    action_guidance = HomeActionHowProvider(home).guidance_for(
+    home.ensure_runtime_copy(home.parse_link("home:skills_action:workspace/write"))
+    domain_guidance = HomeDomainSkillProvider(home).guidance_for(("web", "execution"))
+    action_guidance = HomeActionSkillProvider(home).guidance_for(
         domain="workspace",
         action_name="workspace.rewrite",
     )
-    write_guidance = HomeActionHowProvider(home).guidance_for(
+    write_guidance = HomeActionSkillProvider(home).guidance_for(
         domain="workspace",
         action_name="workspace.write",
     )

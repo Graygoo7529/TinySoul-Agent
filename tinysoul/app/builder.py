@@ -33,7 +33,7 @@ from tinysoul.llm.task import LLMTaskRunner
 from tinysoul.loop.config import LoopSettings, parse_loop_settings
 from tinysoul.loop.completion import TurnCompletionHandler
 from tinysoul.loop.phases import LLMRunner
-from tinysoul.loop.prompts import DomainHowProvider
+from tinysoul.loop.prompts import DomainSkillProvider
 from tinysoul.loop.user import UserTurnBuilder
 from tinysoul.maintenance import (
     BusinessClock,
@@ -100,7 +100,7 @@ class TinySoulAppBuilder:
         self._memory: MemoryEngine | None = None
         self._business_clock: BusinessClock | None = None
         self._bus: SignalBus | None = None
-        self._user_domain_how: DomainHowProvider | None = None
+        self._user_domain_skills: DomainSkillProvider | None = None
         self._input_parser: InputCommandParser | None = None
         self._input_sources: list[InputSource] = []
         self._user_turn_completion_handlers: list[TurnCompletionHandler] = []
@@ -161,11 +161,11 @@ class TinySoulAppBuilder:
         self._bus = bus
         return self
 
-    def with_user_domain_how(
+    def with_user_domain_skills(
         self,
-        domain_how: DomainHowProvider,
+        domain_skills: DomainSkillProvider,
     ) -> "TinySoulAppBuilder":
-        self._user_domain_how = domain_how
+        self._user_domain_skills = domain_skills
         return self
 
     def with_input_parser(self, parser: InputCommandParser) -> "TinySoulAppBuilder":
@@ -360,8 +360,8 @@ class TinySoulAppBuilder:
                 user_builder.with_context(self._user_context)
             if self._user_action is not None:
                 user_builder.with_action(self._user_action)
-            if self._user_domain_how is not None:
-                user_builder.with_domain_how(self._user_domain_how)
+            if self._user_domain_skills is not None:
+                user_builder.with_domain_skills(self._user_domain_skills)
             for handler in self._user_turn_completion_handlers:
                 user_builder.add_completion_handler(handler)
             user_turn = user_builder.build()

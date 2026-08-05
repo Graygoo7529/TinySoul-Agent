@@ -60,14 +60,12 @@ include = ["tinysoul*"]
     "project/config_profiles/*/home/agent/user/*.md",
     "project/home/agent/*.md",
     "project/home/agent/*/*.md",
-    "project/home/how/*/*.md",
-    "project/home/how/*/references/*.md",
-    "project/home/how/*/scripts/*.py",
-    "project/home/how_domain/*.md",
-    "project/home/how_domain/*/DOMAIN.md",
-    "project/home/how_action/*/*.md",
-    "project/home/what/*/*.md",
-    "project/home/why/*.md",
+    "project/home/skills/*/*.md",
+    "project/home/skills/*/references/*.md",
+    "project/home/skills/*/scripts/*.py",
+    "project/home/skills_domain/*.md",
+    "project/home/skills_domain/*/DOMAIN.md",
+    "project/home/skills_action/*/*.md",
 ]
 
 [tool.pytest.ini_options]

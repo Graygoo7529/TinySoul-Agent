@@ -14,8 +14,8 @@ from tinysoul.context import ContextEngine, ContextSettings
 from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.home import (
     AgentHomeEngine,
-    HomeActionHowProvider,
-    HomeDomainHowProvider,
+    HomeActionSkillProvider,
+    HomeDomainSkillProvider,
 )
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra import StagingDirectoryManager, StagingError
@@ -23,7 +23,7 @@ from tinysoul.loop.assembly import build_turn_kernel
 from tinysoul.loop.completion import TurnCompletionHandler, TurnCompletionPipeline
 from tinysoul.loop.config import LoopSettings
 from tinysoul.loop.preparation import TurnPreparationPipeline
-from tinysoul.loop.prompts import DomainHowProvider
+from tinysoul.loop.prompts import DomainSkillProvider
 from tinysoul.memory import MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
 from tinysoul.runtime.bridge import (
@@ -89,7 +89,7 @@ class UserTurnBuilder:
         self._observations = observations
         self._context: ContextEngine | None = None
         self._action: ActionEngine | None = None
-        self._domain_how: DomainHowProvider | None = None
+        self._domain_skills: DomainSkillProvider | None = None
         self._completion_handlers: list[TurnCompletionHandler] = []
 
     def with_context(self, context: ContextEngine) -> "UserTurnBuilder":
@@ -100,8 +100,8 @@ class UserTurnBuilder:
         self._action = action
         return self
 
-    def with_domain_how(self, domain_how: DomainHowProvider) -> "UserTurnBuilder":
-        self._domain_how = domain_how
+    def with_domain_skills(self, domain_skills: DomainSkillProvider) -> "UserTurnBuilder":
+        self._domain_skills = domain_skills
         return self
 
     def add_completion_handler(
@@ -118,7 +118,7 @@ class UserTurnBuilder:
             memory=self._memory,
             observations=self._observations,
         )
-        domain_how = self._domain_how or HomeDomainHowProvider(
+        domain_skills = self._domain_skills or HomeDomainSkillProvider(
             self._home,
             runtime_bridge=RuntimeAgentHomeBridge(),
         )
@@ -163,7 +163,7 @@ class UserTurnBuilder:
                 llm_action=LLMActionTaskRunner(
                     llm_runner=self._llm,
                     context=context,
-                    action_how=HomeActionHowProvider(
+                    action_skills=HomeActionSkillProvider(
                         self._home,
                         runtime_bridge=RuntimeAgentHomeBridge(),
                     ),
@@ -209,7 +209,7 @@ class UserTurnBuilder:
             turn_guidance=USER_TURN_GUIDANCE,
             completion_detector=UserAnswerCompletionDetector(),
             completion_to_output=user_output_from_completion,
-            domain_how=domain_how,
+            domain_skills=domain_skills,
             preparation_pipeline=TurnPreparationPipeline(
                 (
                     ContextTurnPreparationHandler(

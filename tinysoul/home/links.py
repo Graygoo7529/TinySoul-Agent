@@ -3,20 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import PurePosixPath
 
 from .errors import AgentHomeContractError, AgentHomeInvariantError
 
 HOME_LINK_PREFIX = "home:"
-HOME_TOP_SPACES = frozenset({"agent", "what", "why", "how"})
-
-
-class HomeWhatKind(StrEnum):
-    """Classification encoded in every canonical WHAT top link."""
-
-    ENTITY = "entity"
-    CONCEPT = "concept"
+HOME_TOP_SPACES = frozenset({"agent", "skills"})
+HOME_PROMPT_MOUNT_SPACES = frozenset({"skills_domain", "skills_action"})
 
 
 @dataclass(frozen=True)
@@ -28,9 +21,10 @@ class HomeTopLink:
 
     def __post_init__(self) -> None:
         _validate_space(self.space)
-        if self.space in {"how_domain", "how_action"}:
+        if self.space in HOME_PROMPT_MOUNT_SPACES:
             raise AgentHomeInvariantError(
-                "Automatic HOW links must use home:how_domain: or home:how_action:"
+                "Automatic skill links must use home:skills_domain: or "
+                "home:skills_action:"
             )
         if self.space not in HOME_TOP_SPACES:
             raise AgentHomeInvariantError(
@@ -42,25 +36,11 @@ class HomeTopLink:
             raise AgentHomeInvariantError(
                 "Home top link must use a logical name without a file suffix"
             )
-        if self.space == "how":
+        if self.space == "skills":
             if len(path.parts) != 1:
                 raise AgentHomeInvariantError(
-                    "Home HOW top link must use one skill name segment"
+                    "Home skills top link must use one skill name segment"
                 )
-            return
-        if self.space == "what":
-            if (
-                len(path.parts) < 2
-                or path.parts[0]
-                not in {
-                    HomeWhatKind.ENTITY.value,
-                    HomeWhatKind.CONCEPT.value,
-                }
-            ):
-                raise AgentHomeInvariantError(
-                    "Home WHAT top link must use entity/<name> or concept/<name>"
-                )
-            return
 
     @classmethod
     def parse(cls, value: str) -> "HomeTopLink":
@@ -86,9 +66,9 @@ class HomeResourceLink:
 
     def __post_init__(self) -> None:
         _validate_space(self.space)
-        if self.space in {"how_domain", "how_action"}:
+        if self.space in HOME_PROMPT_MOUNT_SPACES:
             raise AgentHomeInvariantError(
-                "Automatic HOW links cannot be progressive resources"
+                "Automatic skill links cannot be progressive resources"
             )
         if self.space not in HOME_TOP_SPACES:
             raise AgentHomeInvariantError(
@@ -121,34 +101,34 @@ class HomePromptMountLink:
     name: str
 
     def __post_init__(self) -> None:
-        if self.space not in {"how_domain", "how_action"}:
+        if self.space not in HOME_PROMPT_MOUNT_SPACES:
             raise AgentHomeInvariantError(
-                "Home prompt mount space must be how_domain or how_action"
+                "Home prompt mount space must be skills_domain or skills_action"
             )
         _validate_relative_name(self.name, label="prompt mount name")
         parts = PurePosixPath(self.name).parts
-        if self.space == "how_domain" and len(parts) != 1:
+        if self.space == "skills_domain" and len(parts) != 1:
             raise AgentHomeInvariantError(
-                "Home domain HOW mount link must use one domain segment"
+                "Home domain skill mount link must use one domain segment"
             )
-        if self.space == "how_action" and len(parts) != 2:
+        if self.space == "skills_action" and len(parts) != 2:
             raise AgentHomeInvariantError(
-                "Home action HOW mount link must use <domain>/<action>"
+                "Home action skill mount link must use <domain>/<action>"
             )
 
     @classmethod
     def parse(cls, value: str) -> "HomePromptMountLink":
         body = _body(value)
-        if body.startswith("how_domain:"):
-            name = body[len("how_domain:") :]
-            space = "how_domain"
-        elif body.startswith("how_action:"):
-            name = body[len("how_action:") :]
-            space = "how_action"
+        if body.startswith("skills_domain:"):
+            name = body[len("skills_domain:") :]
+            space = "skills_domain"
+        elif body.startswith("skills_action:"):
+            name = body[len("skills_action:") :]
+            space = "skills_action"
         else:
             raise AgentHomeContractError(
-                "Home prompt mount link must start with home:how_domain: "
-                "or home:how_action:"
+                "Home prompt mount link must start with home:skills_domain: "
+                "or home:skills_action:"
             )
         try:
             return cls(space=space, name=name)
@@ -164,7 +144,7 @@ HomeLink = HomeTopLink | HomeResourceLink | HomePromptMountLink
 
 def parse_home_link(value: str) -> HomeLink:
     body = _body(value)
-    if body.startswith("how_domain:") or body.startswith("how_action:"):
+    if body.startswith("skills_domain:") or body.startswith("skills_action:"):
         return HomePromptMountLink.parse(value)
     if "@" in body:
         return HomeTopLink.parse(value)

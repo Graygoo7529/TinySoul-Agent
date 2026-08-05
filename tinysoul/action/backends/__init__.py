@@ -1,9 +1,9 @@
 """Built-in action backend executors."""
 
 from .llm_action import (
-    ActionHow,
-    ActionHowProvider,
-    EmptyActionHowProvider,
+    ActionSkillGuidance,
+    ActionSkillProvider,
+    EmptyActionSkillProvider,
     LLMActionModelRunner,
     LLMActionBackendOptions,
     LLMActionBackendOptionsValidator,
@@ -26,9 +26,9 @@ from .subprocess import (
 )
 
 __all__ = [
-    "ActionHow",
-    "ActionHowProvider",
-    "EmptyActionHowProvider",
+    "ActionSkillGuidance",
+    "ActionSkillProvider",
+    "EmptyActionSkillProvider",
     "LLMActionModelRunner",
     "LLMActionBackendOptions",
     "LLMActionBackendOptionsValidator",

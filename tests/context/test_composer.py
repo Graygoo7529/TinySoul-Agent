@@ -32,7 +32,7 @@ def _sections() -> tuple[PendingInputs, BackgroundContext, WorkingContext, TurnT
     inputs.add("hello there", merged=True)
     background = BackgroundContext(journal="journal text")
     background.load(
-        BackgroundEntry(link="home:what@concept/x", content="entry text")
+        BackgroundEntry(link="home:skills@x", content="entry text")
     )
     working = WorkingContext()
     trace = TurnTraceHeap()
@@ -55,8 +55,8 @@ def test_compose_section_order_and_labels() -> None:
                     "# Task Guide\nDo phase one.",
                 ),
                 PromptBlock.from_text(
-                    "task_prompt:guide:domain_how:1",
-                    "# Domain HOW\nUse the workspace domain for file edits.",
+                    "task_prompt:guide:domain_skill:1",
+                    "# Domain Skill\nUse the workspace domain for file edits.",
                 ),
             ),
             input_blocks=(
@@ -82,11 +82,11 @@ def test_compose_section_order_and_labels() -> None:
         "identity",
         "user_input",
         "background:journal",
-        "background:home:what@concept/x",
+        "background:home:skills@x",
         "phase_note",
         "working",
         "task_prompt:guide:phase",
-        "task_prompt:guide:domain_how:1",
+        "task_prompt:guide:domain_skill:1",
         "task_prompt:input:details",
         "task_prompt:input:workspace:docs/a.md",
         "task_prompt:output:phase",
@@ -104,7 +104,7 @@ def test_compose_section_order_and_labels() -> None:
     assert "# Task Guide" in part.text
     guidance = stack.messages[-4].parts[0]
     assert isinstance(guidance, TextPart)
-    assert "# Domain HOW" in guidance.text
+    assert "# Domain Skill" in guidance.text
 
 
 def test_compose_image_budget_exceeded_raises() -> None:

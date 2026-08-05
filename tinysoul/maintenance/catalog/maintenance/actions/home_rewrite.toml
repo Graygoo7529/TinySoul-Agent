@@ -2,7 +2,7 @@ name = "maintenance.home.rewrite"
 domain = "maintenance"
 
 [tool]
-description = "Resolve one inspected Home change or HOW review by writing replacement text to actual Home."
+description = "Resolve one inspected Home change or skill review by writing replacement text to actual Home."
 
 [tool.schema]
 type = "object"
@@ -18,7 +18,7 @@ type = "string"
 description = "Complete replacement text accepted into actual Home."
 
 [semantic]
-use_when = ["A runtime change needs curation or skill memory indicates the actual HOW should change"]
+use_when = ["A runtime change needs curation or skill memory indicates the actual skill should change"]
 avoid_when = ["The review has not been inspected or actual Home should remain unchanged"]
 effects = ["modifying"]
 

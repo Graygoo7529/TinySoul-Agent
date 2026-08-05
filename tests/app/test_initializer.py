@@ -33,7 +33,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert (root / "README.md").is_file()
     assert (root / "memory").is_dir()
     assert not (root / "config_profiles").exists()
-    skill = root / "home" / "how" / "tinysoul-docs" / "SKILL.md"
+    skill = root / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
     identity = root / "home" / "agent" / "identity"
     assert "**Name:** tt" in (identity / "identity.md").read_text(encoding="utf-8")
@@ -43,15 +43,17 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     )
     assert "尚未记录稳定的用户画像" in user
     assert "graygoo" not in user
-    assert (root / "home" / "what" / "entity" / "tiny-soul.md").is_file()
-    assert not (root / "home" / "how_domain" / "session").exists()
-    assert not (root / "home" / "how_domain" / "context").exists()
-    assert (root / "home" / "how_action" / "core" / "answer.md").is_file()
-    assert not (root / "home" / "how_action" / "session").exists()
+    assert not (root / "home" / "what").exists()
+    assert not (root / "home" / "why").exists()
+    assert not (root / "home" / "how").exists()
+    assert not (root / "home" / "skills_domain" / "session").exists()
+    assert not (root / "home" / "skills_domain" / "context").exists()
+    assert (root / "home" / "skills_action" / "core" / "answer.md").is_file()
+    assert not (root / "home" / "skills_action" / "session").exists()
     assert (
         root
         / "home"
-        / "how"
+        / "skills"
         / "tinysoul-docs"
         / "references"
         / "use-tinysoul-context-and-link.md"

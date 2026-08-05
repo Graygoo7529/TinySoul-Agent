@@ -46,17 +46,17 @@ ZONE = ZoneInfo("Asia/Shanghai")
 def test_memory_consolidation_uses_ordered_sources_and_renders_one_daily_body(
     tmp_path: Path,
 ) -> None:
-    known = tmp_path / "home" / "what" / "concept" / "known.md"
+    known = tmp_path / "home" / "skills" / "known" / "SKILL.md"
     known.parent.mkdir(parents=True)
-    known.write_text("known", encoding="utf-8")
+    known.write_text(_skill("Known"), encoding="utf-8")
     memory = _memory(tmp_path)
     projection = _projection(
-        _fact("first <home:what@concept/known>", 9),
+        _fact("first <home:skills@known>", 9),
         _fact("second", 14),
         _fact("third", 20),
     )
     consolidator = _CapturingConsolidator(
-        "## Durable facts\n\n- retained <home:what@concept/known>"
+        "## Durable facts\n\n- retained <home:skills@known>"
     )
     assert memory.consolidation_eligible(projection)
 
@@ -72,12 +72,12 @@ def test_memory_consolidation_uses_ordered_sources_and_renders_one_daily_body(
     request = consolidator.requests[0]
     joined = "\n".join(request.sources)
     assert joined.index("first") < joined.index("second") < joined.index("third")
-    assert request.home_link_hints == ("home:what@concept/known",)
-    assert "home:what@concept/known" in request.allowed_home_links
+    assert request.home_link_hints == ("home:skills@known",)
+    assert "home:skills@known" in request.allowed_home_links
     assert _target(tmp_path).read_text(encoding="utf-8") == (
         "# 2026-07-12\n\n"
         "## Durable facts\n\n"
-        "- retained <home:what@concept/known>\n"
+        "- retained <home:skills@known>\n"
     )
     assert not (tmp_path / "runtime" / "home" / "memory").exists()
     assert not memory.consolidation_eligible(projection)
@@ -215,11 +215,12 @@ def test_automatic_memory_consolidation_validates_then_skips_existing_target(
 def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     tmp_path: Path,
 ) -> None:
-    known = tmp_path / "home" / "what" / "concept" / "known.md"
-    unused = tmp_path / "home" / "what" / "concept" / "unused.md"
+    known = tmp_path / "home" / "skills" / "known" / "SKILL.md"
+    unused = tmp_path / "home" / "skills" / "unused" / "SKILL.md"
     known.parent.mkdir(parents=True)
-    known.write_text("known", encoding="utf-8")
-    unused.write_text("unused", encoding="utf-8")
+    unused.parent.mkdir(parents=True)
+    known.write_text(_skill("Known"), encoding="utf-8")
+    unused.write_text(_skill("Unused"), encoding="utf-8")
     memory = _memory(
         tmp_path,
         consolidation=MemoryConsolidationSettings(
@@ -234,7 +235,7 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
 
     outcome = memory.consolidate(
         projection=_projection(
-            _fact("x" * 1800 + " <home:what@concept/known>", 9)
+            _fact("x" * 1800 + " <home:skills@known>", 9)
         ),
         consolidator=LLMMemoryConsolidator(runner),
         timezone="Asia/Shanghai",
@@ -261,9 +262,9 @@ def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
     ]
     assert final_prompts
     assert all(
-        "home:what@concept/unused" not in prompt for prompt in final_prompts
+        "home:skills@unused" not in prompt for prompt in final_prompts
     )
-    assert "<home:what@concept/known>" in _target(tmp_path).read_text(
+    assert "<home:skills@known>" in _target(tmp_path).read_text(
         encoding="utf-8"
     )
 
@@ -501,14 +502,14 @@ class _MemoryTaskRunner:
         if final:
             self._final_calls += 1
             link = (
-                "home:what@concept/known"
+                "home:skills@known"
                 if self._repair_link and self._final_calls > 1
-                else "home:what@concept/missing"
+                else "home:skills@missing"
             )
             value = {"content": f"- retained fact <{link}>"}
         else:
             value = {
-                "content": "- condensed fact <home:what@concept/known>"
+                "content": "- condensed fact <home:skills@known>"
             }
         return TaskResult.success(
             raw_response=RawResponse(
@@ -519,6 +520,16 @@ class _MemoryTaskRunner:
             answer=JsonAnswer(value),
             tool_calls=(),
         )
+
+
+def _skill(title: str) -> str:
+    return (
+        "---\n"
+        f"title: {title}\n"
+        f"description: {title} skill knowledge.\n"
+        "---\n\n"
+        f"# {title}\n"
+    )
 
 
 def _memory(

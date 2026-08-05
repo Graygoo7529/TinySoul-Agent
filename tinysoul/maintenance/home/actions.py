@@ -221,7 +221,7 @@ def _review_summary(review: HomeReviewChange | HomeSkillReview) -> JsonObject:
             "allowed_resolutions": ["accept", "reject", "rewrite"],
         }
     return {
-        "kind": "skill_how_review",
+        "kind": "skill_review",
         "token": review.token,
         "link": review.link,
         "skill": review.skill,

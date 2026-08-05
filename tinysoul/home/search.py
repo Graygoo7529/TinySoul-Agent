@@ -29,7 +29,7 @@ from .errors import AgentHomeContractError
 from .links import HomeTopLink
 
 
-SEARCHABLE_HOME_SPACES = frozenset({"what", "why", "how"})
+SEARCHABLE_HOME_SPACES = frozenset({"skills"})
 _TITLE_MAX_CHARS = 160
 _WORD_PATTERN = re.compile(r"[\w]+", flags=re.UNICODE)
 

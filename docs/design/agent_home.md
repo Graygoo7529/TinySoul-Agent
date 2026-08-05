@@ -2,25 +2,25 @@
 
 ## 状态
 
-本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、动态 effective 顶层目录、`home:agent@AGENT`、严格通用 HOW frontmatter 与自动 metadata 目录、domain/action HOW、带 operation recovery 的 schema v2 跨日 overlay、schema v1 原地迁移、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
+本文描述 Agent Home 的已确认目标边界与当前实施状态。代码已完成 `home:` 链接解析、仅含 `agent`/`skills` 的 effective 顶层目录、`home:agent@AGENT`、严格 skill frontmatter 与自动 metadata 目录、领域/动作 skill、带 operation recovery 的跨日 overlay、渐进资源与 top/prompt mount mutation、effective top search、Action Catalog mount reconciliation、`SKILL_MEMORY.md` 路径约束和 Runtime copy Trap。旧 `what`、`why`、`how` 命名空间已删除，不提供兼容 Link、双读或迁移 API。Home 已从 DailyLifecycleCoordinator 解耦，不再提供 active day/archive 业务 API。
 
-Home 顶层内容、HOW 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 HOW metadata 目录、不可逐出的默认 core、effective 存在时同样不可逐出的 allowlisted Context/user Agent Top 正文，以及内部可加载顶层目录；Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；通用 HOW 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 提供有界 diff snapshot 和 accept/reject/rewrite mutation，推理与任务编排属于 `tinysoul.maintenance.home`。
+Home 顶层内容、skill 和渐进资源在真正使用前透明物化到 `runtime/home`。Context 在每个 User Turn 开始时清空通用 Background，再由 Home provider 从 effective Home 提供自动 skill metadata 目录、不可逐出的默认 core、effective 存在时同样不可逐出的 allowlisted Context/user Agent Top 正文，以及内部可加载顶层目录；Phase1 临时加载项不跨 Turn 保留。普通 Turn 的编辑只落到跨日保留的 active overlay；skill 的 runtime 包额外维护自上次 Home Maintenance 以来有效的 `SKILL_MEMORY.md`。Home top search 已按 effective metadata 提供确定性候选和 LLM rerank fallback；Home Maintenance service 提供有界 diff snapshot 和 accept/reject/rewrite mutation，推理与任务编排属于 `tinysoul.maintenance.home`。
 
 Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`tinysoul.home` 不再包含 Memory search、Maintenance、配置或 Link/path 映射，也不保留兼容 Link、双读或迁移 API。独立 Memory 设计见 `docs/design/memory.md`。
 
 ## 定位
 
-Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、知识、技能和行动域 HOW。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
+Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、通用技能和领域/动作技能。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
-Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供 domain HOW，向 Action 内部 LLM task 提供 action HOW，并向 Action 提供普通 runtime mutation；Maintenance-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Maintenance task、reviewer、时钟、scheduler 或 Maintenance Turn。
+Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供领域 skill，向 Action 内部 LLM task 提供领域/动作 skill，并向 Action 提供普通 runtime mutation；Maintenance-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Maintenance task、reviewer、时钟、scheduler 或 Maintenance Turn。
 
 ## 设计目标
 
 1. 明确区分顶层内容和渐进式资源。
 2. actual Agent Home 在普通运行中只读，运行期修改落在跨日 active runtime overlay。
 3. Context 只消费 Agent Home 提供的背景条目，不读取 home 文件树。
-4. Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件；Action 内部 LLM task 只依赖 `ActionHowProvider` 协议。
-5. HOW、WHAT 和 WHY 的目录结构由 Agent Home 解释，不泄漏到 AppBuilder。
+4. Loop 只依赖 `DomainSkillProvider` 协议，不读取 skill 文件；Action 内部 LLM task 只依赖 `ActionSkillProvider` 协议。
+5. skill 的目录结构由 Agent Home 解释，不泄漏到 AppBuilder。
 6. Agent Home 运行时副本错误有明确 failure kind 和 Runtime bridge 映射。
 7. Home Maintenance 作为独立 Program work 接入，不混入 User Turn 主线；Home 只提供中性 Review 能力，任务/Turn/Action 由 Maintenance 模块拥有。Memory 同样只提供 Consolidation owner 能力。
 
@@ -31,42 +31,36 @@ Agent Home 定义三类 `home:` 链接：
 ```text
 home:<space>@<relative-logical-path>
 home:<space>/<relative-posix-path>
-home:how@<skill>
-home:how_domain:<domain>
-home:how_action:<domain>/<action>
+home:skills@<skill>
+home:skills_domain:<domain>
+home:skills_action:<domain>/<action>
 ```
 
-`home:<space>@<relative-logical-path>` 表示 Agent、WHAT 和 WHY 顶层知识入口。Link 使用相对于对应 space 的无后缀逻辑路径，`AgentHomeLayout` 再确定性追加 `.md`；通用 HOW 同样使用无后缀 identity，但映射目录中的固定 `SKILL.md`。顶层内容可以加载为 BackgroundContext 条目。例如：
+`home:<space>@<relative-logical-path>` 表示 Agent 和通用 skill 顶层入口。Link 使用相对于对应 space 的无后缀逻辑路径；Agent 页面追加 `.md`，skill 映射目录中的固定入口是 `SKILL.md`。顶层内容可以加载为 BackgroundContext 条目。例如：
 
 - `home:agent@AGENT`
 - `home:agent@user/preferences`
-- `home:what@entity/tinysoul`
-- `home:what@concept/daily-lifecycle`
-- `home:why@context-budget`
-
-通用 HOW 顶层入口保留框架 skill identity，不把固定入口文件 `SKILL.md` 重复进 Link：
-
-- `home:how@python_refactor`
+- `home:skills@python_refactor`
 
 `home:<space>/<relative-posix-path>` 表示渐进式资源，只能通过 action 读取或使用，读取结果进入 TurnTraceHeap。例如：
 
-- `home:how/python_refactor/references/checklist.md`
-- `home:how/python_refactor/scripts/inspect.py`
+- `home:skills/python_refactor/references/checklist.md`
+- `home:skills/python_refactor/scripts/inspect.py`
 
-`home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>` 表示框架局部自动 prompt mount，只进入对应 Phase/task prompt，不进入 BackgroundContext，也不作为 `home.resource.read` 的渐进式资源。例如：
+`home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>` 表示框架局部自动 prompt mount，只进入对应 Phase/task prompt，不进入 BackgroundContext，也不作为 `home.resource.read` 的渐进式资源。例如：
 
-- `home:how_domain:workspace`
-- `home:how_action:workspace/rewrite`
+- `home:skills_domain:workspace`
+- `home:skills_action:workspace/rewrite`
 链接规则:
 
-- 顶层 `space` 只能是 `agent`、`what`、`why` 和 `how`；`how_domain` 与 `how_action` 只用于自动 prompt mount 链接；
-- 所有 Top Link 的 `@` 后内容必须是无文件后缀的安全逻辑路径；WHAT 路径必须以 `entity/` 或 `concept/` 开头，分类是 Link 身份的一部分；
-- 通用 HOW 的 `@` 后内容是无后缀单段 skill name；`how_domain`/`how_action` 是框架 mount identity，二者都不追加固定物理入口文件名；
-- `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；已经映射为 Agent/WHAT/WHY Top Markdown 或通用 HOW `SKILL.md` 的物理文件不得再通过 Resource Link 读取或修改；
+- 顶层 `space` 只能是 `agent` 和 `skills`；`skills_domain` 与 `skills_action` 只用于自动 prompt mount 链接；
+- 所有 Top Link 的 `@` 后内容必须是无文件后缀的安全逻辑路径；skill 顶层 Link 必须使用单段 skill name；
+- `skills_domain`/`skills_action` 是框架 mount identity，二者都不追加固定物理入口文件名；
+- `/` 形式始终表示资源路径，不能被 Context 直接加载为背景；已经映射为 Agent Top Markdown 或 skill `SKILL.md` 的物理文件不得再通过 Resource Link 读取或修改；
 - 渐进资源保留真实扩展名，例如 `.md`、`.py`；Workspace Link 同样保留资源的真实扩展名；
 - 所有路径使用 POSIX `/` 分隔；
 - 不允许空路径、绝对路径、盘符、反斜杠、`.` 或 `..` 段。
-- `memory` 不是 Home space；`home:memory@...` 和 `home:memory/...` 都是非法 Home Link，不提供兼容别名。
+- `memory` 不是 Home space；`home:memory@...` 和 `home:memory/...` 都是非法 Home Link。
 
 Agent Home 应提供 `HomeTopLink`、`HomeResourceLink` 与 `HomePromptMountLink` 或等价值对象，避免模块内部使用裸字符串判断链接类别。
 
@@ -80,19 +74,15 @@ home/
     AGENT.md
     user/
     identity/
-  what/
-    entity/
-    concept/
-  why/
-  how/
+  skills/
     skill_name/
       SKILL.md
       references/
       scripts/
-  how_domain/
+  skills_domain/
     domain_name/
       DOMAIN.md
-  how_action/
+  skills_action/
     domain_name/
       action_name.md
 
@@ -100,31 +90,26 @@ runtime/
   home/
     .tinysoul/
       home_overlay.json
-      operations/
+    operations/
     agent/
-    what/
-    why/
-    how/
+    skills/
       skill_name/
         SKILL_MEMORY.md
-    how_domain/
-    how_action/
+    skills_domain/
+    skills_action/
 ```
 
-`runtime/home` 只包含自上次 Home Maintenance 以来实际物化、创建或删除的 Home 内容，不预建完整目录树，也不因 Business Day 变化而清空；上图中的内容目录均为按需出现。`SKILL_MEMORY.md` 只允许位于通用 `runtime/home/how/<skill>/`，`how_domain`/`how_action` 不创建平行 memory 文件。长期 MEMORY 位于与 `home/` 平级的 `memory/`，不是 Home runtime 副本的例外分支。
+`runtime/home` 只包含自上次 Home Maintenance 以来实际物化、创建或删除的 Home 内容，不预建完整目录树，也不因 Business Day 变化而清空；上图中的内容目录均为按需出现。`SKILL_MEMORY.md` 只允许位于 `runtime/home/skills/<skill>/`，`skills_domain`/`skills_action` 不创建平行 memory 文件。长期 MEMORY 位于与 `home/` 平级的 `memory/`，不是 Home runtime 副本的例外分支。
 
 顶层内容映射：
 
 - `home:agent@AGENT` 映射到 `agent/AGENT.md`；
 - `home:agent@user/preferences` 映射到 `agent/user/preferences.md`；
-- `home:what@entity/name` 映射到 `what/entity/name.md`；
-- `home:what@concept/name` 映射到 `what/concept/name.md`；
-- `home:why@name` 映射到 `why/name.md`；
-- `home:how@skill_name` 映射到 `how/skill_name/SKILL.md`；
-- `home:how_domain:domain_name` 作为 prompt mount 映射到 `how_domain/domain_name/DOMAIN.md`；
-- `home:how_action:domain_name/action_name` 作为 prompt mount 映射到 `how_action/domain_name/action_name.md`。
+- `home:skills@skill_name` 映射到 `skills/skill_name/SKILL.md`；
+- `home:skills_domain:domain_name` 作为 prompt mount 映射到 `skills_domain/domain_name/DOMAIN.md`；
+- `home:skills_action:domain_name/action_name` 作为 prompt mount 映射到 `skills_action/domain_name/action_name.md`。
 
-HOW 采用包目录形式。通用 HOW 使用 `how/<skill>/SKILL.md` 作为顶层入口，references、scripts 等是渐进式资源。每个 `SKILL.md` 必须以 YAML `---` frontmatter 开头，并且 frontmatter 只包含非空、单行、有界的 `title` 与 `description`；正文仍是 Phase1 按需加载的完整顶层内容。Home 使用 `PyYAML.safe_load` 在启动/reconcile、runtime 恢复和 top write/patch 边界统一解析，拒绝缺失 delimiter、未知字段、错误类型、超长或多行 metadata。skill 使用期间可以在 runtime 包内创建并读写 `SKILL_MEMORY.md`，记录自上次 Home Maintenance 以来的临时工作记忆、使用反馈和待 review 变化。它不进入 actual Home，也不作为长期 HOW 文件直接合并。与 action domain 绑定的 domain HOW 使用 `how_domain/<domain>/DOMAIN.md`，由 Phase2 prompt 自动注入，并可在 Phase3 action-internal LLM task 中继续作为 domain 约束；domain 内 action HOW 使用 `how_action/<domain>/<action>.md`，由 Phase3 中带内部 LLM task 的 action 自动注入。`how_domain` 与 `how_action` 是框架局部自动加载机制，不属于模型通过 `home.resource.read` 按需渐进式加载的普通资源，不进入通用 HOW metadata 目录，也不拥有 `SKILL_MEMORY.md`。
+Skill 采用包目录形式。通用 skill 使用 `skills/<skill>/SKILL.md` 作为顶层入口，references、scripts 等是渐进式资源。每个 `SKILL.md` 必须以 YAML `---` frontmatter 开头，并且 frontmatter 只包含非空、单行、有界的 `title` 与 `description`；正文仍是 Phase1 按需加载的完整顶层内容。Home 使用 `PyYAML.safe_load` 在启动/reconcile、runtime 恢复和 top write/patch 边界统一解析，拒绝缺失 delimiter、未知字段、错误类型、超长或多行 metadata。skill 使用期间可以在 runtime 包内创建并读写 `SKILL_MEMORY.md`，记录自上次 Home Maintenance 以来的临时工作记忆、使用反馈和待 review 变化。它不进入 actual Home，也不作为长期 skill 文件直接合并。与 action domain 绑定的 domain skill 使用 `skills_domain/<domain>/DOMAIN.md`，由 Phase2 prompt 自动注入，并可在 Phase3 action-internal LLM task 中继续作为 domain 约束；domain 内 action skill 使用 `skills_action/<domain>/<action>.md`，由 Phase3 中带内部 LLM task 的 action 自动注入。`skills_domain` 与 `skills_action` 是框架局部自动加载机制，不属于模型通过 `home.resource.read` 按需渐进式加载的普通资源，不进入通用 skill metadata 目录，也不拥有 `SKILL_MEMORY.md`。
 
 ### 默认项目内容
 
@@ -137,17 +122,13 @@ home/
   agent/context/turn-trace.md
   agent/context/working.md
   agent/user/user.md
-  what/entity/tiny-soul.md
-  what/concept/context-and-links.md
-  what/concept/daily-lifecycle.md
-  why/why-is-updating-home-important.md
-  how/tinysoul-docs/SKILL.md
-  how/tinysoul-docs/references/use-tinysoul-context-and-link.md
+  skills/tinysoul-docs/SKILL.md
+  skills/tinysoul-docs/references/use-tinysoul-context-and-link.md
 ```
 
-core 作为简洁的身份、行为规约和前向 Top Link 索引；`agent/context/*` 分别说明 Background、TurnTrace、Working 与 Workspace 的稳定可见性、Link 去向和状态优先级；user 保存稳定用户事实；WHAT 分别定义 TinySoul entity、Context/Link 和 Daily Lifecycle；WHY 直接以问题命名；`tinysoul-docs` 是通用文档导航 HOW，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。Context Agent Top 不复制 domain/action HOW：它们不指导具体 action 选择或失败恢复。core 不静态宣称 Shell、Script、文档转换等具体能力是否可用；进入 Action Catalog 的能力可以拥有局部 domain/action HOW，而实际启用状态仍由 capability 配置与 Action 装配决定。模板不声明 Backlink、Memory 片段检索等尚未实现的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
+core 作为简洁的身份、行为规约和前向 Top Link 索引；`agent/context/*` 分别说明 Background、TurnTrace、Working 与 Workspace 的稳定可见性、Link 去向和状态优先级；user 保存稳定用户事实；`tinysoul-docs` 是通用 skill，其详细使用说明是通过 `home.resource.read` 进入 TurnTrace 的真实 progressive reference。Context Agent Top 不复制 domain/action skill：它们不指导具体 action 选择或失败恢复。core 不静态宣称 Shell、Script、文档转换等具体能力是否可用；进入 Action Catalog 的能力可以拥有局部 domain/action skill，而实际启用状态仍由 capability 配置与 Action 装配决定。模板不声明 Backlink、Memory 片段检索等尚未实现的能力。默认内容的集成测试从 package template 初始化临时项目，不把仓库实际 `home/` 当成测试夹具。
 
-默认 Home 的唯一源码位置是 `tinysoul/assets/project/home/`，并由 standard/development 两种初始化共享；仓库根不保留第二份 Home，config profile 也不得包含 Home 副本。新增或调整框架概念、通用使用说明、domain/action 行为约束时，应在这里同步维护对应 AGENT/WHAT/WHY/HOW 文档，并继续遵守本设计的 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删 domain/action 时必须审查共享默认 Home 中相关 HOW 是否仍然真实；缺少可选 guidance 合法，但不得留下宣称不存在 action 的陈旧内容。
+默认 Home 的唯一源码位置是 `tinysoul/assets/project/home/`，并由 standard/development 两种初始化共享；仓库根不保留第二份 Home，config profile 也不得包含 Home 副本。新增或调整通用使用说明、domain/action 行为约束时，应在这里同步维护对应 AGENT/skills 文档，并继续遵守本设计的 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删 domain/action 时必须审查共享默认 Home 中相关 skill 是否仍然真实；缺少可选 guidance 合法，但不得留下宣称不存在 action 的陈旧内容。
 
 package template 与已初始化项目之间没有双向同步。项目运行中的 runtime Home 和 Home Maintenance 只更新该项目的 actual `home/`；它们既不会写回 assets，也不能成为默认内容的事实源。反之，wheel 升级后的模板变化也不会覆盖已有项目。默认 Home 变更必须通过 initializer/Context/Home 集成测试和 clean-source wheel 资源检查，新增更深目录或新文件类型时还要同步审查 setuptools package-data glob。
 
@@ -159,14 +140,14 @@ Agent Home 分为 actual Home 和跨日 runtime Home：
 - runtime Home 是跨 Turn、跨 Business Day、跨重启保留的懒加载可写 overlay；
 - Home Maintenance 直接比较 active runtime Home 与 actual Home，再决定 apply 或 discard。Memory Maintenance 操作独立 `memory/` root，不是 actual/runtime Home 规则的例外。
 
-当 Home 顶层内容、渐进式资源或 prompt mount 被加载到运行期时，Agent Home 确保 runtime Home 中存在对应副本，并从统一 effective view 读取：runtime override 优先，runtime tombstone 隐藏 actual 内容，未物化内容回退 actual Home。语义检索可以只读取 effective metadata；一旦 Home 正文进入 BackgroundContext、HOW 或 action result，就按链接建立 runtime record。所有普通可写操作只能落在 runtime Home。
+当 Home 顶层内容、渐进式资源或 prompt mount 被加载到运行期时，Agent Home 确保 runtime Home 中存在对应副本，并从统一 effective view 读取：runtime override 优先，runtime tombstone 隐藏 actual 内容，未物化内容回退 actual Home。语义检索可以只读取 effective metadata；一旦 Home 正文进入 BackgroundContext、skill 或 action result，就按链接建立 runtime record。所有普通可写操作只能落在 runtime Home。
 
 runtime mutation 按链接类别拆分：
 
-- 渐进式资源继续使用 `home.resource.read/write/patch/delete`；Top Markdown 和通用 HOW `SKILL.md` 在 resource 入口统一拒绝，不存在同一物理文件的第二 Link；
-- 顶层内容使用 `home.top.write/patch/delete`，允许在 runtime 创建不存在的顶层内容；新 WHAT 必须在无后缀 Link 中显式包含 `entity/` 或 `concept/`，不再接收重复的 `what_kind` 参数；`home:agent@AGENT` 允许 write/patch 但禁止 delete；
-- 自动 HOW 使用 `home.prompt_mount.write/patch`；逻辑 prompt mount 由框架根据 Action Catalog 中定义的 domain/action 自动创建或删除，模型不直接 create/delete；
-- 通用 HOW 的 `SKILL_MEMORY.md` 是允许直接在 runtime 创建的特殊渐进资源；
+- 渐进式资源继续使用 `home.resource.read/write/patch/delete`；Top Markdown 和 skill `SKILL.md` 在 resource 入口统一拒绝，不存在同一物理文件的第二 Link；
+- 顶层内容使用 `home.top.write/patch/delete`，允许在 runtime 创建不存在的顶层内容；新 skill 使用无后缀单段 Link 和严格 frontmatter；`home:agent@AGENT` 允许 write/patch 但禁止 delete；
+- 自动 skill mount 使用 `home.prompt_mount.write/patch`；逻辑 prompt mount 由框架根据 Action Catalog 中定义的 domain/action 自动创建或删除，模型不直接 create/delete；
+- 通用 skill 的 `SKILL_MEMORY.md` 是允许直接在 runtime 创建的特殊渐进资源；
 - `memory:` 不是 Home mutation action 的合法参数，Home 不供助 Memory 的读写。
 
 当前实现已将上述 mutation 全部注册到 Home action catalog。Action executor 只解析参数并映射局部结果/Runtime failure，链接映射、effective resolution 和实际 overlay mutation 仍由 `AgentHomeEngine` 统一负责。
@@ -192,26 +173,26 @@ BackgroundContext 是 Context-owned 的通用 Phase1 Background，不是 Home Ba
 
 - 默认加载条目；
 - 可由 Phase1 加载的顶层条目；
-- 全部 effective 通用 HOW 的 Link、frontmatter title 与 description；
+- 全部 effective skill 的 Link、frontmatter title 与 description；
 - 每个条目的 `home:*@` 链接和渲染文本。
 
-`ContextEngine.begin_turn` 会清空上一 Turn 的通用 Background；Turn preparation 在首个 Cycle 前重新读取全部 provider，原子组装 Home HOW metadata 目录、必须存在的默认 core、effective 存在时的 allowlisted `agent/context/*` 与 user，以及其它模块的自动条目。默认 Agent Top 都不可逐出；除 core 外的 allowlisted 文件缺失或被 effective tombstone 隐藏时正常省略，因此旧项目不会因模板新增 Context 页面而启动失败。白名单是框架显式定义，不自动包含任意其它 Agent Top。HOW metadata 目录自动且不可逐出，使 Phase1 能先判断应加载哪个 `home:how@skill`；它不是 skill 正文、不是一个伪造的 Home top Link，也不把 HOW body 物化到 runtime。`home.skill_catalog_max_chars` 限制完整目录，超过上限显式失败，不截断 description、不丢弃条目。runtime 中创建、修改或 tombstone 的 HOW 在下一个 Turn 的 effective 目录中反映。Home provider 不解释 Memory 日期，也不决定非 Home entry 的逐出政策。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须进入 Session、actual/runtime Home 或 Memory 持久事实。静态 `link + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
+`ContextEngine.begin_turn` 会清空上一 Turn 的通用 Background；Turn preparation 在首个 Cycle 前重新读取全部 provider，原子组装 Home skill metadata 目录、必须存在的默认 core、effective 存在时的 allowlisted `agent/context/*` 与 user，以及其它模块的自动条目。默认 Agent Top 都不可逐出；除 core 外的 allowlisted 文件缺失或被 effective tombstone 隐藏时正常省略，因此旧项目不会因模板新增 Context 页面而启动失败。白名单是框架显式定义，不自动包含任意其它 Agent Top。skill metadata 目录自动且不可逐出，使 Phase1 能先判断应加载哪个 `home:skills@skill`；它不是 skill 正文、不是一个伪造的 Home top Link，也不把 skill body 物化到 runtime。`home.skill_catalog_max_chars` 限制完整目录，超过上限显式失败，不截断 description、不丢弃条目。runtime 中创建、修改或 tombstone 的 skill 在下一个 Turn 的 effective 目录中反映。Home provider 不解释 Memory 日期，也不决定非 Home entry 的逐出政策。Phase1 加载项只存在于当前 Turn，跨 Turn 信息必须进入 Session、actual/runtime Home 或 Memory 持久事实。静态 `link + content` 仍供测试或嵌入方使用，但不能与动态 provider 重复注册同一链接。
 
-Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。`load_background` 的 `links` 是开放字符串数组，一次可以请求一个或多个 Top Link；工具 schema 不枚举完整 effective top catalog。模型应从当前 Context 已经暴露的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 取得 Link，工具定义至多强化这些已有提示。Context 不扫描 Markdown 建立第二套 Link provenance 状态，而是在提交前使用 provider 的内部 effective catalog 校验每个 Link 是否真实可加载。模型选择合法顶层链接后，Context 通过已注入的 Home loader 获取文本，不解释 Home 路径；loader 触发的 runtime copy 对模型、ControlResult 和最终 Context 状态透明。
+Control Tool 的 `load_background` 和 `evict_background` 仍属于 Context 语义。`load_background` 的 `links` 是开放字符串数组，一次可以请求一个或多个 Top Link；工具 schema 不枚举完整 effective top catalog。模型应从当前 Context 已经暴露的默认 Agent Top 前向 Link、skill metadata、Home search 或 ActionResult 取得 Link，工具定义至多强化这些已有提示。Context 不扫描 Markdown 建立第二套 Link provenance 状态，而是在提交前使用 provider 的内部 effective catalog 校验每个 Link 是否真实可加载。模型选择合法顶层链接后，Context 通过已注入的 Home loader 获取文本，不解释 Home 路径；loader 触发的 runtime copy 对模型、ControlResult 和最终 Context 状态透明。
 
-## Domain/Action HOW 接入
+## Domain/Action Skill 接入
 
-Loop 只依赖 `DomainHowProvider` 协议，不读取 HOW 文件。Agent Home 提供 `HomeDomainHowProvider`，接收 Phase1 已选择的 action domain，映射为 `home:how_domain:<domain>`，读取对应 `DOMAIN.md` 并返回适合 Phase2 task prompt 的短文本片段。
+Loop 只依赖 `DomainSkillProvider` 协议，不读取 skill 文件。Agent Home 提供 `HomeDomainSkillProvider`，接收 Phase1 已选择的 action domain，映射为 `home:skills_domain:<domain>`，读取对应 `DOMAIN.md` 并返回适合 Phase2 task prompt 的短文本片段。
 
-Action 内部 LLM task 只依赖 `ActionHowProvider` 协议，不读取 home 文件。Agent Home 提供 `HomeActionHowProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
+Action 内部 LLM task 只依赖 `ActionSkillProvider` 协议，不读取 Home 文件。Agent Home 提供 `HomeActionSkillProvider`，接收 `domain` 与 `action_name`，分别映射为 `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>`。这两类内容只注入 Phase3 action 内部嵌套 LLM task，用于延续 domain 约束，并约束具体 action 的文本风格、生成策略或领域动作细节。
 
-运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、结构化失败必须按 scope/disposition 有界恢复、权威 mutation/apply 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及目标完成后及时执行唯一 `core.answer`。同一 reason/scope 的 `retry_same` 最多允许一次不变重试；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain HOW 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 Shell apply/discard。action HOW 只约束一个带内部 LLM task 的具体 action，例如 `workspace.write/rewrite` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action HOW 中重复维护。
+运行规约按稳定职责分层维护。`home:agent@AGENT` 只承载跨能力通用原则，例如每个 Cycle 应推进用户目标、结构化失败必须按 scope/disposition 有界恢复、权威 mutation/apply 结果与必要验证的边界、Phase1 即时对账 WorkingContext，以及目标完成后及时执行唯一 `core.answer`。同一 reason/scope 的 `retry_same` 最多允许一次不变重试；所谓 fallback 必须改变真实 backend、输出协议或限制条件，不能只换 action 名称/domain。domain skill 只解释同一 action domain 内的选择、恢复和收束方式，例如 Workspace 工件失败、Web failure disposition 或 Shell apply/discard。action skill 只约束一个带内部 LLM task 的具体 action，例如 `workspace.write/rewrite` 对完整文本工件、截断输入、证据、结构保留和用户可见引用的要求。具体 capability/action 规则不得反向堆入 core，通用原则也不应在每个 action skill 中重复维护。
 
-这些内容属于模型决策与生成约束，不是第二套 Loop 状态机、Action hook 或自动重试器。core 不接收剩余 Cycle 数，HOW 不直接执行 action，也不根据文本改变 Runtime 控制流。需要硬保证的 schema、deadline、事务提交、取消和失败类型仍由 Action、Workspace、Web、supervised process 与 Loop 的代码协议负责；HOW 只帮助模型在这些结构化结果之上选择有效下一步。
+这些内容属于模型决策与生成约束，不是第二套 Loop 状态机、Action hook 或自动重试器。core 不接收剩余 Cycle 数，skill 不直接执行 action，也不根据文本改变 Runtime 控制流。需要硬保证的 schema、deadline、事务提交、取消和失败类型仍由 Action、Workspace、Web、supervised process 与 Loop 的代码协议负责；skill 只帮助模型在这些结构化结果之上选择有效下一步。
 
-Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部自动加载机制：Phase2 自动加载 domain HOW；Phase3 中带内部 LLM task 的 action 同时自动加载 domain HOW 与 action HOW。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 HOW，Loop 与 Action 也不感知 Agent Home 的目录结构。
+Domain skill 与 action skill 分别属于 `skills_domain` 与 `skills_action` 的局部自动加载机制：Phase2 自动加载 domain skill；Phase3 中带内部 LLM task 的 action 同时自动加载 domain skill 与 action skill。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 skill，Loop 与 Action 也不感知 Agent Home 的目录结构。
 
-逻辑 prompt mount 由框架从 Action Catalog 派生：catalog 中定义的 domain/action 决定合法 `HomePromptMountLink`，不以 provider 暂时不可用或 action 临时 disabled 作为删除依据。对应 actual/runtime 正文都不存在时 provider 返回空 guidance；`home.prompt_mount.write` 可以为合法 mount 物化 runtime 内容，`home.prompt_mount.patch` 修改已有 effective 内容。domain/action 从 catalog 删除时，框架在 runtime 形成对应删除语义，下一次 Home Maintenance 决定 actual 删除；模型不拥有 prompt mount create/delete action。文件存在但编码损坏、不可读或映射不变量失败时，不得伪装成“没有 HOW”，而应由 Home provider 通过 Runtime bridge 映射为模块边界失败。副本缺失仍使用专门的 runtime-copy 恢复原因。
+逻辑 prompt mount 由框架从 Action Catalog 派生：catalog 中定义的 domain/action 决定合法 `HomePromptMountLink`，不以 provider 暂时不可用或 action 临时 disabled 作为删除依据。对应 actual/runtime 正文都不存在时 provider 返回空 guidance；`home.prompt_mount.write` 可以为合法 mount 物化 runtime 内容，`home.prompt_mount.patch` 修改已有 effective 内容。domain/action 从 catalog 删除时，框架在 runtime 形成对应删除语义，下一次 Home Maintenance 决定 actual 删除；模型不拥有 prompt mount create/delete action。文件存在但编码损坏、不可读或映射不变量失败时，不得伪装成“没有 skill”，而应由 Home provider 通过 Runtime bridge 映射为模块边界失败。副本缺失仍使用专门的 runtime-copy 恢复原因。
 
 ## Progressive Resource Actions
 
@@ -219,19 +200,19 @@ Domain HOW 与 action HOW 分别属于 `how_domain` 与 `how_action` 的局部�
 
 当前已实现的 action：
 
-- `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本文本前缀，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。读取实现只读取上限后的一个额外字符来判断截断，不先把完整文件读入内存；任何 Top Markdown 或通用 HOW `SKILL.md` 的物理别名在解析后立即拒绝。
+- `home.resource.read`：读取 `home:*/` 渐进式资源的 runtime 副本文本前缀，按 `max_chars` 或配置上限返回文本片段，并在 action local result 中表达参数和读取失败；副本缺失时通过 Runtime Trap 建立副本后重试。读取实现只读取上限后的一个额外字符来判断截断，不先把完整文件读入内存；任何 Top Markdown 或 skill `SKILL.md` 的物理别名在解析后立即拒绝。
 - `home.resource.write`：在 active overlay 创建 runtime-only 文本，或在显式 `overwrite` 和可选 `expected_digest` 前置条件下替换 effective 内容；
 - `home.resource.patch`：对 effective UTF-8 文本执行唯一 `old_text` 精确替换，校验 digest 与完整结果的 `max_write_chars`；
 - `home.resource.delete`：写入 tombstone 隐藏资源，不删除 actual Home。
-- `home.top.write/patch/delete`：修改 Home 顶层 runtime 内容；新 WHAT create 的 Link 强制携带 `entity/`/`concept/` 分类并使用无后缀逻辑路径，`home:agent@AGENT` 可 write/patch 但拒绝 delete；
+- `home.top.write/patch/delete`：修改 Home 顶层 runtime 内容；新 skill 使用无后缀单段 Link 和严格 frontmatter，`home:agent@AGENT` 可 write/patch 但拒绝 delete；
 - `home.prompt_mount.write/patch`：只修改由 Action Catalog 定义的合法 domain/action mount；逻辑 create/delete 仍由框架 reconciliation 负责；
-- 通用 HOW 的 `SKILL_MEMORY.md` 通过 resource action 读写，只允许 `runtime/home/how/<skill>/SKILL_MEMORY.md` 且对应 effective HOW skill 必须存在；actual Home 和其它空间的平行 memory 文件在装配/reconciliation 时被拒绝。
+- 通用 skill 的 `SKILL_MEMORY.md` 通过 resource action 读写，只允许 `runtime/home/skills/<skill>/SKILL_MEMORY.md` 且对应 effective skill 必须存在；actual Home 和其它空间的平行 memory 文件在装配/reconciliation 时被拒绝。
 
 ## Home Top Search
 
-`home.top.search` 只检索 WHAT、WHY 与通用 HOW，不检索默认注入的 `agent` core，也不检索局部自动挂载的 `how_domain`/`how_action` 或任何 MEMORY。Engine 先按统一 effective view 解析每个 Home 顶层 Link：未物化 actual 条目直接有界读取 actual prefix，runtime-only 或 modified 条目读取现有 runtime 文件，tombstone 不进入目录。这个过程不创建 runtime copy、overlay record 或 Background entry。
+`home.top.search` 只检索通用 skill，不检索默认注入的 `agent` core，也不检索局部自动挂载的 `skills_domain`/`skills_action` 或任何 MEMORY。Engine 先按统一 effective view 解析每个 Home 顶层 Link：未物化 actual 条目直接有界读取 actual prefix，runtime-only 或 modified 条目读取现有 runtime 文件，tombstone 不进入目录。这个过程不创建 runtime copy、overlay record 或 Background entry。
 
-Home-owned `search.py` 从有界 effective 文档构造 metadata：WHAT/WHY 的首个 H1 是 title、首个有效正文段是 summary，缺失时回退到 Link name 和有界 prefix；通用 HOW 必须复用已经严格校验的 frontmatter title/description，不能从正文 H1 产生第二套 skill 描述。digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、summary 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
+Home-owned `search.py` 从有界 effective skill 文档构造 metadata，严格复用 frontmatter `title`/`description`。digest 标识完整 effective 文件。确定性评分同时考虑 link、name、title、description 和 searchable prefix，并按 `score desc, link asc` 稳定排序。`home.search.candidate_limit` 默认 20；`default_top_k` 默认 5；`max_top_k` 默认 10。目录未超过候选上限时，词法零分条目仍保留给语义 rerank，避免小型 Home 因同义表达被提前丢弃。
 
 候选通过 JSON-only `home_search` profile 交给受控 LLM task，模型只返回候选内唯一 Link，也可以用空列表明确表示无匹配。Task failure、非 JSON、额外字段、重复 Link、超出 `top_k` 或候选外 Link 都不形成搜索失败，而是回退确定性顺序并标记 `reranked=false`；合法空列表返回空 items 且 `reranked=true`。action result 只返回 query、候选计数、rerank 标记和每项 link/space/title/summary/digest/score，不返回 searchable prefix 或完整正文，也不自动加载结果到 Background。模型后续仍须显式加载选中的顶层 Link。
 
@@ -245,14 +226,14 @@ Home Maintenance 是 `tinysoul.maintenance.home` 拥有的自治任务。它由 
 
 ### Home Maintenance
 
-Home owner 的 diff 输入只包括当前 active `runtime/home`、actual Home，以及 runtime 通用 HOW 包中的 `SKILL_MEMORY.md`。Maintenance Turn 的 Context 另外使用 actual Home Background，并由 task preparation 注入当前 Session 和 Workspace；Home 模块本身不读取 Session/Workspace，也不创建 Home archive、workset、Settlement root 或持久 review 状态。
+Home owner 的 diff 输入只包括当前 active `runtime/home`、actual Home，以及 runtime skill 包中的 `SKILL_MEMORY.md`。Maintenance Turn 的 Context 另外使用 actual Home Background，并由 task preparation 注入当前 Session 和 Workspace；Home 模块本身不读取 Session/Workspace，也不创建 Home archive、workset、Settlement root 或持久 review 状态。
 
 一次任务从当前事实动态构造 snapshot，并通过 owner-bound actions 处理：
 
 1. `copied` 表示仅物化而未被 Agent 修改，无论当前 actual 是否已经变化，都不应把旧 runtime 副本写回；Maintenance 直接清理该 runtime record/content；
 2. `maintenance.home.list/inspect` 向 Maintenance Turn 提供 token、Link、state、digest 和有界 before/after 内容；token 绑定当前 snapshot，actual/runtime 任一变化都会使旧 token 失效；
-3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；HOW rewrite 在写入前重新校验 frontmatter，非法正文保持 actual 和 review 不变；
-4. `SKILL_MEMORY.md` 是独立的 `skill_how_review`，不是普通 diff 的附件；`inspect` 返回 actual HOW 和临时记忆，只有 inspect 后才能 `reject`/`rewrite`，对应 skill 处理完成后清空；
+3. `maintenance.home.accept` 将 runtime 版本原子提交到 actual，`reject` 保留 current actual，`rewrite` 把 Turn 给出的整理正文原子写入 actual；三种 resolution 都在成功后清除对应 runtime record/content；skill rewrite 在写入前重新校验 frontmatter，非法正文保持 actual 和 review 不变；
+4. `SKILL_MEMORY.md` 是独立的 `skill_review`，不是普通 diff 的附件；`inspect` 返回 actual skill 和临时记忆，只有 inspect 后才能 `reject`/`rewrite`，对应 skill 处理完成后清空；
 5. `maintenance.complete` 只有在 snapshot 和 pending 事实均无未处理项时成功；Turn 结束后 controller 再调用 `remove_resolved_overlay()`，校验 runtime root 只含空 overlay 元数据并整体移除 `runtime/home`；
 6. 下一次 Home 访问发现 runtime root 不存在时重新初始化 overlay，并按需从 actual 懒加载。
 
@@ -276,7 +257,7 @@ Agent Home 和 Workspace 都基于链接和相对路径，但语义边界不同�
 
 Agent Home 失败分三层：
 
-1. 局部 action result：链接不存在、链接类别不适用于当前 mutation、WHAT 分类缺失、core delete、文件过大、写入冲突、patch 不适用；
+1. 局部 action result：链接不存在、链接类别不适用于当前 mutation、skill frontmatter 不合法、core delete、文件过大、写入冲突、patch 不适用；
 2. 模块边界异常：home root 不可用、已有内容无法按 UTF-8 解释、链接映射不变量破坏、runtime copy 缺失且无法本地修复、索引损坏、配置不可解释；
 3. Runtime 语义异常：启动配置失败映射为 `runtime.startup_failed`，User Turn 中不可继续失败默认映射为 `runtime.turn_end`，运行时副本准备映射为 `home.runtime_copy_required`；Home Maintenance failure 结束对应 maintenance task，不伪装为 User Turn failure。
 
@@ -305,17 +286,17 @@ tinysoul/home/
   failures.py
 ```
 
-`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action HOW、Maintenance snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 Business Day/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Maintenance Turn 编排放进 Home。
+`AgentHomeEngine` 是普通 User Turn 与 Maintenance 的 Home 门面，提供链接解析、effective/actual 顶层目录、effective read、runtime mutation、overlay reconciliation、top search、domain/action skill、Maintenance snapshot/resolution 和 finalize。`HomeOverlayManager` 只管理跨日 active overlay record 与 operation recovery，不提供 Business Day/archive 或 LLM policy。`HomeTopSearchService` 只消费 Engine 交付的 bounded effective documents，不重复解释 overlay；`AgentHomeEngineBuilder` 负责接收已解析设置、校验目录并装配这些服务。不建立 Settlement store，也不把 Maintenance Turn 编排放进 Home。
 
 AppBuilder 的目标职责是：
 
 1. 构建 AgentHomeEngine；
 2. 将 `HomeBackgroundEntryProvider` 交给 ContextEngineBuilder，不在启动时读取或物化 core；
-3. 将 HomeDomainHowProvider 注入 Phase2Unit，并将 HomeActionHowProvider 注入 LLM action executor；
+3. 将 HomeDomainSkillProvider 注入 Phase2Unit，并将 HomeActionSkillProvider 注入 LLM action executor；
 4. 将 Home action handler 注册到 ActionEngineBuilder，并向 search executor 注入 `LLMHomeSearchReranker`；
 5. 注册 home runtime copy Trap handler；
 6. 为 Maintenance Context 注入 `ActualHomeBackgroundEntryProvider`，为 Home Maintenance task 注册 owner-bound actions；
-7. 不直接读取 `AGENT.md`、HOW、WHAT 或 WHY 文件，也不读取 Memory 文件。
+7. 不直接读取 `AGENT.md`、skill 文件，也不读取 Memory 文件。
 
 ## 测试与验收
 
@@ -323,19 +304,19 @@ AppBuilder 的目标职责是：
 
 - AppBuilder 不直接读取 `home/agent/AGENT.md`，项目根 `AGENT.md` 不参与 Home 映射；
 - Context 默认背景来自 Agent Home 门面；
-- `DomainHowProvider` 能从 `home:how_domain:domain` 获取 domain HOW；`ActionHowProvider` 能从 `home:how_domain:domain` 与 `home:how_action:<domain>/<action>` 获取 domain/action HOW；
+- `DomainSkillProvider` 能从 `home:skills_domain:domain` 获取 domain skill；`ActionSkillProvider` 能从 `home:skills_domain:domain` 与 `home:skills_action:<domain>/<action>` 获取 domain/action skill；
 - `home:*@` 与 `home:*/` 链接解析和越界防护有单元测试；
 - runtime home 显式副本准备行为有单元测试；
 - 每个 User Turn 的 preparation 通过动态 provider 重建默认 core 与 effective 存在时的 allowlisted Context/user Agent Top；其它背景在 Context Module frame 中按需复制并重放同一 signal batch；
 - `home:agent@AGENT` 的 runtime 副本位置稳定为 `agent/AGENT.md`；
 - `home.resource.read` 不写入 BackgroundContext，并返回有界文本；write/patch/delete 只修改 active overlay，actual Home 保持零写入；
-- `home.top.write/patch/delete` 只修改 runtime；WHAT create 要求分类，core delete 被拒绝；
-- `home.top.search` 只返回 effective WHAT/WHY/HOW metadata；actual 搜索不物化，runtime-only 可见，tombstone 不可见，非法 rerank 确定性回退；
+- `home.top.write/patch/delete` 只修改 runtime；skill create 要求严格 frontmatter，core delete 被拒绝；
+- `home.top.search` 只返回 effective skill metadata；actual 搜索不物化，runtime-only 可见，tombstone 不可见，非法 rerank 确定性回退；
 - prompt mount 由 Action Catalog 自动维护逻辑生命周期，模型只通过 write/patch 修改 runtime；
 - `HOME_RUNTIME_COPY_REQUIRED` trap handler 能准备副本并重试当前 frame；
 - Agent Home 的配置错误、索引损坏和 runtime copy 失败经专门 bridge 映射；
 - Home parser/catalog 拒绝 `memory` space 和 `home:memory@...`；runtime-only Home 内容、tombstone 和 operation recovery 跨日、跨重启保持；
-- 只有通用 HOW runtime 包拥有 `SKILL_MEMORY.md`，跨 Turn/跨日可读写且 Home Maintenance 后清空；
+- 只有通用 skill runtime 包拥有 `SKILL_MEMORY.md`，跨 Turn/跨日可读写且 Home Maintenance 后清空；
 - Home Maintenance 不创建 archive 或持久状态，accept/reject/rewrite 后清理 active overlay record，全部解决后移除空 runtime Home，中断后通过仍存在的 active diff 重算；
 - Home Maintenance 对顶层 `memory/` 零读写，Memory Maintenance 验收归独立 Memory 模块；
 - 每日日切不移动、清空或重新初始化 runtime Home，也不改变普通 User Turn 的三阶段主流程。

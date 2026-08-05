@@ -90,7 +90,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
         source_turn_id="turn_old",
     )
     home.write_resource(
-        "home:how/refactor/references/new.md",
+        "home:skills/refactor/references/new.md",
         "runtime-only home resource",
     )
     home_manifest_before = _home_manifest_bytes(home)
@@ -124,7 +124,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     assert workspace.active_day == NEW_DAY
     assert workspace.load_manifest().resources == ()
     assert (
-        home.runtime_root / "how" / "refactor" / "references" / "new.md"
+        home.runtime_root / "skills" / "refactor" / "references" / "new.md"
     ).read_text(encoding="utf-8") == "runtime-only home resource"
     assert _home_manifest_bytes(home) == home_manifest_before
     assert coordinator.session_archive_for(OLD_DAY) == archive / "session"
@@ -174,7 +174,7 @@ def test_daily_rollover_resume_does_not_touch_home(
     )
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     workspace.write_text("workspace:old.md", "old")
-    home.write_resource("home:how/refactor/notes.md", "keep home")
+    home.write_resource("home:skills/refactor/notes.md", "keep home")
     home_manifest_before = _home_manifest_bytes(home)
 
     with pytest.raises(LoopInvariantError, match="WorkspaceIOError"):
@@ -184,7 +184,7 @@ def test_daily_rollover_resume_does_not_touch_home(
     assert len(pending) == 1
     assert (pending[0] / "workspace" / "old.md").is_file()
     assert workspace.active_day is None
-    assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
+    assert home.read_resource("home:skills/refactor/notes.md").text == "keep home"
     assert _home_manifest_bytes(home) == home_manifest_before
 
     resumed = DailyLifecycleCoordinator(
@@ -199,7 +199,7 @@ def test_daily_rollover_resume_does_not_touch_home(
     assert not (resumed.archives[0].root / "home").exists()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
-    assert home.read_resource("home:how/refactor/notes.md").text == "keep home"
+    assert home.read_resource("home:skills/refactor/notes.md").text == "keep home"
     assert _home_manifest_bytes(home) == home_manifest_before
 
 
@@ -500,7 +500,7 @@ def test_legacy_untagged_workspace_inherits_session_day_without_moving_home(
     legacy_workspace = workspace.root / "legacy.md"
     legacy_workspace.parent.mkdir(parents=True, exist_ok=True)
     legacy_workspace.write_text("legacy workspace", encoding="utf-8")
-    legacy_home = home.runtime_root / "how" / "legacy" / "notes.txt"
+    legacy_home = home.runtime_root / "skills" / "legacy" / "notes.txt"
     legacy_home.parent.mkdir(parents=True, exist_ok=True)
     legacy_home.write_text("legacy home", encoding="utf-8")
 
@@ -511,7 +511,7 @@ def test_legacy_untagged_workspace_inherits_session_day_without_moving_home(
     assert not (outcome.archives[0].root / "home").exists()
     assert legacy_home.read_text(encoding="utf-8") == "legacy home"
     home.reconcile()
-    assert home.read_resource("home:how/legacy/notes.txt").text == "legacy home"
+    assert home.read_resource("home:skills/legacy/notes.txt").text == "legacy home"
     transition = json.loads(
         (outcome.archives[0].root / "transition.json").read_text(encoding="utf-8")
     )

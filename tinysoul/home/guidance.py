@@ -1,16 +1,16 @@
-"""Agent Home HOW providers."""
+"""Agent Home skill providers."""
 
 from __future__ import annotations
 
-from tinysoul.action.backends.llm_action import ActionHow
+from tinysoul.action.backends.llm_action import ActionSkillGuidance
 from tinysoul.runtime.bridge import RuntimeAgentHomeBridge
 
 from .engine import AgentHomeEngine
 from .errors import AgentHomeError, AgentHomeRuntimeCopyRequired
 
 
-class HomeDomainHowProvider:
-    """Provide domain HOW text from Agent Home."""
+class HomeDomainSkillProvider:
+    """Provide domain skill text from Agent Home."""
 
     def __init__(
         self,
@@ -40,8 +40,8 @@ class HomeDomainHowProvider:
         return tuple(snippets)
 
 
-class HomeActionHowProvider:
-    """Provide action HOW text for nested LLM tasks."""
+class HomeActionSkillProvider:
+    """Provide action skill text for nested LLM tasks."""
 
     def __init__(
         self,
@@ -51,7 +51,7 @@ class HomeActionHowProvider:
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
+    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
         try:
             domain_guidance = self._home.guidance_for_domain(domain)
             action_guidance = self._home.guidance_for_action(domain, action_name)
@@ -65,7 +65,7 @@ class HomeActionHowProvider:
                 exc,
                 payload={"domain": domain, "action_name": action_name},
             ) from exc
-        return ActionHow(
+        return ActionSkillGuidance(
             domain=(domain_guidance,) if domain_guidance else (),
             action=(action_guidance,) if action_guidance else (),
         )

@@ -1,6 +1,6 @@
 # Execution
 
-Use `execution.write_script`, `execution.rewrite_script`, and `execution.patch_script` to maintain complete scripts under `workspace:scripts/` or `home:how/<skill>/scripts/`. Prefer general, reusable logic; avoid embedding substantial target document content in a script when a Workspace content Action fits. A Workspace script remains temporary unless `execution.promote_script` copies it into an existing general HOW.
+Use `execution.write_script`, `execution.rewrite_script`, and `execution.patch_script` to maintain complete scripts under `workspace:scripts/` or `home:skills/<skill>/scripts/`. Prefer general, reusable logic; avoid embedding substantial target document content in a script when a Workspace content Action fits. A Workspace script remains temporary unless `execution.promote_script` copies it into an existing general skill.
 
 Use `execution.run_python_script` or `execution.run_bash_script` for maintained code. Use `execution.run_powershell`, `execution.run_cmd`, or `execution.run_bash_command` for immediate commands that do not need a maintained Script resource. Prefer PowerShell for structured Windows work, Cmd only for Cmd-specific built-ins, and Bash only when the project exposes it.
 

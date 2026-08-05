@@ -326,7 +326,7 @@ def test_promote_writes_the_frozen_source_snapshot(local_tmp: Path) -> None:
 
     resolver.promote(
         source,
-        "home:how/test/scripts/task.py",
+        "home:skills/test/scripts/task.py",
         expected_source_digest=source.digest,
         overwrite=False,
         expected_target_digest="",
@@ -396,7 +396,7 @@ def test_source_resolver_enforces_read_rewrite_and_promote_limits(
                 oversized.digest,
                 ScriptLanguage.PYTHON,
             ),
-            "home:how/test/scripts/task.py",
+            "home:skills/test/scripts/task.py",
             expected_source_digest=oversized.digest,
             overwrite=False,
             expected_target_digest="",
@@ -734,7 +734,7 @@ class _RecordingHome:
     written_text = ""
 
     def loadable_background_links(self) -> tuple[str, ...]:
-        return ("home:how@test",)
+        return ("home:skills@test",)
 
     def write_resource(
         self,

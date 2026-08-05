@@ -92,7 +92,7 @@ MODEL 事件可能包含完整文本 prompt 和模型回答；Console 只应在�
 
 模板变更遵循以下一致性规则：
 
-- 默认 Home 的 AGENT、WHAT、WHY、通用 HOW、domain HOW、action HOW 及渐进资源只修改共享 `project/home/`；Home 不按 profile 分叉。运行中 Home Maintenance 提交的是具体项目的 actual Home，不会更新 package template；需要改进未来项目的默认内容时必须另行修改 assets。
+- 默认 Home 的 AGENT、通用 skill、domain skill、action skill 及渐进资源只修改共享 `project/home/`；Home 不按 profile 分叉。运行中 Home Maintenance 提交的是具体项目的 actual Home，不会更新 package template；需要改进未来项目的默认内容时必须另行修改 assets。
 - 两套 config profile 都是完整快照，不是 overlay。配置 schema、模块 section、模型定义或 include 文件发生增删改时，应同时审查两套 profile，并保持相同的相对 TOML 文件集合；standard 与 development 只在明确记录的 enabled、provider、模型选择和其它开发取值上分化。
 - standard 必须保持可分发的安全初始状态；development 可以反映维护者的当前非敏感开发选择，但不能包含 `.env`、密钥、本机绝对路径、runtime 或 archive。每套 `.env.example` 只列出该 profile 所引用的变量名和空值。
 - `tinysoul.toml` 的 include 必须能覆盖两套 profile 的完整文件形状。新增目录深度、文件类型或资源类别时同时更新 setuptools package-data；普通同层 TOML/Markdown 增删仍须由 wheel 测试证明实际进入安装包。
@@ -120,7 +120,7 @@ Script capability 在此边界解析 `[capabilities.script]`，装配 Workspace 
 
 AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared Supervised Process manager、Workspace transaction coordinator、共享 lifecycle registrar 和 activity controller，再把同一 manager 注入 Script 与 Shell registrar；不会为两个 capability 各建一个 Turn job或向 Loop 注入两个 controller。Script 继续解析 source/Python/Bash 配置；Shell 独立解析 PowerShell/Cmd/Bash 和 command policy 配置。各 registrar 按有效 adapter 移除具体 Action；只要仍有任一 Script/Shell run Action，共享 `execution.wait/stop/read_candidate/apply/discard` 就保留。Execution Domain 内全部 Action 都被移除后，Home mount reconciliation 才不再观察该 domain。App 不解释脚本源码、Shell command、job state、日志或 candidate diff。
 
-`core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 how_domain/how_action HOW。Workspace 的 prompt reference resolver 与 Agent Home 的 action HOW provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
+`core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 skills_domain/skills_action skill。Workspace 的 prompt reference resolver 与 Agent Home 的 action skill provider 在装配期注入 action 层共享 LLM action backend；Home-owned `LLMHomeSearchReranker` 与 Memory-owned `LLMMemorySearchReranker` 分别注入所属搜索服务，候选构造、校验和 fallback 仍归各业务模块。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount 路径或删除语义。
 
 AppBuilder 构建一个 `MaintenanceEngine` 并注入 `ProgramRunner` 和 Endpoint。MaintenanceEngine 内部组合 `maintenance.archive` 的 DailyLifecycleCoordinator、持久 Availability store、HomeMaintenanceTask 与 MemoryMaintenanceTask；Home/Memory task 需要推理时再调用各自的 Maintenance Turn。长运行 Program 启动先恢复并补做 Session/Workspace/Trash 日切，再增量登记本次归档日、校验既有 Memory 待办、重算 Home pending 并原子保存唯一 availability；该步骤完成后 Endpoint 才能对外就绪。Program 以 `program.maintenance.available` 给出包含一个聚合 Home 待办和全部 Memory 日期的非阻塞提示，Observation 只通知前端重新读取 Endpoint 投影，不在启动时运行 Home/Memory Turn。
 

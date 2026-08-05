@@ -6,10 +6,10 @@ description = "Tombstone one top-level Agent Home entry in the active overlay."
 schema = { type = "object", properties = { link = { type = "string", description = "Stable home:*@ top-level link." }, expected_digest = { type = "string" } }, required = ["link"], additionalProperties = false }
 
 [semantic]
-use_when = ["An obsolete top-level WHAT, WHY, HOW, or non-core AGENT entry should leave the effective view"]
+use_when = ["An obsolete top-level skill or non-core AGENT entry should leave the effective view"]
 avoid_when = ["home:agent@AGENT should be deleted", "A long-term Memory should change"]
 effects = ["modifying"]
-examples = ["Delete an obsolete home:why@old_rule entry"]
+examples = ["Delete an obsolete home:skills@old_rule entry"]
 
 [runtime]
 parallel_policy = "serial"

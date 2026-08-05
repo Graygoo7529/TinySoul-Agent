@@ -38,7 +38,7 @@ class HomeReviewResolution(StrEnum):
 
 @dataclass(frozen=True)
 class HomeSkillMemoryContext:
-    """Bounded runtime-only reference for one general HOW review."""
+    """Bounded runtime-only reference for one general skill review."""
 
     skill: str
     link: str
@@ -176,7 +176,7 @@ class HomeReviewChange:
 
 @dataclass(frozen=True)
 class HomeSkillReview:
-    """Token-bound review of actual HOW using its runtime-only skill memory."""
+    """Token-bound review of an actual skill using runtime-only skill memory."""
 
     skill: str
     link: str
@@ -189,17 +189,17 @@ class HomeSkillReview:
     def __post_init__(self) -> None:
         if not self.skill or not self.link or not self.relative_path:
             raise AgentHomeContractError(
-                "Home HOW review identity fields must be non-empty"
+                "Home skill review identity fields must be non-empty"
             )
         if not self.actual_digest:
-            raise AgentHomeContractError("Home HOW review requires actual content")
+            raise AgentHomeContractError("Home skill review requires actual content")
         if not isinstance(self.actual_text, str) or not isinstance(
             self.actual_truncated,
             bool,
         ):
-            raise AgentHomeContractError("Home HOW review preview is invalid")
+            raise AgentHomeContractError("Home skill review preview is invalid")
         if not isinstance(self.skill_memory, HomeSkillMemoryContext):
-            raise AgentHomeContractError("Home HOW review memory is invalid")
+            raise AgentHomeContractError("Home skill review memory is invalid")
 
     @property
     def token(self) -> str:
@@ -218,7 +218,7 @@ class HomeSkillReview:
 
     def to_review_json(self) -> JsonObject:
         return {
-            "kind": "skill_how_review",
+            "kind": "skill_review",
             "token": self.token,
             "skill": self.skill,
             "link": self.link,
@@ -272,7 +272,7 @@ class HomeReviewSnapshot:
             not isinstance(review, HomeSkillReview) for review in self.skill_reviews
         ):
             raise AgentHomeContractError(
-                "Home review snapshot HOW reviews are invalid"
+                "Home review snapshot skill reviews are invalid"
             )
         for value in (
             self.copied_cleaned,
@@ -510,7 +510,7 @@ class HomeReviewService:
                 )
             if skill in result:
                 raise AgentHomeInvariantError(
-                    f"General HOW skill has multiple SKILL_MEMORY records: {skill}"
+                    f"General skill has multiple SKILL_MEMORY records: {skill}"
                 )
             result[skill] = record
         return result
@@ -576,17 +576,17 @@ class HomeReviewService:
             raise AgentHomeInvariantError(
                 f"Deleted SKILL_MEMORY remained reviewable: {skill}"
             )
-        relative_path = f"how/{skill}/SKILL.md"
+        relative_path = f"skills/{skill}/SKILL.md"
         link = self._layout.link_for_relative(relative_path)
         if link is None:
             raise AgentHomeInvariantError(
-                f"Home review cannot map HOW review target: {relative_path}"
+                f"Home review cannot map skill review target: {relative_path}"
             )
         actual = self._layout.source_for_relative(relative_path)
         actual_digest = _actual_digest(actual)
         if not actual_digest:
             raise AgentHomeInvariantError(
-                f"SKILL_MEMORY has no actual HOW review target: {skill}"
+                f"SKILL_MEMORY has no actual skill review target: {skill}"
             )
         actual_read = _preview(actual, self._max_preview_chars)
         memory_read = _preview(
@@ -602,7 +602,7 @@ class HomeReviewService:
             actual_truncated=actual_read.truncated,
             skill_memory=HomeSkillMemoryContext(
                 skill=skill,
-                link=f"home:how/{skill}/SKILL_MEMORY.md",
+                link=f"home:skills/{skill}/SKILL_MEMORY.md",
                 digest=memory_record.runtime_digest,
                 text=memory_read.text,
                 truncated=memory_read.truncated,
@@ -634,7 +634,7 @@ class HomeReviewService:
     ) -> None:
         if resolution is HomeReviewResolution.ACCEPT:
             raise AgentHomeContractError(
-                "Home HOW review does not have a runtime version to accept"
+                "Home skill review does not have a runtime version to accept"
             )
         self._verify_skill_review(review, expected_memory=expected_memory)
         if resolution is HomeReviewResolution.REWRITE:
@@ -652,8 +652,8 @@ class HomeReviewService:
             )
         if (
             isinstance(link, HomeTopLink)
-            and link.space == "how"
-            and relative_path == f"how/{link.name}/SKILL.md"
+            and link.space == "skills"
+            and relative_path == f"skills/{link.name}/SKILL.md"
         ):
             parse_home_skill_metadata(text, link=link)
 
@@ -713,7 +713,7 @@ class HomeReviewService:
         )
         if actual_digest != review.actual_digest:
             raise AgentHomeInvariantError(
-                f"Actual HOW changed during review: {review.relative_path}"
+                f"Actual skill changed during review: {review.relative_path}"
             )
 
     def _rewrite_relative(self, relative_path: str, text: str) -> None:
@@ -767,7 +767,7 @@ def _is_skill_memory(relative_path: str) -> bool:
     parts = PurePosixPath(relative_path).parts
     return (
         len(parts) == 3
-        and parts[0] == "how"
+        and parts[0] == "skills"
         and parts[2] == "SKILL_MEMORY.md"
     )
 

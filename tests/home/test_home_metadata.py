@@ -20,10 +20,10 @@ from tinysoul.home.metadata import SKILL_FRONTMATTER_MAX_CHARS
 def test_skill_frontmatter_parses_exact_discovery_fields() -> None:
     metadata = parse_home_skill_metadata(
         _skill("Review Home", "Review pending Home changes."),
-        link=HomeTopLink("how", "review"),
+        link=HomeTopLink("skills", "review"),
     )
 
-    assert str(metadata.link) == "home:how@review"
+    assert str(metadata.link) == "home:skills@review"
     assert metadata.title == "Review Home"
     assert metadata.description == "Review pending Home changes."
 
@@ -55,11 +55,11 @@ def test_skill_frontmatter_rejects_ambiguous_metadata(
     problem: str,
 ) -> None:
     with pytest.raises(AgentHomeContractError, match=problem):
-        parse_home_skill_metadata(text, link=HomeTopLink("how", "review"))
+        parse_home_skill_metadata(text, link=HomeTopLink("skills", "review"))
 
 
 def test_home_builder_rejects_invalid_actual_skill(tmp_path: Path) -> None:
-    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("# Review\n", encoding="utf-8")
 
@@ -68,7 +68,7 @@ def test_home_builder_rejects_invalid_actual_skill(tmp_path: Path) -> None:
 
 
 def test_home_builder_reports_oversized_skill_frontmatter(tmp_path: Path) -> None:
-    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(
         "---\n"
@@ -85,7 +85,7 @@ def test_home_builder_reports_oversized_skill_frontmatter(tmp_path: Path) -> Non
 
 def test_skill_mutation_validates_before_changing_effective_home(tmp_path: Path) -> None:
     home = _home(tmp_path)
-    link = "home:how@review"
+    link = "home:skills@review"
     original = _skill("Review Home", "Review pending Home changes.")
     home.write_top(link, original)
 
@@ -115,9 +115,9 @@ def test_skill_catalog_budget_fails_without_creating_runtime_skill(
     ).build()
 
     with pytest.raises(AgentHomeContractError, match="metadata catalog exceeds"):
-        home.write_top("home:how@review", _skill("Review", "Review changes."))
+        home.write_top("home:skills@review", _skill("Review", "Review changes."))
 
-    assert "home:how@review" not in home.loadable_background_links()
+    assert "home:skills@review" not in home.loadable_background_links()
 
 
 def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
@@ -126,7 +126,7 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
     agent = tmp_path / "home" / "agent" / "AGENT.md"
     agent.parent.mkdir(parents=True)
     agent.write_text("core", encoding="utf-8")
-    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(
         _skill("Review Home", "Review pending Home changes."),
@@ -139,24 +139,24 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
 
     assert [(item.link, item.title, item.description) for item in first.items] == [
         (
-            "home:how@review",
+            "home:skills@review",
             "Review Home",
             "Review pending Home changes.",
         )
     ]
     assert not (
-        tmp_path / "runtime" / "home" / "how" / "review" / "SKILL.md"
+        tmp_path / "runtime" / "home" / "skills" / "review" / "SKILL.md"
     ).exists()
 
     home.patch_top(
-        "home:how@review",
+        "home:skills@review",
         old_text="title: Review Home",
         new_text="title: Review Home Daily",
     )
     second = provider.catalog(date(2026, 7, 15))
     assert second.items[0].title == "Review Home Daily"
 
-    home.delete_top("home:how@review")
+    home.delete_top("home:skills@review")
     third = provider.catalog(date(2026, 7, 16))
     assert third.items == ()
 
@@ -164,7 +164,7 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
 def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
     tmp_path: Path,
 ) -> None:
-    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(
         _skill(

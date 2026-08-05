@@ -65,13 +65,13 @@ enabled=true + dependencies unavailable
 
 ## Action 与实现依赖
 
-Action 名称由用户可区分的行为决定。通常不应只因实现库不同而复制同义 action；但当不同 adapter 具有明确的格式范围、输出结构、失败模式和选择倾向时，可以在同一 domain 暴露多个具名 action，并通过 Catalog semantic 与 domain HOW 说明选择规则。
+Action 名称由用户可区分的行为决定。通常不应只因实现库不同而复制同义 action；但当不同 adapter 具有明确的格式范围、输出结构、失败模式和选择倾向时，可以在同一 domain 暴露多个具名 action，并通过 Catalog semantic 与 domain skill 说明选择规则。
 
 Capability 不重复实现 Action backend。需要硬停止的第三方解析、外部程序或不受信任输入处理必须复用 Action 的受控 process 原语；业务 executor 只负责运行前 staging 和完成后业务提交。
 
 ## 共用监督执行层
 
-Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。该能力由 `tinysoul/capabilities/supervised_process/` 提供：它是 capability-internal 共用设施，不是模型可见 domain，不建立 HOW、Link namespace 或独立持久状态；它为模型侧 `execution` Domain 注册唯一一组生命周期 handler。
+Script 与 Shell 都需要让进程在启动 Action 返回后继续运行，并在同一 Turn 的后续 Cycle 中观察、等待、停止或收尾。该能力由 `tinysoul/capabilities/supervised_process/` 提供：它是 capability-internal 共用设施，不是模型可见 domain，不建立 Skill、Link namespace 或独立持久状态；它为模型侧 `execution` Domain 注册唯一一组生命周期 handler。
 
 共用层拥有 Turn-scoped 单 job manager、日志/候选观察、Cycle pacing、额外 Cycle、apply/discard 协调、生命周期 executor 和 cleanup，并复用注入的 Workspace transaction mirror service。同一 Turn 跨 Script/Shell 最多一个 unresolved job；启动 action 写入 owner，后续 lifecycle action 只用 execution id 在当前 Turn 内解析实际 owner。`tinysoul.workspace` 继续拥有 mirror、diff、baseline CAS 和 bundle mutation；共享层不能复制这些规则。Script/Shell 仍各自拥有启动 action schema、source/command policy、依赖、handler 和结果解释；共享层不能退化为接受任意 params 的通用 run executor。
 

@@ -19,7 +19,7 @@ workspace.convert_with_pypdf
 
 `workspace.convert_with_pypdf` 只处理 PDF，强调页级文本、嵌入图片、附件和页面可追踪性。pypdf 负责 PDF 文本与嵌入资源，pypdfium2 负责在无有效文本时把页面渲染为 PNG；页面渲染不是 pypdf 自身能力。
 
-`home:how_domain:workspace` 同时说明一般 Workspace 操作和转换选择倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action HOW。Capability 仍由 `tinysoul.capabilities.resource` 拥有配置、依赖、转换 service 和 `resource.*` backend handler；Domain 与 Capability 不要求一一对应。
+`home:skills_domain:workspace` 同时说明一般 Workspace 操作和转换选择倾向：普通文档和结构化输出优先 MarkItDown；PDF 专用提取、页级追踪、图像型页面或嵌入资源优先 pypdf。两个 action 都是确定性本地 action，不含内部 LLM Task，因此不消费 action skill。Capability 仍由 `tinysoul.capabilities.resource` 拥有配置、依赖、转换 service 和 `resource.*` backend handler；Domain 与 Capability 不要求一一对应。
 
 ## 输入输出
 

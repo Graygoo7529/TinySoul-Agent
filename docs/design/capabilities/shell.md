@@ -48,7 +48,7 @@ working_directory: optional Workspace-mirror-relative directory, default "."
 
 确定性 policy 只检查命令非空、无 NUL、字符上限、合法 working directory、adapter enabled 和 executable dependency。首版不维护基于关键字的命令 denylist，因为字符串匹配无法形成可靠安全边界。
 
-每次 run 都以 active Workspace 的有界事务 mirror 为 cwd，`TINYSOUL_WORKSPACE` 指向同一 mirror。TinySoul 只对 mirror diff 提供 apply/discard 和冲突检查；这不构成 OS 硬沙箱。命令仍可能读取或修改宿主绝对路径、使用网络或环境、启动子进程，并产生无法由 discard 回滚的外部副作用。Catalog semantic、Execution domain HOW 和项目配置必须明确该限制。
+每次 run 都以 active Workspace 的有界事务 mirror 为 cwd，`TINYSOUL_WORKSPACE` 指向同一 mirror。TinySoul 只对 mirror diff 提供 apply/discard 和冲突检查；这不构成 OS 硬沙箱。命令仍可能读取或修改宿主绝对路径、使用网络或环境、启动子进程，并产生无法由 discard 回滚的外部副作用。Catalog semantic、Execution domain skill 和项目配置必须明确该限制。
 
 首版不增加逐命令人工 approval。信任由项目维护者在配置中显式启用：当前仓库项目计划启用 PowerShell/Cmd、关闭 Bash；`tinysoul init` 模板默认关闭整个 Shell capability。enabled adapter 缺少 executable 时 App 启动失败；disabled adapter 不检查依赖并从 effective Catalog 移除。只有 Script、Shell 与共享生命周期的全部 Execution Action 都无效时才移除 `execution` domain；Home 不为单个 Capability 建立独立 prompt mount。
 
@@ -85,7 +85,7 @@ Execution run/wait/stop/read/apply/discard 都是普通 Action，每次在所属
 ## 测试要求
 
 - settings 未知键、capability/adapter enabled、dependency 和 project/init 默认配置；
-- Catalog pruning、handler/options 校验、domain HOW mount 与 wheel package data；
+- Catalog pruning、handler/options 校验、domain skill mount 与 wheel package data；
 - PowerShell/Cmd 真实短命令，Bash 根据 executable opt-in/skip；
 - 固定 argv、`shell=False`、NUL/长度/cwd 逃逸/symlink 拒绝；
 - 无 diff 自动 cleanup、有 diff apply、non-zero/timeout/stop retained、read/discard；

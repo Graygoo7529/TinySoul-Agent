@@ -84,7 +84,7 @@ class RuntimeExceptionHook:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:how/test/ref.md"},
+            payload={"link": "home:skills/test/ref.md"},
         )
 
 
@@ -100,7 +100,7 @@ class RuntimeNormalizeHook:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:how/test/ref.md"},
+            payload={"link": "home:skills/test/ref.md"},
         )
 
 
@@ -121,7 +121,7 @@ class RuntimeExceptionExecutor:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:how/test/ref.md"},
+            payload={"link": "home:skills/test/ref.md"},
         )
 
 
@@ -263,7 +263,7 @@ def test_runner_allows_runtime_exception_to_reach_trap() -> None:
         )
 
     assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
-    assert raised.value.payload["link"] == "home:how/test/ref.md"
+    assert raised.value.payload["link"] == "home:skills/test/ref.md"
 
 
 def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:

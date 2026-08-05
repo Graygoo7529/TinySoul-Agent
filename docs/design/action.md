@@ -220,7 +220,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 ### llm_action
 
-`llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/action/backends/llm_action.py`，负责集中处理 Phase3 自动 HOW、Context message stack 构造、`LLM_ACTION` task 调用、回答形态解释和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
+`llm_action` 表示 action 内部还需要一次受控 LLM task。它仍处于 `ActionExecutor` 语义内：Phase3 执行具体 executor，executor 在自身业务边界构造 `TaskPrompt`，再调用 action 层共享的 `LLMActionTaskRunner`。共享服务位于 `tinysoul/action/backends/llm_action.py`，负责集中处理 Phase3 自动 skill、Context message stack 构造、`LLM_ACTION` task 调用、回答形态解释和局部失败归一化；业务 executor 不直接拼供应商请求，也不直接读取 Agent Home 文件。
 
 `llm_action` 的业务参数使用 `TaskPrompt` 的 PromptBlock-only 协议。`guide_blocks`、`input_blocks` 与 `output_blocks` 都由 `{label?, text}` 块组成，并可分别渲染为多条 `PromptBlock`。通用 LLM action 只接受 `reference_links` 作为 Phase2/Phase3 边界上的只读资源链接，由注入的 `PromptReferenceResolver.resolve_reference(link)` 解析为临时 `PromptBlock`。Workspace-owned LLM action 由 Workspace 模块提供 executor：修改类 action 接收 `target_link` 和 `reference_links`；分析类 action 可以只接收 Phase2 已选择的明确 `reference_links` 与意图。二者都在 action 内部加载正文并调用共享 LLM action 服务，不把正文作为 Phase2 参数。新增动作必须直接使用 block/link 协议。
 
@@ -228,7 +228,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `memory.search` 与 `memory.recall` 是 Memory-owned native action。Agent 不知道精确日期时使用 search；Search executor 调用 Memory 的按日确定性候选/专用 reranker 服务，只返回 `memory:YYYY-MM-DD` Link、日期和有界摘要。Context 已提供精确 Link 或 search 已发现目标日时使用 recall；recall executor 只通过 `MemoryEngine` 解析精确 `memory:YYYY-MM-DD` 并有界读取完整非空单日 Markdown。两者的 `ActionResult` 都由 Context 写入当前 TurnTraceHeap，不修改 Background。`<memory:YYYY-MM-DD>` 是提示模型调用 recall 的资源引用，Action 模块本身不解析其日期或文件路径。
 
-Phase3 action-internal LLM task 会自动追加 domain HOW 与 action HOW guide blocks。Action 层只依赖 `ActionHowProvider` 协议；Agent Home 可提供 `HomeActionHowProvider`，但 action executor 不感知 home 目录结构。`how_domain` 与 `how_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
+Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 
 嵌套 LLM task 禁用模型侧工具调用，但回答协议由 action 语义决定。`run_json` 服务结构化业务结果，例如 `core.reason`、`core.answer` 和 `workspace.analyze`；`run_text` 服务将完整模型文本作为暂态工件交给 owner 的 write/commit 边界。文本工件只在 Phase3 executor 内存中存在，不能先包装成 ActionResult 再从 Context 取回；owner 成功提交后仍只返回 Link、digest、size、revision 等元数据。Context 构造失败、Runtime 语义异常、引用解析失败、LLM task failure 或回答形态不匹配都收敛为 execute 阶段的局部 `ActionResult`，未完成文本不会提交。
 

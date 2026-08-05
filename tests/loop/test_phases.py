@@ -167,15 +167,15 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert action_events[1].payload["call_id"] == "answer_1"
 
 
-def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
-    class _HowProvider:
+def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
+    class _SkillProvider:
         def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
-                loadable_links=("home:how@review",),
+                loadable_links=("home:skills@review",),
                 items=(
                     BackgroundCatalogItem(
-                        link="home:how@review",
+                        link="home:skills@review",
                         title="Review Home",
                         description="Review effective Home changes.",
                     ),
@@ -183,12 +183,12 @@ def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() 
             )
 
         def load(self, link: str, business_day: date) -> str:
-            assert link == "home:how@review"
-            return "HOW BODY: compare runtime and actual Home."
+            assert link == "home:skills@review"
+            return "SKILL BODY: compare runtime and actual Home."
 
     context = (
         ContextEngineBuilder(system_text="sys")
-        .add_background_provider(_HowProvider())
+        .add_background_provider(_SkillProvider())
         .build()
     )
     turn_id = context.begin_turn("review Home")
@@ -206,7 +206,7 @@ def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() 
                 ToolCallRecord(
                     id="load_review",
                     name="load_background",
-                    arguments={"links": ["home:how@review"]},
+                    arguments={"links": ["home:skills@review"]},
                     kind=ToolKind.CONTROL,
                 ),
             ),
@@ -263,27 +263,27 @@ def test_phase1_how_catalog_and_load_background_feed_phase2_only_for_the_turn() 
     assert isinstance(catalog.parts[0], JsonPart)
     assert catalog.parts[0].value["items"] == [
         {
-            "link": "home:how@review",
+            "link": "home:skills@review",
             "title": "Review Home",
             "description": "Review effective Home changes.",
         }
     ]
-    assert "HOW BODY" not in _message_stack_text(phase1_stack)
+    assert "SKILL BODY" not in _message_stack_text(phase1_stack)
 
     phase2_stack = llm.calls[1].messages
     loaded = next(
         message
         for message in phase2_stack.messages
-        if message.label == "background:home:how@review"
+        if message.label == "background:home:skills@review"
     )
     assert isinstance(loaded.parts[0], TextPart)
-    assert loaded.parts[0].text == "HOW BODY: compare runtime and actual Home."
+    assert loaded.parts[0].text == "SKILL BODY: compare runtime and actual Home."
 
     context.complete_preparation()
     context.end_turn()
     context.begin_turn("next turn")
     context.prepare_default_background(date(2026, 7, 14))
-    assert "home:how@review" not in context.background_links()
+    assert "home:skills@review" not in context.background_links()
 
 
 def test_real_memory_actions_record_turn_trace_without_background_mutation(

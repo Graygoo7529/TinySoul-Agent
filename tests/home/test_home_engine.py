@@ -29,10 +29,10 @@ from tinysoul.home import (
     AgentHomeRuntimeCopyRequired,
     AgentHomeRuntimeCopyTrapHandler,
     AgentHomeSettings,
-    HomeActionHowProvider,
+    HomeActionSkillProvider,
     HomeBackgroundContentLoader,
     HomeBackgroundEntryProvider,
-    HomeDomainHowProvider,
+    HomeDomainSkillProvider,
     HomeResourceReadExecutor,
     HomePromptMountWriteExecutor,
     HomeTopWriteExecutor,
@@ -97,12 +97,7 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
         "home:agent@identity/soul": "agent/identity/soul.md",
         "home:agent@context/turn-trace": "agent/context/turn-trace.md",
         "home:agent@user/user": "agent/user/user.md",
-        "home:what@entity/tiny-soul": "what/entity/tiny-soul.md",
-        "home:what@concept/daily-lifecycle": (
-            "what/concept/daily-lifecycle.md"
-        ),
-        "home:why@context-budget": "why/context-budget.md",
-        "home:how@python-refactor": "how/python-refactor/SKILL.md",
+        "home:skills@python-refactor": "skills/python-refactor/SKILL.md",
     }
 
     for value, expected in cases.items():
@@ -112,9 +107,10 @@ def test_home_top_links_use_extensionless_identity_and_markdown_mapping(
 
     for legacy in (
         "home:agent@AGENT.md",
-        "home:what@entity/tiny-soul.md",
-        "home:what@daily-lifecycle",
-        "home:why@context-budget.md",
+        "home:skills@python-refactor.md",
+        "home:skills@python/refactor",
+        "home:what@entity/tiny-soul",
+        "home:why@context-budget",
     ):
         with pytest.raises(AgentHomeContractError):
             HomeTopLink.parse(legacy)
@@ -125,9 +121,7 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
 ) -> None:
     files = {
         "agent/AGENT.md": "core",
-        "what/entity/tiny-soul.md": "entity",
-        "why/question.md": "reason",
-        "how/refactor/SKILL.md": _SKILL_TEXT,
+        "skills/refactor/SKILL.md": _SKILL_TEXT,
     }
     for relative, text in files.items():
         path = tmp_path / "home" / relative
@@ -144,19 +138,19 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
         "home:agent/AGENT.md",
         "home:what/entity/tiny-soul.md",
         "home:why/question.md",
-        "home:how/refactor/SKILL.md",
+        "home:skills/refactor/SKILL.md",
     )
     for alias in aliases:
-        with pytest.raises(AgentHomeContractError, match="top-level Home file"):
+        with pytest.raises(AgentHomeContractError, match="Home"):
             home.read_resource(alias)
-        with pytest.raises(AgentHomeContractError, match="top-level Home file"):
+        with pytest.raises(AgentHomeContractError, match="Home"):
             home.write_resource(alias, "replacement", overwrite=True)
 
 
 def test_home_background_is_copied_only_when_context_loads_it(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "home" / "what" / "concept" / "project.md"
+    source = tmp_path / "home" / "agent" / "context" / "project.md"
     source.parent.mkdir(parents=True)
     source.write_text("project knowledge", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -165,7 +159,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
             runtime_root=tmp_path / "runtime" / "home",
         )
     ).build()
-    link = "home:what@concept/project"
+    link = "home:agent@context/project"
     context = (
         ContextEngineBuilder(system_text="sys")
         .add_lazy_background(
@@ -196,7 +190,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
         ),
     )
     runtime_path = (
-        tmp_path / "runtime" / "home" / "what" / "concept" / "project.md"
+        tmp_path / "runtime" / "home" / "agent" / "context" / "project.md"
     )
     assert not runtime_path.exists()
     bus.emit(
@@ -214,13 +208,13 @@ def test_home_background_is_copied_only_when_context_loads_it(
     assert context.background_links() == (link,)
 
 
-def test_home_provides_default_background_without_exposing_domain_how(tmp_path: Path) -> None:
+def test_home_provides_default_background_without_exposing_domain_skills(tmp_path: Path) -> None:
     agent = tmp_path / "home" / "agent"
     agent.mkdir(parents=True)
     (agent / "AGENT.md").write_text("core rules", encoding="utf-8")
-    how_domain = tmp_path / "home" / "how_domain" / "workspace"
-    how_domain.mkdir(parents=True)
-    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
+    skills_domain.mkdir(parents=True)
+    (skills_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -235,20 +229,20 @@ def test_home_provides_default_background_without_exposing_domain_how(tmp_path: 
     )
     loadable = home.loadable_background_links()
     guidance = _run_copy_trap_after_runtime_exception(
-        lambda: HomeDomainHowProvider(home).guidance_for(("workspace",)),
+        lambda: HomeDomainSkillProvider(home).guidance_for(("workspace",)),
         home=home,
     )
 
     assert defaults[0].link == "home:agent@AGENT"
     assert defaults[0].content == "core rules"
-    assert "home:how_domain:workspace" not in loadable
+    assert "home:skills_domain:workspace" not in loadable
     assert guidance == ("workspace guidance",)
     assert (tmp_path / "runtime" / "home" / "agent" / "AGENT.md").is_file()
-    assert (tmp_path / "runtime" / "home" / "how_domain" / "workspace" / "DOMAIN.md").is_file()
+    assert (tmp_path / "runtime" / "home" / "skills_domain" / "workspace" / "DOMAIN.md").is_file()
 
 
 def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
-    skill = tmp_path / "home" / "how" / "refactor"
+    skill = tmp_path / "home" / "skills" / "refactor"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -258,9 +252,9 @@ def test_home_runtime_copy_can_be_prepared_explicitly(tmp_path: Path) -> None:
         )
     ).build()
 
-    home.ensure_runtime_copy(HomeTopLink("how", "refactor"))
+    home.ensure_runtime_copy(HomeTopLink("skills", "refactor"))
 
-    assert (tmp_path / "runtime" / "home" / "how" / "refactor" / "SKILL.md").read_text(
+    assert (tmp_path / "runtime" / "home" / "skills" / "refactor" / "SKILL.md").read_text(
         encoding="utf-8"
     ) == _SKILL_TEXT
 
@@ -362,7 +356,7 @@ def test_home_background_provider_automatically_loads_allowlisted_agent_tops(
 def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
     tmp_path: Path,
 ) -> None:
-    skill = tmp_path / "home" / "how" / "refactor"
+    skill = tmp_path / "home" / "skills" / "refactor"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(_SKILL_TEXT, encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -382,20 +376,20 @@ def test_home_runtime_copy_trap_prepares_copy_and_retries_current_frame(
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:how@refactor"},
+            payload={"link": "home:skills@refactor"},
             scope=scope,
         )
     )
 
     assert result.transfer.action is RuntimeTransferAction.RETRY
     assert result.transfer.target == scope.current()
-    assert (tmp_path / "runtime" / "home" / "how" / "refactor" / "SKILL.md").is_file()
+    assert (tmp_path / "runtime" / "home" / "skills" / "refactor" / "SKILL.md").is_file()
 
     repeated = AgentHomeRuntimeCopyTrapHandler(home).handle(
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy still required",
-            payload={"link": "home:how@refactor"},
+            payload={"link": "home:skills@refactor"},
             scope=scope,
         )
     )
@@ -436,7 +430,7 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
 
 
 def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> None:
-    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -447,7 +441,7 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     ).build()
     execution = _execution(
         "home.resource.read",
-        {"link": "home:how/refactor/references/checklist.md", "max_chars": 3},
+        {"link": "home:skills/refactor/references/checklist.md", "max_chars": 3},
     )
 
     executor = HomeResourceReadExecutor(home)
@@ -461,12 +455,12 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     assert with_runtime_copy.payload["truncated"] is True
 
 def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None:
-    how_domain = tmp_path / "home" / "how_domain" / "workspace"
-    how_action = tmp_path / "home" / "how_action" / "workspace"
-    how_domain.mkdir(parents=True)
-    how_action.mkdir(parents=True)
-    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
-    (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
+    skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
+    skills_action = tmp_path / "home" / "skills_action" / "workspace"
+    skills_domain.mkdir(parents=True)
+    skills_action.mkdir(parents=True)
+    (skills_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    (skills_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -475,10 +469,10 @@ def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None
     ).build()
 
     for link in (
-        "home:how_domain:workspace",
-        "home:how_action:workspace/rewrite",
-        "home:how_domain/workspace/DOMAIN.md",
-        "home:how_action/workspace/rewrite.md",
+        "home:skills_domain:workspace",
+        "home:skills_action:workspace/rewrite",
+        "home:skills_domain/workspace/DOMAIN.md",
+        "home:skills_action/workspace/rewrite.md",
     ):
         result = HomeResourceReadExecutor(home).execute(
             _execution("home.resource.read", {"link": link}),
@@ -490,7 +484,7 @@ def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None
 
 
 def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
-    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -503,7 +497,7 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     result = HomeResourceReadExecutor(home).execute(
         _execution(
             "home.resource.read",
-            {"link": "home:how/refactor/references/checklist.md", "max_chars": 0},
+            {"link": "home:skills/refactor/references/checklist.md", "max_chars": 0},
         ),
         ActionExecutionContext(),
     )
@@ -529,7 +523,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     missing_kind = HomeTopWriteExecutor(home).execute(
         _execution(
             "home.top.write",
-            {"link": "home:what@project", "text": "project"},
+            {"link": "home:agent@project", "text": "project"},
         ),
         ActionExecutionContext(),
     )
@@ -537,7 +531,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
         _execution(
             "home.top.write",
             {
-                "link": "home:what@concept/project",
+                "link": "home:agent@project",
                 "text": "project",
             },
         ),
@@ -547,23 +541,23 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
         _execution(
             "home.prompt_mount.write",
             {
-                "link": "home:how_domain:workspace",
+                "link": "home:skills_domain:workspace",
                 "text": "workspace guidance",
             },
         ),
         ActionExecutionContext(),
     )
 
-    assert missing_kind.status is ActionResultStatus.FAILED
-    assert created.status is ActionResultStatus.SUCCESS
-    assert created.payload["state"] == "created"
+    assert missing_kind.status is ActionResultStatus.SUCCESS
+    assert missing_kind.payload["state"] == "created"
+    assert created.status is ActionResultStatus.FAILED
     assert prompt.status is ActionResultStatus.SUCCESS
-    assert home.read_top("home:what@concept/project") == "project"
+    assert home.read_top("home:agent@project") == "project"
     assert home.guidance_for_domain("workspace") == "workspace guidance"
 
 
 def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
-    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -574,13 +568,13 @@ def test_home_engine_resource_read_rejects_bool_limit(tmp_path: Path) -> None:
     ).build()
 
     with pytest.raises(AgentHomeContractError, match="positive"):
-        home.read_resource("home:how/refactor/references/checklist.md", max_chars=True)
+        home.read_resource("home:skills/refactor/references/checklist.md", max_chars=True)
 
 
-def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
-    how_domain = tmp_path / "home" / "how_domain" / "workspace"
-    how_domain.mkdir(parents=True)
-    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+def test_home_domain_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
+    skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
+    skills_domain.mkdir(parents=True)
+    (skills_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -588,7 +582,7 @@ def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeDomainHowProvider(home)
+    provider = HomeDomainSkillProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
         lambda: provider.guidance_for(("workspace",)),
@@ -598,8 +592,8 @@ def test_home_domain_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
     assert guidance == ("workspace guidance",)
 
 
-def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
-    actions = tmp_path / "home" / "how_action" / "workspace"
+def test_home_action_skills_uses_runtime_copy_trap(tmp_path: Path) -> None:
+    actions = tmp_path / "home" / "skills_action" / "workspace"
     actions.mkdir(parents=True)
     (actions / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -609,7 +603,7 @@ def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeActionHowProvider(home)
+    provider = HomeActionSkillProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
         lambda: provider.guidance_for(
@@ -625,18 +619,18 @@ def test_home_action_how_uses_runtime_copy_trap(tmp_path: Path) -> None:
         tmp_path
         / "runtime"
         / "home"
-        / "how_action"
+        / "skills_action"
         / "workspace"
         / "rewrite.md"
     ).is_file()
 
-def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
-    how_domain = tmp_path / "home" / "how_domain" / "workspace"
-    how_action = tmp_path / "home" / "how_action" / "workspace"
-    how_domain.mkdir(parents=True)
-    how_action.mkdir(parents=True)
-    (how_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
-    (how_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
+def test_home_action_skills_includes_domain_and_action_skills(tmp_path: Path) -> None:
+    skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
+    skills_action = tmp_path / "home" / "skills_action" / "workspace"
+    skills_domain.mkdir(parents=True)
+    skills_action.mkdir(parents=True)
+    (skills_domain / "DOMAIN.md").write_text("workspace guidance", encoding="utf-8")
+    (skills_action / "rewrite.md").write_text("rewrite guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=tmp_path / "home",
@@ -644,7 +638,7 @@ def test_home_action_how_includes_domain_and_action_how(tmp_path: Path) -> None:
         )
     ).build()
     _bind_workspace_mounts(home)
-    provider = HomeActionHowProvider(home)
+    provider = HomeActionSkillProvider(home)
 
     guidance = _run_copy_trap_after_runtime_exception(
         lambda: provider.guidance_for(
@@ -670,15 +664,15 @@ def test_missing_home_prompt_mount_is_optional(tmp_path: Path) -> None:
     _bind_workspace_mounts(home)
 
 
-    assert HomeDomainHowProvider(home).guidance_for(("workspace",)) == ()
-    assert HomeActionHowProvider(home).guidance_for(
+    assert HomeDomainSkillProvider(home).guidance_for(("workspace",)) == ()
+    assert HomeActionSkillProvider(home).guidance_for(
         domain="workspace",
         action_name="workspace.rewrite",
     ).domain == ()
 
 
 def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> None:
-    prompt_mount = tmp_path / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+    prompt_mount = tmp_path / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
     prompt_mount.parent.mkdir(parents=True)
     prompt_mount.write_bytes(b"\xff")
     home = AgentHomeEngineBuilder(
@@ -688,10 +682,10 @@ def test_malformed_home_prompt_mount_maps_to_runtime_failure(tmp_path: Path) -> 
         )
     ).build()
     _bind_workspace_mounts(home)
-    home.ensure_runtime_copy(home.parse_link("home:how_domain:workspace"))
+    home.ensure_runtime_copy(home.parse_link("home:skills_domain:workspace"))
 
     with pytest.raises(RuntimeException) as raised:
-        HomeDomainHowProvider(home).guidance_for(("workspace",))
+        HomeDomainSkillProvider(home).guidance_for(("workspace",))
 
     assert raised.value.reason == RUNTIME_TURN_END
     assert raised.value.payload["kind"] == AgentHomeFailureKind.CONTRACT_VIOLATION.value
@@ -718,7 +712,7 @@ def test_home_prompt_mount_io_error_maps_to_runtime_failure(
     monkeypatch.setattr(AgentHomeEngine, "guidance_for_domain", fail_guidance)
 
     with pytest.raises(RuntimeException) as raised:
-        HomeDomainHowProvider(home).guidance_for(("workspace",))
+        HomeDomainSkillProvider(home).guidance_for(("workspace",))
 
     assert raised.value.reason == RUNTIME_TURN_END
     assert raised.value.payload["kind"] == AgentHomeFailureKind.IO_FAILED.value
@@ -745,7 +739,7 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
         TrapSnap(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
-            payload={"link": "home:how_domain:missing"},
+            payload={"link": "home:skills_domain:missing"},
             scope=scope,
         )
     )
@@ -754,7 +748,7 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
     assert result.transfer.target == scope.nearest(RunLevel.TURN)
 
 def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> None:
-    ref = tmp_path / "home" / "how" / "refactor" / "references"
+    ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -769,20 +763,20 @@ def test_home_runtime_copy_required_payload_contains_paths(tmp_path: Path) -> No
         executor.execute(
             _execution(
                 "home.resource.read",
-                {"link": "home:how/refactor/references/checklist.md"},
+                {"link": "home:skills/refactor/references/checklist.md"},
             ),
             ActionExecutionContext(),
         )
     except RuntimeException as exc:
         assert exc.reason == HOME_RUNTIME_COPY_REQUIRED
-        assert exc.payload["link"] == "home:how/refactor/references/checklist.md"
+        assert exc.payload["link"] == "home:skills/refactor/references/checklist.md"
         assert exc.payload["error_type"] == "AgentHomeRuntimeCopyRequired"
         source_path = exc.payload["source_path"]
         runtime_path = exc.payload["runtime_path"]
         assert isinstance(source_path, str)
         assert isinstance(runtime_path, str)
-        assert str(tmp_path / "home" / "how" / "refactor") in source_path
-        assert str(tmp_path / "runtime" / "home" / "how" / "refactor") in runtime_path
+        assert str(tmp_path / "home" / "skills" / "refactor") in source_path
+        assert str(tmp_path / "runtime" / "home" / "skills" / "refactor") in runtime_path
     else:
         raise AssertionError("home.resource.read should require runtime copy")
 

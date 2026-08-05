@@ -3,13 +3,13 @@ domain = "home"
 
 [tool]
 description = "Read a bounded Agent Home progressive resource by home resource link."
-schema = { type = "object", properties = { link = { type = "string", description = "A progressive Agent Home resource link such as home:how/skill/ref.md." }, max_chars = { type = "integer", description = "Optional positive character limit for the returned text." } }, required = ["link"], additionalProperties = false }
+schema = { type = "object", properties = { link = { type = "string", description = "A progressive Agent Home resource link such as home:skills/skill/ref.md." }, max_chars = { type = "integer", description = "Optional positive character limit for the returned text." } }, required = ["link"], additionalProperties = false }
 
 [semantic]
 use_when = ["A progressive Agent Home resource link needs to be inspected"]
 avoid_when = ["A top-level home:*@ link should be loaded as background instead"]
 effects = ["read_only"]
-examples = ["Read home:how/python_refactor/references/checklist.md before applying that skill"]
+examples = ["Read home:skills/python_refactor/references/checklist.md before applying that skill"]
 
 [runtime]
 parallel_policy = "serial"

@@ -2,7 +2,7 @@ name = "execution.write_script"
 domain = "execution"
 
 [tool]
-description = "Generate a complete Python or Bash script at a Workspace scripts link or an existing general HOW scripts resource."
+description = "Generate a complete Python or Bash script at a Workspace scripts link or an existing general skill scripts resource."
 
 [tool.schema]
 type = "object"
@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.target_link]
 type = "string"
-description = "Target workspace:scripts/...py|sh or home:how/<skill>/scripts/...py|sh link."
+description = "Target workspace:scripts/...py|sh or home:skills/<skill>/scripts/...py|sh link."
 
 [tool.schema.properties.instruction]
 type = "string"

@@ -2,15 +2,15 @@
 
 ## 定位
 
-`tinysoul.capabilities.script` 提供临时与长期脚本的编写、修改、显式提升和 Turn 内监督执行。它不拥有新的 Link namespace：临时脚本使用 `workspace:scripts/...`，长期脚本使用 `home:how/<skill>/scripts/...`。长期目标必须属于已存在的通用 HOW；创建 HOW 不属于本阶段。
+`tinysoul.capabilities.script` 提供临时与长期脚本的编写、修改、显式提升和 Turn 内监督执行。它不拥有新的 Link namespace：临时脚本使用 `workspace:scripts/...`，长期脚本使用 `home:skills/<skill>/scripts/...`。长期目标必须属于已存在的通用 skill；创建 skill 不属于本阶段。
 
 脚本执行面向 Workspace 资源处理。执行器为每个 job 建立 active Workspace 的有界事务镜像，以镜像根作为进程 `cwd`，并设置 `TINYSOUL_WORKSPACE` 指向同一目录。脚本只修改镜像；成功退出只进入 `ready_to_apply`，不隐式修改 active Workspace。这里的安全语义是事务隔离、语法/参数/资源限制和受控进程终止，不宣称操作系统级硬沙箱。
 
 ## 源与提升
 
-- `execution.write_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action HOW；模型只返回完整 source 文本工件，不使用 JSON wrapper；
+- `execution.write_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action skill；模型只返回完整 source 文本工件，不使用 JSON wrapper；
 - `execution.patch_script` 只做唯一精确替换，并在写入前执行确定性语法策略检查；
-- `execution.promote_script` 只允许从 `workspace:scripts/...` 复制到 `home:how/<existing-skill>/scripts/...`，扩展名必须保持一致；
+- `execution.promote_script` 只允许从 `workspace:scripts/...` 复制到 `home:skills/<existing-skill>/scripts/...`，扩展名必须保持一致；
 - promote 写入 lazy runtime Home，随后由普通 Home Maintenance review/apply；它不直接写实际 Home，也不自动创建 skill。
 
 `ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`execution.promote_script` 同样直接写入已校验 snapshot，不二次读取 source Link。
@@ -69,7 +69,7 @@ runtime/.staging/supervised-process-job-*/
 - 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”；启动 action 记录 owner，后续生命周期 action 只提交 execution id，由 Manager 在当前 Turn 内解析实际 owner，模型无需先判断它是 Script 还是 Shell job；
 - `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
 
-该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:how/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Maintenance 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。
+该组织不改变 Script 的身份：authoring/run 继续只接受 `workspace:scripts/...` 或 `home:skills/<existing-skill>/scripts/...` Link，不接受 inline source；promote、source policy/digest、成功后显式 apply/discard 和 Home Maintenance 语义都保持不变。Script 配置、依赖和 source 失败仍由 Script 拥有；共用 wait/continuation/cleanup 的 non-Action activity failure 由 `supervised_process` Runtime bridge 表达。
 
 ## Workspace 提交
 
@@ -84,6 +84,6 @@ runtime/.staging/supervised-process-job-*/
 
 ## 失败语义
 
-无效 Link、缺失 HOW、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 `wait_before_cycle` 与 `allow_additional_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
+无效 Link、缺失 skill、语法拒绝、source digest 变化、参数越界、非零退出、日志越界、运行超时、非法状态和 apply 冲突是局部 ActionResult。Home lazy copy 与 Workspace Trash restore 保留既有 Runtime trap 语义。Home/Workspace IO、reconciliation 与 invariant 失败通过 owner Runtime bridge 保留模块归属；Loop 直接调用的 `wait_before_cycle` 与 `allow_additional_cycle` 属于共享 non-Action activity 边界，内部失败使用 `supervised_process` failure kind/Runtime bridge。Script 配置错误和启用 Bash 但 executable 不存在使用 `script.configuration_failed`；Catalog/Action registrar 自身不一致仍属于 Action 启动失败。
 
 job 的原始 staging 绝对路径不进入 ActionResult。结果只暴露 execution id、source Link/digest、状态、等待/活动事实、有界日志、候选相对路径及 digest/size；候选正文只能通过显式有界读取获得。

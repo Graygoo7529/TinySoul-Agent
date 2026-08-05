@@ -33,13 +33,12 @@ from .errors import (
     AgentHomeRuntimeCopyRequired,
 )
 from .failures import AgentHomeFailureKind
-from .guidance import HomeActionHowProvider, HomeDomainHowProvider
+from .guidance import HomeActionSkillProvider, HomeDomainSkillProvider
 from .links import (
     HomeLink,
     HomePromptMountLink,
     HomeResourceLink,
     HomeTopLink,
-    HomeWhatKind,
     parse_home_link,
 )
 from .runtime_copy import (
@@ -80,11 +79,11 @@ __all__ = [
     "AgentHomeRuntimeCopyTrapHandler",
     "AgentHomeSettings",
     "AgentHomeRuntimeCopyRequired",
-    "HomeActionHowProvider",
+    "HomeActionSkillProvider",
     "HomeBackgroundContentLoader",
     "HomeBackgroundEntryProvider",
     "HomeBackgroundEntry",
-    "HomeDomainHowProvider",
+    "HomeDomainSkillProvider",
     "HomeLink",
     "HomeReviewChange",
     "HomeReviewPending",
@@ -105,7 +104,6 @@ __all__ = [
     "HomeTopDeleteExecutor",
     "HomeTopPatchExecutor",
     "HomeTopWriteExecutor",
-    "HomeWhatKind",
     "HomeSearchCandidate",
     "HomeSearchDocument",
     "HomeSearchEntry",

@@ -80,15 +80,18 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     home_root = tmp_path / "home"
     _write(home_root / "agent" / "AGENT.md", "# Agent\n\nCore identity.\n")
     _write(
-        home_root / "what" / "concept" / "daily-lifecycle.md",
-        "# Daily Lifecycle\n\nDeterministic rollover and maintenance boundaries.\n",
+        home_root / "skills" / "daily-lifecycle" / "SKILL.md",
+        _skill(
+            "Daily Lifecycle",
+            "Deterministic rollover and maintenance boundaries.",
+        ),
     )
     _write(
-        home_root / "why" / "hidden.md",
-        "# Hidden Reason\n\nThis entry will be tombstoned.\n",
+        home_root / "skills" / "hidden" / "SKILL.md",
+        _skill("Hidden Skill", "This entry will be tombstoned."),
     )
     _write(
-        home_root / "how" / "review" / "SKILL.md",
+        home_root / "skills" / "review" / "SKILL.md",
         "---\n"
         "title: Review Home\n"
         "description: Review runtime changes against actual Home.\n"
@@ -97,25 +100,25 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     )
     home = _build_home(tmp_path)
     home.write_top(
-        "home:why@runtime-only",
-        "# Runtime Only\n\nA newly created runtime reason.\n",
+        "home:skills@runtime-only",
+        _skill("Runtime Only", "A newly created runtime skill."),
     )
-    home.delete_top("home:why@hidden")
+    home.delete_top("home:skills@hidden")
 
-    result = home.search_top("runtime reason", top_k=10)
+    result = home.search_top("runtime skill", top_k=10)
 
     links = tuple(item.link for item in result.items)
-    assert links[0] == "home:why@runtime-only"
-    assert "home:what@concept/daily-lifecycle" in links
-    assert "home:how@review" in links
-    assert "home:why@hidden" not in links
+    assert links[0] == "home:skills@runtime-only"
+    assert "home:skills@daily-lifecycle" in links
+    assert "home:skills@review" in links
+    assert "home:skills@hidden" not in links
     assert "home:agent@AGENT" not in links
     runtime_root = tmp_path / "runtime" / "home"
-    assert not (runtime_root / "what" / "concept" / "daily-lifecycle.md").exists()
-    assert not (runtime_root / "how" / "review" / "SKILL.md").exists()
+    assert not (runtime_root / "skills" / "daily-lifecycle" / "SKILL.md").exists()
+    assert not (runtime_root / "skills" / "review" / "SKILL.md").exists()
     first = result.items[0]
     assert first.title == "Runtime Only"
-    assert first.summary == "A newly created runtime reason."
+    assert first.summary == "A newly created runtime skill."
     assert first.digest
 
 
@@ -131,27 +134,27 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     )
     documents = (
         HomeSearchDocument(
-            HomeTopLink("what", "concept/alpha"),
-            "# Alpha\n\nShared knowledge.\n",
+            HomeTopLink("skills", "alpha"),
+            _skill("Alpha", "Shared knowledge."),
             False,
             "digest-alpha",
         ),
         HomeSearchDocument(
-            HomeTopLink("why", "beta"),
-            "# Beta\n\nShared knowledge.\n",
+            HomeTopLink("skills", "beta"),
+            _skill("Beta", "Shared knowledge."),
             False,
             "digest-beta",
         ),
         HomeSearchDocument(
-            HomeTopLink("how", "gamma"),
-            "# Gamma\n\nUnrelated workflow.\n",
+            HomeTopLink("skills", "gamma"),
+            _skill("Gamma", "Unrelated workflow."),
             False,
             "digest-gamma",
         ),
     )
     scope = RunScope().push(RunLevel.PHASE, "phase3")
     valid = _StubReranker(
-        ("home:why@beta", "home:what@concept/alpha")
+        ("home:skills@beta", "home:skills@alpha")
     )
 
     reranked = service.search(
@@ -163,7 +166,7 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     invalid = service.search(
         query="shared knowledge",
         documents=documents,
-        reranker=_StubReranker(("home:what@concept/missing",)),
+        reranker=_StubReranker(("home:skills@missing",)),
         scope=scope,
     )
     empty = service.search(
@@ -175,15 +178,15 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
 
     assert reranked.reranked is True
     assert tuple(item.link for item in reranked.items) == (
-        "home:why@beta",
-        "home:what@concept/alpha",
+        "home:skills@beta",
+        "home:skills@alpha",
     )
     assert reranked.candidate_count == 2
     assert len(valid.requests) == 1
     assert invalid.reranked is False
     assert tuple(item.link for item in invalid.items) == (
-        "home:what@concept/alpha",
-        "home:why@beta",
+        "home:skills@alpha",
+        "home:skills@beta",
     )
     assert empty.reranked is True
     assert empty.items == ()
@@ -193,10 +196,10 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     tmp_path: Path,
 ) -> None:
     home_root = tmp_path / "home"
-    _write(home_root / "what" / "concept" / "alpha.md", "# Alpha\n\nKnowledge.\n")
-    _write(home_root / "why" / "beta.md", "# Beta\n\nReason.\n")
+    _write(home_root / "skills" / "alpha" / "SKILL.md", _skill("Alpha", "Knowledge."))
+    _write(home_root / "skills" / "beta" / "SKILL.md", _skill("Beta", "Reason."))
     home = _build_home(tmp_path)
-    llm = _FakeLLM((_json_result({"links": ["home:why@beta"]}),))
+    llm = _FakeLLM((_json_result({"links": ["home:skills@beta"]}),))
     executor = HomeTopSearchExecutor(
         home,
         reranker=LLMHomeSearchReranker(llm),
@@ -214,22 +217,24 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     assert len(items) == 1
     item = items[0]
     assert isinstance(item, dict)
-    assert item["link"] == "home:why@beta"
+    assert item["link"] == "home:skills@beta"
     assert item["title"] == "Beta"
     assert "searchable_prefix" not in item
     assert llm.calls[0].profile is TaskProfile.HOME_SEARCH
-    assert not (tmp_path / "runtime" / "home" / "why" / "beta.md").exists()
+    assert not (
+        tmp_path / "runtime" / "home" / "skills" / "beta" / "SKILL.md"
+    ).exists()
 
 
 def test_home_top_search_reads_applied_actual_after_home_maintenance(
     tmp_path: Path,
 ) -> None:
-    actual = tmp_path / "home" / "why" / "review.md"
-    _write(actual, "# Old Review\n\nOld guidance.\n")
+    actual = tmp_path / "home" / "skills" / "review" / "SKILL.md"
+    _write(actual, _skill("Old Review", "Old guidance."))
     home = _build_home(tmp_path)
     home.write_top(
-        "home:why@review",
-        "# Current Review\n\nCommitted guidance.\n",
+        "home:skills@review",
+        _skill("Current Review", "Committed guidance."),
         overwrite=True,
     )
     before = home.search_top("committed guidance", top_k=1)
@@ -244,10 +249,12 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
 
     assert before.items[0].title == "Current Review"
     assert outcome.resolution is HomeReviewResolution.ACCEPT
-    assert actual.read_text(encoding="utf-8").startswith("# Current Review")
+    assert "title: Current Review" in actual.read_text(encoding="utf-8")
     assert after.items[0].title == "Current Review"
     assert after.items[0].digest == before.items[0].digest
-    assert not (tmp_path / "runtime" / "home" / "why" / "review.md").exists()
+    assert not (
+        tmp_path / "runtime" / "home" / "skills" / "review" / "SKILL.md"
+    ).exists()
 
 
 def test_home_search_settings_parse_and_validate_bounds(tmp_path: Path) -> None:
@@ -295,6 +302,16 @@ def _build_home(tmp_path: Path) -> AgentHomeEngine:
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _skill(title: str, description: str) -> str:
+    return (
+        "---\n"
+        f"title: {title}\n"
+        f"description: {description}\n"
+        "---\n\n"
+        f"# {title}\n"
+    )
 
 
 def _json_result(value: JsonObject) -> TaskResult:

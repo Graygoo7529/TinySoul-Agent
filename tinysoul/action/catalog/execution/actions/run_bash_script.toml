@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.source_link]
 type = "string"
-description = "Existing workspace:scripts/...sh or home:how/<skill>/scripts/...sh link."
+description = "Existing workspace:scripts/...sh or home:skills/<skill>/scripts/...sh link."
 
 [tool.schema.properties.args]
 type = "array"

@@ -19,20 +19,20 @@ from tinysoul.runtime import RunLevel, RunScope
 
 
 _SKILL_TEXT = """---
-title: Review HOW
+title: Review Skill
 description: Review working guidance.
 ---
 
-# Review HOW
+# Review Skill
 
 Keep the current method.
 """
 
 
-def test_home_actions_require_inspect_before_resolving_how_review(
+def test_home_actions_require_inspect_before_resolving_skill_review(
     tmp_path: Path,
 ) -> None:
-    skill = tmp_path / "home" / "how" / "review" / "SKILL.md"
+    skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(_SKILL_TEXT, encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -42,7 +42,7 @@ def test_home_actions_require_inspect_before_resolving_how_review(
         )
     ).build()
     home.write_resource(
-        "home:how/review/SKILL_MEMORY.md",
+        "home:skills/review/SKILL_MEMORY.md",
         "The method was useful as written.",
     )
     controller = HomeMaintenanceActionController(home)
@@ -53,7 +53,7 @@ def test_home_actions_require_inspect_before_resolving_how_review(
     assert isinstance(items, list)
     item = items[0]
     assert isinstance(item, dict)
-    assert item["kind"] == "skill_how_review"
+    assert item["kind"] == "skill_review"
     assert item["allowed_resolutions"] == ["reject", "rewrite"]
     token = item["token"]
     assert isinstance(token, str)

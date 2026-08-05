@@ -7,16 +7,16 @@ from typing import Protocol
 from tinysoul.context import PromptBlock, TaskPrompt
 
 
-class DomainHowProvider(Protocol):
-    """Provide domain-level HOW for Phase2 task prompts."""
+class DomainSkillProvider(Protocol):
+    """Provide domain-level skills for Phase2 task prompts."""
 
     def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
         """Return guidance snippets for selected domains."""
         ...
 
 
-class EmptyDomainHowProvider:
-    """Domain HOW provider used before Agent Home HOW is connected."""
+class EmptyDomainSkillProvider:
+    """Empty domain skill provider used before Agent Home is connected."""
 
     def guidance_for(self, domains: tuple[str, ...]) -> tuple[str, ...]:
         return ()
@@ -81,7 +81,7 @@ def phase1_task_prompt(
 def phase2_task_prompt(
     *,
     selected_domains: tuple[str, ...],
-    domain_how: tuple[str, ...] = (),
+    domain_skills: tuple[str, ...] = (),
     feedback: tuple[str, ...] = (),
     turn_guidance: tuple[str, ...] = (),
 ) -> TaskPrompt:
@@ -99,11 +99,11 @@ def phase2_task_prompt(
             "# Task Guide\n" + "\n".join(sections),
         )
     ]
-    for index, how in enumerate(domain_how, start=1):
+    for index, skill in enumerate(domain_skills, start=1):
         guide_blocks.append(
             PromptBlock.from_text(
-                f"task_prompt:guide:domain_how:{index}",
-                "# Domain HOW\n" + how,
+                f"task_prompt:guide:domain_skill:{index}",
+                "# Domain Skill\n" + skill,
             )
         )
     return TaskPrompt(

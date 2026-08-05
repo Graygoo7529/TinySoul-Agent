@@ -73,7 +73,7 @@ def _engine():
         ContextEngineBuilder(system_text="You are TinySoul.")
         .with_journal("day journal")
         .add_default_background("home:agent@AGENT", "core rules")
-        .add_loadable_background("home:what@concept/x", "entity x")
+        .add_loadable_background("home:skills@x", "entity x")
         .build()
     )
 
@@ -194,7 +194,7 @@ def test_control_scope_tracks_background_state() -> None:
             ToolCallRecord(
                 id="c1",
                 name=CONTROL_LOAD_BACKGROUND,
-                arguments={"links": ["home:what@concept/x"]},
+                arguments={"links": ["home:skills@x"]},
                 kind=ToolKind.CONTROL,
             ),
         ),
@@ -204,7 +204,7 @@ def test_control_scope_tracks_background_state() -> None:
         bus.emit(signal)
     results = engine.consume_signals(bus)
     assert results == ()
-    assert "home:what@concept/x" in engine.background_links()
+    assert "home:skills@x" in engine.background_links()
 
 
 def test_consume_signals_commits_feasible_valid_changes() -> None:
@@ -331,7 +331,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             scope=scope,
             payload={
                 "call_id": "load",
-                "load_links": ["home:what@concept/x"],
+                "load_links": ["home:skills@x"],
                 "evict_links": [],
             },
         )
@@ -344,7 +344,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             payload={
                 "call_id": "evict",
                 "load_links": [],
-                "evict_links": ["home:what@concept/x"],
+                "evict_links": ["home:skills@x"],
             },
         )
     )
@@ -356,7 +356,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
             payload={
                 "call_id": "evict_again",
                 "load_links": [],
-                "evict_links": ["home:what@concept/x"],
+                "evict_links": ["home:skills@x"],
             },
         )
     )
@@ -365,7 +365,7 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
     assert len(results) == 1
     assert results[0].call_id == "evict_again"
     assert "not loaded" in results[0].model_feedback
-    assert "home:what@concept/x" not in engine.background_links()
+    assert "home:skills@x" not in engine.background_links()
 
 
 def test_background_signal_rejects_load_evict_conflict() -> None:
@@ -379,8 +379,8 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
             scope=scope,
             payload={
                 "call_id": "conflict",
-                "load_links": ["home:what@concept/x"],
-                "evict_links": ["home:what@concept/x"],
+                "load_links": ["home:skills@x"],
+                "evict_links": ["home:skills@x"],
             },
         )
     )
@@ -389,7 +389,7 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
     assert len(results) == 1
     assert results[0].call_id == "conflict"
     assert "cannot load and evict" in results[0].model_feedback
-    assert "home:what@concept/x" not in engine.background_links()
+    assert "home:skills@x" not in engine.background_links()
 
 
 def test_background_signal_treats_loaded_link_load_as_noop() -> None:
@@ -427,7 +427,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
             scope=_scope(first_turn),
             payload={
                 "call_id": "load_x",
-                "load_links": ["home:what@concept/x"],
+                "load_links": ["home:skills@x"],
                 "evict_links": [],
             },
         )
@@ -436,7 +436,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     assert engine.consume_signals(bus) == ()
     assert engine.background_links() == (
         "home:agent@AGENT",
-        "home:what@concept/x",
+        "home:skills@x",
     )
     engine.complete_preparation()
     engine.end_turn()
@@ -578,7 +578,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
         ContextEngineBuilder(system_text="sys")
         .with_observations(observations)
         .add_default_background("home:agent@AGENT", "core rules")
-        .add_loadable_background("home:what@concept/x", "concept body")
+        .add_loadable_background("home:skills@x", "concept body")
         .build()
     )
     scope = _scope(engine.begin_turn("hi"))
@@ -591,7 +591,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
             scope=scope,
             payload={
                 "call_id": "load_x",
-                "load_links": ["home:what@concept/x"],
+                "load_links": ["home:skills@x"],
                 "evict_links": [],
             },
         )
@@ -611,7 +611,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
     entries = background_events[-1].payload["entries"]
     assert isinstance(entries, list)
     assert entries[-1] == {
-        "link": "home:what@concept/x",
+        "link": "home:skills@x",
         "content": "concept body",
         "source": "phase1",
         "owner": "context",
@@ -781,10 +781,10 @@ def test_provider_catalog_metadata_is_automatic_background() -> None:
         def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
                 owner="home",
-                loadable_links=("home:how@review",),
+                loadable_links=("home:skills@review",),
                 items=(
                     BackgroundCatalogItem(
-                        link="home:how@review",
+                        link="home:skills@review",
                         title="Review Home",
                         description="Review pending Home changes.",
                     ),
@@ -812,7 +812,7 @@ def test_provider_catalog_metadata_is_automatic_background() -> None:
         "owner": "home",
         "items": [
             {
-                "link": "home:how@review",
+                "link": "home:skills@review",
                 "title": "Review Home",
                 "description": "Review pending Home changes.",
             }
@@ -856,6 +856,6 @@ def test_builder_validates_background_configuration() -> None:
     with pytest.raises(ContextContractError):
         (
             ContextEngineBuilder(system_text="sys")
-            .add_loadable_background("home:what@concept/x", "a")
-            .add_loadable_background("home:what@concept/x", "b")
+            .add_loadable_background("home:skills@x", "a")
+            .add_loadable_background("home:skills@x", "b")
         )

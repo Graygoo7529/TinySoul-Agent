@@ -2,7 +2,7 @@ name = "execution.patch_script"
 domain = "execution"
 
 [tool]
-description = "Apply one exact, deterministic text replacement to an existing Workspace or general HOW script after syntax policy validation."
+description = "Apply one exact, deterministic text replacement to an existing Workspace or general skill script after syntax policy validation."
 
 [tool.schema]
 type = "object"
@@ -11,7 +11,7 @@ additionalProperties = false
 
 [tool.schema.properties.target_link]
 type = "string"
-description = "Existing Workspace or general HOW script link."
+description = "Existing Workspace or general skill script link."
 
 [tool.schema.properties.old_text]
 type = "string"

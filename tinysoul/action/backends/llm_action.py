@@ -48,26 +48,26 @@ class LLMActionModelRunner(Protocol):
 
 
 @dataclass(frozen=True)
-class ActionHow:
-    """HOW snippets automatically mounted for one action-internal LLM task."""
+class ActionSkillGuidance:
+    """Skill snippets automatically mounted for one nested LLM action."""
 
     domain: tuple[str, ...] = ()
     action: tuple[str, ...] = ()
 
 
-class ActionHowProvider(Protocol):
-    """Provide domain and action HOW text for nested LLM tasks."""
+class ActionSkillProvider(Protocol):
+    """Provide domain and action skill text for nested LLM tasks."""
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
-        """Return HOW snippets for one action execution."""
+    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+        """Return skill snippets for one action execution."""
         ...
 
 
-class EmptyActionHowProvider:
-    """Action HOW provider used before Agent Home action HOW is connected."""
+class EmptyActionSkillProvider:
+    """Empty action skill provider used before Agent Home is connected."""
 
-    def guidance_for(self, *, domain: str, action_name: str) -> ActionHow:
-        return ActionHow()
+    def guidance_for(self, *, domain: str, action_name: str) -> ActionSkillGuidance:
+        return ActionSkillGuidance()
 
 
 @dataclass(frozen=True)
@@ -96,25 +96,25 @@ class LLMActionTaskRunner:
         *,
         llm_runner: LLMActionModelRunner,
         context: ContextEngine,
-        action_how: ActionHowProvider | None = None,
+        action_skills: ActionSkillProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
     ) -> None:
         self._llm_runner = llm_runner
         self._context = context
-        self._action_how = action_how or EmptyActionHowProvider()
+        self._action_skills = action_skills or EmptyActionSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
 
-    def prompt_with_how(
+    def prompt_with_skills(
         self,
         prompt: TaskPrompt,
         *,
         execution: ActionExecution,
     ) -> TaskPrompt:
-        """Return a prompt with Phase3 domain/action HOW appended."""
+        """Return a prompt with Phase3 domain/action skills appended."""
 
-        return with_action_how(
+        return with_action_skills(
             prompt,
-            self._action_how.guidance_for(
+            self._action_skills.guidance_for(
                 domain=execution.framework.domain,
                 action_name=execution.call.action_name,
             ),
@@ -212,7 +212,7 @@ class LLMActionTaskRunner:
         subject: str,
         control: ActionExecutionControl | None,
     ) -> TaskResult | ActionResult:
-        prompt = self.prompt_with_how(prompt, execution=execution)
+        prompt = self.prompt_with_skills(prompt, execution=execution)
         options = _execution_options(execution)
         if isinstance(options, ActionResult):
             return options
@@ -427,26 +427,26 @@ def _protected_resource_links(execution: ActionExecution) -> tuple[str, ...]:
     return tuple(links)
 
 
-def with_action_how(prompt: TaskPrompt, how: ActionHow) -> TaskPrompt:
-    """Return a prompt with Phase3 domain/action HOW guide blocks appended."""
+def with_action_skills(prompt: TaskPrompt, skills: ActionSkillGuidance) -> TaskPrompt:
+    """Return a prompt with domain/action skill blocks appended."""
 
-    if not how.domain and not how.action:
+    if not skills.domain and not skills.action:
         return prompt
     guide_blocks = [*prompt.guide_blocks]
-    for index, item in enumerate(how.domain, start=1):
+    for index, item in enumerate(skills.domain, start=1):
         if item:
             guide_blocks.append(
                 PromptBlock.from_text(
-                    f"task_prompt:guide:domain_how:{index}",
-                    "# Domain HOW\n" + item,
+                    f"task_prompt:guide:domain_skill:{index}",
+                    "# Domain Skill\n" + item,
                 )
             )
-    for index, item in enumerate(how.action, start=1):
+    for index, item in enumerate(skills.action, start=1):
         if item:
             guide_blocks.append(
                 PromptBlock.from_text(
-                    f"task_prompt:guide:action_how:{index}",
-                    "# Action HOW\n" + item,
+                    f"task_prompt:guide:action_skill:{index}",
+                    "# Action Skill\n" + item,
                 )
             )
     return TaskPrompt(

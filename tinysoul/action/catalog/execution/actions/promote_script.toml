@@ -2,7 +2,7 @@ name = "execution.promote_script"
 domain = "execution"
 
 [tool]
-description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general HOW. The resulting Home diff is reviewed before it reaches actual Home."
+description = "Copy an explicit Workspace temporary script into the scripts directory of an existing general skill. The resulting Home diff is reviewed before it reaches actual Home."
 
 [tool.schema]
 type = "object"
@@ -15,7 +15,7 @@ description = "Existing workspace:scripts/...py|sh source link."
 
 [tool.schema.properties.target_link]
 type = "string"
-description = "Target home:how/<existing-skill>/scripts/...py|sh link."
+description = "Target home:skills/<existing-skill>/scripts/...py|sh link."
 
 [tool.schema.properties.expected_source_digest]
 type = "string"
@@ -30,10 +30,10 @@ type = "string"
 description = "Optional target digest guard when overwrite is true."
 
 [semantic]
-use_when = ["A tested Workspace script should become part of an existing general HOW"]
-avoid_when = ["The target HOW does not yet exist", "The script should remain temporary"]
+use_when = ["A tested Workspace script should become part of an existing general skill"]
+avoid_when = ["The target skill does not yet exist", "The script should remain temporary"]
 effects = ["modifying"]
-examples = ["Promote workspace:scripts/clean.py to home:how/data-cleaning/scripts/clean.py"]
+examples = ["Promote workspace:scripts/clean.py to home:skills/data-cleaning/scripts/clean.py"]
 
 [runtime]
 parallel_policy = "serial"

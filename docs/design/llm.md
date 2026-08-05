@@ -52,7 +52,7 @@ LLM 模块不接收文件附件。文件、PDF、网页、代码文件或其他�
 
 Control Tool 是框架内部控制工具，主要用于 Phase1。它用于表达更新 WorkingContext、更新 BackgroundContext、选择 Phase2 行动等控制意图。Control Tool Call 不直接修改状态，而是在 Phase1 中被汇聚、校验、归一化，并转化为内部操作信号，由对应上层模块消费。
 
-Action Tool 是智能体行动工具，主要用于 Phase2。Phase2 只暴露 Phase1 已选择 domain 内的 Action Tools，并结合 action 工具结构、补充语义和自动注入的 domain HOW 生成行动参数。Action Tool Call 被归一化为 ActionCall，之后由 Phase3 装配和执行。
+Action Tool 是智能体行动工具，主要用于 Phase2。Phase2 只暴露 Phase1 已选择 domain 内的 Action Tools，并结合 action 工具结构、补充语义和自动注入的 domain skill 生成行动参数。Action Tool Call 被归一化为 ActionCall，之后由 Phase3 装配和执行。
 
 LLM 模块只负责模型侧工具定义、工具调用和工具结果在 TinySoul 内部结构与供应商协议之间的映射。供应商工具调用标识只在适配层用于相关性映射，TinySoul 内部应使用自己的调用标识，避免 Context、Action 或 Loop 依赖供应商私有标识。工具调用可以作为任务结果的一等输出，而不是把工具调用伪装成普通 JSON 对象。
 

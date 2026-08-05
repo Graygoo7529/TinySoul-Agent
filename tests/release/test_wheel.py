@@ -120,45 +120,47 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
     assert "tinysoul/assets/project/home/agent/identity/identity.md" in names
     assert "tinysoul/assets/project/home/agent/identity/soul.md" in names
     assert "tinysoul/assets/project/home/agent/user/user.md" not in names
-    assert "tinysoul/assets/project/home/what/entity/tiny-soul.md" in names
-    assert "tinysoul/assets/project/home/how/tinysoul-docs/SKILL.md" in names
-    assert "tinysoul/assets/project/home/how_domain/execution/DOMAIN.md" in names
-    assert "tinysoul/assets/project/home/how_domain/web/DOMAIN.md" in names
+    assert not any(name.startswith("tinysoul/assets/project/home/what/") for name in names)
+    assert not any(name.startswith("tinysoul/assets/project/home/why/") for name in names)
+    assert not any(name.startswith("tinysoul/assets/project/home/how/") for name in names)
+    assert "tinysoul/assets/project/home/skills/tinysoul-docs/SKILL.md" in names
+    assert "tinysoul/assets/project/home/skills_domain/execution/DOMAIN.md" in names
+    assert "tinysoul/assets/project/home/skills_domain/web/DOMAIN.md" in names
     assert not any(
-        name.startswith("tinysoul/assets/project/home/how_domain/resource/")
+        name.startswith("tinysoul/assets/project/home/skills_domain/resource/")
         for name in names
     )
     assert not any(
-        name.startswith("tinysoul/assets/project/home/how_domain/script/")
+        name.startswith("tinysoul/assets/project/home/skills_domain/script/")
         for name in names
     )
     assert not any(
-        name.startswith("tinysoul/assets/project/home/how_domain/shell/")
+        name.startswith("tinysoul/assets/project/home/skills_domain/shell/")
         for name in names
     )
     assert not any(
-        name.startswith("tinysoul/assets/project/home/how_domain/session/")
+        name.startswith("tinysoul/assets/project/home/skills_domain/session/")
         for name in names
     )
     assert not any(
-        name.startswith("tinysoul/assets/project/home/how_domain/context/")
-        for name in names
-    )
-    assert (
-        "tinysoul/assets/project/home/how_domain/workspace/DOMAIN.md" in names
-    )
-    assert "tinysoul/assets/project/home/how_action/workspace/read.md" in names
-    assert "tinysoul/assets/project/home/how_action/workspace/search_text.md" in names
-    assert "tinysoul/assets/project/home/how_action/workspace/analyze.md" in names
-    assert "tinysoul/assets/project/home/how_action/workspace/write.md" in names
-    assert "tinysoul/assets/project/home/how_action/workspace/rewrite.md" in names
-    assert "tinysoul/assets/project/home/how_action/core/answer.md" in names
-    assert not any(
-        name.startswith("tinysoul/assets/project/home/how_action/session/")
+        name.startswith("tinysoul/assets/project/home/skills_domain/context/")
         for name in names
     )
     assert (
-        "tinysoul/assets/project/home/how/tinysoul-docs/references/"
+        "tinysoul/assets/project/home/skills_domain/workspace/DOMAIN.md" in names
+    )
+    assert "tinysoul/assets/project/home/skills_action/workspace/read.md" in names
+    assert "tinysoul/assets/project/home/skills_action/workspace/search_text.md" in names
+    assert "tinysoul/assets/project/home/skills_action/workspace/analyze.md" in names
+    assert "tinysoul/assets/project/home/skills_action/workspace/write.md" in names
+    assert "tinysoul/assets/project/home/skills_action/workspace/rewrite.md" in names
+    assert "tinysoul/assets/project/home/skills_action/core/answer.md" in names
+    assert not any(
+        name.startswith("tinysoul/assets/project/home/skills_action/session/")
+        for name in names
+    )
+    assert (
+        "tinysoul/assets/project/home/skills/tinysoul-docs/references/"
         "use-tinysoul-context-and-link.md"
     ) in names
     assert any(name.endswith(".dist-info/entry_points.txt") for name in names)
@@ -227,7 +229,7 @@ raise SystemExit(main(["reset", {str(development)!r}]))
     assert (initialized / "README.md").is_file()
     assert not (initialized / "config_profiles").exists()
     assert (
-        initialized / "home" / "how" / "tinysoul-docs" / "SKILL.md"
+        initialized / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
     ).is_file()
     assert (initialized / "configs" / "capabilities.resource.toml").is_file()
     assert (initialized / "configs" / "capabilities.web.toml").is_file()
@@ -237,17 +239,17 @@ raise SystemExit(main(["reset", {str(development)!r}]))
         initialized / "configs" / "capabilities.supervised_process.toml"
     ).is_file()
     assert (
-        initialized / "home" / "how_domain" / "execution" / "DOMAIN.md"
+        initialized / "home" / "skills_domain" / "execution" / "DOMAIN.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_domain" / "web" / "DOMAIN.md"
+        initialized / "home" / "skills_domain" / "web" / "DOMAIN.md"
     ).is_file()
-    assert not (initialized / "home" / "how_domain" / "resource").exists()
-    assert not (initialized / "home" / "how_domain" / "script").exists()
-    assert not (initialized / "home" / "how_domain" / "shell").exists()
-    assert not (initialized / "home" / "how_domain" / "session").exists()
-    assert not (initialized / "home" / "how_domain" / "context").exists()
-    assert not (initialized / "home" / "how_action" / "session").exists()
+    assert not (initialized / "home" / "skills_domain" / "resource").exists()
+    assert not (initialized / "home" / "skills_domain" / "script").exists()
+    assert not (initialized / "home" / "skills_domain" / "shell").exists()
+    assert not (initialized / "home" / "skills_domain" / "session").exists()
+    assert not (initialized / "home" / "skills_domain" / "context").exists()
+    assert not (initialized / "home" / "skills_action" / "session").exists()
     session_config = tomllib.loads(
         (initialized / "configs" / "session.toml").read_text(encoding="utf-8")
     )["session"]
@@ -263,22 +265,22 @@ raise SystemExit(main(["reset", {str(development)!r}]))
         initialized / "configs" / "capabilities.shell.toml"
     ).read_text(encoding="utf-8")
     assert (
-        initialized / "home" / "how_domain" / "workspace" / "DOMAIN.md"
+        initialized / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_action" / "workspace" / "read.md"
+        initialized / "home" / "skills_action" / "workspace" / "read.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_action" / "workspace" / "search_text.md"
+        initialized / "home" / "skills_action" / "workspace" / "search_text.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_action" / "workspace" / "analyze.md"
+        initialized / "home" / "skills_action" / "workspace" / "analyze.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_action" / "workspace" / "write.md"
+        initialized / "home" / "skills_action" / "workspace" / "write.md"
     ).is_file()
     assert (
-        initialized / "home" / "how_action" / "workspace" / "rewrite.md"
+        initialized / "home" / "skills_action" / "workspace" / "rewrite.md"
     ).is_file()
     assert (initialized / "memory").is_dir()
     assert (development / "README.md").is_file()

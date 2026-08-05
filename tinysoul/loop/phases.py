@@ -53,7 +53,7 @@ from tinysoul.runtime.bridge import RuntimeActionBridge, RuntimeContextBridge, R
 from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopError, LoopInvariantError
-from .prompts import DomainHowProvider, EmptyDomainHowProvider, phase1_task_prompt, phase2_task_prompt
+from .prompts import DomainSkillProvider, EmptyDomainSkillProvider, phase1_task_prompt, phase2_task_prompt
 from .signals import LoopTraceNoteKind
 
 class LLMRunner(Protocol):
@@ -269,7 +269,7 @@ class Phase2Unit:
         llm: LLMRunner,
         bus: SignalBus,
         retry_limit: int,
-        domain_how: DomainHowProvider | None = None,
+        domain_skills: DomainSkillProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         signal_consumer: ContextSignalConsumer | None = None,
@@ -281,7 +281,7 @@ class Phase2Unit:
         self._llm = llm
         self._bus = bus
         self._retry_limit = retry_limit
-        self._domain_how = domain_how or EmptyDomainHowProvider()
+        self._domain_skills = domain_skills or EmptyDomainSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
@@ -318,7 +318,7 @@ class Phase2Unit:
                 messages = self._context.compose(
                     phase2_task_prompt(
                         selected_domains=selected_domains,
-                        domain_how=self._domain_how.guidance_for(selected_domains),
+                        domain_skills=self._domain_skills.guidance_for(selected_domains),
                         feedback=tuple(feedback),
                         turn_guidance=self._turn_guidance,
                     )

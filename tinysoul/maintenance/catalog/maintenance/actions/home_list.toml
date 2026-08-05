@@ -2,7 +2,7 @@ name = "maintenance.home.list"
 domain = "maintenance"
 
 [tool]
-description = "List unresolved token-bound runtime changes and HOW reviews in the current Home Maintenance task."
+description = "List unresolved token-bound runtime changes and skill reviews in the current Home Maintenance task."
 schema = { type = "object", properties = {}, required = [], additionalProperties = false }
 
 [semantic]

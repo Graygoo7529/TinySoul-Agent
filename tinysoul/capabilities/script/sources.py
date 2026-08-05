@@ -162,9 +162,9 @@ class ScriptSourceResolver:
     ) -> ScriptMutation:
         if not source.link.startswith("workspace:"):
             raise ScriptContractError("Script promote source must be a Workspace Link")
-        if not target_link.startswith("home:how/"):
+        if not target_link.startswith("home:skills/"):
             raise ScriptContractError(
-                "Script promote target must be a general HOW scripts resource"
+                "Script promote target must be a general skill scripts resource"
             )
         if expected_source_digest and source.digest != expected_source_digest:
             raise ScriptContractError("Script promote source digest mismatch")
@@ -201,18 +201,18 @@ def _require_script_link(
         return
     parsed = HomeResourceLink.parse(link)
     path = PurePosixPath(parsed.relative_path)
-    if parsed.space != "how" or len(path.parts) < 3 or path.parts[1] != "scripts":
+    if parsed.space != "skills" or len(path.parts) < 3 or path.parts[1] != "scripts":
         raise ScriptContractError(
-            "Long-term scripts must use home:how/<skill>/scripts/..."
+            "Long-term scripts must use home:skills/<skill>/scripts/..."
         )
 
 
 def _require_existing_skill(home: AgentHomeEngine, link: str) -> None:
     parsed = HomeResourceLink.parse(link)
     skill = PurePosixPath(parsed.relative_path).parts[0]
-    top = str(HomeTopLink("how", skill))
+    top = str(HomeTopLink("skills", skill))
     if top not in home.loadable_background_links():
-        raise ScriptContractError(f"Script target HOW skill does not exist: {top}")
+        raise ScriptContractError(f"Script target skill does not exist: {top}")
 
 
 def _language_for_link(link: str) -> ScriptLanguage:

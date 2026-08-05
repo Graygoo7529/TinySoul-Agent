@@ -477,7 +477,7 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
     assert wait_seconds["default"] == 30
     assert wait_seconds["maximum"] == 45
 
-    home_root = local_tmp / "enabled" / "home" / "how_domain" / "execution"
+    home_root = local_tmp / "enabled" / "home" / "skills_domain" / "execution"
     home_root.mkdir(parents=True)
     (home_root / "DOMAIN.md").write_text("shell guidance", encoding="utf-8")
     home = AgentHomeEngineBuilder(
@@ -491,7 +491,7 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
         actions=engine.action_identifiers(),
     )
     assert home.ensure_runtime_copy(
-        home.parse_link("home:how_domain:execution")
+        home.parse_link("home:skills_domain:execution")
     ) is True
     assert home.guidance_for_domain("execution") == "shell guidance"
 
