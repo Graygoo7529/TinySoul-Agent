@@ -17,7 +17,11 @@ import { TurnDetailDrawer } from "../trace/TurnDetailDrawer";
 import { Toasts } from "../ui/Toasts";
 import { DisconnectedScreen } from "./DisconnectedScreen";
 
-export function AppShell() {
+export function AppShell({
+  connect,
+}: {
+  connect: (projectRoot: string) => Promise<void>;
+}) {
   const connection = useAppStore((s) => s.connection);
   const activeTab = useAppStore((s) => s.activeTab);
   const events = useAppStore((s) => s.events);
@@ -93,7 +97,7 @@ export function AppShell() {
               <EventsView />
             )
           ) : (
-            <DisconnectedScreen />
+            <DisconnectedScreen connect={connect} />
           )}
         </main>
 

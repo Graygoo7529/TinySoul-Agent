@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Copy, PlugZap, TerminalSquare } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
-import { useBackend } from "../../hooks/useBackend";
 import { Button } from "../ui/Button";
 
 /**
@@ -9,11 +8,14 @@ import { Button } from "../ui/Button";
  * (the Terminal-owned backend is the single entry point) and lets the user
  * point at a project root and retry.
  */
-export function DisconnectedScreen() {
+export function DisconnectedScreen({
+  connect,
+}: {
+  connect: (projectRoot: string) => Promise<void>;
+}) {
   const connection = useAppStore((s) => s.connection);
   const projectRoot = useAppStore((s) => s.projectRoot);
   const setProjectRoot = useAppStore((s) => s.setProjectRoot);
-  const { connect } = useBackend();
   const [copied, setCopied] = useState(false);
 
   const connecting =

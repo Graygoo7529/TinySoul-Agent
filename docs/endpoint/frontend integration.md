@@ -110,7 +110,7 @@ Terminal 与前端可同时提交 Maintenance request；请求按进入 Program 
 
 HTTP replay：
 
-前端连接失败时必须重新解析 App 发布的 lease；不得永久复用旧端口或 token。新 lease 校验成功后才替换 Client/WS，并从 `after=0` 重放事件。事件历史只保留为 compact observation projection，已结束 Turn 的 MODEL payload 可骨架化，用户输入来自 `app.command.accepted.payload.text`，不依赖本地持久化 echo。
+前端与 Terminal-owned 后端成对重启是正式重启验收路径；新前端必须重新解析 App 发布的 lease，不得永久复用旧端口或 token。同一前端进程内的失败重发现也只能由一个连接编排 owner 驱动；待验证 lease 不覆盖 active connection identity，新 lease 通过身份与 `ready` 校验后才原子替换 Client/WS。事件历史只保留为 compact observation projection，已结束 Turn 的 MODEL payload 可骨架化，用户输入来自 `app.command.accepted.payload.text`，不依赖本地持久化 echo。
 
 ```text
 GET /v1/events?after=0&mode=model&limit=200
@@ -118,7 +118,7 @@ GET /v1/events?after=0&mode=model&limit=200
 
 响应含 `events`、`next_sequence`、`gap`。协议字段不变。服务端以内存 buffer 为热缓存；`after` 早于内存窗口时从 Endpoint 事件 Journal（`runtime/endpoint/events/` 分段 NDJSON）深读；超出 journal 保留范围才 `gap=true`。单页可按字节预算提前收页（默认约 1MB），因此即便 `limit` 较大也可能返回更少事件——以 `next_sequence` 继续分页。
 
-连接 / 重连 / `instance_id` 变化后，前端应从 `after=0` 分页全量 REST 重放恢复当天对话与完整 MessageStack，再将 WebSocket 挂到最新 sequence；不得依赖已删除的 Session REST。
+连接 / 重连 / `instance_id` 变化后，前端先读取 status 并捕获 `latest_event_sequence` 快照，再从 `after=0` 以单调 cursor 分页恢复到该目标，然后将 WebSocket 挂到实际已恢复的最新 sequence。前端不得设置静默的最大页数/事件数，也不得把未完成 REST 回放标记为恢复成功；不得依赖已删除的 Session REST。
 
 WebSocket 地址为 `/v1/events/ws`，首帧：
 

@@ -205,10 +205,15 @@ class EndpointEventBuffer:
                         next_sequence=next_sequence,
                         gap=gap,
                     )
-            # A journal page that stopped at its record limit has not reached
-            # the memory boundary. Returning here preserves the byte/record
-            # cursor instead of silently appending a later in-memory event.
-            if not reached_memory and not journal_page.complete:
+            # A healthy journal page that stopped at its record/byte boundary
+            # must preserve its cursor. Once a read has degraded the journal,
+            # gap=true explicitly accounts for the unavailable range and the
+            # hot memory tail remains the only usable continuation.
+            if (
+                not reached_memory
+                and not journal_page.complete
+                and not journal.degraded
+            ):
                 next_sequence = selected[-1].sequence if selected else after
                 return EndpointEventPage(
                     events=tuple(selected),

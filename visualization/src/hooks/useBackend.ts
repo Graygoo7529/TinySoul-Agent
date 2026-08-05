@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef } from "react";
 import { TinySoulClient } from "../api/tinysoul";
 import { TinySoulEventStream } from "../api/events";
 import { resolveConnectionInfo } from "../api/connection";
-import { hydrateSkeletonEvents, replayAllEvents } from "../api/history";
+import {
+  hydrateSkeletonEvents,
+  replayAllEvents,
+  replayEventPages,
+} from "../api/history";
 import { useAppStore } from "../store/appStore";
 import { selectLatestSequence } from "../store/appStore";
 import type { ConnectionInfo, EndpointEvent } from "../types";
@@ -26,12 +30,16 @@ function sameConnection(left: ConnectionInfo, right: ConnectionInfo): boolean {
   return (
     left.host === right.host &&
     left.port === right.port &&
+    left.token === right.token &&
+    left.protocol_version === right.protocol_version &&
     left.instance_id === right.instance_id &&
-    left.project_identity === right.project_identity
+    left.project_identity === right.project_identity &&
+    left.project_root === right.project_root
   );
 }
 
 const POLL_INTERVAL_MS = 2000;
+let historyRecoveryGeneration = 0;
 
 export function useBackend() {
   const connectionStatus = useAppStore((state) => state.connection.status);
@@ -44,15 +52,20 @@ export function useBackend() {
     const current = useAppStore.getState();
     if (current.connection.status === "connecting" && !current.client) return;
     const attempt = (async () => {
-      const store = useAppStore.getState();
-      const previousInfo = store.connection.info;
-      const hadConnection = Boolean(store.client && previousInfo);
-      if (!hadConnection) store.setConnection({ status: "connecting" });
+      const initial = useAppStore.getState();
+      const previousInfo = initial.connection.info;
+      const previousClient = initial.client;
+      const hadConnection = Boolean(previousClient && previousInfo);
+      if (!hadConnection) initial.setConnection({ status: "connecting" });
       try {
         const info = await resolveConnectionInfo(projectRoot);
         if (!info) {
-          if (hadConnection) store.setBackendUnreachable(true);
-          else store.setConnection({ status: "not_running" });
+          const latest = useAppStore.getState();
+          if (hadConnection && latest.client === previousClient) {
+            latest.setBackendUnreachable(true);
+          } else if (!latest.client) {
+            latest.setConnection({ status: "not_running" });
+          }
           return;
         }
         const nextClient = new TinySoulClient(info);
@@ -63,10 +76,23 @@ export function useBackend() {
           );
         }
         if (!status.ready) {
-          store.setConnection({ status: "initializing", info });
+          const latest = useAppStore.getState();
+          if (hadConnection && latest.client === previousClient) {
+            // Keep the active connection identity until a replacement lease
+            // is ready and can atomically replace its Client and stream.
+            latest.setBackendUnreachable(true);
+          } else if (!latest.client) {
+            latest.setConnection({ status: "initializing", info });
+          }
           return;
         }
-        if (previousInfo && sameConnection(previousInfo, info) && store.client) {
+        let store = useAppStore.getState();
+        if (
+          previousInfo &&
+          sameConnection(previousInfo, info) &&
+          store.client === previousClient &&
+          store.eventStream
+        ) {
           store.setBackendUnreachable(false);
           store.setStatus(status);
           store.setConnection({ status: "connected", info });
@@ -94,11 +120,14 @@ export function useBackend() {
           toastOnRestore:
             instanceChanged || useAppStore.getState().events.length === 0,
           preserveRunning: status.turn_active,
+          throughSequence: status.latest_event_sequence,
         });
+        if (useAppStore.getState().client !== nextClient) return;
 
         const stream = new TinySoulEventStream(info, latest, "model", {
           onMessage: (message) => {
             const current = useAppStore.getState();
+            if (current.eventStream !== stream) return;
             if (message.type === "authenticated") {
               current.setStreamReconnecting(false);
               if (
@@ -111,7 +140,8 @@ export function useBackend() {
                   status: "error",
                   error: "TinySoul event stream identity changed",
                 });
-                current.eventStream?.close();
+                current.setEventStream(undefined);
+                stream.close();
               }
               return;
             }
@@ -134,6 +164,7 @@ export function useBackend() {
             handleEventSideEffects(nextClient, message.events);
           },
           onError: (error) => {
+            if (useAppStore.getState().eventStream !== stream) return;
             // Avoid logging MODEL payload which may contain sensitive data.
             console.error("Event stream error:", error.name, error.message);
           },
@@ -145,11 +176,16 @@ export function useBackend() {
             }
           },
           onReconnecting: () => {
-            useAppStore.getState().setStreamReconnecting(true);
+            const current = useAppStore.getState();
+            if (current.eventStream === stream) {
+              current.setStreamReconnecting(true);
+            }
           },
         });
-        stream.connect();
+        store = useAppStore.getState();
+        if (store.client !== nextClient) return;
         store.setEventStream(stream);
+        stream.connect();
       } catch (error) {
         const current = useAppStore.getState();
         const message = error instanceof Error ? error.message : String(error);
@@ -178,9 +214,11 @@ export function useBackend() {
       return;
     }
     const tick = async () => {
-      const store = useAppStore.getState();
+      let store = useAppStore.getState();
       try {
         const status = await client.status();
+        store = useAppStore.getState();
+        if (store.client !== client) return;
         const knownId = store.connection.info?.instance_id;
         if (knownId && status.instance_id !== knownId) {
           // A different instance now answers: the backend was restarted.
@@ -198,9 +236,9 @@ export function useBackend() {
         void reconcileEvents(client, status.latest_event_sequence);
       } catch {
         // The backend stopped answering after a successful connection
-        // (wedged mid-turn, overloaded, …). Keep the connected UI alive and
-        // Keep the connected UI alive while rediscovery probes the current
-        // App-published lease and a replacement backend becomes reachable.
+        // (wedged mid-turn, overloaded, …). Keep the connected UI alive while
+        // rediscovery probes the current App-published lease and a replacement
+        // backend becomes reachable.
         store.setBackendUnreachable(true);
         void connect(store.projectRoot);
       }
@@ -232,47 +270,79 @@ export function useBackend() {
  */
 export async function recoverEventHistory(
   client: TinySoulClient,
-  options: { toastOnRestore?: boolean; preserveRunning?: boolean } = {},
+  options: {
+    toastOnRestore?: boolean;
+    preserveRunning?: boolean;
+    throughSequence?: number;
+  } = {},
 ): Promise<number> {
-  const store = useAppStore.getState();
+  let store = useAppStore.getState();
+  if (store.client !== client) return selectLatestSequence(store.events);
+  const generation = ++historyRecoveryGeneration;
+  const isCurrentRecovery = () => {
+    const current = useAppStore.getState();
+    return current.client === client && generation === historyRecoveryGeneration;
+  };
   store.setHistoryLoading(true);
   store.setRecoveryPreserveRunning(options.preserveRunning ?? false);
+  store.setRecoveredThroughSequence(null);
+  store.setEventStreamInterrupted(false);
   try {
-    const { events, gap, nextSequence } = await replayAllEvents(client);
-    store.replaceEvents(events);
-    const latest =
-      events.length > 0
-        ? events[events.length - 1].sequence
-        : nextSequence;
+    const throughSequence =
+      options.throughSequence ?? (await client.status()).latest_event_sequence;
+    store = useAppStore.getState();
+    if (!isCurrentRecovery()) return selectLatestSequence(store.events);
+    store.replaceEvents([]);
+    const replay = await replayEventPages(
+      client,
+      { after: 0, throughSequence },
+      (events) => {
+        const current = useAppStore.getState();
+        if (!isCurrentRecovery()) {
+          throw new Error("Event history recovery was superseded");
+        }
+        current.appendEvents(events);
+      },
+    );
+    store = useAppStore.getState();
+    if (!isCurrentRecovery()) return selectLatestSequence(store.events);
+    const latest = replay.nextSequence;
     store.setRecoveredThroughSequence(latest);
-    if (gap) {
-      store.setEventStreamInterrupted(true);
-    }
-    if (options.toastOnRestore && events.length > 0) {
+    if (options.toastOnRestore && replay.eventCount > 0) {
       store.pushToast(
         "info",
         "Restored today's conversation and turn traces from the backend.",
       );
     }
-    handleEventSideEffects(client, events);
+    handleEventSideEffects(client, store.events);
     await recoverAuthoritativeState(client);
+    if (replay.gap && isCurrentRecovery()) {
+      useAppStore.getState().setEventStreamInterrupted(true);
+    }
     return latest;
   } catch (error) {
+    if (!isCurrentRecovery()) {
+      return selectLatestSequence(useAppStore.getState().events);
+    }
     console.error("Event history recovery failed:", error);
+    useAppStore.getState().setEventStreamInterrupted(true);
     return selectLatestSequence(useAppStore.getState().events);
   } finally {
-    useAppStore.getState().setHistoryLoading(false);
+    const current = useAppStore.getState();
+    if (isCurrentRecovery()) current.setHistoryLoading(false);
   }
 }
 
 /** Pull earlier retained journal events that were trimmed from the local window. */
 export async function loadEarlierEvents(client: TinySoulClient): Promise<boolean> {
   const store = useAppStore.getState();
+  if (store.client !== client) return false;
   const oldest = store.events[0]?.sequence;
   if (!oldest || oldest <= 1) return false;
   store.setHistoryLoading(true);
   try {
     const { events } = await replayAllEvents(client, { after: 0 });
+    if (useAppStore.getState().client !== client) return false;
     const earlier = events.filter((event) => event.sequence < oldest);
     if (earlier.length === 0) return false;
     store.replaceEvents([...earlier, ...store.events]);
@@ -287,7 +357,8 @@ export async function loadEarlierEvents(client: TinySoulClient): Promise<boolean
     );
     return false;
   } finally {
-    useAppStore.getState().setHistoryLoading(false);
+    const current = useAppStore.getState();
+    if (current.client === client) current.setHistoryLoading(false);
   }
 }
 
@@ -301,6 +372,7 @@ export async function hydrateTurnEvents(
     const hydrated = await hydrateSkeletonEvents(client, sequences);
     if (hydrated.length === 0) return;
     const store = useAppStore.getState();
+    if (store.client !== client) return;
     store.pinFullSequences(hydrated.map((event) => event.sequence));
     store.appendEvents(hydrated);
   } catch (error) {
@@ -314,6 +386,7 @@ export async function hydrateTurnEvents(
  */
 async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
   const store = useAppStore.getState();
+  if (store.client !== client) return;
   let cursor =
     store.events.length > 0 ? store.events[store.events.length - 1].sequence : 0;
   if (latestSequence <= cursor) return;
@@ -321,13 +394,19 @@ async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
   for (let i = 0; i < 3 && cursor < latestSequence; i++) {
     try {
       const page = await client.replayEvents(cursor, "model", 1000);
+      const current = useAppStore.getState();
+      if (current.client !== client) return;
       if (page.gap) {
-        store.setEventStreamInterrupted(true);
-        await recoverEventHistory(client, { toastOnRestore: false });
+        current.setEventStreamInterrupted(true);
+        await recoverEventHistory(client, {
+          toastOnRestore: false,
+          preserveRunning: current.status?.turn_active ?? false,
+          throughSequence: latestSequence,
+        });
         return;
       }
       if (page.events.length === 0) return;
-      store.appendEvents(page.events);
+      current.appendEvents(page.events);
       handleEventSideEffects(client, page.events);
       cursor = page.next_sequence;
     } catch {
@@ -375,6 +454,7 @@ async function refreshMaintenance(
   try {
     const maintenance = await client.maintenanceStatus();
     const store = useAppStore.getState();
+    if (store.client !== client) return;
     store.setMaintenanceStatus(maintenance);
     if (
       options.prompt &&
@@ -391,7 +471,8 @@ async function refreshMaintenance(
 async function refreshWorkspace(client: TinySoulClient) {
   try {
     const manifest = await client.workspaceManifest();
-    useAppStore.getState().setWorkspace(manifest);
+    const store = useAppStore.getState();
+    if (store.client === client) store.setWorkspace(manifest);
   } catch (error) {
     console.error("Workspace manifest load failed:", error);
   }
@@ -405,6 +486,7 @@ async function recoverAuthoritativeState(client: TinySoulClient) {
       client.maintenanceStatus(),
     ]);
     const store = useAppStore.getState();
+    if (store.client !== client) return;
     store.setStatus(status);
     store.setWorkspace(workspace);
     store.setMaintenanceStatus(maintenance);
@@ -446,6 +528,7 @@ async function handleWorkspaceChanged(
   if (!needsRefresh) return;
   try {
     const manifest = await client.workspaceManifest();
+    if (useAppStore.getState().client !== client) return;
     store.setWorkspace(manifest);
     const open = store.openResource;
     if (open && !manifest.resources.some((r) => r.link === open.link)) {

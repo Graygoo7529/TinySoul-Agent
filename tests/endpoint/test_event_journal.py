@@ -181,7 +181,8 @@ def test_journal_read_corruption_degrades_to_memory_gap(tmp_path: Path) -> None:
     assert journal.failure is not None
     assert journal.failure["operation"] == "read"
     assert page.gap is True
-    assert page.events == ()
+    assert [event.sequence for event in page.events] == [3]
+    assert page.next_sequence == 3
 
 
 def test_replay_page_stops_on_byte_budget(tmp_path: Path) -> None:

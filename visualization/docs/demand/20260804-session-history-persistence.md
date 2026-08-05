@@ -23,12 +23,12 @@
 
 - 路径 `runtime/endpoint/events/`，分段 NDJSON，启动续 sequence，按大小滚动淘汰；
 - `/v1/events` 协议不变；内存热缓存 + journal 深读；
-- 前端连接/重连后从 `after=0` 分页全量重放；恢复轮细微标识；
+- 前端与后端成对重启后重新解析 lease，以 status 的最新 sequence 快照为目标从 `after=0` 分页全量重放，不设置静默页数上限；恢复轮细微标识；
 - 本地对早先 `llm.model.*` payload 骨架化，详情/导出时按 sequence 深读回填；提供「加载更早」。
 
 ## 前端侧配合（已落地）
 
-- 连接后 REST 全量重放，再挂 WebSocket 到最新 sequence；
+- 连接后 REST 以单调 cursor 完整消费 status sequence 快照，再挂 WebSocket 到实际恢复的最新 sequence；
 - 历史轮标记 `restored`；
 - 导出/详情前 hydrate skeleton sequences。
 
