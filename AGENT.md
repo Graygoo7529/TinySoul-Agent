@@ -57,6 +57,20 @@ Memory Maintenance 读取 Session 为指定日期提供的专用 facts projectio
 
 每日生命周期与 Maintenance：只有 Session、Workspace 和 active Trash 具有强制 Business Day 生命周期。新日开始时，框架必须先完成不依赖 LLM 的确定性日切：恢复未完成的日切 journal，完整 reconcile 旧日 Session 与 Workspace，把 Session、Workspace、Trash 移到同一个时间戳归档，再建立同一新日的空 Session/Workspace roots；在确定性日切完成前不能接受新日 User Turn。程序持续运行时由内置 scheduler 在配置的日界触发，程序未运行时由下次启动补做。Home 不参与每日日切，也不进入 archive。恢复保证覆盖 Python 进程异常与文件操作失败：participant 已移动但 step journal 未提交、active roots 已初始化但 step 未提交、final rename 失败等窗口都通过 persisted facts 前滚；不宣称断电、磁盘缓存刷新或跨目录原子事务级持久性。
 
+
+Trap/异常和信号：TinySoul 使用统一的异常定义和内部信号处理，采用 OS-中断设计思路和实现风格。对于异常，可以分为（1）模块层面暂时抛出并局部处理，例如 Action 执行中的失败，被执行器捕获后结构化为 Action Result，以及 llm 模块的模型重试和切换；（2）上层逻辑层面的全局处理，并在触发后陷入处理流程，例如语境过长需要压缩、home 副本拷贝等框架层面的机制（类似页表换出），以及响应用户外部指令，例如中断当前用户轮、中断程序，或追加用户输入（陷入处理后转化为内部信号给内部模块消费）。TinySoul 整体异常处理分成如下层次：（a）局部修复策略（llm 模块的模型重试和切换）和错误映射（Action 异常转换为模型反馈），局部处理失败后再向上层报错；（b）由全局处理决定继续当前用户轮（返回异常陷入位置）/中断当前用户轮/退出程序；
+
+异常与内部信号处理的区别在于，异常决定恢复位置和期间执行的大型任务。内部信号主要用来清晰描述内部模块的行为，例如 action result 结束后发出信号去追加 TurnTraceContext；Phase1 完成后通过信号去变更 BackgroundContext。信号可以使意图和实际消费执行过程分离，使代码更清晰。
+
+tinysoul 运行层级：依次可分为（1）模块级，模块内部完成特定任务；后面两个层级对于用户可见；（2）用户轮级，协调各个模块完成一次用户对话，在用户轮启动时，用户可以追加对话进入用户轮；（3）顶层，循环等待用户新一轮对话输入或者指令，指令可以是 exit，也可以是执行与用户轮同层工作（例如每日沉淀），执行过程可以通过异常陷入处理执行；同层工作执行中不再接受用户输入。
+
+tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE/MODEL：专门附加反馈给模型的上下文，便于调试）。代码层面由业务所有者发布简约、JSON 安全且不参与控制流的 ObservationEvent，App 层统一过滤、扇出并渲染；Observation sink 失败不能反向改变业务提交。
+
+
+## 项目规约
+
+本节是已实现模块的运行方式规约，随模块实现动态补充，供后续模块设计时理解既有模块的协作方式；详细设计见 docs/design/ 对应文档。
+
 `runtime/home` 是跨 Turn、跨 Business Day、跨重启保留的懒加载可写 overlay。Home 顶层内容、渐进资源和 HOW 在真正使用时通过 Trap 透明物化，并始终从 `runtime override/tombstone -> actual Home fallback` 的 effective view 读取；所有普通 User Turn 修改只写 runtime。未触发 Home Maintenance 时，当前 runtime diff 就是 Agent 继续透明读写的事实对象，不清空、不归档。Context 在每个 User Turn 重建通用 Background，Home 只提供其拥有的 core 与可加载顶层条目；Phase1 临时加载项不依靠内存跨 Turn 保留。
 
 `home.top.search` 只检索 WHAT、WHY 与通用 HOW，不包含 `agent`、`how_domain`、`how_action` 或 MEMORY。搜索由 Home-owned 独立服务基于 effective catalog 构造有界 metadata，不物化全部 runtime copy，也不把完整正文自动加入 Background；WHAT/WHY 的标题取 Markdown 首个 H1，短摘要取首个有效正文段，缺失时分别回退 Link name 与有界正文前缀；通用 HOW 必须复用严格校验的 frontmatter title/description，不从正文产生第二套 skill metadata。搜索先以 link/name/title/summary/prefix 做确定性候选限制，再通过受控 LLM task rerank；validator 只接受候选内 Link，rerank 失败时返回确定性候选而不使只读搜索整体失败。MEMORY 的搜索、召回和日期 Link 全部归 `tinysoul.memory` 拥有。
@@ -81,18 +95,7 @@ actual Home 在普通 User Turn 和确定性日切中严格只读。顶层内容
   - `home/`：Agent Home 内容的跨日懒加载 overlay，直到 Home Maintenance 处理后才清理对应 diff；
 - `archive/<timezone-timestamp>/`：一个已冻结 Business Day，包含 `transition.json`、`session/`、`workspace/`、`trash/`，不包含 Home；旧日 Trash 只是归档事实，不再进入 active list/restore 或其它语义追踪 API。
 
-Trap/异常和信号：TinySoul 使用统一的异常定义和内部信号处理，采用 OS-中断设计思路和实现风格。对于异常，可以分为（1）模块层面暂时抛出并局部处理，例如 Action 执行中的失败，被执行器捕获后结构化为 Action Result，以及 llm 模块的模型重试和切换；（2）上层逻辑层面的全局处理，并在触发后陷入处理流程，例如语境过长需要压缩、home 副本拷贝等框架层面的机制（类似页表换出），以及响应用户外部指令，例如中断当前用户轮、中断程序，或追加用户输入（陷入处理后转化为内部信号给内部模块消费）。TinySoul 整体异常处理分成如下层次：（a）局部修复策略（llm 模块的模型重试和切换）和错误映射（Action 异常转换为模型反馈），局部处理失败后再向上层报错；（b）由全局处理决定继续当前用户轮（返回异常陷入位置）/中断当前用户轮/退出程序；
 
-异常与内部信号处理的区别在于，异常决定恢复位置和期间执行的大型任务。内部信号主要用来清晰描述内部模块的行为，例如 action result 结束后发出信号去追加 TurnTraceContext；Phase1 完成后通过信号去变更 BackgroundContext。信号可以使意图和实际消费执行过程分离，使代码更清晰。
-
-tinysoul 运行层级：依次可分为（1）模块级，模块内部完成特定任务；后面两个层级对于用户可见；（2）用户轮级，协调各个模块完成一次用户对话，在用户轮启动时，用户可以追加对话进入用户轮；（3）顶层，循环等待用户新一轮对话输入或者指令，指令可以是 exit，也可以是执行与用户轮同层工作（例如每日沉淀），执行过程可以通过异常陷入处理执行；同层工作执行中不再接受用户输入。
-
-tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE/MODEL：专门附加反馈给模型的上下文，便于调试）。代码层面由业务所有者发布简约、JSON 安全且不参与控制流的 ObservationEvent，App 层统一过滤、扇出并渲染；Observation sink 失败不能反向改变业务提交。
-
-
-## 项目规约
-
-本节是已实现模块的运行方式规约，随模块实现动态补充，供后续模块设计时理解既有模块的协作方式；详细设计见 docs/design/ 对应文档。
 
 - TinySoul 拥有独立的上层动作层。动作选择、上下文选择、参数生成、动作执行结果管理不依赖模型供应商的原生 tool calling 接口；供应商原生 tool calling 只作为 LLM 适配层可选映射方式。
 - Infra 提供配置环境、JSON 边界、受控文件读写、当前 Python 解释器的 distribution/module/executable 可用性检查和稳定公共门面。依赖检查通过 metadata/spec/`shutil.which` 检测但不导入、执行或安装目标依赖，也不解释 capability enabled 语义。项目模块配置位于 `configs/`，由 `tinysoul.toml` 显式 include；include 与 env file 都必须是项目根内的相对路径，拒绝绝对路径、`..` 越界和解析后越出项目根的符号链接。Infra 只负责加载、合并并提供 section tree，app/capabilities/context/home/memory/loop/session/workspace/llm 等实际模块各自解析所属配置并由所属 Runtime bridge 映射配置失败。配置显式加载、显式传递，模块不在导入时读取配置或创建全局单例；来自 dotenv、TOML、环境变量、模型输出或外部接口的动态数据，在进入模块内部边界时转换为明确结构，配置语义失败统一表达为 `ConfigError`，不以裸 `ValueError`/`TypeError` 越过 infra 公共边界。Infra 只提供 owner-neutral 的 JSON 字符硬预算切片和 versioned opaque continuation 编解码原语；公开结果只含业务 items/content fragment 与 `next_continuation`，位置、内容绑定和 owner binding 只存在 token 内部。Context/Session 各自拥有 ref、堆导航与 continuation 失效语义；Workspace、Script 和 Shell 已有的业务 cursor 不受该原语影响。
@@ -230,25 +233,10 @@ conda activate TinySoul
 
 当前任务已从核心模块重构转入 TinySoul 整体应用构建与优化。`reference/tinysoul_v1` 只作为历史设计与行为参考；当前代码、模块设计文档和已完成执行记录才是实现事实。后续工作不得使用兼容层、重复状态或跨模块捷径。
 
-### 已完成基础
-
-- Runtime、LLM、Action、Context、Loop、App 已形成完整 User Turn、Agent Cycle、Phase、Action、Trap 和 Program 生命周期；provider、tool protocol、context window、deadline、失败 scope/disposition 与输出完整性边界已经闭环。
-- Session、Workspace、Agent Home、Memory 与 Daily Lifecycle 已拥有各自持久化、Link、投影、Maintenance、reconciliation 和失败语义；Workspace 保持单进程单写者、Engine 实例内线性化，并通过 revision/digest CAS、Trash 和 transaction mirror 管理变更。
-- Resource、Web、Script、Shared Supervised Process 与 Shell capability 已完成，Action Catalog、HOW、配置裁剪、事务提交和 Turn cleanup 均接入正式 AppBuilder。
-- `tinysoul start`、项目单实例连接描述、AppCommandGateway、ObservationRouter、authenticated Endpoint 和 `visualization/` Tauri/React 前端已经形成 Terminal-owned 后端与纯连接前端的统一应用链路。历史实现与验收保存在 `docs/analysis/*-done-*.md`，不再在本节重复维护逐阶段日志。
-- Action hook reject 已对齐 failure/payload/frame_data 三通道，测试不依赖本地真实运行记录。完整工件 `workspace.write/rewrite` 与 `execution.write_script/rewrite_script` 使用 240 秒 Catalog owner timeout，`LLMActionTaskRunner` 为协作收尾预留 5 秒并在成功返回边界重检；Context 已删除无消费者的 Trace anchor/canonical revision。完成记录见 `docs/analysis/20260724-done-session record integrity and hook outcome boundary correction plan.md` 与 `docs/analysis/20260725-done-action authoring deadline and model context transparency execution plan.md`。
-- Context 与 Session 的渐进探索已统一收敛为 core domain 的 `core.context.inspect` / `core.session.inspect`，模型侧只使用 heap ref 和 opaque continuation。Session schema v4 仅保存不可变业务事实，Background、inspect 和 Memory facts 从同一 record 派生；旧 history/actions/recall、canonical trace、Context/Session Domain HOW、Endpoint Session REST 与前端 Session Explorer 已删除，前端只通过真实 MessageStack 观察模型上下文。完成记录见 `docs/analysis/20260725-done-context session semantic heap and application surface refactor plan.md`。
-- Maintenance Availability、Archive 日期索引与 User/Maintenance Turn 边界已完成收敛：启动先完成 Archive 和唯一提示单，Memory 日期列表增量跨重启保留，Home pending 每次从 owner 重算；启动前端提示一个聚合 Home 任务和全部 Memory 日期，Daily 只自动处理昨日 Memory，更早日期由明确目标 request 精确执行。Endpoint/前端只通过 GET 提示单和失效事件协同。完成记录见 `docs/analysis/20260804-done-maintenance availability and boundary cleanup execution plan.md`。
-- User/Maintenance Turn 所有权与 App 装配已完成收敛：`loop` 根只保留 owner-neutral kernel，`loop.user` 和 `maintenance` 分别拥有两类 Turn 入口与 runtime policy；Maintenance catalog、Context、Prompt、completion 和 bridge 已内聚到 Maintenance，Home/Memory 对外能力改为中性的 Review/Consolidation，App 只调用两个轻量 builder。完成记录见 `docs/analysis/20260804-done-maintenance turn ownership and app assembly refactor execution plan.md`。
-
-### 当前目标
-
-构建可持续使用的 TinySoul 桌面应用，围绕真实用户工作流优化前后端协作、运行可靠性和交互质量。
-
 
 ### 推进顺序
 
-当前实施进度可参照 docs\analysis 中的执行计划；已完成计划标记为 done；有含糊不明确的决策点/待确认的设计语义即时与用户讨论确认；即时将确认的设计语义，实施前明确的执行事项写入执行计划；即时维护执行计划，保持有限活跃的执行计划与计划更新
+当前实施进度可参照 docs\analysis 中的执行计划；已完成计划标记为 done；有含糊不明确的决策点/待确认的设计语义即时与用户讨论确认；即时将确认的设计语义，实施前明确的执行事项写入执行计划；即时维护执行计划，保持有限活跃的执行计划与计划更新。
 
 ### 实现纪律
 
