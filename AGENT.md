@@ -50,6 +50,16 @@ Memory Maintenance 读取 Session 为指定日期提供的专用 facts projectio
 （5）home:how_domain:<domain> 和 home:how_action:<domain>/<action> 表示临时、局部自动 prompt mount，只进入对应 Phase/task prompt；
 
 
+根目录结构如下：
+
+- `home/`：已经由 Maintenance 提交的 actual Home；
+- `memory/`：Memory-owned 的单日长期记忆，按 `yyyy/mm/yyyy-mm-dd.md` 组织，不建立 runtime 副本；
+- `runtime/`：保存运行中的可变状态；
+  - `session/`：当日跨 Turn 会话事实；
+  - `workspace/`：当日工作区及 active `.tinysoul/trash`；
+  - `home/`：Agent Home 内容的跨日懒加载 overlay，直到 Home Maintenance 处理后才清理对应 diff；
+- `archive/<timezone-timestamp>/`：一个已冻结 Business Day，包含 `transition.json`、`session/`、`workspace/`、`trash/`，不包含 Home；旧日 Trash 只是归档事实，不再进入 active list/restore 或其它语义追踪 API。
+
 一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
 （Phase1）更新语境与决策行动域：基于完整语境/Context，调用 LLM Task。Phase1 可以向模型提供框架内部 Control Tools，例如状态更新工具、背景更新工具和 Phase2 行动域选择工具；模型返回的 Control Tool Calls 不直接修改状态，而是在 Phase1 结束后被汇聚、校验、归一化并转化为内部操作信号，由 WorkingContext、BackgroundContext、Loop 等上层模块分别消费；从而执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择一个或多个 action domain 进入 Phase2；Phase1 不生成完整行动参数，也不暴露全部二级 action 定义。`load_background` 接受一个或多个开放字符串形式的 Top Link，不把完整 effective top catalog 编码为模型工具候选；模型应从当前 Context 已暴露的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 等来源取得 Link，工具定义至多是这种已有 Link 的强化提示，Context 在提交前仍按当前 effective provider catalog 校验 Link 是否真实可加载；
 （Phase2）生成行动参数：为 Phase1 选择的 domain 生成具体 ActionCall，调用 LLM Task。Phase2 只向模型提供已选 domain 内的 Action Tools、对应 action 的工具调用结构与补充语义，并自动注入 domain HOW；模型返回的 Action Tool Calls 被归一化为 ActionCall；
@@ -84,16 +94,6 @@ Program 必须在 Endpoint 对外就绪前完成 Archive preflight 和 availabil
 User Turn 与 Maintenance Turn 复用 `tinysoul.loop` 的 owner-neutral Turn、Cycle 和相同 3-stage Phase 内核；`loop.user.UserTurnBuilder/UserTurnEntry` 拥有 User 主线的完整 Context、Action、preparation、completion 和 runtime policy，`maintenance.MaintenanceBuilder` 与 `maintenance.turn.MaintenanceTurnEntry` 拥有维护支线的对应语义，Loop 根不认识 Maintenance 业务。Maintenance Turn 仍处于完整情景中：它拥有与 User Turn 同结构的 Background、Session 和 Workspace；Home task 使用 actual Home 作为 Background 基线并结合当前 Session/Workspace，Memory task 使用另一个独立 Context，并注入 actual Home 与目标关闭日的 Session/Workspace 只读投影。归档 Session/Workspace 绑定由 `tinysoul.maintenance.memory.ArchivedMemoryMaintenanceContext` 所有，并校验 archive、Workspace、Session 与 Memory Turn 的目标日一致。通用只读 `core.context.inspect` 与 `core.session.inspect` 可由两类 Turn 复用；Maintenance catalog 物理位于 `tinysoul.maintenance` 包，User catalog 中不存在 maintenance domain，Home 与 Memory 两种 Maintenance Turn 又通过精确 action set 互相隔离。Maintenance Turn 不提供 `core.answer`，必须由 owner-bound `maintenance.complete` 验证任务后置条件后结束；它的 pressure/trap 只回收自己的 Context，不注册 active Workspace cleanup、Workspace trash restore 或 Home runtime copy。
 
 actual Home 在普通 User Turn 和确定性日切中严格只读。顶层内容使用专用 `home.top.write/patch/delete` 修改 runtime；允许创建不存在的顶层内容，新 WHAT 必须在无后缀 Link 中显式包含 `entity/` 或 `concept/`，`home:agent@AGENT` 允许 write/patch 但禁止 delete。how_domain/how_action 使用专用 prompt mount write/patch 修改 runtime，逻辑 create/delete 由框架按 Action Catalog 维护。actual Home 的知识与 HOW 只由 Home Maintenance 修改；顶层 `memory/` 中的长期 MEMORY 只由 Memory Maintenance 修改。此前讨论中的“Settlement 可变状态”不是 TinySoul 业务概念，不应引入独立 `settlement/` 状态根或持久 Settlement 状态机。
-
-目录边界如下：
-
-- `home/`：已经由 Maintenance 提交的 actual Home；
-- `memory/`：Memory-owned 的单日长期记忆，按 `yyyy/mm/yyyy-mm-dd.md` 组织，不建立 runtime 副本；
-- `runtime/`：保存运行中的可变状态；
-  - `session/`：当日跨 Turn 会话事实；
-  - `workspace/`：当日工作区及 active `.tinysoul/trash`；
-  - `home/`：Agent Home 内容的跨日懒加载 overlay，直到 Home Maintenance 处理后才清理对应 diff；
-- `archive/<timezone-timestamp>/`：一个已冻结 Business Day，包含 `transition.json`、`session/`、`workspace/`、`trash/`，不包含 Home；旧日 Trash 只是归档事实，不再进入 active list/restore 或其它语义追踪 API。
 
 
 
