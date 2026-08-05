@@ -191,6 +191,26 @@ class _EmptyCycleRunner:
         return CycleOutcome(cycle_id=f"cycle_{cycle_index}")
 
 
+@dataclass
+class _Phase1FailureCycleRunner:
+    calls: int = 0
+
+    def run(
+        self,
+        *,
+        turn_id: str,
+        cycle_index: int,
+        scope: RunScope,
+        **_kwargs: object,
+    ) -> CycleOutcome:
+        self.calls += 1
+        return CycleOutcome(
+            cycle_id=f"cycle_{cycle_index}",
+            phase1_selection_failed=True,
+            phase1_feedback=(f"attempt {self.calls} feedback",),
+        )
+
+
 class _CompletionCycleRunner:
     def run(
         self,
@@ -411,6 +431,34 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         event for event in observations.events if event.name == "turn.exhausted"
     )
     assert exhausted.level is ObservationLevel.NORMAL
+
+
+def test_repeated_phase1_failure_carries_accumulated_feedback() -> None:
+    observations = _RecordingObservations([], [])
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(),
+        trap=_trap(),
+        cycle_runner=cast(CycleRunner, _Phase1FailureCycleRunner()),
+        settings=TurnSettings(max_cycles=5),
+        observations=observations,
+    )
+
+    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+
+    assert outcome.status is TurnOutcomeStatus.FAILED
+    assert outcome.failure is not None
+    assert outcome.failure.feedback == (
+        "attempt 1 feedback",
+        "attempt 2 feedback",
+        "attempt 3 feedback",
+    )
+    failed = next(event for event in observations.events if event.name == "turn.failed")
+    assert failed.payload["feedback"] == [
+        "attempt 1 feedback",
+        "attempt 2 feedback",
+        "attempt 3 feedback",
+    ]
 
 
 def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None:

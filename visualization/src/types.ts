@@ -30,6 +30,11 @@ export interface EventJournalStatus {
   degraded: boolean;
   oldest_sequence: number | null;
   latest_sequence: number;
+  failure?: {
+    operation: string;
+    kind: string;
+    error_type: string;
+  };
 }
 
 export interface BackendStatus {

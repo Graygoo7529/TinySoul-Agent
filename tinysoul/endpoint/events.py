@@ -98,6 +98,7 @@ class EndpointEventBuffer:
             "degraded": journal.degraded,
             "oldest_sequence": journal.oldest_sequence,
             "latest_sequence": journal.latest_sequence,
+            **({"failure": journal.failure} if journal.failure is not None else {}),
         }
 
     def write(self, event: ObservationEvent) -> None:
@@ -185,15 +186,35 @@ class EndpointEventBuffer:
             and after < memory_oldest - 1
         )
         if need_journal:
-            for event in journal.read_after(
+            journal_page = journal.read_after_page(
                 after=after,
                 mode=mode,
                 limit=limit,
-            ):
+            )
+            if journal.degraded:
+                gap = gap or after < memory_oldest - 1
+            reached_memory = False
+            for event in journal_page.events:
                 if event.sequence >= memory_oldest:
+                    reached_memory = True
                     break
                 if not _accept(event):
-                    break
+                    next_sequence = selected[-1].sequence if selected else after
+                    return EndpointEventPage(
+                        events=tuple(selected),
+                        next_sequence=next_sequence,
+                        gap=gap,
+                    )
+            # A journal page that stopped at its record limit has not reached
+            # the memory boundary. Returning here preserves the byte/record
+            # cursor instead of silently appending a later in-memory event.
+            if not reached_memory and not journal_page.complete:
+                next_sequence = selected[-1].sequence if selected else after
+                return EndpointEventPage(
+                    events=tuple(selected),
+                    next_sequence=next_sequence,
+                    gap=gap,
+                )
 
         if len(selected) < limit and (
             not selected or used_bytes < page_bytes
@@ -202,7 +223,12 @@ class EndpointEventBuffer:
                 if event.sequence <= after:
                     continue
                 if not _accept(event):
-                    break
+                    next_sequence = selected[-1].sequence if selected else after
+                    return EndpointEventPage(
+                        events=tuple(selected),
+                        next_sequence=next_sequence,
+                        gap=gap,
+                    )
 
         next_sequence = selected[-1].sequence if selected else sequence
         return EndpointEventPage(

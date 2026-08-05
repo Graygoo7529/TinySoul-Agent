@@ -27,8 +27,8 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
     setSending(true);
     const commandId = randomId();
     try {
-      // Echo locally first: command-accepted events carry no text, and the
-      // derive layer matches this echo by command_id.
+      // Echo locally first: the accepted event is authoritative but may
+      // arrive on the WebSocket a moment later.
       recordLocalInput(commandId, value);
       const receipt = await client.submitInput({
         text: value,

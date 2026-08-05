@@ -40,6 +40,8 @@ export interface LocalInputEcho {
 
 export interface BuildChatOptions {
   recoveredThroughSequence?: number | null;
+  activeDay?: string;
+  preserveRunning?: boolean;
 }
 
 export function useDerivedChat(
@@ -49,12 +51,18 @@ export function useDerivedChat(
   const recoveredThroughSequence = useAppStore(
     (state) => state.recoveredThroughSequence,
   );
+  const activeDay = useAppStore((state) => state.status?.active_day);
+  const preserveRunning = useAppStore(
+    (state) => state.recoveryPreserveRunning,
+  );
   return useMemo(
     () =>
       buildChatTurns(events, localInputs, {
         recoveredThroughSequence,
+        activeDay,
+        preserveRunning,
       }),
-    [events, localInputs, recoveredThroughSequence],
+    [events, localInputs, recoveredThroughSequence, activeDay, preserveRunning],
   );
 }
 
@@ -64,8 +72,15 @@ export function buildChatTurns(
   options: BuildChatOptions = {},
 ): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
-  // command_id → text, for attaching locally-echoed input once the backend
-  // accepts the command and starts the turn (accepted events carry no text).
+  const dayByTurn = new Map<string, string>();
+  for (const event of events) {
+    if (event.name !== "turn.started") continue;
+    const turn = event.scope.find((frame) => frame.level === "turn");
+    const day = asString(event.payload?.business_day);
+    if (turn && day) dayByTurn.set(turn.name, day);
+  }
+  // command_id → text remains a short-lived fallback for optimistic input;
+  // accepted events carry the authoritative text when available.
   const echoByCommand = new Map(localInputs.map((e) => [e.commandId, e.text]));
   const pendingTurnInput = new Map<string, string>();
 
@@ -78,11 +93,21 @@ export function buildChatTurns(
     const cycleFrame = ev.scope.find((f) => f.level === "cycle");
     const phaseFrame = ev.scope.find((f) => f.level === "phase");
     const turnId = turnFrame?.name ?? null;
+    if (
+      options.activeDay &&
+      turnId &&
+      dayByTurn.has(turnId) &&
+      dayByTurn.get(turnId) !== options.activeDay
+    ) {
+      continue;
+    }
 
     if (ev.name === "app.command.accepted") {
       const commandId = asString(ev.payload?.command_id);
       const kind = asString(ev.payload?.kind);
-      const text = commandId ? echoByCommand.get(commandId) : undefined;
+      const text =
+        asString(ev.payload?.text) ||
+        (commandId ? echoByCommand.get(commandId) : undefined);
       if (commandId && text && kind === "user_turn") {
         pendingTurnInput.set(commandId, text);
       }
@@ -105,10 +130,12 @@ export function buildChatTurns(
 
     const turn = getTurn(turns, turnId, ev.created_at);
     turn.latestSequence = Math.max(turn.latestSequence, ev.sequence);
+    turn.latestEventAt = Math.max(turn.latestEventAt ?? 0, ev.created_at);
 
     switch (ev.name) {
       case "turn.started": {
         const requestId = asString(ev.payload?.request_id);
+        turn.businessDay = asString(ev.payload?.business_day);
         const text = requestId ? pendingTurnInput.get(requestId) : undefined;
         if (text) pushUnique(turn.userMessages, text);
         break;
@@ -135,6 +162,9 @@ export function buildChatTurns(
           reason: asString(ev.payload?.reason),
           module: asString(ev.payload?.module),
           kind: asString(ev.payload?.kind),
+          ...(asStringArray(ev.payload?.feedback).length > 0
+            ? { feedback: asStringArray(ev.payload?.feedback) }
+            : {}),
         };
         turn.endedAt = ev.created_at;
         addActivity(turn, "error", "Turn failed", ev.message);
@@ -192,15 +222,21 @@ export function buildChatTurns(
   }
 
   const recoveredThrough = options.recoveredThroughSequence ?? null;
+  const runningTurns = Array.from(turns.values())
+    .filter((turn) => turn.status === "running")
+    .sort((a, b) => a.latestSequence - b.latestSequence);
+  const preservedRunning = options.preserveRunning
+    ? runningTurns[runningTurns.length - 1]
+    : undefined;
   for (const turn of turns.values()) {
     if (
       recoveredThrough !== null &&
       turn.latestSequence <= recoveredThrough
     ) {
       turn.recovered = true;
-      if (turn.status === "running") {
+      if (turn.status === "running" && turn !== preservedRunning) {
         turn.status = "stopped";
-        turn.endedAt = turn.endedAt ?? turn.startedAt;
+        turn.endedAt = turn.endedAt ?? turn.latestEventAt ?? turn.startedAt;
         turn.failureMessage =
           turn.failureMessage || "Interrupted by backend restart";
       }

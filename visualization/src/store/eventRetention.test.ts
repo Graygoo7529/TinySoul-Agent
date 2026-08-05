@@ -33,19 +33,20 @@ describe("eventRetention", () => {
         messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
       }),
     );
-    const retained = retainEvents(events, { maxEvents: 100, keepFullTail: 2 });
+    events.push(event(7, "turn.completed", { status: "answered" }));
+    const retained = retainEvents(events, { keepFullTail: 2 });
     expect(isSkeletonPayload(retained[0].payload)).toBe(true);
     expect(retained[0].payload.message_count).toBe(1);
-    expect(isSkeletonPayload(retained[4].payload)).toBe(false);
-    expect(Array.isArray(retained[4].payload.messages)).toBe(true);
+    expect(isSkeletonPayload(retained[5].payload)).toBe(false);
+    expect(Array.isArray(retained[5].payload.messages)).toBe(true);
   });
 
-  it("drops the oldest events when over maxEvents", () => {
+  it("keeps compact history instead of dropping the oldest events", () => {
     const events = Array.from({ length: 5 }, (_, index) =>
       event(index + 1, "turn.started", { turn_id: "turn_1" }),
     );
-    const retained = retainEvents(events, { maxEvents: 3, keepFullTail: 10 });
-    expect(retained.map((item) => item.sequence)).toEqual([3, 4, 5]);
+    const retained = retainEvents(events, { keepFullTail: 10 });
+    expect(retained.map((item) => item.sequence)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("is idempotent for already skeletonized events", () => {
@@ -68,8 +69,8 @@ describe("eventRetention", () => {
         messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
       }),
     );
+    events.push(event(7, "turn.completed", { status: "answered" }));
     const retained = retainEvents(events, {
-      maxEvents: 100,
       keepFullTail: 2,
       pinnedFullSequences: new Set([1]),
     });

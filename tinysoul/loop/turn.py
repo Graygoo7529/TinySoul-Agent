@@ -198,6 +198,7 @@ class TurnRunner:
                     "turn_id": turn_id,
                     "request_id": request_id,
                     "input_source": input_source,
+                    "business_day": str(business_day),
                 },
             )
             preparation = self._run_preparation(
@@ -213,6 +214,7 @@ class TurnRunner:
             if transfer is None:
                 cycle_index = 1
                 consecutive_phase1_failures = 0
+                phase1_feedback: list[str] = []
                 while True:
                     if cycle_index > self._settings.max_cycles:
                         controller = self._activity_controller
@@ -238,6 +240,7 @@ class TurnRunner:
                     stopped = stopped or cycle.stopped
                     if cycle.phase1_selection_failed:
                         consecutive_phase1_failures += 1
+                        phase1_feedback.extend(cycle.phase1_feedback)
                         if consecutive_phase1_failures >= 3:
                             failure = TurnFailure(
                                 reason=RUNTIME_TURN_END,
@@ -247,11 +250,13 @@ class TurnRunner:
                                 ),
                                 module="loop",
                                 kind=LoopFailureKind.CONTRACT_VIOLATION.value,
+                                feedback=tuple(phase1_feedback),
                             )
                             break
                         cycle_index += 1
                         continue
                     consecutive_phase1_failures = 0
+                    phase1_feedback.clear()
                     if cycle.completion is not None:
                         completion = cycle.completion
                         break
@@ -587,6 +592,7 @@ class TurnRunner:
                     "reason": failure.reason,
                     "module": failure.module,
                     "kind": failure.kind,
+                    **({"feedback": list(failure.feedback)} if failure.feedback else {}),
                 }
             )
         messages = {

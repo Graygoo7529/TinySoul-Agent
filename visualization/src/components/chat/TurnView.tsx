@@ -61,6 +61,13 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
                     .join(" · ")}
                 </div>
               )}
+              {turn.failure?.feedback && turn.failure.feedback.length > 0 && (
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-9 text-danger/90">
+                  {turn.failure.feedback.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 

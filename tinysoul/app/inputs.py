@@ -411,6 +411,13 @@ class InputDispatcher:
     ) -> CommandReceipt:
         receipt = self._receipt(intent, True, state)
         if observation_enabled(self._observations, ObservationLevel.NORMAL):
+            text_payload = (
+                {"text": intent.text}
+                if intent.kind
+                in {InputIntentKind.USER_TURN, InputIntentKind.APPEND_INPUT}
+                and intent.text
+                else {}
+            )
             emit_observation(
                 self._observations,
                 ObservationEvent(
@@ -419,7 +426,11 @@ class InputDispatcher:
                     source="app.inputs",
                     scope=scope,
                     message=f"Application command {intent.kind.value} accepted.",
-                    payload={**receipt.to_json(), "source": intent.source},
+                    payload={
+                        **receipt.to_json(),
+                        "source": intent.source,
+                        **text_payload,
+                    },
                 ),
             )
         return receipt

@@ -22,111 +22,149 @@ function identityMatches(info: ConnectionInfo, other: {
   );
 }
 
+function sameConnection(left: ConnectionInfo, right: ConnectionInfo): boolean {
+  return (
+    left.host === right.host &&
+    left.port === right.port &&
+    left.instance_id === right.instance_id &&
+    left.project_identity === right.project_identity
+  );
+}
+
 const POLL_INTERVAL_MS = 2000;
 
 export function useBackend() {
   const connectionStatus = useAppStore((state) => state.connection.status);
   const client = useAppStore((state) => state.client);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectRef = useRef<Promise<void> | null>(null);
 
   const connect = useCallback(async (projectRoot: string) => {
-    const store = useAppStore.getState();
-    if (store.connection.status === "connecting") return;
-    store.eventStream?.close();
-    store.setEventStream(undefined);
-    store.setClient(undefined);
-    store.setStatus(null);
-    store.setBackendUnreachable(false);
-    store.setConnection({ status: "connecting" });
-    try {
-      const info = await resolveConnectionInfo(projectRoot);
-      if (!info) {
-        store.setConnection({ status: "not_running" });
-        return;
-      }
-      const nextClient = new TinySoulClient(info);
-      const status = await nextClient.status();
-      if (!identityMatches(info, status)) {
-        throw new Error(
-          "TinySoul instance identity does not match this project",
+    if (connectRef.current) return connectRef.current;
+    const current = useAppStore.getState();
+    if (current.connection.status === "connecting" && !current.client) return;
+    const attempt = (async () => {
+      const store = useAppStore.getState();
+      const previousInfo = store.connection.info;
+      const hadConnection = Boolean(store.client && previousInfo);
+      if (!hadConnection) store.setConnection({ status: "connecting" });
+      try {
+        const info = await resolveConnectionInfo(projectRoot);
+        if (!info) {
+          if (hadConnection) store.setBackendUnreachable(true);
+          else store.setConnection({ status: "not_running" });
+          return;
+        }
+        const nextClient = new TinySoulClient(info);
+        const status = await nextClient.status();
+        if (!identityMatches(info, status)) {
+          throw new Error(
+            "TinySoul instance identity does not match this project",
+          );
+        }
+        if (!status.ready) {
+          store.setConnection({ status: "initializing", info });
+          return;
+        }
+        if (previousInfo && sameConnection(previousInfo, info) && store.client) {
+          store.setBackendUnreachable(false);
+          store.setStatus(status);
+          store.setConnection({ status: "connected", info });
+          return;
+        }
+        const instanceChanged = Boolean(
+          previousInfo && !sameConnection(previousInfo, info),
         );
-      }
-      if (!status.ready) {
-        store.setConnection({ status: "initializing", info });
-        return;
-      }
-      const instanceChanged = Boolean(
-        info.instance_id &&
-          store.connection.info?.instance_id &&
-          store.connection.info.instance_id !== info.instance_id,
-      );
-      if (instanceChanged) {
-        store.clearEvents();
-        store.setMaintenanceStatus(null);
-      }
-      store.setClient(nextClient);
-      store.setStatus(status);
-      store.setConnection({ status: "connected", info });
-      void refreshMaintenance(nextClient, { prompt: true });
-      void refreshWorkspace(nextClient);
+        store.eventStream?.close();
+        store.setEventStream(undefined);
+        if (instanceChanged) {
+          store.clearEvents();
+          store.setMaintenanceStatus(null);
+        }
+        store.setClient(nextClient);
+        store.setStatus(status);
+        store.setBackendUnreachable(false);
+        store.setConnection({ status: "connected", info });
+        void refreshMaintenance(nextClient, { prompt: true });
+        void refreshWorkspace(nextClient);
 
-      // Full REST replay restores today's conversation + MessageStack trace
-      // from the Endpoint journal before the live stream attaches.
-      const latest = await recoverEventHistory(nextClient, {
-        toastOnRestore:
-          instanceChanged || useAppStore.getState().events.length === 0,
-      });
+        // Full REST replay restores today's conversation + MessageStack trace
+        // from the Endpoint journal before the live stream attaches.
+        const latest = await recoverEventHistory(nextClient, {
+          toastOnRestore:
+            instanceChanged || useAppStore.getState().events.length === 0,
+          preserveRunning: status.turn_active,
+        });
 
-      const stream = new TinySoulEventStream(info, latest, "model", {
-        onMessage: (message) => {
-          const current = useAppStore.getState();
-          if (message.type === "authenticated") {
-            current.setStreamReconnecting(false);
-            if (
-              !identityMatches(info, {
-                instance_id: message.instance_id,
-                project_identity: message.project_identity,
-              })
-            ) {
-              current.setConnection({
-                status: "error",
-                error: "TinySoul event stream identity changed",
-              });
-              current.eventStream?.close();
+        const stream = new TinySoulEventStream(info, latest, "model", {
+          onMessage: (message) => {
+            const current = useAppStore.getState();
+            if (message.type === "authenticated") {
+              current.setStreamReconnecting(false);
+              if (
+                !identityMatches(info, {
+                  instance_id: message.instance_id,
+                  project_identity: message.project_identity,
+                })
+              ) {
+                current.setConnection({
+                  status: "error",
+                  error: "TinySoul event stream identity changed",
+                });
+                current.eventStream?.close();
+              }
+              return;
             }
-            return;
-          }
-          if (message.type !== "events") return;
-          if (message.gap) {
-            current.clearEvents();
-            current.setEventStreamInterrupted(true);
-            current.pushToast(
-              "info",
-              "Event stream gap detected; state was re-synchronized from the backend.",
-            );
-            void recoverAuthoritativeState(nextClient);
-            void recoverEventHistory(nextClient, { toastOnRestore: false });
-            return;
-          }
-          current.appendEvents(message.events);
-          handleEventSideEffects(nextClient, message.events);
-        },
-        onError: (error) => {
-          // Avoid logging MODEL payload which may contain sensitive data.
-          console.error("Event stream error:", error.name, error.message);
-        },
-        onClose: (wasClean) => {
-          if (!wasClean) console.warn("Event stream closed unexpectedly");
-        },
-        onReconnecting: () => {
-          useAppStore.getState().setStreamReconnecting(true);
-        },
-      });
-      stream.connect();
-      store.setEventStream(stream);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      store.setConnection({ status: "not_running", error: message });
+            if (message.type !== "events") return;
+            if (message.gap) {
+              current.clearEvents();
+              current.setEventStreamInterrupted(true);
+              current.pushToast(
+                "info",
+                "Event stream gap detected; state was re-synchronized from the backend.",
+              );
+              void recoverAuthoritativeState(nextClient);
+              void recoverEventHistory(nextClient, {
+                toastOnRestore: false,
+                preserveRunning: current.status?.turn_active ?? false,
+              });
+              return;
+            }
+            current.appendEvents(message.events);
+            handleEventSideEffects(nextClient, message.events);
+          },
+          onError: (error) => {
+            // Avoid logging MODEL payload which may contain sensitive data.
+            console.error("Event stream error:", error.name, error.message);
+          },
+          onClose: (wasClean) => {
+            if (useAppStore.getState().eventStream !== stream) return;
+            if (!wasClean) {
+              console.warn("Event stream closed unexpectedly");
+              void connect(useAppStore.getState().projectRoot);
+            }
+          },
+          onReconnecting: () => {
+            useAppStore.getState().setStreamReconnecting(true);
+          },
+        });
+        stream.connect();
+        store.setEventStream(stream);
+      } catch (error) {
+        const current = useAppStore.getState();
+        const message = error instanceof Error ? error.message : String(error);
+        if (current.client && current.connection.info) {
+          current.setBackendUnreachable(true);
+        } else {
+          current.setConnection({ status: "not_running", error: message });
+        }
+      }
+    })();
+    connectRef.current = attempt;
+    try {
+      await attempt;
+    } finally {
+      if (connectRef.current === attempt) connectRef.current = null;
     }
   }, []);
 
@@ -161,9 +199,10 @@ export function useBackend() {
       } catch {
         // The backend stopped answering after a successful connection
         // (wedged mid-turn, overloaded, …). Keep the connected UI alive and
-        // keep polling; only surface a banner. A genuine restart is detected
-        // via the instance check above once it answers again.
+        // Keep the connected UI alive while rediscovery probes the current
+        // App-published lease and a replacement backend becomes reachable.
         store.setBackendUnreachable(true);
+        void connect(store.projectRoot);
       }
     };
     pollRef.current = setInterval(() => void tick(), POLL_INTERVAL_MS);
@@ -193,10 +232,11 @@ export function useBackend() {
  */
 export async function recoverEventHistory(
   client: TinySoulClient,
-  options: { toastOnRestore?: boolean } = {},
+  options: { toastOnRestore?: boolean; preserveRunning?: boolean } = {},
 ): Promise<number> {
   const store = useAppStore.getState();
   store.setHistoryLoading(true);
+  store.setRecoveryPreserveRunning(options.preserveRunning ?? false);
   try {
     const { events, gap, nextSequence } = await replayAllEvents(client);
     store.replaceEvents(events);
@@ -232,10 +272,7 @@ export async function loadEarlierEvents(client: TinySoulClient): Promise<boolean
   if (!oldest || oldest <= 1) return false;
   store.setHistoryLoading(true);
   try {
-    const { events } = await replayAllEvents(client, {
-      after: 0,
-      maxPages: 50,
-    });
+    const { events } = await replayAllEvents(client, { after: 0 });
     const earlier = events.filter((event) => event.sequence < oldest);
     if (earlier.length === 0) return false;
     store.replaceEvents([...earlier, ...store.events]);

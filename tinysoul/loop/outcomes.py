@@ -16,6 +16,8 @@ from tinysoul.infra.json import JsonObject, to_json_object
 from .errors import LoopContractError
 
 TURN_FAILURE_MESSAGE_MAX_CHARS = 1000
+TURN_FAILURE_FEEDBACK_MAX_ITEMS = 8
+TURN_FAILURE_FEEDBACK_MAX_CHARS = 2000
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class TurnFailure:
     message: str
     module: str = ""
     kind: str = ""
+    feedback: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.reason, str) or not self.reason:
@@ -63,6 +66,20 @@ class TurnFailure:
             raise LoopContractError("TurnFailure requires reason and message")
         if not isinstance(self.module, str) or not isinstance(self.kind, str):
             raise LoopContractError("TurnFailure module and kind must be strings")
+        if any(not isinstance(item, str) for item in self.feedback):
+            raise LoopContractError("TurnFailure.feedback must contain strings")
+        feedback: list[str] = []
+        used = 0
+        for item in self.feedback:
+            if not item or len(feedback) >= TURN_FAILURE_FEEDBACK_MAX_ITEMS:
+                continue
+            remaining = TURN_FAILURE_FEEDBACK_MAX_CHARS - used
+            if remaining <= 0:
+                break
+            clipped = item[:remaining]
+            feedback.append(clipped)
+            used += len(clipped)
+        object.__setattr__(self, "feedback", tuple(feedback))
         if len(self.message) > TURN_FAILURE_MESSAGE_MAX_CHARS:
             object.__setattr__(
                 self,
@@ -74,11 +91,18 @@ class TurnFailure:
     def from_runtime(cls, exc: RuntimeException) -> "TurnFailure":
         module = exc.payload.get("module", "")
         kind = exc.payload.get("kind", "")
+        feedback_raw = exc.payload.get("feedback", ())
+        feedback = (
+            tuple(item for item in feedback_raw if isinstance(item, str))
+            if isinstance(feedback_raw, (list, tuple))
+            else ()
+        )
         return cls(
             reason=exc.reason,
             message=exc.message or exc.reason,
             module=module if isinstance(module, str) else "",
             kind=kind if isinstance(kind, str) else "",
+            feedback=feedback,
         )
 
 

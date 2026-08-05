@@ -544,6 +544,7 @@ def test_phase1_exhausted_retries_return_local_selection_failure() -> None:
     assert outcome.selected_domains == ()
     assert outcome.selection_failed is True
     assert outcome.attempts == 2
+    assert outcome.feedback
     assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
 
 

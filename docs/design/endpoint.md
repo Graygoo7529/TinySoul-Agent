@@ -24,6 +24,8 @@ Console route 由 `tinysoul start --mode` 选择 normal/verbose/model；Endpoint
 
 ## Observation
 
+事件 Journal 是 Endpoint-owned 的 best-effort 持久索引。manifest 只作为可重建缓存；启动时从受控命名的 NDJSON segment 校验并重建 sequence，最新 segment 的截断尾行可以修复，中间 segment 损坏则降级为 memory-only，并在 `event_journal.failure` 暴露稳定摘要。分页游标以实际扫描到的 sequence 为准，因字节预算停止时不得跨过未返回的 Journal 记录拼接内存尾部。
+
 Event buffer 保存有界 Observation envelope，并以单调 sequence 支持 HTTP replay 和 WebSocket 断线续传。Journal 在默认启用时 best-effort 追加同一 envelope；写失败只降级为内存路径并在 `GET /v1/status.event_journal` 暴露摘要，不反向影响业务。内存窗口外的 `after` 从 journal 深读；journal 滚动淘汰最旧段后，对该前缀的 replay 才产生 gap。客户端清理 event-derived 临时执行视图，并重新读取 status、Maintenance 与 Workspace 权威投影。不提供 Session REST snapshot；完整 MessageStack 仍只来自 observation 流（含 journal 恢复）。
 
 Maintenance availability 与事件严格分工：Program 在 Endpoint ready 前完成 Archive preflight 和唯一持久 availability 刷新；`GET /v1/maintenance` 只读取这份 Maintenance-owned 投影，不扫描 Archive。前端连接后先读取 GET；收到 `program.maintenance.available`、`maintenance.completed` 或 `maintenance.availability.changed` 后重新读取。事件丢失或进程重启不会丢失提示事实，Endpoint 也不建立第二份前端专用状态。

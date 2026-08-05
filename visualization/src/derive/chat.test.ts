@@ -41,6 +41,7 @@ function realisticTurnEvents(): EndpointEvent[] {
       command_id: "cmd-1",
       kind: "user_turn",
       state: "queued",
+      text: "hello agent",
     }),
     event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
     event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
@@ -149,6 +150,30 @@ describe("buildChatTurns", () => {
     expect(turn.userMessages).toEqual(["hello agent"]);
   });
 
+  it("recovers accepted input when model payloads are skeletonized", () => {
+    const events = [
+      event("app.command.accepted", [], {
+        command_id: "cmd-1",
+        kind: "user_turn",
+        text: "durable question",
+      }),
+      event("turn.started", turnScope, {
+        turn_id: "turn_1",
+        request_id: "cmd-1",
+        business_day: "2026-08-05",
+      }),
+      event("llm.model.request", phaseScope("phase1"), {
+        skeleton: true,
+        task_id: "task-1",
+      }),
+      event("turn.completed", turnScope, { status: "answered" }),
+    ];
+    const [turn] = buildChatTurns(events, [], {
+      activeDay: "2026-08-05",
+    });
+    expect(turn.userMessages).toEqual(["durable question"]);
+  });
+
   it("marks a turn failed on turn.failed/turn.completed and stops the clock", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
@@ -159,6 +184,7 @@ describe("buildChatTurns", () => {
         reason: "runtime.turn_end",
         module: "loop",
         kind: "loop.contract_violation",
+        feedback: ["retry 1 failed", "retry 2 failed"],
       }, 4),
       event("turn.completed", turnScope, {
         turn_id: "turn_1",
@@ -175,6 +201,7 @@ describe("buildChatTurns", () => {
       reason: "runtime.turn_end",
       module: "loop",
       kind: "loop.contract_violation",
+      feedback: ["retry 1 failed", "retry 2 failed"],
     });
   });
 
@@ -190,6 +217,22 @@ describe("buildChatTurns", () => {
     expect(turn.recovered).toBe(true);
     expect(turn.status).toBe("stopped");
     expect(turn.failureMessage).toContain("restart");
+  });
+
+  it("preserves an active running turn during same-instance recovery", () => {
+    const events = [
+      event("turn.started", turnScope, {
+        turn_id: "turn_1",
+        business_day: "2026-08-05",
+      }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+    ];
+    const latest = events[events.length - 1].sequence;
+    const [turn] = buildChatTurns(events, [], {
+      recoveredThroughSequence: latest,
+      preserveRunning: true,
+    });
+    expect(turn.status).toBe("running");
   });
 
   it("builds a semantic activity feed", () => {

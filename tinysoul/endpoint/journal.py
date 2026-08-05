@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
+import re
 from threading import Lock
 from typing import TYPE_CHECKING
 
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
 _MANIFEST_NAME = "manifest.json"
 _PART_PREFIX = "part-"
 _PART_SUFFIX = ".ndjson"
+_PART_PATTERN = re.compile(r"part-(\d{12})\.ndjson\Z")
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,15 @@ class _PartInfo:
     first_sequence: int
     last_sequence: int
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class JournalReadPage:
+    """Journal records plus the exact sequence scan boundary."""
+
+    events: tuple[EndpointEventEnvelope, ...]
+    scanned_through: int
+    complete: bool
 
 
 class EndpointEventJournal:
@@ -56,6 +68,7 @@ class EndpointEventJournal:
         self._max_total_bytes = max_total_bytes
         self._lock = Lock()
         self._degraded = False
+        self._failure: JsonObject | None = None
         self._latest_sequence = 0
         self._parts: list[_PartInfo] = []
         self._current_path: Path | None = None
@@ -79,6 +92,11 @@ class EndpointEventJournal:
                 return None
             return self._parts[0].first_sequence
 
+    @property
+    def failure(self) -> JsonObject | None:
+        with self._lock:
+            return self._failure
+
     def append(self, envelope: EndpointEventEnvelope) -> None:
         """Best-effort append; failures degrade the journal without raising."""
 
@@ -87,9 +105,8 @@ class EndpointEventJournal:
                 return
             try:
                 self._append_locked(envelope)
-            except Exception:
-                self._degraded = True
-                self._current_path = None
+            except Exception as exc:
+                self._mark_degraded_locked("append", exc)
 
     def read_after(
         self,
@@ -98,88 +115,107 @@ class EndpointEventJournal:
         mode: ObservationLevel,
         limit: int,
     ) -> tuple[EndpointEventEnvelope, ...]:
-        from .events import EndpointEventEnvelope, _level_rank
+        return self.read_after_page(after=after, mode=mode, limit=limit).events
+
+    def read_after_page(
+        self,
+        *,
+        after: int,
+        mode: ObservationLevel,
+        limit: int,
+    ) -> JournalReadPage:
+        from .events import _level_rank
 
         if after < 0 or limit <= 0:
             raise EndpointContractError("Endpoint journal read bounds are invalid")
         with self._lock:
             if self._degraded or not self._parts:
-                return ()
+                return JournalReadPage((), after, True)
             selected: list[EndpointEventEnvelope] = []
-            for part in self._parts:
-                if part.last_sequence <= after:
-                    continue
-                for envelope in self._read_part(part):
-                    if envelope.sequence <= after:
+            scanned_through = after
+            try:
+                for part in self._parts:
+                    if part.last_sequence <= after:
+                        scanned_through = max(scanned_through, part.last_sequence)
                         continue
-                    if _level_rank(envelope.level) > _level_rank(mode):
-                        continue
-                    selected.append(envelope)
-                    if len(selected) >= limit:
-                        return tuple(selected)
-            return tuple(selected)
+                    for envelope in self._read_part(part):
+                        scanned_through = max(scanned_through, envelope.sequence)
+                        if envelope.sequence <= after:
+                            continue
+                        if _level_rank(envelope.level) > _level_rank(mode):
+                            continue
+                        selected.append(envelope)
+                        if len(selected) >= limit:
+                            return JournalReadPage(
+                                tuple(selected), scanned_through, False
+                            )
+                return JournalReadPage(tuple(selected), scanned_through, True)
+            except Exception as exc:
+                self._mark_degraded_locked("read", exc)
+                return JournalReadPage(tuple(selected), scanned_through, False)
 
     def _open(self) -> None:
-        self._root.mkdir(parents=True, exist_ok=True)
-        manifest_path = self._root / _MANIFEST_NAME
-        if not manifest_path.exists():
-            self._persist_manifest()
-            return
         try:
-            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(raw, dict):
-                raise EndpointContractError("journal manifest must be an object")
-            latest = raw.get("latest_sequence", 0)
-            if isinstance(latest, bool) or not isinstance(latest, int) or latest < 0:
-                raise EndpointContractError("journal latest_sequence is invalid")
-            parts_raw = raw.get("parts", [])
-            if not isinstance(parts_raw, list):
-                raise EndpointContractError("journal parts must be a list")
-            parts: list[_PartInfo] = []
-            for item in parts_raw:
-                if not isinstance(item, dict):
-                    raise EndpointContractError("journal part entry is invalid")
-                name = item.get("name")
-                first = item.get("first_sequence")
-                last = item.get("last_sequence")
-                size = item.get("size_bytes")
-                if (
-                    not isinstance(name, str)
-                    or not name
-                    or isinstance(first, bool)
-                    or not isinstance(first, int)
-                    or first <= 0
-                    or isinstance(last, bool)
-                    or not isinstance(last, int)
-                    or last < first
-                    or isinstance(size, bool)
-                    or not isinstance(size, int)
-                    or size < 0
-                ):
-                    raise EndpointContractError("journal part entry fields are invalid")
-                path = self._root / name
-                if not path.is_file():
-                    raise EndpointContractError(f"journal part missing: {name}")
-                parts.append(
-                    _PartInfo(
-                        name=name,
-                        first_sequence=first,
-                        last_sequence=last,
-                        size_bytes=size,
+            self._root.mkdir(parents=True, exist_ok=True)
+            self._reconcile_parts()
+            self._trim_locked()
+            self._persist_manifest()
+        except Exception as exc:
+            self._mark_degraded_locked("open", exc)
+
+    def _reconcile_parts(self) -> None:
+        """Rebuild the manifest from owned segment files.
+
+        The manifest is an index cache. A partial final line is recoverable;
+        corruption in any closed segment is treated as a durable gap.
+        """
+
+        paths = sorted(
+            (
+                path
+                for path in self._root.iterdir()
+                if path.is_file() and _PART_PATTERN.fullmatch(path.name)
+            ),
+            key=lambda path: path.name,
+        )
+        parts: list[_PartInfo] = []
+        previous: int | None = None
+        for index, path in enumerate(paths):
+            data = path.read_bytes()
+            if data and not data.endswith(b"\n"):
+                if index != len(paths) - 1:
+                    raise EndpointContractError(
+                        f"journal segment has a partial non-tail record: {path.name}"
                     )
+                data = data[: data.rfind(b"\n") + 1]
+                path.write_bytes(data)
+            records: list[EndpointEventEnvelope] = []
+            for line in data.splitlines():
+                if not line.strip():
+                    continue
+                raw = json.loads(line.decode("utf-8"))
+                if not isinstance(raw, dict):
+                    raise EndpointContractError("journal event record is invalid")
+                records.append(_envelope_from_json(to_json_object(raw)))
+            if not records:
+                path.unlink(missing_ok=True)
+                continue
+            for envelope in records:
+                if previous is not None and envelope.sequence != previous + 1:
+                    raise EndpointContractError("journal sequence is not contiguous")
+                previous = envelope.sequence
+            parts.append(
+                _PartInfo(
+                    name=path.name,
+                    first_sequence=records[0].sequence,
+                    last_sequence=records[-1].sequence,
+                    size_bytes=path.stat().st_size,
                 )
-            self._latest_sequence = latest
-            self._parts = parts
-            if parts:
-                current = self._root / parts[-1].name
-                self._current_path = current
-                self._current_bytes = parts[-1].size_bytes
-        except Exception:
-            self._degraded = True
-            self._parts = []
-            self._latest_sequence = 0
-            self._current_path = None
-            self._current_bytes = 0
+            )
+        self._parts = parts
+        self._latest_sequence = previous or 0
+        self._current_path = self._root / parts[-1].name if parts else None
+        self._current_bytes = parts[-1].size_bytes if parts else 0
 
     def _append_locked(self, envelope: EndpointEventEnvelope) -> None:
         if envelope.sequence != self._latest_sequence + 1:
@@ -199,6 +235,8 @@ class EndpointEventJournal:
         assert self._current_path is not None
         with self._current_path.open("ab") as handle:
             handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
         self._current_bytes += len(line)
         self._latest_sequence = envelope.sequence
         last = self._parts[-1]
@@ -254,11 +292,25 @@ class EndpointEventJournal:
         }
         atomic_write_text(self._root / _MANIFEST_NAME, dumps_json(payload))
 
+    def _mark_degraded_locked(
+        self,
+        operation: str,
+        error: BaseException | None,
+    ) -> None:
+        self._degraded = True
+        self._current_path = None
+        self._failure = {
+            "operation": operation,
+            "kind": "storage",
+            "error_type": type(error).__name__ if error is not None else "UnknownError",
+        }
+
     def _read_part(self, part: _PartInfo) -> list[EndpointEventEnvelope]:
         from .events import EndpointEventEnvelope
 
         path = self._root / part.name
         events: list[EndpointEventEnvelope] = []
+        expected = part.first_sequence
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 text = line.strip()
@@ -266,8 +318,12 @@ class EndpointEventJournal:
                     continue
                 raw = json.loads(text)
                 if not isinstance(raw, dict):
-                    continue
-                events.append(_envelope_from_json(to_json_object(raw)))
+                    raise EndpointContractError("journal event record is invalid")
+                envelope = _envelope_from_json(to_json_object(raw))
+                if envelope.sequence != expected:
+                    raise EndpointContractError("journal sequence is not contiguous")
+                events.append(envelope)
+                expected += 1
         return events
 
 

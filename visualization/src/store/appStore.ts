@@ -60,7 +60,6 @@ export interface AppState {
   // Backend state
   status: BackendStatus | null;
   events: EndpointEvent[];
-  maxEvents: number;
   eventStreamInterrupted: boolean;
   streamReconnecting: boolean;
   /** The backend stopped answering the status poll after a successful
@@ -70,6 +69,8 @@ export interface AppState {
   /** Highest sequence loaded by a full history recovery; used to mark
    * reconstituted turns. Null until the first recovery completes. */
   recoveredThroughSequence: number | null;
+  /** Preserve the authoritative active Turn during same-instance recovery. */
+  recoveryPreserveRunning: boolean;
   /** True while a stop_turn command has been accepted but the turn has not
    * yet emitted a terminal observation. */
   stopPending: boolean;
@@ -79,7 +80,7 @@ export interface AppState {
   pinnedFullSequences: number[];
 
   // Locally echoed user inputs (command_id → text) so the chat view can show
-  // user messages immediately; the backend command events carry no text.
+  // user messages immediately while the accepted event arrives.
   localInputs: { commandId: string; text: string }[];
 
   // Workspace
@@ -114,6 +115,7 @@ export interface AppState {
   setStreamReconnecting: (reconnecting: boolean) => void;
   setBackendUnreachable: (unreachable: boolean) => void;
   setRecoveredThroughSequence: (sequence: number | null) => void;
+  setRecoveryPreserveRunning: (preserve: boolean) => void;
   setStopPending: (pending: boolean) => void;
   setHistoryLoading: (loading: boolean) => void;
   pinFullSequences: (sequences: number[]) => void;
@@ -144,11 +146,11 @@ export const useAppStore = create<AppState>()(
       connection: { status: "idle" },
       status: null,
       events: [],
-      maxEvents: 12000,
       eventStreamInterrupted: false,
       streamReconnecting: false,
       backendUnreachable: false,
       recoveredThroughSequence: null,
+      recoveryPreserveRunning: false,
       stopPending: false,
       historyLoading: false,
       pinnedFullSequences: [],
@@ -177,7 +179,6 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const pinned = new Set(state.pinnedFullSequences);
           const nextEvents = retainEvents([...state.events, ...events], {
-            maxEvents: state.maxEvents,
             pinnedFullSequences: pinned,
           });
           const live = new Set(nextEvents.map((event) => event.sequence));
@@ -193,7 +194,6 @@ export const useAppStore = create<AppState>()(
       replaceEvents: (events) =>
         set((state) => ({
           events: retainEvents(events, {
-            maxEvents: state.maxEvents,
             pinnedFullSequences: new Set(state.pinnedFullSequences),
           }),
           pinnedFullSequences: state.pinnedFullSequences.filter((sequence) =>
@@ -205,6 +205,7 @@ export const useAppStore = create<AppState>()(
         set({
           events: [],
           recoveredThroughSequence: null,
+          recoveryPreserveRunning: false,
           stopPending: false,
           pinnedFullSequences: [],
         }),
@@ -214,6 +215,8 @@ export const useAppStore = create<AppState>()(
       setBackendUnreachable: (backendUnreachable) => set({ backendUnreachable }),
       setRecoveredThroughSequence: (recoveredThroughSequence) =>
         set({ recoveredThroughSequence }),
+      setRecoveryPreserveRunning: (recoveryPreserveRunning) =>
+        set({ recoveryPreserveRunning }),
       setStopPending: (stopPending) => set({ stopPending }),
       setHistoryLoading: (historyLoading) => set({ historyLoading }),
       pinFullSequences: (sequences) =>

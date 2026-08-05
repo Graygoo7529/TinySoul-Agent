@@ -239,6 +239,7 @@ export interface TurnFailureInfo {
   reason?: string;
   module?: string;
   kind?: string;
+  feedback?: string[];
 }
 
 export interface CurrentActivity {
@@ -265,6 +266,8 @@ export interface ChatTurn {
   /** True when this turn was rebuilt from Endpoint history after reconnect. */
   recovered: boolean;
   latestSequence: number;
+  latestEventAt?: number;
+  businessDay?: string;
   startedAt: number;
   endedAt?: number;
   summary: string;

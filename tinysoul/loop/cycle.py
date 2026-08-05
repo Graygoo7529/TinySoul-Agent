@@ -50,6 +50,7 @@ class CycleOutcome:
     stopped: bool = False
     completion: JsonObject | None = None
     phase1_selection_failed: bool = False
+    phase1_feedback: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,7 @@ class CycleRunner:
             return CycleOutcome(
                 cycle_id=cycle_id,
                 phase1_selection_failed=True,
+                phase1_feedback=phase1_outcome.feedback,
             )
 
         boundary = self._boundary(phase1_scope)

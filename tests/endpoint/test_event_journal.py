@@ -107,6 +107,83 @@ def test_journal_write_failure_degrades_without_breaking_memory(
     assert page.gap is False
 
 
+def test_journal_open_failure_degrades_without_raising(tmp_path: Path) -> None:
+    root = tmp_path / "events"
+    root.write_text("not a directory", encoding="utf-8")
+
+    journal = EndpointEventJournal(root)
+
+    assert journal.degraded is True
+    assert journal.failure == {
+        "operation": "open",
+        "kind": "storage",
+        "error_type": "FileExistsError",
+    }
+
+
+def test_journal_rebuilds_stale_manifest_from_segments(tmp_path: Path) -> None:
+    root = tmp_path / "events"
+    journal = EndpointEventJournal(root)
+    buffer = EndpointEventBuffer(
+        capacity=2,
+        max_bytes=64 * 1024,
+        journal=journal,
+    )
+    buffer.write(_event("event.1"))
+    (root / "manifest.json").write_text("{}", encoding="utf-8")
+
+    restarted = EndpointEventJournal(root)
+
+    assert restarted.degraded is False
+    assert restarted.latest_sequence == 1
+    assert [event.sequence for event in restarted.read_after(
+        after=0,
+        mode=ObservationLevel.MODEL,
+        limit=20,
+    )] == [1]
+
+
+def test_journal_recovers_partial_latest_record(tmp_path: Path) -> None:
+    root = tmp_path / "events"
+    journal = EndpointEventJournal(root)
+    buffer = EndpointEventBuffer(
+        capacity=2,
+        max_bytes=64 * 1024,
+        journal=journal,
+    )
+    buffer.write(_event("event.1"))
+    part = next(root.glob("part-*.ndjson"))
+    with part.open("ab") as handle:
+        handle.write(b'{"sequence":')
+
+    restarted = EndpointEventJournal(root)
+
+    assert restarted.degraded is False
+    assert restarted.latest_sequence == 1
+    assert part.read_bytes().endswith(b"\n")
+
+
+def test_journal_read_corruption_degrades_to_memory_gap(tmp_path: Path) -> None:
+    root = tmp_path / "events"
+    journal = EndpointEventJournal(root)
+    buffer = EndpointEventBuffer(
+        capacity=1,
+        max_bytes=64 * 1024,
+        journal=journal,
+    )
+    for index in range(1, 4):
+        buffer.write(_event(f"event.{index}"))
+    next(root.glob("part-*.ndjson")).write_text("{broken\n", encoding="utf-8")
+
+    page = buffer.replay(after=0, mode=ObservationLevel.MODEL, limit=20)
+
+    assert journal.degraded is True
+    assert journal.failure is not None
+    assert journal.failure["operation"] == "read"
+    assert page.gap is True
+    assert page.events == ()
+
+
 def test_replay_page_stops_on_byte_budget(tmp_path: Path) -> None:
     journal = EndpointEventJournal(
         tmp_path / "events",
@@ -125,6 +202,30 @@ def test_replay_page_stops_on_byte_budget(tmp_path: Path) -> None:
     assert len(page.events) >= 1
     assert len(page.events) < 5
     assert page.next_sequence == page.events[-1].sequence
+
+
+def test_replay_does_not_skip_memory_after_journal_byte_stop(tmp_path: Path) -> None:
+    journal = EndpointEventJournal(
+        tmp_path / "events",
+        max_segment_bytes=64 * 1024,
+        max_total_bytes=256 * 1024,
+    )
+    buffer = EndpointEventBuffer(
+        capacity=1,
+        max_bytes=256 * 1024,
+        page_bytes=320,
+        journal=journal,
+    )
+    for index, padding in ((1, 0), (2, 900), (3, 0)):
+        buffer.write(_event(f"event.{index}", payload={"pad": "x" * padding}))
+
+    first = buffer.replay(after=0, mode=ObservationLevel.MODEL, limit=20)
+    assert [event.sequence for event in first.events] == [1]
+    assert first.next_sequence == 1
+
+    second = buffer.replay(after=first.next_sequence, mode=ObservationLevel.MODEL, limit=20)
+    assert [event.sequence for event in second.events] == [2]
+    assert second.next_sequence == 2
 
 
 def test_endpoint_settings_reject_invalid_journal_bounds() -> None:

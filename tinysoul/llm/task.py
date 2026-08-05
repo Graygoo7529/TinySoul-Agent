@@ -630,6 +630,9 @@ def _invoke_provider(
     ).start()
     while not done.wait(_PROVIDER_CANCEL_POLL_SECONDS):
         cancellation.check()
+    # The provider may finish in the same polling interval as cancellation.
+    # Re-check before publishing either success or an error from the worker.
+    cancellation.check()
     if errors:
         raise errors[0]
     return responses[0]

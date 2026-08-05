@@ -12,7 +12,12 @@ const MAX_PAGES = 500;
 export async function replayAllEvents(
   client: TinySoulClient,
   options: { after?: number; maxPages?: number } = {},
-): Promise<{ events: EndpointEvent[]; gap: boolean; nextSequence: number }> {
+): Promise<{
+  events: EndpointEvent[];
+  gap: boolean;
+  nextSequence: number;
+  complete: boolean;
+}> {
   const events: EndpointEvent[] = [];
   let cursor = options.after ?? 0;
   let gap = false;
@@ -21,15 +26,15 @@ export async function replayAllEvents(
     const page = await client.replayEvents(cursor, "model", PAGE_LIMIT);
     if (page.gap) gap = true;
     if (page.events.length === 0) {
-      return { events, gap, nextSequence: page.next_sequence };
+      return { events, gap, nextSequence: page.next_sequence, complete: true };
     }
     events.push(...page.events);
     if (page.next_sequence <= cursor) {
-      return { events, gap, nextSequence: page.next_sequence };
+      return { events, gap, nextSequence: page.next_sequence, complete: true };
     }
     cursor = page.next_sequence;
   }
-  return { events, gap, nextSequence: cursor };
+  return { events, gap, nextSequence: cursor, complete: false };
 }
 
 /** Fetch full payloads for skeletonized sequences from the Endpoint journal. */

@@ -110,6 +110,8 @@ Terminal 与前端可同时提交 Maintenance request；请求按进入 Program 
 
 HTTP replay：
 
+前端连接失败时必须重新解析 App 发布的 lease；不得永久复用旧端口或 token。新 lease 校验成功后才替换 Client/WS，并从 `after=0` 重放事件。事件历史只保留为 compact observation projection，已结束 Turn 的 MODEL payload 可骨架化，用户输入来自 `app.command.accepted.payload.text`，不依赖本地持久化 echo。
+
 ```text
 GET /v1/events?after=0&mode=model&limit=200
 ```

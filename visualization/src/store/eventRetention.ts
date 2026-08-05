@@ -1,9 +1,9 @@
 /**
  * Local event retention helpers.
  *
- * The Endpoint journal can deep-read history; the UI keeps a larger in-memory
- * window and skeletonizes heavy `llm.model.*` payloads for older turns so
- * chat remains responsive. Detail/export paths hydrate skeletons on demand.
+ * The Endpoint journal can deep-read history; the UI keeps the retained
+ * history as compact observations and skeletonizes heavy model payloads.
+ * Detail/export paths hydrate skeletons on demand.
  */
 
 import type { EndpointEvent } from "../types";
@@ -55,8 +55,9 @@ export function skeletonizeEvent(event: EndpointEvent): EndpointEvent {
 }
 
 /**
- * Deduplicate by sequence, skeletonize older model payloads, then bound the
- * list by `maxEvents` (dropping the oldest).
+ * Deduplicate by sequence and compact only completed Turn model payloads.
+ * The Endpoint journal, rather than a second arbitrary UI count window, owns
+ * the durable history boundary.
  *
  * Sequences in `pinnedFullSequences` (typically deep-read for an open drawer)
  * are never re-skeletonized.
@@ -64,11 +65,9 @@ export function skeletonizeEvent(event: EndpointEvent): EndpointEvent {
 export function retainEvents(
   events: EndpointEvent[],
   {
-    maxEvents,
     keepFullTail = KEEP_FULL_TAIL,
     pinnedFullSequences,
   }: {
-    maxEvents: number;
     keepFullTail?: number;
     pinnedFullSequences?: ReadonlySet<number>;
   },
@@ -88,13 +87,27 @@ export function retainEvents(
   let sorted = Array.from(unique.values()).sort(
     (a, b) => a.sequence - b.sequence,
   );
-  if (sorted.length > maxEvents) {
-    sorted = sorted.slice(sorted.length - maxEvents);
+  const terminalTurns = new Set<string>();
+  for (const event of sorted) {
+    if (
+      [
+        "turn.answered",
+        "turn.completed",
+        "turn.failed",
+        "turn.stopped",
+        "turn.exhausted",
+      ].includes(event.name)
+    ) {
+      const turn = event.scope.find((frame) => frame.level === "turn");
+      if (turn) terminalTurns.add(turn.name);
+    }
   }
   const cutoff = Math.max(0, sorted.length - keepFullTail);
   return sorted.map((event, index) => {
     if (index >= cutoff) return event;
     if (pinnedFullSequences?.has(event.sequence)) return event;
+    const turn = event.scope.find((frame) => frame.level === "turn");
+    if (turn && !terminalTurns.has(turn.name)) return event;
     return skeletonizeEvent(event);
   });
 }

@@ -72,6 +72,7 @@ class Phase1Outcome:
     control_results: tuple[ControlResult, ...] = field(default_factory=tuple)
     attempts: int = 1
     selection_failed: bool = False
+    feedback: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,7 @@ class Phase1Unit:
             control_results=last_control_results,
             attempts=self._retry_limit,
             selection_failed=True,
+            feedback=tuple(feedback),
         )
 
     def _emit_phase_note(
