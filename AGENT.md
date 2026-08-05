@@ -4,78 +4,80 @@
 
 ## 核心定义
 
-用户轮/User Turn：从用户发起一轮输入开始，到响应该输入的一次完整 Agent 执行结束；其中包含多次模型调用和工具调用，也包含期间用户追加的提示、Agent 自发提示的插入，以及最终回答。
+本节定义 TinySoul 的稳定概念和设计语义。具体类型、字段、方法、配置与存储协议由代码和 `docs/design/` 说明，不在此重复展开。
 
-执行轮/Agent Cycle：Agent 内部的一个执行轮。TinySoul 的一个执行轮由 3 个执行单元（Phase）组成：（1）更新语境与决策行动域；（2）生成行动参数；（3）采取行动。每个 Phase 都是一个独立执行单元，并对应一次具体的 Task/LLM Call；每个 Phase 都可以有对应的 task prompt。
+### 执行模型
 
-模型轮/LLM Call/LLM Task：一次模型调用。TinySoul 通过 /llm 模块提供模型调用抽象；LLM Task 的主要输入是构造完成的 message stack，由整体语境（context）和临时性的本次任务提示（task prompt）共同构成。
+用户轮/User Turn：从用户发起一轮输入开始，到该输入对应的 Agent 执行结束。一个 User Turn 可以包含多次 Agent Cycle、LLM Task 和 Action，也可以合并期间追加的用户输入；它最终收敛为回答、停止、耗尽或失败。
 
-行动执行/Action：一次智能体行动执行。TinySoul 通过 /action 模块提供行动执行抽象；Phase1 不直接暴露全部 action，而是暴露可选择的 action domain；Phase2 只在已选 domain 内暴露具体 Action Tools，并基于每个 action 的工具调用结构（name、description、schema）和补充语义（use_when、avoid_when、effects、examples）生成 ActionCall；Phase3 再将 ActionCall 装配为自包含的 ActionBatch 进行实际执行。每个 action 还具有框架内定义，例如超时、并发策略、hook 列表和后端执行方式。行动主要由 NATIVE 内部函数调用、受控子进程、临时脚本和需要嵌套 LLM Task 的动作构成；NATIVE 只能通过 ActionExecutionControl 协作式响应超时，受控子进程和临时脚本承担需要硬停止的执行语义；不再支持持续性/长期 ONGOING action，所有动作都在所属批次内收敛为成功、失败或超时。
+维护轮/Maintenance Turn：与 User Turn 同级的 Program work，用于 Home 与 Memory 等需要模型推理的维护任务。它复用同一套 Turn/Cycle/Phase 内核，但拥有独立语境、可用 Action 和完成条件，不产生用户回答，也不写入 User Session。
 
-模型侧工具/Tool Message：TinySoul 可以在 LLM Task 中向模型提供模型侧工具定义，用于约束模型生成结构化调用意图。模型侧工具分为两类：（1）Control Tools，框架内部控制工具，用于在 Phase1 中生成对于 WorkingContext、BackgroundContext 和用于 Phase2 行动选择等操作意图；（2）Action Tools，智能体行动工具，用于在 Phase2 中为已选择的 Action 生成调用参数。模型侧工具只表达模型输出协议，不等同于实际工具执行。Control Tools 的结果由 Phase1 汇聚、校验并转化为内部操作信号后，由对应上层模块消费；Action Tools 的结果由 Phase2 归一化为 Action 参数，再交由 Phase3 执行。
+执行轮/Agent Cycle：Turn 内的一次完整“理解、决策、行动”循环，由三个顺序 Phase 组成：
 
-持久化/内存/模型反馈：表述和编码时要注意三个层次。模型反馈是最终查询给模型的提示词（构造后的 message stack）；内存是各个上层模块维护的数据结构与信息；持久化是本地目录下组织的文档、资源和知识库。三者应当保持一致性：上层模块维护运行时各段消息的状态，依据运行状态在调用 llm task 时“构造” message stack，并将状态变更同步回写到持久化的本地文件系统中。
+1. Phase1 更新语境并选择一个或多个行动域；模型只看到 Control Tools 和域级语义，不看到全部 Action。
+2. Phase2 在已选域内生成并归一化一个或多个 ActionCall；模型只看到这些域内的 Action Tools。
+3. Phase3 将 ActionCall 组装为 ActionBatch 并执行，把结构化结果反馈到当前 Turn。
 
-语块与渐进式加载：我们认为，语言的表述以语块的形式促进理解。从发音到单词、到短语、到某种固定表达，交流双方仅通过特定前缀即可“匹配”特定语块的含义，并理解对方大致表达的内容。渐进式加载是一种策略：Agent 在 Context 中“看到”访问内容的“链接/Link”，在需要进一步释义时调用工具加载细节。语块的形成是从细节到抽象，而渐进式加载是从抽象到细节。
+模型轮/LLM Call/LLM Task：一次独立模型调用。其输入是上层已经构造好的 MessageStack、当前 TaskPrompt、模型侧工具作用域和输出约束；LLM 模块负责模型选择、供应商适配、重试与结果解释，不负责业务状态变更或实际工具执行。
 
-语境/Context：我们认为，语言交流是一种“语言游戏”。语言游戏的参与双方基于各自语境，通过语言交流推测对方意图，以相互理解并达成共同目标。语境包含当前游戏状态和规则，帮助 Agent 做出决策和行动。完整语境包含以下部分：（1）本轮 UserInputs，包含当前用户轮的初始输入和已合并追加输入，是该用户轮的出发点；（2）BackgroundContext，用户轮开始前的背景，由 Context 持有并聚合 Home、Memory 和 Session 等模块提供的投影，包含智能体世界观、方法论、昨日长期记忆（如有）与当日会话历程；（3）TurnTraceContext，本轮为完成工作而产生的行为轨迹，包含当前轮次 Agent 的行动决策和行动反馈，不保存原始用户输入历史；（4）WorkingContext，本轮任务执行状态，给予 Agent 一种“工作台”，描述当日工作区内的文档资源（工作区/Workspace），以及本轮任务执行状态：里程碑（MileStone，类似储存重要状态与结论的寄存器）和待办事项（Todo）。BackgroundContext 是 Context-owned 的通用 Phase1 Background，不得以 Home 命名或让任一内容提供模块拥有整个 Background。
+任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载 domain HOW；Action 内部的 LLM Task 可同时挂载 domain HOW 与 action HOW。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
 
-LLM Task/Call “构造式” MessageStack：LLM Task/Call 的主要输入为 MessageStack。MessageStack 可以分为多个区段，分别由上层不同模块提供语境（Context）或附加任务提示（task prompt），并在实际 LLM Task 前“构造”为完整的 MessageStack。当前构造顺序为 system identity、UserInputs、BackgroundContext、TurnTraceContext、WorkingContext、task prompt overlay；除 identity 使用 system role 外，其余用户态语境段和 task prompt 均作为 user role messages 提供给模型。TurnTrace 在前表达本轮按发生顺序积累的行为轨迹，Working 在后只表达当前 milestones、todos 与 Workspace resource Links/summary。revision、digest 等完整性事实只由确实需要持久化、Endpoint、CAS 或 cursor binding 的 owner 协议维护，不因内部存在就自动暴露给模型，也不为没有消费者的投影建立平行版本身份。
+行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛为成功、失败或超时。需要跨 Cycle 监督的外部任务可以保留 Turn-scoped job，但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
 
-除了上述语境，task prompt 由 TaskPrompt 表达，并由可切分的 PromptBlock 组成；其稳定语义分为任务引导、任务输入和期望输出三组，当前实现分别以 guide_blocks、input_blocks、output_blocks 承载，并可渲染为多条 user role message。例如，Phase1、Phase2 会说明当前处于执行轮/Agent Cycle 的哪一个阶段、可用输入和期望输出；Phase2 会自动注入 domain HOW 作为 guide block；Phase3 Action 内部嵌套的 LLM Task 可同时自动注入 domain HOW 与 action HOW；这不同于通用 HOW 和普通渐进式加载，`how_domain`/`how_action` 是框架的局部自动挂载机制，分别作用于 domain（Phase2，并可延续到 Phase3 内部 LLM task）和 domain 内 action（Phase3 内部 LLM task）。通用 LLM action 使用 `reference_links` 解析只读资源；workspace LLM action 使用 `target_link` 与 `reference_links`，并在 action 内部局部读取目标和参考正文。“构造式”表示为每次 LLM Task 制定不同的 MessageStack，并在上层维护通用语境，在 Task 完成后对语境进行反馈和修改。
+模型侧工具/Tool Message：用于约束模型生成结构化调用意图，不等于工具已执行。Control Tools 在 Phase1 表达语境和流程控制意图，结果经校验后由对应模块消费；Action Tools 在 Phase2 表达行动参数，结果归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只是 LLM 适配层映射，不进入 TinySoul 的核心身份和业务协议。
 
-工作区/WorkSpace：每日会话为 Agent 维护一个专用的、可操作的本地路径，Agent 可以在其中操作文件和执行脚本。WorkSpace 内资源在语境中有专属的链接/Link 标识（例如 workspace:doc/doc.md），并使用相对路径读取资源。WorkSpace 有一个专用描述文件，用于记录工作区结构和其中各文件摘要，并可在用户轮开始时映射到 WorkingContext 语境中，同时采用约定的目录结构和命名风格。工作区中文件读取具有特定约定：文件内容（如文档、脚本、图片）通常不应出现在语境/Context 中，也就是说，行动/工具执行结果不应返回实际内容并记录到 TurnTraceContext；Context（工具的输入和输出）仅记录相关资源的链接/Link。例如需要修改的文档，或可以作为参考的相关文档、图片等，只在 Phase3 具体 action 执行期读取；Phase2/Phase3 边界只传递链接语义：只读资料使用 `reference_links`，工作区操作目标使用 `target_link`；需要 LLM 的 workspace action 在 Phase3 action 内部把 `target_link`/`reference_links` 局部解析为临时 task prompt input block。真正的文件变更仍由 workspace.write/patch/delete/rewrite 等变更 action 通过 `target_link` 表达。
+### 语境模型
 
-Agent Home 与链接/Link：Agent Home 存储 Agent 的持久身份规约、用户偏好、知识与技能；长期日期记忆属于独立 Memory 模块，不属于 Agent Home。Agent Home 主要以 Markdown 文档组织，分为顶层内容和渐进式内容。顶层内容默认或逐步（通过 Phase1）加载到 BackgroundContext，顶层内容通过特殊链接（例如使用 @ 而非 /）标识；渐进式内容不放在 BackgroundContext 中，主要通过行为/工具以工具结果返回到 TurnTraceContext 中。以下分别描述 Agent Home 的内容形式、运行位置与链接：
+语境/Context：Agent 对当前语言游戏状态与规则的整体认识，只属于一个活动 Turn。它由以下语义段组成：
 
-（1）AGENT.md 是顶层内容，类似一本参考全书目录，记录 AGENT 所具有的整体规范、行为设定、核心规则、用户偏好等。运行时 core 使用 `home:agent@AGENT`，其它 Agent 顶层内容使用相对于 `home/agent/` 的无后缀逻辑路径，例如 `home:agent@user/user`；Layout 将其确定性映射到对应 `.md` 文件。在 user.md 中可以进一步链接渐进式内容。`home:*@...` 只表示该 Link 是可进入 BackgroundContext 的顶层内容，不等于自动加载；Home provider 每个 User Turn 必须自动加载不可逐出的 core，并对 explicit allowlist 中 effective 存在的 `home:agent@context/background`、`home:agent@context/turn-trace`、`home:agent@context/working` 与 `home:agent@user/user` 自动加载不可逐出的正文；其它 Agent/WHAT/WHY/通用 HOW 顶层内容按需加载；
+- User Inputs：当前 Turn 的初始输入与已合并追加输入。
+- Session Background：同一 Business Day 内已完成 prior Turns 的固定投影，在 Turn preparation 时注入，本轮内固定且不可逐出。
+- BackgroundContext：由 Home、Memory 等 owner 提供的通用背景与目录；每个 Turn 重建，可按规则渐进加载或逐出。
+- TurnTrace/TurnTraceContext：当前 Turn 按发生顺序积累的决策、Action 请求、结果和必要反馈；它可以压缩为可渐进检查的语义结构，但不因此复制第二份历史事实。
+- WorkingContext：当前任务工作台，只表达 milestones、todos 与 Workspace 资源链接/摘要等现态，不保存文件正文。
 
-（2）WHAT 是一个 Knowledge 库，用于标注（a）实体（b）领域概念。WHAT Link 显式包含分类和相对于 `home/what/` 的无后缀逻辑路径，例如 `home:what@entity/tiny-soul`、`home:what@concept/daily-lifecycle`，分别映射同路径 `.md` 文件；因此 entity 与 concept 中的同名文件仍是不同顶层对象，新 WHAT 的分类无需再由 Link 之外的平行参数表达。WHAT 文档记录定义和关联内容，可通过语义匹配 top-k 交付语境模块，也可通过未来的 backlink 能力反向查询引用该 Link 的其它 Home 内容；WHAT 不应有时间戳，只记录当前认为正确且重要的内容；
+构造式 MessageStack：Context 在每次 LLM Task 前根据当前状态重新构造输入，稳定顺序为 system identity、User Inputs、Session Background、通用 Background、TurnTrace、WorkingContext、TaskPrompt overlay。identity 使用 system role；用户态语境和任务提示使用 user role；TinySoul Tool Result 保留内部工具结果语义，再由供应商适配层映射。revision、digest、cursor 等完整性事实只在确有消费者时由 owner 协议维护，不因内部存在就自动暴露给模型。
 
-（3）WHY 是另一个 Knowledge 库，用于标注问题的原因和解答。WHY Link 使用相对于 `home/why/` 的无后缀逻辑路径，名称应直接表达问题，例如 `home:why@why-is-updating-home-important`，并映射同路径 `.md` 文件；WHY 文档是顶层内容，并可通过语义匹配 top-k 交付语境模块；
+持久化、内存与模型反馈：持久化是 owner 写入本地目录的长期或跨 Turn 事实；内存是模块在运行期维护的状态；模型反馈是从这些状态投影并构造出的 MessageStack 或 ActionResult。三者必须可相互解释，但不能混为同一份数据或互相替代。
 
-（4）HOW 是另一个 Knowledge 库，它是当前智能体设计中 Skill 的变种，在语境中通过 `home:how@skill_name` 标识。该 Link 是保留的框架 skill identity，映射 `how/<skill_name>/SKILL.md`，不伪装为普通文件路径；HOW 渐进资源则保留真实相对路径和扩展名，如 `home:how/skill_name/references/ref.md`、`home:how/skill_name/scripts/script.py`。每个通用 `SKILL.md` 必须使用 YAML `---` frontmatter，且 frontmatter 只包含非空、单行、有界的 `title` 与 `description`；Home 在启动/reconcile、runtime 恢复和 top write/patch 边界统一严格解析。每个 User Turn preparation 都从 effective Home 动态扫描全部通用 HOW，把 Link/title/description 作为 Context-owned、不可逐出的自动 Background catalog 交给 Phase1，使 Phase1 知道可通过内部 `load_background` control tool 加载哪个顶层 HOW 正文；catalog 不是一个伪造的 Home 顶层文件，正文仍按需加载。完整 metadata catalog 受总字符上限约束，超限时显式失败，不截断 description 或丢弃 skill；runtime create/modify/delete 在后续 Turn 的 effective catalog 中反映。通用 HOW 的 runtime 包额外包含 `SKILL_MEMORY.md`：它只存在于 `runtime/home/how/<skill_name>/`，记录自上次 Home Maintenance 以来该 skill 的临时工作记忆、使用反馈和待 review 变更，供后续 User Turn 与 Home Maintenance review 使用；它不属于 actual Home，对应 skill 的 Home Maintenance review 完成后必须清空。除了通用 HOW，还有两类与行动域绑定的自动 HOW：`how_domain` 作用于 domain，使用 `home:how_domain:<domain>` 在 Phase2 自动注入，并可在 Phase3 的 action 内部 LLM task 中继续作为 domain 约束；`how_action` 作用于 domain 内具体 action，使用 `home:how_action:<domain>/<action>` 在 Phase3 中带内部 LLM task 的 action 自动注入。这两类 Link 同样是保留的框架 mount identity，不附加物理 `DOMAIN.md`/`.md` 文件名。`how_domain` 与 `how_action` 不参与通用 HOW metadata catalog 或普通渐进式加载，也不由模型通过 `home.resource.read` 主动读取；它们可以透明物化到 runtime，并通过专用 prompt mount mutation action 修改。逻辑 mount 的创建和删除由框架根据 Action Catalog 中的 domain/action 自动维护，模型不负责 create/delete；它们不创建 `SKILL_MEMORY.md`、`DOMAIN_MEMORY.md` 或其它平行 memory 文件；
+语块与渐进式加载：语块把细节归纳为可识别的稳定表达；渐进式加载则让 Agent 先看到 Link、摘要或语义节点，再在确有需要时显式展开细节。Context 默认承载决策所需的有界语义，不自动内联完整知识、历史或资源正文。
 
-长期记忆/Memory 与链接/Link：Memory 是与 Agent Home 平级的独立持久模块。每个被提炼的 Business Day 对应一个 `memory/yyyy/mm/yyyy-mm-dd.md` 日志，并使用无格式后缀的日期逻辑身份 `memory:YYYY-MM-DD` 标识；Memory 模块将其确定性映射到物理年月 Markdown 路径，二者不能由其它模块自行拼接。Memory 在普通 User Turn 中只读，不建立 runtime copy、不参与 Home runtime diff，也不通过 Home action 修改。`<memory:YYYY-MM-DD>` 可出现在 Context 和 MEMORY 正文中，表示应通过 Memory recall 加载指定日期，不表示内联正文或 Home 顶层内容。
+### 资源与持久化
 
-每个 User Turn 的 preparation 都按同一 Business Day 与业务时区确定“昨日”；若精确的昨日 MEMORY 存在，Memory provider 将完整但受文档上限约束的正文作为自动 Background entry 交给 Context。缺失昨日 MEMORY 是正常状态，不回退到更早日期；文件存在但不是非空、可读、上限内的 UTF-8 文本时是 Memory 模块失败。该 entry 每 Turn 重建，在 Context 压力回收时可被逐出；Home core 与 effective 存在时自动加载的 allowlisted Context/user Agent Top 正文仍是不可逐出的默认规约。其它日期 MEMORY 不进入可加载 Home 目录，只能通过 `memory.search(query, top_k)` 与 `memory.recall(memory_link)` 按需访问；search 以单日文档为候选，只返回稳定 Link、日期和有界摘要，recall 返回完整但受上限约束的单日 Markdown，两者的 ActionResult 都进入当前 TurnTraceContext，不修改 Background。
+链接/Link：跨模块传递的稳定资源身份，不是可由任意模块拼接的物理路径。Link 由所属 owner 解析、校验和映射，主要分为五类：
 
-Memory Maintenance 读取 Session 为指定日期提供的专用 facts projection：Session 按需递归已提交 Summary 图，只交付唯一、可达并按 Turn 开始时间稳定排序的事实，不暴露 store 或 archive 文件结构。单日 MEMORY 是自由结构 Markdown，不要求上午、下午、晚上或其它固定章节；旧 MEMORY 只要是非空、可读、上限内的 UTF-8 文本，无论既有格式如何，都可在人工重写时作为同日期附加 source 与 Session facts 一起执行有界分层 consolidation。LLM 严格返回一个 Markdown body，Memory 只确定性渲染日期 H1。正文中的 Home top Link 必须指向当前 actual Home 中已存在的顶层内容，`<memory:YYYY-MM-DD>` 必须指向已存在的其它日期 MEMORY；完整 catalog 只用于本地校验，模型只接收从 source 提取的有界有效 Link hints，非法或不存在的 Link 以有界模型反馈重新生成。Session archive 缺失或 projection 为空时 `skipped` 且不创建、不覆盖、不删除 MEMORY；否则生成完整新 MEMORY 并原子覆盖，不 append、不读取其它日期 MEMORY 正文作为 consolidation 输入。自动任务若目标 MEMORY 已存在且可读取、非空、未超限，则在读取 Session 或调用模型前 `skipped`；人工任务可结合旧 MEMORY 与 Session 重写。启动自动提示不再只检查昨日：Archive 完成的每个新关闭日按 Session facts 增量登记，已持久的日期列表跨重启保留并逐项清理；人工命令仍可显式指定日期。
+- `home:<space>@<logical-path>` 表示可进入 Background 的 Home 顶层知识；`agent` 存放身份规约与用户偏好，`what` 存放实体和概念，`why` 存放原因与解释，`how` 存放通用技能。
+- `home:<space>/<resource-path>` 表示只能由 Action 渐进读取或使用的 Home 资源，保留真实扩展名。
+- `memory:YYYY-MM-DD` 表示一日长期记忆；`<memory:YYYY-MM-DD>` 表示需要按需召回的引用，不表示正文内联。
+- `workspace:<relative-path>` 表示当日工作区资源句柄。
+- `home:how_domain:<domain>` 与 `home:how_action:<domain>/<action>` 表示局部自动 prompt mount，只进入对应 Phase 或 Action 内部任务，不作为普通 Background 或资源读取入口。
 
-基于以上设计，链接/Link 语义分为五类：（1）Home 顶层知识入口，可通过默认加载或 Phase1 加载到 BackgroundContext；（2）Agent Home 非顶层资源，通过 action 结果进入 TurnTraceContext；（3）Memory-owned 日期记忆，昨日可在 Turn preparation 自动加载，其它记忆通过 search/recall 进入 TurnTraceContext；（4）workspace 资源句柄；（5）how_domain/how_action 局部自动 prompt mount。归纳如下：
-（1）`home:agent@<path>`、`home:what@entity|concept/<path>`、`home:why@<path>` 与 `home:how@<skill>` 表示“顶层知识入口”；它们都使用无格式后缀的逻辑身份，前三类由 Layout 追加 `.md`，HOW 映射固定 `SKILL.md`；顶层知识可加载为 BackgroundContext；
-（2）home:xxx/ 表示“可被行动读取或使用的资源”加载到 TurnTraceContext；资源 Link 保留真实扩展名，但不得用 `/` 形式访问已属于 Top identity 的 Agent/WHAT/WHY Markdown 或通用 HOW `SKILL.md`；
-（3）`memory:YYYY-MM-DD` 表示单日长期记忆；`<memory:YYYY-MM-DD>` 是提示 Agent 按需 recall 的稳定引用；
-（4）workspace: 永远是工作区资源句柄；
-（5）home:how_domain:<domain> 和 home:how_action:<domain>/<action> 表示临时、局部自动 prompt mount，只进入对应 Phase/task prompt；
+工作区/Workspace：当前 Business Day 的可操作资源空间。磁盘文件是内容事实，manifest 是资源索引和摘要，WorkingContext 只接收同一状态的 Link/summary 投影。文件正文通常不进入 Context；显式有界读取可作为当前交互结果，LLM 辅助的资源操作则在 Action 内部按 `target_link` 和 `reference_links` 局部读取，并在提交前复验来源版本。
 
+Agent Home：Agent 的持久身份规约、用户偏好、WHAT、WHY、HOW 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层知识可进入 Background，渐进资源只通过 Action 使用，domain/action HOW 只在对应任务局部挂载。
 
-根目录结构如下：
+长期记忆/Memory：与 Home 平级的日期记忆，每个已提炼 Business Day 对应一份自由结构 Markdown，并以 `memory:YYYY-MM-DD` 标识。普通 User Turn 对 Memory 只读：精确昨日记忆存在时可自动进入 Background，缺失时不回退；其它日期通过 search/recall 按需进入 TurnTrace。Memory Maintenance 从已关闭日期的 Session facts 生成或明确重建单日文档。
 
-- `home/`：已经由 Maintenance 提交的 actual Home；
-- `memory/`：Memory-owned 的单日长期记忆，按 `yyyy/mm/yyyy-mm-dd.md` 组织，不建立 runtime 副本；
-- `runtime/`：保存运行中的可变状态；
-  - `session/`：当日跨 Turn 会话事实；
-  - `workspace/`：当日工作区及 active `.tinysoul/trash`；
-  - `home/`：Agent Home 内容的跨日懒加载 overlay，直到 Home Maintenance 处理后才清理对应 diff；
-- `archive/<timezone-timestamp>/`：一个已冻结 Business Day，包含 `transition.json`、`session/`、`workspace/`、`trash/`，不包含 Home；旧日 Trash 只是归档事实，不再进入 active list/restore 或其它语义追踪 API。
+会话/Session：同一 Business Day 内已经完成的 User Turns 所形成的不可变业务事实。Session 从同一事实图派生 prior-turn Background、渐进检查和 Memory facts，不保存当前 Turn 的运行时 trace，不承担通用日志或前端审计数据库职责。
 
-一个用户轮由多个执行轮/Agent Cycle 构成，执行轮依次进行执行单元/Phase。
-（Phase1）更新语境与决策行动域：基于完整语境/Context，调用 LLM Task。Phase1 可以向模型提供框架内部 Control Tools，例如状态更新工具、背景更新工具和 Phase2 行动域选择工具；模型返回的 Control Tool Calls 不直接修改状态，而是在 Phase1 结束后被汇聚、校验、归一化并转化为内部操作信号，由 WorkingContext、BackgroundContext、Loop 等上层模块分别消费；从而执行（a）加载或逐出 BackgroundContext 中的顶层内容；（b）更新 WorkingContext 中的里程碑或待办；（c）选择一个或多个 action domain 进入 Phase2；Phase1 不生成完整行动参数，也不暴露全部二级 action 定义。`load_background` 接受一个或多个开放字符串形式的 Top Link，不把完整 effective top catalog 编码为模型工具候选；模型应从当前 Context 已暴露的默认 Agent Top 前向 Link、通用 HOW metadata、Home search 或 ActionResult 等来源取得 Link，工具定义至多是这种已有 Link 的强化提示，Context 在提交前仍按当前 effective provider catalog 校验 Link 是否真实可加载；
-（Phase2）生成行动参数：为 Phase1 选择的 domain 生成具体 ActionCall，调用 LLM Task。Phase2 只向模型提供已选 domain 内的 Action Tools、对应 action 的工具调用结构与补充语义，并自动注入 domain HOW；模型返回的 Action Tool Calls 被归一化为 ActionCall；
-（Phase3）采取行动：一个 map-reduce 风格的执行器，将 Phase2 的 ActionCall 装配为 ActionBatch 并实际执行。每个 action 除了反馈给模型的工具调用结构和补充语义外，还有框架内配置，例如超时时长、并发策略和通用/专用 hook 等。action 执行器会（a）将 ActionCall 补充为包含已解析 ActionSpec、运行时 action id、批次 id、执行参数、框架配置的自包含执行输入；（b）对每个 action 执行通用/专用 hook 检查；（c）等待全部行动执行完成或超时，并优先通过协作取消或进程终止收束执行体；（d）为每个 action 返回结构化 ActionResult（包括检查失败、执行失败和超时等结果）；（e）渲染和处理 ActionResult，例如需要反馈给模型的结果、日志记录的结果等。Batch 只是执行编排容器，不额外定义 batch result。
+主要持久目录：
 
-每日生命周期与 Maintenance：只有 Session、Workspace 和 active Trash 具有强制 Business Day 生命周期。新日开始时，框架必须先完成不依赖 LLM 的确定性日切：恢复未完成的日切 journal，完整 reconcile 旧日 Session 与 Workspace，把 Session、Workspace、Trash 移到同一个时间戳归档，再建立同一新日的空 Session/Workspace roots；在确定性日切完成前不能接受新日 User Turn。程序持续运行时由内置 scheduler 在配置的日界触发，程序未运行时由下次启动补做。Home 不参与每日日切，也不进入 archive。恢复保证覆盖 Python 进程异常与文件操作失败：participant 已移动但 step journal 未提交、active roots 已初始化但 step 未提交、final rename 失败等窗口都通过 persisted facts 前滚；不宣称断电、磁盘缓存刷新或跨目录原子事务级持久性。
+- `home/`：Maintenance 已接受的 actual Home。
+- `memory/`：按日期组织的长期记忆。
+- `runtime/`：活动状态，主要包括当日 Session、Workspace、active Trash、跨日 Home overlay 和进程服务状态。
+- `archive/<timestamp>/`：已冻结 Business Day 的 Session、Workspace 与 Trash；不包含 Home，Memory 也不随日切移入归档。
 
+### 运行控制
 
-Trap/异常和信号：TinySoul 使用统一的异常定义和内部信号处理，采用 OS-中断设计思路和实现风格。对于异常，可以分为（1）模块层面暂时抛出并局部处理，例如 Action 执行中的失败，被执行器捕获后结构化为 Action Result，以及 llm 模块的模型重试和切换；（2）上层逻辑层面的全局处理，并在触发后陷入处理流程，例如语境过长需要压缩、home 副本拷贝等框架层面的机制（类似页表换出），以及响应用户外部指令，例如中断当前用户轮、中断程序，或追加用户输入（陷入处理后转化为内部信号给内部模块消费）。TinySoul 整体异常处理分成如下层次：（a）局部修复策略（llm 模块的模型重试和切换）和错误映射（Action 异常转换为模型反馈），局部处理失败后再向上层报错；（b）由全局处理决定继续当前用户轮（返回异常陷入位置）/中断当前用户轮/退出程序；
+运行层级：从外到内为 Program、Turn、Cycle、Phase、Module。Program 拥有类型化请求队列与进程生命周期；Turn 表达一项完整的 User 或 Maintenance work；Cycle 和 Phase 组织推理与行动；Module 是 LLM、Action、Context 或持久化 owner 的具体执行边界。
 
-异常与内部信号处理的区别在于，异常决定恢复位置和期间执行的大型任务。内部信号主要用来清晰描述内部模块的行为，例如 action result 结束后发出信号去追加 TurnTraceContext；Phase1 完成后通过信号去变更 BackgroundContext。信号可以使意图和实际消费执行过程分离，使代码更清晰。
+Business Day 与每日生命周期：业务日由统一时区规则确定，并在一个 Turn 内保持不变。只有 Session、Workspace 和 active Trash 具有强制日生命周期；进入新日工作前必须先完成不依赖 LLM 的确定性日切、恢复、归档和新根初始化。Home 跨日保留且不进入归档；Memory 由关闭日事实经独立 Maintenance 生成。
 
-tinysoul 运行层级：依次可分为（1）模块级，模块内部完成特定任务；后面两个层级对于用户可见；（2）用户轮级，协调各个模块完成一次用户对话，在用户轮启动时，用户可以追加对话进入用户轮；（3）顶层，循环等待用户新一轮对话输入或者指令，指令可以是 exit，也可以是执行与用户轮同层工作（例如每日沉淀），执行过程可以通过异常陷入处理执行；同层工作执行中不再接受用户输入。
+Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例如全局恢复、重试某一 frame、结束 Turn/Cycle/Program 或启动失败。模块应先完成自身局部恢复和失败归类，只有局部流程无法继续或需要全局协调时才进入 Trap；Trap 产生的运行转移必须指向当前捕获作用域内的合法 frame。
 
-tinysoul 可观测性：实现三个层级的终端显示（正常运行/VERBOSE/MODEL：专门附加反馈给模型的上下文，便于调试）。代码层面由业务所有者发布简约、JSON 安全且不参与控制流的 ObservationEvent，App 层统一过滤、扇出并渲染；Observation sink 失败不能反向改变业务提交。
+内部信号/Signal：用于需要业务模块消费的状态变更和跨模块数据传递，例如提交 Context patch、追加 TurnTrace、同步 Workspace 或合并用户追加输入。Signal 不决定全局恢复位置，消费与提交仍由拥有该协议的模块负责。
 
+观察事件/Observation：只面向终端、前端、日志或嵌入方的 JSON 安全旁路事实，不参与业务提交和控制流。可观测性分为 normal、verbose、model 三个层级，其中 model 用于展示真实交给模型的上下文；Observation sink 失败不能反向影响业务结果。
 
 ## 项目规约
 
