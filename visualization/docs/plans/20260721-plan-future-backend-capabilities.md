@@ -10,12 +10,12 @@
 当前 Background Context 面板只能展示 Phase1 已加载的 top links。若希望用户在不发起 User Turn 的情况下主动浏览 Agent Home，需要后端暴露：
 
 - `GET /v1/home/catalog`
-  - 列出 effective top-level Home 条目（agent、what、why、how）。
+  - 列出 effective top-level Home 条目（agent、skills）。
   - 返回字段至少包含：Link、title、description、owner、是否可加载到 Background。
 - `GET /v1/home/resource?link=home:...`
   - 按 Link 读取 Home 资源正文（受上限约束）。
 - `GET /v1/home/search?q=...`
-  - 搜索 WHAT/WHY/HOW metadata，返回有界候选列表。
+  - 搜索通用 Skill metadata，返回有界候选列表。
 
 前端用途：新增独立 “Home” 浏览面板，支持查看、搜索，并可选地将条目加载到 Background Context。
 
@@ -35,4 +35,5 @@
 - 实施前需与后端 owner 确认：
   - 接口 schema、鉴权、size limit、错误码；
   - Home catalog 是否包含 `home:agent@AGENT` 等不可逐出项；
-  - Capability manifest 是否暴露 `how_domain` / `how_action` 等框架内部 mount。
+  - Capability manifest 只需要暴露 effective domain/action identity，不暴露
+    `skills_domain` / `skills_action` 等框架内部 prompt mount。

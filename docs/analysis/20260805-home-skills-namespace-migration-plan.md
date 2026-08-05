@@ -68,3 +68,11 @@ Completed on 2026-08-05:
 - Current source, package data, root guidance, and design docs contain no old
   Home link, provider, prompt-mount, or review-kind identifiers. Tests retain
   only explicit assertions that the removed namespaces are rejected or absent.
+
+## Post-Implementation Alignment Audit
+
+The 2026-08-05 follow-up audit aligned the remaining current App API reference
+and the active visualization capability plan, removed empty legacy directories
+from the default Home asset tree, and renamed the last test identifier that
+described prompt mounts as HOW spaces. Historical chat, archive, and completed
+analysis records retain their original terminology as dated design evidence.

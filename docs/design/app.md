@@ -107,7 +107,7 @@ TinySoulAppBuilder 负责：
 - 构建进程级 LLMTaskRunner、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、SignalBus、Program trap 与外部服务；
 - 调用 `loop.user.UserTurnBuilder` 构造 User Context、ActionEngine、runtime policy 和轻量 `UserTurnEntry`；User builder 内部调用各 owner/capability registrar，App 不知道 executor 或 Phase；
 - 调用 `maintenance.MaintenanceBuilder` 构造 Archive/Home/Memory task、两套 Maintenance Context/Action/trap/Turn entry 和唯一 MaintenanceEngine；测试或嵌入方仍可通过 `with_business_clock` 注入同一窄 `BusinessClock`；
-- User override API 显式命名为 `with_user_action_engine`、`with_user_context_engine`、`with_user_domain_how`、`with_user_turn_completion_handler`，不保留无 owner 的旧 alias；
+- User override API 显式命名为 `with_user_action_engine`、`with_user_context_engine`、`with_user_domain_skills`、`with_user_turn_completion_handler`，不保留无 owner 的旧 alias；
 - 构建 InputCommandParser、InputDispatcher、AppCommandGateway、终端输入源、Endpoint service 和内置 scheduler；
 - 构建 ObservationRouter，把同一 emitter 交给 owner builder 与进程级组件；
 - 返回 TinySoulApp。

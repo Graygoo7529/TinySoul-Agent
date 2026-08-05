@@ -454,7 +454,7 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     assert with_runtime_copy.payload["text"] == "abc"
     assert with_runtime_copy.payload["truncated"] is True
 
-def test_home_resource_read_rejects_automatic_how_spaces(tmp_path: Path) -> None:
+def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
     skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
     skills_action = tmp_path / "home" / "skills_action" / "workspace"
     skills_domain.mkdir(parents=True)
