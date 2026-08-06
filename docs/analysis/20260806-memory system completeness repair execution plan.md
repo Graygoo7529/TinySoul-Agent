@@ -245,6 +245,89 @@ maintenance.memory.inspect_sources:
 Maintenance 只持有 draft 和 inspection refs，Action executor 不自行解析 Markdown 或计算
 backlinks。
 
+## 具体改动预览
+
+以下预览把修复落到现有模块、类和方法，不改变 User/Maintenance Turn 的触发语义，也不
+把临时计算结果写入 `memory/`。
+
+### 1. `tinysoul/memory/catalog.py` 与 `engine.py`
+
+- 保留 `MemoryCatalog` 为正向引用、backlinks、lexical 和 semantic 的唯一 owner；将当前
+  `rebuild()` 内的“由 StoredMemoryDocument 建立 entries”提取为同一类的内部构造路径，
+  增加接受 `documents` 的临时 snapshot 方法。传入的文档覆盖同 Link 的磁盘文档，但不
+  改变进程级 `_snapshot`。
+- `MemoryEngine.inspect(request, documents=())` 和
+  `MemoryEngine.recall(link, documents=())` 继续是 Maintenance 的唯一读取门面；User
+  调用不传 `documents`。Maintenance 每次 action 执行前从 draft 构造 tuple，避免
+  `maintenance.memory` 直接访问 Store 或 Catalog 私有字段。
+- `MemoryCatalogEntry` 从已解析文档投影 `updated_on`、`last_activated_on`、
+  `activation_count`、可选 `confidence`；`MemoryInspectItem` 返回有界 activity/date/
+  confidence metadata。主分数仍来自 lexical/semantic，只有同分时使用这些字段和 Link
+  稳定排序。
+- `MemoryInspectResult` 删除完整 `outgoing/backlinks/related` Link 数组，改为三个 count；
+  Link 模式的所有候选仍通过 `items.reasons` 分页返回。增加统一 `to_json()`，由 catalog
+  计算完整结果大小，保证 items、counts、candidate_count、continuation 一起不超过
+  `page_max_chars`。
+- continuation token 绑定 catalog generation、mode、query 或 Link、kinds、limit 和 next
+  offset。解析时先验证请求身份，再使用 offset；跨请求复用返回局部 contract failure。
+- `_validate_stored()` 对每个 active entity/concept/fact/note 的 relations 执行相同的
+  redirect chain 终点校验；该方法同时被启动 rebuild、单文档写入、changeset prepare 和
+  transaction apply/recover 的最终文档集合调用。
+
+### 2. `tinysoul/maintenance/memory/actions.py`
+
+- `MemoryInspectionRef` 增加 canonical request identity、kinds 和实际 digest 映射；暂存
+  文档 digest 使用 `MemoryDocumentCodec.stored(document).digest`，不再使用 `"staged"`。
+- 增加一个仅供 controller 使用的 draft document tuple helper。`inspect`、`recall`、
+  `_inspection_ref` 和 exact ref 校验都使用当前 tuple；query、link、backlinks、related
+  因此看到同一 Turn 内的最终暂存文档集合。
+- `stage_create` 保留现有“必须先 query inspect”规则，并检查 ref 的 kinds 为空或包含待
+  创建 kind。它不要求 query 必须命中，是否新建仍由模型结合 recall 判断。
+- `stage_rewrite` 若目标已有暂存 change，必须使用当前暂存 digest；重写后的 change 保留
+  原始 `expected_absent` 或磁盘 `expected_digest`，只替换文档内容，不静默覆盖未被 recall
+  的草稿。没有暂存 change 时维持现有磁盘 digest CAS。
+- `stage_redirect` 的 source 仍要求已有持久 Link；target 可为当前暂存 active 文档。源和
+  目标 ref 都必须绑定当前实际 digest，redirect 状态、同 kind 规则、非 daily 目标和环路
+  校验继续由文档/Memory owner 负责。
+- `preview` 传入同一 draft tuple，先完成最终引用校验，再生成 changeset；任何 stage 使
+  `preview_revision` 失效，但无关 Link 的 inspection ref 不因全局 revision 变化而失效。
+- `inspect_sources` 的参数增加 `source=session|workspace`（缺省保持 session），同一调用
+  只返回一种资源的当前页、`offset`、`has_more` 和 `total_count`。Workspace 页只返回有界
+  manifest 摘要，完整正文继续由 `read_workspace` 按 Link/digest 读取。
+
+### 3. `tinysoul/memory/transaction.py`
+
+- `_prepare()` 在 `.preparing-<id>` 中写 staged 文件和 manifest，完成 codec、digest、
+  source CAS、最终文档集合校验后，使用同目录 `replace()` 发布为 `<id>`。正式目录发布
+  前不会写任何业务 Markdown。
+- `recover()` 严格识别 `.preparing-*`、`<id>`、`.completed-*` 三种目录；前者可清理，正式
+  事务执行 `_apply()`，后者只做清理。未知名称、symlink、半结构目录仍为 invariant failure。
+- `_apply()` 在第一份目标写入前通过 Memory owner 校验回调验证全部暂存文档和当前 Store，
+  再按 stable order 执行 CAS/atomic replace。所有目标达到 new digest 后把正式目录原子
+  rename 为 `.completed-*`，清理失败不会丢失可恢复身份。
+- `MemoryEngine` 在装配 `MemoryTransactionService` 时注入自身 catalog 的最终文档校验
+  回调；recover 完成后才重建进程 catalog。事务服务不解释 Memory kind 或关系业务。
+
+### 4. Action catalog、设计文档与测试
+
+- 更新 `memory.inspect` 和 `maintenance.memory.inspect_sources` 的 schema/description，
+  明确 count、continuation、source 参数和有界结果，不新增 User action。
+- 同步 `docs/design/memory.md`、Memory Maintenance prompt 和
+  当前执行计划；旧完成记录只保留基线完成事实，不再把本轮 pending 修复描述为已完成。
+- 聚焦测试覆盖：完整 payload page budget、continuation request binding、activity tie-break、
+  staged query/backlinks/recall、same-Link staged CAS、四类 relation 终点、三种事务目录
+  状态及每个恢复窗口、Session/Workspace 独立分页。
+
+### 5. 实施顺序与提交边界
+
+1. 先完成 catalog result/validation 和 Maintenance draft tuple，使所有新行为仍停留在
+   内存中并可由 focused tests 验证。
+2. 再接入 transaction preparing/ready/completed 和最终文档校验，先通过故障注入测试后
+   才替换旧清理逻辑。
+3. 最后更新 Action catalog、设计文档和验收记录，运行 Memory/Maintenance/Infra/App 定向
+   测试、Full 和 typecheck。每一步都保持 `MemoryEngine`、`MemoryMaintenanceActionController`
+   和 `MaintenanceEngine` 的现有 owner 边界。
+
 ## 实施阶段
 
 ### Stage 1：修复派生检索与 Maintenance 草稿协议（pending）
