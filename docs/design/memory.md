@@ -99,10 +99,11 @@ memory:target + optional memory:latest
 inspect 是有界发现和一跳探索，不返回完整 Markdown：
 
 - query 模式综合 exact identity、lexical term、正文 grep、中文 bigram 和可选 embedding 相似度；
-- link 模式返回该 Link 的正向引用、backlinks 和 lexical related；
-- kinds 可限制五类候选，continuation 绑定当前 catalog generation；
+- link 模式返回该 Link 的正向引用、backlinks 和 lexical related 的有界候选，另返回各类关系计数；
+- kinds 可限制五类候选，continuation 绑定当前 catalog generation 与完整请求身份；
 - 只返回 active query candidate；已知非 active Link 仍可用 link 模式检查；
-- 结果同时受 top-k、candidate count、单摘要和整页字符预算约束。
+- 结果同时受 top-k、candidate count、单摘要和整页字符预算约束；Maintenance 追加
+  `inspection_ref` 时由 Memory owner 预留对应 page overhead，完整 ActionResult 仍不超限。
 
 模型自行决定多跳路径：query 找候选，inspect 候选 Link 查看引用/backlinks，再 inspect 下一 Link；需要完整证据时切换 recall。inspect 结果以 foldable Trace 投影进入当前 Turn，不改变 Background。
 
@@ -112,7 +113,7 @@ recall 只接受一个精确持久 Link，返回 owner 校验后的完整 Markdo
 
 ## 派生检索与 Embedding
 
-Memory 启动和提交后从所有 Markdown 重建进程内 catalog。catalog 验证缺失引用、redirect cycle/hop、active note 最终 relation，并生成正向引用和 backlinks。Lexical/grep 检索始终可用，不依赖外部模型。
+Memory 启动和提交后从所有 Markdown 重建进程内 catalog。catalog 验证缺失引用、redirect cycle/hop、所有 active 知识文档的 relation 最终目标，并生成正向引用和 backlinks。Lexical/grep 检索始终可用，不依赖外部模型。Maintenance 可以让 Memory owner 在不改变全局 catalog 的情况下，从当前 Markdown 与暂存文档集合构造临时 snapshot，供同一 Turn 的 inspect/recall 使用。
 
 Embedding 是 `tinysoul.infra` 的 provider-neutral 基础设施，通过顶层 `[embedding]` 配置。当前项目模板默认关闭，启用示例：
 
@@ -152,7 +153,7 @@ Workspace 只通过 owner 生成的 manifest 和 digest-bound bounded text read 
 
 Controller 在一个 Maintenance Turn 内拥有 draft、inspection refs 和提交状态：
 
-1. `inspect_sources` 分页理解 Session facts 和 source references，必要时 `read_workspace`；
+1. `inspect_sources` 以 `source=session|workspace` 分页理解 Session facts 或 Workspace resource 摘要，必要时 `read_workspace`；
 2. `inspect` 搜索已有持久 Memory，`recall` 读取精确 Markdown 并绑定 digest；
 3. `stage_create` 必须持有 query inspection ref；`stage_rewrite` 和 `stage_redirect` 必须持有 exact recall ref 与 digest；
 4. `compose_daily` 对目标资料做有界分块、分层 reduce 和完整 daily composition；
@@ -176,14 +177,15 @@ Maintenance 中真正被来源、inspect、recall、rewrite 或 redirect 使用�
 
 ## 提交与恢复
 
-Memory changeset 为每份文档记录 expected digest 或 expected absent，绑定 catalog generation 和目标日。提交先把所有新 Markdown 和 manifest 写入 `memory/.tinysoul/transactions/<id>/`，再执行以下步骤：
+Memory changeset 为每份文档记录 expected digest 或 expected absent，绑定 catalog generation 和目标日。事务目录使用三种可恢复状态：`.preparing-<id>` 是尚未发布的临时目录，`<id>` 是已发布、可执行的 ready journal，`.completed-<id>` 表示所有目标已写入、只待清理。提交先在 preparing 目录中写入所有新 Markdown 和 manifest，完成校验后原子改名为 ready，再执行以下步骤：
 
 1. 校验整份 manifest、顺序、staged digest、Markdown schema、目标日字段和全部 CAS；
 2. 确认所有知识文档在前、daily 在最后；
-3. 逐份原子替换；
-4. 删除完成 journal、重建 catalog，并 best-effort 刷新 embedding cache。
+3. 在首个目标写入前验证完整暂存文档集合与最终引用；
+4. 按稳定顺序逐份原子替换，daily 最后写入；
+5. 所有目标达到新 digest 后把 ready journal 原子改名为 completed，再清理 journal、重建 catalog，并 best-effort 刷新 embedding cache。
 
-任何 staged 文档或 CAS 在预检阶段失败时一份目标都不写。进程在部分替换后中断时，下一次 Memory recovery 识别已经写入的新 digest并幂等前滚剩余操作；因此 User Turn 不会在正常 Program 串行边界观察到 Maintenance 的半提交状态。事务只承诺项目现有的进程/文件操作恢复语义，不夸大为 fsync/power-loss durability。
+任何 staged 文档、引用或 CAS 在预检阶段失败时一份目标都不写。进程在 preparing 阶段中断时只清理临时目录；在 ready 的部分替换阶段中断时，下一次 Memory recovery 根据每个目标的 new digest 幂等前滚剩余操作；在 completed 清理阶段中断时只重试清理，不重复业务写入。因此 User Turn 不会在正常 Program 串行边界观察到 Maintenance 的半提交状态。事务只承诺项目现有的进程/文件操作恢复语义，不夸大为 fsync/power-loss durability。
 
 ## 日切与归档
 

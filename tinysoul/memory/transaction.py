@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from hashlib import sha256
 import json
@@ -114,9 +114,16 @@ class _PreparedOperation:
 class MemoryTransactionService:
     """Prepare, commit, and roll forward deterministic Markdown replacements."""
 
-    def __init__(self, *, store: MemoryStore, codec: MemoryDocumentCodec) -> None:
+    def __init__(
+        self,
+        *,
+        store: MemoryStore,
+        codec: MemoryDocumentCodec,
+        validate_documents: Callable[[Sequence[PersistentMemoryDocument]], None],
+    ) -> None:
         self._store = store
         self._codec = codec
+        self._validate_documents = validate_documents
         self._root = store.internal_root / "transactions"
 
     def commit(
@@ -139,14 +146,28 @@ class MemoryTransactionService:
         for directory in sorted(self._root.iterdir(), key=lambda item: item.name):
             if directory.is_symlink() or not directory.is_dir():
                 raise MemoryInvariantError("Memory transaction entry is invalid")
-            outcomes.append(self._apply(directory))
+            name = directory.name
+            if name.startswith(".preparing-"):
+                if not _valid_transaction_id(name.removeprefix(".preparing-")):
+                    raise MemoryInvariantError("Memory preparing transaction identity is invalid")
+                self._cleanup(directory)
+            elif name.startswith(".completed-"):
+                if not _valid_transaction_id(name.removeprefix(".completed-")):
+                    raise MemoryInvariantError("Memory completed transaction identity is invalid")
+                self._cleanup(directory)
+            elif _valid_transaction_id(name):
+                outcomes.append(self._apply(directory))
+            else:
+                raise MemoryInvariantError("Memory transaction entry identity is invalid")
+        self._remove_root_if_empty()
         return tuple(outcomes)
 
     def _prepare(self, changeset: MemoryChangeSet) -> Path:
         directory = self._root / changeset.transaction_id
-        if directory.exists():
+        preparing = self._root / f".preparing-{changeset.transaction_id}"
+        if directory.exists() or preparing.exists():
             raise MemoryInvariantError("Memory transaction id already exists")
-        staged = directory / "staged"
+        staged = preparing / "staged"
         try:
             staged.mkdir(parents=True, exist_ok=False)
             operations: list[dict[str, object]] = []
@@ -177,11 +198,13 @@ class MemoryTransactionService:
                 "operations": operations,
             }
             atomic_write_text(
-                directory / "manifest.json",
+                preparing / "manifest.json",
                 json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
             )
+            preparing.replace(directory)
         except (MemoryError, OSError):
-            shutil.rmtree(directory, ignore_errors=True)
+            if preparing.exists():
+                shutil.rmtree(preparing, ignore_errors=True)
             raise
         return directory
 
@@ -203,6 +226,7 @@ class MemoryTransactionService:
         if staged_root.is_symlink() or not staged_root.is_dir():
             raise MemoryInvariantError("Memory transaction staged root is invalid")
         prepared: list[_PreparedOperation] = []
+        documents: list[PersistentMemoryDocument] = []
         operation_ids: set[str] = set()
         operation_links: set[MemoryLink] = set()
         for index, raw in enumerate(operations):
@@ -250,6 +274,7 @@ class MemoryTransactionService:
             if sha256(staged.encode("utf-8")).hexdigest() != new_digest:
                 raise MemoryInvariantError("Memory staged digest is invalid")
             document = self._codec.parse(link, staged)
+            documents.append(document)
             if document.updated_on != target_day:
                 raise MemoryInvariantError(
                     "Memory transaction document updated_on differs from target day"
@@ -300,6 +325,7 @@ class MemoryTransactionService:
                 )
 
         # Validate every staged document and every CAS before the first write.
+        self._validate_documents(tuple(documents))
         changed: list[MemoryLink] = []
         digests: dict[str, str] = {}
         for operation in prepared:
@@ -311,17 +337,32 @@ class MemoryTransactionService:
                     raise MemoryIOError(f"Memory transaction write failed: {exc}") from exc
             changed.append(operation.link)
             digests[str(operation.link)] = operation.new_digest
+        completed = self._root / f".completed-{transaction_id}"
         try:
-            shutil.rmtree(directory)
-            if self._root.exists() and not any(self._root.iterdir()):
-                self._root.rmdir()
+            directory.replace(completed)
         except OSError as exc:
-            raise MemoryIOError(f"Memory transaction cleanup failed: {exc}") from exc
+            raise MemoryIOError(f"Memory transaction completion failed: {exc}") from exc
+        self._cleanup(completed)
+        self._remove_root_if_empty()
         return MemoryCommitOutcome(
             transaction_id=transaction_id,
             changed_links=tuple(changed),
             document_digests=digests,
         )
+
+    @staticmethod
+    def _cleanup(directory: Path) -> None:
+        try:
+            shutil.rmtree(directory)
+        except OSError as exc:
+            raise MemoryIOError(f"Memory transaction cleanup failed: {exc}") from exc
+
+    def _remove_root_if_empty(self) -> None:
+        try:
+            if self._root.exists() and not any(self._root.iterdir()):
+                self._root.rmdir()
+        except OSError as exc:
+            raise MemoryIOError(f"Memory transaction root cleanup failed: {exc}") from exc
 
     @staticmethod
     def _manifest(directory: Path) -> dict[str, object]:
@@ -378,6 +419,14 @@ def _canonical_date(value: str) -> date:
     if parsed.isoformat() != value:
         raise MemoryInvariantError("Memory transaction target day is not canonical")
     return parsed
+
+
+def _valid_transaction_id(value: str) -> bool:
+    return (
+        len(value) == len("memory_") + 32
+        and value.startswith("memory_")
+        and all(character in "0123456789abcdef" for character in value[len("memory_"):])
+    )
 
 
 def _is_digest(value: str) -> bool:

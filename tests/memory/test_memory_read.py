@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date
+import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -143,9 +145,13 @@ def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> Non
     assert {item.link for item in query.items} >= {str(note.link), str(fact.link)}
 
     neighborhood = memory.inspect(MemoryInspectRequest(memory_link=concept.link))
-    assert str(entity.link) in neighborhood.outgoing
-    assert str(fact.link) in neighborhood.backlinks
-    assert str(note.link) in neighborhood.backlinks
+    assert neighborhood.outgoing_count == 1
+    assert neighborhood.backlink_count == 2
+    assert {item.link for item in neighborhood.items} >= {
+        str(entity.link),
+        str(fact.link),
+        str(note.link),
+    }
 
     recalled = memory.recall(note.link)
     assert recalled.metadata["title"] == "Active memory design"
@@ -271,6 +277,78 @@ def test_inspect_enforces_page_budget_and_continues_without_duplicates(
     assert {item.link for item in first.items}.isdisjoint(
         item.link for item in second.items
     )
+    assert len(json.dumps(first.to_json(), ensure_ascii=False, separators=(",", ":"))) <= 650
+    with pytest.raises(MemoryContractError, match="stale"):
+        memory.inspect(
+            MemoryInspectRequest(
+                query="different query",
+                limit=5,
+                continuation=first.continuation,
+            )
+        )
+
+
+def test_inspect_tie_breaks_by_persistent_activity(tmp_path: Path) -> None:
+    memory = _memory(tmp_path)
+    high = replace(
+        _entity("ranking-high", content="ranking memory"),
+        activity=MemoryActivity(DAY.value, 9),
+    )
+    low = _entity("ranking-low", content="ranking memory")
+    memory.write_document(low, expected_absent=True)
+    memory.write_document(high, expected_absent=True)
+
+    result = memory.inspect(MemoryInspectRequest(query="ranking memory", limit=2))
+
+    assert result.items[0].link == str(high.link)
+    assert result.items[0].activity["activation_count"] == 9
+
+
+def test_all_active_relation_targets_resolve_to_active_entity_or_concept(
+    tmp_path: Path,
+) -> None:
+    memory = _memory(tmp_path)
+    daily = _daily(DAY.value, "0" * 64)
+    fact = _fact(
+        "f-a1b2c3d4e5f6",
+        "A relation target fact.",
+        relations=(),
+        evidence=(daily.link,),
+    )
+    memory.write_document(daily, expected_absent=True)
+    memory.write_document(fact, expected_absent=True)
+    old = replace(
+        _entity("old-relation-target"),
+        status=MemoryStatus.RETRACTED,
+        redirect_to=fact.link,
+        content="Retracted because this was not an entity.",
+    )
+    memory.write_document(old, expected_absent=True)
+
+    with pytest.raises(MemoryInvariantError, match="active entity/concept"):
+        memory.write_document(
+            _concept("relation-source", relations=(old.link,)),
+            expected_absent=True,
+        )
+
+
+def test_recovery_discards_preparing_and_completed_transaction_directories(
+    tmp_path: Path,
+) -> None:
+    memory = _memory(tmp_path)
+    root = tmp_path / "memory" / ".tinysoul" / "transactions"
+    preparing = root / (".preparing-memory_" + "a" * 32)
+    completed = root / (".completed-memory_" + "b" * 32)
+    preparing.mkdir(parents=True)
+    completed.mkdir(parents=True)
+    (preparing / "partial").write_text("partial", encoding="utf-8")
+    (completed / "partial").write_text("partial", encoding="utf-8")
+
+    memory.recover()
+
+    assert not preparing.exists()
+    assert not completed.exists()
+    assert not root.exists()
 
 
 def test_transaction_rolls_forward_after_a_mid_commit_write_failure(
@@ -337,6 +415,34 @@ def test_transaction_prechecks_every_cas_before_writing_any_target(
     with pytest.raises(MemoryInvariantError, match="absent CAS"):
         memory.commit(changeset)
     assert not (tmp_path / "memory" / "concept" / "cas-concept.md").exists()
+
+
+def test_transaction_recovery_retries_after_completed_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = _memory(tmp_path)
+    concept = _concept("cleanup-concept")
+    changeset = memory.prepare_changeset(
+        target_day=DAY,
+        changes=(MemoryDocumentChange(concept, expected_absent=True),),
+    )
+    original_cleanup = cast(Callable[..., None], transaction_module.shutil.rmtree)
+
+    def fail_completed_cleanup(path: Path, *args: object, **kwargs: object) -> None:
+        if path.name.startswith(".completed-"):
+            raise OSError("injected completed cleanup failure")
+        original_cleanup(path, *args, **kwargs)
+
+    monkeypatch.setattr(transaction_module.shutil, "rmtree", fail_completed_cleanup)
+    with pytest.raises(MemoryIOError, match="cleanup failed"):
+        memory.commit(changeset)
+    assert (tmp_path / "memory" / "concept" / "cleanup-concept.md").is_file()
+
+    monkeypatch.setattr(transaction_module.shutil, "rmtree", original_cleanup)
+    memory.recover()
+    assert memory.recall(concept.link).link == str(concept.link)
+    assert not (tmp_path / "memory" / ".tinysoul" / "transactions").exists()
 
 
 class _EmbeddingClient:

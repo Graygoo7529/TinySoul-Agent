@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from collections.abc import Sequence
 from pathlib import Path
 import secrets
 
@@ -99,6 +100,7 @@ class MemoryEngine:
         self._transactions = MemoryTransactionService(
             store=self._store,
             codec=self._codec,
+            validate_documents=self._catalog.validate_overlay,
         )
         self.recover()
 
@@ -190,14 +192,37 @@ class MemoryEngine:
             )
         return tuple(sorted(result, key=str))
 
-    def inspect(self, request: MemoryInspectRequest) -> MemoryInspectResult:
-        return self._catalog.inspect(request)
+    def inspect(
+        self,
+        request: MemoryInspectRequest,
+        *,
+        documents: Sequence[PersistentMemoryDocument] = (),
+        page_overhead: int = 0,
+    ) -> MemoryInspectResult:
+        snapshot = self._catalog.snapshot_for(documents) if documents else None
+        return self._catalog.inspect(
+            request,
+            snapshot=snapshot,
+            page_overhead=page_overhead,
+        )
 
-    def recall(self, memory_link: MemoryLink | str) -> MemoryRecallResult:
+    def recall(
+        self,
+        memory_link: MemoryLink | str,
+        *,
+        documents: Sequence[PersistentMemoryDocument] = (),
+    ) -> MemoryRecallResult:
         link = MemoryLink.parse(memory_link) if isinstance(memory_link, str) else memory_link
         if not isinstance(link, MemoryLink):
             raise MemoryContractError("Memory recall requires a persistent MemoryLink")
-        stored = self._store.read(link)
+        staged = {document.link: document for document in documents}
+        if len(staged) != len(tuple(documents)):
+            raise MemoryContractError("Memory recall draft Links are not unique")
+        stored = (
+            self._codec.stored(staged[link])
+            if link in staged
+            else self._store.read(link)
+        )
         document = stored.document
         raw_metadata: dict[str, object] = {
             "schema_version": 1,
@@ -221,8 +246,9 @@ class MemoryEngine:
                 elif isinstance(value, MemoryLink):
                     value = str(value)
                 raw_metadata[name] = value
+        snapshot = self._catalog.snapshot_for(documents) if documents else self._catalog.snapshot
         chain = resolve_redirect(
-            self._catalog.snapshot,
+            snapshot,
             link,
             max_hops=self._settings.documents.redirect_max_hops,
         )

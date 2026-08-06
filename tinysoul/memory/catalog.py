@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from hashlib import sha256
 import json
 import math
@@ -15,6 +16,8 @@ from tinysoul.infra.json import JsonObject, to_json_object
 
 from .config import MemoryInspectSettings
 from .documents import (
+    MemoryActivity,
+    MemoryConfidence,
     PersistentMemoryDocument,
     StoredMemoryDocument,
     inline_memory_links,
@@ -43,6 +46,10 @@ class MemoryCatalogEntry:
     outgoing: tuple[MemoryLink, ...]
     backlinks: tuple[MemoryLink, ...] = ()
     redirect_to: MemoryLink | None = None
+    updated_on: date = date.min
+    last_activated_on: date = date.min
+    activation_count: int = 0
+    confidence: str | None = None
 
     @property
     def document(self) -> str:
@@ -93,6 +100,9 @@ class MemoryInspectItem:
     summary: str
     score: float
     reasons: tuple[str, ...]
+    updated_on: str
+    activity: JsonObject
+    confidence: str | None = None
 
     def to_json(self) -> JsonObject:
         return to_json_object({
@@ -103,6 +113,9 @@ class MemoryInspectItem:
             "summary": self.summary,
             "score": round(self.score, 6),
             "reasons": list(self.reasons),
+            "updated_on": self.updated_on,
+            "activity": self.activity,
+            "confidence": self.confidence,
         })
 
 
@@ -110,11 +123,22 @@ class MemoryInspectItem:
 class MemoryInspectResult:
     mode: str
     items: tuple[MemoryInspectItem, ...]
-    outgoing: tuple[str, ...] = ()
-    backlinks: tuple[str, ...] = ()
-    related: tuple[str, ...] = ()
+    outgoing_count: int = 0
+    backlink_count: int = 0
+    related_count: int = 0
     continuation: str | None = None
     candidate_count: int = 0
+
+    def to_json(self) -> JsonObject:
+        return to_json_object({
+            "mode": self.mode,
+            "items": [item.to_json() for item in self.items],
+            "outgoing_count": self.outgoing_count,
+            "backlink_count": self.backlink_count,
+            "related_count": self.related_count,
+            "candidate_count": self.candidate_count,
+            "continuation": self.continuation,
+        })
 
 
 @dataclass(frozen=True)
@@ -155,6 +179,24 @@ class MemoryCatalog:
 
     def rebuild(self) -> MemoryCatalogSnapshot:
         stored = tuple(self._store.read(link) for link in self._store.links())
+        snapshot = self._snapshot_for_stored(stored)
+        self._snapshot = snapshot
+        return snapshot
+
+    def snapshot_for(
+        self,
+        documents: Sequence[PersistentMemoryDocument],
+    ) -> MemoryCatalogSnapshot:
+        """Build a validated, non-persistent view with draft documents applied."""
+        by_link = {link: self._store.read(link) for link in self._store.links()}
+        for document in documents:
+            by_link[document.link] = self._store.codec.stored(document)
+        return self._snapshot_for_stored(tuple(by_link.values()))
+
+    def _snapshot_for_stored(
+        self,
+        stored: Sequence[StoredMemoryDocument],
+    ) -> MemoryCatalogSnapshot:
         self._validate_stored(stored)
         by_link = {item.link: item for item in stored}
         outgoing: dict[MemoryLink, tuple[MemoryLink, ...]] = {}
@@ -168,6 +210,8 @@ class MemoryCatalog:
                 backlinks[target].append(source)
         entries: dict[MemoryLink, MemoryCatalogEntry] = {}
         for item in stored:
+            activity = getattr(item.document, "activity", None)
+            confidence = getattr(item.document, "confidence", None)
             entries[item.link] = MemoryCatalogEntry(
                 link=item.link,
                 display=item.document.display,
@@ -177,21 +221,33 @@ class MemoryCatalog:
                 outgoing=outgoing[item.link],
                 backlinks=tuple(sorted(backlinks[item.link], key=str)),
                 redirect_to=getattr(item.document, "redirect_to", None),
+                updated_on=item.document.updated_on,
+                last_activated_on=(
+                    activity.last_activated_on
+                    if isinstance(activity, MemoryActivity)
+                    else item.document.updated_on
+                ),
+                activation_count=(
+                    activity.activation_count
+                    if isinstance(activity, MemoryActivity)
+                    else 0
+                ),
+                confidence=(
+                    confidence.value
+                    if isinstance(confidence, MemoryConfidence)
+                    else None
+                ),
             )
-        self._snapshot = MemoryCatalogSnapshot(
+        return MemoryCatalogSnapshot(
             generation=_generation(stored),
             entries=entries,
         )
-        return self._snapshot
 
     def validate_overlay(
         self,
         documents: Sequence[PersistentMemoryDocument],
     ) -> None:
-        by_link = {link: self._store.read(link) for link in self._store.links()}
-        for document in documents:
-            by_link[document.link] = self._store.codec.stored(document)
-        self._validate_stored(tuple(by_link.values()))
+        self.snapshot_for(documents)
 
     def _validate_stored(self, stored: Sequence[StoredMemoryDocument]) -> None:
         by_link = {item.link: item for item in stored}
@@ -206,7 +262,7 @@ class MemoryCatalog:
                     )
         _validate_redirects(by_link, max_hops=self._redirect_max_hops)
         for item in stored:
-            if item.document.status.value != "active" or item.link.kind is not MemoryKind.NOTE:
+            if item.document.status.value != "active":
                 continue
             for relation in getattr(item.document, "relations", ()):
                 chain = _redirect_chain(
@@ -217,21 +273,48 @@ class MemoryCatalog:
                 final = by_link[chain[-1]].document
                 if final.status.value != "active" or final.kind not in {MemoryKind.ENTITY, MemoryKind.CONCEPT}:
                     raise MemoryInvariantError(
-                        f"Active Note relation does not resolve to active entity/concept: {relation}"
+                        f"Active Memory relation does not resolve to active entity/concept: {relation}"
                     )
 
-    def inspect(self, request: MemoryInspectRequest) -> MemoryInspectResult:
+    def inspect(
+        self,
+        request: MemoryInspectRequest,
+        *,
+        snapshot: MemoryCatalogSnapshot | None = None,
+        page_overhead: int = 0,
+    ) -> MemoryInspectResult:
+        if (
+            isinstance(page_overhead, bool)
+            or not isinstance(page_overhead, int)
+            or page_overhead < 0
+        ):
+            raise MemoryContractError("Memory inspect page overhead is invalid")
         limit = request.limit or self._settings.default_top_k
         if limit > self._settings.max_top_k:
             raise MemoryContractError(
                 f"Memory inspect limit exceeds {self._settings.max_top_k}"
             )
-        offset = _parse_continuation(request.continuation, self._snapshot.generation)
+        current = snapshot or self._snapshot
+        identity = _request_identity(request, limit=limit)
+        offset = _parse_continuation(request.continuation, current.generation, identity)
+        page_chars = self._settings.page_max_chars - page_overhead
+        if page_chars <= 0:
+            raise MemoryContractError("Memory inspect page overhead exceeds page budget")
         if request.memory_link is not None:
-            return self._inspect_link(request.memory_link, limit=limit, offset=offset)
+            return self._inspect_link(
+                request.memory_link,
+                snapshot=current,
+                identity=identity,
+                max_chars=page_chars,
+                limit=limit,
+                offset=offset,
+            )
         assert request.query is not None
         return self._inspect_query(
             request.query,
+            snapshot=current,
+            identity=identity,
+            max_chars=page_chars,
             kinds=request.kinds,
             limit=limit,
             offset=offset,
@@ -241,6 +324,9 @@ class MemoryCatalog:
         self,
         query: str,
         *,
+        snapshot: MemoryCatalogSnapshot,
+        identity: str,
+        max_chars: int,
         kinds: tuple[MemoryKind, ...],
         limit: int,
         offset: int,
@@ -249,7 +335,7 @@ class MemoryCatalog:
         terms = _terms(normalized_query)
         active = {
             link: entry
-            for link, entry in self._snapshot.entries.items()
+            for link, entry in snapshot.entries.items()
             if entry.status == "active" and (not kinds or link.kind in kinds)
         }
         semantic: Mapping[MemoryLink, float] = {}
@@ -268,7 +354,16 @@ class MemoryCatalog:
             if score <= 0:
                 continue
             scored.append((score, entry, reasons))
-        scored.sort(key=lambda item: (-item[0], str(item[1].link)))
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1].last_activated_on.toordinal(),
+                -item[1].updated_on.toordinal(),
+                -item[1].activation_count,
+                -_confidence_rank(item[1].confidence),
+                str(item[1].link),
+            )
+        )
         candidates = scored[: self._settings.candidate_limit]
         selected = candidates[offset : offset + limit]
         proposed = tuple(
@@ -284,16 +379,13 @@ class MemoryCatalog:
             )
             for score, entry, reasons in selected
         )
-        items = _fit_page(proposed, self._settings.page_max_chars)
-        next_offset = offset + len(items)
-        return MemoryInspectResult(
+        return _fit_result_page(
             mode="query",
-            items=items,
-            continuation=(
-                _continuation(self._snapshot.generation, next_offset)
-                if next_offset < len(candidates)
-                else None
-            ),
+            proposed=proposed,
+            max_chars=max_chars,
+            generation=snapshot.generation,
+            identity=identity,
+            offset=offset,
             candidate_count=len(candidates),
         )
 
@@ -301,14 +393,17 @@ class MemoryCatalog:
         self,
         link: MemoryLink,
         *,
+        snapshot: MemoryCatalogSnapshot,
+        identity: str,
+        max_chars: int,
         limit: int,
         offset: int,
     ) -> MemoryInspectResult:
-        entry = self._snapshot.require(link)
+        entry = snapshot.require(link)
         neighborhood = _unique((*entry.outgoing, *entry.backlinks))
         related_scored: list[tuple[int, MemoryLink]] = []
         entry_terms = _terms(_normalize(f"{entry.display} {entry.content}"))
-        for candidate, other in self._snapshot.entries.items():
+        for candidate, other in snapshot.entries.items():
             if candidate == link or candidate in neighborhood or other.status != "active":
                 continue
             overlap = len(entry_terms & _terms(_normalize(f"{other.display} {other.content}")))
@@ -320,7 +415,7 @@ class MemoryCatalog:
         selected = combined[offset : offset + limit]
         proposed = tuple(
             _inspect_item(
-                self._snapshot.require(candidate),
+                snapshot.require(candidate),
                 score=1.0,
                 reasons=(
                     "outgoing"
@@ -330,26 +425,23 @@ class MemoryCatalog:
                     else "lexical_related",
                 ),
                 summary=_truncate(
-                    self._snapshot.require(candidate).content,
+                    snapshot.require(candidate).content,
                     self._settings.summary_max_chars,
                 ),
             )
             for candidate in selected
         )
-        items = _fit_page(proposed, self._settings.page_max_chars)
-        next_offset = offset + len(items)
-        return MemoryInspectResult(
+        return _fit_result_page(
             mode="link",
-            items=items,
-            outgoing=tuple(str(item) for item in entry.outgoing),
-            backlinks=tuple(str(item) for item in entry.backlinks),
-            related=tuple(str(item) for item in related[:limit]),
-            continuation=(
-                _continuation(self._snapshot.generation, next_offset)
-                if next_offset < len(combined)
-                else None
-            ),
+            proposed=proposed,
+            max_chars=max_chars,
+            generation=snapshot.generation,
+            identity=identity,
+            offset=offset,
             candidate_count=len(combined),
+            outgoing_count=len(entry.outgoing),
+            backlink_count=len(entry.backlinks),
+            related_count=len(related),
         )
 
 
@@ -480,32 +572,81 @@ def _inspect_item(
         summary=summary,
         score=score,
         reasons=reasons,
+        updated_on=entry.updated_on.isoformat(),
+        activity=to_json_object({
+            "last_activated_on": entry.last_activated_on.isoformat(),
+            "activation_count": entry.activation_count,
+        }),
+        confidence=entry.confidence,
     )
 
 
-def _fit_page(
-    items: tuple[MemoryInspectItem, ...],
+def _fit_result_page(
+    *,
+    mode: str,
+    proposed: tuple[MemoryInspectItem, ...],
     max_chars: int,
-) -> tuple[MemoryInspectItem, ...]:
+    generation: str,
+    identity: str,
+    offset: int,
+    candidate_count: int,
+    outgoing_count: int = 0,
+    backlink_count: int = 0,
+    related_count: int = 0,
+) -> MemoryInspectResult:
     selected: list[MemoryInspectItem] = []
-    used = 2
-    for item in items:
-        size = len(
-            json.dumps(
-                item.to_json(),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        ) + 1
-        if selected and used + size > max_chars:
+    for item in proposed:
+        candidate = MemoryInspectResult(
+            mode=mode,
+            items=tuple((*selected, item)),
+            outgoing_count=outgoing_count,
+            backlink_count=backlink_count,
+            related_count=related_count,
+            continuation=(
+                _continuation(generation, identity, offset + len(selected) + 1)
+                if offset + len(selected) + 1 < candidate_count
+                else None
+            ),
+            candidate_count=candidate_count,
+        )
+        size = len(json.dumps(candidate.to_json(), ensure_ascii=False, separators=(",", ":")))
+        if selected and size > max_chars:
             break
-        if not selected and used + size > max_chars:
+        if not selected and size > max_chars:
             raise MemoryInvariantError(
                 "Memory inspect result cannot fit its configured page"
             )
         selected.append(item)
-        used += size
-    return tuple(selected)
+    next_offset = offset + len(selected)
+    return MemoryInspectResult(
+        mode=mode,
+        items=tuple(selected),
+        outgoing_count=outgoing_count,
+        backlink_count=backlink_count,
+        related_count=related_count,
+        continuation=(
+            _continuation(generation, identity, next_offset)
+            if next_offset < candidate_count
+            else None
+        ),
+        candidate_count=candidate_count,
+    )
+
+
+def _confidence_rank(value: str | None) -> int:
+    return {"low": 1, "medium": 2, "high": 3}.get(value or "", 0)
+
+
+def _request_identity(request: MemoryInspectRequest, *, limit: int) -> str:
+    payload = {
+        "mode": "link" if request.memory_link is not None else "query",
+        "query": _normalize(request.query) if request.query is not None else None,
+        "memory_link": str(request.memory_link) if request.memory_link is not None else None,
+        "kinds": sorted(item.value for item in request.kinds),
+        "limit": limit,
+    }
+    material = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
 def _semantic_text(entry: MemoryCatalogEntry) -> str:
@@ -557,15 +698,18 @@ def _generation(stored: Sequence[StoredMemoryDocument]) -> str:
     return sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
-def _continuation(generation: str, offset: int) -> str:
-    return f"{generation}:{offset}"
+def _continuation(generation: str, identity: str, offset: int) -> str:
+    return f"{generation}:{identity}:{offset}"
 
 
-def _parse_continuation(value: str | None, generation: str) -> int:
+def _parse_continuation(value: str | None, generation: str, identity: str) -> int:
     if value is None:
         return 0
-    prefix, separator, raw_offset = value.partition(":")
-    if not separator or prefix != generation:
+    parts = value.split(":")
+    if len(parts) != 3:
+        raise MemoryContractError("Memory inspect continuation is stale")
+    prefix, request_identity, raw_offset = parts
+    if prefix != generation or request_identity != identity:
         raise MemoryContractError("Memory inspect continuation is stale")
     try:
         offset = int(raw_offset)

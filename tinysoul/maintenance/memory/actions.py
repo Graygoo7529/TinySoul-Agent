@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, replace
 from datetime import date
+from hashlib import sha256
 from threading import RLock
 from typing import Sequence, TypedDict, cast
 from uuid import uuid4
@@ -81,6 +82,8 @@ class MemoryInspectionRef:
     query: str | None = None
     links: tuple[MemoryLink, ...] = ()
     digests: tuple[tuple[MemoryLink, str], ...] = ()
+    kinds: tuple[MemoryKind, ...] = ()
+    request_identity: str = ""
 
 
 class _NewKnowledgeFields(TypedDict):
@@ -256,12 +259,13 @@ class MemoryMaintenanceActionController:
     def _inspect_sources(self, state: _MemoryTaskState, params: JsonObject) -> JsonObject:
         offset = _int(params, "offset", 0, minimum=0, maximum=None)
         limit = _int(params, "limit", 8, minimum=1, maximum=32)
-        selected = state.projection.facts[offset : offset + limit]
-        return {
+        source = params.get("source", "session")
+        if source not in {"session", "workspace"}:
+            raise MaintenanceContractError("Memory source must be session or workspace")
+        fixed: JsonObject = to_json_object({
             "day": str(state.target_day),
+            "source": source,
             "session_revision": state.projection.revision,
-            "facts": [fact.to_json() for fact in selected],
-            "has_more": offset + len(selected) < len(state.projection.facts),
             "active_memory_ref": "memory:target",
             "active_memory_digest": state.active_memory.digest,
             "latest_daily_link": str(state.latest.link) if state.latest else None,
@@ -272,15 +276,27 @@ class MemoryMaintenanceActionController:
             "existing_daily_digest": (
                 state.existing_daily.digest if state.existing_daily else None
             ),
-            "workspace_resources": (
-                [
-                    {"link": item.link, "kind": item.kind.value, "summary": item.summary, "digest": item.digest}
-                    for item in state.workspace.manifest.resources
-                ]
-                if state.workspace is not None
-                else []
-            ),
-        }
+            "offset": offset,
+        })
+        if source == "session":
+            values = state.projection.facts
+            selected = values[offset : offset + limit]
+            fixed["facts"] = [fact.to_json() for fact in selected]
+        else:
+            values = state.workspace.manifest.resources if state.workspace is not None else ()
+            selected = values[offset : offset + limit]
+            fixed["workspace_resources"] = [
+                {
+                    "link": item.link,
+                    "kind": item.kind.value,
+                    "summary": item.summary,
+                    "digest": item.digest,
+                }
+                for item in selected
+            ]
+        fixed["has_more"] = offset + len(selected) < len(values)
+        fixed["total_count"] = len(values)
+        return fixed
 
     def _read_workspace(
         self,
@@ -304,69 +320,53 @@ class MemoryMaintenanceActionController:
 
     def _inspect(self, state: _MemoryTaskState, params: JsonObject) -> JsonObject:
         request = _inspect_request(params)
-        if request.memory_link in state.draft.changes:
-            document = state.draft.changes[request.memory_link].document
-            items = [{
-                "link": str(document.link),
-                "kind": document.kind.value,
-                "display": document.display,
-                "status": document.status.value,
-                "summary": document.content[:480],
-                "score": 1.0,
-                "reasons": ["staged"],
-            }]
-            links = (document.link,)
-            mode = "link"
-            result_payload = to_json_object(
-                {"mode": mode, "items": items, "candidate_count": 1}
-            )
-        else:
-            result = self._memory.inspect(request)
-            result_payload = to_json_object({
-                "mode": result.mode,
-                "items": [item.to_json() for item in result.items],
-                "candidate_count": result.candidate_count,
-                "outgoing": list(result.outgoing),
-                "backlinks": list(result.backlinks),
-                "related": list(result.related),
-                "continuation": result.continuation,
-            })
-            links = tuple(MemoryLink.parse(item.link) for item in result.items)
-            mode = result.mode
+        documents = self._draft_documents(state)
+        result = self._memory.inspect(
+            request,
+            documents=documents,
+            page_overhead=_inspection_ref_overhead(),
+        )
+        result_payload = result.to_json()
+        links = tuple(MemoryLink.parse(item.link) for item in result.items)
+        mode = result.mode
         if request.memory_link is not None:
             state.activated.add(request.memory_link)
             links = (request.memory_link, *tuple(link for link in links if link != request.memory_link))
-        ref = self._inspection_ref(state, mode=mode, query=request.query, links=links)
+        ref = self._inspection_ref(
+            state,
+            mode=mode,
+            query=request.query,
+            links=links,
+            kinds=request.kinds,
+            request_identity=_inspection_request_identity(request),
+        )
         result_payload["inspection_ref"] = ref.ref
         return result_payload
 
     def _recall(self, state: _MemoryTaskState, params: JsonObject) -> JsonObject:
         link = _link(params, "memory_link")
-        staged = state.draft.changes.get(link)
-        if staged is not None:
-            document = staged.document
-            payload = to_json_object({
-                "link": str(link),
-                "kind": link.kind.value,
-                "markdown": self._memory.render_document(document),
-                "digest": "staged",
-                "status": document.status.value,
-            })
-            digest = "staged"
-        else:
-            recalled = self._memory.recall(link)
-            payload = to_json_object({
-                "link": recalled.link,
-                "kind": recalled.kind,
-                "markdown": recalled.content,
-                "digest": recalled.digest,
-                "metadata": recalled.metadata,
-                "resolution_chain": list(recalled.resolution_chain),
-            })
-            digest = recalled.digest
+        recalled = self._memory.recall(link, documents=self._draft_documents(state))
+        payload = to_json_object({
+            "link": recalled.link,
+            "kind": recalled.kind,
+            "markdown": recalled.content,
+            "digest": recalled.digest,
+            "metadata": recalled.metadata,
+            "resolution_chain": list(recalled.resolution_chain),
+        })
+        digest = recalled.digest
         if link.kind is not MemoryKind.DAILY:
             state.activated.add(link)
-        ref = self._inspection_ref(state, mode="recall", query=None, links=(link,), explicit_digests=((link, digest),))
+        ref = self._inspection_ref(
+            state,
+            mode="recall",
+            query=None,
+            links=(link,),
+            explicit_digests=((link, digest),),
+            request_identity=_inspection_request_identity(
+                MemoryInspectRequest(memory_link=link)
+            ),
+        )
         payload["inspection_ref"] = ref.ref
         return payload
 
@@ -375,8 +375,8 @@ class MemoryMaintenanceActionController:
         if kind is MemoryKind.DAILY:
             raise MaintenanceContractError("Use stage_daily for daily Memory")
         ref = self._require_inspection(state, params, "inspection_ref", mode="query")
-        if ref.generation != self._memory.catalog_snapshot.generation:
-            raise MaintenanceContractError("Memory inspection_ref is stale")
+        if ref.kinds and kind not in ref.kinds:
+            raise MaintenanceContractError("Memory inspection_ref kind does not match create kind")
         if kind in {MemoryKind.ENTITY, MemoryKind.CONCEPT}:
             raw_cite = params.get("cite")
             if not isinstance(raw_cite, str):
@@ -397,15 +397,26 @@ class MemoryMaintenanceActionController:
         ref = self._require_inspection(state, params, "inspection_ref", mode="recall")
         expected = _text(params, "expected_digest")
         _validate_exact_ref(ref, link, expected)
-        stored = self._memory.read_document(link)
-        if stored.digest != expected:
+        current_change = state.draft.changes.get(link)
+        if current_change is not None:
+            current_document = current_change.document
+            current_digest = _document_digest(self._memory, current_document)
+        else:
+            stored = self._memory.read_document(link)
+            current_document = stored.document
+            current_digest = stored.digest
+        if current_digest != expected:
             raise MaintenanceContractError("Memory rewrite digest is stale")
         if link.kind is MemoryKind.DAILY:
             raise MaintenanceContractError("Use stage_daily for daily Memory")
-        if stored.document.status is not MemoryStatus.ACTIVE:
+        if current_document.status is not MemoryStatus.ACTIVE:
             raise MaintenanceContractError("Only active Memory can be rewritten")
-        document = _rewrite_document(stored.document, params, state.target_day.value)
-        state.draft.changes[link] = MemoryDocumentChange(document=document, expected_digest=expected)
+        document = _rewrite_document(current_document, params, state.target_day.value)
+        state.draft.changes[link] = MemoryDocumentChange(
+            document=document,
+            expected_digest=(current_change.expected_digest if current_change else expected),
+            expected_absent=(current_change.expected_absent if current_change else False),
+        )
         state.activated.add(link)
         state.draft.changed()
         return {"staged": True, "link": str(link), "draft_revision": state.draft.revision}
@@ -419,14 +430,11 @@ class MemoryMaintenanceActionController:
         _validate_exact_ref(source_ref, source, expected)
         if target not in target_ref.links:
             raise MaintenanceContractError("Target inspection_ref does not bind target_link")
-        target_change = state.draft.changes.get(target)
-        if target_change is not None:
-            if (target, "staged") not in target_ref.digests:
-                raise MaintenanceContractError("Target inspection_ref is stale")
-        else:
-            target_stored = self._memory.read_document(target)
-            if (target, target_stored.digest) not in target_ref.digests:
-                raise MaintenanceContractError("Target inspection_ref is stale")
+        if source in state.draft.changes:
+            raise MaintenanceContractError("Redirect source must be an existing Memory Link")
+        target_digest = _document_digest_for_link(self._memory, state, target)
+        if (target, target_digest) not in target_ref.digests:
+            raise MaintenanceContractError("Target inspection_ref is stale")
         stored = self._memory.read_document(source)
         if stored.digest != expected:
             raise MaintenanceContractError("Memory redirect digest is stale")
@@ -566,11 +574,13 @@ class MemoryMaintenanceActionController:
         query: str | None,
         links: tuple[MemoryLink, ...],
         explicit_digests: tuple[tuple[MemoryLink, str], ...] = (),
+        kinds: tuple[MemoryKind, ...] = (),
+        request_identity: str = "",
     ) -> MemoryInspectionRef:
         digests = explicit_digests or tuple(
-            (link, self._memory.catalog_snapshot.require(link).digest)
+            (link, _document_digest_for_link(self._memory, state, link))
             for link in links
-            if link in self._memory.catalog_snapshot.entries
+            if _document_exists(state, self._memory, link)
         )
         value = MemoryInspectionRef(
             ref=f"inspection_{uuid4().hex}",
@@ -579,9 +589,15 @@ class MemoryMaintenanceActionController:
             query=query,
             links=links,
             digests=digests,
+            kinds=kinds,
+            request_identity=request_identity,
         )
         state.inspections[value.ref] = value
         return value
+
+    @staticmethod
+    def _draft_documents(state: _MemoryTaskState) -> tuple[PersistentMemoryDocument, ...]:
+        return tuple(change.document for change in state.draft.changes.values())
 
     def _require_inspection(
         self,
@@ -724,6 +740,49 @@ def _activate(activity: MemoryActivity, day: date) -> MemoryActivity:
 def _validate_exact_ref(ref: MemoryInspectionRef, link: MemoryLink, digest: str) -> None:
     if link not in ref.links or (link, digest) not in ref.digests:
         raise MaintenanceContractError("Memory inspection_ref does not bind Link and digest")
+
+
+def _document_exists(state: _MemoryTaskState, memory: MemoryEngine, link: MemoryLink) -> bool:
+    return link in state.draft.changes or link in memory.catalog_snapshot.entries
+
+
+def _document_digest_for_link(
+    memory: MemoryEngine,
+    state: _MemoryTaskState,
+    link: MemoryLink,
+) -> str:
+    change = state.draft.changes.get(link)
+    if change is not None:
+        return _document_digest(memory, change.document)
+    return memory.catalog_snapshot.require(link).digest
+
+
+def _document_digest(memory: MemoryEngine, document: PersistentMemoryDocument) -> str:
+    return sha256(memory.render_document(document).encode("utf-8")).hexdigest()
+
+
+def _inspection_request_identity(request: MemoryInspectRequest) -> str:
+    payload = {
+        "mode": "link" if request.memory_link is not None else "query",
+        "query": " ".join(request.query.casefold().split()) if request.query else None,
+        "memory_link": str(request.memory_link) if request.memory_link is not None else None,
+        "kinds": sorted(item.value for item in request.kinds),
+        "limit": request.limit or 8,
+    }
+    return sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _inspection_ref_overhead() -> int:
+    placeholder = "inspection_" + ("0" * 32)
+    return len(
+        json.dumps(
+            {"inspection_ref": placeholder},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    ) + 1
 
 
 def _inspect_request(params: JsonObject) -> MemoryInspectRequest:

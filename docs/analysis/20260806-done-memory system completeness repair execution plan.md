@@ -2,10 +2,10 @@
 
 ## 状态
 
-- `in_progress`：完成实现核对、缺口归类与修复方案设计，等待确认后实施
-- `pending`：修复事务恢复、检索边界、Maintenance 暂存视图与引用校验
+- `done`：主体修复、文档复核与全量验收已完成
+- `done`：修复事务恢复、检索边界、Maintenance 暂存视图与引用校验
 - `done`：收敛 embedding 凭据身份并写入本地专用环境变量
-- `pending`：完成主体修复、文档复核与全量验收
+- `done`：Memory/Maintenance/Infra/App 定向测试、Full 和 typecheck 已通过
 
 ## 背景
 
@@ -330,7 +330,7 @@ backlinks。
 
 ## 实施阶段
 
-### Stage 1：修复派生检索与 Maintenance 草稿协议（pending）
+### Stage 1：修复派生检索与 Maintenance 草稿协议（done）
 
 - 收敛 inspect result、完整页预算、request-bound continuation 和 source 分页；
 - catalog 投影 activity/recency/confidence，并按有限 tie-break 排序；
@@ -338,19 +338,27 @@ backlinks。
 - 对全部 active 知识文档统一验证 relation redirect 终点；
 - 更新 Memory/Maintenance focused tests 和 Action 语义。
 
-### Stage 2：加固事务发布、完成标记与恢复（pending）
+### Stage 2：加固事务发布、完成标记与恢复（done）
 
 - 引入 preparing -> ready -> completed 的原子目录状态切换；
 - apply/recover 在首个 target write 前验证全部 staged 文档、CAS 和最终引用集合；
 - 覆盖 staged write、manifest、publish、每个 target、complete rename 和 cleanup 中断；
 - 确认 startup recover 后才重建 catalog 并向新 Turn 暴露 Memory。
 
-### Stage 3：配置复核、文档同步与全量验收（pending）
+### Stage 3：配置复核、文档同步与全量验收（done）
 
 - 复核已完成的单一 `GLM_EMBEDDING_API_KEY` 配置与当前 `ZHIPU_API_KEY` 清理结果；
 - 更新项目配置模板、`.env.example`、设计文档、执行记录与配置测试；
 - 运行 Memory/Maintenance/Infra/App 定向测试、Fast、Full、typecheck；
-- 重新核对 `AGENT.md`、当前设计文档与实现，全部完成后把本计划标记并重命名为 done。
+- 重新核对 `AGENT.md`、当前设计文档与实现，完成后将本计划标记并重命名为 done。
+
+## 验证结果
+
+- Memory/Maintenance 定向测试：`16 passed`；
+- Full：`864 passed, 2 skipped, 21 deselected, 1 warning`；
+- typecheck：`All checks passed!`；
+- `git diff --check`：通过；
+- embedding 配置只声明 `GLM_EMBEDDING_API_KEY`，GLM LLM provider 仍只声明 `GLM_API_KEY`；真实密钥仅存在于本地 `.env`，未写入 Git 跟踪文件。
 
 ## 测试矩阵
 

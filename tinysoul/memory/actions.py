@@ -99,16 +99,7 @@ class MemoryInspectExecutor(ActionExecutor):
             return _failed(execution, str(exc), "invalid_inspect")
         except MemoryError as exc:
             raise self._runtime_bridge.from_memory_error(exc) from exc
-        payload = to_json_object({
-            "mode": result.mode,
-            "items": [item.to_json() for item in result.items],
-            "candidate_count": result.candidate_count,
-            "continuation": result.continuation,
-        })
-        if result.mode == "link":
-            payload["outgoing"] = list(result.outgoing)
-            payload["backlinks"] = list(result.backlinks)
-            payload["related"] = list(result.related)
+        payload = result.to_json()
         refs: tuple[str, ...] = ()
         if request.memory_link is not None:
             refs = (str(request.memory_link),)
