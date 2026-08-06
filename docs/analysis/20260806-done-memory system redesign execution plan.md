@@ -726,7 +726,7 @@ page_max_chars = 8000
 enabled = false
 base_url = "https://open.bigmodel.cn/api/paas/v4"
 model = "embedding-3"
-api_key_envs = ["GLM_API_KEY", "ZHIPU_API_KEY"]
+api_key_env = "GLM_EMBEDDING_API_KEY"
 dimensions = 1024
 batch_size = 64
 timeout_seconds = 30.0
@@ -742,7 +742,8 @@ validation_retries = 2
 实际默认数值在实施时结合 Context/LLM budget 测试确认，但字段所有权保持以上结构。
 当前 `[memory.search]` 迁为 `[memory.inspect]`；`[memory.consolidation]` 迁为
 `[memory.daily_composition]`。Embedding 由 Infra 的顶层 `[embedding]` 配置拥有，默认关闭；
-启用时 API key 只从列出的环境变量解析，不进入 TOML、日志或缓存。`embedding-3` 的维度与
+启用时 API key 只从专用的 `GLM_EMBEDDING_API_KEY` 环境变量解析，不复用模型使用的
+`GLM_API_KEY`，也不进入 TOML、日志或缓存。`embedding-3` 的维度与
 批量上限在配置入口严格校验。活动文件位置来自 Session root 注入，不增加
 `memory.active_root` 配置。配置是开发期严格切换，不保留旧键兼容字段。
 
@@ -877,7 +878,7 @@ Session facts、prompt 或绝对路径。
   验证 memorize 下一轮生效、inspect 多跳和五类 exact recall；为 Maintenance 提供
   Workspace owner 的受限 archive resource inspect/read view。
 
-### Stage 3：Maintenance、事务、应用接入与验收（in_progress）
+### Stage 3：Maintenance、事务、应用接入与验收（done）
 
 - 扩展 Memory Maintenance Context，精确绑定 target 日 ArchiveProjection、Session、
   归档 `Memory.md`、target-relative latest、可选已有 daily 和 Workspace archive view。

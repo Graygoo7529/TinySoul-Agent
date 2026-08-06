@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
-from typing import Protocol, cast
+from typing import Protocol
 
 from openai import OpenAI
 
@@ -21,7 +21,7 @@ class EmbeddingSettings:
     enabled: bool = False
     base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     model: str = "embedding-3"
-    api_key_envs: tuple[str, ...] = ("GLM_API_KEY", "ZHIPU_API_KEY")
+    api_key_env: str = "GLM_EMBEDDING_API_KEY"
     dimensions: int = 1024
     batch_size: int = 64
     timeout_seconds: float = 30.0
@@ -34,9 +34,11 @@ class EmbeddingSettings:
             value = getattr(self, name)
             if not isinstance(value, str) or not value:
                 raise ConfigError(f"Embedding {name} must be non-empty", key=f"embedding.{name}")
-        envs = tuple(self.api_key_envs)
-        if not envs or any(not isinstance(item, str) or not item for item in envs):
-            raise ConfigError("Embedding api_key_envs are invalid", key="embedding.api_key_envs")
+        if not isinstance(self.api_key_env, str) or not self.api_key_env:
+            raise ConfigError(
+                "Embedding api_key_env is invalid",
+                key="embedding.api_key_env",
+            )
         if self.model == "embedding-3" and self.dimensions not in {256, 512, 1024, 2048}:
             raise ConfigError(
                 "embedding-3 dimensions must be 256, 512, 1024, or 2048",
@@ -61,17 +63,14 @@ class EmbeddingSettings:
             raise ConfigError("Embedding timeout_seconds must be positive", key="embedding.timeout_seconds")
         if isinstance(self.cache_max_chars, bool) or not isinstance(self.cache_max_chars, int) or self.cache_max_chars <= 0:
             raise ConfigError("Embedding cache_max_chars must be positive", key="embedding.cache_max_chars")
-        object.__setattr__(self, "api_key_envs", envs)
-
     def resolve_api_key(self, env: Mapping[str, str]) -> str:
-        for name in self.api_key_envs:
-            value = env.get(name)
-            if value:
-                return value
+        value = env.get(self.api_key_env)
+        if value:
+            return value
         raise ConfigError(
             "Embedding API key is not configured",
-            key="embedding.api_key_envs",
-            value=", ".join(self.api_key_envs),
+            key="embedding.api_key_env",
+            value=self.api_key_env,
         )
 
 
@@ -122,7 +121,7 @@ class OpenAICompatibleEmbeddingClient:
         if not settings.enabled:
             raise ConfigError("Cannot build a disabled Embedding client", key="embedding.enabled")
         if not isinstance(api_key, str) or not api_key:
-            raise ConfigError("Embedding API key is empty", key="embedding.api_key_envs")
+            raise ConfigError("Embedding API key is empty", key="embedding.api_key_env")
         self._settings = settings
         self._client = client or OpenAI(
             api_key=api_key,
@@ -186,7 +185,7 @@ def parse_embedding_settings(tree: Mapping[str, object]) -> EmbeddingSettings:
         "enabled",
         "base_url",
         "model",
-        "api_key_envs",
+        "api_key_env",
         "dimensions",
         "batch_size",
         "timeout_seconds",
@@ -194,14 +193,11 @@ def parse_embedding_settings(tree: Mapping[str, object]) -> EmbeddingSettings:
     }
     reject_unknown_keys(tree, names, key="embedding")
     defaults = EmbeddingSettings()
-    raw_envs = tree.get("api_key_envs", defaults.api_key_envs)
-    if not isinstance(raw_envs, (list, tuple)) or any(not isinstance(item, str) for item in raw_envs):
-        raise ConfigError("Embedding api_key_envs must be a string list", key="embedding.api_key_envs")
     return EmbeddingSettings(
         enabled=_bool(tree.get("enabled", defaults.enabled), "enabled"),
         base_url=_text(tree.get("base_url", defaults.base_url), "base_url"),
         model=_text(tree.get("model", defaults.model), "model"),
-        api_key_envs=tuple(cast(Sequence[str], raw_envs)),
+        api_key_env=_text(tree.get("api_key_env", defaults.api_key_env), "api_key_env"),
         dimensions=_int(tree.get("dimensions", defaults.dimensions), "dimensions"),
         batch_size=_int(tree.get("batch_size", defaults.batch_size), "batch_size"),
         timeout_seconds=_float(tree.get("timeout_seconds", defaults.timeout_seconds), "timeout_seconds"),

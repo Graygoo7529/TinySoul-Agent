@@ -21,16 +21,21 @@ def test_embedding_settings_are_strict_and_resolve_keys_only_from_environment() 
             "model": "embedding-3",
             "dimensions": 512,
             "batch_size": 2,
-            "api_key_envs": ["GLM_API_KEY"],
+            "api_key_env": "GLM_EMBEDDING_API_KEY",
         }
     )
-    assert settings.resolve_api_key({"GLM_API_KEY": "environment-secret"}) == (
+    assert settings.resolve_api_key({"GLM_EMBEDDING_API_KEY": "environment-secret"}) == (
         "environment-secret"
     )
+    with pytest.raises(ConfigError, match="API key") as missing:
+        settings.resolve_api_key({"GLM_API_KEY": "model-secret"})
+    assert missing.value.key == "embedding.api_key_env"
     with pytest.raises(ConfigError, match="API key"):
         settings.resolve_api_key({})
     with pytest.raises(ConfigError, match="Unknown"):
         parse_embedding_settings({"api_key": "must-not-be-configured"})
+    with pytest.raises(ConfigError, match="Unknown"):
+        parse_embedding_settings({"api_key_envs": ["GLM_API_KEY"]})
     with pytest.raises(ConfigError, match="dimensions"):
         EmbeddingSettings(model="embedding-3", dimensions=768)
     assert build_embedding_client(EmbeddingSettings(), env={}) is None

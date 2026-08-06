@@ -121,14 +121,14 @@ Embedding 是 `tinysoul.infra` 的 provider-neutral 基础设施，通过顶层 
 enabled = true
 base_url = "https://open.bigmodel.cn/api/paas/v4"
 model = "embedding-3"
-api_key_envs = ["GLM_API_KEY", "ZHIPU_API_KEY"]
+api_key_env = "GLM_EMBEDDING_API_KEY"
 dimensions = 1024
 batch_size = 64
 timeout_seconds = 30.0
 cache_max_chars = 16000000
 ```
 
-密钥只从列出的环境变量读取，不能写入 TOML 或缓存。Maintenance commit 后为 active 文档批量刷新派生向量；User inspect 只对 query 临时请求向量，不写业务 Markdown或派生缓存。缓存按 provider/model/dimensions identity 和文档 digest 复用；缺失、损坏、不匹配、请求失败或维度异常时回退 lexical/relations/backlinks，不影响 exact recall。Embedding-3 的当前端点、批量和维度限制以智谱官方文档为准：<https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入>。
+密钥只从专用的 `GLM_EMBEDDING_API_KEY` 环境变量读取，不能复用 `GLM_API_KEY`，也不能写入 TOML 或缓存。Maintenance commit 后为 active 文档批量刷新派生向量；User inspect 只对 query 临时请求向量，不写业务 Markdown或派生缓存。缓存按 provider/model/dimensions identity 和文档 digest 复用；缺失、损坏、不匹配、请求失败或维度异常时回退 lexical/relations/backlinks，不影响 exact recall。Embedding-3 的当前端点、批量和维度限制以智谱官方文档为准：<https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入>。
 
 ## Memory Maintenance
 
