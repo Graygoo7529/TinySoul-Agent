@@ -1,16 +1,24 @@
 [memory]
 root = "memory"
-max_document_chars = 16000
+max_active_chars = 12000
 
-[memory.search]
-candidate_limit = 20
-default_top_k = 5
-max_top_k = 10
-summary_max_chars = 320
+[memory.documents]
+daily_max_chars = 32000
+entity_max_chars = 16000
+concept_max_chars = 16000
+fact_max_chars = 4000
+note_max_chars = 24000
+redirect_max_hops = 8
 
-[memory.consolidation]
+[memory.inspect]
+candidate_limit = 40
+default_top_k = 8
+max_top_k = 20
+summary_max_chars = 480
+page_max_chars = 8000
+
+[memory.daily_composition]
 chunk_max_chars = 12000
 source_max_chars = 240000
-link_hints_max_chars = 4096
 max_calls = 48
 validation_retries = 2

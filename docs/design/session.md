@@ -63,7 +63,9 @@ active head -> Summary -> Turn -> Action collection -> Action leaf
 
 ## Memory 与 Daily
 
-Daily Lifecycle 归档 Session 根后，`archive_snapshot()` 用同一 manifest/record validator 校验只读图。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、输出、Actions 与 exhausted；不交付 trace 或执行元数据。
+Session root 同时承载 Memory owner 的活动 `Memory.md`，但 Session 不解析或修改该文件。Daily Lifecycle 在 Session 初始化后要求 Memory 创建当日空正文文件，归档前由 Memory 校验，再随整个 Session root 一起移动；因此 Archive 中的 Session facts 与目标日活动记忆具有同一日切身份。
+
+Daily Lifecycle 归档 Session 根后，`archive_available()`/`archive_snapshot()` 用同一 manifest/record validator 区分“归档缺失”和“归档存在但损坏”。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、输出、Actions 与 exhausted；不交付 trace 或执行元数据。
 
 SessionEngine 只负责自身初始化、提交、reconciliation、archive participant 与只读 projection。Maintenance Archive 决定关闭日与归档位置；Memory Maintenance 只消费 Session 交付的 typed facts/archive view；Context 只消费 Background snapshot；Endpoint 不直接依赖 SessionEngine。
 

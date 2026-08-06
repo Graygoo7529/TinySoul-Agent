@@ -29,12 +29,11 @@ from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
 from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
 from tinysoul.loop.user import UserAnswerCompletionDetector
 from tinysoul.memory import (
+    DailyMemoryDocument,
     MemoryEngine,
-    MemoryLink,
     MemorySettings,
     register_memory_actions,
 )
-from tinysoul.memory.store import MemoryStore
 from tinysoul.runtime import (
     RUNTIME_TURN_END,
     CyclePhase,
@@ -290,18 +289,20 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
     tmp_path: Path,
 ) -> None:
     memory_root = tmp_path / "memory"
-    MemoryStore(root=memory_root, max_document_chars=16000).write(
-        MemoryLink.parse("memory:2026-07-13"),
-        "free-form remembered fact",
-    )
-
-    class HomeCatalog:
-        def actual_top_links(self) -> tuple[str, ...]:
-            return ()
-
     memory = MemoryEngine(
         settings=MemorySettings(root=memory_root),
-        home_catalog=HomeCatalog(),
+    )
+    memory.write_document(
+        DailyMemoryDocument(
+            day=date(2026, 7, 13),
+            revision=0,
+            created_on=date(2026, 7, 13),
+            updated_on=date(2026, 7, 13),
+            session_revision=1,
+            active_memory_digest="0" * 64,
+            content="free-form remembered fact",
+        ),
+        expected_absent=True,
     )
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("recall yesterday")
@@ -311,12 +312,12 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
             ToolCallRecord(
                 id="recall_1",
                 name="memory.recall",
-                arguments={"memory_link": "memory:2026-07-13"},
+                arguments={"memory_link": "memory:daily/2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
                 id="search_1",
-                name="memory.search",
+                name="memory.inspect",
                 arguments={"query": "remembered"},
                 kind=ToolKind.ACTION,
             ),
@@ -341,12 +342,16 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
         turn_id=turn_id,
     )
 
-    assert outcome.results[0].payload["text"] == "free-form remembered fact"
-    items = outcome.results[1].payload["items"]
+    results = {result.action_name: result for result in outcome.results}
+    assert all(result.failure is None for result in results.values()), repr(results)
+    markdown = results["memory.recall"].payload["markdown"]
+    assert isinstance(markdown, str)
+    assert "free-form remembered fact" in markdown
+    items = results["memory.inspect"].payload["items"]
     assert isinstance(items, list)
     first_item = items[0]
     assert isinstance(first_item, dict)
-    assert first_item["link"] == "memory:2026-07-13"
+    assert first_item["link"] == "memory:daily/2026-07-13"
     assert "period" not in first_item
     assert context.trace_kinds() == (
         TraceKind.ACTION_RESULT,
@@ -858,8 +863,9 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_function("home.top.patch", lambda execution, context: {"patched": True})
         .register_function("home.top.write", lambda execution, context: {"written": True})
         .register_function("home.top.search", lambda execution, context: {"items": []})
+        .register_function("memory.inspect", lambda execution, context: {"items": []})
+        .register_function("memory.memorize", lambda execution, context: {"digest": ""})
         .register_function("memory.recall", lambda execution, context: {"text": ""})
-        .register_function("memory.search", lambda execution, context: {"items": []})
         .register_function("home.prompt_mount.patch", lambda execution, context: {"patched": True})
         .register_function("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_function("context.inspect", lambda execution, context: {})
@@ -999,11 +1005,14 @@ def _action_engine(
         )
     if memory is None:
         builder.register_function(
+            "memory.inspect",
+            lambda execution, context: {"items": []},
+        ).register_function(
+            "memory.memorize",
+            lambda execution, context: {"digest": ""},
+        ).register_function(
             "memory.recall",
             lambda execution, context: {"text": ""},
-        ).register_function(
-            "memory.search",
-            lambda execution, context: {"items": []},
         )
     else:
         register_memory_actions(

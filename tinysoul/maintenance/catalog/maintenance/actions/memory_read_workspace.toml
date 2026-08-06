@@ -1,0 +1,17 @@
+name = "maintenance.memory.read_workspace"
+domain = "maintenance"
+[tool]
+description = "Read bounded UTF-8 text from one exact target-day archived Workspace link using the digest exposed by inspect_sources."
+schema = { type = "object", properties = { workspace_link = { type = "string" }, expected_digest = { type = "string" }, max_chars = { type = "integer", minimum = 1, maximum = 24000 } }, required = ["workspace_link", "expected_digest"], additionalProperties = false }
+[semantic]
+use_when = ["A specific archived text resource is relevant evidence for a note or daily entry"]
+avoid_when = ["Only its manifest summary is needed", "The resource is not text"]
+effects = ["read_only"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.read_workspace"

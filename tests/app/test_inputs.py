@@ -52,12 +52,12 @@ def test_input_parser_separates_user_and_active_turn_input() -> None:
     )
 
 
-def test_input_parser_supports_all_maintenance_scopes_and_rebuild() -> None:
+def test_input_parser_supports_all_maintenance_scopes() -> None:
     parser = InputCommandParser()
     daily = parser.parse(InputEvent("/maintenance"), turn_active=False)
     home = parser.parse(InputEvent("/maintenance home"), turn_active=False)
     memory = parser.parse(
-        InputEvent("/maintenance memory --rebuild 2026-07-12"),
+        InputEvent("/maintenance memory 2026-07-12"),
         turn_active=False,
     )
     invalid = parser.parse(
@@ -68,8 +68,8 @@ def test_input_parser_supports_all_maintenance_scopes_and_rebuild() -> None:
         InputEvent("/maintenance memory"),
         turn_active=False,
     )
-    rebuild_without_target = parser.parse(
-        InputEvent("/maintenance memory --rebuild"),
+    retired_rebuild_flag = parser.parse(
+        InputEvent("/maintenance memory 2026-07-12 --rebuild"),
         turn_active=False,
     )
 
@@ -77,10 +77,9 @@ def test_input_parser_supports_all_maintenance_scopes_and_rebuild() -> None:
     assert home.maintenance_scope is MaintenanceScope.HOME
     assert memory.maintenance_scope is MaintenanceScope.MEMORY
     assert memory.target_day == BusinessDay.parse("2026-07-12")
-    assert memory.rebuild_memory is True
     assert invalid.kind is InputIntentKind.REJECTED
     assert missing_target.kind is InputIntentKind.REJECTED
-    assert rebuild_without_target.kind is InputIntentKind.REJECTED
+    assert retired_rebuild_flag.kind is InputIntentKind.REJECTED
 
 
 def test_dispatcher_routes_user_input_to_queue_or_active_turn_signal() -> None:
@@ -132,7 +131,7 @@ def test_dispatcher_queues_manual_maintenance_even_during_user_turn() -> None:
         active_turn_scope=_turn_scope,
     )
     dispatcher.submit(
-        InputEvent("/maintenance memory 2026-07-10 --rebuild", source="terminal")
+        InputEvent("/maintenance memory 2026-07-10", source="terminal")
     )
 
     request = queue.get_nowait()
@@ -140,7 +139,6 @@ def test_dispatcher_queues_manual_maintenance_even_during_user_turn() -> None:
     assert request.scope is MaintenanceScope.MEMORY
     assert request.trigger is MaintenanceTrigger.MANUAL
     assert request.target_day == BusinessDay.parse("2026-07-10")
-    assert request.rebuild_memory is True
     assert len(bus) == 0
 
 

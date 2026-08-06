@@ -1,0 +1,17 @@
+name = "maintenance.memory.inspect_sources"
+domain = "maintenance"
+[tool]
+description = "Page through target-day Session facts and view digest-bound references for archived active Memory, existing/latest daily, and archived Workspace resources. Use Background for memory:target/memory:latest and exact recall for an existing target daily."
+schema = { type = "object", properties = { offset = { type = "integer", minimum = 0 }, limit = { type = "integer", minimum = 1, maximum = 32 } }, additionalProperties = false }
+[semantic]
+use_when = ["Understand the target day's evidence before composing or updating memory"]
+avoid_when = ["The persistent Memory catalog should be searched instead"]
+effects = ["read_only"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.inspect_sources"

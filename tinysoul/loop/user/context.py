@@ -7,7 +7,7 @@ from tinysoul.context.errors import ContextError
 from tinysoul.home import AgentHomeEngine, HomeBackgroundEntryProvider
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigError
-from tinysoul.memory import MemoryBackgroundEntryProvider, MemoryEngine
+from tinysoul.memory import ActiveMemoryBackgroundEntryProvider, MemoryEngine
 from tinysoul.runtime import ObservationEmitter
 from tinysoul.runtime.bridge import (
     RuntimeAgentHomeBridge,
@@ -49,7 +49,7 @@ def build_user_context(
                 )
             )
             .add_background_provider(
-                MemoryBackgroundEntryProvider(
+                ActiveMemoryBackgroundEntryProvider(
                     memory=memory,
                     runtime_bridge=memory_bridge,
                 )

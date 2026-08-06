@@ -11,7 +11,7 @@ from tinysoul.loop.assembly import build_turn_kernel
 from tinysoul.loop.config import LoopSettings
 from tinysoul.loop.preparation import TurnPreparationPipeline
 from tinysoul.loop.phases import LLMRunner
-from tinysoul.memory import LLMMemoryConsolidator, MemoryEngine
+from tinysoul.memory import LLMDailyMemoryComposer, MemoryEngine
 from tinysoul.runtime import ObservationEmitter, SignalBus
 from tinysoul.runtime.bridge import (
     RuntimeContextBridge,
@@ -76,6 +76,7 @@ class MaintenanceBuilder:
         self._action_settings = action_settings or ActionSettings()
 
     def build(self) -> MaintenanceEngine:
+        archived_context = ArchivedMemoryMaintenanceContext()
         home_context = build_maintenance_context(
             settings=self._context_settings,
             home=self._home,
@@ -87,13 +88,12 @@ class MaintenanceBuilder:
             home=self._home,
             memory=self._memory,
             observations=self._observations,
+            memory_target_binding=archived_context,
         )
-        archived_context = ArchivedMemoryMaintenanceContext()
         home_controller = HomeMaintenanceActionController(self._home)
         memory_controller = MemoryMaintenanceActionController(
             memory=self._memory,
-            consolidator=LLMMemoryConsolidator(self._llm),
-            timezone=self._settings.timezone,
+            composer=LLMDailyMemoryComposer(self._llm),
         )
         home_action = build_maintenance_action(
             kind="home",
@@ -157,6 +157,7 @@ class MaintenanceBuilder:
                 archive_root=self._settings.archive_root,
                 session=self._session,
                 workspace=self._workspace,
+                memory=self._memory,
                 observations=self._observations,
             ),
             home=HomeMaintenanceTask(

@@ -16,7 +16,12 @@ from tinysoul.context.errors import ContextError
 from tinysoul.home import AgentHomeEngine
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.infra.config import ConfigError
-from tinysoul.memory import MemoryBackgroundEntryProvider, MemoryEngine
+from tinysoul.memory import (
+    ActiveMemoryBackgroundEntryProvider,
+    MemoryEngine,
+    TargetMemoryBackgroundEntryProvider,
+)
+from tinysoul.memory.background import TargetMemoryBinding
 from tinysoul.runtime import ObservationEmitter
 from tinysoul.runtime.bridge import (
     RuntimeAgentHomeBridge,
@@ -71,6 +76,7 @@ def build_maintenance_context(
     home: AgentHomeEngine,
     memory: MemoryEngine,
     observations: ObservationEmitter,
+    memory_target_binding: TargetMemoryBinding | None = None,
 ) -> ContextEngine:
     context_bridge = RuntimeContextBridge()
     home_bridge = RuntimeAgentHomeBridge()
@@ -96,7 +102,13 @@ def build_maintenance_context(
                 )
             )
             .add_background_provider(
-                MemoryBackgroundEntryProvider(
+                TargetMemoryBackgroundEntryProvider(
+                    memory=memory,
+                    binding=memory_target_binding,
+                    runtime_bridge=memory_bridge,
+                )
+                if memory_target_binding is not None
+                else ActiveMemoryBackgroundEntryProvider(
                     memory=memory,
                     runtime_bridge=memory_bridge,
                 )

@@ -195,6 +195,22 @@ class SessionEngine:
             refs=manifest.refs,
         )
 
+    def archive_available(self, day: BusinessDay, *, root: Path) -> bool:
+        """Return false for an absent archive and validate one that exists."""
+
+        _require_business_day(day)
+        if not isinstance(root, Path) or not root.is_absolute():
+            raise SessionContractError("Session archive root must be absolute")
+        manifest = root / "manifest.json"
+        if manifest.is_symlink():
+            raise SessionInvariantError("Session archive manifest cannot be a symlink")
+        if not manifest.exists():
+            return False
+        if not manifest.is_file():
+            raise SessionInvariantError("Session archive manifest is not a file")
+        self.archive_snapshot(day, root=root)
+        return True
+
     def memory_facts(
         self,
         day: BusinessDay,

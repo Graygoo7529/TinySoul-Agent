@@ -8,7 +8,7 @@ Action 不负责构造基础语境，不负责模型供应商适配，不负责�
 
 Action 的核心职责是把“可选择的域”和“可执行的动作”组织成稳定的 catalog，并把 Phase1 / Phase2 / Phase3 的行为切成清晰的边界。
 
-Stage 6.2 已将 Memory-owned `memory.search` 收敛为单日候选，并与 `memory.recall` 一起通过 Memory domain catalog 和 `register_memory_actions` registrar 接入。
+Memory domain 通过 `register_memory_actions` 接入 `memory.memorize`、`memory.inspect`、`memory.recall`：活动记忆 patch、持久 Link 发现/探索和精确完整召回是三个不同 Action 边界。
 
 ## 设计目标
 
@@ -226,7 +226,7 @@ Action 模块的正常执行流不应把可反馈失败暴露为普通异常。�
 
 `home.top.search` 是 Home-owned native action，其 executor 调用 Home search service，并使用注入的专用 `LLMHomeSearchReranker` 完成候选重排；它不使用通用 `llm_action` backend，因为确定性候选、candidate-only validator 和 fallback 都属于 Home 搜索业务语义。Action 层仍只负责执行 catalog 中的 handler 和承载结构化结果。
 
-`memory.search` 与 `memory.recall` 是 Memory-owned native action。Agent 不知道精确日期时使用 search；Search executor 调用 Memory 的按日确定性候选/专用 reranker 服务，只返回 `memory:YYYY-MM-DD` Link、日期和有界摘要。Context 已提供精确 Link 或 search 已发现目标日时使用 recall；recall executor 只通过 `MemoryEngine` 解析精确 `memory:YYYY-MM-DD` 并有界读取完整非空单日 Markdown。两者的 `ActionResult` 都由 Context 写入当前 TurnTraceHeap，不修改 Background。`<memory:YYYY-MM-DD>` 是提示模型调用 recall 的资源引用，Action 模块本身不解析其日期或文件路径。
+Memory 的三个 native action 都只调用 `MemoryEngine`：memorize 使用 `memory:current` 暴露的 digest 对 Session root 内 `Memory.md` 做 CAS patch；inspect 以 query 或已知五类持久 Link 执行 lexical/grep/正向引用/backlinks/可选 semantic 的有界发现；recall 只按精确 `memory:daily|entity|concept|fact|note/<cite>` 返回完整 Markdown 和 redirect chain。inspect/recall 使用 foldable trace projection 记录 origin Link 与有界 canonical facts，不修改 Background；memorize 只影响下一 Turn 重建的 current Background。Action 模块不解释 Memory 物理路径、文档关系或 Maintenance mutation。
 
 Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill guide blocks。Action 层只依赖 `ActionSkillProvider` 协议；Agent Home 可提供 `HomeActionSkillProvider`，但 action executor 不感知 Home 目录结构。`skills_domain` 与 `skills_action` 属于局部自动 prompt 挂载机制，不进入普通渐进式加载，也不由 `home.resource.read` 按需读取。
 

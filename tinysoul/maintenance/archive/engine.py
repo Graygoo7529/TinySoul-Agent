@@ -27,6 +27,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.session import SessionIOError, SessionInvariantError
 from tinysoul.workspace import WorkspaceIOError, WorkspaceInvariantError
+from tinysoul.memory import MemoryIOError, MemoryInvariantError
 
 from ..errors import MaintenanceContractError, MaintenanceInvariantError
 
@@ -172,24 +173,31 @@ class ActiveDayLease:
         lock: ReadWriteLock,
         session: SessionDailyLifecycle,
         workspace: WorkspaceDailyLifecycle,
+        memory: ActiveMemoryDailyLifecycle,
     ) -> None:
         self._lock = lock
         self._session = session
         self._workspace = workspace
+        self._memory = memory
         self._entered = False
 
     def __enter__(self) -> BusinessDay:
         self._lock.acquire_read()
         self._entered = True
-        session_day = self._session.active_day
-        workspace_day = self._workspace.active_day
-        if session_day is None or workspace_day is None:
+        try:
+            session_day = self._session.active_day
+            workspace_day = self._workspace.active_day
+            memory_day = self._memory.active_day()
+            if session_day is None or workspace_day is None:
+                raise MaintenanceInvariantError("Daily active day is not initialized")
+            if session_day != workspace_day or session_day != memory_day:
+                raise MaintenanceInvariantError(
+                    "Session, Workspace, and Memory active days disagree"
+                )
+            return session_day
+        except Exception:
             self._release()
-            raise MaintenanceInvariantError("Daily active day is not initialized")
-        if session_day != workspace_day:
-            self._release()
-            raise MaintenanceInvariantError("Session and Workspace active days disagree")
-        return session_day
+            raise
 
     def __exit__(
         self,
@@ -246,6 +254,28 @@ class WorkspaceDailyLifecycle(Protocol):
         ...
 
 
+class ActiveMemoryDailyLifecycle(Protocol):
+    @property
+    def root(self) -> Path:
+        ...
+
+    @property
+    def active_session_root(self) -> Path | None:
+        ...
+
+    def active_day(self) -> BusinessDay:
+        ...
+
+    def initialize_active_day(self, day: BusinessDay) -> object:
+        ...
+
+    def validate_active_day(self, day: BusinessDay) -> object:
+        ...
+
+    def validate_archived_active(self, day: BusinessDay, session_archive_root: Path) -> object:
+        ...
+
+
 class DailyLifecycleCoordinator:
     """Archive Session and Workspace facts before opening the next day."""
 
@@ -255,11 +285,13 @@ class DailyLifecycleCoordinator:
         archive_root: Path,
         session: SessionDailyLifecycle,
         workspace: WorkspaceDailyLifecycle,
+        memory: ActiveMemoryDailyLifecycle,
         observations: ObservationEmitter | None = None,
     ) -> None:
         self._archive_root = archive_root
         self._session = session
         self._workspace = workspace
+        self._memory = memory
         self._observations = observations or NullObservationEmitter()
         self._lock = ReadWriteLock()
 
@@ -270,6 +302,7 @@ class DailyLifecycleCoordinator:
             lock=self._lock,
             session=self._session,
             workspace=self._workspace,
+            memory=self._memory,
         )
 
     def ensure_active_day(
@@ -305,6 +338,8 @@ class DailyLifecycleCoordinator:
                 SessionInvariantError,
                 WorkspaceIOError,
                 WorkspaceInvariantError,
+                MemoryIOError,
+                MemoryInvariantError,
             ) as exc:
                 self._emit_failed(run_scope, target_day, exc)
                 raise MaintenanceInvariantError(
@@ -588,7 +623,13 @@ class DailyLifecycleCoordinator:
         roots = {
             "Session": self._session.root.resolve(),
             "Workspace": self._workspace.root.resolve(),
+            "Memory": self._memory.root.resolve(),
         }
+        active_memory_root = self._memory.active_session_root
+        if active_memory_root is None or active_memory_root.resolve() != self._session.root.resolve():
+            raise MaintenanceContractError(
+                "Active Memory must be bound to the Session root"
+            )
         archive = self._archive_root.resolve()
         for name, root in roots.items():
             if _paths_overlap(archive, root):
@@ -621,10 +662,12 @@ class DailyLifecycleCoordinator:
 
     def _initialize_all(self, day: BusinessDay) -> None:
         self._session.initialize_day(day)
+        self._memory.initialize_active_day(day)
         self._workspace.initialize_day(day)
         days = {
             self._session.active_day,
             self._workspace.active_day,
+            self._memory.active_day(),
         }
         if days != {day}:
             raise MaintenanceInvariantError(
@@ -678,12 +721,24 @@ class DailyLifecycleCoordinator:
 
         if not journal.completed(DailyTransitionStep.SESSION_ARCHIVED):
             if (pending / "session").exists() and self._session.active_day is None:
-                pass
+                self._memory.validate_archived_active(
+                    from_day,
+                    (pending / "session").resolve(),
+                )
             else:
+                self._memory.validate_active_day(from_day)
                 self._session.reconcile_active()
                 self._session.archive_day(from_day, target=pending / "session")
+                self._memory.validate_archived_active(
+                    from_day,
+                    (pending / "session").resolve(),
+                )
             journal = journal.with_step(DailyTransitionStep.SESSION_ARCHIVED)
             self._save_journal(pending, journal)
+        self._memory.validate_archived_active(
+            from_day,
+            (pending / "session").resolve(),
+        )
 
         if not journal.completed(DailyTransitionStep.WORKSPACE_ARCHIVED):
             if (

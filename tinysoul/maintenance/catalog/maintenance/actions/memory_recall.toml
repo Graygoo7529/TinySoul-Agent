@@ -1,0 +1,17 @@
+name = "maintenance.memory.recall"
+domain = "maintenance"
+[tool]
+description = "Recall exact persistent or staged Memory Markdown and issue an inspection_ref bound to its Link and digest."
+schema = { type = "object", properties = { memory_link = { type = "string" } }, required = ["memory_link"], additionalProperties = false }
+[semantic]
+use_when = ["A candidate must be compared or rewritten", "A redirect source or target must be verified"]
+avoid_when = ["The exact Link is not known"]
+effects = ["read_only"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.recall"

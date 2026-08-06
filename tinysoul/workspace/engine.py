@@ -75,6 +75,97 @@ class WorkspaceTextRead:
 
 
 @dataclass(frozen=True)
+class WorkspaceArchiveView:
+    """Owner-validated, read-only access to one archived Workspace."""
+
+    root: Path
+    manifest: WorkspaceManifest
+    max_read_chars: int
+
+    @property
+    def day(self) -> str:
+        return self.manifest.day
+
+    def read_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        expected_digest: str,
+        max_chars: int | None = None,
+    ) -> WorkspaceTextRead:
+        parsed = WorkspaceLink.parse(link) if isinstance(link, str) else link
+        record = next(
+            (item for item in self.manifest.resources if item.link == str(parsed)),
+            None,
+        )
+        if record is None:
+            raise WorkspaceContractError(f"Archived Workspace resource is absent: {parsed}")
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Archived Workspace resource is not text: {parsed}"
+            )
+        if not expected_digest or record.digest != expected_digest:
+            raise WorkspaceSourceChanged(
+                link=str(parsed),
+                expected_state=WorkspaceResourceState.PRESENT.value,
+                actual_state=WorkspaceResourceState.PRESENT.value,
+                expected_digest=expected_digest,
+                actual_digest=record.digest,
+            )
+        limit = self.max_read_chars if max_chars is None else max_chars
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit <= 0
+            or limit > self.max_read_chars
+        ):
+            raise WorkspaceContractError("Archived Workspace read limit is invalid")
+        try:
+            path = resolve_under_root(self.root, record.relative_path)
+        except FilesystemBoundaryError as exc:
+            raise WorkspaceInvariantError(str(exc)) from exc
+        if path.is_symlink() or not path.is_file():
+            raise WorkspaceInvariantError(
+                f"Archived Workspace text is missing: {parsed}"
+            )
+        try:
+            read = read_text_prefix(path, max_chars=limit)
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Archived Workspace resource is not UTF-8 text: {parsed}"
+            ) from exc
+        except OSError as exc:
+            raise WorkspaceIOError(
+                f"Failed to read archived Workspace resource: {exc}"
+            ) from exc
+        try:
+            hasher = sha256()
+            with path.open("rb") as stream:
+                while chunk := stream.read(64 * 1024):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
+        except OSError as exc:
+            raise WorkspaceIOError(
+                f"Failed to verify archived Workspace resource: {exc}"
+            ) from exc
+        if digest != record.digest:
+            raise WorkspaceSourceChanged(
+                link=str(parsed),
+                expected_state=WorkspaceResourceState.PRESENT.value,
+                actual_state=WorkspaceResourceState.PRESENT.value,
+                expected_digest=record.digest,
+                actual_digest=digest,
+            )
+        return WorkspaceTextRead(
+            link=record.link,
+            text=read.text,
+            truncated=read.truncated,
+            size=record.size,
+            digest=digest,
+        )
+
+
+@dataclass(frozen=True)
 class WorkspaceByteRead:
     """A complete bounded byte resource for external protocol adapters."""
 
@@ -514,6 +605,16 @@ class WorkspaceEngine:
     ) -> WorkspaceManifest:
         """Load one archived Workspace manifest through the owner boundary."""
 
+        return self.archive_view(day, root=root).manifest
+
+    def archive_view(
+        self,
+        day: BusinessDay,
+        *,
+        root: Path,
+    ) -> WorkspaceArchiveView:
+        """Open a narrow read-only view through the Workspace owner."""
+
         if not isinstance(day, BusinessDay):
             raise WorkspaceContractError("Workspace archive day is invalid")
         if not isinstance(root, Path) or not root.is_absolute():
@@ -527,7 +628,11 @@ class WorkspaceEngine:
             raise WorkspaceInvariantError(
                 f"Workspace archive day mismatch: {manifest.day} != {day}"
             )
-        return manifest
+        return WorkspaceArchiveView(
+            root=root.resolve(),
+            manifest=manifest,
+            max_read_chars=self._settings.max_read_chars,
+        )
 
     def set_description(
         self,

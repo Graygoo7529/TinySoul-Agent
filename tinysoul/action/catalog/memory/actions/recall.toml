@@ -2,17 +2,20 @@ name = "memory.recall"
 domain = "memory"
 
 [tool]
-description = "Recall one complete bounded date Memory by exact Memory link."
-schema = { type = "object", properties = { memory_link = { type = "string", description = "Exact memory:YYYY-MM-DD link." } }, required = ["memory_link"], additionalProperties = false }
+description = "Recall one complete validated daily/entity/concept/fact/note Markdown document by exact canonical Memory Link. Non-active documents remain exact and report their redirect chain."
+schema = { type = "object", properties = { memory_link = { type = "string", description = "Exact memory:daily|entity|concept|fact|note/<cite> link." } }, required = ["memory_link"], additionalProperties = false }
 
 [semantic]
-use_when = ["An exact Memory link should be read in full"]
-avoid_when = ["The relevant date is unknown", "Only a search summary is needed"]
+use_when = ["An exact persistent Memory Link should be read in full", "Inspect has identified a fact, note, entity, concept, or daily that needs precise evidence"]
+avoid_when = ["The relevant link is unknown", "Bounded discovery summaries are sufficient", "The input is memory:current, memory:latest, or memory:target"]
 effects = ["read_only"]
-examples = ["Recall memory:2026-07-13"]
+examples = ["Recall memory:fact/f-a71c9d2e5f42", "Recall memory:daily/2026-07-13"]
 
 [runtime]
 parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
 
 [runtime.hooks]
 normalize = []

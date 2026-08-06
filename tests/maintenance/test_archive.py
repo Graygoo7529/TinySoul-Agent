@@ -13,6 +13,7 @@ import tinysoul.workspace.engine as workspace_engine_module
 from tinysoul.home import AgentHomeEngine, AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.time import BusinessDay
 from tinysoul.maintenance import DailyLifecycleCoordinator
+from tinysoul.memory import MemoryEngine, MemorySettings
 from tinysoul.maintenance.errors import (
     MaintenanceContractError as LoopContractError,
     MaintenanceInvariantError as LoopInvariantError,
@@ -55,7 +56,7 @@ SECOND_ROLLOVER_TIME = datetime(
 )
 
 
-def test_daily_lifecycle_initializes_session_and_workspace_only(
+def test_daily_lifecycle_initializes_session_workspace_and_active_memory(
     tmp_path: Path,
 ) -> None:
     session, workspace, home, coordinator = _daily_system(tmp_path)
@@ -67,6 +68,7 @@ def test_daily_lifecycle_initializes_session_and_workspace_only(
     assert outcome.archives == ()
     assert session.active_day == NEW_DAY
     assert workspace.active_day == NEW_DAY
+    assert (session.root / "Memory.md").is_file()
     assert _home_manifest_bytes(home) == home_manifest_before
     assert not (tmp_path / "archive").exists()
 
@@ -171,6 +173,7 @@ def test_daily_rollover_resume_does_not_touch_home(
         archive_root=tmp_path / "archive",
         session=session,
         workspace=failing_workspace,
+        memory=_memory(tmp_path, session),
     )
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     workspace.write_text("workspace:old.md", "old")
@@ -191,6 +194,7 @@ def test_daily_rollover_resume_does_not_touch_home(
         archive_root=tmp_path / "archive",
         session=session,
         workspace=workspace,
+        memory=_memory(tmp_path, session),
     ).ensure_active_day(NEW_DAY, now=ROLLOVER_TIME)
 
     assert resumed.resumed is True
@@ -527,6 +531,7 @@ def test_daily_lifecycle_rejects_overlapping_archive_before_initialization(
         archive_root=tmp_path / "runtime",
         session=session,
         workspace=workspace,
+        memory=_memory(tmp_path, session),
     )
 
     with pytest.raises(LoopContractError, match="overlaps"):
@@ -598,6 +603,7 @@ def _daily_system(
         archive_root=root / "archive",
         session=session,
         workspace=workspace,
+        memory=_memory(root, session),
         observations=observations,
     )
     return session, workspace, home, coordinator
@@ -609,11 +615,18 @@ def _home_manifest_bytes(home: AgentHomeEngine) -> bytes:
     ).read_bytes()
 
 
+def _memory(root: Path, session: SessionEngine) -> MemoryEngine:
+    return MemoryEngine(
+        settings=MemorySettings(root=root / "memory"),
+        active_session_root=session.root,
+    )
+
+
 def _protected_state(
     root: Path,
     home: AgentHomeEngine,
 ) -> tuple[Path, tuple[bytes, bytes]]:
-    marker = root / "memory" / "2026" / "07" / "2026-07-10.md"
+    marker = root / "memory" / ".tinysoul" / "lifecycle-probe"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("memory must stay unchanged", encoding="utf-8")
     return marker, (_home_manifest_bytes(home), marker.read_bytes())

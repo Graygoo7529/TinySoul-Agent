@@ -2,15 +2,14 @@
 
 ## 状态
 
-- `planned`：整体设计与实施
-- `planned`：Stage 1，稳定语义并建立 Memory 文档与存储基础
-- `planned`：Stage 2，完成活动记忆、Context 与 User Memory Action
-- `planned`：Stage 3，完成 Memory Maintenance、统一提交与触发接入
-- `planned`：Stage 4，收敛旧实现并完成整体验收
+- `done`：整体设计、实现、文档同步与本地验收
+- `done`：Stage 1，稳定契约并建立 Memory 文档、检索与存储基础
+- `done`：Stage 2，完成活动记忆、Context、Lifecycle 与 User Memory Action
+- `done`：Stage 3，完成 Memory Maintenance、统一提交、触发接入与整体验收
 
 ## 背景
 
-当前 Memory 是按 Business Day 组织的单一日期文档集合：`MemoryLink` 只接受
+重构前的 Memory 是按 Business Day 组织的单一日期文档集合：`MemoryLink` 只接受
 `memory:YYYY-MM-DD`，User Turn 只提供日期 search/recall，Memory Maintenance
 把关闭日 Session facts 与可选同日旧 Memory 合并为一份 Markdown。这个模型已经
 建立了正确的 owner、Background provider、Session facts projection、Maintenance
@@ -146,8 +145,7 @@ Context 只通过 typed projection/provider 与 Memory 协作。
 
 ## AGENT.md 同步清单
 
-当前根规约仍描述已实施的 date-only Memory。Stage 1 必须在任何业务实现前同步以下
-稳定定义，不能让新代码长期依赖“计划文档覆盖根规约”的隐式假设：
+根规约已在 Stage 1 同步以下稳定定义，代码不依赖“计划文档覆盖根规约”的隐式假设：
 
 1. Link 列表从 `memory:YYYY-MM-DD` 改为 daily/entity/concept/fact/note 五类持久 Link，
    并把 current/latest/target 明确为 Context 动态引用而非持久 Link；
@@ -471,12 +469,13 @@ backlinks、可选 embedding 近邻，再进行稳定融合和可选 LLM rerank�
 关系距离次之，activity、recency 和 fact confidence 只作为有限 tie-break，不能让高频但
 不相关文档压过语义匹配。
 
-Embedding 是可选增强，不作为首个可用版本的正确性依赖。只有在 `llm` 模块拥有真实、
-已配置的 typed embedding adapter 时才装配该能力，不创建没有消费者的占位 runner。
+Embedding 是可选增强，不是检索正确性依赖。通用 typed embedding adapter 位于 Infra，
+App 根据独立 `[embedding]` 配置装配并注入 Memory；Memory 只拥有派生索引语义，不解释
+API key、HTTP 或 provider payload。
 缓存使用可删除的 `memory/.tinysoul/embedding-cache.json`，每项绑定 Link、document
 digest、model identity 和 vector dimensions；损坏或不匹配时丢弃并回退 lexical/关系
-检索。User Turn 的 inspect 只读取已有缓存，不在只读 Action 中生成或写入向量；向量
-生成和缓存更新只在 Memory Maintenance commit 后执行，失败不回滚 Markdown 提交。
+检索。query inspect 可以为当前查询临时生成向量，但不把查询向量写入磁盘；文档向量
+缓存只在显式 refresh 或 Memory Maintenance commit 后更新，失败不回滚 Markdown 提交。
 Exact recall 永远不依赖派生目录或 embedding。
 
 ## Memory Maintenance 输入
@@ -723,9 +722,14 @@ max_top_k = 20
 summary_max_chars = 480
 page_max_chars = 8000
 
-[memory.embedding]
+[embedding]
 enabled = false
-model = ""
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+model = "embedding-3"
+api_key_envs = ["GLM_API_KEY", "ZHIPU_API_KEY"]
+dimensions = 1024
+batch_size = 64
+timeout_seconds = 30.0
 cache_max_chars = 16000000
 
 [memory.daily_composition]
@@ -737,9 +741,9 @@ validation_retries = 2
 
 实际默认数值在实施时结合 Context/LLM budget 测试确认，但字段所有权保持以上结构。
 当前 `[memory.search]` 迁为 `[memory.inspect]`；`[memory.consolidation]` 迁为
-`[memory.daily_composition]`。`memory.embedding.model` 必须解析为 LLM 模块中真实可用的
-embedding model；enabled=false 时不要求该依赖。向量维度由 provider 结果确定并写入缓存，
-不让配置复制 provider 事实。活动文件位置来自 Session root 注入，不增加
+`[memory.daily_composition]`。Embedding 由 Infra 的顶层 `[embedding]` 配置拥有，默认关闭；
+启用时 API key 只从列出的环境变量解析，不进入 TOML、日志或缓存。`embedding-3` 的维度与
+批量上限在配置入口严格校验。活动文件位置来自 Session root 注入，不增加
 `memory.active_root` 配置。配置是开发期严格切换，不保留旧键兼容字段。
 
 ## 目标代码结构
@@ -850,7 +854,7 @@ Session facts、prompt 或绝对路径。
 
 ## 实施阶段
 
-### Stage 1：稳定契约与 Memory 基础
+### Stage 1：契约、文档与检索基础（done）
 
 - 更新根 `AGENT.md`、`docs/design/memory.md` 及相关 Context/Session/Maintenance 设计，
   固化三层记忆、五类持久 Link、动态 current/latest/target 和两条触发路径。
@@ -861,7 +865,7 @@ Session facts、prompt 或绝对路径。
   `activation_count`；从 Markdown 构建内存 catalog、正向引用和 backlinks，删除旧
   date-only Link 与旧配置身份。
 
-### Stage 2：活动记忆、Context 与 User Action
+### Stage 2：活动记忆、Context、Lifecycle 与 User Action（done）
 
 - 实现活动 `runtime/session/Memory.md` 的初始化、快照、digest CAS patch、跨日归档和
   新日空文件初始化，接入现有 lifecycle coordinator；调整 AppBuilder 为先装配 Session、
@@ -873,7 +877,7 @@ Session facts、prompt 或绝对路径。
   验证 memorize 下一轮生效、inspect 多跳和五类 exact recall；为 Maintenance 提供
   Workspace owner 的受限 archive resource inspect/read view。
 
-### Stage 3：Memory Maintenance、事务与触发接入
+### Stage 3：Maintenance、事务、应用接入与验收（in_progress）
 
 - 扩展 Memory Maintenance Context，精确绑定 target 日 ArchiveProjection、Session、
   归档 `Memory.md`、target-relative latest、可选已有 daily 和 Workspace archive view。
@@ -888,13 +892,10 @@ Session facts、prompt 或绝对路径。
   不因 daily 已存在而跳过；删除 `--rebuild`/`rebuild_memory`。
 - 接入 startup availability、scheduler、Program queue、App/Endpoint/CLI 配置，并核对
   scheduler 仅提交 request、启动不运行 LLM 的现有行为。
-
-### Stage 4：清理、回归与验收
-
 - 删除旧 consolidation/search 公开路径及无消费者的兼容字段，更新 catalog、prompt、
   项目模板、wheel package data 和 architecture tests。
-- 只有 LLM 模块存在真实 typed embedding adapter 时才接入可删除的向量缓存；否则保留
-  lexical/relations/backlinks 的完整可用版本，不以占位 embedding 阻塞验收。
+- 通过 Infra typed adapter 接入可选 embedding-3 与可删除的文档向量缓存；未启用或调用
+  失败时保持 lexical/grep/relations/backlinks 的完整可用版本。
 - 运行 Memory、Context、Session、Maintenance、App、Endpoint、Runtime 定向测试，再运行
   Fast/Full pytest、typecheck、compileall、wheel 和隔离项目初始化。
 - 用真实 User Turn 验证活动记忆下一轮生效、current/latest 装配和省略；用真实自动/手动
@@ -933,7 +934,7 @@ Session facts、prompt 或绝对路径。
 - query inspect 候选本身不计 activation，recall/link inspect/实际维护才计入；同一 Turn
   同一 Link 最多增加一次，重复或乱序显式维护不引入跨任务去重账本；
 - 可选 embedding/rerank 稳定融合及降级；缓存删除、损坏、digest/model 不匹配时可重建，
-  User inspect 不生成或写入向量，均不改变业务 Markdown。
+  query inspect 的临时向量不落盘，文档向量只由 refresh/commit 更新，均不改变业务 Markdown。
 
 ### Maintenance
 
@@ -987,4 +988,15 @@ Session facts、prompt 或绝对路径。
     解释 redirect 去向，retracted 不指向 daily。
 11. Markdown 是唯一业务事实，内存 catalog 和可选 embedding cache 均可从 Markdown
     删除重建且不影响 exact recall；User inspect 不写持久派生数据。
-12. 全量测试、类型检查、wheel、隔离初始化和真实 provider 验证通过，工作区无旧身份残留。
+12. 全量测试、类型检查、wheel 和隔离初始化通过；provider adapter 通过伪客户端契约测试，
+    真实 provider 调用继续作为显式凭据和环境开关控制的 external 验证，工作区无旧身份残留。
+
+## 验证结果
+
+- Memory/Maintenance/Infra/App/Endpoint 聚焦回归：71 passed；最终边界加固聚焦回归：
+  13 passed。
+- `scripts/test.ps1 -Suite Full`：859 passed、2 skipped、21 deselected；包含 wheel 与隔离
+  项目初始化验收。skip/deselect 均属于显式 external 或环境控制用例。
+- `scripts/typecheck.ps1`：通过。
+- embedding provider 使用伪客户端验证请求顺序、响应重排、配置校验和失败降级；未把真实
+  API key 写入源码、TOML、测试、文档或派生缓存，也未在默认门禁中发起真实计费请求。

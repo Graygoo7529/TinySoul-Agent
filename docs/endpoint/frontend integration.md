@@ -102,7 +102,7 @@ status 不暴露 Session revision。`event_journal` 是只读摘要（是否启�
 ## 5. Maintenance
 
 - `GET /v1/maintenance`：返回 Home pending 计数和持久提示单中的全部 Memory dates；展示层把 Home pending 计为一个聚合任务，每个 Memory date 计为一个任务；
-- `POST /v1/maintenance`：提交 `kind=daily|home|memory`、command id 与 metadata；Memory 必须提供 `target_day`，可选 `rebuild_memory`。
+- `POST /v1/maintenance`：提交 `kind=daily|home|memory`、command id 与 metadata；Memory 必须提供 `target_day`，协议不包含 rebuild flag。
 
 Terminal 与前端可同时提交 Maintenance request；请求按进入 Program queue 的顺序串行执行，手动与 scheduler request 走同一 MaintenanceEngine 流程。Daily 只自动处理昨日 Memory，更早日期保留供前端逐日提交。前端首次连接后先读取 availability，如有待办则自动打开一次非阻塞 Maintenance 提示；收到 `program.maintenance.available`、`maintenance.started`、`maintenance.completed` 或 `maintenance.availability.changed` 时只重新读取 `GET /v1/maintenance`，不从事件 payload 建立第二份状态，也不反复自动打开面板。
 

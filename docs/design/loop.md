@@ -52,7 +52,7 @@ Turn scope 建立后，Runner 依次：
 
 User Turn preparation 按以下顺序构造情景：
 
-1. Context 从 effective Home、昨日 Memory 等 provider 原子重建 Background；
+1. Context 从 effective Home 与 `memory:current + optional latest` 等 provider 原子重建 Background；
 2. Session 投影当前业务日的跨 Turn 历史；
 3. Workspace reconcile 当前业务日并投影 Manifest。
 

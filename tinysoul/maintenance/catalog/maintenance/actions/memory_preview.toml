@@ -1,0 +1,17 @@
+name = "maintenance.memory.preview"
+domain = "maintenance"
+[tool]
+description = "Validate the complete draft, all references, statuses, redirects, activity updates, and daily CAS; return a preview revision required by commit."
+schema = { type = "object", properties = {}, additionalProperties = false }
+[semantic]
+use_when = ["Daily and all intended knowledge changes have been staged"]
+avoid_when = ["More draft changes are still expected"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.preview"

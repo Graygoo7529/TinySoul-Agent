@@ -1,516 +1,124 @@
-"""Date-scoped Memory consolidation tests."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
-from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 
-import tinysoul.memory.store as store_module
-from tinysoul.home import AgentHomeEngineBuilder, AgentHomeSettings
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm import JsonAnswer, RawResponse, TaskCall, TaskProfile, TaskResult
 from tinysoul.infra.time import BusinessDay
+from tinysoul.llm import JsonAnswer, RawResponse, TaskCall, TaskProfile, TaskResult
 from tinysoul.memory import (
-    LLMMemoryConsolidator,
-    MemoryLink,
-    MemoryConsolidationRequest,
-    MemoryConsolidationResult,
-    MemoryEngine,
-    MemoryIOError,
-    MemoryInvariantError,
-    MemoryConsolidationFailure,
-    MemoryConsolidationSettings,
-    MemoryConsolidationSkipReason,
-    MemoryConsolidationStatus,
-    MemorySettings,
-    parse_memory_settings,
+    ActiveMemoryDocument,
+    ActiveMemorySnapshot,
+    DailyCompositionRequest,
+    LLMDailyMemoryComposer,
+    MemoryContractError,
+    MemoryDailyCompositionSettings,
 )
-from tinysoul.runtime import (
-    ObservationEmitter,
-    ObservationEvent,
-    ObservationLevel,
-    RunLevel,
-    RunScope,
-)
+from tinysoul.runtime import RunScope
 from tinysoul.session import SessionMemoryFact, SessionMemoryFactsProjection
 
 
 DAY = BusinessDay.parse("2026-07-12")
-ZONE = ZoneInfo("Asia/Shanghai")
 
 
-def test_memory_consolidation_uses_ordered_sources_and_renders_one_daily_body(
-    tmp_path: Path,
-) -> None:
-    known = tmp_path / "home" / "skills" / "known" / "SKILL.md"
-    known.parent.mkdir(parents=True)
-    known.write_text(_skill("Known"), encoding="utf-8")
-    memory = _memory(tmp_path)
-    projection = _projection(
-        _fact("first <home:skills@known>", 9),
-        _fact("second", 14),
-        _fact("third", 20),
+def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
+    runner = _Runner()
+    composer = LLMDailyMemoryComposer(runner)
+    active = ActiveMemorySnapshot(
+        document=ActiveMemoryDocument(
+            day=DAY.value,
+            revision=2,
+            updated_at=datetime(2026, 7, 12, 10, tzinfo=UTC),
+            content="Explicit target Memory.",
+        ),
+        text="active",
+        digest="a" * 64,
     )
-    consolidator = _CapturingConsolidator(
-        "## Durable facts\n\n- retained <home:skills@known>"
+    projection = SessionMemoryFactsProjection(
+        day=DAY,
+        revision=3,
+        facts=(
+            SessionMemoryFact(
+                ref="session:turn/one",
+                started_at=datetime(2026, 7, 12, 9, tzinfo=UTC),
+                user_inputs=("Remember the design decision",),
+                answer="Done",
+            ),
+        ),
     )
-    assert memory.consolidation_eligible(projection)
-
-    outcome = memory.consolidate(
-        projection=projection,
-        consolidator=consolidator,
-        timezone="Asia/Shanghai",
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.COMPLETED
-    assert outcome.fact_count == 3
-    assert outcome.document_digest
-    request = consolidator.requests[0]
-    joined = "\n".join(request.sources)
-    assert joined.index("first") < joined.index("second") < joined.index("third")
-    assert request.home_link_hints == ("home:skills@known",)
-    assert "home:skills@known" in request.allowed_home_links
-    assert _target(tmp_path).read_text(encoding="utf-8") == (
-        "# 2026-07-12\n\n"
-        "## Durable facts\n\n"
-        "- retained <home:skills@known>\n"
-    )
-    assert not (tmp_path / "runtime" / "home" / "memory").exists()
-    assert not memory.consolidation_eligible(projection)
-
-
-def test_memory_consolidation_observations_are_verbose_and_content_free(
-    tmp_path: Path,
-) -> None:
-    observations = _RecordingObservations()
-    memory = _memory(tmp_path, observations=observations)
-    scope = RunScope().push(RunLevel.MODULE, "memory_consolidation")
-
-    outcome = memory.consolidate(
-        projection=_projection(_fact("private Session fact", 9)),
-        consolidator=_CapturingConsolidator("- private consolidated Memory"),
-        timezone="Asia/Shanghai",
-        scope=scope,
+    result = composer.compose(
+        DailyCompositionRequest(
+            day=DAY,
+            session=projection,
+            active_memory=active,
+            latest=None,
+            existing=None,
+            settings=MemoryDailyCompositionSettings(
+                chunk_max_chars=4000,
+                source_max_chars=12000,
+                max_calls=4,
+            ),
+            max_document_chars=32000,
+        ),
+        scope=RunScope(),
     )
 
-    assert outcome.status is MemoryConsolidationStatus.COMPLETED
-    assert [event.name for event in observations.events] == [
-        "memory.consolidation.started",
-        "memory.consolidation.completed",
-    ]
+    assert result.content == "## Events\n\n- Preserved target-day decision."
+    assert result.model_calls == 2
     assert all(
-        event.level is ObservationLevel.VERBOSE
-        for event in observations.events
-    )
-    assert all(event.scope == scope for event in observations.events)
-    completed = observations.events[-1]
-    assert completed.payload["target_day"] == str(DAY)
-    assert completed.payload["fact_count"] == 1
-    assert "private Session fact" not in repr(observations.events)
-    assert "private consolidated Memory" not in repr(observations.events)
-    assert str(tmp_path) not in repr(observations.events)
-
-
-def test_missing_and_empty_session_skip_without_touching_memory(tmp_path: Path) -> None:
-    observations = _RecordingObservations()
-    memory = _memory(tmp_path, observations=observations)
-    target = _target(tmp_path)
-    target.parent.mkdir(parents=True)
-    target.write_text("existing bytes stay unchanged", encoding="utf-8")
-
-    missing = memory.consolidate(
-        projection=None,
-        consolidator=None,
-        timezone="Asia/Shanghai",
-        target_day=DAY,
-    )
-    empty = memory.consolidate(
-        projection=_projection(),
-        consolidator=None,
-        timezone="Asia/Shanghai",
-    )
-
-    assert missing.status is MemoryConsolidationStatus.SKIPPED
-    assert missing.skip_reason is MemoryConsolidationSkipReason.SESSION_NOT_FOUND
-    assert empty.status is MemoryConsolidationStatus.SKIPPED
-    assert empty.skip_reason is MemoryConsolidationSkipReason.SESSION_EMPTY
-    assert target.read_text(encoding="utf-8") == "existing bytes stay unchanged"
-    assert [event.name for event in observations.events] == [
-        "memory.consolidation.started",
-        "memory.consolidation.skipped",
-        "memory.consolidation.started",
-        "memory.consolidation.skipped",
-    ]
-    assert observations.events[1].payload["skip_reason"] == "session_not_found"
-    assert observations.events[3].payload["skip_reason"] == "session_empty"
-
-
-def test_existing_free_form_memory_is_one_source_and_is_rewritten(
-    tmp_path: Path,
-) -> None:
-    memory = _memory(tmp_path)
-    target = _target(tmp_path)
-    target.parent.mkdir(parents=True)
-    target.write_text(
-        "Legacy memory without the current heading\n\n## Notes\n\n- old fact",
-        encoding="utf-8",
-    )
-    consolidator = _CapturingConsolidator(
-        "## Reorganized\n\n- old fact\n- new fact"
-    )
-
-    outcome = memory.consolidate(
-        projection=_projection(_fact("new fact", 9)),
-        consolidator=consolidator,
-        timezone="Asia/Shanghai",
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.COMPLETED
-    request = consolidator.requests[0]
-    assert any("Legacy memory" in source for source in request.sources)
-    assert any('"kind":"existing_memory"' in source for source in request.sources)
-    assert target.read_text(encoding="utf-8") == (
-        "# 2026-07-12\n\n## Reorganized\n\n- old fact\n- new fact\n"
-    )
-
-
-def test_automatic_memory_consolidation_validates_then_skips_existing_target(
-    tmp_path: Path,
-) -> None:
-    memory = _memory(tmp_path)
-    target = _target(tmp_path)
-    target.parent.mkdir(parents=True)
-    existing = "arbitrary readable Markdown"
-    target.write_text(existing, encoding="utf-8")
-    consolidator = _CapturingConsolidator("must not replace")
-
-    outcome = memory.consolidate(
-        projection=_projection(_fact("new session fact", 9)),
-        consolidator=consolidator,
-        timezone="Asia/Shanghai",
-        rewrite_existing=False,
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.SKIPPED
-    assert outcome.skip_reason is MemoryConsolidationSkipReason.MEMORY_EXISTS
-    assert consolidator.requests == []
-    assert target.read_text(encoding="utf-8") == existing
-
-    target.write_text("   \n", encoding="utf-8")
-    with pytest.raises(MemoryInvariantError, match="empty"):
-        memory.consolidation_eligible(_projection(_fact("new session fact", 9)))
-    with pytest.raises(MemoryInvariantError, match="empty"):
-        memory.consolidate(
-            projection=_projection(_fact("new session fact", 9)),
-            consolidator=consolidator,
-            timezone="Asia/Shanghai",
-            rewrite_existing=False,
-        )
-
-
-def test_llm_consolidator_reduces_and_retries_with_bounded_link_hints(
-    tmp_path: Path,
-) -> None:
-    known = tmp_path / "home" / "skills" / "known" / "SKILL.md"
-    unused = tmp_path / "home" / "skills" / "unused" / "SKILL.md"
-    known.parent.mkdir(parents=True)
-    unused.parent.mkdir(parents=True)
-    known.write_text(_skill("Known"), encoding="utf-8")
-    unused.write_text(_skill("Unused"), encoding="utf-8")
-    memory = _memory(
-        tmp_path,
-        consolidation=MemoryConsolidationSettings(
-            chunk_max_chars=512,
-            source_max_chars=10000,
-            link_hints_max_chars=64,
-            max_calls=20,
-            validation_retries=2,
-        ),
-    )
-    runner = _MemoryTaskRunner(repair_link=True)
-
-    outcome = memory.consolidate(
-        projection=_projection(
-            _fact("x" * 1800 + " <home:skills@known>", 9)
-        ),
-        consolidator=LLMMemoryConsolidator(runner),
-        timezone="Asia/Shanghai",
-        scope=RunScope().push(RunLevel.PROGRAM, "program"),
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.COMPLETED
-    assert outcome.model_calls > 3
-    assert all(call.profile is TaskProfile.MEMORY_CONSOLIDATION for call in runner.calls)
-    assert any(
-        any(
-            message.label == "memory_consolidation_feedback"
-            for message in call.messages.messages
-        )
+        call.profile is TaskProfile.MEMORY_DAILY_COMPOSITION
         for call in runner.calls
     )
-    final_prompts = [
-        repr(call.messages)
-        for call in runner.calls
-        if any(
-            message.label == "memory_consolidation_output"
-            for message in call.messages.messages
-        )
-    ]
-    assert final_prompts
-    assert all(
-        "home:skills@unused" not in prompt for prompt in final_prompts
+    rendered = repr(runner.calls[0].messages.messages)
+    assert "Explicit target Memory" in rendered
+    assert "Remember the design decision" in rendered
+
+
+def test_daily_composer_enforces_call_budget_before_calling_model() -> None:
+    runner = _Runner()
+    composer = LLMDailyMemoryComposer(runner)
+    active = ActiveMemorySnapshot(
+        document=ActiveMemoryDocument(DAY.value, 0, None, "x" * 300),
+        text="active",
+        digest="b" * 64,
     )
-    assert "<home:skills@known>" in _target(tmp_path).read_text(
-        encoding="utf-8"
-    )
-
-
-def test_invalid_memory_output_fails_without_creating_target(tmp_path: Path) -> None:
-    memory = _memory(
-        tmp_path,
-        consolidation=MemoryConsolidationSettings(validation_retries=1),
-    )
-    runner = _MemoryTaskRunner(repair_link=False)
-
-    outcome = memory.consolidate(
-        projection=_projection(_fact("fact", 9)),
-        consolidator=LLMMemoryConsolidator(runner),
-        timezone="Asia/Shanghai",
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.FAILED
-    assert outcome.failure is MemoryConsolidationFailure.INVALID_OUTPUT
-    assert not _target(tmp_path).exists()
-
-
-def test_memory_output_validates_other_date_links_and_rejects_self_or_missing(
-    tmp_path: Path,
-) -> None:
-    other = tmp_path / "memory" / "2026" / "07" / "2026-07-11.md"
-    other.parent.mkdir(parents=True)
-    other.write_text("any earlier Markdown", encoding="utf-8")
-    memory = _memory(tmp_path)
-
-    valid = memory.consolidate(
-        projection=_projection(_fact("fact", 9)),
-        consolidator=_CapturingConsolidator(
-            "- linked <memory:2026-07-11>"
+    request = DailyCompositionRequest(
+        day=DAY,
+        session=SessionMemoryFactsProjection(day=DAY, revision=0),
+        active_memory=active,
+        latest=None,
+        existing=None,
+        settings=MemoryDailyCompositionSettings(
+            chunk_max_chars=100,
+            source_max_chars=1000,
+            max_calls=2,
         ),
-        timezone="Asia/Shanghai",
+        max_document_chars=32000,
     )
-    assert valid.status is MemoryConsolidationStatus.COMPLETED
-
-    invalid_bodies = (
-        "# duplicate date heading\n\n- invalid",
-        "   # indented duplicate heading\n\n- invalid",
-        "Setext duplicate heading\n===\n\n- invalid",
-        "- invalid <memory:2026-07-12>",
-        "- invalid <memory:2026-07-10>",
-    )
-    for body in invalid_bodies:
-        outcome = memory.consolidate(
-            projection=_projection(_fact("fact", 9)),
-            consolidator=_CapturingConsolidator(body),
-            timezone="Asia/Shanghai",
-        )
-        assert outcome.status is MemoryConsolidationStatus.FAILED
-        assert outcome.failure is MemoryConsolidationFailure.INVALID_OUTPUT
+    with pytest.raises(MemoryContractError, match="too many"):
+        composer.compose(request, scope=RunScope())
+    assert runner.calls == []
 
 
-def test_source_budget_failure_does_not_call_consolidator(tmp_path: Path) -> None:
-    memory = _memory(
-        tmp_path,
-        consolidation=MemoryConsolidationSettings(
-            chunk_max_chars=512,
-            source_max_chars=600,
-            max_calls=10,
-        ),
-    )
-    consolidator = _CapturingConsolidator("unused")
-
-    outcome = memory.consolidate(
-        projection=_projection(_fact("x" * 1000, 9)),
-        consolidator=consolidator,
-        timezone="Asia/Shanghai",
-    )
-
-    assert outcome.status is MemoryConsolidationStatus.FAILED
-    assert outcome.failure is MemoryConsolidationFailure.INPUT_TOO_LARGE
-    assert consolidator.requests == []
-    assert not _target(tmp_path).exists()
-
-
-def test_fact_start_time_must_belong_to_projection_business_day(tmp_path: Path) -> None:
-    memory = _memory(tmp_path)
-    wrong_day_fact = SessionMemoryFact(
-        ref="session:turn/wrong_day",
-        started_at=datetime(2026, 7, 13, 9, 0, tzinfo=ZONE).astimezone(UTC),
-        user_inputs=("wrong day",),
-    )
-
-    with pytest.raises(MemoryInvariantError):
-        memory.consolidate(
-            projection=_projection(wrong_day_fact),
-            consolidator=_CapturingConsolidator("unused"),
-            timezone="Asia/Shanghai",
-        )
-
-    assert not _target(tmp_path).exists()
-
-
-def test_atomic_write_failure_preserves_existing_memory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observations = _RecordingObservations()
-    memory = _memory(tmp_path, observations=observations)
-    target = _target(tmp_path)
-    target.parent.mkdir(parents=True)
-    old = "old free-form Memory"
-    target.write_text(old, encoding="utf-8")
-
-    def fail_write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
-        raise OSError("simulated atomic failure")
-
-    monkeypatch.setattr(store_module, "atomic_write_text", fail_write)
-
-    with pytest.raises(MemoryIOError):
-        memory.consolidate(
-            projection=_projection(_fact("new", 9)),
-            consolidator=_CapturingConsolidator("replacement"),
-            timezone="Asia/Shanghai",
-        )
-
-    assert target.read_text(encoding="utf-8") == old
-    assert [event.name for event in observations.events] == [
-        "memory.consolidation.started",
-        "memory.consolidation.failed",
-    ]
-    assert observations.events[-1].payload["error_type"] == "MemoryIOError"
-
-
-def test_completed_replace_then_interruption_retries_as_existing_memory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    home_marker = tmp_path / "home" / "what" / "concept" / "marker.md"
-    home_marker.parent.mkdir(parents=True)
-    home_marker.write_text("home remains unchanged", encoding="utf-8")
-    memory = _memory(tmp_path)
-    original_write = store_module.MemoryStore.write
-
-    def write_then_interrupt(
-        store: store_module.MemoryStore,
-        link: MemoryLink,
-        text: str,
-    ) -> store_module.MemoryDocument:
-        document = original_write(store, link, text)
-        raise MemoryIOError("simulated interruption after atomic replace")
-
-    monkeypatch.setattr(store_module.MemoryStore, "write", write_then_interrupt)
-
-    with pytest.raises(MemoryIOError, match="after atomic replace"):
-        memory.consolidate(
-            projection=_projection(_fact("new", 9)),
-            consolidator=_CapturingConsolidator("- replacement"),
-            timezone="Asia/Shanghai",
-        )
-
-    expected = "# 2026-07-12\n\n- replacement\n"
-    assert _target(tmp_path).read_text(encoding="utf-8") == expected
-    assert home_marker.read_text(encoding="utf-8") == "home remains unchanged"
-
-    monkeypatch.setattr(store_module.MemoryStore, "write", original_write)
-    retry = memory.consolidate(
-        projection=_projection(_fact("new", 9)),
-        consolidator=_UnexpectedConsolidator(),
-        timezone="Asia/Shanghai",
-        rewrite_existing=False,
-    )
-
-    assert retry.status is MemoryConsolidationStatus.SKIPPED
-    assert retry.skip_reason is MemoryConsolidationSkipReason.MEMORY_EXISTS
-    assert _target(tmp_path).read_text(encoding="utf-8") == expected
-    assert home_marker.read_text(encoding="utf-8") == "home remains unchanged"
-
-
-def test_memory_settings_parse_nested_budgets(tmp_path: Path) -> None:
-    settings = parse_memory_settings(
-        {
-            "consolidation": {
-                "chunk_max_chars": 2048,
-                "source_max_chars": 8192,
-                "link_hints_max_chars": 1024,
-                "max_calls": 12,
-                "validation_retries": 3,
-            }
-        },
-        project_root=tmp_path,
-    )
-
-    assert settings.consolidation == MemoryConsolidationSettings(
-        chunk_max_chars=2048,
-        source_max_chars=8192,
-        link_hints_max_chars=1024,
-        max_calls=12,
-        validation_retries=3,
-    )
-
-
-class _CapturingConsolidator:
-    def __init__(self, body: str) -> None:
-        self.body = body
-        self.requests: list[MemoryConsolidationRequest] = []
-
-    def consolidate(
-        self,
-        request: MemoryConsolidationRequest,
-        *,
-        scope: RunScope,
-    ) -> MemoryConsolidationResult:
-        self.requests.append(request)
-        return MemoryConsolidationResult(body=self.body, model_calls=0)
-
-
-class _UnexpectedConsolidator:
-    def consolidate(
-        self,
-        request: MemoryConsolidationRequest,
-        *,
-        scope: RunScope,
-    ) -> MemoryConsolidationResult:
-        raise AssertionError("existing Memory must not invoke consolidation")
-
-
-class _MemoryTaskRunner:
-    def __init__(self, *, repair_link: bool) -> None:
-        self._repair_link = repair_link
-        self._final_calls = 0
+class _Runner:
+    def __init__(self) -> None:
         self.calls: list[TaskCall] = []
 
     def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
-        value: JsonObject
         final = any(
-            message.label == "memory_consolidation_output"
+            message.label == "memory_daily_output"
             for message in call.messages.messages
         )
-        if final:
-            self._final_calls += 1
-            link = (
-                "home:skills@known"
-                if self._repair_link and self._final_calls > 1
-                else "home:skills@missing"
+        value: JsonObject = {
+            "content": (
+                "## Events\n\n- Preserved target-day decision."
+                if final
+                else "- Reduced target-day decision."
             )
-            value = {"content": f"- retained fact <{link}>"}
-        else:
-            value = {
-                "content": "- condensed fact <home:skills@known>"
-            }
+        }
         return TaskResult.success(
             raw_response=RawResponse(
                 answer_text=json.dumps(value),
@@ -520,66 +128,3 @@ class _MemoryTaskRunner:
             answer=JsonAnswer(value),
             tool_calls=(),
         )
-
-
-def _skill(title: str) -> str:
-    return (
-        "---\n"
-        f"title: {title}\n"
-        f"description: {title} skill knowledge.\n"
-        "---\n\n"
-        f"# {title}\n"
-    )
-
-
-def _memory(
-    root: Path,
-    *,
-    consolidation: MemoryConsolidationSettings | None = None,
-    observations: ObservationEmitter | None = None,
-) -> MemoryEngine:
-    original = root / "home"
-    original.mkdir(parents=True, exist_ok=True)
-    home = AgentHomeEngineBuilder(
-        AgentHomeSettings(
-            original_root=original,
-            runtime_root=root / "runtime" / "home",
-        )
-    ).build()
-    return MemoryEngine(
-        settings=MemorySettings(
-            root=root / "memory",
-            consolidation=consolidation or MemoryConsolidationSettings(),
-        ),
-        home_catalog=home,
-        observations=observations,
-    )
-
-
-def _projection(*facts: SessionMemoryFact) -> SessionMemoryFactsProjection:
-    return SessionMemoryFactsProjection(day=DAY, revision=len(facts), facts=facts)
-
-
-def _fact(text: str, hour: int) -> SessionMemoryFact:
-    started_at = datetime(2026, 7, 12, hour, 0, tzinfo=ZONE).astimezone(UTC)
-    return SessionMemoryFact(
-        ref=f"session:turn/turn_{hour}_{len(text)}",
-        started_at=started_at,
-        user_inputs=(text,),
-        answer=f"answer for {text}",
-    )
-
-
-def _target(root: Path) -> Path:
-    return root / "memory" / "2026" / "07" / "2026-07-12.md"
-
-
-class _RecordingObservations:
-    def __init__(self) -> None:
-        self.events: list[ObservationEvent] = []
-
-    def enabled(self, level: ObservationLevel) -> bool:
-        return True
-
-    def emit(self, event: ObservationEvent) -> None:
-        self.events.append(event)

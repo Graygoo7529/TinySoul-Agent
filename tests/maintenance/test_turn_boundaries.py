@@ -28,6 +28,7 @@ from tinysoul.maintenance import (
 )
 from tinysoul.maintenance.turn import MaintenanceTurnEntry
 from tinysoul.maintenance.memory import ArchivedMemoryMaintenanceContext
+from tinysoul.memory import ActiveMemoryDocument, ActiveMemorySnapshot
 from tinysoul.runtime import (
     RUNTIME_PROGRAM_END,
     RunLevel,
@@ -39,7 +40,7 @@ from tinysoul.runtime import (
     TrapHandlerRegistry,
 )
 from tinysoul.session import SessionArchiveView, SessionEngine
-from tinysoul.workspace import WorkspaceManifest
+from tinysoul.workspace import WorkspaceArchiveView, WorkspaceManifest
 
 
 DAY = BusinessDay.parse("2026-08-03")
@@ -129,6 +130,7 @@ def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
                 engine=cast(SessionEngine, _ArchiveSession()),
             ),
             workspace=None,
+            active_memory=_active(DAY),
         )
 
     with pytest.raises(MaintenanceInvariantError, match="Workspace day"):
@@ -138,7 +140,12 @@ def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
                 day=DAY,
                 engine=cast(SessionEngine, _ArchiveSession()),
             ),
-            workspace=WorkspaceManifest(day=str(other_day)),
+            workspace=WorkspaceArchiveView(
+                root=Path("."),
+                manifest=WorkspaceManifest(day=str(other_day)),
+                max_read_chars=1024,
+            ),
+            active_memory=_active(DAY),
         )
 
 
@@ -150,7 +157,12 @@ def test_archived_memory_context_rejects_mismatched_turn_day() -> None:
             day=DAY,
             engine=cast(SessionEngine, _ArchiveSession()),
         ),
-        workspace=WorkspaceManifest(day=str(DAY)),
+        workspace=WorkspaceArchiveView(
+            root=Path("."),
+            manifest=WorkspaceManifest(day=str(DAY)),
+            max_read_chars=1024,
+        ),
+        active_memory=_active(DAY),
     )
     scope = (
         RunScope()
@@ -251,8 +263,11 @@ class _ScopeHome:
 
 
 class _ScopeMemory:
-    def eligible(self, day, *, archive, rebuild):
-        del day, archive, rebuild
+    def recover(self) -> None:
+        return None
+
+    def eligible(self, day, *, archive, if_absent):
+        del day, archive, if_absent
         return False
 
     def run(self, **kwargs):
@@ -270,6 +285,19 @@ class _ArchiveSession:
     def inspect(self, ref=None, *, action=None, continuation=None):
         del ref, action, continuation
         return {}
+
+
+def _active(day: BusinessDay) -> ActiveMemorySnapshot:
+    return ActiveMemorySnapshot(
+        document=ActiveMemoryDocument(
+            day=day.value,
+            revision=0,
+            updated_at=None,
+            content="",
+        ),
+        text="",
+        digest="0" * 64,
+    )
 
 
 def _program_trap() -> RuntimeTrap:

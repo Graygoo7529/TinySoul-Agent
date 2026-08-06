@@ -26,6 +26,11 @@ from tinysoul.home.errors import AgentHomeError
 from tinysoul.memory import MemoryEngine, parse_memory_settings
 from tinysoul.memory.errors import MemoryError
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.infra import (
+    EmbeddingClient,
+    build_embedding_client,
+    parse_embedding_settings,
+)
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -228,6 +233,7 @@ class TinySoulAppBuilder:
                     "context",
                     "home",
                     "memory",
+                    "embedding",
                     "maintenance",
                     "session",
                     "workspace",
@@ -321,25 +327,39 @@ class TinySoulAppBuilder:
                 )
             )
             home = self._build_home(config, home_bridge)
-            memory = (
-                self._memory
-                if self._memory is not None
-                else self._build_memory(
-                    config,
-                    memory_bridge,
-                    home,
-                    observations,
-                )
-            )
-            workspace = self._build_workspace(
-                config,
-                workspace_bridge,
-                observations,
-            )
             session = (
                 self._session
                 if self._session is not None
                 else self._build_session(config, session_bridge)
+            )
+            if self._memory is not None:
+                memory = self._memory
+            else:
+                embedding_settings = config.parse_section(
+                    "embedding",
+                    parse_embedding_settings,
+                )
+                embedding_client = build_embedding_client(
+                    embedding_settings,
+                    env=config.runtime_env,
+                )
+                memory = self._build_memory(
+                    config,
+                    memory_bridge,
+                    session_root=session.root,
+                    embedding_client=embedding_client,
+                    embedding_cache_max_chars=embedding_settings.cache_max_chars,
+                )
+            if memory.active_session_root is None:
+                memory.bind_active_session_root(session.root)
+            elif memory.active_session_root.resolve() != session.root.resolve():
+                raise AppInvariantError(
+                    "Injected Memory active Session root does not match Session"
+                )
+            workspace = self._build_workspace(
+                config,
+                workspace_bridge,
+                observations,
             )
             user_builder = UserTurnBuilder(
                 root=self._root,
@@ -595,8 +615,10 @@ class TinySoulAppBuilder:
         self,
         config: ConfigEnvironment,
         bridge: RuntimeMemoryBridge,
-        home: AgentHomeEngine,
-        observations: ObservationEmitter,
+        *,
+        session_root: Path,
+        embedding_client: EmbeddingClient | None,
+        embedding_cache_max_chars: int,
     ) -> MemoryEngine:
         try:
             settings = config.parse_section(
@@ -605,8 +627,9 @@ class TinySoulAppBuilder:
             )
             return MemoryEngine(
                 settings=settings,
-                home_catalog=home,
-                observations=observations,
+                active_session_root=session_root,
+                embedding_client=embedding_client,
+                embedding_cache_max_chars=embedding_cache_max_chars,
             )
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc

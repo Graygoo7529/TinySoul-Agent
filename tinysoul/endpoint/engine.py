@@ -77,7 +77,6 @@ class EndpointAppGateway(Protocol):
         scope: MaintenanceScope | str,
         *,
         target_day: BusinessDay | None,
-        rebuild_memory: bool,
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
@@ -209,7 +208,6 @@ class EndpointEngine:
         *,
         kind: str,
         target_day: str,
-        rebuild_memory: bool,
         metadata: JsonObject,
         command_id: str = "",
     ) -> JsonObject:
@@ -218,12 +216,6 @@ class EndpointEngine:
                 status_code=422,
                 code="maintenance.kind_invalid",
                 message="Maintenance kind must be daily, home, or memory.",
-            )
-        if rebuild_memory and kind != "memory":
-            raise EndpointRequestError(
-                status_code=422,
-                code="maintenance.rebuild_invalid",
-                message="Only Memory Maintenance accepts rebuild_memory.",
             )
         if kind == "memory" and not target_day:
             raise EndpointRequestError(
@@ -251,7 +243,6 @@ class EndpointEngine:
             receipt = self._gateway.request_maintenance(
                 MaintenanceScope(kind),
                 target_day=day,
-                rebuild_memory=rebuild_memory,
                 source="endpoint",
                 metadata=to_json_object(metadata),
                 command_id=command_id or None,

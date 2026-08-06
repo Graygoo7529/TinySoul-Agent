@@ -48,7 +48,7 @@
 
 - `home:<space>@<logical-path>` 表示可进入 Background 的 Home 顶层内容；`agent` 存放身份规约与用户偏好，`skills` 存放通用技能。
 - `home:<space>/<resource-path>` 表示只能由 Action 渐进读取或使用的 Home 资源，保留真实扩展名。
-- `memory:YYYY-MM-DD` 表示一日长期记忆；`<memory:YYYY-MM-DD>` 表示需要按需召回的引用，不表示正文内联。
+- `memory:daily/YYYY-MM-DD`、`memory:entity/<name>`、`memory:concept/<name>`、`memory:fact/<cite>` 与 `memory:note/<cite>` 表示五类持久 Memory Markdown；`memory:current`、`memory:latest`、`memory:target` 只是在特定 Context 中解析的动态背景引用，不是持久 Link。
 - `workspace:<relative-path>` 表示当日工作区资源句柄。
 - `home:skills_domain:<domain>` 与 `home:skills_action:<domain>/<action>` 表示局部自动 prompt mount，只进入对应 Phase 或 Action 内部任务，不作为普通 Background 或资源读取入口。
 
@@ -56,22 +56,22 @@
 
 Agent Home：Agent 的持久身份规约、用户偏好、通用 Skill 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层内容可进入 Background，渐进资源只通过 Action 使用，领域/动作 Skill 只在对应任务局部挂载。
 
-长期记忆/Memory：与 Home 平级的日期记忆，每个已提炼 Business Day 对应一份自由结构 Markdown，并以 `memory:YYYY-MM-DD` 标识。普通 User Turn 对 Memory 只读：精确昨日记忆存在时可自动进入 Background，缺失时不回退；其它日期通过 search/recall 按需进入 TurnTrace。Memory Maintenance 从已关闭日期的 Session facts 生成或明确重建单日文档。
+记忆/Memory：与 Home 平级，分为活动记忆、daily 情景证据和 entity/concept/fact/note 持久知识。活动 `Memory.md` 位于当日 Session root，User Turn 只通过 `memory.memorize` 做 CAS patch；五类持久 Markdown 只由 Memory Maintenance 维护。User Turn 通过 `memory.inspect` 结合 lexical、grep、正向引用、backlinks 和可选语义检索发现 Link，再由 `memory.recall` 精确召回完整文档。Markdown 是唯一业务事实，catalog 与 embedding cache 均是可删除重建的派生数据。
 
 会话/Session：同一 Business Day 内已经完成的 User Turns 所形成的不可变业务事实。Session 从同一事实图派生 prior-turn Background、渐进检查和 Memory facts，不保存当前 Turn 的运行时 trace，不承担通用日志或前端审计数据库职责。
 
 主要持久目录：
 
 - `home/`：Maintenance 已接受的 actual Home。
-- `memory/`：按日期组织的长期记忆。
-- `runtime/`：活动状态，主要包括当日 Session、Workspace、active Trash、跨日 Home overlay 和进程服务状态。
-- `archive/<timestamp>/`：已冻结 Business Day 的 Session、Workspace 与 Trash；不包含 Home，Memory 也不随日切移入归档。
+- `memory/`：daily/entity/concept/fact/note 五类持久 Markdown，以及可删除的 `.tinysoul/` 派生缓存和事务 journal。
+- `runtime/`：活动状态，主要包括带 `Memory.md` 的当日 Session、Workspace、active Trash、跨日 Home overlay 和进程服务状态。
+- `archive/<timestamp>/`：已冻结 Business Day 的 Session（包含当日 `Memory.md`）、Workspace 与 Trash；不包含 Home，持久 `memory/` 也不随日切移入归档。
 
 ### 运行控制
 
 运行层级：从外到内为 Program、Turn、Cycle、Phase、Module。Program 拥有类型化请求队列与进程生命周期；Turn 表达一项完整的 User 或 Maintenance work；Cycle 和 Phase 组织推理与行动；Module 是 LLM、Action、Context 或持久化 owner 的具体执行边界。
 
-Business Day 与每日生命周期：业务日由统一时区规则确定，并在一个 Turn 内保持不变。只有 Session、Workspace 和 active Trash 具有强制日生命周期；进入新日工作前必须先完成不依赖 LLM 的确定性日切、恢复、归档和新根初始化。Home 跨日保留且不进入归档；Memory 由关闭日事实经独立 Maintenance 生成。
+Business Day 与每日生命周期：业务日由统一时区规则确定，并在一个 Turn 内保持不变。Session、Session root 内的活动 `Memory.md`、Workspace 和 active Trash 具有强制日生命周期；进入新日工作前必须先完成不依赖 LLM 的确定性日切、恢复、归档和新根初始化。新日 `Memory.md` 初始正文为空。Home 与持久 Memory 跨日保留且不进入归档；关闭日 daily 与知识由独立 Memory Maintenance 维护。
 
 Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例如全局恢复、重试某一 frame、结束 Turn/Cycle/Program 或启动失败。模块应先完成自身局部恢复和失败归类，只有局部流程无法继续或需要全局协调时才进入 Trap；Trap 产生的运行转移必须指向当前捕获作用域内的合法 frame。
 
@@ -101,7 +101,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - `session` 只保存当日已完成 Turn 的不可变业务事实，并从同一事实图派生历史 Background、渐进检查和 Memory facts；它不是通用日志或前端审计库。
 - `workspace` 是 `workspace:` 资源链接和当日工作区的唯一 owner，负责磁盘事实、manifest、版本一致性、文件变更、Trash 和归档投影。Context 只接收链接和摘要，文件正文只能在明确、有界的 Action 执行期读取。
 - `home` 是 `home:` 内容和 Skill 的唯一 owner。actual Home 在普通运行中只读，User Turn 的改动写入跨日 runtime overlay；Home Maintenance 才能把审核后的变更提交回 actual Home。长期日期记忆不属于 Home。
-- `memory` 是 `memory:YYYY-MM-DD` 日期记忆的唯一 owner。普通 User Turn 只读，昨日记忆可作为 Background，其余日期按需召回；Memory Maintenance 对单日文档执行原子完整写入。
+- `memory` 是活动 `Memory.md`、五类持久 `memory:` Link、Markdown codec、检索 catalog、backlinks、派生 embedding cache 和多文档事务的唯一 owner。User Turn 只能 patch 活动记忆并 inspect/recall 持久记忆；Memory Maintenance 才能联合维护目标 daily 与 entity/concept/fact/note。
 - `maintenance` 拥有业务时钟、确定性日切、归档以及 Home/Memory 维护任务的编排。Archive、Home、Memory 的私有存储仍由各自 owner 解释，维护任务之间不互读私有实现。
 - `capabilities` 只承载无独立持久化和生命周期的具体能力，通过 Action 注册自身服务和执行器；不得另建与 Workspace、Home、Memory 或 Session 平行的状态模块。
 - `endpoint` 是本地客户端协议适配层，与 Terminal 共用同一 App 和业务 Engine。它负责鉴权、请求映射和 Observation replay，不拥有业务状态、退出权或任意文件 API。
@@ -111,6 +111,8 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - Phase1 只确定行动域并处理语境控制意图，Phase2 在已选域内生成 ActionCall，Phase3 执行 ActionBatch；每个调用都应归一化为可记录、可反馈的结果。
 - Context 的 Background、TurnTrace、Working 和 task prompt 是不同语义层：Background 提供可复用背景，Trace 记录本轮行为，Working 表达当前工作状态，task prompt 只服务当前 LLM Task。资源正文不因存在链接而自动进入 Context。
 - Link 是跨模块资源身份，不是物理路径拼接约定。`home:`、`memory:`、`workspace:` 各自由 owner 解析；顶层内容、渐进资源、工作区资源和局部 Skill mount 不得混用。
+- User 与 Home Maintenance Context 加载不可逐出的 `memory:current + optional memory:latest`；Memory Maintenance Context 加载不可逐出的 `memory:target + optional memory:latest`，其中 latest 始终是严格早于 Context 日的最近 daily，缺失时静默省略。
+- Memory Maintenance 必须先 inspect/recall 已有内容再复用、修正或新增。既有持久 Link 不 hard delete；合并、替代或撤回保留非空迁移说明和有效非 daily redirect。`relations` 只表达 entity/concept 关系，daily/fact/note 来源由 `evidence` 表达。
 - Session、Workspace、Home overlay 和 Memory 文档的写入都必须在 owner 的一致性边界完成，使用校验、reconcile、CAS 或原子替换保证不会产生半提交状态。LLM 生成期间读取的资源集合必须在提交时复验。
 - User Turn 与 Maintenance Turn 都在完整情景中运行；Maintenance 是自治的 Program work，不等待人工审批，不把维护状态塞入 User Session，也不让维护请求绕过 Program 队列。
 

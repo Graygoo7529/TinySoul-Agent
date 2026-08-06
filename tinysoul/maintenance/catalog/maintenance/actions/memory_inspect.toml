@@ -1,0 +1,17 @@
+name = "maintenance.memory.inspect"
+domain = "maintenance"
+[tool]
+description = "Search persistent Memory by lexical/grep/semantic query or inspect a known Link's references and backlinks. Returns an inspection_ref required before staging creation."
+schema = { type = "object", properties = { query = { type = "string" }, memory_link = { type = "string" }, kinds = { type = "array", items = { type = "string", enum = ["daily", "entity", "concept", "fact", "note"] } }, limit = { type = "integer", minimum = 1 }, continuation = { type = "string" } }, additionalProperties = false }
+[semantic]
+use_when = ["Find and reuse an existing memory before creating a new one", "Explore backlinks and related links"]
+avoid_when = ["Exact full Markdown is required; use maintenance.memory.recall"]
+effects = ["read_only"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.inspect"

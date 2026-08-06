@@ -48,7 +48,6 @@ class MaintenanceRequest(BaseModel):
 
     kind: Literal["daily", "home", "memory"]
     target_day: str = ""
-    rebuild_memory: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
     command_id: str = Field(default="", max_length=128)
 
@@ -190,7 +189,6 @@ def create_endpoint_app(
         return engine.request_maintenance(
             kind=body.kind,
             target_day=body.target_day,
-            rebuild_memory=body.rebuild_memory,
             metadata=to_json_object(body.metadata),
             command_id=body.command_id,
         )

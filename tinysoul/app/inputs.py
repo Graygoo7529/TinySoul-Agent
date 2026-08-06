@@ -79,7 +79,6 @@ class InputIntent:
     source: str = ""
     maintenance_scope: MaintenanceScope | None = None
     target_day: BusinessDay | None = None
-    rebuild_memory: bool = False
     error: str = ""
     metadata: JsonObject = field(default_factory=dict)
     command_id: str = ""
@@ -94,8 +93,6 @@ class InputIntent:
             raise AppContractError("Only Maintenance intent can carry a scope")
         if self.target_day is not None and not isinstance(self.target_day, BusinessDay):
             raise AppContractError("Input intent target day is invalid")
-        if not isinstance(self.rebuild_memory, bool):
-            raise AppContractError("Input intent rebuild flag is invalid")
         if not isinstance(self.command_id, str) or not self.command_id:
             raise AppContractError("Input intent command_id must be non-empty")
         object.__setattr__(self, "metadata", to_json_object(self.metadata))
@@ -166,14 +163,9 @@ class InputCommandParser:
             )
         if len(parts) >= 2 and normalized[:2] == ("/maintenance", "memory"):
             target: BusinessDay | None = None
-            rebuild = False
             try:
                 for argument in parts[2:]:
-                    if argument.casefold() == "--rebuild":
-                        if rebuild:
-                            raise MaintenanceContractError("duplicate --rebuild")
-                        rebuild = True
-                    elif target is None:
+                    if target is None:
                         target = BusinessDay.parse(argument)
                     else:
                         raise MaintenanceContractError("too many arguments")
@@ -187,7 +179,6 @@ class InputCommandParser:
                 text=text,
                 maintenance_scope=MaintenanceScope.MEMORY,
                 target_day=target,
-                rebuild_memory=rebuild,
             )
         return self._rejected(event, text)
 
@@ -198,7 +189,7 @@ class InputCommandParser:
             text=text,
             error=(
                 "Use /maintenance [daily|home] or "
-                "/maintenance memory YYYY-MM-DD [--rebuild]."
+                "/maintenance memory YYYY-MM-DD."
             ),
         )
 
@@ -210,7 +201,6 @@ class InputCommandParser:
         text: str = "",
         maintenance_scope: MaintenanceScope | None = None,
         target_day: BusinessDay | None = None,
-        rebuild_memory: bool = False,
         error: str = "",
     ) -> InputIntent:
         return InputIntent(
@@ -219,7 +209,6 @@ class InputCommandParser:
             source=event.source,
             maintenance_scope=maintenance_scope,
             target_day=target_day,
-            rebuild_memory=rebuild_memory,
             error=error,
             metadata={**event.metadata, "received_at": event.received_at},
             command_id=event.command_id,
@@ -282,7 +271,6 @@ class InputDispatcher:
                     scope=intent.maintenance_scope,
                     trigger=MaintenanceTrigger.MANUAL,
                     target_day=intent.target_day,
-                    rebuild_memory=intent.rebuild_memory,
                     source=intent.source,
                     request_id=intent.command_id,
                     metadata=intent.metadata,
@@ -324,7 +312,6 @@ class InputDispatcher:
         scope: MaintenanceScope,
         *,
         target_day: BusinessDay | None,
-        rebuild_memory: bool,
         source: str,
         metadata: JsonObject,
         command_id: str,
@@ -333,7 +320,6 @@ class InputDispatcher:
             scope=scope,
             trigger=MaintenanceTrigger.MANUAL,
             target_day=target_day,
-            rebuild_memory=rebuild_memory,
             source=source,
             metadata=metadata,
             request_id=command_id,
@@ -344,7 +330,6 @@ class InputDispatcher:
             source=source,
             maintenance_scope=scope,
             target_day=target_day,
-            rebuild_memory=rebuild_memory,
             metadata=metadata,
             command_id=command_id,
         )

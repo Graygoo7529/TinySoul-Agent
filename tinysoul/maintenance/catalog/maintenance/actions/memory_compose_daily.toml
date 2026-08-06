@@ -1,0 +1,17 @@
+name = "maintenance.memory.compose_daily"
+domain = "maintenance"
+[tool]
+description = "Compose a complete target-day daily candidate from Session facts, archived active Memory, target-relative latest, and optional existing target daily."
+schema = { type = "object", properties = {}, additionalProperties = false }
+[semantic]
+use_when = ["The target daily must be created or reviewed"]
+avoid_when = ["Before inspecting enough target-day sources"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.compose_daily"

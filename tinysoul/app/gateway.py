@@ -90,7 +90,6 @@ class AppCommandGateway(InputSink):
         scope: MaintenanceScope | str,
         *,
         target_day: BusinessDay | None,
-        rebuild_memory: bool = False,
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
@@ -102,7 +101,6 @@ class AppCommandGateway(InputSink):
             return self._dispatcher.request_maintenance(
                 typed_scope,
                 target_day=target_day,
-                rebuild_memory=rebuild_memory,
                 source=source,
                 metadata=metadata,
                 command_id=command_id or f"command_{uuid4().hex}",

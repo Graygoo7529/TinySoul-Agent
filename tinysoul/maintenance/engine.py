@@ -73,12 +73,14 @@ class HomeMaintenanceRunner(Protocol):
 class MemoryMaintenanceRunner(Protocol):
     """Memory task operations used by the facade."""
 
+    def recover(self) -> None: ...
+
     def eligible(
         self,
         day: BusinessDay,
         *,
         archive: ArchiveProjection | None,
-        rebuild: bool,
+        if_absent: bool,
     ) -> bool: ...
 
     def run(
@@ -87,7 +89,6 @@ class MemoryMaintenanceRunner(Protocol):
         business_day: BusinessDay,
         target_day: BusinessDay,
         archive: ArchiveProjection | None,
-        rebuild: bool,
         scope: RunScope,
         request_id: str,
     ) -> MaintenanceTaskOutcome: ...
@@ -122,6 +123,7 @@ class MaintenanceEngine:
 
         run_scope = scope or RunScope()
         with self._lock:
+            self._memory_engine_recover()
             now = self._clock.now()
             business_day = BusinessDay(now.date())
             transition = self._archive.ensure_active_day(
@@ -209,7 +211,6 @@ class MaintenanceEngine:
                                 business_day=business_day,
                                 target_day=target,
                                 archive=self._archive.archive_for(target),
-                                rebuild=request.rebuild_memory,
                                 scope=run_scope,
                                 request_id=request.request_id,
                             ),
@@ -275,7 +276,7 @@ class MaintenanceEngine:
                 raise MaintenanceInvariantError(
                     f"Maintenance availability references a missing archive: {day}"
                 )
-            if not self._memory.eligible(day, archive=archive, rebuild=False):
+            if not self._memory.eligible(day, archive=archive, if_absent=True):
                 pending.remove(day)
 
         for transitioned_archive in transition.archives:
@@ -291,7 +292,7 @@ class MaintenanceEngine:
             if self._memory.eligible(
                 transitioned_archive.day,
                 archive=archive,
-                rebuild=False,
+                if_absent=True,
             ):
                 pending.add(transitioned_archive.day)
             else:
@@ -336,10 +337,13 @@ class MaintenanceEngine:
             if self._memory.eligible(
                 target_day,
                 archive=archive,
-                rebuild=request.rebuild_memory,
+                if_absent=False,
             )
             else ()
         )
+
+    def _memory_engine_recover(self) -> None:
+        self._memory.recover()
 
     @staticmethod
     def _archive_outcome(

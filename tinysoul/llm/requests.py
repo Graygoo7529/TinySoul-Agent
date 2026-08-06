@@ -23,8 +23,7 @@ class TaskProfile(StrEnum):
     FRAMEWORK = "framework"
     LLM_ACTION = "llm_action"
     HOME_SEARCH = "home_search"
-    MEMORY_SEARCH = "memory_search"
-    MEMORY_CONSOLIDATION = "memory_consolidation"
+    MEMORY_DAILY_COMPOSITION = "memory_daily_composition"
 
 
 class ModelContextOverflowPolicy(StrEnum):

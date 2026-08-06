@@ -156,16 +156,11 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert home_search.settings.tool_use is ToolUse.DISABLED
     assert home_search.settings.temperature == pytest.approx(0.1)
     assert home_search.settings.max_output_tokens == 512
-    memory_search = config.tasks.get(TaskProfile.MEMORY_SEARCH)
-    assert memory_search.settings.answer_format is AnswerFormat.JSON_OBJECT
-    assert memory_search.settings.tool_use is ToolUse.DISABLED
-    assert memory_search.settings.temperature == pytest.approx(0.1)
-    assert memory_search.settings.max_output_tokens == 512
-    memory_consolidation = config.tasks.get(TaskProfile.MEMORY_CONSOLIDATION)
-    assert memory_consolidation.settings.answer_format is AnswerFormat.JSON_OBJECT
-    assert memory_consolidation.settings.tool_use is ToolUse.DISABLED
-    assert memory_consolidation.settings.temperature == pytest.approx(0.2)
-    assert memory_consolidation.settings.max_output_tokens == 4096
+    memory_daily = config.tasks.get(TaskProfile.MEMORY_DAILY_COMPOSITION)
+    assert memory_daily.settings.answer_format is AnswerFormat.JSON_OBJECT
+    assert memory_daily.settings.tool_use is ToolUse.DISABLED
+    assert memory_daily.settings.temperature == pytest.approx(0.2)
+    assert memory_daily.settings.max_output_tokens == 4096
 
 
 def test_llm_config_rejects_model_with_unknown_provider() -> None:

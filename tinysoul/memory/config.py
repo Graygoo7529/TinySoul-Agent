@@ -10,24 +10,34 @@ from typing import cast
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
-DEFAULT_MAX_DOCUMENT_CHARS = 16000
-DEFAULT_SEARCH_CANDIDATE_LIMIT = 20
-DEFAULT_SEARCH_TOP_K = 5
-DEFAULT_SEARCH_MAX_TOP_K = 10
-DEFAULT_SEARCH_SUMMARY_MAX_CHARS = 320
-DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS = 12000
-DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS = 240000
-DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS = 4096
-DEFAULT_CONSOLIDATION_MAX_CALLS = 48
-DEFAULT_CONSOLIDATION_VALIDATION_RETRIES = 2
+@dataclass(frozen=True)
+class MemoryDocumentSettings:
+    daily_max_chars: int = 32_000
+    entity_max_chars: int = 16_000
+    concept_max_chars: int = 16_000
+    fact_max_chars: int = 4_000
+    note_max_chars: int = 24_000
+    redirect_max_hops: int = 8
+
+    def __post_init__(self) -> None:
+        for name in (
+            "daily_max_chars",
+            "entity_max_chars",
+            "concept_max_chars",
+            "fact_max_chars",
+            "note_max_chars",
+            "redirect_max_hops",
+        ):
+            _positive(getattr(self, name), f"memory.documents.{name}")
 
 
 @dataclass(frozen=True)
-class MemorySearchSettings:
-    candidate_limit: int = DEFAULT_SEARCH_CANDIDATE_LIMIT
-    default_top_k: int = DEFAULT_SEARCH_TOP_K
-    max_top_k: int = DEFAULT_SEARCH_MAX_TOP_K
-    summary_max_chars: int = DEFAULT_SEARCH_SUMMARY_MAX_CHARS
+class MemoryInspectSettings:
+    candidate_limit: int = 40
+    default_top_k: int = 8
+    max_top_k: int = 20
+    summary_max_chars: int = 480
+    page_max_chars: int = 8_000
 
     def __post_init__(self) -> None:
         for name in (
@@ -35,63 +45,40 @@ class MemorySearchSettings:
             "default_top_k",
             "max_top_k",
             "summary_max_chars",
+            "page_max_chars",
         ):
-            _positive_setting(getattr(self, name), key=f"memory.search.{name}")
+            _positive(getattr(self, name), f"memory.inspect.{name}")
         if self.default_top_k > self.max_top_k:
             raise ConfigError(
-                "Memory search default_top_k cannot exceed max_top_k",
-                key="memory.search.default_top_k",
-                value=self.default_top_k,
-                expected="int <= max_top_k",
+                "Memory inspect default_top_k cannot exceed max_top_k",
+                key="memory.inspect.default_top_k",
             )
         if self.max_top_k > self.candidate_limit:
             raise ConfigError(
-                "Memory search max_top_k cannot exceed candidate_limit",
-                key="memory.search.max_top_k",
-                value=self.max_top_k,
-                expected="int <= candidate_limit",
+                "Memory inspect max_top_k cannot exceed candidate_limit",
+                key="memory.inspect.max_top_k",
+            )
+        if self.page_max_chars < self.summary_max_chars + 512:
+            raise ConfigError(
+                "Memory inspect page_max_chars must fit one result",
+                key="memory.inspect.page_max_chars",
             )
 
 
 @dataclass(frozen=True)
-class MemoryConsolidationSettings:
-    chunk_max_chars: int = DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS
-    source_max_chars: int = DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS
-    link_hints_max_chars: int = DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS
-    max_calls: int = DEFAULT_CONSOLIDATION_MAX_CALLS
-    validation_retries: int = DEFAULT_CONSOLIDATION_VALIDATION_RETRIES
+class MemoryDailyCompositionSettings:
+    chunk_max_chars: int = 12_000
+    source_max_chars: int = 240_000
+    max_calls: int = 48
+    validation_retries: int = 2
 
     def __post_init__(self) -> None:
-        for name in (
-            "chunk_max_chars",
-            "source_max_chars",
-            "link_hints_max_chars",
-            "max_calls",
-        ):
-            _positive_setting(
-                getattr(self, name),
-                key=f"memory.consolidation.{name}",
-            )
-        if self.chunk_max_chars < 512:
-            raise ConfigError(
-                "Memory consolidation chunk budget is too small",
-                key="memory.consolidation.chunk_max_chars",
-                value=self.chunk_max_chars,
-                expected="int >= 512",
-            )
+        for name in ("chunk_max_chars", "source_max_chars", "max_calls"):
+            _positive(getattr(self, name), f"memory.daily_composition.{name}")
         if self.source_max_chars < self.chunk_max_chars:
             raise ConfigError(
-                "Memory consolidation source budget must cover one chunk",
-                key="memory.consolidation.source_max_chars",
-                value=self.source_max_chars,
-                expected="int >= chunk_max_chars",
-            )
-        if self.max_calls < 2:
-            raise ConfigError(
-                "Memory consolidation call budget must allow reduce and final calls",
-                key="memory.consolidation.max_calls",
-                value=self.max_calls,
-                expected="int >= 2",
+                "Memory daily source budget must cover one chunk",
+                key="memory.daily_composition.source_max_chars",
             )
         if (
             isinstance(self.validation_retries, bool)
@@ -99,47 +86,33 @@ class MemoryConsolidationSettings:
             or self.validation_retries < 0
         ):
             raise ConfigError(
-                "Memory consolidation validation retries cannot be negative",
-                key="memory.consolidation.validation_retries",
-                value=self.validation_retries,
-                expected="non-negative int",
+                "Memory daily validation_retries cannot be negative",
+                key="memory.daily_composition.validation_retries",
             )
 
 
 @dataclass(frozen=True)
 class MemorySettings:
     root: Path
-    max_document_chars: int = DEFAULT_MAX_DOCUMENT_CHARS
-    search: MemorySearchSettings = field(default_factory=MemorySearchSettings)
-    consolidation: MemoryConsolidationSettings = field(
-        default_factory=MemoryConsolidationSettings
+    max_active_chars: int = 12_000
+    documents: MemoryDocumentSettings = field(default_factory=MemoryDocumentSettings)
+    inspect: MemoryInspectSettings = field(default_factory=MemoryInspectSettings)
+    daily_composition: MemoryDailyCompositionSettings = field(
+        default_factory=MemoryDailyCompositionSettings
     )
 
     def __post_init__(self) -> None:
         if not isinstance(self.root, Path):
+            raise ConfigError("Memory root must be a path", key="memory.root")
+        _positive(self.max_active_chars, "memory.max_active_chars")
+        if not isinstance(self.documents, MemoryDocumentSettings):
+            raise ConfigError("Memory documents settings are invalid", key="memory.documents")
+        if not isinstance(self.inspect, MemoryInspectSettings):
+            raise ConfigError("Memory inspect settings are invalid", key="memory.inspect")
+        if not isinstance(self.daily_composition, MemoryDailyCompositionSettings):
             raise ConfigError(
-                "Memory root must be a path",
-                key="memory.root",
-                value=self.root,
-                expected="path",
-            )
-        _positive_setting(
-            self.max_document_chars,
-            key="memory.max_document_chars",
-        )
-        if not isinstance(self.search, MemorySearchSettings):
-            raise ConfigError(
-                "Memory search settings are invalid",
-                key="memory.search",
-                value=type(self.search).__name__,
-                expected="MemorySearchSettings",
-            )
-        if not isinstance(self.consolidation, MemoryConsolidationSettings):
-            raise ConfigError(
-                "Memory consolidation settings are invalid",
-                key="memory.consolidation",
-                value=type(self.consolidation).__name__,
-                expected="MemoryConsolidationSettings",
+                "Memory daily composition settings are invalid",
+                key="memory.daily_composition",
             )
 
 
@@ -150,121 +123,106 @@ def parse_memory_settings(
 ) -> MemorySettings:
     reject_unknown_keys(
         tree,
-        {"root", "max_document_chars", "search", "consolidation"},
+        {"root", "max_active_chars", "documents", "inspect", "daily_composition"},
         key="memory",
     )
-    root = _path(tree.get("root"), default=project_root / "memory")
     return MemorySettings(
-        root=root,
-        max_document_chars=_int(
-            tree,
-            "max_document_chars",
-            DEFAULT_MAX_DOCUMENT_CHARS,
-            prefix="memory",
-        ),
-        search=_parse_search(tree.get("search")),
-        consolidation=_parse_consolidation(tree.get("consolidation")),
+        root=_path(tree.get("root"), project_root=project_root),
+        max_active_chars=_int(tree, "max_active_chars", 12_000, "memory"),
+        documents=_parse_documents(tree.get("documents")),
+        inspect=_parse_inspect(tree.get("inspect")),
+        daily_composition=_parse_daily(tree.get("daily_composition")),
     )
 
 
-def _parse_search(value: object) -> MemorySearchSettings:
-    tree = _table(value, key="memory.search")
-    reject_unknown_keys(
-        tree,
-        {"candidate_limit", "default_top_k", "max_top_k", "summary_max_chars"},
-        key="memory.search",
-    )
-    return MemorySearchSettings(
-        candidate_limit=_int(tree, "candidate_limit", DEFAULT_SEARCH_CANDIDATE_LIMIT, prefix="memory.search"),
-        default_top_k=_int(tree, "default_top_k", DEFAULT_SEARCH_TOP_K, prefix="memory.search"),
-        max_top_k=_int(tree, "max_top_k", DEFAULT_SEARCH_MAX_TOP_K, prefix="memory.search"),
-        summary_max_chars=_int(tree, "summary_max_chars", DEFAULT_SEARCH_SUMMARY_MAX_CHARS, prefix="memory.search"),
-    )
-
-
-def _parse_consolidation(value: object) -> MemoryConsolidationSettings:
-    tree = _table(value, key="memory.consolidation")
-    reject_unknown_keys(
-        tree,
-        {
-            "chunk_max_chars",
-            "source_max_chars",
-            "link_hints_max_chars",
-            "max_calls",
-            "validation_retries",
-        },
-        key="memory.consolidation",
-    )
-    return MemoryConsolidationSettings(
-        chunk_max_chars=_int(tree, "chunk_max_chars", DEFAULT_CONSOLIDATION_CHUNK_MAX_CHARS, prefix="memory.consolidation"),
-        source_max_chars=_int(tree, "source_max_chars", DEFAULT_CONSOLIDATION_SOURCE_MAX_CHARS, prefix="memory.consolidation"),
-        link_hints_max_chars=_int(tree, "link_hints_max_chars", DEFAULT_CONSOLIDATION_LINK_HINTS_MAX_CHARS, prefix="memory.consolidation"),
-        max_calls=_int(tree, "max_calls", DEFAULT_CONSOLIDATION_MAX_CALLS, prefix="memory.consolidation"),
-        validation_retries=_int(tree, "validation_retries", DEFAULT_CONSOLIDATION_VALIDATION_RETRIES, prefix="memory.consolidation"),
+def _parse_documents(value: object) -> MemoryDocumentSettings:
+    tree = _table(value, "memory.documents")
+    names = {
+        "daily_max_chars",
+        "entity_max_chars",
+        "concept_max_chars",
+        "fact_max_chars",
+        "note_max_chars",
+        "redirect_max_hops",
+    }
+    reject_unknown_keys(tree, names, key="memory.documents")
+    defaults = MemoryDocumentSettings()
+    return MemoryDocumentSettings(
+        **{
+            name: _int(tree, name, getattr(defaults, name), "memory.documents")
+            for name in names
+        }
     )
 
 
-def _table(value: object, *, key: str) -> Mapping[str, object]:
+def _parse_inspect(value: object) -> MemoryInspectSettings:
+    tree = _table(value, "memory.inspect")
+    names = {
+        "candidate_limit",
+        "default_top_k",
+        "max_top_k",
+        "summary_max_chars",
+        "page_max_chars",
+    }
+    reject_unknown_keys(tree, names, key="memory.inspect")
+    defaults = MemoryInspectSettings()
+    return MemoryInspectSettings(
+        **{
+            name: _int(tree, name, getattr(defaults, name), "memory.inspect")
+            for name in names
+        }
+    )
+
+
+def _parse_daily(value: object) -> MemoryDailyCompositionSettings:
+    tree = _table(value, "memory.daily_composition")
+    names = {"chunk_max_chars", "source_max_chars", "max_calls", "validation_retries"}
+    reject_unknown_keys(tree, names, key="memory.daily_composition")
+    defaults = MemoryDailyCompositionSettings()
+    return MemoryDailyCompositionSettings(
+        **{
+            name: _int(tree, name, getattr(defaults, name), "memory.daily_composition")
+            for name in names
+        }
+    )
+
+
+def _table(value: object, key: str) -> Mapping[str, object]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ConfigError(
-            "Memory configuration value must be a table",
-            key=key,
-            value=value,
-            expected="table",
-        )
+        raise ConfigError("Memory configuration value must be a table", key=key)
     return cast(Mapping[str, object], value)
 
 
-def _path(value: object, *, default: Path) -> Path:
+def _path(value: object, *, project_root: Path) -> Path:
     if value is None:
-        return default
+        return project_root / "memory"
     if not isinstance(value, str) or not value:
-        raise ConfigError(
-            "Memory root must be a non-empty path string",
-            key="memory.root",
-            value=value,
-            expected="str",
-        )
+        raise ConfigError("Memory root must be non-empty text", key="memory.root")
     path = Path(value)
     if path.is_absolute():
         return path
-    project_root = default.parent.resolve()
     candidate = (project_root / path).resolve()
-    if candidate == project_root or project_root not in candidate.parents:
+    root = project_root.resolve()
+    if candidate == root or root not in candidate.parents:
         raise ConfigError(
             "Relative Memory root must stay inside the project root",
             key="memory.root",
-            value=value,
-            expected="relative path under project root",
         )
-    return project_root / path
+    return candidate
 
 
-def _int(
-    tree: Mapping[str, object],
-    name: str,
-    default: int,
-    *,
-    prefix: str,
-) -> int:
+def _int(tree: Mapping[str, object], name: str, default: int, prefix: str) -> int:
     value = tree.get(name, default)
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError(
             "Memory configuration value must be an integer",
             key=f"{prefix}.{name}",
-            value=value,
-            expected="int",
         )
     return value
 
 
-def _positive_setting(value: object, *, key: str) -> None:
+def _positive(value: object, key: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ConfigError(
-            "Memory setting must be positive",
-            key=key,
-            value=value,
-            expected="positive int",
-        )
+        raise ConfigError("Memory setting must be positive", key=key)

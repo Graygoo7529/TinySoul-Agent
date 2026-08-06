@@ -159,8 +159,9 @@ def test_catalog_view_by_domain() -> None:
     ]
     memory_view = catalog.with_domains(("memory",))
     assert [action.name for action in memory_view.actions()] == [
+        "memory.inspect",
+        "memory.memorize",
         "memory.recall",
-        "memory.search",
     ]
 
 

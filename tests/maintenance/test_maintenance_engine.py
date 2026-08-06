@@ -193,7 +193,7 @@ def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     ]
 
 
-def test_explicit_memory_rebuild_does_not_require_pending_entry(
+def test_explicit_memory_maintenance_does_not_require_pending_entry(
     tmp_path: Path,
 ) -> None:
     memory = _Memory(existing={DAY_ONE})
@@ -208,7 +208,6 @@ def test_explicit_memory_rebuild_does_not_require_pending_entry(
             scope=MaintenanceScope.MEMORY,
             trigger=MaintenanceTrigger.MANUAL,
             target_day=DAY_ONE,
-            rebuild_memory=True,
         )
     )
 
@@ -355,8 +354,11 @@ class _Memory:
     ran: list[BusinessDay] = field(default_factory=list)
     fail_days: set[BusinessDay] = field(default_factory=set)
 
-    def eligible(self, day, *, archive, rebuild):
-        return archive is not None and (rebuild or day not in self.existing)
+    def recover(self) -> None:
+        return None
+
+    def eligible(self, day, *, archive, if_absent):
+        return archive is not None and (not if_absent or day not in self.existing)
 
     def run(
         self,
@@ -364,11 +366,10 @@ class _Memory:
         business_day,
         target_day,
         archive,
-        rebuild,
         scope,
         request_id,
     ):
-        del business_day, archive, rebuild, scope, request_id
+        del business_day, archive, scope, request_id
         self.ran.append(target_day)
         if target_day in self.fail_days:
             raise MemoryIOError("known owner failure")

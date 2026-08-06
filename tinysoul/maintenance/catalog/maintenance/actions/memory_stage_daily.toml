@@ -1,0 +1,17 @@
+name = "maintenance.memory.stage_daily"
+domain = "maintenance"
+[tool]
+description = "Stage the composed complete daily candidate as create, replace, or unchanged. Daily never has an append operation."
+schema = { type = "object", properties = { mode = { type = "string", enum = ["create", "replace", "unchanged"] } }, required = ["mode"], additionalProperties = false }
+[semantic]
+use_when = ["A daily candidate has been composed and compared with the existing target daily"]
+avoid_when = ["No candidate has been composed"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.stage_daily"

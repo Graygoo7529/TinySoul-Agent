@@ -25,7 +25,7 @@ from tinysoul.context.actions import register_context_actions
 from tinysoul.home import AgentHomeEngine, LLMHomeSearchReranker, register_home_actions
 from tinysoul.infra import StagingDirectoryManager
 from tinysoul.infra.config import ConfigError
-from tinysoul.memory import LLMMemorySearchReranker, MemoryEngine, register_memory_actions
+from tinysoul.memory import MemoryEngine, register_memory_actions
 from tinysoul.runtime import ObservationEmitter, SignalBus
 from tinysoul.runtime.bridge import (
     RuntimeActionBridge,
@@ -173,7 +173,6 @@ def build_user_action(
                 builder,
                 memory=memory,
                 runtime_bridge=memory_bridge,
-                search_reranker=LLMMemorySearchReranker(llm),
             )
             register_core_actions(
                 builder,

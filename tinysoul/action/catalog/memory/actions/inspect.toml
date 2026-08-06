@@ -1,0 +1,26 @@
+name = "memory.inspect"
+domain = "memory"
+
+[tool]
+description = "Discover Memory links by lexical/grep/semantic query, or inspect one known link's outgoing references, backlinks, and related links. Returns bounded summaries, not full documents. Continue step by step for multi-hop exploration."
+schema = { type = "object", properties = { query = { type = "string" }, memory_link = { type = "string" }, kinds = { type = "array", items = { type = "string", enum = ["daily", "entity", "concept", "fact", "note"] } }, limit = { type = "integer", minimum = 1 }, continuation = { type = "string" } }, additionalProperties = false }
+
+[semantic]
+use_when = ["The relevant exact Memory Link is unknown", "A known Memory Link should be explored through references or backlinks", "Several related memories should be compared before exact recall"]
+avoid_when = ["The exact link is known and its full Markdown is immediately needed", "Changing persistent Memory documents during a User Turn"]
+effects = ["read_only"]
+examples = ["Query agent memory for a past design decision, then inspect the best concept Link", "Inspect memory:entity/apple and follow a returned fact or note Link"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.result]
+trace_mode = "foldable"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "memory.inspect"

@@ -1,0 +1,17 @@
+name = "maintenance.memory.stage_rewrite"
+domain = "maintenance"
+[tool]
+description = "Stage an in-place update to an existing active entity, concept, fact, or note using a recall inspection_ref and expected digest."
+schema = { type = "object", properties = { memory_link = { type = "string" }, inspection_ref = { type = "string" }, expected_digest = { type = "string" }, summary = { type = "string" }, title = { type = "string" }, content = { type = "string" }, confidence = { type = "string", enum = ["low", "medium", "high"] }, relations = { type = "array", items = { type = "string" } }, evidence = { type = "array", items = { type = "string" } } }, required = ["memory_link", "inspection_ref", "expected_digest"], additionalProperties = false }
+[semantic]
+use_when = ["The stable identity or proposition remains the same and current content should be corrected or enriched"]
+avoid_when = ["The proposition meaning changes; create a replacement and redirect the old Link"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.stage_rewrite"

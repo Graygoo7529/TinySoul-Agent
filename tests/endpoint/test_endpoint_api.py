@@ -24,6 +24,7 @@ from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import LoopControlKind
+from tinysoul.memory import MemoryEngine, MemorySettings
 from tinysoul.maintenance import (
     DailyLifecycleCoordinator,
     MaintenanceAvailability,
@@ -122,7 +123,6 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
         (
             MaintenanceScope.MEMORY,
             BusinessDay.parse("2026-07-18"),
-            False,
             "endpoint",
         )
     ]
@@ -370,10 +370,15 @@ def _engine(
         WorkspaceSettings(root=tmp_path / "workspace"),
         observations=observations,
     ).build()
+    memory = MemoryEngine(
+        settings=MemorySettings(root=tmp_path / "memory"),
+        active_session_root=session.root,
+    )
     daily = DailyLifecycleCoordinator(
         archive_root=tmp_path / "archive",
         session=session,
         workspace=workspace,
+        memory=memory,
     )
     daily.ensure_active_day(
         DAY,
@@ -412,9 +417,7 @@ class _EndpointGateway:
     )
     synced: list[WorkspaceManifest] = field(default_factory=list)
     observed: list[ObservationEvent] = field(default_factory=list)
-    maintenance_requests: list[
-        tuple[MaintenanceScope, BusinessDay | None, bool, str]
-    ] = field(
+    maintenance_requests: list[tuple[MaintenanceScope, BusinessDay | None, str]] = field(
         default_factory=list
     )
 
@@ -458,7 +461,6 @@ class _EndpointGateway:
         scope: MaintenanceScope | str,
         *,
         target_day,
-        rebuild_memory: bool,
         source: str,
         metadata: JsonObject,
         command_id: str | None = None,
@@ -466,9 +468,7 @@ class _EndpointGateway:
         typed_scope = (
             scope if isinstance(scope, MaintenanceScope) else MaintenanceScope(scope)
         )
-        self.maintenance_requests.append(
-            (typed_scope, target_day, rebuild_memory, source)
-        )
+        self.maintenance_requests.append((typed_scope, target_day, source))
         return CommandReceipt(
             True,
             command_id or "command_maintenance",

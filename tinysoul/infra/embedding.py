@@ -1,0 +1,246 @@
+"""Provider-neutral text embedding infrastructure."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+import math
+from typing import Protocol, cast
+
+from openai import OpenAI
+
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
+
+
+class EmbeddingError(Exception):
+    """Embedding adapter/configuration boundary failure."""
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    enabled: bool = False
+    base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    model: str = "embedding-3"
+    api_key_envs: tuple[str, ...] = ("GLM_API_KEY", "ZHIPU_API_KEY")
+    dimensions: int = 1024
+    batch_size: int = 64
+    timeout_seconds: float = 30.0
+    cache_max_chars: int = 16_000_000
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ConfigError("Embedding enabled must be boolean", key="embedding.enabled")
+        for name in ("base_url", "model"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise ConfigError(f"Embedding {name} must be non-empty", key=f"embedding.{name}")
+        envs = tuple(self.api_key_envs)
+        if not envs or any(not isinstance(item, str) or not item for item in envs):
+            raise ConfigError("Embedding api_key_envs are invalid", key="embedding.api_key_envs")
+        if self.model == "embedding-3" and self.dimensions not in {256, 512, 1024, 2048}:
+            raise ConfigError(
+                "embedding-3 dimensions must be 256, 512, 1024, or 2048",
+                key="embedding.dimensions",
+            )
+        if (
+            isinstance(self.dimensions, bool)
+            or not isinstance(self.dimensions, int)
+            or self.dimensions <= 0
+        ):
+            raise ConfigError(
+                "Embedding dimensions must be positive",
+                key="embedding.dimensions",
+            )
+        if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, int) or not 1 <= self.batch_size <= 64:
+            raise ConfigError("Embedding batch_size must be between 1 and 64", key="embedding.batch_size")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or self.timeout_seconds <= 0
+        ):
+            raise ConfigError("Embedding timeout_seconds must be positive", key="embedding.timeout_seconds")
+        if isinstance(self.cache_max_chars, bool) or not isinstance(self.cache_max_chars, int) or self.cache_max_chars <= 0:
+            raise ConfigError("Embedding cache_max_chars must be positive", key="embedding.cache_max_chars")
+        object.__setattr__(self, "api_key_envs", envs)
+
+    def resolve_api_key(self, env: Mapping[str, str]) -> str:
+        for name in self.api_key_envs:
+            value = env.get(name)
+            if value:
+                return value
+        raise ConfigError(
+            "Embedding API key is not configured",
+            key="embedding.api_key_envs",
+            value=", ".join(self.api_key_envs),
+        )
+
+
+@dataclass(frozen=True)
+class EmbeddingBatch:
+    model: str
+    dimensions: int
+    vectors: tuple[tuple[float, ...], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model, str) or not self.model:
+            raise EmbeddingError("Embedding response model is invalid")
+        if (
+            isinstance(self.dimensions, bool)
+            or not isinstance(self.dimensions, int)
+            or self.dimensions <= 0
+        ):
+            raise EmbeddingError("Embedding response dimensions are invalid")
+        if any(len(vector) != self.dimensions for vector in self.vectors):
+            raise EmbeddingError("Embedding response vectors have inconsistent dimensions")
+        if any(not math.isfinite(value) for vector in self.vectors for value in vector):
+            raise EmbeddingError("Embedding response vectors must be finite")
+
+
+class EmbeddingClient(Protocol):
+    @property
+    def identity(self) -> str:
+        ...
+
+    @property
+    def max_batch_size(self) -> int:
+        ...
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+        ...
+
+
+class OpenAICompatibleEmbeddingClient:
+    """Narrow OpenAI SDK adapter used by BigModel Embedding-3 and peers."""
+
+    def __init__(
+        self,
+        *,
+        settings: EmbeddingSettings,
+        api_key: str,
+        client: object | None = None,
+    ) -> None:
+        if not settings.enabled:
+            raise ConfigError("Cannot build a disabled Embedding client", key="embedding.enabled")
+        if not isinstance(api_key, str) or not api_key:
+            raise ConfigError("Embedding API key is empty", key="embedding.api_key_envs")
+        self._settings = settings
+        self._client = client or OpenAI(
+            api_key=api_key,
+            base_url=settings.base_url,
+            timeout=settings.timeout_seconds,
+        )
+
+    @property
+    def identity(self) -> str:
+        return f"{self._settings.base_url}|{self._settings.model}|{self._settings.dimensions}"
+
+    @property
+    def max_batch_size(self) -> int:
+        return self._settings.batch_size
+
+    def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+        values = tuple(texts)
+        if not values or len(values) > self._settings.batch_size:
+            raise EmbeddingError("Embedding request batch size is invalid")
+        if any(not isinstance(item, str) or not item.strip() for item in values):
+            raise EmbeddingError("Embedding request texts must be non-empty")
+        try:
+            embeddings = getattr(self._client, "embeddings")
+            create = getattr(embeddings, "create")
+            response = create(
+                model=self._settings.model,
+                input=list(values),
+                dimensions=self._settings.dimensions,
+            )
+        except Exception as exc:
+            raise EmbeddingError(f"Embedding request failed: {type(exc).__name__}") from exc
+        raw_data = getattr(response, "data", None)
+        if not isinstance(raw_data, Sequence) or len(raw_data) != len(values):
+            raise EmbeddingError("Embedding response data is invalid")
+        indexed: dict[int, tuple[float, ...]] = {}
+        for position, item in enumerate(raw_data):
+            raw_index = getattr(item, "index", position)
+            raw_vector = getattr(item, "embedding", None)
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                raise EmbeddingError("Embedding response index is invalid")
+            if not isinstance(raw_vector, Sequence):
+                raise EmbeddingError("Embedding response vector is invalid")
+            try:
+                vector = tuple(float(value) for value in raw_vector)
+            except (TypeError, ValueError) as exc:
+                raise EmbeddingError("Embedding response vector is invalid") from exc
+            indexed[raw_index] = vector
+        try:
+            vectors = tuple(indexed[index] for index in range(len(values)))
+        except KeyError as exc:
+            raise EmbeddingError("Embedding response indices are incomplete") from exc
+        return EmbeddingBatch(
+            model=self._settings.model,
+            dimensions=self._settings.dimensions,
+            vectors=vectors,
+        )
+
+
+def parse_embedding_settings(tree: Mapping[str, object]) -> EmbeddingSettings:
+    names = {
+        "enabled",
+        "base_url",
+        "model",
+        "api_key_envs",
+        "dimensions",
+        "batch_size",
+        "timeout_seconds",
+        "cache_max_chars",
+    }
+    reject_unknown_keys(tree, names, key="embedding")
+    defaults = EmbeddingSettings()
+    raw_envs = tree.get("api_key_envs", defaults.api_key_envs)
+    if not isinstance(raw_envs, (list, tuple)) or any(not isinstance(item, str) for item in raw_envs):
+        raise ConfigError("Embedding api_key_envs must be a string list", key="embedding.api_key_envs")
+    return EmbeddingSettings(
+        enabled=_bool(tree.get("enabled", defaults.enabled), "enabled"),
+        base_url=_text(tree.get("base_url", defaults.base_url), "base_url"),
+        model=_text(tree.get("model", defaults.model), "model"),
+        api_key_envs=tuple(cast(Sequence[str], raw_envs)),
+        dimensions=_int(tree.get("dimensions", defaults.dimensions), "dimensions"),
+        batch_size=_int(tree.get("batch_size", defaults.batch_size), "batch_size"),
+        timeout_seconds=_float(tree.get("timeout_seconds", defaults.timeout_seconds), "timeout_seconds"),
+        cache_max_chars=_int(tree.get("cache_max_chars", defaults.cache_max_chars), "cache_max_chars"),
+    )
+
+
+def build_embedding_client(
+    settings: EmbeddingSettings,
+    *,
+    env: Mapping[str, str],
+) -> EmbeddingClient | None:
+    if not settings.enabled:
+        return None
+    return OpenAICompatibleEmbeddingClient(
+        settings=settings,
+        api_key=settings.resolve_api_key(env),
+    )
+
+
+def _bool(value: object, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError("Embedding value must be boolean", key=f"embedding.{name}")
+    return value
+
+
+def _text(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ConfigError("Embedding value must be non-empty text", key=f"embedding.{name}")
+    return value
+
+
+def _int(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError("Embedding value must be an integer", key=f"embedding.{name}")
+    return value
+
+
+def _float(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError("Embedding value must be numeric", key=f"embedding.{name}")
+    return float(value)

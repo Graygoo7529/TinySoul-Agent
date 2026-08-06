@@ -216,7 +216,7 @@ Home-owned `search.py` 从有界 effective skill 文档构造 metadata，严格�
 
 候选通过 JSON-only `home_search` profile 交给受控 LLM task，模型只返回候选内唯一 Link，也可以用空列表明确表示无匹配。Task failure、非 JSON、额外字段、重复 Link、超出 `top_k` 或候选外 Link 都不形成搜索失败，而是回退确定性顺序并标记 `reranked=false`；合法空列表返回空 items 且 `reranked=true`。action result 只返回 query、候选计数、rerank 标记和每项 link/space/title/summary/digest/score，不返回 searchable prefix 或完整正文，也不自动加载结果到 Background。模型后续仍须显式加载选中的顶层 Link。
 
-search 的 Home Link 和 effective overlay 规则属于 Agent Home；Infra 不解释这些业务概念。Memory search/recall 与 consolidation 属于 `tinysoul.memory`，不复用 Home catalog 解释日期资源。
+search 的 Home Link 和 effective overlay 规则属于 Agent Home；Infra 不解释这些业务概念。Memory inspect/recall 与 daily composition 属于 `tinysoul.memory`，不复用 Home catalog 解释记忆资源。
 
 普通 mutation 冲突和 patch 不适用收敛为局部 ActionResult；overlay 图损坏等不变量经 Home bridge 进入 Runtime，不降级为普通模型反馈。成功修改只返回 link、state、digest、baseline digest 和 size，不返回完整新正文。actual Home 内容只允许由 Home Maintenance 修改；Memory Maintenance 不经 Home mutation 或 Home overlay 写入。
 

@@ -47,7 +47,6 @@ class MaintenanceRequest:
     scope: MaintenanceScope
     trigger: MaintenanceTrigger
     target_day: BusinessDay | None = None
-    rebuild_memory: bool = False
     source: str = ""
     request_id: str = field(default_factory=lambda: f"request_{uuid4().hex}")
     metadata: JsonObject = field(default_factory=dict)
@@ -67,12 +66,6 @@ class MaintenanceRequest:
             raise MaintenanceContractError(
                 "Memory Maintenance requires an explicit target day"
             )
-        if not isinstance(self.rebuild_memory, bool):
-            raise MaintenanceContractError("Maintenance rebuild_memory must be boolean")
-        if self.scope is not MaintenanceScope.MEMORY and self.rebuild_memory:
-            raise MaintenanceContractError(
-                "Only Memory Maintenance can request a rebuild"
-            )
         if not isinstance(self.source, str):
             raise MaintenanceContractError("Maintenance request source must be text")
         if not isinstance(self.request_id, str) or not self.request_id.strip():
@@ -84,7 +77,6 @@ class MaintenanceRequest:
         value: JsonObject = {
             "scope": self.scope.value,
             "trigger": self.trigger.value,
-            "rebuild_memory": self.rebuild_memory,
             "source": self.source,
             "request_id": self.request_id,
             "metadata": self.metadata,

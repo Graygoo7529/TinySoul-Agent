@@ -1,0 +1,17 @@
+name = "maintenance.memory.stage_redirect"
+domain = "maintenance"
+[tool]
+description = "Stage merged, superseded, or retracted status for an existing Link while preserving a non-empty migration explanation and redirecting to a verified non-daily Link."
+schema = { type = "object", properties = { source_link = { type = "string" }, target_link = { type = "string" }, source_inspection_ref = { type = "string" }, target_inspection_ref = { type = "string" }, expected_digest = { type = "string" }, status = { type = "string", enum = ["merged", "superseded", "retracted"] }, migration_content = { type = "string" } }, required = ["source_link", "target_link", "source_inspection_ref", "target_inspection_ref", "expected_digest", "status", "migration_content"], additionalProperties = false }
+[semantic]
+use_when = ["A duplicate, corrected, or invalid memory must stop being active without breaking its Link"]
+avoid_when = ["The original identity and proposition remain valid"]
+effects = ["modifying"]
+[runtime]
+parallel_policy = "serial"
+[runtime.hooks]
+normalize = []
+execute = []
+[backend]
+kind = "native"
+handler = "maintenance.memory.stage_redirect"
