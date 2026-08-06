@@ -44,7 +44,8 @@ Turn 和原子单文件写入边界，但不能表达以下目标：
    不直接删除已经存在的 Link。
 6. 合并、替代或撤回记忆文档时保留原 Link 和 frontmatter，写入非 active status、
    迁移说明正文和有效 `redirect_to`；cite 创建后不再改变。除每天新建时允许为空的
-   `Memory.md` 外，daily、entity、concept、fact、note 的正文都必须非空。
+   `Memory.md` 外，daily、entity、concept、fact、note 的正文都必须非空。该确认取代
+   原始草案中“清空正文”的旧表述。
 7. 自动触发和手动显式触发都先验证目标日归档 Session 与 `Memory.md` 可读取；触发后
    进入完全相同的 Memory Maintenance Turn，不分两套 action 或维护模式。
 8. daily 是否存在只用于阻止重复自动触发以及从启动 availability/reminder 中移除已完成
@@ -96,7 +97,7 @@ app
   +-> maintenance
         +-> Archive coordinator: day lifecycle and opaque directory movement
         +-> maintenance.memory: target binding / draft / action workflow
-              +-> MemoryEngine: document, index and transaction owner facade
+              +-> MemoryEngine: document, catalog and transaction owner facade
               +-> SessionEngine: typed archived Turn facts
               +-> WorkspaceEngine: typed archived resource view
 
@@ -106,9 +107,42 @@ context -X-> memory store
 ```
 
 Memory 仍以 `MemoryEngine` 作为唯一装配门面。`tinysoul.maintenance.memory` 拥有
-Maintenance Turn 的 target、source binding、review token、draft 和 action 状态，但
-不能自行解析 Link、frontmatter、索引或写物理 Memory 文件。Session、Workspace、
+Maintenance Turn 的 target、source binding、inspection ref、draft 和 action 状态，但
+不能自行解析 Link、frontmatter、catalog 或写物理 Memory 文件。Session、Workspace、
 Context 只通过 typed projection/provider 与 Memory 协作。
+
+## 现有实现核对与改造边界
+
+本方案可以沿用现有整体执行模型，不需要新增第二套 Loop、Program 或 Context：
+
+1. `ContextEngine` 已通过 `BackgroundEntryProvider.catalog/load` 在每 Turn preparation
+   重建 Background，并由 `MessageStackComposer` 稳定组合 Session Background 与通用
+   Background；新 Memory 只需替换 provider 投影。
+2. `ContextEngine._collect_background_catalogs()` 明确拒绝同一 Context 中重复 owner，
+   所以 current/latest 或 target/latest 必须由一个聚合 provider 提供，不能拆成多个
+   `owner="memory"` provider。
+3. `SessionEngine.memory_facts()` 已能从 archive 递归展开 Summary 并交付有序 Turn 业务
+   事实，`SessionArchiveView` 已支持目标日 Session Background 与渐进 inspect；它们继续
+   是 Memory Maintenance 的 Session 输入，不复制 raw TurnTrace。
+4. `SessionStore.archive_to()` 原子搬运整个 Session 根，适合让其中的 `Memory.md` 一起
+   归档；Session 仍不解析该文件，Memory owner 在搬运前后负责校验。
+5. `ProgramRunner` 和 `MaintenanceEngine` 已串行执行 User/Maintenance work，Maintenance
+   Action domain 也已使用 serial policy；多文档提交期间不会与 User Turn 并发读取。
+6. `MaintenanceScheduler` 已在 `TinySoulApp.run()` 中按时提交 typed DAILY request，
+   不直接执行 LLM；`run_once()` 不启动 scheduler，进程晚启动也不追赶错过的定时点。
+7. Home 已有严格 PyYAML frontmatter、owner-bound snapshot 和原子写入模式，可借鉴实现
+   方式，但 Memory 仍拥有自己的 schema、codec 和持久边界，不跨模块复用业务类型。
+
+需要替换的旧实现边界也很明确：
+
+- date-only `MemoryLink/MemoryStore/MemorySearchService` 改为五类文档与派生目录；
+- 精确昨日且可逐出的 `MemoryBackgroundEntryProvider` 改为按 Context 语义聚合、不可逐出；
+- 单文件 `MemoryConsolidationService` 改为无副作用 daily candidate 与统一 changeset；
+- `rebuild_memory`、existing-daily skip 和仅 Session facts eligibility 从 request、Engine、
+  task、controller、CLI/Endpoint 全链路删除；
+- `DailyLifecycleCoordinator`、`ActiveDayLease` 和恢复窗口显式纳入 Session 根内的
+  `Memory.md`，但不新增 Memory archive root 或独立 archive step；
+- `AppBuilder` 先装配 Session runtime root，再装配依赖该 root 的 MemoryEngine。
 
 ## AGENT.md 同步清单
 
@@ -124,7 +158,7 @@ Context 只通过 typed projection/provider 与 Memory 协作。
    中初始化、校验并随 Session directory 归档；
 5. 持久 `memory/` 根仍不进入 archive；只有位于 `runtime/session/Memory.md` 的活动日
    artifact 随 Session 进入 archive，两者不能混称“Memory 被归档”；
-6. Memory owner 职责改为活动文档、五类持久文档、图索引和 changeset commit；Memory
+6. Memory owner 职责改为活动文档、五类持久文档、派生 catalog 和 changeset commit；Memory
    Maintenance 仍只负责任务编排，不取得 store 私有所有权；
 7. Context 定义明确 current/latest 是每 Turn 重建且不可逐出的 Memory Background，latest
    不存在时省略对应 entry；
@@ -182,27 +216,30 @@ canonical Link 部分。
 - `memory:target`：Memory Maintenance 目标日归档的最终 `Memory.md`。
 
 动态引用只在 Context provider 绑定的 BusinessDay/target 内解析，不能写入长期文档，
-从而避免历史文档保存会随日期变化的动态引用。`latest` 的实际解析结果必须在 entry
-正文中标出 canonical daily Link、day、revision/digest，便于模型知道它加载的真实日期。
+从而避免历史文档保存会随日期变化的动态引用。`latest` entry 只需标出实际解析出的
+canonical daily Link、day 和正文；完整性 digest 留在 owner 内部。`current` 额外公开
+`expected_digest`，因为它是 `memory.memorize` CAS 的真实模型输入；revision 不因内部
+存在就暴露给模型。
 
 ### Context MessageStack 装配
 
 Memory context 是 Context owner 的语义投影，不是第二套消息状态或可被业务模块直接
 拼接的路径。现有 `ContextEngine` 要求每个 owner 在一个 Context 中只有一个 provider，
-并由 provider 返回 `BackgroundCatalog`；因此每个 Context 只装配一个聚合的
-`MemoryBackgroundEntryProvider`，而不是为 current/latest/target 分别注册同 owner
-provider：
+并由 provider 返回 `BackgroundCatalog`；因此每个 Context 只装配一个聚合 provider，
+而不是为 current/latest/target 分别注册同 owner provider：
 
-- User Context 与 Home Maintenance Context：`memory:current + optional memory:latest`，
-  latest 严格早于当前 BusinessDay；
-- Memory Maintenance Context：`memory:target + optional memory:latest`，latest 严格早于
-  target day，与实际执行日无关。
+- `ActiveMemoryBackgroundEntryProvider` 用于 User Context 与 Home Maintenance Context，
+  提供 `memory:current + optional memory:latest`，latest 严格早于当前 BusinessDay；
+- `TargetMemoryBackgroundEntryProvider` 用于 Memory Maintenance Context，从
+  `ArchivedMemoryMaintenanceContext` 的目标日绑定读取快照，提供
+  `memory:target + optional memory:latest`；latest 严格早于 target day，与执行日无关。
 
 Provider 通过 catalog/default entries 接入已有 `BackgroundContext`，再由
 `MessageStackComposer` 放入 `ContextSection.BACKGROUND`。User Turn 的顺序仍是
 `identity -> user_inputs -> session_background -> background`（Memory entries 按
 current、latest 顺序）`-> trace -> working -> task_prompt`；Maintenance 复用相同消息
-构成。current/latest/target entry 均设置 `evictable=false`；latest 无解析结果时不创建
+构成。两种 provider 的 owner 都是 `memory`，但不会出现在同一 Context。current、
+latest、target entry 均设置 `evictable=false`；latest 无解析结果时不创建
 entry。它们只是 Context 动态引用，persistent Link parser 与 inspect/recall 均拒绝。
 `MaintenanceBuilder` 必须显式区分两种装配：Home Context 绑定活动日，Memory Context
 绑定 `target_day`；不能继续用同一个日期 provider 隐式推断两种语境。
@@ -223,7 +260,7 @@ updated_at: null
 
 空正文是 `Memory.md` 的合法初始状态。`ActiveMemoryDocument` 和
 `ActiveMemorySnapshot` 至少包含 day、revision、content、完整文件 digest。Background
-provider 渲染 current ref、day、revision、digest 和正文；即使正文为空也提供明确快照。
+provider 渲染 current ref、day、expected digest 和正文；即使正文为空也提供明确快照。
 
 `memory.memorize` 使用以下确定性协议：
 
@@ -281,6 +318,13 @@ opaque cite 只承担稳定身份。`created_on` 和 `updated_on` 都使用本�
 不为显式重复维护或乱序维护增加额外去重语义。当前 activity score 根据 last activation、
 count 和配置衰减读取时计算，不要求每日重写所有文档。
 
+一次 activation 表示某个 entity/concept/fact/note 在目标日的可维护来源中被实际使用：
+包括 Session answer/reference、精确 recall、link-mode inspect、活动 `Memory.md` 引用，或
+Maintenance 对该文档进行 create/rewrite/redirect。对同一目标日的一次 Maintenance Turn，
+同一 Link 最多增加一次 `activation_count`，并把 `last_activated_on` 设为 target day；
+query-mode inspect 只返回候选，不把所有候选计为 activation。显式重复或乱序维护仍按
+用户确认不额外建立跨任务去重账本。
+
 confidence 使用 `low`、`medium`、`high` 三档而不是伪精确小数。Fact 必须有
 confidence；其它文档可以省略 confidence。证据来源只由 `evidence` Link 和正文表达，
 不再增加其它来源分类字段。
@@ -310,20 +354,25 @@ cite 是当前实体/概念的规范名称。正文保存当前简洁认识，�
 因此 relations 不指向 daily/fact/note。daily、fact、note 的发现由 evidence、正文中的
 canonical Memory Link 和派生 backlinks 完成，不维护 `has_fact`、`has_note`、
 `mentioned_in_daily` 等反向列表，也不增加其它主题字段或未来谓词矩阵。redirect
-只服务非 active entity/concept/fact/note，并按下文状态规则校验目标。
+只服务非 active entity/concept/fact/note，并按下文状态规则校验目标。Active 文档中的
+relations 可以保留一个后来被合并或替代的旧 Link，但该 Link 必须能沿 redirect 解析到
+active entity/concept；文档下次被维护时优先改写为最终 Link，不要求一次合并级联重写
+全部 backlinks。
 
 ### FactMemoryDocument
 
-Fact 正文必须恰好是一条可独立判断真假的陈述，不包含第二条事实、章节或过程说明。
-frontmatter 的 `summary` 是该陈述的主要紧凑语义；`evidence` 至少包含一条 daily Link，
-并可包含其它 fact/note；`relations` 可以指向 entity/concept。补充证据、confidence 或不改变命题的措辞
-澄清可以 rewrite 同一 fact；命题含义改变时创建新 fact，并把旧 fact 设为 superseded。
+Active Fact 正文必须恰好是一条可独立判断真假的单行陈述，不包含第二条事实、章节或
+过程说明；frontmatter 的 `summary` 与规范化后的正文保持一致，直接作为紧凑展示语义，
+避免摘要和事实形成两个命题。`evidence` 至少包含一条 daily Link，并可包含其它
+fact/note；`relations` 可以指向 entity/concept。补充证据、confidence 或不改变命题的
+措辞澄清可以 rewrite 同一 fact；命题含义改变时创建新 fact，并把旧 fact 设为
+superseded。Fact 变为非 active 后保留原 summary，正文改为迁移说明。
 
 ### NoteMemoryDocument
 
 Note 使用卢曼卡片语义：一个清晰主题、一份可以脱离原 Session 理解的正文、明确的
-连接和来源。frontmatter 的 `title` 提供主要展示语义；`relations` 至少包含一个 active
-entity/concept，`evidence` 可以包含 daily/fact/note。学习论文时应以自己的理解记录
+连接和来源。frontmatter 的 `title` 提供主要展示语义；`relations` 至少包含一个能够
+解析到 active entity/concept 的 Link，`evidence` 可以包含 daily/fact/note。学习论文时应以自己的理解记录
 核心论点、推理或可复用洞察，不复制整篇材料，也不为相同主题重复建卡。
 
 ### 非 Active 记忆文档
@@ -336,8 +385,9 @@ entity/concept，`evidence` 可以包含 daily/fact/note。学习论文时应以
   能解释该撤回或纠正的 active entity/concept/fact/note。
 
 非 active 文档必须拥有有效 `redirect_to`，并保留 cite、summary/title、创建日期、状态、
-证据和迁移说明正文。Recall 返回原 Link、状态和解析目标，并默认继续加载最终 active
-文档，同时返回完整 resolution chain。Merged/superseded redirect 必须同类；retracted
+证据和迁移说明正文。Recall 始终精确返回请求 Link 对应的文档；若它不是 active，结果
+额外返回有界 resolution chain 和最终 active Link，但不静默替换或同时内联最终文档，
+模型需要时再对最终 Link 执行 recall。Merged/superseded redirect 必须同类；retracted
 可以指向解释撤回的 active entity/concept/fact/note，但不指向 daily。全部 redirect 必须无环并受最大 hop
 限制；Inspect 默认排除非 active 候选，但 backlinks 和 exact recall 仍能看到它们。
 
@@ -348,8 +398,7 @@ User Context 和 Home Maintenance Context 使用聚合的 Memory background prov
 1. `memory:current` 始终是 default、loadable、non-evictable；
 2. `memory:latest` 是 default、loadable、non-evictable，按当前 BusinessDay 严格向前
    选择最近实际存在的 daily，而不是简单减一天；
-3. latest daily 存在时，entry 包含解析出的 canonical daily Link、day、revision/digest
-   和正文；
+3. latest daily 存在时，entry 包含解析出的 canonical daily Link、day 和正文；
 4. 没有更早 daily 时不创建 latest entry，Context 中忽视该项，不搜索或内联其它日期；
 5. 全部其它 Memory Link 不进入 Background catalog，通过 inspect/recall 渐进加载；
 6. memorize 不更新本 Turn 已加载的 current entry；成功 patch 在下一 Turn preparation
@@ -396,34 +445,39 @@ digest 和 redirect resolution。`memory:current`、`memory:latest`、`memory:ta
 
 Inspect/recall 使用 foldable Action trace projection。当前 Turn 可以看到完整结果；
 Session canonical record 只保存 query/link、选中引用、状态和有界摘要，通过
-`origin_refs` 保存真实 Memory Link，供以后 Maintenance 计算 activity 和关联性。
+`origin_refs` 保存真实 Memory Link，供以后 Maintenance 计算 activity 和关联性。Recall
+与 link-mode inspect 记录请求 Link；query-mode inspect 只记录 query、kind filter 和结果
+数量，不把返回的全部候选写入 origin refs，只有模型后续真正 inspect/recall 的 Link 才
+计为使用。
 
-## 图索引与语义检索
+## 派生目录与语义检索
 
-Markdown 文档是唯一持久业务事实。`memory/.tinysoul/index.sqlite3` 是可删除、可重建
-的派生索引，不作为存在性、状态、关系或事务完成依据。建议包含：
+Markdown 文档是唯一持久业务事实。个人项目规模下不需要新增 SQLite 状态库；
+`MemoryCatalogSnapshot` 在 `memory.recover()` 后扫描五个固定 kind root，通过
+`MemoryDocumentCodec` 严格校验文档，并在内存中建立：
 
-```text
-documents(link, kind, cite, display, summary, status, digest,
-          created_on, updated_on, last_activated_on, activation_count)
-edges(source_link, target_link, relation, source_digest)
-embeddings(link, model, dimensions, source_digest, vector)
-metadata(schema_version, document_revision, embedding_revision)
-```
+- Link -> kind/cite/display/status/digest/activity 的文档目录；
+- relations、evidence、redirect 和正文 canonical Link 的正向引用；
+- 由正向引用反推的 backlinks；
+- 用于 query-mode inspect 的规范化词法单元。
 
-Index reconcile 扫描五个固定 kind root，使用 MemoryDocumentCodec 校验全部文档，拒绝
-未知文件、symlink、大小写身份冲突和损坏文档。Backlinks 从 relations、evidence 和
-正文中的 canonical angle links 派生，不反写文档。
+Store 只允许五个 kind root 和 `.tinysoul` 内部目录，拒绝未知文件、symlink、大小写
+身份冲突、缺失引用、非法 redirect 和损坏文档。changeset commit 成功后直接重建内存
+snapshot；进程重启同样从 Markdown 重建，因此目录没有 schema migration、恢复 journal
+或第二份存在性事实。
 
-候选检索顺序为 exact cite、fact summary/note title、lexical units、显式关系/backlinks、可选 embedding
-近邻，再进行稳定融合和可选 LLM rerank。相关性是主排序，关系距离次之，activity、
-recency 和 fact confidence 只能作为有限 tie-break，不能让高频但不相关文档压过语义
-匹配。
+候选检索顺序为 exact cite、fact summary/note title、lexical units、显式 relations/
+backlinks、可选 embedding 近邻，再进行稳定融合和可选 LLM rerank。相关性是主排序，
+关系距离次之，activity、recency 和 fact confidence 只作为有限 tie-break，不能让高频但
+不相关文档压过语义匹配。
 
-新增 provider-neutral `EmbeddingRunner` 窄协议，具体供应商适配仍归 LLM 模块；Memory
-只接收 text -> typed vector 能力。Embedding 配置默认关闭；启用后按 document digest、
-model 和 dimensions 增量生成。Embedding 调用失败不回滚业务文档，索引将该文档标为
-pending 并继续使用 lexical/关系检索；exact recall 永远不依赖 index 或 embedding。
+Embedding 是可选增强，不作为首个可用版本的正确性依赖。只有在 `llm` 模块拥有真实、
+已配置的 typed embedding adapter 时才装配该能力，不创建没有消费者的占位 runner。
+缓存使用可删除的 `memory/.tinysoul/embedding-cache.json`，每项绑定 Link、document
+digest、model identity 和 vector dimensions；损坏或不匹配时丢弃并回退 lexical/关系
+检索。User Turn 的 inspect 只读取已有缓存，不在只读 Action 中生成或写入向量；向量
+生成和缓存更新只在 Memory Maintenance commit 后执行，失败不回滚 Markdown 提交。
+Exact recall 永远不依赖派生目录或 embedding。
 
 ## Memory Maintenance 输入
 
@@ -448,8 +502,15 @@ references、Working 终态和输出，不恢复 Context raw TurnTrace、模型 
 触发检查保持简单：目标日 ArchiveProjection、Session 投影和归档 `Memory.md` 必须存在
 且可解析，并且 Session facts 或 `Memory.md` 正文至少一项非空；两份目标日 source 都要
 具备，不能用其中一份缺失来降级维护。目标日前没有 latest daily 是正常输入状态；目标
-source 或已有 target daily 损坏是明确模块失败。自动路径随后只额外检查“目标 daily
-不存在”以抑制重复触发；手动显式路径忽略 daily 是否存在，直接进入同一 Turn。
+source 缺失或两者都为空表示 not-ready，自动不登记、手动返回 typed skipped；已经存在
+但损坏的 Session、`Memory.md` 或 target daily 是明确模块失败。自动路径随后只额外检查
+“目标 daily 不存在”以抑制重复触发；手动显式路径忽略 daily 是否存在，直接进入同一
+Turn。daily 的存在判断必须读取并校验文档，不能把空文件或损坏文件当作已完成标志。
+
+`MemoryMaintenanceTask` 在每次实际运行前重新构造一份 frozen source projection，并把
+Archived ActiveMemorySnapshot 一同绑定到 `ArchivedMemoryMaintenanceContext`。Context
+preparation 因而可以由 target provider 读取同一份快照，不需要 Memory provider 反向依赖
+Archive catalog，也不会在 eligibility 与 Turn 之间偷偷切换 target。
 
 Workspace owner 提供只读、受限的 archive resource inspect/read 门面，使论文笔记等
 Maintenance 可以读取真实来源；Memory/Maintenance 不直接拼接 Workspace 私有路径。
@@ -473,14 +534,19 @@ maintenance.complete
 ```
 
 `inspect_sources` 分页读取 Session facts、target Memory、现有 target daily 和 Workspace
-resource；`inspect/recall` 委托 MemoryEngine，但把结果绑定为 Maintenance-owned review
-token。Token 至少绑定 task id、target day、index revision、query 或 Link、document digest
-和 staged draft revision。
+resource；`inspect/recall` 委托 MemoryEngine，并由 controller 为结果签发 Turn-scoped
+`inspection_ref`。该 ref 只绑定 task id、target day、catalog generation、query 或 Link
+以及涉及文档 digest，不形成第二份持久 review 状态。
 
-创建 entity/concept/fact/note 前必须提供同 kind 或适当 kind 集合的 search token；本地
+创建 entity/concept/fact/note 前必须提供同 kind 或适当 kind 集合的 query inspection ref；本地
 只强制“先检索”事实，是否确属新文档由 Maintenance 模型根据候选 recall 判断。Rewrite
-必须提供目标 recall token 和 expected digest；redirect 必须提供源、目标 recall token，
-且源目标满足状态、kind 和无环规则。stale token 返回局部反馈并要求重新 inspect。
+必须提供目标 recall inspection ref 和 expected digest；redirect 必须提供源、目标 recall ref，
+且源目标满足状态、kind 和无环规则。stale inspection ref 返回局部反馈并要求重新 inspect。
+
+Inspection ref 不绑定 draft revision，否则同一 serial ActionBatch 中对不同文档的第二个
+stage 会无意义地过期。所有 stage action 都在执行时针对当前 draft 重新校验重复 Link、
+关系、digest 和 redirect；只有 `preview` 返回的 preview revision 绑定完整 draft，任何后续
+stage 都使它失效，`commit` 必须携带最新 preview revision。
 
 `MemoryMaintenanceDraft` 是 Maintenance Turn 内存状态，不持久化。它在现有记忆文档上
 叠加 create/rewrite/redirect 和一份 daily candidate；后续 inspect/recall 必须看到这份
@@ -493,8 +559,8 @@ token。Token 至少绑定 task id、target day、index revision、query 或 Lin
 create 使用 expected-absent，replace 使用旧完整 digest，unchanged 证明本次已经检查且
 无需写入。不存在 daily 时必须 stage 合法非空正文；已有 daily 不要求单独 append 操作。
 
-`preview` 同时验证 daily candidate 与长期记忆文档暂存结果，`commit` 只接受当前 preview
-revision。自动路径不会到达已有 daily 的 Turn；手动路径在已有 daily 下照常走同一套
+`preview` 同时验证 daily candidate 与长期记忆文档暂存结果。自动路径不会到达已有
+daily 的 Turn；手动路径在已有 daily 下照常走同一套
 compose、stage、preview、commit。
 `maintenance.complete` 要求 commit completed/unchanged，不能以 action 调用顺序代替 owner
 postcondition。
@@ -529,7 +595,7 @@ memory/.tinysoul/transactions/<transaction-id>/
 
 Prepare 阶段完成：
 
-1. 固化 target day、source revisions/digests、base index revision；
+1. 固化 target day、source revisions/digests、base catalog generation；
 2. 为每个记忆文档 replace 记录 expected old digest，为 create 记录 expected absent；daily
    缺失时记录 expected absent，已有 daily 更新时记录 expected old digest，候选不变时
    记录 unchanged。自动与手动使用同一种 changeset，不增加 daily 写入模式；
@@ -542,21 +608,25 @@ Commit 在 Program 单写者和 Memory write lock 内按稳定顺序逐文件 at
 最后 replace；unchanged 不写入。每一步复验目标是 old digest 或 new digest，支持崩溃后幂等
 roll-forward；不做跨文件回滚，也不建立第二份业务事实。
 
-文档提交后更新/重建派生 index，再标记 transaction complete 并清理 staging。Index 或
-embedding 失败不撤销已提交文档；journal 记录 documents committed、index pending，后续
-preflight 可重建。只要存在未恢复 transaction，MemoryEngine 拒绝向新 Turn 暴露可能的
-半提交记忆文档。
+全部 Markdown operation 完成后即可标记 transaction complete 并清理 staging，再从文件
+重建内存 catalog snapshot。Catalog 重建不属于持久事务步骤；embedding cache 更新也不
+进入 changeset，失败只使 semantic candidate 暂时回退。只要存在未恢复 transaction，
+MemoryEngine 拒绝向新 Turn 暴露可能的半提交记忆文档。
 
-Maintenance preflight 在 availability 之前调用 `memory.recover()`。恢复仍失败属于
+Program 使用的 Maintenance preflight 按固定顺序执行：先 `memory.recover()` 并重建
+catalog，再恢复/执行 Daily Lifecycle，最后刷新 availability。这样 Context provider、
+daily completion marker 与 source readiness 始终看到恢复后的同一持久状态。恢复仍失败属于
 Maintenance/Memory invariant failure，不能把半提交状态当成可降级只读状态。测试
-覆盖每个 operation 写入前后、daily 写入前后、index 更新前后和 journal 清理前后的中断。
+覆盖每个 operation 写入前后、daily 写入前后和 journal 清理前后的中断。
 
 ## Daily Lifecycle 与 Archive
 
-新增窄 `MemoryDailyLifecycle` participant，并显式接入 `DailyLifecycleCoordinator`：
+`MemoryEngine` 通过窄 `ActiveMemoryLifecycle` 接口成为 coordinator 的显式协作者，但不
+成为独立 archive participant，也不增加 journal step：
 
-1. active day 初始化时，Session 先建立 `runtime/session` 和 manifest；
-2. Memory 在该 root 创建当天空 `Memory.md`，day 与 revision 为 0；
+1. 新 active day 初始化时，Session 先建立 `runtime/session` 和 manifest；
+2. Memory 在该 root 创建当天空正文的 `Memory.md`，day 与 revision 为 0；同日进程重启
+   只校验并保留既有文件，不重新清空；
 3. Workspace 初始化完成后，coordinator 提交 ACTIVE_INITIALIZED；
 4. rollover 前 Memory 校验 active day 与 `Memory.md`；
 5. Session 的 directory move 将 `Memory.md` 一起移入 `archive/.../session/`；
@@ -568,10 +638,17 @@ Maintenance/Memory invariant failure，不能把半提交状态当成可降级�
 SESSION_ARCHIVED step 包含活动 Memory 的物理移动；恢复逻辑显式验证 pending archive
 中的 `Memory.md`，不依赖“目录里碰巧有额外文件”的隐式行为。
 
+恢复窗口固定为：SESSION_ARCHIVED 前校验 active 文件；Session 目录已经移动但 step 尚未
+落盘时校验 pending/session/Memory.md；ACTIVE_INITIALIZED 后校验新 Session root 中的空
+文件。新语义实施后的既有 active Session 若缺少 `Memory.md` 是不变量失败，不静默重建
+并丢失可能的外部同步内容；开发期旧 runtime 通过清理/迁移步骤处理。
+
 当前 `AppBuilder` 先构建 Memory、后构建 Session，无法把活动文件位置作为明确依赖传给
 Memory owner。实施时调整为先构建 Session runtime root，再把该 typed root 交给
 MemoryEngine；Memory 只拥有固定子文件 `Memory.md`，Session 仍只负责初始化和整体搬运
-目录，不解析其内容。该改动不建立独立的 active Memory root。
+目录，不解析其内容。该改动不建立独立的 active Memory root。App 装配同时拒绝持久
+`memory/` root 与 Session、Workspace、archive roots 重叠；活动文件位于 Session root 是
+唯一被允许的交叉位置。注入预构建 Session/Memory facade 的测试路径也必须验证相同布局。
 
 ## Availability、启动与 Scheduler
 
@@ -580,7 +657,7 @@ Memory 的第二状态源：
 
 1. 新 archive 完成或恢复后，仅当目标日 Session 与归档 `Memory.md` 均存在且可解析、
    二者至少一项包含可维护内容、且 target daily 缺失时增量登记 target day；
-2. 已登记日期跨重启保留；daily 已存在时幂等移除，避免自动重复触发和启动重复提示；
+2. 已登记日期跨重启保留；有效 daily 已存在时幂等移除，避免自动重复触发和启动重复提示；
 3. 启动不扫描全部 archive catalog，不把已有 daily 的日期重新登记；
 4. startup/User preflight 只恢复 transaction、rollover 和 availability，不运行 LLM；
 5. scheduler 继续提交 `MaintenanceScope.DAILY` 的 typed request；该请求使用
@@ -588,8 +665,8 @@ Memory 的第二状态源：
    更早 backlog 保留为启动/availability 提醒，等待显式 target，不被一次 DAILY request
    批量消费；
 6. 手动/Endpoint `MaintenanceScope.MEMORY + target_day` 绕过 pending 要求，只要目标日
-   Session 与归档 `Memory.md` 可读就进入同一 Maintenance Turn；daily 缺失时 create，
-   已存在时检查并按需整体 replace；
+   Session 与归档 `Memory.md` 都可读且至少一项有内容，就进入同一 Maintenance Turn；
+   daily 缺失时 create，已存在时检查并按需整体 replace；
 7. 删除 `MaintenanceRequest.rebuild_memory`、CLI `--rebuild`、Endpoint 字段和相关分支；
 8. User Background 使用 `memory:latest`；没有更早 daily 时省略该 entry，User Turn
    正常继续。
@@ -614,6 +691,13 @@ Memory 的第二状态源：
    backlog 原样保留，已有 daily 不会因为 scheduler 到点而再次触发或启动提示。显式
    target request 不经过该重复触发门槛，但仍要求同样的目标 source readiness，并进入
    相同的 Memory Maintenance Turn。
+6. 这里的两条路径按 scope 区分，而不是按 trigger 复制业务：`scope=DAILY` 无论来自
+   scheduled 还是手动 `/maintenance daily`，都使用 previous-day + availability 的
+   `if_absent` 选择；`scope=MEMORY + target_day` 是显式目标路径。`trigger` 继续只作审计。
+7. 组合 DAILY request 保留当前 Home-first、Memory-second 顺序。Home Context 的
+   `memory:latest` 表示 Turn preparation 时已经存在的最近 daily，不承诺读取同一 DAILY
+   request 稍后才生成的目标 daily；该顺序让 Memory Maintenance 看到 Home Turn 已接受的
+   current actual Home。两项 task 仍独立收敛，Home 失败不阻止 Memory 尝试运行。
 
 ## 配置
 
@@ -642,7 +726,7 @@ page_max_chars = 8000
 [memory.embedding]
 enabled = false
 model = ""
-dimensions = 0
+cache_max_chars = 16000000
 
 [memory.daily_composition]
 chunk_max_chars = 12000
@@ -653,7 +737,10 @@ validation_retries = 2
 
 实际默认数值在实施时结合 Context/LLM budget 测试确认，但字段所有权保持以上结构。
 当前 `[memory.search]` 迁为 `[memory.inspect]`；`[memory.consolidation]` 迁为
-`[memory.daily_composition]`。配置是开发期严格切换，不保留旧键兼容字段。
+`[memory.daily_composition]`。`memory.embedding.model` 必须解析为 LLM 模块中真实可用的
+embedding model；enabled=false 时不要求该依赖。向量维度由 provider 结果确定并写入缓存，
+不让配置复制 provider 事实。活动文件位置来自 Session root 注入，不增加
+`memory.active_root` 配置。配置是开发期严格切换，不保留旧键兼容字段。
 
 ## 目标代码结构
 
@@ -663,18 +750,12 @@ tinysoul/memory/
   engine.py                 # 唯一业务门面
   config.py
   links.py                  # MemoryKind / MemoryLink / BackgroundRef
-  models.py                 # frozen document/activity/relation/change types
-  documents.py              # YAML frontmatter codec and renderers
+  documents.py              # frozen documents + YAML codec + inline refs
   active.py                 # runtime/session/Memory.md owner
   store.py                  # persistent document store
-  references.py             # canonical inline Link extraction
-  index.py                  # derived catalog/edges/backlinks
-  embeddings.py             # narrow embedding service
-  inspect.py
-  recall.py
+  catalog.py                # in-memory catalog/backlinks/query + optional vector cache
   transaction.py
-  daily.py                  # candidate request/result/validation
-  daily_composer.py         # hierarchical LLM candidate generation
+  daily.py                  # candidate types/validation/hierarchical composer
   background.py
   actions.py
   errors.py / failures.py
@@ -682,13 +763,12 @@ tinysoul/memory/
 tinysoul/maintenance/memory/
   task.py
   context.py
-  draft.py
-  tokens.py
-  actions.py
+  actions.py                 # controller, draft, inspection refs and executors
 ```
 
 删除旧 `memory/consolidation.py` 的直接单日持久化职责；可复用的 validation、source
-fragment/pack 和 LLM reduce 逻辑迁入 daily/daily_composer。`MemoryEngine` 不接受
+fragment/pack 和 LLM reduce 逻辑迁入 `daily.py`。先保持这些边界，只有单文件职责实际
+膨胀后再拆分，不预先创建一批薄 wrapper。`MemoryEngine` 不接受
 MaintenanceRequest、scheduler 或 Turn 类型。
 
 ## 目标类型与门面方法
@@ -698,14 +778,14 @@ MaintenanceRequest、scheduler 或 Turn 类型。
 ```text
 MemoryKind / MemoryStatus / MemoryConfidence
 MemoryLink / MemoryBackgroundRef
-MemoryActivity / MemoryEvidence
+MemoryActivity
 ActiveMemoryDocument / ActiveMemorySnapshot / MemoryPatchOperation
 DailyMemoryDocument / EntityMemoryDocument / ConceptMemoryDocument
 FactMemoryDocument / NoteMemoryDocument
 MemoryInspectRequest / MemoryInspectResult / MemoryRecallResult
 MemoryDocumentChange / MemoryChangeSet / MemoryCommitOutcome
-MemoryDailySourceProjection / DailyCompositionRequest / DailyCompositionResult
-MemoryMaintenanceDraft / MemoryReviewToken
+MemoryMaintenanceSourceProjection / DailyCompositionRequest / DailyCompositionResult
+MemoryMaintenanceDraft / MemoryInspectionRef
 ```
 
 `MemoryEngine` 目标门面：
@@ -717,28 +797,35 @@ read_active(day)
 patch_active(day, expected_digest, operations)
 validate_active_day(day)
 read_archived_active(day, session_archive_root)
+validate_archived_active(day, session_archive_root)
 links(kinds=None, statuses=None)
 inspect(request, scope=None)
 recall(link)
-daily_exists(day)
+read_daily(day)
 latest_daily_before(day)
 prepare_changeset(draft_projection)
 commit(changeset)
 recover()
-reconcile_index()
+refresh_embeddings(changed_links, scope)
 ```
 
-上层不得取得 MemoryStore、MemoryIndex 或 transaction journal 后自行组合写入。
+`read_daily(day)` 返回可选的已校验 DailyMemoryDocument；不存在与损坏严格区分，调用方
+不再用裸 filesystem exists 判断完成状态。`recover()` 前滚 transaction 后重建内存 catalog。
+上层不得取得 MemoryStore、MemoryCatalogSnapshot 或 transaction journal 后自行组合写入。
 
 ## 失败与 Runtime 语义
 
 局部 Action failure：invalid/stale memorize patch、inspect query/link/continuation 非法、
-recall not-found、Maintenance review token stale、create 未先 search、rewrite digest stale、
-projected relation/status 不合法、candidate validation 失败。
+recall not-found、Maintenance inspection ref stale、create 未先 inspect、rewrite digest stale、
+暂存 relation/status 不合法、candidate validation 失败。
 
 Memory 模块失败：活动文档损坏、持久文档为空或损坏、frontmatter 不可解释、store 中存在
-未知路径/symlink/case collision、redirect cycle、index schema 无法恢复、transaction CAS
+未知路径/symlink/case collision、缺失引用、redirect cycle、transaction CAS
 冲突、原子写失败或 archive active day 不一致。
+
+目标 archive/Session/`Memory.md` 不存在或两份 source 都为空是 trigger not-ready，手动任务
+返回 typed skipped，不伪装成模块损坏；已经存在但无法解析才是 invariant failure。Embedding
+adapter/cache 失败只禁用本次语义候选并回退 lexical/relations，不改变 recall 或持久文档。
 
 Runtime bridge 保持三层语义：User action 的可修正请求返回 ActionResult；User Context
 默认 Memory 无法读取时结束 User Turn；Maintenance source/commit/recovery 失败结束当前
@@ -757,6 +844,9 @@ Session facts、prompt 或绝对路径。
 5. 仓库测试 fixture 直接生成新格式；
 6. 实施前检查实际项目 `memory/` 数据。若存在需要保留的真实旧日期文档，使用独立、
    显式、离线的一次性迁移步骤转为 `memory:daily/...`，迁移能力不进入运行时门面。
+7. 同时检查旧 active/archive Session roots。旧 active Session 没有 `Memory.md` 时在切换前
+   显式创建对应日空文件或清理 runtime；旧 archive 缺失该文件时不进入新 availability，
+   如需维护则由一次性迁移补齐。运行时不保留“有文件/无文件”双语义。
 
 ## 实施阶段
 
@@ -768,26 +858,29 @@ Session facts、prompt 或绝对路径。
   codec、正文/状态/证据/关系/redirect 校验；除活动 `Memory.md` 外正文不得为空，
   `created_on/updated_on` 使用目标日。
 - 改写 MemoryStore 与 MemoryEngine 的持久文档、latest 查询、exact recall 和
-  `activation_count`；删除旧 date-only Link 与旧配置身份。
+  `activation_count`；从 Markdown 构建内存 catalog、正向引用和 backlinks，删除旧
+  date-only Link 与旧配置身份。
 
 ### Stage 2：活动记忆、Context 与 User Action
 
 - 实现活动 `runtime/session/Memory.md` 的初始化、快照、digest CAS patch、跨日归档和
-  新日空文件初始化，接入现有 lifecycle coordinator，不建立第二个独立归档根。
+  新日空文件初始化，接入现有 lifecycle coordinator；调整 AppBuilder 为先装配 Session、
+  再把活动 root 交给 Memory，且不建立第二个独立归档根。
 - 为 User Context、Home Maintenance Context 各装配一个聚合 Memory provider，加载
   `current + optional latest`；为 Memory Maintenance 预留 `target + optional latest`
   的 target-bound provider，所有已加载 entry 不可逐出。
 - 实现 `memory.memorize`、`memory.inspect`、`memory.recall` 及 trace origin refs，
-  验证 memorize 下一轮生效、inspect 多跳和五类 exact recall。
+  验证 memorize 下一轮生效、inspect 多跳和五类 exact recall；为 Maintenance 提供
+  Workspace owner 的受限 archive resource inspect/read view。
 
 ### Stage 3：Memory Maintenance、事务与触发接入
 
 - 扩展 Memory Maintenance Context，精确绑定 target 日 ArchiveProjection、Session、
   归档 `Memory.md`、target-relative latest、可选已有 daily 和 Workspace archive view。
-- 实现先 inspect/recall 后复用的 draft、review token、实体/概念/事实/笔记维护，以及
+- 实现先 inspect/recall 后复用的 draft、Turn-scoped inspection ref、实体/概念/事实/笔记维护，以及
   daily 单一完整候选的 compose；已有 daily 只作为输入，按需整体 replace 或 unchanged，
   不引入独立 append 操作。
-- 实现 Memory-owned changeset、CAS 原子多文档提交、index 重建与 crash roll-forward；
+- 实现 Memory-owned changeset、CAS 原子多文档提交、catalog 重建与 crash roll-forward；
   知识文档的合并/替代/撤回保留原 Link、非空迁移说明和同类有效 redirect，retracted 不
   指向 daily。
 - 收敛自动与手动触发：两者都要求目标日 Session 与 `Memory.md` 可读并执行同一
@@ -800,6 +893,8 @@ Session facts、prompt 或绝对路径。
 
 - 删除旧 consolidation/search 公开路径及无消费者的兼容字段，更新 catalog、prompt、
   项目模板、wheel package data 和 architecture tests。
+- 只有 LLM 模块存在真实 typed embedding adapter 时才接入可删除的向量缓存；否则保留
+  lexical/relations/backlinks 的完整可用版本，不以占位 embedding 阻塞验收。
 - 运行 Memory、Context、Session、Maintenance、App、Endpoint、Runtime 定向测试，再运行
   Fast/Full pytest、typecheck、compileall、wheel 和隔离项目初始化。
 - 用真实 User Turn 验证活动记忆下一轮生效、current/latest 装配和省略；用真实自动/手动
@@ -828,35 +923,48 @@ Session facts、prompt 或绝对路径。
 - latest 选择严格早于 Context BusinessDay 的最大日期，并在 entry 中公开 resolved Link；
 - Maintenance target 不读取 active current，User 不读取 archived target。
 
-### Inspect、Recall 与 Index
+### Inspect、Recall 与 Catalog
 
 - query/link XOR、kind filter、continuation 和 bounded result；
 - outgoing/backlinks/semantic related、一跳结果与模型多跳；
-- active 默认、非 active exact、redirect resolution；
-- lexical/embedding/rerank 稳定融合及 embedding 降级；
-- index 删除/损坏/stale/model change 后可重建且不改变业务文档。
+- active 默认、非 active exact，以及非 active recall 返回 resolution chain 但不自动内联
+  最终文档；
+- Markdown 启动扫描、正向引用/backlinks/lexical catalog 重建、缺失引用与 redirect cycle；
+- query inspect 候选本身不计 activation，recall/link inspect/实际维护才计入；同一 Turn
+  同一 Link 最多增加一次，重复或乱序显式维护不引入跨任务去重账本；
+- 可选 embedding/rerank 稳定融合及降级；缓存删除、损坏、digest/model 不匹配时可重建，
+  User inspect 不生成或写入向量，均不改变业务 Markdown。
 
 ### Maintenance
 
 - 目标日 Session 与归档 Memory.md 都必须可读、至少一项有内容；任一 source 缺失或两者
-  都为空时不触发；
+  都为空时 typed skipped，已有但损坏的 source 或 daily 是 invariant failure；
 - target-relative latest 缺失、existing target daily 作为本次复查输入；
-- create 无 search token、rewrite/redirect stale token；
+- create 无匹配 query inspection ref、rewrite/redirect 的 recall ref 或 digest stale；
 - 暂存记忆文档互相引用、暂存 inspect/recall、duplicate reuse；
 - fact confidence/evidence 与 note Luhmann contract；
-- daily candidate 分块、source chronology、自动 expected-absent create；
+- daily 完整 candidate 分块、source chronology、自动 expected-absent create，不存在独立
+  append 操作；
 - 手动 existing daily unchanged/replace、old digest stale 与 revision 递增；
+- inspection ref 不因无关 stage 失效、preview revision 在后续 stage 后失效；
 - complete before commit、commit failure、retry 与 task outcome。
 
 ### Lifecycle、事务与应用
 
-- archive 前/后 Memory.md、active init 各恢复窗口；
-- 每个 changeset operation、daily write、index update、journal cleanup 中断；
+- Session root 建立后初始化空 Memory.md、同日重启保留内容、archive 前校验、Session move
+  后 pending archive 校验、新 active init 各恢复窗口；
+- AppBuilder 的 Session -> Memory 装配顺序、root overlap 和注入 facade 布局校验；
+- 每个 changeset operation、daily 最后写入、transaction complete/cleanup、catalog 重建
+  前后的中断；
 - startup 只登记 availability、不运行 LLM；
 - scheduler enabled + `app.run()` 到点自动入队，disabled/`run_once()` 不启动；
 - scheduler 只处理前一日 pending，existing daily 不提示、不启动重复 Turn，启动后不
   catch-up，更早 backlog 保留；
 - explicit target 在 existing daily 下仍联合维护 daily 与知识图，无 rebuild flag；
+- `scope=DAILY`（定时或手动 daily）使用 previous-day + availability，`scope=MEMORY + day`
+  是显式目标路径，trigger 只用于审计；
+- 组合 DAILY 保持 Home-first、Memory-second；Home 的 latest 只表示其 Context 构造时已存在
+  的 daily，Home 失败不阻止 Memory task；
 - CLI、Endpoint、Program queue、Observation 和 wheel package data。
 
 ## 完成判据
@@ -869,12 +977,14 @@ Session facts、prompt 或绝对路径。
 5. Inspect 支持 query、一跳图探索、backlinks 和可选 embedding；Recall 精确返回任意类型。
 6. Memory Maintenance 输入精确绑定目标 Archive、Session、归档 `Memory.md`、target-relative
    latest 和可选现有目标 daily。
-7. 新建记忆文档在 owner 层强制先 search；rewrite/redirect 使用 token 和 digest 防止陈旧提交。
+7. Maintenance controller 对新建文档强制先 inspect；rewrite/redirect 使用 Turn-scoped
+   inspection ref 和 owner digest 防止陈旧提交，preview revision 绑定最终 draft。
 8. 自动与手动触发进入同一 Maintenance Turn；daily 只作为自动重复触发和启动提醒的
    `if_absent` 标志，手动可在已有 daily 下复查并整体 replace；项目中不再存在
    `rebuild_memory` 或 `--rebuild`。
 9. 多文档 commit 在崩溃后可幂等前滚，User Turn 不会观察半提交记忆文档。
 10. 已有 Link 不 hard delete；合并、替代和撤回后仍可 exact recall，正文保留迁移说明并
     解释 redirect 去向，retracted 不指向 daily。
-11. Markdown 是唯一业务事实，index/embedding 可删除重建且不影响 exact recall。
+11. Markdown 是唯一业务事实，内存 catalog 和可选 embedding cache 均可从 Markdown
+    删除重建且不影响 exact recall；User inspect 不写持久派生数据。
 12. 全量测试、类型检查、wheel、隔离初始化和真实 provider 验证通过，工作区无旧身份残留。
