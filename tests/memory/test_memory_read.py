@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
 import json
@@ -152,6 +152,16 @@ def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> Non
         str(fact.link),
         str(note.link),
     }
+    facts_only = memory.inspect(
+        MemoryInspectRequest(
+            memory_link=concept.link,
+            kinds=(MemoryKind.FACT,),
+        )
+    )
+    assert facts_only.outgoing_count == 0
+    assert facts_only.backlink_count == 1
+    assert facts_only.related_count == 0
+    assert [item.link for item in facts_only.items] == [str(fact.link)]
 
     recalled = memory.recall(note.link)
     assert recalled.metadata["title"] == "Active memory design"
@@ -225,6 +235,40 @@ def test_semantic_inspect_uses_deletable_embedding_cache(tmp_path: Path) -> None
     cache = tmp_path / "memory" / ".tinysoul" / "embedding-cache.json"
     assert cache.is_file()
     assert "secret" not in cache.read_text(encoding="utf-8")
+
+
+def test_link_inspect_uses_semantic_related_with_lexical_fallback_and_kind_filter(
+    tmp_path: Path,
+) -> None:
+    memory = MemoryEngine(
+        settings=MemorySettings(root=tmp_path / "memory"),
+        semantic_search=_LinkSemanticSearch(),
+    )
+    source = _entity("source", content="Source topic for durable memory.")
+    direct = _concept("direct", relations=(source.link,))
+    semantic_target = _entity("semantic-target", content="Unrelated wording.")
+    lexical_target = _entity("lexical-target", content="Source topic is reused here.")
+    for document in (source, direct, semantic_target, lexical_target):
+        memory.write_document(document, expected_absent=True)
+
+    result = memory.inspect(
+        MemoryInspectRequest(
+            memory_link=source.link,
+            kinds=(MemoryKind.ENTITY,),
+            limit=4,
+        )
+    )
+
+    assert result.outgoing_count == 0
+    assert result.backlink_count == 0
+    assert result.related_count == 2
+    assert [item.link for item in result.items] == [
+        str(semantic_target.link),
+        str(lexical_target.link),
+    ]
+    assert result.items[0].reasons == ("semantic_related",)
+    assert result.items[1].reasons == ("lexical_related",)
+    assert all(item.kind == MemoryKind.ENTITY.value for item in result.items)
 
 
 def test_memory_config_uses_current_sections_and_rejects_old_names(tmp_path: Path) -> None:
@@ -457,6 +501,19 @@ class _EmbeddingClient:
             for text in texts
         )
         return EmbeddingBatch(model="fake", dimensions=2, vectors=vectors)
+
+
+class _LinkSemanticSearch:
+    def similarities(
+        self,
+        query: str,
+        documents: Mapping[MemoryLink, str],
+    ) -> Mapping[MemoryLink, float]:
+        del query
+        return {
+            link: 0.95 if link.cite == "semantic-target" else 0.0
+            for link in documents
+        }
 
 
 def _memory(

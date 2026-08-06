@@ -411,7 +411,12 @@ class MemoryMaintenanceActionController:
             raise MaintenanceContractError("Use stage_daily for daily Memory")
         if current_document.status is not MemoryStatus.ACTIVE:
             raise MaintenanceContractError("Only active Memory can be rewritten")
-        document = _rewrite_document(current_document, params, state.target_day.value)
+        document = _rewrite_document(
+            current_document,
+            params,
+            state.target_day.value,
+            activate=current_change is None,
+        )
         state.draft.changes[link] = MemoryDocumentChange(
             document=document,
             expected_digest=(current_change.expected_digest if current_change else expected),
@@ -672,7 +677,13 @@ def _common_create(
     }
 
 
-def _rewrite_document(document: PersistentMemoryDocument, params: JsonObject, day: date) -> PersistentMemoryDocument:
+def _rewrite_document(
+    document: PersistentMemoryDocument,
+    params: JsonObject,
+    day: date,
+    *,
+    activate: bool = True,
+) -> PersistentMemoryDocument:
     if isinstance(document, DailyMemoryDocument):
         raise MaintenanceContractError("Daily rewrite uses stage_daily")
     values = {
@@ -681,7 +692,7 @@ def _rewrite_document(document: PersistentMemoryDocument, params: JsonObject, da
         "evidence": _optional_links(params, "evidence", document.evidence),
         "confidence": _optional_confidence(params, document.confidence),
         "updated_on": day,
-        "activity": _activate(document.activity, day),
+        "activity": _activate(document.activity, day) if activate else document.activity,
     }
     if isinstance(document, FactMemoryDocument):
         return replace(document, **values, summary=_optional_text(params, "summary", document.summary))

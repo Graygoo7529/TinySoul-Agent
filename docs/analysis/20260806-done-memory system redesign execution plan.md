@@ -423,7 +423,7 @@ User Memory domain 最终只公开三个 action：
 
 ```text
 query mode: query + optional kinds + limit + continuation
-link mode: memory_link + optional relations + limit + continuation
+link mode: memory_link + optional kinds + limit + continuation
 ```
 
 Query mode 返回有界候选 Link、kind、名称或摘要、关系原因、相关性和 activity；不

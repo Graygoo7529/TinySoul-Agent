@@ -99,7 +99,7 @@ memory:target + optional memory:latest
 inspect 是有界发现和一跳探索，不返回完整 Markdown：
 
 - query 模式综合 exact identity、lexical term、正文 grep、中文 bigram 和可选 embedding 相似度；
-- link 模式返回该 Link 的正向引用、backlinks 和 lexical related 的有界候选，另返回各类关系计数；
+- link 模式返回该 Link 的正向引用、backlinks，以及优先使用 semantic related、无 embedding 时回退 lexical related 的有界候选，另返回各类关系计数；
 - kinds 可限制五类候选，continuation 绑定当前 catalog generation 与完整请求身份；
 - 只返回 active query candidate；已知非 active Link 仍可用 link 模式检查；
 - 结果同时受 top-k、candidate count、单摘要和整页字符预算约束；Maintenance 追加

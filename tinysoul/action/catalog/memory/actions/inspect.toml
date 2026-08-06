@@ -2,7 +2,7 @@ name = "memory.inspect"
 domain = "memory"
 
 [tool]
-description = "Discover Memory links by lexical/grep/semantic query, or inspect one known link's references and backlinks. Returns bounded summaries, relation counts, and a continuation token, not full documents. Continue step by step for multi-hop exploration."
+description = "Discover Memory links by lexical/grep/semantic query, or inspect one known link's references, backlinks, and semantic related candidates. Returns bounded summaries, relation counts, and a continuation token, not full documents. Continue step by step for multi-hop exploration."
 schema = { type = "object", properties = { query = { type = "string" }, memory_link = { type = "string" }, kinds = { type = "array", items = { type = "string", enum = ["daily", "entity", "concept", "fact", "note"] } }, limit = { type = "integer", minimum = 1 }, continuation = { type = "string" } }, additionalProperties = false }
 
 [semantic]

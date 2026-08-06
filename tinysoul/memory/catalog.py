@@ -306,6 +306,7 @@ class MemoryCatalog:
                 snapshot=current,
                 identity=identity,
                 max_chars=page_chars,
+                kinds=request.kinds,
                 limit=limit,
                 offset=offset,
             )
@@ -396,41 +397,103 @@ class MemoryCatalog:
         snapshot: MemoryCatalogSnapshot,
         identity: str,
         max_chars: int,
+        kinds: tuple[MemoryKind, ...],
         limit: int,
         offset: int,
     ) -> MemoryInspectResult:
         entry = snapshot.require(link)
-        neighborhood = _unique((*entry.outgoing, *entry.backlinks))
-        related_scored: list[tuple[int, MemoryLink]] = []
-        entry_terms = _terms(_normalize(f"{entry.display} {entry.content}"))
-        for candidate, other in snapshot.entries.items():
-            if candidate == link or candidate in neighborhood or other.status != "active":
-                continue
-            overlap = len(entry_terms & _terms(_normalize(f"{other.display} {other.content}")))
-            if overlap:
-                related_scored.append((overlap, candidate))
-        related_scored.sort(key=lambda item: (-item[0], str(item[1])))
-        related = tuple(link for _, link in related_scored)
-        combined = _unique((*entry.outgoing, *entry.backlinks, *related))
-        selected = combined[offset : offset + limit]
-        proposed = tuple(
-            _inspect_item(
-                snapshot.require(candidate),
-                score=1.0,
-                reasons=(
-                    "outgoing"
-                    if candidate in entry.outgoing
-                    else "backlink"
-                    if candidate in entry.backlinks
-                    else "lexical_related",
-                ),
-                summary=_truncate(
-                    snapshot.require(candidate).content,
-                    self._settings.summary_max_chars,
-                ),
-            )
-            for candidate in selected
+        outgoing = tuple(
+            candidate
+            for candidate in entry.outgoing
+            if not kinds or candidate.kind in kinds
         )
+        backlinks = tuple(
+            candidate
+            for candidate in entry.backlinks
+            if not kinds or candidate.kind in kinds
+        )
+        neighborhood = _unique((*entry.outgoing, *entry.backlinks))
+        entry_terms = _terms(_normalize(f"{entry.display} {entry.content}"))
+        related_entries = {
+            candidate: other
+            for candidate, other in snapshot.entries.items()
+            if candidate != link
+            and candidate not in neighborhood
+            and other.status == "active"
+            and (not kinds or candidate.kind in kinds)
+        }
+        semantic: Mapping[MemoryLink, float] = {}
+        if self._semantic is not None and related_entries:
+            semantic = self._semantic.similarities(
+                _semantic_text(entry),
+                {candidate: _semantic_text(other) for candidate, other in related_entries.items()},
+            )
+        related_scored: list[
+            tuple[float, int, MemoryCatalogEntry, tuple[str, ...]]
+        ] = []
+        term_count = max(1, len(entry_terms))
+        for candidate, other in related_entries.items():
+            overlap = len(entry_terms & _terms(_normalize(f"{other.display} {other.content}")))
+            raw_semantic_score = semantic.get(candidate)
+            semantic_score = 0.0
+            if raw_semantic_score is not None and math.isfinite(raw_semantic_score):
+                semantic_score = max(0.0, min(1.0, float(raw_semantic_score)))
+            if semantic_score <= 0 and overlap <= 0:
+                continue
+            reasons: list[str] = []
+            if semantic_score > 0:
+                reasons.append("semantic_related")
+            if overlap > 0:
+                reasons.append("lexical_related")
+            related_scored.append((semantic_score, overlap, other, tuple(reasons)))
+        related_scored.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1],
+                -item[2].last_activated_on.toordinal(),
+                -item[2].updated_on.toordinal(),
+                -item[2].activation_count,
+                -_confidence_rank(item[2].confidence),
+                str(item[2].link),
+            )
+        )
+        related_scored = related_scored[: self._settings.candidate_limit]
+        related = tuple(item[2].link for item in related_scored)
+        related_details = {
+            item[2].link: (
+                item[0] if item[0] > 0 else min(1.0, item[1] / term_count),
+                item[3],
+            )
+            for item in related_scored
+        }
+        combined = _unique((*outgoing, *backlinks, *related))
+        selected = combined[offset : offset + limit]
+        proposed_items: list[MemoryInspectItem] = []
+        for candidate in selected:
+            candidate_entry = snapshot.require(candidate)
+            reasons: list[str] = []
+            if candidate in outgoing:
+                reasons.append("outgoing")
+            if candidate in backlinks:
+                reasons.append("backlink")
+            if not reasons:
+                related_score, related_reasons = related_details[candidate]
+                reasons.extend(related_reasons)
+                score = related_score
+            else:
+                score = 1.0
+            proposed_items.append(
+                _inspect_item(
+                    candidate_entry,
+                    score=score,
+                    reasons=tuple(reasons),
+                    summary=_truncate(
+                        candidate_entry.content,
+                        self._settings.summary_max_chars,
+                    ),
+                )
+            )
+        proposed = tuple(proposed_items)
         return _fit_result_page(
             mode="link",
             proposed=proposed,
@@ -439,8 +502,8 @@ class MemoryCatalog:
             identity=identity,
             offset=offset,
             candidate_count=len(combined),
-            outgoing_count=len(entry.outgoing),
-            backlink_count=len(entry.backlinks),
+            outgoing_count=len(outgoing),
+            backlink_count=len(backlinks),
             related_count=len(related),
         )
 

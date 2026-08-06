@@ -22,9 +22,12 @@ from tinysoul.memory import (
     ActiveMemorySnapshot,
     DailyCompositionRequest,
     DailyCompositionResult,
+    ConceptMemoryDocument,
     LLMDailyMemoryComposer,
+    MemoryActivity,
     MemoryEngine,
     MemorySettings,
+    MemoryStatus,
     NoteMemoryDocument,
 )
 from tinysoul.runtime import RunLevel, RunScope
@@ -189,7 +192,9 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
             if str(link) == "memory:concept/agent-design"
         )
     ).document
+    assert isinstance(concept_document, ConceptMemoryDocument)
     assert concept_document.created_on == DAY.value
+    assert concept_document.activity.activation_count == 1
     recalled_note = memory.recall(note_link)
     assert recalled_note.metadata["title"] == "Active and persistent memory"
     note_document = memory.read_document(
@@ -282,6 +287,97 @@ def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independ
     assert isinstance(workspace_resources, list)
     assert len(workspace_resources) == 1
     assert "facts" not in workspace_page.payload
+
+
+def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
+    tmp_path: Path,
+) -> None:
+    memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
+    existing = ConceptMemoryDocument(
+        cite="existing",
+        status=MemoryStatus.ACTIVE,
+        created_on=DAY.value,
+        updated_on=DAY.value,
+        activity=MemoryActivity(DAY.value, 4),
+        content="An existing durable concept.",
+    )
+    memory.write_document(existing, expected_absent=True)
+    controller = MemoryMaintenanceActionController(memory=memory, composer=_Composer())
+    controller.begin(
+        target_day=DAY,
+        projection=SessionMemoryFactsProjection(day=DAY, revision=1, facts=()),
+        active_memory=ActiveMemorySnapshot(
+            document=ActiveMemoryDocument(
+                day=DAY.value,
+                revision=1,
+                updated_at=datetime(2026, 8, 5, 9, tzinfo=UTC),
+                content="",
+            ),
+            text="active memory",
+            digest="a" * 64,
+        ),
+        workspace=None,
+    )
+
+    inspected = _execute(
+        controller,
+        "maintenance.memory.inspect",
+        {"query": "existing concept", "kinds": ["concept"]},
+    )
+    assert inspected.status is ActionResultStatus.SUCCESS
+    recalled = _execute(
+        controller,
+        "maintenance.memory.recall",
+        {"memory_link": str(existing.link)},
+    )
+    first = _execute(
+        controller,
+        "maintenance.memory.stage_rewrite",
+        {
+            "memory_link": str(existing.link),
+            "inspection_ref": recalled.payload["inspection_ref"],
+            "expected_digest": recalled.payload["digest"],
+            "content": "The existing concept was refined once.",
+        },
+    )
+    assert first.status is ActionResultStatus.SUCCESS
+    staged_recall = _execute(
+        controller,
+        "maintenance.memory.recall",
+        {"memory_link": str(existing.link)},
+    )
+    second = _execute(
+        controller,
+        "maintenance.memory.stage_rewrite",
+        {
+            "memory_link": str(existing.link),
+            "inspection_ref": staged_recall.payload["inspection_ref"],
+            "expected_digest": staged_recall.payload["digest"],
+            "content": "The existing concept was refined twice.",
+        },
+    )
+    assert second.status is ActionResultStatus.SUCCESS
+
+    assert _execute(controller, "maintenance.memory.compose_daily", {}).status is ActionResultStatus.SUCCESS
+    assert _execute(
+        controller,
+        "maintenance.memory.stage_daily",
+        {"mode": "create"},
+    ).status is ActionResultStatus.SUCCESS
+    preview = _execute(controller, "maintenance.memory.preview", {})
+    assert preview.status is ActionResultStatus.SUCCESS
+    assert _execute(
+        controller,
+        "maintenance.memory.commit",
+        {"preview_revision": preview.payload["preview_revision"]},
+    ).status is ActionResultStatus.SUCCESS
+    assert _execute(controller, "maintenance.complete", {}).status is ActionResultStatus.SUCCESS
+    controller.finish()
+
+    document = memory.read_document(existing.link).document
+    assert isinstance(document, ConceptMemoryDocument)
+    assert document.content == "The existing concept was refined twice."
+    assert document.activity.activation_count == 5
 
 
 class _Composer(LLMDailyMemoryComposer):
