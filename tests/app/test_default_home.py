@@ -161,7 +161,7 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     home.ensure_runtime_copy(
         home.parse_link("home:skills_action:workspace/rewrite")
     )
-    home.ensure_runtime_copy(home.parse_link("home:skills_action:workspace/write"))
+    home.ensure_runtime_copy(home.parse_link("home:skills_action:workspace/create"))
     domain_guidance = HomeDomainSkillProvider(home).guidance_for(("web", "execution"))
     action_guidance = HomeActionSkillProvider(home).guidance_for(
         domain="workspace",
@@ -169,7 +169,7 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     )
     write_guidance = HomeActionSkillProvider(home).guidance_for(
         domain="workspace",
-        action_name="workspace.write",
+        action_name="workspace.create",
     )
 
     assert "failure.disposition" in domain_guidance[0]

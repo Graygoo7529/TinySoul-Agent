@@ -1,0 +1,39 @@
+name = "workspace.append"
+domain = "workspace"
+
+[tool]
+description = "Append an exact bounded UTF-8 text fragment to an existing workspace text resource. Use patch for precise replacement."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "text"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "Existing workspace text resource link."
+
+[tool.schema.properties.text]
+type = "string"
+description = "Exact text to append, including any required separator or newline."
+
+[tool.schema.properties.expected_digest]
+type = "string"
+description = "Optional current target digest guard."
+
+[semantic]
+use_when = ["Need to add content to the end of an existing text resource"]
+avoid_when = ["A precise local replacement is needed", "The target does not exist", "The target is not a UTF-8 text resource"]
+effects = ["modifying"]
+examples = ["Append a verified findings section to workspace:docs/report.md"]
+
+[runtime]
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "native"
+handler = "workspace.append"

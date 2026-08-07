@@ -1,2 +1,2 @@
 [action]
-llm_action_timeout_seconds = 300
+llm_action_timeout_seconds = 600

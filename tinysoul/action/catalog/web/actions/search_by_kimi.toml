@@ -20,6 +20,7 @@ effects = ["additive"]
 examples = ["Search for the current official release notes and return the answer with sources"]
 
 [runtime]
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [backend]

@@ -75,6 +75,7 @@ effects = ["read_only"]
 examples = ["Analyze read-only references and return a JSON decision object"]
 
 [runtime]
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [runtime.hooks]

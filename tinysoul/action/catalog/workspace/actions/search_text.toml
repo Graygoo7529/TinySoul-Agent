@@ -15,20 +15,16 @@ description = "Non-empty single-line literal query. Regular expressions are not 
 
 [tool.schema.properties.scope]
 type = "object"
-required = ["kind"]
+required = ["kind", "locator"]
 additionalProperties = false
 
 [tool.schema.properties.scope.properties.kind]
 type = "string"
 enum = ["file", "directory", "workspace"]
 
-[tool.schema.properties.scope.properties.link]
+[tool.schema.properties.scope.properties.locator]
 type = "string"
-description = "Required exact Workspace text Link for file scope."
-
-[tool.schema.properties.scope.properties.prefix]
-type = "string"
-description = "Required workspace:path/ directory prefix for directory scope."
+description = "Exact Workspace text Link for file scope, directory prefix for directory scope, or an empty string for workspace scope."
 
 [tool.schema.properties.case_sensitive]
 type = "boolean"

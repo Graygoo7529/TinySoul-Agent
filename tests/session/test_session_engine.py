@@ -43,7 +43,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
             ask="create a report",
             actions=(
                 SyntheticAction(
-                    "workspace.write",
+                    "workspace.create",
                     request={"link": "workspace:report.md"},
                     result={"written": True},
                     references=("workspace:report.md",),
@@ -76,7 +76,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
             "count": 2,
             "outcomes": [
                 {"action": "web.search", "counts": {"failed": 1}},
-                {"action": "workspace.write", "counts": {"success": 1}},
+                {"action": "workspace.create", "counts": {"success": 1}},
             ],
         },
     }

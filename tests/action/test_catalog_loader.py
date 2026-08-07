@@ -45,26 +45,30 @@ def test_load_builtin_catalog() -> None:
     answer = catalog.get_action("core.answer")
     assert answer.domain == "core"
     assert answer.tool.schema["type"] == "object"
-    assert answer.runtime.timeout_seconds == 60.0
+    assert answer.runtime.timeout_seconds == 600.0
     assert answer.runtime.parallel_policy is ActionParallelPolicy.SERIAL
     assert answer.backend.handler == "core.answer"
     reason = catalog.get_action("core.reason")
     assert reason.backend.handler == "core.reason"
-    write = catalog.get_action("workspace.write")
-    assert write.backend.kind is ActionBackendKind.LLM_ACTION
-    assert write.runtime.timeout_seconds == 240.0
-    assert write.backend.options == {}
+    create = catalog.get_action("workspace.create")
+    assert create.backend.kind is ActionBackendKind.LLM_ACTION
+    assert create.runtime.timeout_seconds == 600.0
+    assert create.backend.options == {}
+    append = catalog.get_action("workspace.append")
+    assert append.backend.kind is ActionBackendKind.NATIVE
+    assert append.runtime.timeout_seconds == 30.0
     rewrite = catalog.get_action("workspace.rewrite")
     assert rewrite.backend.kind is ActionBackendKind.LLM_ACTION
-    assert rewrite.runtime.timeout_seconds == 240.0
+    assert rewrite.runtime.timeout_seconds == 600.0
     assert rewrite.backend.options == {}
-    assert catalog.get_action("execution.write_script").backend.options == {
+    assert catalog.get_action("execution.create_script").backend.options == {
         "max_output_tokens": 16384,
         "max_output_chars": 100000,
     }
-    assert catalog.get_action("execution.write_script").runtime.timeout_seconds == 240.0
-    assert catalog.get_action("execution.rewrite_script").runtime.timeout_seconds == 240.0
-    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 180.0
+    assert catalog.get_action("execution.create_script").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("execution.rewrite_script").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("web.search_by_kimi").runtime.timeout_seconds == 600.0
     assert catalog.get_action("workspace.patch").runtime.timeout_seconds == 30.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
     assert (
@@ -93,11 +97,11 @@ def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> 
             llm_action_timeout_seconds=300.0,
         ).load(root)
 
-    assert catalog.get_action("core.answer").runtime.timeout_seconds == 300.0
-    assert catalog.get_action("core.reason").runtime.timeout_seconds == 300.0
-    assert catalog.get_action("workspace.describe").runtime.timeout_seconds == 300.0
-    assert catalog.get_action("workspace.write").runtime.timeout_seconds == 240.0
-    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 180.0
+    assert catalog.get_action("core.answer").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("core.reason").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("workspace.describe").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("workspace.create").runtime.timeout_seconds == 600.0
+    assert catalog.get_action("workspace.analyze").runtime.timeout_seconds == 600.0
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
 
 
@@ -109,8 +113,10 @@ def test_catalog_view_by_domain() -> None:
     assert [domain.name for domain in view.domains()] == ["workspace"]
     assert [action.name for action in view.actions()] == [
         "workspace.analyze",
+        "workspace.append",
         "workspace.convert_with_markitdown",
         "workspace.convert_with_pypdf",
+        "workspace.create",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
@@ -120,12 +126,12 @@ def test_catalog_view_by_domain() -> None:
         "workspace.scan",
         "workspace.search_text",
         "workspace.trash.list",
-        "workspace.write",
     ]
 
     execution_view = catalog.with_domains(("execution",))
     assert [action.name for action in execution_view.actions()] == [
         "execution.apply",
+        "execution.create_script",
         "execution.discard",
         "execution.patch_script",
         "execution.promote_script",
@@ -138,7 +144,6 @@ def test_catalog_view_by_domain() -> None:
         "execution.run_python_script",
         "execution.stop",
         "execution.wait",
-        "execution.write_script",
     ]
 
     home_view = catalog.with_domains(("home",))

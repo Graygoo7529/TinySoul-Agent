@@ -1,0 +1,41 @@
+name = "execution.create_script"
+domain = "execution"
+
+[tool]
+description = "Generate a complete Python or Bash script at a new Workspace scripts link or an existing general skill scripts resource. Existing targets must use execution.rewrite_script or execution.patch_script."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "instruction"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "New target workspace:scripts/...py|sh or home:skills/<skill>/scripts/...py|sh link."
+
+[tool.schema.properties.instruction]
+type = "string"
+description = "Instruction for generating the complete script source, including a reasonable target scope and size when useful."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Optional Workspace references for the internal authoring task."
+items = { type = "string" }
+
+[semantic]
+use_when = ["Need a complete new temporary or long-term script generated from an instruction"]
+avoid_when = ["The target already exists", "A precise edit to an existing script is sufficient", "Need to run an existing script without changing it"]
+effects = ["modifying"]
+examples = ["Create workspace:scripts/normalize.py to update Markdown files in the Workspace"]
+
+[runtime]
+timeout_seconds = 600
+parallel_policy = "serial"
+
+[backend]
+kind = "llm_action"
+handler = "script.create"
+
+[backend.options]
+max_output_tokens = 16384
+max_output_chars = 100000

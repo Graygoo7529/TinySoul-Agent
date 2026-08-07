@@ -362,6 +362,26 @@ def test_source_resolver_enforces_write_and_patch_limits(local_tmp: Path) -> Non
     assert workspace.read_text(record.link).text == "12345"
 
 
+def test_source_resolver_checks_target_existence_without_reading_source(
+    local_tmp: Path,
+) -> None:
+    workspace = _workspace(local_tmp)
+    resolver = ScriptSourceResolver(
+        workspace=workspace,
+        home=cast(AgentHomeEngine, _RecordingHome()),
+        max_source_chars=5,
+    )
+
+    assert resolver.target_exists("workspace:scripts/task.py") is False
+    workspace.write_text(
+        "workspace:scripts/task.py",
+        "longer than the script read limit",
+        owner_turn_id="turn_1",
+    )
+
+    assert resolver.target_exists("workspace:scripts/task.py") is True
+
+
 def test_source_resolver_enforces_read_rewrite_and_promote_limits(
     local_tmp: Path,
 ) -> None:

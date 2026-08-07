@@ -58,6 +58,7 @@ effects = ["read_only"]
 examples = ["Answer the user's direct question after gathering enough context"]
 
 [runtime]
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [runtime.hooks]

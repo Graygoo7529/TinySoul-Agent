@@ -172,6 +172,8 @@ from tinysoul.workspace.projection import WorkspaceTurnPreparationHandler
 from tinysoul.workspace.pressure import WorkspacePressureReclaimer
 from tinysoul.workspace.actions import (
     WorkspaceAnalyzeExecutor,
+    WorkspaceAppendExecutor,
+    WorkspaceCreateExecutor,
     WorkspaceDeleteExecutor,
     WorkspaceDescribeExecutor,
     WorkspacePatchExecutor,
@@ -179,7 +181,6 @@ from tinysoul.workspace.actions import (
     WorkspaceReadExecutor,
     WorkspaceSearchTextExecutor,
     WorkspaceScanExecutor,
-    WorkspaceWriteExecutor,
 )
 
 
@@ -978,7 +979,7 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
             "workspace.search_text",
             {
                 "query": "needle",
-                "scope": {"kind": "file", "link": "workspace:a.md"},
+                "scope": {"kind": "file", "locator": "workspace:a.md"},
             },
         ),
         ActionExecutionContext(),
@@ -997,6 +998,27 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
     compact_fragment = compact_fragments[0]
     assert isinstance(compact_fragment, dict)
     assert "text" not in compact_fragment
+
+
+def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+
+    result = WorkspaceSearchTextExecutor(engine).execute(
+        _execution(
+            "workspace.search_text",
+            {
+                "query": "needle",
+                "scope": {"kind": "file", "link": "workspace:a.md"},
+            },
+        ),
+        ActionExecutionContext(),
+    )
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "invalid_scope"
 
 
 def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> None:
@@ -1220,6 +1242,31 @@ def test_workspace_text_mutations_enforce_bounded_write_size(tmp_path: Path) -> 
     engine.write_text("workspace:a.md", "base")
     with pytest.raises(WorkspaceContractError, match="configured limit"):
         engine.patch_text("workspace:a.md", old_text="base", new_text="12345")
+
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.append_text("workspace:a.md", text="12345")
+
+
+def test_workspace_append_text_is_exact_and_digest_guarded(tmp_path: Path) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("base", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    before = engine.reconcile().manifest.resources[0]
+
+    record = engine.append_text(
+        "workspace:a.md",
+        text="\ncontinued",
+        expected_digest=before.digest,
+    )
+
+    assert target.read_text(encoding="utf-8") == "base\ncontinued"
+    assert record.size == target.stat().st_size
+    with pytest.raises(WorkspaceContractError, match="digest mismatch"):
+        engine.append_text(
+            "workspace:a.md",
+            text=" again",
+            expected_digest=before.digest,
+        )
 
 
 def test_workspace_expected_digest_hashes_exact_same_stat_base_bytes(
@@ -1667,7 +1714,7 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
     )
 
 
-def test_workspace_write_executor_generates_text_inside_action(
+def test_workspace_create_executor_generates_text_inside_action(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
@@ -1683,7 +1730,7 @@ def test_workspace_write_executor_generates_text_inside_action(
     bus = SignalBus()
     llm = FakeLLMRunner({"text": "generated text"})
     execution = _execution(
-        "workspace.write",
+        "workspace.create",
         {
             "target_link": "workspace:a.md",
             "instruction": "Create a short note.",
@@ -1692,20 +1739,20 @@ def test_workspace_write_executor_generates_text_inside_action(
     )
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
-    result = WorkspaceWriteExecutor(
+    result = WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=llm_action,
     ).execute(execution, ActionExecutionContext(signal_bus=bus))
 
     assert result.status.value == "success"
-    assert result.payload["written"] is True
+    assert result.payload["created"] is True
     assert result.payload["link"] == "workspace:a.md"
     assert "text" not in result.payload
     assert (tmp_path / "a.md").read_text(encoding="utf-8") == "generated text"
     target_prompt = _task_call_text_for_label(
         llm.calls[0],
-        "task_prompt:input:workspace_write_target",
+        "task_prompt:input:workspace_create_target",
     )
     reference_prompt = _task_call_text_for_label(
         llm.calls[0],
@@ -1729,7 +1776,7 @@ def test_workspace_write_executor_generates_text_inside_action(
     assert first_resource["link"] == "workspace:a.md"
 
 
-def test_workspace_write_output_limit_does_not_commit_partial_artifact(
+def test_workspace_create_output_limit_does_not_commit_partial_artifact(
     tmp_path: Path,
 ) -> None:
     engine = WorkspaceEngineBuilder(
@@ -1748,14 +1795,14 @@ def test_workspace_write_output_limit_does_not_commit_partial_artifact(
         constraint={"max_output_tokens": 16384},
     )
     execution = _execution(
-        "workspace.write",
+        "workspace.create",
         {
             "target_link": "workspace:partial.md",
             "instruction": "Create a complete report.",
         },
     )
 
-    result = WorkspaceWriteExecutor(
+    result = WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(
@@ -1777,7 +1824,7 @@ def test_workspace_write_output_limit_does_not_commit_partial_artifact(
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_write_rejects_absent_target_created_after_prompt(
+def test_workspace_create_rejects_absent_target_created_after_prompt(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "created-elsewhere.md"
@@ -1795,13 +1842,13 @@ def test_workspace_write_rejects_absent_target_created_after_prompt(
         target.write_text("external content", encoding="utf-8")
 
     execution = _execution(
-        "workspace.write",
+        "workspace.create",
         {
             "target_link": "workspace:created-elsewhere.md",
             "instruction": "Create a note.",
         },
     )
-    result = WorkspaceWriteExecutor(
+    result = WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(
@@ -1815,6 +1862,33 @@ def test_workspace_write_rejects_absent_target_created_after_prompt(
     assert result.failure.reason == "source_changed"
     assert target.read_text(encoding="utf-8") == "external content"
     assert bus.consume_namespace("context") == ()
+
+
+def test_workspace_append_executor_commits_fragment_without_old_text(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "a.md"
+    target.write_text("existing", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    engine.reconcile()
+    bus = SignalBus()
+    before = engine.inspect("workspace:a.md")
+    result = WorkspaceAppendExecutor(engine, bus).execute(
+        _execution(
+            "workspace.append",
+            {
+                "target_link": "workspace:a.md",
+                "text": "\nadded",
+                "expected_digest": before.digest,
+            },
+        ),
+        ActionExecutionContext(signal_bus=bus),
+    )
+
+    assert result.status.value == "success"
+    assert result.payload["appended"] is True
+    assert result.payload["appended_chars"] == len("\nadded")
+    assert target.read_text(encoding="utf-8") == "existing\nadded"
 
 def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")

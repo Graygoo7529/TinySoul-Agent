@@ -408,12 +408,13 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function("workspace.analyze", lambda execution, context: {"answer": "ok"})
         .register_function("workspace.read", lambda execution, context: {"text": "ok"})
         .register_function("workspace.search_text", lambda execution, context: {"items": []})
+        .register_function("workspace.append", lambda execution, context: {"appended": True})
         .register_function("workspace.patch", lambda execution, context: {"patched": True})
         .register_function("workspace.restore", lambda execution, context: {"restored": True})
         .register_function("workspace.trash.list", lambda execution, context: {"items": []})
         .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .register_function("workspace.scan", lambda execution, context: {"scanned": True})
-        .register_function("workspace.write", lambda execution, context: {"written": True})
+        .register_function("workspace.create", lambda execution, context: {"created": True})
             .disable_actions(
                 *SCRIPT_ACTIONS,
                 *SHELL_ACTIONS,

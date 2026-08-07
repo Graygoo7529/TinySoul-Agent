@@ -51,7 +51,7 @@ from .sources import ScriptSourceResolver
 
 
 SCRIPT_ACTIONS = (
-    "execution.write_script",
+    "execution.create_script",
     "execution.rewrite_script",
     "execution.patch_script",
     "execution.promote_script",
@@ -94,7 +94,6 @@ class _AuthoringParams:
     instruction: str
     reference_links: tuple[str, ...]
     expected_digest: str
-    overwrite: bool
 
 
 class ScriptAuthoringExecutor(ActionExecutor):
@@ -128,13 +127,13 @@ class ScriptAuthoringExecutor(ActionExecutor):
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        params = _authoring_params(execution, rewrite=self._mode == "rewrite")
+        params = _authoring_params(execution)
         if isinstance(params, ActionResult):
             return params
         try:
             language = self._resolver.validate_link(params.target_link)
             existing: ScriptSource | None = None
-            if self._mode == "rewrite" or params.overwrite:
+            if self._mode == "rewrite":
                 existing = self._resolver.read(params.target_link)
                 if params.expected_digest and existing.digest != params.expected_digest:
                     return _failed(
@@ -143,6 +142,19 @@ class ScriptAuthoringExecutor(ActionExecutor):
                         reason="digest_mismatch",
                         frame_data={"link": params.target_link},
                     )
+            else:
+                if self._resolver.target_exists(params.target_link):
+                    return _failed(
+                        execution,
+                        "Script create target already exists.",
+                        reason="target_exists",
+                        frame_data={"link": params.target_link},
+                    )
+                prompt = self._prompts.build_create(
+                    target_link=params.target_link,
+                    instruction=params.instruction,
+                    reference_links=params.reference_links,
+                )
             if self._mode == "rewrite":
                 if existing is None:
                     raise ScriptError("Script rewrite target disappeared")
@@ -150,13 +162,6 @@ class ScriptAuthoringExecutor(ActionExecutor):
                     source=existing,
                     instruction=params.instruction,
                     reference_links=params.reference_links,
-                )
-            else:
-                prompt = self._prompts.build_write(
-                    target_link=params.target_link,
-                    instruction=params.instruction,
-                    reference_links=params.reference_links,
-                    existing=existing,
                 )
         except Exception as exc:
             mapped = self._source_failure(execution, exc)
@@ -177,7 +182,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
             mutation = self._resolver.write(
                 params.target_link,
                 text,
-                overwrite=self._mode == "rewrite" or params.overwrite,
+                overwrite=self._mode == "rewrite",
                 expected_digest=(
                     params.expected_digest
                     or (existing.digest if existing is not None else "")
@@ -532,7 +537,7 @@ def register_script_actions(
             runtime_bridge=workspace_bridge,
         )
     )
-    for mode in ("write", "rewrite"):
+    for mode in ("create", "rewrite"):
         builder.register_executor(
             f"script.{mode}",
             ScriptAuthoringExecutor(
@@ -602,21 +607,18 @@ def register_script_actions(
 
 def _authoring_params(
     execution: ActionExecution,
-    *,
-    rewrite: bool,
 ) -> _AuthoringParams | ActionResult:
     target = _required_text(execution, "target_link")
     instruction = _required_text(execution, "instruction")
     references = _string_list(execution.call.params.get("reference_links", []))
     expected = execution.call.params.get("expected_digest", "")
-    overwrite = execution.call.params.get("overwrite", False)
     if target is None or instruction is None or references is None:
         return _failed(
             execution,
             "Script authoring parameters are invalid.",
             reason="invalid_authoring",
         )
-    if not isinstance(expected, str) or not isinstance(overwrite, bool):
+    if not isinstance(expected, str):
         return _failed(
             execution,
             "Script authoring guards are invalid.",
@@ -627,7 +629,6 @@ def _authoring_params(
         instruction,
         references,
         expected,
-        True if rewrite else overwrite,
     )
 
 

@@ -1,0 +1,49 @@
+name = "workspace.create"
+domain = "workspace"
+
+[tool]
+description = "Generate a bounded UTF-8 text artifact through an internal LLM task and create it at a new workspace resource. Use append or patch for later changes. Pass every Workspace source used as reference_links."
+
+[tool.schema]
+type = "object"
+required = ["target_link", "instruction"]
+additionalProperties = false
+
+[tool.schema.properties.target_link]
+type = "string"
+description = "New target workspace resource link such as workspace:docs/task.md. The target must not already exist."
+
+[tool.schema.properties.instruction]
+type = "string"
+description = "Instruction for the bounded artifact, including the current action goal and a reasonable approximate output size when useful."
+
+[tool.schema.properties.reference_links]
+type = "array"
+description = "Exact read-only Workspace links whose content informs the artifact."
+
+[tool.schema.properties.reference_links.items]
+type = "string"
+description = "Read-only workspace resource link such as workspace:docs/context.md."
+
+[tool.schema.properties.retention]
+type = "string"
+enum = ["ephemeral", "turn", "day", "persistent"]
+description = "Resource lifetime; only ephemeral or turn resources may be auto-trashed under pressure."
+
+[semantic]
+use_when = ["Need to create a bounded workspace text resource with LLM-generated content"]
+avoid_when = ["The target already exists", "A precise deterministic replacement is enough", "The requested artifact is larger than one bounded action result"]
+effects = ["modifying"]
+examples = ["Create workspace:docs/plan.md using workspace:docs/notes.md as reference"]
+
+[runtime]
+timeout_seconds = 600
+parallel_policy = "serial"
+
+[runtime.hooks]
+normalize = []
+execute = []
+
+[backend]
+kind = "llm_action"
+handler = "workspace.create"

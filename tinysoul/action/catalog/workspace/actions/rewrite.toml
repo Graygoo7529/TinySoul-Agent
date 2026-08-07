@@ -2,7 +2,7 @@ name = "workspace.rewrite"
 domain = "workspace"
 
 [tool]
-description = "Rewrite one bounded UTF-8 workspace text resource through an internal LLM task. The target must be available as a complete prompt source; use digest-guarded workspace.patch calls for truncated, larger, or localized changes. Pass every Workspace source used as reference_links. The action result returns metadata only."
+description = "Rewrite one bounded UTF-8 workspace text resource through an internal LLM task. The target must be available as a complete prompt source; use workspace.append for additive changes or digest-guarded workspace.patch calls for truncated, larger, or localized changes. Pass every Workspace source used as reference_links. The action result returns metadata only."
 
 [tool.schema]
 type = "object"
@@ -15,7 +15,7 @@ description = "Target workspace resource link such as workspace:docs/task.md."
 
 [tool.schema.properties.instruction]
 type = "string"
-description = "Rewrite instruction for the target resource."
+description = "Instruction for the complete replacement, including the current action goal and a reasonable approximate final size when useful."
 
 [tool.schema.properties.reference_links]
 type = "array"
@@ -36,7 +36,7 @@ effects = ["modifying"]
 examples = ["Rewrite workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 
 [runtime]
-timeout_seconds = 240
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [runtime.hooks]

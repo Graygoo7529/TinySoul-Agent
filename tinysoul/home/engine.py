@@ -374,6 +374,25 @@ class AgentHomeEngine:
             digest=record.runtime_digest,
         )
 
+    def resource_exists(self, link: HomeResourceLink | str) -> bool:
+        """Report whether one validated progressive resource currently exists."""
+
+        parsed = self._resource_link(link)
+        relative = self._layout.relative_for_resource(parsed)
+        record = self._overlay.record_for(relative)
+        if record is not None:
+            return record.state is not HomeOverlayState.DELETED
+        source = self._layout.source_for_relative(relative)
+        if source.is_symlink():
+            raise AgentHomeInvariantError(
+                f"Actual Home resource cannot be a symlink: {relative}"
+            )
+        if source.exists() and not source.is_file():
+            raise AgentHomeInvariantError(
+                f"Actual Home resource is not a regular file: {relative}"
+            )
+        return source.is_file()
+
     def guidance_for_domain(self, domain: str) -> str | None:
         if not domain:
             return None

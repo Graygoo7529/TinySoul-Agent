@@ -41,6 +41,15 @@ class ScriptSourceResolver:
                 f"Script source exceeds {self._max_source_chars} characters"
             )
 
+    def target_exists(self, link: str) -> bool:
+        """Check a Script target without loading its complete source."""
+
+        self.validate_link(link)
+        if link.startswith("workspace:"):
+            return self._workspace.write_target_exists(link)
+        _require_existing_skill(self._home, link)
+        return self._home.resource_exists(link)
+
     def read(
         self,
         link: str,

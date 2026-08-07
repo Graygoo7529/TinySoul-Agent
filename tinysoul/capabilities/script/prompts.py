@@ -9,31 +9,28 @@ from .models import ScriptSource
 
 
 class ScriptEditPromptBuilder:
-    """Build bounded write and rewrite prompts for Script source files."""
+    """Build bounded create and rewrite prompts for Script source files."""
 
     def __init__(self, references: WorkspacePromptReferenceResolver) -> None:
         self._references = references
 
-    def build_write(
+    def build_create(
         self,
         *,
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
-        existing: ScriptSource | None,
     ) -> TaskPrompt:
-        target_blocks: tuple[PromptBlock, ...] = ()
-        if existing is not None:
-            target_blocks = (self._source_block(existing, role="existing target"),)
         return TaskPrompt(
             guide_blocks=(
                 PromptBlock.from_text(
-                    "task_prompt:guide:script_write",
+                    "task_prompt:guide:script_create",
                     "# Task Guide\n"
-                    "Write a complete executable script for the requested target. "
+                    "Create a complete executable script for a new target. "
                     "The script must treat TINYSOUL_WORKSPACE and its current working "
-                    "directory as the only intended data workspace. Return the complete "
-                    "source, not a patch or Markdown fence.",
+                    "directory as the only intended data workspace. Choose a reasonable "
+                    "bounded scope from the instruction; return the complete source, "
+                    "not a patch or Markdown fence.",
                 ),
             ),
             input_blocks=(
@@ -45,7 +42,6 @@ class ScriptEditPromptBuilder:
                     "task_prompt:input:script_target",
                     "# Script Target\nlink: " + target_link,
                 ),
-                *target_blocks,
                 *self._reference_blocks(reference_links),
             ),
             output_blocks=(

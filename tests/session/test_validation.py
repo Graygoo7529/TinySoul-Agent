@@ -44,7 +44,7 @@ def test_v4_turn_record_round_trips_and_rejects_unknown_fields() -> None:
 def test_session_action_failure_is_typed_and_round_trips() -> None:
     failure = _failure()
     record = SessionActionRecord(
-        action="workspace.write",
+        action="workspace.create",
         request={"target_link": "workspace:report.md"},
         outcome=SessionActionOutcome.FAILED,
         failure=failure,
@@ -81,7 +81,7 @@ def test_session_action_rejects_invalid_persisted_failure(failure: object) -> No
     with pytest.raises(SessionContractError, match="failure is invalid"):
         SessionActionRecord.from_json(
             {
-                "action": "workspace.write",
+                "action": "workspace.create",
                 "request": {},
                 "outcome": "failed",
                 "failure": failure,
@@ -92,7 +92,7 @@ def test_session_action_rejects_invalid_persisted_failure(failure: object) -> No
 def test_session_action_requires_typed_failure_and_reserved_result_boundary() -> None:
     with pytest.raises(SessionContractError, match="must be an ActionLocalFailure"):
         SessionActionRecord(
-            action="workspace.write",
+            action="workspace.create",
             request={},
             outcome=SessionActionOutcome.FAILED,
             failure=cast(ActionLocalFailure, _failure().to_json()),
@@ -100,7 +100,7 @@ def test_session_action_requires_typed_failure_and_reserved_result_boundary() ->
 
     with pytest.raises(SessionContractError, match="result cannot contain failure"):
         SessionActionRecord(
-            action="workspace.write",
+            action="workspace.create",
             request={},
             outcome=SessionActionOutcome.SUCCESS,
             result={"failure": _failure().to_json()},
@@ -113,7 +113,7 @@ def test_store_rejects_malformed_persisted_action_failure(tmp_path: Path) -> Non
     raw = _turn("turn_invalid_failure").to_json()
     raw["actions"] = [
         {
-            "action": "workspace.write",
+            "action": "workspace.create",
             "request": {},
             "outcome": "failed",
             "failure": {"arbitrary": True},

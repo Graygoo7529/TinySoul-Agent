@@ -28,7 +28,7 @@ effects = ["read_only"]
 examples = ["Analyze selected Action and Context implementation files for result lifecycle behavior"]
 
 [runtime]
-timeout_seconds = 180
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [runtime.hooks]

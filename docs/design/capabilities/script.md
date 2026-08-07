@@ -8,14 +8,14 @@
 
 ## 源与提升
 
-- `execution.write_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action skill；模型只返回完整 source 文本工件，不使用 JSON wrapper；
+- `execution.create_script` / `execution.rewrite_script` 复用 `LLMActionTaskRunner.run_text`，因此继承当前 Turn Context、Workspace reference 和 Home-owned domain/action skill；create 只允许新目标，rewrite 才覆盖已有目标；模型只返回完整 source 文本工件，不使用 JSON wrapper；
 - `execution.patch_script` 只做唯一精确替换，并在写入前执行确定性语法策略检查；
 - `execution.promote_script` 只允许从 `workspace:scripts/...` 复制到 `home:skills/<existing-skill>/scripts/...`，扩展名必须保持一致；
 - promote 写入 lazy runtime Home，随后由普通 Home Maintenance review/apply；它不直接写实际 Home，也不自动创建 skill。
 
 `ScriptSource` 是一次 read 产生的不可变源码 snapshot。owner resource digest 绑定 Workspace/Home Link 的资源版本和后续 CAS；解码后的 snapshot 另以固定 UTF-8 字节计算 `snapshot_digest`。policy 只校验该 snapshot，process 也只执行 job `source/` 中经 snapshot digest 复核的冻结入口；不得在 policy 后再次按 Link 读取执行内容。Workspace mirror 创建时逐文件复核复制字节与 baseline resource digest，Workspace source 的 baseline digest 还必须等于 resolver 读取时的 owner digest。`execution.promote_script` 同样直接写入已校验 snapshot，不二次读取 source Link。
 
-`max_source_chars` 是 Script 的读写共同边界：read、LLM write/rewrite 输出、patch 后完整候选、promote 与 resolver 最终 mutation 都必须检查。Workspace/Home 自有 mutation 上限继续独立生效，实际边界取二者较小值。
+`max_source_chars` 是 Script 的读写共同边界：read、LLM create/rewrite 输出、patch 后完整候选、promote 与 resolver 最终 mutation 都必须检查。Workspace/Home 自有 mutation 上限继续独立生效，实际边界取二者较小值。
 
 Catalog 为 Script authoring 声明 `max_output_tokens=16384` 和 `max_output_chars=100000`。generation budget 属于 provider 调用，artifact bound 与 Script 默认 `max_source_chars` 对齐但由不同边界各自校验：共享 LLM action 在 owner mutation 前拒绝过大完整工件，Script policy 继续验证语言/source 语义和最终 source 大小。输出上限或未完成响应不形成候选 source，也不会把部分源码放入 ActionResult/Context。
 

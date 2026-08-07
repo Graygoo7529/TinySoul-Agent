@@ -1683,6 +1683,78 @@ class WorkspaceEngine:
         )
         return record
 
+    def append_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        text: str,
+        expected_digest: str = "",
+    ) -> WorkspaceResourceRecord:
+        """Append one bounded UTF-8 fragment to an existing text resource."""
+
+        with self._lock:
+            before = self._manifest_store.load()
+            record = self._append_text(
+                link,
+                text=text,
+                expected_digest=expected_digest,
+            )
+            after = self._manifest_store.load()
+        self._emit_change(
+            operation=WorkspaceChangeOperation.APPEND,
+            before=before,
+            after=after,
+        )
+        return record
+
+    def _append_text(
+        self,
+        link: WorkspaceLink | str,
+        *,
+        text: str,
+        expected_digest: str = "",
+    ) -> WorkspaceResourceRecord:
+        if not isinstance(text, str) or not text:
+            raise WorkspaceContractError(
+                "Workspace append text must be a non-empty string"
+            )
+        if len(text) > self._settings.max_write_chars:
+            raise WorkspaceContractError(
+                "Workspace append text exceeds the configured limit of "
+                f"{self._settings.max_write_chars} characters"
+            )
+        if not isinstance(expected_digest, str):
+            raise WorkspaceContractError(
+                "Workspace append expected_digest must be a string"
+            )
+        record = self._inspect_record(link)
+        if record.kind is not WorkspaceResourceKind.TEXT:
+            raise WorkspaceContractError(
+                f"Workspace append target is not text: {record.link}"
+            )
+        path = self.path_for(record.link)
+        self._check_mutable_path(path, link=record.link)
+        previous = self._read_rollback_bytes(path)
+        if expected_digest and sha256(previous).hexdigest() != expected_digest:
+            raise WorkspaceContractError(
+                f"Workspace resource digest mismatch: {record.link}"
+            )
+        try:
+            current = previous.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise WorkspaceContractError(
+                f"Workspace resource is not readable as UTF-8 text: {record.link}"
+            ) from exc
+        try:
+            atomic_write_text(path, current + text)
+        except OSError as exc:
+            raise WorkspaceIOError(f"Failed to append workspace resource: {exc}") from exc
+        return self._reconcile_mutation(
+            path,
+            link=record.link,
+            previous=previous,
+        )
+
     def _patch_text(
         self,
         link: WorkspaceLink | str,

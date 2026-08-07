@@ -439,12 +439,12 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "memory.recall",
         "resource.convert_with_markitdown",
         "resource.convert_with_pypdf",
+        "script.create",
         "script.patch",
         "script.promote",
         "script.rewrite",
         "script.run_bash",
         "script.run_python",
-        "script.write",
         "session.inspect",
         "shell.run_bash",
         "shell.run_cmd",
@@ -459,6 +459,8 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "web.fetch_with_trafilatura",
         "web.search_by_kimi",
         "workspace.analyze",
+        "workspace.append",
+        "workspace.create",
         "workspace.delete",
         "workspace.describe",
         "workspace.patch",
@@ -468,7 +470,6 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         "workspace.scan",
         "workspace.search_text",
         "workspace.trash.list",
-        "workspace.write",
     )
     with pytest.raises(ActionContractError, match="home.resource.read"):
         executors.validate_catalog(catalog)

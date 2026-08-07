@@ -24,6 +24,7 @@ class WorkspaceChangeOperation(StrEnum):
     RECONCILE = "reconcile"
     DESCRIBE = "describe"
     WRITE = "write"
+    APPEND = "append"
     BUNDLE = "bundle"
     PATCH = "patch"
     TRASH = "trash"

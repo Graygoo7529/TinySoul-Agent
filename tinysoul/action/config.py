@@ -12,7 +12,7 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 class ActionSettings:
     """Project-owned Action runtime defaults applied at catalog load."""
 
-    llm_action_timeout_seconds: float = 300.0
+    llm_action_timeout_seconds: float = 600.0
 
     def __post_init__(self) -> None:
         if (

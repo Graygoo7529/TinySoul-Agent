@@ -12,6 +12,7 @@ effects = ["read_only"]
 examples = ["Describe workspace:docs/task.md for later Turn discovery"]
 
 [runtime]
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [runtime.hooks]

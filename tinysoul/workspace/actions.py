@@ -141,11 +141,19 @@ def register_workspace_actions(
             ),
         )
         .register_executor(
-            "workspace.write",
-            WorkspaceWriteExecutor(
+            "workspace.create",
+            WorkspaceCreateExecutor(
                 workspace=workspace,
                 bus=bus,
                 llm_action=llm_action,
+                runtime_bridge=runtime_bridge,
+            ),
+        )
+        .register_executor(
+            "workspace.append",
+            WorkspaceAppendExecutor(
+                workspace,
+                bus,
                 runtime_bridge=runtime_bridge,
             ),
         )
@@ -637,8 +645,8 @@ class WorkspaceDescribeExecutor(ActionExecutor):
         return _success(execution, _record_payload(record))
 
 
-class WorkspaceWriteExecutor(ActionExecutor):
-    """Generate and write one workspace text resource through an internal LLM task."""
+class WorkspaceCreateExecutor(ActionExecutor):
+    """Generate and create one workspace text resource through an internal LLM task."""
 
     def __init__(
         self,
@@ -666,29 +674,15 @@ class WorkspaceWriteExecutor(ActionExecutor):
         if target_link is None:
             return _failed(
                 execution,
-                "workspace.write requires a non-empty 'target_link' parameter.",
+                "workspace.create requires a non-empty 'target_link' parameter.",
                 {"reason": "missing_target_link"},
             )
         instruction = execution.call.params.get("instruction")
         if not isinstance(instruction, str) or not instruction:
             return _failed(
                 execution,
-                "workspace.write requires a non-empty 'instruction' string parameter.",
+                "workspace.create requires a non-empty 'instruction' string parameter.",
                 {"reason": "invalid_instruction"},
-            )
-        overwrite = execution.call.params.get("overwrite", False)
-        if not isinstance(overwrite, bool):
-            return _failed(
-                execution,
-                "workspace.write overwrite must be a boolean when provided.",
-                {"reason": "invalid_overwrite"},
-            )
-        expected_digest = execution.call.params.get("expected_digest", "")
-        if not isinstance(expected_digest, str):
-            return _failed(
-                execution,
-                "workspace.write expected_digest must be a string when provided.",
-                {"reason": "invalid_expected_digest"},
             )
         retention_value = execution.call.params.get("retention")
         retention = None
@@ -698,7 +692,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
             except (TypeError, ValueError):
                 return _failed(
                     execution,
-                    "workspace.write retention must be ephemeral, turn, day, or persistent.",
+                    "workspace.create retention must be ephemeral, turn, day, or persistent.",
                     {"reason": "invalid_retention"},
                 )
         reference_links = _string_list_param(
@@ -707,39 +701,22 @@ class WorkspaceWriteExecutor(ActionExecutor):
         if reference_links is None:
             return _failed(
                 execution,
-                "workspace.write reference_links must be a list of strings.",
+                "workspace.create reference_links must be a list of strings.",
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt_build = self._prompt_builder.build_write(
+            prompt_build = self._prompt_builder.build_create(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
-                overwrite=overwrite,
             )
             target_version = prompt_build.read_set.target
-            if (
-                target_version.state is WorkspaceResourceState.PRESENT
-                and not overwrite
-            ):
+            if target_version.state is WorkspaceResourceState.PRESENT:
                 return _failed(
                     execution,
-                    f"Workspace write target already exists: {target_link}",
+                    f"Workspace create target already exists: {target_link}",
                     {"reason": "target_exists", "link": target_link},
                 )
-            if expected_digest:
-                if target_version.state is WorkspaceResourceState.ABSENT:
-                    return _failed(
-                        execution,
-                        f"Workspace write target does not exist for digest check: {target_link}",
-                        {"reason": "missing_digest_target", "link": target_link},
-                    )
-                if target_version.digest != expected_digest:
-                    return _failed(
-                        execution,
-                        f"Workspace write target digest mismatch: {target_link}",
-                        {"reason": "digest_mismatch", "link": target_link},
-                    )
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -749,13 +726,13 @@ class WorkspaceWriteExecutor(ActionExecutor):
         except WorkspaceError as exc:
             return _failed(
                 execution,
-                f"Workspace write failed: {exc}",
+                f"Workspace create failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
         text = self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
-            subject="Workspace write LLM task",
+            subject="Workspace create LLM task",
             control=context.control,
             max_output_chars=self._workspace.settings.max_write_chars,
         )
@@ -766,7 +743,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
                 target_link,
                 text,
                 read_set=prompt_build.read_set,
-                overwrite=overwrite,
+                overwrite=False,
                 retention=retention,
                 owner_turn_id=execution.framework.turn_id,
             )
@@ -780,7 +757,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
         except WorkspaceSourceChanged as exc:
             return _failed(
                 execution,
-                f"Workspace write source changed before commit: {exc.link}",
+                f"Workspace create source changed before commit: {exc.link}",
                 {
                     "reason": "source_changed",
                     "link": exc.link,
@@ -794,7 +771,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
         except WorkspaceError as exc:
             return _failed(
                 execution,
-                f"Workspace write failed: {exc}",
+                f"Workspace create failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
         _emit_workspace_snapshot(
@@ -802,12 +779,85 @@ class WorkspaceWriteExecutor(ActionExecutor):
             execution=execution,
             context=context,
             bus=self._bus,
-            source="workspace.write",
+            source="workspace.create",
         )
         result_payload = _record_payload(record)
-        result_payload["written"] = True
+        result_payload["created"] = True
         result_payload["prompt_sources"] = prompt_build.read_set.to_json()
         return _success(execution, result_payload)
+
+
+class WorkspaceAppendExecutor(ActionExecutor):
+    """Append an exact text fragment to one existing Workspace text resource."""
+
+    def __init__(
+        self,
+        workspace: WorkspaceEngine,
+        bus: SignalBus,
+        *,
+        runtime_bridge: WorkspaceActionRuntimeBridge | None = None,
+    ) -> None:
+        self._workspace = workspace
+        self._bus = bus
+        self._runtime_bridge = runtime_bridge
+
+    def execute(
+        self,
+        execution: ActionExecution,
+        context: ActionExecutionContext,
+    ) -> ActionResult:
+        link = _required_link(execution)
+        if link is None:
+            return _failed(
+                execution,
+                "workspace.append requires a non-empty 'target_link' parameter.",
+                {"reason": "missing_target_link"},
+            )
+        text = execution.call.params.get("text")
+        if not isinstance(text, str) or not text:
+            return _failed(
+                execution,
+                "workspace.append requires a non-empty 'text' string parameter.",
+                {"reason": "invalid_text"},
+            )
+        expected_digest = execution.call.params.get("expected_digest", "")
+        if not isinstance(expected_digest, str):
+            return _failed(
+                execution,
+                "workspace.append expected_digest must be a string when provided.",
+                {"reason": "invalid_expected_digest"},
+            )
+        try:
+            record = self._workspace.append_text(
+                link,
+                text=text,
+                expected_digest=expected_digest,
+            )
+        except WorkspaceTrashRestoreRequired as exc:
+            if self._runtime_bridge is None:
+                raise
+            raise self._runtime_bridge.trash_restore_required(
+                link=exc.link,
+                trash_ref=exc.trash_ref,
+            ) from exc
+        except WorkspaceError as exc:
+            return _failed(
+                execution,
+                f"Workspace append failed: {exc}",
+                {"error_type": type(exc).__name__},
+            )
+        _emit_workspace_snapshot(
+            self._workspace,
+            execution=execution,
+            context=context,
+            bus=self._bus,
+            source="workspace.append",
+        )
+        payload = _record_payload(record)
+        payload["appended"] = True
+        payload["appended_chars"] = len(text)
+        return _success(execution, payload)
+
 
 class WorkspacePatchExecutor(ActionExecutor):
     """Apply an exact text replacement to one workspace resource."""
@@ -1258,25 +1308,24 @@ def _search_scope(value: object) -> WorkspaceSearchScope:
         raise WorkspaceContractError(
             f"Unknown Workspace search scope kind: {kind_value}"
         ) from exc
-    expected_keys = {
-        WorkspaceSearchScopeKind.FILE: {"kind", "link"},
-        WorkspaceSearchScopeKind.DIRECTORY: {"kind", "prefix"},
-        WorkspaceSearchScopeKind.WORKSPACE: {"kind"},
-    }[kind]
+    expected_keys = {"kind", "locator"}
     if set(value) != expected_keys:
         raise WorkspaceContractError(
-            f"Workspace {kind.value} search scope must contain exactly "
+            f"Workspace search scope must contain exactly "
             f"{sorted(expected_keys)}"
         )
-    if kind is WorkspaceSearchScopeKind.FILE:
-        locator = value.get("link")
-    elif kind is WorkspaceSearchScopeKind.DIRECTORY:
-        locator = value.get("prefix")
-    else:
-        locator = ""
+    locator = value.get("locator")
     if not isinstance(locator, str):
         raise WorkspaceContractError(
-            f"Workspace {kind.value} search scope locator must be a string"
+            "Workspace search scope locator must be a string"
+        )
+    if kind is WorkspaceSearchScopeKind.WORKSPACE and locator:
+        raise WorkspaceContractError(
+            "Workspace-wide search scope locator must be empty"
+        )
+    if kind is not WorkspaceSearchScopeKind.WORKSPACE and not locator:
+        raise WorkspaceContractError(
+            f"Workspace {kind.value} search scope locator must be non-empty"
         )
     return WorkspaceSearchScope(kind=kind, locator=locator)
 

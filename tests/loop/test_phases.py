@@ -415,7 +415,7 @@ def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
                 name="workspace.search_text",
                 arguments={
                     "query": "needle",
-                    "scope": {"kind": "workspace"},
+                    "scope": {"kind": "workspace", "locator": ""},
                 },
                 kind=ToolKind.ACTION,
             ),
@@ -976,7 +976,8 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_function("workspace.restore", lambda execution, context: {"restored": True})
         .register_function("workspace.trash.list", lambda execution, context: {"items": []})
         .register_function("workspace.scan", emit_invalid_sync)
-        .register_function("workspace.write", lambda execution, context: {"written": True})
+        .register_function("workspace.append", lambda execution, context: {"appended": True})
+        .register_function("workspace.create", lambda execution, context: {"created": True})
         .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .disable_actions(
             *SCRIPT_ACTIONS,
@@ -1080,7 +1081,10 @@ def _action_engine(
                 "workspace.scan", lambda execution, context: {"scanned": True}
             )
             .register_function(
-                "workspace.write", lambda execution, context: {"written": True}
+                "workspace.append", lambda execution, context: {"appended": True}
+            )
+            .register_function(
+                "workspace.create", lambda execution, context: {"created": True}
             )
             .register_function(
                 "workspace.rewrite", lambda execution, context: {"rewritten": True}

@@ -23,7 +23,7 @@ def test_completion_projects_typed_action_business_facts() -> None:
         ask="write the report",
         actions=(
             SyntheticAction(
-                "workspace.write",
+                "workspace.create",
                 request={"link": "workspace:report.md"},
                 result={"written": True},
                 references=("workspace:report.md",),

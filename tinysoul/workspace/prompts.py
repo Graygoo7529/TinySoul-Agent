@@ -228,7 +228,7 @@ class WorkspaceEditPrompt:
 
 
 class WorkspaceEditPromptBuilder:
-    """Build write and rewrite prompts from workspace resource links."""
+    """Build create and rewrite prompts from workspace resource links."""
 
     def __init__(
         self,
@@ -280,13 +280,12 @@ class WorkspaceEditPromptBuilder:
             read_set=sources.read_set,
         )
 
-    def build_write(
+    def build_create(
         self,
         *,
         target_link: str,
         instruction: str,
         reference_links: tuple[str, ...],
-        overwrite: bool,
     ) -> WorkspaceEditPrompt:
         sources = self._prepare_sources(
             target_link,
@@ -298,24 +297,22 @@ class WorkspaceEditPromptBuilder:
             if sources.target is not None
             else ()
         )
-        overwrite_text = "true" if overwrite else "false"
         write_limit = self._workspace.settings.max_write_chars
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
                 guide_blocks=(
                     PromptBlock.from_text(
-                        "task_prompt:guide:workspace_write",
+                        "task_prompt:guide:workspace_create",
                         (
                             "# Task Guide\n"
-                            "Generate the complete UTF-8 text for the workspace target. "
+                            "Generate the complete UTF-8 text for the new workspace target. "
                             "Return only the full text that should be written. "
                             f"The artifact must be no longer than {write_limit} "
-                            "characters. When the requested document is larger, "
-                            "write one coherent section at a time and let the outer "
-                            "agent append later sections with workspace.patch. "
-                            "When continuation is expected, leave one unique "
-                            "continuation anchor and have the outer agent reread "
-                            "the latest digest before replacing that anchor. "
+                            "characters. If the requested result is larger, choose a "
+                            "natural bounded fragment for this create action and let "
+                            "the outer agent continue with workspace.append or "
+                            "workspace.patch as appropriate. Do not assume that every "
+                            "action must produce one fixed-size chapter. "
                             "Use exact Workspace reference links for every existing "
                             "source that informed the artifact; summaries alone are "
                             "not source content."
@@ -324,15 +321,15 @@ class WorkspaceEditPromptBuilder:
                 ),
                 input_blocks=(
                     PromptBlock.from_text(
-                        "task_prompt:input:workspace_write_instruction",
-                        "# Write Instruction\n" + instruction,
+                        "task_prompt:input:workspace_create_instruction",
+                        "# Create Instruction\n" + instruction,
                     ),
                     PromptBlock.from_text(
-                        "task_prompt:input:workspace_write_target",
+                        "task_prompt:input:workspace_create_target",
                         (
-                            "# Workspace Write Target\n"
+                            "# Workspace Create Target\n"
                             f"link: {target_link}\n"
-                            f"overwrite: {overwrite_text}"
+                            "mode: create"
                         ),
                     ),
                     *target_blocks,
@@ -347,7 +344,7 @@ class WorkspaceEditPromptBuilder:
                 ),
                 output_blocks=(
                     PromptBlock.from_text(
-                        "task_prompt:output:workspace_write",
+                        "task_prompt:output:workspace_create",
                         "# Expected Output\nReturn only the complete UTF-8 text artifact "
                         f"(at most {write_limit} characters), without commentary or "
                         "code fences.",

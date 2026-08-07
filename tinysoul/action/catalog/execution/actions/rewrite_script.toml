@@ -2,7 +2,7 @@ name = "execution.rewrite_script"
 domain = "execution"
 
 [tool]
-description = "Rewrite the complete source of an existing Workspace or general skill script through an internal LLM task."
+description = "Rewrite the complete source of an existing Workspace or general skill script through an internal LLM task. Use execution.patch_script for a precise local replacement."
 
 [tool.schema]
 type = "object"
@@ -15,7 +15,7 @@ description = "Existing workspace:scripts/...py|sh or home:skills/<skill>/script
 
 [tool.schema.properties.instruction]
 type = "string"
-description = "Instruction for rewriting the complete script source."
+description = "Instruction for the complete replacement, including the current action goal and a reasonable target scope or size when useful."
 
 [tool.schema.properties.reference_links]
 type = "array"
@@ -33,7 +33,7 @@ effects = ["modifying"]
 examples = ["Rewrite home:skills/data-cleaning/scripts/clean.py to handle CSV headers"]
 
 [runtime]
-timeout_seconds = 240
+timeout_seconds = 600
 parallel_policy = "serial"
 
 [backend]
