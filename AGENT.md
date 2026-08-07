@@ -112,6 +112,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 ### 关键协作语义
 
 - Phase1 只确定行动域并处理语境控制意图，Phase2 在已选域内生成 ActionCall，Phase3 执行 ActionBatch；每个调用都应归一化为可记录、可反馈的结果。
+- Phase1/Phase2 framework Task 的可修正协议失败属于当前 Cycle 的局部 `PhaseFailure`：当前 Cycle 在失败 Phase 边界结束，反馈进入下一个完整 Cycle；Phase 不自行重复协议调用，Runtime 仍以 cycle budget、取消和 bridge 负责全局生命周期。Phase2 失败不得以空 ActionBatch 继续 Phase3。
 - Context 的 Background、TurnTrace、Working 和 task prompt 是不同语义层：Background 提供可复用背景，Trace 记录本轮行为，Working 表达当前工作状态，task prompt 只服务当前 LLM Task。资源正文不因存在链接而自动进入 Context。
 - Link 是跨模块资源身份，不是物理路径拼接约定。`home:`、`memory:`、`workspace:` 各自由 owner 解析；顶层内容、渐进资源、工作区资源和局部 Skill mount 不得混用。
 - User 与 Home Maintenance Context 加载不可逐出的 `memory:current + optional memory:latest`；Memory Maintenance Context 加载不可逐出的 `memory:target + optional memory:latest`，其中 latest 始终是严格早于 Context 日的最近 daily，缺失时静默省略。
@@ -123,6 +124,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 
 - 失败按三层处理：可由模型或上层继续处理的局部事实返回结构化结果；模块契约、配置、依赖或持久化不满足时停在模块边界；只有需要改变全局运行位置时才转换为 Runtime 语义异常。
 - 局部 Action、LLM 或 phase 失败必须带有稳定、有限、可反馈的原因和摘要，不携带原始异常、traceback、绝对路径、敏感值或大块资源正文。
+- Milestone 是少量、持久、可复用的事实寄存器；除完成事实外，也可以记录有价值的尝试、失败、阻塞、计算值、决定、来源 Link、版本和 digest，但必须明确状态，不能伪装成 todo 完成。
 - Runtime 异常只表达全局恢复、重试、中断或结束；signal 用于业务模块消费的状态变更和跨模块数据传递；Observation 只面向外部观察，不能反向改变控制流。
 - 超时、取消、并发和受控进程必须服从所属 Action/Turn 的生命周期。需要硬停止的工作使用受控进程，不能让无法取消的本地任务阻塞 Runtime 转移。
 

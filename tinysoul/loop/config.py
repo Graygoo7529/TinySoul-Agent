@@ -34,7 +34,6 @@ class LoopSettings:
     """Runtime settings owned by the Loop module."""
 
     user: TurnSettings = field(default_factory=TurnSettings)
-    phase_retry_limit: int = 2
 
     def __post_init__(self) -> None:
         if not isinstance(self.user, TurnSettings):
@@ -44,17 +43,6 @@ class LoopSettings:
                 value=self.user,
                 expected="TurnSettings",
             )
-        if (
-            isinstance(self.phase_retry_limit, bool)
-            or not isinstance(self.phase_retry_limit, int)
-            or self.phase_retry_limit <= 0
-        ):
-            raise ConfigError(
-                "Loop phase retry limit must be positive",
-                key="loop.phase_retry_limit",
-                value=self.phase_retry_limit,
-                expected="positive int",
-            )
 
 
 def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
@@ -62,17 +50,11 @@ def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
 
     reject_unknown_keys(
         tree,
-        {"user", "phase_retry_limit"},
+        {"user"},
         key="loop",
     )
     return LoopSettings(
         user=parse_turn_settings(tree.get("user"), key="loop.user"),
-        phase_retry_limit=_optional_int(
-            tree,
-            "phase_retry_limit",
-            default=LoopSettings.phase_retry_limit,
-            key="loop.phase_retry_limit",
-        ),
     )
 
 

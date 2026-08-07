@@ -1,5 +1,2 @@
-[loop]
-phase_retry_limit = 2
-
 [loop.user]
 max_cycles = 20

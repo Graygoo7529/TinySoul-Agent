@@ -46,7 +46,3 @@ execute = []
 [backend]
 kind = "llm_action"
 handler = "workspace.rewrite"
-
-[backend.options]
-max_output_tokens = 16384
-max_output_chars = 50000

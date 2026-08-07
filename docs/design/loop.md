@@ -78,13 +78,15 @@ Home 与 Memory Maintenance Turn 不互相暴露 actions，也不提供 `core.an
 
 每个 Cycle 固定顺序执行三个单元：
 
-1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain；重试耗尽时返回空 domain 与 phase note（局部结果），不直接 end turn；无有效 domain 时先消费有效控制调用再反馈重试。若 provider 在要求选择时返回了其它可见控制调用，后续有界重试收窄为只暴露 domain-selection tool，并把稳定失败反馈带入同一 Cycle 以及下一 Cycle；Turn 级仅在连续多次 Phase1 选择失败后有界收敛；
-2. Phase2 只暴露已选 domain 的具体 Action Tools，生成并归一化 ActionCall；
+1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain。可由模型修正的协议失败返回 `PhaseFailure`，当前 Cycle 在 Phase1 边界结束，反馈随下一完整 Cycle 的 Phase1 prompt 重新构造；Phase1 不在同一 Cycle 内重复协议调用。
+2. Phase2 只暴露已选 domain 的具体 Action Tools，生成并归一化 ActionCall。可由模型修正的协议失败同样返回 `PhaseFailure`，Cycle 在 Phase2 边界结束，不把空 normalization 交给 Phase3；下一完整 Cycle 重新经过 Phase1，由模型决定修正 Context、域或行动计划。
 3. Phase3 装配和执行 ActionBatch，把 ActionResult 反馈写入 TurnTrace，并交给 profile completion detector。
+
+PhaseFailure 是 Loop 内部的局部恢复结果，不是 Runtime exception。TurnRunner 只负责把有限 feedback 去重后带到下一个 Cycle，并继续服从 `max_cycles`、supervision cycle、取消和 Runtime transfer。LLM provider/model chain 的调用级重试仍归 LLM 模块；模型链耗尽、Context 不变量和模块边界错误继续经 bridge 进入 Runtime。
 
 Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 要求围绕当前用户请求工作并最终调用 `core.answer`；Maintenance profile 说明这是自治维护、应结合 Background/Session/Workspace、不得生成用户回答或等待审批，并要求仅在 owner 后置条件满足后调用 `maintenance.complete`。
 
-`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module/Phase retry 不丢信号，也不留下半提交语境。
+`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module/Runtime recovery 不丢信号，也不留下半提交语境。
 
 ## Trap 与失败
 

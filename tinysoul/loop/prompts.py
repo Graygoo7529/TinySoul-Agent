@@ -27,7 +27,6 @@ def phase1_task_prompt(
     domain_prompt: str,
     feedback: tuple[str, ...] = (),
     turn_guidance: tuple[str, ...] = (),
-    selection_only: bool = False,
 ) -> TaskPrompt:
     sections = [
         "You are in TinySoul Phase1.",
@@ -43,23 +42,26 @@ def phase1_task_prompt(
             "not mark a failed or merely attempted action done."
         ),
         (
-            "Treat milestones as concise, verified facts or checkpoints that must "
-            "remain available for later cycles: record concrete links, versions, "
-            "values, decisions, or completed sub-results. Do not toggle or recreate "
-            "a factual milestone merely to signal todo completion."
+            "Treat milestones as concise factual register entries that remain useful "
+            "for later cycles. Record valuable completed work, attempts, failures, "
+            "blocked conditions, concrete links, versions, values, decisions, or "
+            "digests with their status made explicit. Do not use a milestone as a "
+            "todo mirror or describe an attempt as completed work."
+        ),
+        (
+            "Useful milestone examples: a computed value such as an average, a "
+            "workspace document Link with its current section and digest, an "
+            "authoritative URL used for the task, or a write attempt that failed "
+            "at a known boundary and was changed to a patch workflow."
         ),
         (
             "Before selecting core to finish, mark every current-goal todo done or "
             "cancelled unless no todos were created."
         ),
         "The action domain selection is mandatory for this phase.",
-        "Phase1 only updates context and selects domains; do not call core.answer here.",
+        "Phase1 does not complete the Turn or produce final user output. "
+        "It only updates Context and selects action domains.",
     ]
-    if selection_only:
-        sections.append(
-            "Recovery mode: only call select_action_domains in this response; "
-            "do not call context control tools."
-        )
     sections.extend(turn_guidance)
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))

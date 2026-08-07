@@ -475,7 +475,7 @@ def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
     assert result.frame_data["observed_chars"] == 8
 
 
-def test_llm_action_owner_artifact_limit_cannot_exceed_catalog_limit() -> None:
+def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
     runner = LLMActionTaskRunner(
@@ -497,10 +497,7 @@ def test_llm_action_owner_artifact_limit_cannot_exceed_catalog_limit() -> None:
         max_output_chars=100,
     )
 
-    assert isinstance(result, ActionResult)
-    assert result.failure is not None
-    assert result.failure.reason == "artifact_too_large"
-    assert result.failure.constraint == {"max_output_chars": 4}
+    assert result == "123456"
 
 
 def test_llm_action_output_limit_preserves_recovery_scope() -> None:

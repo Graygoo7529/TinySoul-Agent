@@ -54,6 +54,8 @@ Control Tool 是框架内部控制工具，主要用于 Phase1。它用于表达
 
 Action Tool 是智能体行动工具，主要用于 Phase2。Phase2 只暴露 Phase1 已选择 domain 内的 Action Tools，并结合 action 工具结构、补充语义和自动注入的 domain skill 生成行动参数。Action Tool Call 被归一化为 ActionCall，之后由 Phase3 装配和执行。
 
+Loop 的 Phase1/Phase2 framework task 使用 `answer_format=NONE` 与 `ToolUse.REQUIRED`：阶段完成以结构化 Control/Action Tool Call 为准，不要求自由文本 answer。Provider 同时返回的 `raw_response.answer_text` 或 reasoning 可以保留在 trace 中，供观察和诊断使用，但不能替代工具调用、改变阶段边界或宣布 Turn 完成。
+
 LLM 模块只负责模型侧工具定义、工具调用和工具结果在 TinySoul 内部结构与供应商协议之间的映射。供应商工具调用标识只在适配层用于相关性映射，TinySoul 内部应使用自己的调用标识，避免 Context、Action 或 Loop 依赖供应商私有标识。工具调用可以作为任务结果的一等输出，而不是把工具调用伪装成普通 JSON 对象。
 
 工具名称同样以 TinySoul 内部稳定 identity 为准，可以保留 Action Catalog 使用的 dotted namespace，不受某个供应商 function name 字符集或长度约束反向塑形。OpenAI SDK 形态适配器为每个请求从当前可见工具、assistant tool-call 历史和 tool-result 历史建立无碰撞名称表：已经满足公共安全子集的名称保持不变，其余名称映射为最长 64 字符的可读临时别名。工具定义、历史调用和需要名称的结果回放必须使用同一张表，供应商响应在构造 `ToolCallRecord` 前解码回 TinySoul identity；无法在本次映射中识别的响应名称保持原值，继续由任务解释层按 ToolScope 形成局部失败，而不猜测映射。provider 临时别名不得进入 ToolScope、ActionCall、Context 或 trace。

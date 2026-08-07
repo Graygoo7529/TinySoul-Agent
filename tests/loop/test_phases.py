@@ -4,10 +4,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from tinysoul.action import ActionEngine, ActionEngineBuilder
+from tinysoul.action import ActionEngine, ActionEngineBuilder, ActionNormalization
 from tinysoul.action.backends import LLMActionTaskRunner
 from tinysoul.capabilities.script import SCRIPT_ACTIONS
 from tinysoul.capabilities.shell import SHELL_ACTIONS
@@ -26,7 +27,17 @@ from tinysoul.llm.messages import JsonPart, MessageStack, TextPart, UserMessage
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskFailure, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolUse
-from tinysoul.loop import LoopTraceNoteKind, Phase1Unit, Phase2Unit, Phase3Unit
+from tinysoul.loop import (
+    CycleRunner,
+    LoopTraceNoteKind,
+    Phase1Outcome,
+    Phase1Unit,
+    Phase2Outcome,
+    Phase2Unit,
+    Phase3Outcome,
+    Phase3Unit,
+    PhaseFailure,
+)
 from tinysoul.loop.user import UserAnswerCompletionDetector
 from tinysoul.memory import (
     DailyMemoryDocument,
@@ -43,6 +54,8 @@ from tinysoul.runtime import (
     SignalBus,
     ObservationEvent,
     ObservationLevel,
+    RuntimeTrap,
+    TrapHandlerRegistry,
 )
 from tinysoul.runtime.bridge import RuntimeMemoryBridge
 from tinysoul.workspace import (
@@ -116,14 +129,12 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=2,
     ).run(scope=phase1_scope, cycle_id="cycle_1")
     phase2 = Phase2Unit(
         context=context,
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=2,
         observations=observations,
     ).run(
         selected_domains=phase1.selected_domains,
@@ -235,7 +246,6 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=1,
     ).run(
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
@@ -245,7 +255,6 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=1,
     ).run(
         selected_domains=phase1.selected_domains,
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
@@ -465,7 +474,7 @@ def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     assert "Alpha and beta are present." in str(summary.trace)
 
 
-def test_phase1_retries_invalid_domain_selection() -> None:
+def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
     action = _action_engine()
@@ -497,15 +506,16 @@ def test_phase1_retries_invalid_domain_selection() -> None:
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=2,
     ).run(scope=scope, cycle_id="cycle_1")
 
-    assert outcome.selected_domains == ("core",)
-    assert outcome.attempts == 2
-    assert outcome.selection_failed is False
+    assert outcome.selected_domains == ()
+    assert outcome.attempts == 1
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "invalid_domain_selection"
+    assert len(llm.calls) == 1
 
 
-def test_phase1_recovers_provider_missing_forced_selection_with_narrow_scope() -> None:
+def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
     action = _action_engine()
@@ -528,21 +538,18 @@ def test_phase1_recovers_provider_missing_forced_selection_with_narrow_scope() -
         action=action,
         llm=llm,
         bus=SignalBus(),
-        retry_limit=2,
     ).run(
         scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
     )
 
-    assert outcome.selected_domains == ("core",)
-    assert outcome.attempts == 2
-    assert tuple(tool.name for tool in llm.calls[1].tool_scope.visible_tools()) == (
-        "select_action_domains",
-    )
-    assert "Recovery mode" in _message_stack_text(llm.calls[1].messages)
+    assert outcome.selected_domains == ()
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "framework_task_failure"
+    assert len(llm.calls) == 1
 
 
-def test_phase1_exhausted_retries_return_local_selection_failure() -> None:
+def test_phase1_invalid_selection_returns_local_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -580,13 +587,14 @@ def test_phase1_exhausted_retries_return_local_selection_failure() -> None:
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=2,
     ).run(scope=scope, cycle_id="cycle_1")
 
     assert outcome.selected_domains == ()
-    assert outcome.selection_failed is True
-    assert outcome.attempts == 2
-    assert outcome.feedback
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "invalid_domain_selection"
+    assert outcome.attempts == 1
+    assert outcome.failure.feedback
+    assert len(llm.calls) == 1
     assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
 
 
@@ -612,7 +620,6 @@ def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
         action=action,
         llm=llm,
         bus=SignalBus(),
-        retry_limit=1,
     ).run(
         scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
@@ -622,6 +629,8 @@ def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
     assert "reconcile existing WorkingContext" in prompt
     assert "set/remove milestone or todo control tools" in prompt
     assert "mark every current-goal todo done or cancelled" in prompt
+    assert "does not complete the Turn or produce final user output" in prompt
+    assert "computed value such as an average" in prompt
 
 
 def test_phase1_applies_working_reconciliation_before_returning() -> None:
@@ -679,7 +688,6 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=1,
     )
 
     outcome_1 = unit.run(
@@ -721,7 +729,6 @@ def test_phase1_maps_loop_scope_failure_to_runtime(
             action=action,
             llm=FakeLLM(()),
             bus=SignalBus(),
-            retry_limit=2,
         ).run(
             scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
             cycle_id="cycle_1",
@@ -731,7 +738,7 @@ def test_phase1_maps_loop_scope_failure_to_runtime(
     assert raised.value.payload["kind"] == "loop.contract_violation"
 
 
-def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
+def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -755,7 +762,6 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=2,
     ).run(
         selected_domains=("core",),
         scope=scope,
@@ -764,10 +770,67 @@ def test_phase2_records_note_when_task_failures_exhaust_retries() -> None:
     )
 
     assert outcome.normalization.calls == ()
-    assert outcome.attempts == 2
+    assert outcome.attempts == 1
+    assert outcome.failure is not None
+    assert outcome.failure.reason == "framework_task_failure"
+    assert len(llm.calls) == 1
     assert context.trace_kinds() == (
         TraceKind.PHASE_NOTE,
     )
+
+
+def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("write a report")
+    action = _action_engine()
+    bus = SignalBus()
+
+    class _Phase1:
+        def run(self, **_kwargs: object) -> Phase1Outcome:
+            return Phase1Outcome(selected_domains=("core",))
+
+    class _Phase2:
+        def run(self, **_kwargs: object) -> Phase2Outcome:
+            return Phase2Outcome(
+                normalization=ActionNormalization(),
+                failure=PhaseFailure(
+                    phase=CyclePhase.PHASE2,
+                    reason="framework_task_failure",
+                    feedback=("Phase2 did not produce an action call.",),
+                ),
+            )
+
+    class _Phase3:
+        calls = 0
+
+        def run(self, **_kwargs: object) -> Phase3Outcome:
+            self.calls += 1
+            return Phase3Outcome()
+
+    phase3 = _Phase3()
+    runner = CycleRunner(
+        context=context,
+        bus=bus,
+        trap=RuntimeTrap(registry=TrapHandlerRegistry()),
+        phase1=cast(Phase1Unit, _Phase1()),
+        phase2=cast(Phase2Unit, _Phase2()),
+        phase3=cast(Phase3Unit, phase3),
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+    )
+
+    outcome = runner.run(
+        turn_id=turn_id,
+        cycle_index=1,
+        scope=scope,
+    )
+
+    assert outcome.phase_failure is not None
+    assert outcome.phase_failure.phase is CyclePhase.PHASE2
+    assert phase3.calls == 0
 
 
 def test_phase3_maps_multiple_answer_completion_contract_error() -> None:

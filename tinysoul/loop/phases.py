@@ -65,14 +65,33 @@ class LLMRunner(Protocol):
 
 
 @dataclass(frozen=True)
+class PhaseFailure:
+    """A model-correctable failure at a framework phase boundary."""
+
+    phase: CyclePhase
+    reason: str
+    feedback: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.phase, CyclePhase):
+            raise LoopContractError("PhaseFailure.phase must be a CyclePhase")
+        if not self.reason:
+            raise LoopContractError("PhaseFailure.reason must be non-empty")
+        if any(not isinstance(item, str) or not item for item in self.feedback):
+            raise LoopContractError(
+                "PhaseFailure.feedback must contain non-empty strings"
+            )
+        object.__setattr__(self, "feedback", tuple(self.feedback))
+
+
+@dataclass(frozen=True)
 class Phase1Outcome:
     """Phase1 selected domains and local control feedback."""
 
     selected_domains: tuple[str, ...]
     control_results: tuple[ControlResult, ...] = field(default_factory=tuple)
     attempts: int = 1
-    selection_failed: bool = False
-    feedback: tuple[str, ...] = field(default_factory=tuple)
+    failure: PhaseFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +101,7 @@ class Phase2Outcome:
     normalization: ActionNormalization
     phase_results: tuple[ActionPhaseResult, ...] = field(default_factory=tuple)
     attempts: int = 1
+    failure: PhaseFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -114,7 +134,6 @@ class Phase1Unit:
         action: ActionEngine,
         llm: LLMRunner,
         bus: SignalBus,
-        retry_limit: int,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
@@ -125,7 +144,6 @@ class Phase1Unit:
         self._action = action
         self._llm = llm
         self._bus = bus
-        self._retry_limit = retry_limit
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
@@ -140,100 +158,107 @@ class Phase1Unit:
         cancellation: TurnCancellation | None = None,
         initial_feedback: tuple[str, ...] = (),
     ) -> Phase1Outcome:
-        feedback: list[str] = list(initial_feedback)
         domain_prompt = self._action.phase1_domain_prompt()
-        last_control_results: tuple[ControlResult, ...] = ()
-        for attempt in range(1, self._retry_limit + 1):
-            try:
-                selection_only = attempt > 1 and _needs_selection_recovery(feedback)
-                tool_scope = (
-                    _merge_tool_scopes(
-                        self._action.phase1_scope(),
-                        forced_name=self._action.phase1_domain_tool_name(),
-                    )
-                    if selection_only
-                    else _merge_tool_scopes(
-                        self._context.control_scope(),
-                        self._action.phase1_scope(),
-                        forced_name=self._action.phase1_domain_tool_name(),
-                    )
+        try:
+            tool_scope = _merge_tool_scopes(
+                self._context.control_scope(),
+                self._action.phase1_scope(),
+                forced_name=self._action.phase1_domain_tool_name(),
+            )
+            messages = self._context.compose(
+                phase1_task_prompt(
+                    domain_prompt=domain_prompt,
+                    feedback=initial_feedback,
+                    turn_guidance=self._turn_guidance,
                 )
-                messages = self._context.compose(
-                    phase1_task_prompt(
-                        domain_prompt=domain_prompt,
-                        feedback=tuple(feedback),
-                        turn_guidance=self._turn_guidance,
-                        selection_only=selection_only,
-                    )
-                )
-            except ContextError as exc:
-                raise self._context_bridge.from_context_error(exc) from exc
-            except ActionError as exc:
-                raise self._action_bridge.from_action_error(exc) from exc
-            except LoopError as exc:
-                raise self._loop_bridge.from_loop_error(exc) from exc
+            )
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
+        except ActionError as exc:
+            raise self._action_bridge.from_action_error(exc) from exc
+        except LoopError as exc:
+            raise self._loop_bridge.from_loop_error(exc) from exc
 
-            result = self._llm.run(
-                TaskCall(
-                    profile=TaskProfile.FRAMEWORK,
-                    messages=messages,
-                    tool_scope=tool_scope,
-                    settings=_required_tool_settings(),
-                    scope=scope,
-                    context_overflow_policy=(
-                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
-                    ),
-                    cancellation=_turn_task_cancellation(cancellation),
-                )
+        result = self._llm.run(
+            TaskCall(
+                profile=TaskProfile.FRAMEWORK,
+                messages=messages,
+                tool_scope=tool_scope,
+                settings=_required_tool_settings(),
+                scope=scope,
+                context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+                cancellation=_turn_task_cancellation(cancellation),
             )
-            if result.status is TaskResultStatus.FAILURE:
-                feedback.append(_task_result_feedback(result))
-                continue
+        )
+        if result.status is TaskResultStatus.FAILURE:
+            return self._failed(
+                scope=scope,
+                cycle_id=cycle_id,
+                reason="framework_task_failure",
+                feedback=(_task_result_feedback(result),),
+            )
 
-            selection = self._action.normalize_domain_selection(result.tool_calls)
-            control_calls = tuple(
-                call
-                for call in result.tool_calls
-                if call.name != self._action.phase1_domain_tool_name()
+        selection = self._action.normalize_domain_selection(result.tool_calls)
+        control_calls = tuple(
+            call
+            for call in result.tool_calls
+            if call.name != self._action.phase1_domain_tool_name()
+        )
+        try:
+            normalization = self._context.normalize_controls(
+                control_calls,
+                scope=scope,
             )
-            try:
-                normalization = self._context.normalize_controls(
-                    control_calls,
-                    scope=scope,
-                )
-                consume_results = self._signal_consumer.emit_and_consume(
-                    normalization.signals,
-                    scope=scope,
-                )
-            except ContextError as exc:
-                raise self._context_bridge.from_context_error(exc) from exc
-            last_control_results = (*normalization.results, *consume_results)
-            if last_control_results:
-                self._emit_phase_note(
-                    {
-                        "kind": LoopTraceNoteKind.PHASE1_CONTROL_FEEDBACK.value,
-                        "results": [
-                            _control_result_payload(result)
-                            for result in last_control_results
-                        ],
-                    },
-                    scope=scope,
-                    cycle_id=cycle_id,
-                )
-            if selection.feedback:
-                feedback.extend(selection.feedback)
-                continue
-            if not selection.selected_domains:
-                feedback.append("Phase1 did not select any action domain.")
-                continue
-            return Phase1Outcome(
-                selected_domains=selection.selected_domains,
-                control_results=last_control_results,
-                attempts=attempt,
+            consume_results = self._signal_consumer.emit_and_consume(
+                normalization.signals,
+                scope=scope,
             )
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
+        control_results = (*normalization.results, *consume_results)
+        if control_results:
+            self._emit_phase_note(
+                {
+                    "kind": LoopTraceNoteKind.PHASE1_CONTROL_FEEDBACK.value,
+                    "results": [
+                        _control_result_payload(result)
+                        for result in control_results
+                    ],
+                },
+                scope=scope,
+                cycle_id=cycle_id,
+            )
+        feedback = selection.feedback or (
+            ("Phase1 did not select any action domain.",)
+            if not selection.selected_domains
+            else ()
+        )
+        if feedback:
+            return self._failed(
+                scope=scope,
+                cycle_id=cycle_id,
+                reason="invalid_domain_selection",
+                feedback=tuple(feedback),
+                control_results=control_results,
+            )
+        return Phase1Outcome(
+            selected_domains=selection.selected_domains,
+            control_results=control_results,
+        )
+
+    def _failed(
+        self,
+        *,
+        scope: RunScope,
+        cycle_id: str,
+        reason: str,
+        feedback: tuple[str, ...],
+        control_results: tuple[ControlResult, ...] = (),
+    ) -> Phase1Outcome:
         self._emit_phase_note(
             {
                 "kind": LoopTraceNoteKind.PHASE1_TASK_FAILED.value,
+                "reason": reason,
                 "feedback": list(feedback),
             },
             scope=scope,
@@ -241,10 +266,12 @@ class Phase1Unit:
         )
         return Phase1Outcome(
             selected_domains=(),
-            control_results=last_control_results,
-            attempts=self._retry_limit,
-            selection_failed=True,
-            feedback=tuple(feedback),
+            control_results=control_results,
+            failure=PhaseFailure(
+                phase=CyclePhase.PHASE1,
+                reason=reason,
+                feedback=feedback,
+            ),
         )
 
     def _emit_phase_note(
@@ -278,7 +305,6 @@ class Phase2Unit:
         action: ActionEngine,
         llm: LLMRunner,
         bus: SignalBus,
-        retry_limit: int,
         domain_skills: DomainSkillProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
@@ -290,7 +316,6 @@ class Phase2Unit:
         self._action = action
         self._llm = llm
         self._bus = bus
-        self._retry_limit = retry_limit
         self._domain_skills = domain_skills or EmptyDomainSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
@@ -322,52 +347,54 @@ class Phase2Unit:
                 phase_results=preparation.phase_results,
             )
 
-        feedback: list[str] = []
-        for attempt in range(1, self._retry_limit + 1):
-            try:
-                messages = self._context.compose(
-                    phase2_task_prompt(
-                        selected_domains=selected_domains,
-                        domain_skills=self._domain_skills.guidance_for(selected_domains),
-                        feedback=tuple(feedback),
-                        turn_guidance=self._turn_guidance,
-                    )
-                )
-            except ContextError as exc:
-                raise self._context_bridge.from_context_error(exc) from exc
-            result = self._llm.run(
-                TaskCall(
-                    profile=TaskProfile.FRAMEWORK,
-                    messages=messages,
-                    tool_scope=preparation.tool_scope,
-                    settings=_required_tool_settings(),
-                    scope=scope,
-                    context_overflow_policy=(
-                        ModelContextOverflowPolicy.RECOMPOSE_CONTEXT
-                    ),
-                    cancellation=_turn_task_cancellation(cancellation),
+        try:
+            messages = self._context.compose(
+                phase2_task_prompt(
+                    selected_domains=selected_domains,
+                    domain_skills=self._domain_skills.guidance_for(selected_domains),
+                    feedback=(),
+                    turn_guidance=self._turn_guidance,
                 )
             )
-            if result.status is TaskResultStatus.FAILURE:
-                feedback.append(_task_result_feedback(result))
-                continue
-            self._emit_decision(result, scope=scope, cycle_id=cycle_id)
-            try:
-                normalization = self._action.normalize(result.tool_calls)
-            except ActionError as exc:
-                raise self._action_bridge.from_action_error(exc) from exc
-            self._observe_action_calls(normalization, scope=scope)
-            return Phase2Outcome(normalization=normalization, attempts=attempt)
-
-        self._emit_note(
-            {
-                "kind": LoopTraceNoteKind.PHASE2_TASK_FAILED.value,
-                "feedback": list(feedback),
-            },
-            scope=scope,
-            cycle_id=cycle_id,
+        except ContextError as exc:
+            raise self._context_bridge.from_context_error(exc) from exc
+        result = self._llm.run(
+            TaskCall(
+                profile=TaskProfile.FRAMEWORK,
+                messages=messages,
+                tool_scope=preparation.tool_scope,
+                settings=_required_tool_settings(),
+                scope=scope,
+                context_overflow_policy=ModelContextOverflowPolicy.RECOMPOSE_CONTEXT,
+                cancellation=_turn_task_cancellation(cancellation),
+            )
         )
-        return Phase2Outcome(normalization=ActionNormalization(), attempts=self._retry_limit)
+        if result.status is TaskResultStatus.FAILURE:
+            feedback = (_task_result_feedback(result),)
+            self._emit_note(
+                {
+                    "kind": LoopTraceNoteKind.PHASE2_TASK_FAILED.value,
+                    "reason": "framework_task_failure",
+                    "feedback": list(feedback),
+                },
+                scope=scope,
+                cycle_id=cycle_id,
+            )
+            return Phase2Outcome(
+                normalization=ActionNormalization(),
+                failure=PhaseFailure(
+                    phase=CyclePhase.PHASE2,
+                    reason="framework_task_failure",
+                    feedback=feedback,
+                ),
+            )
+        self._emit_decision(result, scope=scope, cycle_id=cycle_id)
+        try:
+            normalization = self._action.normalize(result.tool_calls)
+        except ActionError as exc:
+            raise self._action_bridge.from_action_error(exc) from exc
+        self._observe_action_calls(normalization, scope=scope)
+        return Phase2Outcome(normalization=normalization)
 
     def _observe_action_calls(
         self,
@@ -715,21 +742,6 @@ def _task_result_feedback(result: TaskResult) -> str:
     if result.failure is None or not result.failure.model_feedback:
         return "LLM task output did not satisfy the phase protocol."
     return result.failure.model_feedback
-
-
-def _needs_selection_recovery(feedback: list[str]) -> bool:
-    """Detect a missing-selection failure that a narrow tool scope can repair."""
-
-    return any(
-        item.startswith(
-            (
-                "Expected forced tool call: select_action_domains",
-                "Phase1 must call select_action_domains",
-                "Phase1 did not select any action domain",
-            )
-        )
-        for item in feedback
-    )
 
 
 def _control_result_payload(result: ControlResult) -> JsonObject:

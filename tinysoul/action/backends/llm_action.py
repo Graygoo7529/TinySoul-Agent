@@ -437,13 +437,11 @@ def _artifact_limit(
     configured: int | None,
     owner_limit: int | None,
 ) -> int | None:
-    """Keep an owner-specific bound within the Catalog backend ceiling."""
+    """Resolve the final artifact boundary owned by the calling module."""
 
-    if configured is None:
-        return owner_limit
-    if owner_limit is None:
-        return configured
-    return min(configured, owner_limit)
+    # An owner-provided boundary is the commit contract. Catalog options are
+    # only used when the owner has no more specific artifact boundary.
+    return owner_limit if owner_limit is not None else configured
 
 
 def _failure_disposition(reason: str) -> ActionFailureDisposition:

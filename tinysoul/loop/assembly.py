@@ -40,7 +40,6 @@ def build_turn_kernel(
     bus: SignalBus,
     trap: RuntimeTrap,
     settings: TurnSettings,
-    phase_retry_limit: int,
     turn_guidance: tuple[str, ...],
     completion_detector: TurnCompletionDetector,
     preparation_pipeline: TurnPreparationPipeline | None = None,
@@ -68,7 +67,6 @@ def build_turn_kernel(
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=phase_retry_limit,
         signal_consumer=signal_consumer,
         turn_guidance=turn_guidance,
     )
@@ -77,7 +75,6 @@ def build_turn_kernel(
         action=action,
         llm=llm,
         bus=bus,
-        retry_limit=phase_retry_limit,
         domain_skills=domain_skills or EmptyDomainSkillProvider(),
         signal_consumer=signal_consumer,
         observations=emitter,

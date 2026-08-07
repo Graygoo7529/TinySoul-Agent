@@ -8,6 +8,7 @@ from tinysoul.context.errors import ContextContractError
 from tinysoul.loop import (
     TurnCompletion,
     TurnCompletionPipeline,
+    PhaseFailure,
     TurnOutcomeStatus,
     TurnOutput,
     TurnPreparationPipeline,
@@ -19,6 +20,7 @@ from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import (
+    CyclePhase,
     ObservationEvent,
     ObservationLevel,
     RUNTIME_TURN_END,
@@ -202,15 +204,18 @@ class _Phase1FailureCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
-        phase1_feedback: tuple[str, ...] = (),
+        phase_feedback: tuple[str, ...] = (),
         **_kwargs: object,
     ) -> CycleOutcome:
         self.calls += 1
-        self.feedbacks.append(tuple(phase1_feedback))
+        self.feedbacks.append(tuple(phase_feedback))
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
-            phase1_selection_failed=True,
-            phase1_feedback=("shared feedback", f"attempt {self.calls} feedback"),
+            phase_failure=PhaseFailure(
+                phase=CyclePhase.PHASE1,
+                reason="framework_task_failure",
+                feedback=("shared feedback", f"attempt {self.calls} feedback"),
+            ),
         )
 
 
@@ -436,7 +441,7 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     assert exhausted.level is ObservationLevel.NORMAL
 
 
-def test_repeated_phase1_failure_carries_accumulated_feedback() -> None:
+def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> None:
     observations = _RecordingObservations([], [])
     cycle_runner = _Phase1FailureCycleRunner()
     runner = TurnRunner(
@@ -450,26 +455,34 @@ def test_repeated_phase1_failure_carries_accumulated_feedback() -> None:
 
     outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
 
-    assert outcome.status is TurnOutcomeStatus.FAILED
-    assert outcome.failure is not None
-    assert outcome.failure.feedback == (
-        "shared feedback",
-        "attempt 1 feedback",
-        "attempt 2 feedback",
-        "attempt 3 feedback",
-    )
+    assert outcome.status is TurnOutcomeStatus.EXHAUSTED
+    assert outcome.failure is None
     assert cycle_runner.feedbacks == [
         (),
-        ("shared feedback", "attempt 1 feedback"),
-        ("shared feedback", "attempt 1 feedback", "attempt 2 feedback"),
+        (
+            "Previous cycle phase1 failure (framework_task_failure): shared feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
+        ),
+        (
+            "Previous cycle phase1 failure (framework_task_failure): shared feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
+        ),
+        (
+            "Previous cycle phase1 failure (framework_task_failure): shared feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 3 feedback",
+        ),
+        (
+            "Previous cycle phase1 failure (framework_task_failure): shared feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 1 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 2 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 3 feedback",
+            "Previous cycle phase1 failure (framework_task_failure): attempt 4 feedback",
+        ),
     ]
-    failed = next(event for event in observations.events if event.name == "turn.failed")
-    assert failed.payload["feedback"] == [
-        "shared feedback",
-        "attempt 1 feedback",
-        "attempt 2 feedback",
-        "attempt 3 feedback",
-    ]
+    assert cycle_runner.calls == 5
 
 
 def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None:

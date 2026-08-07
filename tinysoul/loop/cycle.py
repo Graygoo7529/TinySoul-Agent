@@ -34,7 +34,15 @@ from .cancellation import TurnCancellation
 from .context_signals import ContextSignalConsumer
 from .errors import LoopContractError, LoopInvariantError
 from .outcomes import TurnFailure, failure_from_runtime
-from .phases import Phase1Outcome, Phase1Unit, Phase2Outcome, Phase2Unit, Phase3Outcome, Phase3Unit
+from .phases import (
+    Phase1Outcome,
+    Phase1Unit,
+    Phase2Outcome,
+    Phase2Unit,
+    Phase3Outcome,
+    Phase3Unit,
+    PhaseFailure,
+)
 from .signals import LoopControlKind, consume_control_signal_requests
 
 T = TypeVar("T")
@@ -49,8 +57,7 @@ class CycleOutcome:
     failure: TurnFailure | None = None
     stopped: bool = False
     completion: JsonObject | None = None
-    phase1_selection_failed: bool = False
-    phase1_feedback: tuple[str, ...] = ()
+    phase_failure: PhaseFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -104,7 +111,7 @@ class CycleRunner:
         cycle_index: int,
         scope: RunScope,
         cancellation: TurnCancellation | None = None,
-        phase1_feedback: tuple[str, ...] = (),
+        phase_feedback: tuple[str, ...] = (),
     ) -> CycleOutcome:
         if cycle_index <= 0:
             raise self._loop_bridge.from_loop_error(
@@ -129,7 +136,7 @@ class CycleRunner:
                 scope=phase1_scope,
                 cycle_id=cycle_id,
                 cancellation=cancellation,
-                initial_feedback=phase1_feedback,
+                initial_feedback=phase_feedback,
             ),
         )
         self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)
@@ -148,11 +155,10 @@ class CycleRunner:
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError("Phase1 returned an invalid outcome")
             )
-        if phase1_outcome.selection_failed:
+        if phase1_outcome.failure is not None:
             return CycleOutcome(
                 cycle_id=cycle_id,
-                phase1_selection_failed=True,
-                phase1_feedback=phase1_outcome.feedback,
+                phase_failure=phase1_outcome.failure,
             )
 
         boundary = self._boundary(phase1_scope)
@@ -191,6 +197,11 @@ class CycleRunner:
         if not isinstance(phase2_outcome, Phase2Outcome):
             raise self._loop_bridge.from_loop_error(
                 LoopInvariantError("Phase2 returned an invalid outcome")
+            )
+        if phase2_outcome.failure is not None:
+            return CycleOutcome(
+                cycle_id=cycle_id,
+                phase_failure=phase2_outcome.failure,
             )
 
         boundary = self._boundary(phase2_scope)

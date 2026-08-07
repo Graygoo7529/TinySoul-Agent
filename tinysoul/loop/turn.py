@@ -213,8 +213,7 @@ class TurnRunner:
                 stopped = preparation.stopped
             if transfer is None:
                 cycle_index = 1
-                consecutive_phase1_failures = 0
-                phase1_feedback: list[str] = []
+                phase_feedback: list[str] = []
                 while True:
                     if cycle_index > self._settings.max_cycles:
                         controller = self._activity_controller
@@ -234,32 +233,23 @@ class TurnRunner:
                         cycle_index=cycle_index,
                         scope=turn_scope,
                         cancellation=cancellation,
-                        phase1_feedback=tuple(phase1_feedback),
+                        phase_feedback=tuple(phase_feedback),
                     )
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
-                    if cycle.phase1_selection_failed:
-                        consecutive_phase1_failures += 1
-                        for item in cycle.phase1_feedback:
-                            if item not in phase1_feedback:
-                                phase1_feedback.append(item)
-                        if consecutive_phase1_failures >= 3:
-                            failure = TurnFailure(
-                                reason=RUNTIME_TURN_END,
-                                message=(
-                                    "Phase1 did not produce a valid domain "
-                                    "selection after repeated cycles."
-                                ),
-                                module="loop",
-                                kind=LoopFailureKind.CONTRACT_VIOLATION.value,
-                                feedback=tuple(phase1_feedback),
-                            )
-                            break
+                    if cycle.phase_failure is not None:
+                        prefix = (
+                            f"Previous cycle {cycle.phase_failure.phase.value} "
+                            f"failure ({cycle.phase_failure.reason}): "
+                        )
+                        for item in cycle.phase_failure.feedback:
+                            feedback = prefix + item
+                            if feedback not in phase_feedback:
+                                phase_feedback.append(feedback)
                         cycle_index += 1
                         continue
-                    consecutive_phase1_failures = 0
-                    phase1_feedback.clear()
+                    phase_feedback.clear()
                     if cycle.completion is not None:
                         completion = cycle.completion
                         break

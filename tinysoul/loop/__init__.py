@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         Phase2Unit,
         Phase3Outcome,
         Phase3Unit,
+        PhaseFailure,
     )
     from .turn import TurnOutcome, TurnRunner
 
@@ -54,6 +55,7 @@ __all__ = [
     "LoopInvariantError",
     "LoopSettings",
     "Phase1Outcome",
+    "PhaseFailure",
     "Phase1Unit",
     "Phase2Outcome",
     "Phase2Unit",
@@ -84,6 +86,7 @@ __all__ = [
 def __getattr__(name: str) -> object:
     if name in {
         "Phase1Outcome",
+        "PhaseFailure",
         "Phase1Unit",
         "Phase2Outcome",
         "Phase2Unit",
@@ -97,10 +100,12 @@ def __getattr__(name: str) -> object:
             Phase2Unit,
             Phase3Outcome,
             Phase3Unit,
+            PhaseFailure,
         )
 
         return {
             "Phase1Outcome": Phase1Outcome,
+            "PhaseFailure": PhaseFailure,
             "Phase1Unit": Phase1Unit,
             "Phase2Outcome": Phase2Outcome,
             "Phase2Unit": Phase2Unit,
