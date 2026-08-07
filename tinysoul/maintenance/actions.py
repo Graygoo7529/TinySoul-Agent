@@ -46,7 +46,7 @@ def build_maintenance_action(
     observations: ObservationEmitter,
     home_controller: HomeMaintenanceActionController,
     memory_controller: MemoryMaintenanceActionController,
-    llm_action_timeout_seconds: float = 300.0,
+    llm_action_timeout_seconds: float,
 ) -> ActionEngine:
     """Build one exact Home or Memory Maintenance action surface."""
 

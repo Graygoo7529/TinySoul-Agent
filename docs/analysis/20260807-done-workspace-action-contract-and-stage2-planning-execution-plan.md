@@ -129,10 +129,10 @@ Status: `done` (2026-08-07).
 - `C:\Anaconda3\envs\TinySoul\python.exe -m compileall -q tinysoul` passed.
 - Focused catalog, Workspace, Script, Loop, Session, App, and release tests
   passed, including the legacy `search_text` scope rejection case.
-- Full local gate passed through `scripts/test.ps1 -Suite Full`: 876 passed,
-  2 skipped, and 21 external tests deselected. The first gate attempt hit one
-  transient Windows staging-directory `WinError 5`; an immediate retry and the
-  final post-audit run both passed.
+- Full local gate passed through `scripts/test.ps1 -Suite Full`: 879 passed,
+  2 skipped, and 21 external tests deselected. The earlier implementation run
+  contained 876 passing tests; the final count includes three scope serialization
+  contract cases added by the post-commit audit below.
 - `scripts/typecheck.ps1` passed with `All checks passed!`.
 - `conda activate TinySoul` could not be used in this shell because Conda
   attempted to read a permission-restricted `C:\Users\Aogo\.config`; the
@@ -142,3 +142,23 @@ Residual boundary: low-level `WorkspaceEngine.write_text/write_bundle` keeps
 generic overwrite support for non-Workspace-action owners. The public action
 surface is create/append/patch/rewrite, and no compatibility alias or duplicate
 parameter guard was retained.
+
+## Post-commit audit
+
+A review of the committed implementation found and resolved four remaining
+consistency issues:
+
+- `WorkspaceSearchScope.to_json()` now emits `{kind, locator}` for file,
+  directory, and Workspace scopes, matching the Tool Schema, runtime parser,
+  visible ActionResult, and canonical trace payload. Tests cover all three scope
+  kinds and both ActionResult projections.
+- User and Maintenance ActionEngine assembly no longer duplicate a 300-second
+  fallback. Their timeout is required input supplied by `ActionSettings`, which
+  remains the single default owner.
+- Current Visualization design examples and derivation/export fixtures use
+  `workspace.create` with its real `target_link` and `instruction` parameters.
+- `execution.create_script` now describes a new script under an existing general
+  skill without implying that an existing script target may be overwritten.
+
+Visualization verification also passed: 23 Vitest tests and the production
+TypeScript/Vite build.

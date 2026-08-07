@@ -64,7 +64,7 @@ def build_user_action(
     staging: StagingDirectoryManager,
     process_jobs: SupervisedProcessManager,
     script_resolver: ScriptSourceResolver,
-    llm_action_timeout_seconds: float = 300.0,
+    llm_action_timeout_seconds: float,
 ) -> ActionEngine:
     """Build the complete User ActionEngine from the primary catalog."""
 

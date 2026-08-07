@@ -92,7 +92,7 @@ function realisticTurnEvents(): EndpointEvent[] {
     event(
       "action.call",
       phaseScope("phase2"),
-      { call_id: "call-1", action: "workspace.write", domain: "workspace", sequence: 1, params: { link: "workspace:a.md" } },
+      { call_id: "call-1", action: "workspace.create", domain: "workspace", sequence: 1, params: { target_link: "workspace:a.md", instruction: "Create the document." } },
       6,
     ),
     event("loop.phase.completed", phaseScope("phase2"), { phase: "phase2" }, 7),
@@ -100,7 +100,7 @@ function realisticTurnEvents(): EndpointEvent[] {
     event(
       "action.result",
       phaseScope("phase3"),
-      { call_id: "call-1", action: "workspace.write", domain: "workspace", status: "success", stage: "executor", payload: { link: "workspace:a.md" } },
+      { call_id: "call-1", action: "workspace.create", domain: "workspace", status: "success", stage: "executor", payload: { link: "workspace:a.md" } },
       9,
     ),
     event("loop.phase.completed", phaseScope("phase3"), { phase: "phase3" }, 10),
@@ -125,7 +125,7 @@ describe("buildChatTurns", () => {
     expect(cycle.phases.map((p) => p.phase)).toEqual(["phase1", "phase2", "phase3"]);
     const phase2 = cycle.phases[1];
     expect(phase2.actions).toHaveLength(1);
-    expect(phase2.actions[0].action).toBe("workspace.write");
+    expect(phase2.actions[0].action).toBe("workspace.create");
     const phase3 = cycle.phases[2];
     expect(phase3.actions[0].result?.status).toBe("success");
   });
@@ -240,7 +240,7 @@ describe("buildChatTurns", () => {
     const texts = turn.activity.map((a) => a.text).join("\n");
     expect(texts).toContain("Selected domains: workspace");
     expect(texts).toContain("Thinking");
-    expect(texts).toContain("workspace.write succeeded");
+    expect(texts).toContain("workspace.create succeeded");
   });
 });
 
@@ -252,7 +252,7 @@ describe("turn trace export", () => {
     expect(md).toContain("**Message stack (3 messages)**");
     expect(md).toContain("You are TinySoul.");
     expect(md).toContain("select_action_domains");
-    expect(md).toContain("workspace.write");
+    expect(md).toContain("workspace.create");
     expect(md).toContain("Done!");
   });
 

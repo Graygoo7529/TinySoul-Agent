@@ -798,6 +798,23 @@ def test_workspace_search_text_scopes_directory_and_returns_fragments(
     assert "WorkspaceContractError here" in result.fragments[0].text
 
 
+@pytest.mark.parametrize(
+    ("kind", "locator"),
+    (
+        (WorkspaceSearchScopeKind.FILE, "workspace:a.md"),
+        (WorkspaceSearchScopeKind.DIRECTORY, "workspace:src/"),
+        (WorkspaceSearchScopeKind.WORKSPACE, ""),
+    ),
+)
+def test_workspace_search_scope_serializes_tool_contract(
+    kind: WorkspaceSearchScopeKind,
+    locator: str,
+) -> None:
+    scope = WorkspaceSearchScope(kind, locator)
+
+    assert scope.to_json() == {"kind": kind.value, "locator": locator}
+
+
 def test_workspace_search_text_returns_line_hints_after_fragment_limit(
     tmp_path: Path,
 ) -> None:
@@ -986,6 +1003,8 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
     )
 
     assert result.status.value == "success"
+    expected_scope = {"kind": "file", "locator": "workspace:a.md"}
+    assert result.payload["scope"] == expected_scope
     fragments = result.payload["fragments"]
     assert isinstance(fragments, list)
     fragment = fragments[0]
@@ -993,6 +1012,7 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
     assert fragment["text"] == "needle\n"
     assert result.trace_projection is not None
     compact = result.trace_projection.canonical_payload
+    assert compact["scope"] == expected_scope
     compact_fragments = compact["fragments"]
     assert isinstance(compact_fragments, list)
     compact_fragment = compact_fragments[0]

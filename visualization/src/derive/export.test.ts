@@ -67,13 +67,16 @@ function turnEvents(): EndpointEvent[] {
     event("loop.phase.completed", phaseScope("phase1"), { phase: "phase1" }),
     event("action.call", phaseScope("phase2"), {
       call_id: "a1",
-      action: "workspace.write",
+      action: "workspace.create",
       domain: "workspace",
-      params: { link: "workspace:x.md" },
+      params: {
+        target_link: "workspace:x.md",
+        instruction: "Create the document.",
+      },
     }),
     event("action.result", phaseScope("phase3"), {
       call_id: "a1",
-      action: "workspace.write",
+      action: "workspace.create",
       domain: "workspace",
       status: "success",
       stage: "execute",
@@ -99,7 +102,7 @@ describe("stage summaries", () => {
 
   it("states what each stage did in one direct line", () => {
     expect(phaseHeadline(phase1)).toBe("Selected 1 domain");
-    expect(phaseHeadline(phase2)).toBe("Planned 1 action: workspace.write");
+    expect(phaseHeadline(phase2)).toBe("Planned 1 action: workspace.create");
     expect(phaseHeadline(phase3)).toBe("1 action executed successfully");
   });
 });

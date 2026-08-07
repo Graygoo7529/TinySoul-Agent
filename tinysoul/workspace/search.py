@@ -53,11 +53,7 @@ class WorkspaceSearchScope:
         WorkspaceLink.parse(self.locator[:-1])
 
     def to_json(self) -> JsonObject:
-        if self.kind is WorkspaceSearchScopeKind.FILE:
-            return {"kind": self.kind.value, "link": self.locator}
-        if self.kind is WorkspaceSearchScopeKind.DIRECTORY:
-            return {"kind": self.kind.value, "prefix": self.locator}
-        return {"kind": self.kind.value}
+        return {"kind": self.kind.value, "locator": self.locator}
 
 
 @dataclass(frozen=True)

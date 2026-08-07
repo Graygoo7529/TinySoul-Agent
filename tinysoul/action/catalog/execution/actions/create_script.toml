@@ -2,7 +2,7 @@ name = "execution.create_script"
 domain = "execution"
 
 [tool]
-description = "Generate a complete Python or Bash script at a new Workspace scripts link or an existing general skill scripts resource. Existing targets must use execution.rewrite_script or execution.patch_script."
+description = "Generate a complete Python or Bash script at a new workspace:scripts link or as a new scripts resource under an existing general skill. Existing script targets must use execution.rewrite_script or execution.patch_script."
 
 [tool.schema]
 type = "object"

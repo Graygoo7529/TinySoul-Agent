@@ -22,7 +22,7 @@
 - **Cycle 卡片（可折叠）**：折叠时显示状态徽标、选中的 action domain 胶囊标签、动作/LLM 调用/耗时统计；展开后呈现三个默认折叠的 stage 行。
 - **Stage 行（折叠即语义）**：不再解释"stage 是什么"，而是直接陈述"stage 做了什么"——
   - Stage1：折叠直接展示选中的 domain 胶囊（如 `home` `core`），文案为 "Selected N domains" / 运行中 "Maintaining context and selecting domains…"。
-  - Stage2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent），文案为 "Planned 1 action: core.answer" / "Executing workspace.write (2/3)" / "3 actions executed · 1 failed"。
+  - Stage2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent），文案为 "Planned 1 action: core.answer" / "Executing workspace.create (2/3)" / "3 actions executed · 1 failed"。
   - Stage 展开后呈现完整语义：推理思考（reasoning summary，Markdown 渲染）、control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、action 输入输出、工作区变更。
 - **LLM 子滑窗**：stage 折叠行右侧的 accent 胶囊按钮（Brain 图标 + "context"/"N calls"）是唯一入口，不展开 stage 即可直接唤出最近一次调用；子滑窗从主滑窗**左侧**拉出，展示该次调用的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区与逐条 message 均可折叠）、Tools offered（胶囊标签样式，点击标签在下方展开该工具的完整信息：description、kind/strict 徽标与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。
 - **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 调用（Request+Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
