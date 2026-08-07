@@ -2,7 +2,7 @@ name = "workspace.write"
 domain = "workspace"
 
 [tool]
-description = "Generate UTF-8 text through an internal LLM task and write it to a workspace resource. The action result returns metadata only."
+description = "Generate a bounded UTF-8 text artifact through an internal LLM task and write it to a workspace resource. Pass every Workspace source used as reference_links; split long documents into a first write followed by digest-guarded workspace.patch calls. The action result returns metadata only."
 
 [tool.schema]
 type = "object"
@@ -19,7 +19,7 @@ description = "Instruction for generating the complete target resource text."
 
 [tool.schema.properties.reference_links]
 type = "array"
-description = "Optional read-only workspace reference links."
+description = "Exact read-only Workspace links whose content informs the artifact. Include these instead of relying on summaries or an implicit current file."
 
 [tool.schema.properties.reference_links.items]
 type = "string"
@@ -39,8 +39,8 @@ enum = ["ephemeral", "turn", "day", "persistent"]
 description = "Resource lifetime; only ephemeral or turn resources may be auto-trashed under pressure."
 
 [semantic]
-use_when = ["Need to create or intentionally replace a complete workspace text resource with LLM-generated content"]
-avoid_when = ["A precise deterministic replacement is enough", "The target content is already fully available as a small literal"]
+use_when = ["Need to create or intentionally replace a bounded workspace text resource with LLM-generated content"]
+avoid_when = ["A precise deterministic replacement is enough", "The target content is already fully available as a small literal", "The requested artifact is larger than one bounded write"]
 effects = ["modifying"]
 examples = ["Generate a plan at workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 

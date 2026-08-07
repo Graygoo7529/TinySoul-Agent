@@ -138,22 +138,32 @@ class Phase1Unit:
         scope: RunScope,
         cycle_id: str,
         cancellation: TurnCancellation | None = None,
+        initial_feedback: tuple[str, ...] = (),
     ) -> Phase1Outcome:
-        feedback: list[str] = []
+        feedback: list[str] = list(initial_feedback)
         domain_prompt = self._action.phase1_domain_prompt()
         last_control_results: tuple[ControlResult, ...] = ()
         for attempt in range(1, self._retry_limit + 1):
             try:
-                tool_scope = _merge_tool_scopes(
-                    self._context.control_scope(),
-                    self._action.phase1_scope(),
-                    forced_name=self._action.phase1_domain_tool_name(),
+                selection_only = attempt > 1 and _needs_selection_recovery(feedback)
+                tool_scope = (
+                    _merge_tool_scopes(
+                        self._action.phase1_scope(),
+                        forced_name=self._action.phase1_domain_tool_name(),
+                    )
+                    if selection_only
+                    else _merge_tool_scopes(
+                        self._context.control_scope(),
+                        self._action.phase1_scope(),
+                        forced_name=self._action.phase1_domain_tool_name(),
+                    )
                 )
                 messages = self._context.compose(
                     phase1_task_prompt(
                         domain_prompt=domain_prompt,
                         feedback=tuple(feedback),
                         turn_guidance=self._turn_guidance,
+                        selection_only=selection_only,
                     )
                 )
             except ContextError as exc:
@@ -705,6 +715,21 @@ def _task_result_feedback(result: TaskResult) -> str:
     if result.failure is None or not result.failure.model_feedback:
         return "LLM task output did not satisfy the phase protocol."
     return result.failure.model_feedback
+
+
+def _needs_selection_recovery(feedback: list[str]) -> bool:
+    """Detect a missing-selection failure that a narrow tool scope can repair."""
+
+    return any(
+        item.startswith(
+            (
+                "Expected forced tool call: select_action_domains",
+                "Phase1 must call select_action_domains",
+                "Phase1 did not select any action domain",
+            )
+        )
+        for item in feedback
+    )
 
 
 def _control_result_payload(result: ControlResult) -> JsonObject:

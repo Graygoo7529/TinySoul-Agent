@@ -1205,6 +1205,23 @@ def test_workspace_write_text_rejects_stale_expected_digest(tmp_path: Path) -> N
     assert (tmp_path / "a.md").read_text(encoding="utf-8") == "changed"
 
 
+def test_workspace_text_mutations_enforce_bounded_write_size(tmp_path: Path) -> None:
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_write_chars=4,
+        )
+    ).build()
+
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.write_text("workspace:a.md", "12345")
+
+    engine.write_text("workspace:a.md", "base")
+    with pytest.raises(WorkspaceContractError, match="configured limit"):
+        engine.patch_text("workspace:a.md", old_text="base", new_text="12345")
+
+
 def test_workspace_expected_digest_hashes_exact_same_stat_base_bytes(
     tmp_path: Path,
 ) -> None:
@@ -1911,6 +1928,47 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     )
     assert isinstance(first_resource, dict)
     assert first_resource["link"] == "workspace:target.md"
+
+
+def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.md"
+    target.write_text("0123456789", encoding="utf-8")
+    engine = WorkspaceEngineBuilder(
+        WorkspaceSettings(
+            root=tmp_path,
+            manifest_path=tmp_path / ".tinysoul" / "workspace_manifest.json",
+            max_read_chars=4,
+        )
+    ).build()
+    context_engine = ContextEngineBuilder(system_text="sys").build()
+    context_engine.begin_turn("user asks")
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "should not run"})
+    execution = _execution(
+        "workspace.rewrite",
+        {
+            "target_link": "workspace:target.md",
+            "instruction": "Rewrite one paragraph.",
+        },
+    )
+
+    result = WorkspaceRewriteExecutor(
+        workspace=engine,
+        bus=bus,
+        llm_action=LLMActionTaskRunner(
+            llm_runner=llm,
+            context=context_engine,
+        ),
+    ).execute(execution, ActionExecutionContext(signal_bus=bus))
+
+    assert result.status.value == "failed"
+    assert result.failure is not None
+    assert result.failure.reason == "target_truncated"
+    assert llm.calls == []
+    assert target.read_text(encoding="utf-8") == "0123456789"
+    assert bus.consume_namespace("context") == ()
 
 
 def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(

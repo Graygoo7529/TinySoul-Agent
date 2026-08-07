@@ -505,6 +505,43 @@ def test_phase1_retries_invalid_domain_selection() -> None:
     assert outcome.selection_failed is False
 
 
+def test_phase1_recovers_provider_missing_forced_selection_with_narrow_scope() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    context.begin_turn("answer now")
+    action = _action_engine()
+    llm = FakeLLM(
+        (
+            _task_failure("Expected forced tool call: select_action_domains"),
+            _tool_result(
+                ToolCallRecord(
+                    id="select_core",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+        )
+    )
+
+    outcome = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=SignalBus(),
+        retry_limit=2,
+    ).run(
+        scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+
+    assert outcome.selected_domains == ("core",)
+    assert outcome.attempts == 2
+    assert tuple(tool.name for tool in llm.calls[1].tool_scope.visible_tools()) == (
+        "select_action_domains",
+    )
+    assert "Recovery mode" in _message_stack_text(llm.calls[1].messages)
+
+
 def test_phase1_exhausted_retries_return_local_selection_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")

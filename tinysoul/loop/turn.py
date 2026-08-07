@@ -234,13 +234,16 @@ class TurnRunner:
                         cycle_index=cycle_index,
                         scope=turn_scope,
                         cancellation=cancellation,
+                        phase1_feedback=tuple(phase1_feedback),
                     )
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
                     if cycle.phase1_selection_failed:
                         consecutive_phase1_failures += 1
-                        phase1_feedback.extend(cycle.phase1_feedback)
+                        for item in cycle.phase1_feedback:
+                            if item not in phase1_feedback:
+                                phase1_feedback.append(item)
                         if consecutive_phase1_failures >= 3:
                             failure = TurnFailure(
                                 reason=RUNTIME_TURN_END,

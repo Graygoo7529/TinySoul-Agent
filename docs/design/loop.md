@@ -78,7 +78,7 @@ Home 与 Memory Maintenance Turn 不互相暴露 actions，也不提供 `core.an
 
 每个 Cycle 固定顺序执行三个单元：
 
-1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain；重试耗尽时返回空 domain 与 phase note（局部结果），不直接 end turn；无有效 domain 时先消费有效控制调用再反馈重试；Turn 级仅在连续多次 Phase1 选择失败后有界收敛；
+1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain；重试耗尽时返回空 domain 与 phase note（局部结果），不直接 end turn；无有效 domain 时先消费有效控制调用再反馈重试。若 provider 在要求选择时返回了其它可见控制调用，后续有界重试收窄为只暴露 domain-selection tool，并把稳定失败反馈带入同一 Cycle 以及下一 Cycle；Turn 级仅在连续多次 Phase1 选择失败后有界收敛；
 2. Phase2 只暴露已选 domain 的具体 Action Tools，生成并归一化 ActionCall；
 3. Phase3 装配和执行 ActionBatch，把 ActionResult 反馈写入 TurnTrace，并交给 profile completion detector。
 

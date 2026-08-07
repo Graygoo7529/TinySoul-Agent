@@ -22,7 +22,7 @@ MessageStack 顺序固定为：
 
 Session Background 只在 Turn preparation 期间通过版本化全量 signal 注入，在该 Turn 内固定且不可逐出。通用 Background 每 Turn 重建；默认 Home 条目、按需加载的 Top Link 和 Memory 动态投影都属于当前 Turn。User/Home Maintenance 装配不可逐出的 `memory:current + optional memory:latest`，Memory Maintenance 装配不可逐出的 `memory:target + optional memory:latest`；latest 是严格早于 Context Business Day 的最近 daily，缺失时省略。Background catalog 只提供有界 Link、title 和 description，不等同于已加载正文。
 
-WorkingContext 是原位替换的当前快照，只向模型呈现 milestones、todos 与 Workspace resource Link/summary。Workspace revision、digest 和 Context 内部同步标识不进入模型投影。
+WorkingContext 是原位替换的当前快照，只向模型呈现 milestones、todos 与 Workspace resource Link/summary。Milestone 是少量、可复用的事实寄存器：记录已经验证的数值、决定、来源 Link、版本/digest 或已完成的局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。只有事实发生变化时才更新，失败或仅尝试过的工作不得登记为完成事实。Workspace revision、digest 和 Context 内部同步标识不进入模型投影。
 
 所有 Context 变更先从 SignalBus 捕获当前 Turn 的作用域化批次，再完成解析、资源准备和整体校验，最后一次提交。失败不得留下半提交状态。
 

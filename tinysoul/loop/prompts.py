@@ -27,6 +27,7 @@ def phase1_task_prompt(
     domain_prompt: str,
     feedback: tuple[str, ...] = (),
     turn_guidance: tuple[str, ...] = (),
+    selection_only: bool = False,
 ) -> TaskPrompt:
     sections = [
         "You are in TinySoul Phase1.",
@@ -42,11 +43,23 @@ def phase1_task_prompt(
             "not mark a failed or merely attempted action done."
         ),
         (
+            "Treat milestones as concise, verified facts or checkpoints that must "
+            "remain available for later cycles: record concrete links, versions, "
+            "values, decisions, or completed sub-results. Do not toggle or recreate "
+            "a factual milestone merely to signal todo completion."
+        ),
+        (
             "Before selecting core to finish, mark every current-goal todo done or "
             "cancelled unless no todos were created."
         ),
         "The action domain selection is mandatory for this phase.",
+        "Phase1 only updates context and selects domains; do not call core.answer here.",
     ]
+    if selection_only:
+        sections.append(
+            "Recovery mode: only call select_action_domains in this response; "
+            "do not call context control tools."
+        )
     sections.extend(turn_guidance)
     if feedback:
         sections.append("Previous attempt feedback:\n" + "\n".join(f"- {item}" for item in feedback))
@@ -71,7 +84,9 @@ def phase1_task_prompt(
                     "Call select_action_domains with at least one valid domain. "
                     "Call the relevant set/remove milestone or todo control tools in "
                     "the same response whenever existing task state needs "
-                    "reconciliation; other context control tools remain optional."
+                    "reconciliation; other context control tools remain optional. "
+                    "The domain selection call must be present before this phase "
+                    "can complete."
                 ),
             ),
         ),

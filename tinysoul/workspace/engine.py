@@ -1413,6 +1413,11 @@ class WorkspaceEngine:
     ) -> WorkspaceResourceRecord:
         if not isinstance(text, str):
             raise WorkspaceContractError("Workspace write text must be a string")
+        if len(text) > self._settings.max_write_chars:
+            raise WorkspaceContractError(
+                "Workspace write text exceeds the configured limit of "
+                f"{self._settings.max_write_chars} characters"
+            )
         if not isinstance(overwrite, bool):
             raise WorkspaceContractError("Workspace write overwrite must be a boolean")
         if not isinstance(expected_digest, str):
@@ -1692,6 +1697,11 @@ class WorkspaceEngine:
             )
         if not isinstance(new_text, str):
             raise WorkspaceContractError("Workspace patch new_text must be a string")
+        if len(new_text) > self._settings.max_write_chars:
+            raise WorkspaceContractError(
+                "Workspace patch replacement exceeds the configured limit of "
+                f"{self._settings.max_write_chars} characters"
+            )
         if not isinstance(expected_digest, str):
             raise WorkspaceContractError(
                 "Workspace patch expected_digest must be a string"

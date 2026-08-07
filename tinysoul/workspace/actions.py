@@ -757,6 +757,7 @@ class WorkspaceWriteExecutor(ActionExecutor):
             prompt=prompt_build.prompt,
             subject="Workspace write LLM task",
             control=context.control,
+            max_output_chars=self._workspace.settings.max_write_chars,
         )
         if isinstance(text, ActionResult):
             return text
@@ -1091,6 +1092,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
             prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
             control=context.control,
+            max_output_chars=self._workspace.settings.max_write_chars,
         )
         if isinstance(text, ActionResult):
             return text

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder
@@ -194,6 +194,7 @@ class _EmptyCycleRunner:
 @dataclass
 class _Phase1FailureCycleRunner:
     calls: int = 0
+    feedbacks: list[tuple[str, ...]] = field(default_factory=list)
 
     def run(
         self,
@@ -201,13 +202,15 @@ class _Phase1FailureCycleRunner:
         turn_id: str,
         cycle_index: int,
         scope: RunScope,
+        phase1_feedback: tuple[str, ...] = (),
         **_kwargs: object,
     ) -> CycleOutcome:
         self.calls += 1
+        self.feedbacks.append(tuple(phase1_feedback))
         return CycleOutcome(
             cycle_id=f"cycle_{cycle_index}",
             phase1_selection_failed=True,
-            phase1_feedback=(f"attempt {self.calls} feedback",),
+            phase1_feedback=("shared feedback", f"attempt {self.calls} feedback"),
         )
 
 
@@ -435,11 +438,12 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
 
 def test_repeated_phase1_failure_carries_accumulated_feedback() -> None:
     observations = _RecordingObservations([], [])
+    cycle_runner = _Phase1FailureCycleRunner()
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
         bus=SignalBus(),
         trap=_trap(),
-        cycle_runner=cast(CycleRunner, _Phase1FailureCycleRunner()),
+        cycle_runner=cast(CycleRunner, cycle_runner),
         settings=TurnSettings(max_cycles=5),
         observations=observations,
     )
@@ -449,12 +453,19 @@ def test_repeated_phase1_failure_carries_accumulated_feedback() -> None:
     assert outcome.status is TurnOutcomeStatus.FAILED
     assert outcome.failure is not None
     assert outcome.failure.feedback == (
+        "shared feedback",
         "attempt 1 feedback",
         "attempt 2 feedback",
         "attempt 3 feedback",
     )
+    assert cycle_runner.feedbacks == [
+        (),
+        ("shared feedback", "attempt 1 feedback"),
+        ("shared feedback", "attempt 1 feedback", "attempt 2 feedback"),
+    ]
     failed = next(event for event in observations.events if event.name == "turn.failed")
     assert failed.payload["feedback"] == [
+        "shared feedback",
         "attempt 1 feedback",
         "attempt 2 feedback",
         "attempt 3 feedback",

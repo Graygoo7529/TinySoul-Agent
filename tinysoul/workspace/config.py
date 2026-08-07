@@ -20,6 +20,7 @@ DEFAULT_IGNORE_DIRS = (
 )
 DEFAULT_MAX_FILES = 100
 DEFAULT_MAX_READ_CHARS = 4000
+DEFAULT_MAX_WRITE_CHARS = 12000
 DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 DEFAULT_SEARCH_MAX_QUERY_CHARS = 256
 DEFAULT_SEARCH_MAX_SCAN_CHARS = 1_000_000
@@ -138,6 +139,7 @@ class WorkspaceSettings:
     trash_root: Path = Path()
     max_files: int = DEFAULT_MAX_FILES
     max_read_chars: int = DEFAULT_MAX_READ_CHARS
+    max_write_chars: int = DEFAULT_MAX_WRITE_CHARS
     max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
     ignore_dirs: tuple[str, ...] = DEFAULT_IGNORE_DIRS
     search: WorkspaceSearchSettings = field(default_factory=WorkspaceSearchSettings)
@@ -219,6 +221,17 @@ class WorkspaceSettings:
                 expected="positive int",
             )
         if (
+            isinstance(self.max_write_chars, bool)
+            or not isinstance(self.max_write_chars, int)
+            or self.max_write_chars <= 0
+        ):
+            raise ConfigError(
+                "Workspace max_write_chars must be positive",
+                key="workspace.max_write_chars",
+                value=self.max_write_chars,
+                expected="positive int",
+            )
+        if (
             isinstance(self.max_image_bytes, bool)
             or not isinstance(self.max_image_bytes, int)
             or self.max_image_bytes <= 0
@@ -271,6 +284,7 @@ def parse_workspace_settings(
             "root",
             "max_files",
             "max_read_chars",
+            "max_write_chars",
             "max_image_bytes",
             "ignore_dirs",
             "search",
@@ -291,6 +305,11 @@ def parse_workspace_settings(
             tree,
             "max_read_chars",
             default=DEFAULT_MAX_READ_CHARS,
+        ),
+        max_write_chars=_optional_int(
+            tree,
+            "max_write_chars",
+            default=DEFAULT_MAX_WRITE_CHARS,
         ),
         max_image_bytes=_optional_int(
             tree,

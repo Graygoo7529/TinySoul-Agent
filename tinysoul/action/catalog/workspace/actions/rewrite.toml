@@ -2,7 +2,7 @@ name = "workspace.rewrite"
 domain = "workspace"
 
 [tool]
-description = "Rewrite one UTF-8 workspace text resource through an internal LLM task. The action result returns metadata only."
+description = "Rewrite one bounded UTF-8 workspace text resource through an internal LLM task. The target must be available as a complete prompt source; use digest-guarded workspace.patch calls for truncated, larger, or localized changes. Pass every Workspace source used as reference_links. The action result returns metadata only."
 
 [tool.schema]
 type = "object"
@@ -19,7 +19,7 @@ description = "Rewrite instruction for the target resource."
 
 [tool.schema.properties.reference_links]
 type = "array"
-description = "Optional read-only workspace reference links."
+description = "Exact read-only Workspace links whose content informs the rewrite."
 
 [tool.schema.properties.reference_links.items]
 type = "string"
@@ -30,8 +30,8 @@ type = "string"
 description = "Optional current digest from workspace.describe to guard against stale rewrites."
 
 [semantic]
-use_when = ["Need an LLM-assisted rewrite of a workspace text resource"]
-avoid_when = ["A precise deterministic replacement is enough", "The target content should not be overwritten"]
+use_when = ["Need an LLM-assisted rewrite of a bounded workspace text resource"]
+avoid_when = ["A precise deterministic replacement is enough", "The target content should not be overwritten", "The target or replacement is larger than one bounded write"]
 effects = ["modifying"]
 examples = ["Rewrite workspace:docs/plan.md using workspace:docs/notes.md as reference"]
 

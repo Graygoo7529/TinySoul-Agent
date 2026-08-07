@@ -299,6 +299,7 @@ class WorkspaceEditPromptBuilder:
             else ()
         )
         overwrite_text = "true" if overwrite else "false"
+        write_limit = self._workspace.settings.max_write_chars
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
                 guide_blocks=(
@@ -307,7 +308,17 @@ class WorkspaceEditPromptBuilder:
                         (
                             "# Task Guide\n"
                             "Generate the complete UTF-8 text for the workspace target. "
-                            "Return only the full text that should be written."
+                            "Return only the full text that should be written. "
+                            f"The artifact must be no longer than {write_limit} "
+                            "characters. When the requested document is larger, "
+                            "write one coherent section at a time and let the outer "
+                            "agent append later sections with workspace.patch. "
+                            "When continuation is expected, leave one unique "
+                            "continuation anchor and have the outer agent reread "
+                            "the latest digest before replacing that anchor. "
+                            "Use exact Workspace reference links for every existing "
+                            "source that informed the artifact; summaries alone are "
+                            "not source content."
                         ),
                     ),
                 ),
@@ -337,7 +348,9 @@ class WorkspaceEditPromptBuilder:
                 output_blocks=(
                     PromptBlock.from_text(
                         "task_prompt:output:workspace_write",
-                        "# Expected Output\nReturn only the complete UTF-8 text artifact.",
+                        "# Expected Output\nReturn only the complete UTF-8 text artifact "
+                        f"(at most {write_limit} characters), without commentary or "
+                        "code fences.",
                     ),
                 ),
             ),
@@ -358,6 +371,23 @@ class WorkspaceEditPromptBuilder:
         )
         if sources.target is None:
             raise WorkspaceError("Workspace rewrite target is absent")
+        target_slice = sources.target.text_slice
+        if target_slice is not None and target_slice.truncated:
+            raise PromptReferenceError(
+                "Workspace rewrite target is truncated; read the needed ranges "
+                "and use workspace.patch for a bounded edit.",
+                reason="target_truncated",
+                payload={
+                    "link": sources.target.version.link,
+                    "size": sources.target.version.size,
+                    "read_limit": self._workspace.settings.max_read_chars,
+                    "hint": (
+                        "Use workspace.read/search_text to obtain exact ranges, "
+                        "then apply digest-guarded workspace.patch calls."
+                    ),
+                },
+            )
+        write_limit = self._workspace.settings.max_write_chars
         target_blocks = _prompt_blocks_from_source(sources.target, role="target")
         return WorkspaceEditPrompt(
             prompt=TaskPrompt(
@@ -367,7 +397,11 @@ class WorkspaceEditPromptBuilder:
                         (
                             "# Task Guide\n"
                             "Rewrite the workspace target according to the instruction. "
-                            "Return the complete replacement text for the target resource."
+                            "Return the complete replacement text for the target resource. "
+                            f"The replacement must be no longer than {write_limit} "
+                            "characters; use workspace.patch for a larger document "
+                            "or a precise local change. Include exact reference links "
+                            "for every Workspace source used."
                         ),
                     ),
                 ),
@@ -389,7 +423,9 @@ class WorkspaceEditPromptBuilder:
                 output_blocks=(
                     PromptBlock.from_text(
                         "task_prompt:output:workspace_rewrite",
-                        "# Expected Output\nReturn only the complete UTF-8 text artifact.",
+                        "# Expected Output\nReturn only the complete UTF-8 text artifact "
+                        f"(at most {write_limit} characters), without commentary or "
+                        "code fences.",
                     ),
                 ),
             ),

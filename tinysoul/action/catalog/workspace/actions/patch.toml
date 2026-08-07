@@ -2,7 +2,7 @@ name = "workspace.patch"
 domain = "workspace"
 
 [tool]
-description = "Apply one exact UTF-8 text replacement to a workspace resource. The action result returns metadata only."
+description = "Apply one exact, bounded UTF-8 text replacement to a workspace resource. Use repeated digest-guarded patches to append or refine a long artifact in small sections. The action result returns metadata only."
 
 [tool.schema]
 type = "object"
@@ -19,14 +19,14 @@ description = "The exact non-empty text to replace. It must occur exactly once."
 
 [tool.schema.properties.new_text]
 type = "string"
-description = "Replacement text. It may be empty to delete the matched text."
+description = "Replacement text, bounded by Workspace settings. It may be empty to delete the matched text."
 
 [tool.schema.properties.expected_digest]
 type = "string"
 description = "Optional current digest from workspace.describe to guard against stale edits."
 
 [semantic]
-use_when = ["Need a small precise workspace text edit"]
+use_when = ["Need a small precise workspace text edit", "Need to append or refine a long artifact in bounded sections"]
 avoid_when = ["The replacement target is ambiguous", "The full file should be regenerated instead"]
 effects = ["modifying"]
 examples = ["Replace one outdated paragraph in workspace:docs/plan.md"]

@@ -104,6 +104,7 @@ class CycleRunner:
         cycle_index: int,
         scope: RunScope,
         cancellation: TurnCancellation | None = None,
+        phase1_feedback: tuple[str, ...] = (),
     ) -> CycleOutcome:
         if cycle_index <= 0:
             raise self._loop_bridge.from_loop_error(
@@ -128,6 +129,7 @@ class CycleRunner:
                 scope=phase1_scope,
                 cycle_id=cycle_id,
                 cancellation=cancellation,
+                initial_feedback=phase1_feedback,
             ),
         )
         self._emit_phase_result(phase1_scope, CyclePhase.PHASE1, phase1)

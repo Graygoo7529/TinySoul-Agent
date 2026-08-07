@@ -156,6 +156,7 @@ class LLMActionTaskRunner:
         prompt: TaskPrompt,
         subject: str,
         control: ActionExecutionControl | None = None,
+        max_output_chars: int | None = None,
     ) -> str | ActionResult:
         """Run one complete text-artifact task without returning it to Context."""
 
@@ -165,6 +166,7 @@ class LLMActionTaskRunner:
             answer_format=AnswerFormat.TEXT,
             subject=subject,
             control=control,
+            max_output_chars=max_output_chars,
         )
         if isinstance(result, ActionResult):
             return result
@@ -188,17 +190,21 @@ class LLMActionTaskRunner:
         options = _execution_options(execution)
         if isinstance(options, ActionResult):
             return options
-        if options.max_output_chars is not None and len(text) > options.max_output_chars:
+        artifact_limit = _artifact_limit(
+            options.max_output_chars,
+            max_output_chars,
+        )
+        if artifact_limit is not None and len(text) > artifact_limit:
             return _failure(
                 execution,
                 feedback=(
                     f"{subject} exceeded its artifact character limit of "
-                    f"{options.max_output_chars}."
+                    f"{artifact_limit}."
                 ),
                 reason="artifact_too_large",
                 scope="action.artifact",
                 disposition=ActionFailureDisposition.CHANGE_REQUEST,
-                constraint={"max_output_chars": options.max_output_chars},
+                constraint={"max_output_chars": artifact_limit},
                 frame_data={"observed_chars": len(text)},
             )
         return text
@@ -211,6 +217,7 @@ class LLMActionTaskRunner:
         answer_format: AnswerFormat,
         subject: str,
         control: ActionExecutionControl | None,
+        max_output_chars: int | None = None,
     ) -> TaskResult | ActionResult:
         prompt = self.prompt_with_skills(prompt, execution=execution)
         options = _execution_options(execution)
@@ -235,7 +242,10 @@ class LLMActionTaskRunner:
                     settings=CallSettings(
                         answer_format=answer_format,
                         tool_use=ToolUse.DISABLED,
-                        max_output_tokens=options.max_output_tokens,
+                        max_output_tokens=_bounded_output_tokens(
+                            options.max_output_tokens,
+                            max_output_chars,
+                        ),
                     ),
                     scope=execution.framework.scope,
                     context_overflow_policy=(
@@ -404,6 +414,36 @@ def _positive_int_option(
         value=value,
         expected="positive int",
     )
+
+
+def _bounded_output_tokens(
+    configured: int | None,
+    max_output_chars: int | None,
+) -> int | None:
+    """Keep bounded Workspace artifacts from spending the full action budget."""
+
+    if max_output_chars is None:
+        return configured
+    # This is a generation guard, not a content conversion rule. Use one token
+    # per character as the conservative ceiling; the final character check
+    # remains authoritative because token/character ratios vary by language.
+    derived = max(256, max_output_chars)
+    if configured is None:
+        return derived
+    return min(configured, derived)
+
+
+def _artifact_limit(
+    configured: int | None,
+    owner_limit: int | None,
+) -> int | None:
+    """Keep an owner-specific bound within the Catalog backend ceiling."""
+
+    if configured is None:
+        return owner_limit
+    if owner_limit is None:
+        return configured
+    return min(configured, owner_limit)
 
 
 def _failure_disposition(reason: str) -> ActionFailureDisposition:
