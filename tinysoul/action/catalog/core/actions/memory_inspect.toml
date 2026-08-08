@@ -11,9 +11,6 @@ avoid_when = ["The exact link is known and its full Markdown is immediately need
 effects = ["read_only"]
 examples = ["Query agent memory for a past design decision, then inspect the best concept Link", "Inspect memory:entity/apple and follow a returned fact or note Link"]
 
-[runtime]
-parallel_policy = "serial"
-
 [runtime.result]
 trace_mode = "foldable"
 

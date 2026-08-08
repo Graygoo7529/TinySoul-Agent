@@ -11,9 +11,6 @@ avoid_when = ["The relevant link is unknown", "Bounded discovery summaries are s
 effects = ["read_only"]
 examples = ["Recall memory:fact/f-a71c9d2e5f42", "Recall memory:daily/2026-07-13"]
 
-[runtime]
-parallel_policy = "serial"
-
 [runtime.result]
 trace_mode = "foldable"
 

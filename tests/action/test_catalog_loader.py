@@ -57,6 +57,18 @@ def test_load_builtin_catalog() -> None:
     assert catalog.get_action("core.memory.inspect").runtime.timeout_seconds == 60.0
     assert catalog.get_action("core.memory.recall").runtime.timeout_seconds == 60.0
     assert catalog.get_action("core.memory.memorize").runtime.timeout_seconds == 60.0
+    assert (
+        catalog.get_action("core.memory.inspect").runtime.parallel_policy
+        is ActionParallelPolicy.ALLOWED
+    )
+    assert (
+        catalog.get_action("core.memory.recall").runtime.parallel_policy
+        is ActionParallelPolicy.ALLOWED
+    )
+    assert (
+        catalog.get_action("core.memory.memorize").runtime.parallel_policy
+        is ActionParallelPolicy.SERIAL
+    )
     create = catalog.get_action("workspace.create")
     assert create.backend.kind is ActionBackendKind.LLM_ACTION
     assert create.runtime.timeout_seconds == 600.0
