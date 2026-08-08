@@ -153,11 +153,22 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
         actions=tuple((action.domain, action.name) for action in catalog.actions()),
     )
     core = (root / "home" / "agent" / "AGENT.md").read_text(encoding="utf-8")
+    identity = (root / "home" / "agent" / "identity" / "identity.md").read_text(
+        encoding="utf-8"
+    )
+    soul = (root / "home" / "agent" / "identity" / "soul.md").read_text(
+        encoding="utf-8"
+    )
     assert "Make each Agent Cycle advance" in core
     assert "authoritative successful mutation or apply ActionResult" in core
+    assert "A question is a valid User Turn answer" in core
+    assert "no todo must be completed merely to permit `core.answer`" in core
+    assert "[赞同]" in identity
+    assert "主动提出有依据的观点、假设、替代路径" in soul
 
     for domain in ("web", "execution", "workspace"):
         home.ensure_runtime_copy(home.parse_link(f"home:skills_domain:{domain}"))
+    home.ensure_runtime_copy(home.parse_link("home:skills_action:core/answer"))
     home.ensure_runtime_copy(
         home.parse_link("home:skills_action:workspace/rewrite")
     )
@@ -171,6 +182,10 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
         domain="workspace",
         action_name="workspace.create",
     )
+    answer_guidance = HomeActionSkillProvider(home).guidance_for(
+        domain="core",
+        action_name="core.answer",
+    )
 
     assert "failure.disposition" in domain_guidance[0]
     assert "stable public URLs" in domain_guidance[0]
@@ -181,6 +196,8 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
     assert any("`workspace:` Links" in item for item in action_guidance.action)
     assert any("complete UTF-8 text artifact" in item for item in write_guidance.action)
     assert any("public URLs" in item for item in write_guidance.action)
+    assert any("focused question" in item for item in answer_guidance.action)
+    assert any("[提问]" in item for item in answer_guidance.action)
 
 
 def _initialized_home(tmp_path: Path) -> tuple[Path, AgentHomeEngine]:

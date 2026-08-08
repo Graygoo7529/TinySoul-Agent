@@ -2,7 +2,7 @@ name = "core.answer"
 domain = "core"
 
 [tool]
-description = "Produce the final user-facing answer, optionally using read-only references."
+description = "Produce the user-facing response that concludes the current User Turn, optionally using read-only references."
 
 [tool.schema]
 type = "object"
@@ -52,10 +52,10 @@ type = "string"
 description = "Read-only resource link, for example workspace:docs/task.md."
 
 [semantic]
-use_when = ["The task is complete and the user should receive an answer"]
-avoid_when = ["More actions are required before answering"]
+use_when = ["The current Turn should deliver a result to the user", "Further progress requires a focused user question, confirmation, further instruction, or choice among feasible routes"]
+avoid_when = ["Available actions can still resolve the uncertainty or materially advance the current Turn", "The response would only be hidden reasoning or an interim status"]
 effects = ["read_only"]
-examples = ["Answer the user's direct question after gathering enough context"]
+examples = ["Answer the user's direct question after gathering enough context", "Ask the user to choose among consequential alternatives after explaining the tradeoff and offering a recommendation"]
 
 [runtime]
 timeout_seconds = 600

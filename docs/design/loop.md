@@ -56,7 +56,7 @@ User Turn preparation 按以下顺序构造情景：
 2. Session 投影当前业务日的跨 Turn 历史；
 3. Workspace reconcile 当前业务日并投影 Manifest。
 
-User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先由 Session 校验 sealed entries 并幂等写入 schema v4 User Turn record，再运行其它后处理。
+User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先由 Session 校验 sealed entries 并幂等写入 schema v4 User Turn record，再运行其它后处理。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
 
 User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
 

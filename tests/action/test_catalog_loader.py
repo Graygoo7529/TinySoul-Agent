@@ -49,6 +49,9 @@ def test_load_builtin_catalog() -> None:
     assert answer.runtime.timeout_seconds == 600.0
     assert answer.runtime.parallel_policy is ActionParallelPolicy.SERIAL
     assert answer.backend.handler == "core.answer"
+    assert "concludes the current User Turn" in answer.tool.description
+    assert any("focused user question" in item for item in answer.semantic.use_when)
+    assert any("materially advance" in item for item in answer.semantic.avoid_when)
     reason = catalog.get_action("core.reason")
     assert reason.backend.handler == "core.reason"
     assert catalog.get_action("core.memory.inspect").backend.handler == "memory.inspect"
