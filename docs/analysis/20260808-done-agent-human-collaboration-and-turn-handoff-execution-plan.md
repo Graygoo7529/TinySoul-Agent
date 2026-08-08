@@ -74,4 +74,5 @@
 - Full：`881 passed, 2 skipped, 21 deselected`，包含 wheel 资源与隔离初始化验收。
 - `scripts/typecheck.ps1`：通过。
 - `git diff --check`：无空白错误；仅提示已编辑 TOML 的 Git 行尾规范化。
-- 最终搜索确认不存在“仅 task 完成后才能 answer”或“answer 前 todos 必须完成”的当前规则。
+- 补充核对发现 Phase1 TaskPrompt 仍残留“选择 core 前 todos 必须 done/cancelled”的旧规则；后续微调已改为提问式 `core.answer` 可以保留状态真实的 pending/in_progress todo，并由对应 Phase1 prompt 测试锁定。
+- Phase1 微调聚焦测试 `15 passed`，Fast `880 passed, 2 skipped, 22 deselected`，类型检查通过。Full 三次均在不同测试的临时目录 `os.replace` 上随机出现 Windows `WinError 5`；每个失败用例单独复跑均通过，未出现业务断言失败。

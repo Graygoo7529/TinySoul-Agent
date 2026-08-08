@@ -628,7 +628,9 @@ def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
     prompt = _message_stack_text(llm.calls[0].messages)
     assert "reconcile existing WorkingContext" in prompt
     assert "set/remove milestone or todo control tools" in prompt
-    assert "mark every current-goal todo done or cancelled" in prompt
+    assert "Selecting core does not require every current-goal todo" in prompt
+    assert "unresolved todos may remain pending or in_progress" in prompt
+    assert "mark every current-goal todo done or cancelled" not in prompt
     assert "does not complete the Turn or produce final user output" in prompt
     assert "computed value such as an average" in prompt
 

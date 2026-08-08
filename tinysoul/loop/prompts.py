@@ -55,8 +55,9 @@ def phase1_task_prompt(
             "at a known boundary and was changed to a patch workflow."
         ),
         (
-            "Before selecting core to finish, mark every current-goal todo done or "
-            "cancelled unless no todos were created."
+            "Selecting core does not require every current-goal todo to be done or "
+            "cancelled. When core.answer requests user input, unresolved todos may "
+            "remain pending or in_progress; keep their status honest."
         ),
         "The action domain selection is mandatory for this phase.",
         "Phase1 does not complete the Turn or produce final user output. "
