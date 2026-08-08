@@ -166,15 +166,12 @@ export interface WorkingState {
 /* ------------------------------------------------------------------ */
 
 export type ActivityKind =
-  | "phase"
   | "context"
   | "todo"
   | "milestone"
-  | "domain"
   | "intent"
   | "skills"
   | "thinking"
-  | "llm"
   | "retry"
   | "action"
   | "workspace"
@@ -206,7 +203,7 @@ export interface ActivityItem {
   domains?: string[];
   /** stage1: the raw intent text behind the domain selection. */
   intent?: string;
-  /** stage2: titles of the mounted domain skills. */
+  /** skills: names of the general skills loaded into background context. */
   skills?: string[];
   /** thinking: the full reasoning summary for inline expansion. */
   reasoning?: string;
@@ -242,8 +239,6 @@ export interface PhaseStep {
   tasks: ModelTask[];
   actions: ActionRecord[];
   controlOps: ControlOp[];
-  /** stage2: titles of the domain skills mounted into the task prompt. */
-  skills: string[];
   backgroundChanges: { loaded: string[]; evicted: string[] };
   workspaceEvents: string[]; // event summaries for phase3
 }

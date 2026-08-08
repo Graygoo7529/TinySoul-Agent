@@ -131,16 +131,6 @@ function CollapsedChips({ phase }: { phase: PhaseStep }) {
   // stages 2/3: action names with status
   return (
     <span className="flex max-w-[45%] shrink-0 items-center gap-1 overflow-hidden">
-      {phase.phase === "phase2" &&
-        phase.skills.slice(0, 2).map((skill) => (
-          <span
-            key={skill}
-            title={`Domain skill: ${skill}`}
-            className="inline-flex max-w-[110px] items-center truncate rounded-md bg-info-soft px-1.5 py-0.5 text-[10px] text-info"
-          >
-            <span className="truncate">{skill}</span>
-          </span>
-        ))}
       {phase.actions.slice(0, 4).map((a, i) => (
         <span
           key={`${a.callId}-${i}`}
@@ -192,22 +182,6 @@ function PhaseDetail({ phase }: { phase: PhaseStep }) {
       )}
 
       {phase.controlOps.length > 0 && <ControlOpsView ops={phase.controlOps} />}
-
-      {phase.phase === "phase2" && phase.skills.length > 0 && (
-        <div className="space-y-1.5">
-          <SectionLabel>Mounted domain skills</SectionLabel>
-          <div className="flex flex-wrap items-center gap-1">
-            {phase.skills.map((skill) => (
-              <span
-                key={skill}
-                className="rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] text-info"
-              >
-                {skill}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
 
       {(phase.backgroundChanges.loaded.length > 0 ||
         phase.backgroundChanges.evicted.length > 0) && (

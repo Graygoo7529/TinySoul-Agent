@@ -4,9 +4,10 @@ import {
   actionTargetOf,
   actionVerb,
   firstLine,
-  isDomainSkillLabel,
+  isSkillLink,
+  plainExcerpt,
   resultSummaryOf,
-  skillTitleOf,
+  skillNameOf,
   targetLabel,
 } from "./activitySemantics";
 
@@ -124,34 +125,26 @@ describe("resultSummaryOf", () => {
   });
 });
 
-describe("skillTitleOf", () => {
-  it("prefers the first markdown heading inside the skill body", () => {
-    expect(
-      skillTitleOf("# Domain Skill\n# Workspace Editing\nSome guidance text."),
-    ).toBe("Workspace Editing");
-  });
-
-  it("falls back to the first non-empty body line", () => {
-    expect(skillTitleOf("# Domain Skill\n\nedit files carefully")).toBe(
-      "edit files carefully",
-    );
-  });
-
-  it("handles a missing body", () => {
-    expect(skillTitleOf("# Domain Skill")).toBe("domain skill");
+describe("skill links", () => {
+  it("recognizes general skill links and extracts their names", () => {
+    expect(isSkillLink("home:skills@tinysoul-docs")).toBe(true);
+    expect(isSkillLink("home:agent@identity")).toBe(false);
+    expect(isSkillLink("workspace:a.md")).toBe(false);
+    expect(skillNameOf("home:skills@tinysoul-docs")).toBe("tinysoul-docs");
   });
 });
 
-describe("isDomainSkillLabel / firstLine", () => {
-  it("recognizes mounted domain skill labels", () => {
-    expect(isDomainSkillLabel("task_prompt:guide:domain_skill:1")).toBe(true);
-    expect(isDomainSkillLabel("task_prompt:guide:phase2")).toBe(false);
-    expect(isDomainSkillLabel(undefined)).toBe(false);
-  });
-
+describe("firstLine / plainExcerpt", () => {
   it("extracts a whitespace-collapsed first line", () => {
     expect(firstLine("\n\n  The user  wants\nmore text", 140)).toBe("The user wants");
     expect(firstLine("x".repeat(200), 10)).toHaveLength(10);
     expect(firstLine("x".repeat(200), 10)?.endsWith("…")).toBe(true);
+  });
+
+  it("strips markdown markers for one-line display", () => {
+    expect(plainExcerpt("**Bold claim** and `code` here")).toBe("Bold claim and code here");
+    expect(plainExcerpt("## Heading line\nbody")).toBe("Heading line");
+    expect(plainExcerpt("see [the docs](https://a.com) now")).toBe("see the docs now");
+    expect(plainExcerpt("an *italic* and _under_ word")).toBe("an italic and under word");
   });
 });

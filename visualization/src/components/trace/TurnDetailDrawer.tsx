@@ -223,9 +223,9 @@ function countActions(turn: ChatTurn): number {
 type ActivityFilter = "all" | "thinking" | "actions" | "context" | "errors";
 
 const FILTER_GROUPS: Record<Exclude<ActivityFilter, "all">, ReadonlySet<string>> = {
-  thinking: new Set(["thinking", "llm", "intent", "skills"]),
+  thinking: new Set(["thinking", "intent", "skills"]),
   actions: new Set(["action"]),
-  context: new Set(["context", "workspace", "phase", "todo", "milestone"]),
+  context: new Set(["context", "workspace", "todo", "milestone"]),
   errors: new Set(["error", "retry"]),
 };
 

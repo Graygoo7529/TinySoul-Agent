@@ -187,27 +187,16 @@ export function resultSummaryOf(result: ActionResultView): string | undefined {
 
 /* ------------------------------- skills ------------------------------ */
 
-const SKILL_LABEL_PREFIX = "task_prompt:guide:domain_skill:";
+const SKILL_LINK_PREFIX = "home:skills@";
 
-/** True when a request message label marks a mounted domain skill block. */
-export function isDomainSkillLabel(label: string | undefined): boolean {
-  return typeof label === "string" && label.startsWith(SKILL_LABEL_PREFIX);
+/** True when a background link points at a general skill's top content. */
+export function isSkillLink(link: string): boolean {
+  return link.startsWith(SKILL_LINK_PREFIX);
 }
 
-/**
- * Derive a short display title for a mounted domain skill block. Skill text
- * is markdown ("# Domain Skill\n<body>"); prefer the first heading inside
- * the body, then the first non-empty body line.
- */
-export function skillTitleOf(blockText: string): string {
-  const lines = blockText.split("\n");
-  const body = lines.filter((line) => line.trim() && line.trim() !== "# Domain Skill");
-  for (const line of body) {
-    const heading = line.match(/^#{1,3}\s+(.+)$/);
-    if (heading) return truncate(heading[1].trim(), 60);
-  }
-  const first = body[0]?.trim();
-  return first ? truncate(first, 60) : "domain skill";
+/** Display name of a general skill link: `home:skills@<name>` → `<name>`. */
+export function skillNameOf(link: string): string {
+  return isSkillLink(link) ? link.slice(SKILL_LINK_PREFIX.length) : link;
 }
 
 /* ------------------------------- misc -------------------------------- */
@@ -216,6 +205,27 @@ export function skillTitleOf(blockText: string): string {
 export function firstLine(text: string, max = 140): string {
   const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
   return truncate(line.trim().replace(/\s+/g, " "), max);
+}
+
+/**
+ * Plain-text excerpt of a markdown passage for one-line displays: strips
+ * emphasis/code/heading markers and link syntax (keeping the label text),
+ * collapses whitespace, truncates.
+ */
+export function plainExcerpt(text: string, max = 140): string {
+  const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
+  const plain = line
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  return truncate(plain, max);
 }
 
 export function truncate(text: string, max: number): string {

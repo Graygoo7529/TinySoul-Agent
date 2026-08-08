@@ -6,7 +6,7 @@ type Size = "xs" | "sm" | "md";
 
 const variantClasses: Record<Variant, string> = {
   primary:
-    "bg-accent text-white hover:bg-accent-strong shadow-sm disabled:hover:bg-accent",
+    "bg-accent-grad text-white hover:brightness-110 shadow-sm transition-all",
   secondary: "bg-hover text-fg hover:bg-line-strong/60",
   ghost: "text-fg-muted hover:bg-hover hover:text-fg",
   danger: "bg-danger-soft text-danger hover:bg-danger/20",

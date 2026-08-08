@@ -12,14 +12,11 @@ import {
   FileText,
   Flag,
   Home,
-  Layers,
   Lightbulb,
   ListChecks,
   Loader2,
   MemoryStick,
-  MessagesSquare,
   RotateCcw,
-  Sparkles,
   Terminal,
   Globe,
   WandSparkles,
@@ -155,15 +152,12 @@ export function actionIcon(domain: string) {
 /* -------------------------- activity visuals ------------------------- */
 
 export const activityIcons = {
-  phase: Layers,
   context: FileText,
   todo: ListChecks,
   milestone: Flag,
-  domain: Sparkles,
   intent: Compass,
   skills: WandSparkles,
   thinking: Brain,
-  llm: MessagesSquare,
   retry: RotateCcw,
   action: Loader2,
   workspace: FileText,
@@ -173,15 +167,12 @@ export const activityIcons = {
 } as const;
 
 export const activityColors: Record<string, string> = {
-  phase: "text-fg-faint",
   context: "text-info",
   todo: "text-accent",
   milestone: "text-warning",
-  domain: "text-accent",
   intent: "text-accent",
   skills: "text-info",
   thinking: "text-accent",
-  llm: "text-fg-muted",
   retry: "text-warning",
   action: "text-warning",
   workspace: "text-info",

@@ -39,7 +39,7 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
   // thinking entries stay in the stack as collapsed one-liners.
   const steps = activity
     .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => index !== latestThinkingIndex && item.kind !== "llm")
+    .filter(({ index }) => index !== latestThinkingIndex)
     .reverse();
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? steps : steps.slice(0, STEP_COUNT);
@@ -161,19 +161,13 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           </button>
         )}
       </div>
-      {expanded ? (
-        <div className="animate-reveal">
-          <Markdown className="text-[12px] text-fg-muted">{full}</Markdown>
-        </div>
-      ) : (
-        <div
-          className={`animate-reveal text-[12px] leading-5 whitespace-pre-wrap italic text-fg-muted ${
-            collapsible ? "line-clamp-3" : ""
-          }`}
-        >
-          {full}
-        </div>
-      )}
+      <div
+        className={`animate-reveal ${
+          collapsible && !expanded ? "line-clamp-3" : ""
+        }`}
+      >
+        <Markdown className="text-[12px] leading-5 text-fg-muted">{full}</Markdown>
+      </div>
     </div>
   );
 }
@@ -187,15 +181,15 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
   return (
     <div className="border-t border-line bg-bg-sunken/60 px-4 py-2.5">
       {milestones.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          <Flag size={11} className="shrink-0 text-warning" />
+        <div className="mb-1.5 space-y-1">
           {milestones.map((m) => (
-            <span
+            <div
               key={m.key}
-              className="animate-status-in rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] text-warning"
+              className="animate-status-in flex items-center gap-2 text-[12px]"
             >
-              {m.content}
-            </span>
+              <Flag size={11} className="shrink-0 text-warning" />
+              <span className="min-w-0 truncate text-fg-muted">{m.content}</span>
+            </div>
           ))}
         </div>
       )}

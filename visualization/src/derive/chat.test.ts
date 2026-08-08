@@ -235,12 +235,15 @@ describe("buildChatTurns", () => {
     expect(turn.status).toBe("running");
   });
 
-  it("builds a semantic activity feed", () => {
+  it("builds a semantic activity feed without fixed stage texts", () => {
     const [turn] = buildChatTurns(realisticTurnEvents(), []);
     const texts = turn.activity.map((a) => a.text).join("\n");
     expect(texts).toContain("Selected domains: workspace");
-    expect(texts).toContain("Thinking");
     expect(texts).toContain("workspace.create succeeded");
+    // Pure fixed texts ("Thinking", "Context & Domains", …) are no longer
+    // emitted as activity entries; only semantic facts are.
+    expect(turn.activity.some((a) => a.text === "Thinking")).toBe(false);
+    expect(turn.activity.some((a) => a.text === "Context & Domains")).toBe(false);
   });
 });
 
@@ -333,38 +336,28 @@ describe("semantic activity details", () => {
     expect(intent?.intent).toBe("Investigate the docs before editing");
   });
 
-  it("extracts mounted domain skills from the phase2 message stack", () => {
+  it("routes stage1-loaded skill links into skills activities", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
-      event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
-      event("llm.model.request", phaseScope("phase2"), {
-        task_id: "task-2",
-        profile: "loop.phase2",
-        model_id: "model-x",
-        provider_id: "provider-a",
-        attempt: 1,
-        messages: [
-          {
-            role: "user",
-            label: "task_prompt:guide:domain_skill:1",
-            parts: [
-              { type: "text", text: "# Domain Skill\n# Workspace Editing\nEdit carefully." },
-            ],
-          },
-          {
-            role: "user",
-            label: "task_prompt:guide:domain_skill:2",
-            parts: [{ type: "text", text: "# Domain Skill\nSearch broadly first." }],
-          },
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+      event("context.background.changed", turnScope, {
+        turn_id: "turn_1",
+        loaded_links: [
+          "home:skills@tinysoul-docs",
+          "home:skills@writing-style",
+          "home:agent@preferences",
         ],
+        evicted_links: [],
+        entries: [],
       }),
     ];
     const [turn] = buildChatTurns(events, []);
-    const phase2 = turn.cycles[0].phases.find((p) => p.phase === "phase2");
-    expect(phase2?.skills).toEqual(["Workspace Editing", "Search broadly first."]);
     const skills = turn.activity.find((a) => a.kind === "skills");
-    expect(skills?.text).toBe("Mounted 2 domain skills");
-    expect(skills?.skills).toEqual(["Workspace Editing", "Search broadly first."]);
+    expect(skills?.text).toBe("Loaded 2 skills");
+    expect(skills?.skills).toEqual(["tinysoul-docs", "writing-style"]);
+    const contextLoad = turn.activity.find((a) => a.kind === "context");
+    expect(contextLoad?.text).toBe("Loaded 1 background link");
+    expect(contextLoad?.detail).toBe("home:agent@preferences");
   });
 
   it("enriches executing actions with semantic targets", () => {

@@ -8,7 +8,7 @@ export function StatusBar() {
   const connected = connection.status === "connected";
 
   return (
-    <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-line bg-bg-elev px-3 text-[11px] text-fg-muted">
+    <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-line bg-bg-elev px-3 text-[11px] text-fg-muted tabular-nums">
       <span className="flex items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${

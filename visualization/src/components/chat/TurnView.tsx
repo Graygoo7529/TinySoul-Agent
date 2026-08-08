@@ -21,21 +21,21 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
     <div className="animate-fade-in space-y-3">
       {turn.userMessages.map((message, i) => (
         <div key={i} className="flex justify-end">
-          <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-accent px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words text-white shadow-sm">
+          <div className="bg-accent-grad max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words text-white shadow-sm">
             {message}
           </div>
         </div>
       ))}
 
       <div className="flex gap-2.5">
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-sm">
+        <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm">
           <Bot size={15} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           {running && <LiveStatus turn={turn} />}
 
           {turn.assistantText && (
-            <div className="rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3 shadow-sm">
+            <div className="shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
               <Markdown>{turn.assistantText}</Markdown>
             </div>
           )}

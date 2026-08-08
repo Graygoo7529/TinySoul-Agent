@@ -33,10 +33,10 @@ import { PHASE_META } from "./model";
 import {
   actionTargetOf,
   actionVerb,
-  firstLine,
-  isDomainSkillLabel,
+  isSkillLink,
+  plainExcerpt,
   resultSummaryOf,
-  skillTitleOf,
+  skillNameOf,
   targetLabel,
 } from "./activitySemantics";
 
@@ -329,7 +329,6 @@ function getPhase(cycle: Cycle, phaseName: PhaseName): PhaseStep {
       tasks: [],
       actions: [],
       controlOps: [],
-      skills: [],
       backgroundChanges: { loaded: [], evicted: [] },
       workspaceEvents: [],
     };
@@ -347,9 +346,6 @@ function applyPhaseEvent(turn: ChatTurn, ev: EndpointEvent, cycleId: string | nu
   if (ev.name === "loop.phase.started") {
     phase.status = "running";
     phase.startedAt = ev.created_at;
-    addActivity(turn, "phase", `${PHASE_META[phaseName].title}`, `cycle ${cycle.index}`, {
-      cycleIndex: cycle.index,
-    });
   } else {
     phase.status = "completed";
     phase.completedAt = ev.created_at;
@@ -519,26 +515,6 @@ function applyModelRequest(
     turn.modelName = task.request.provider_model || task.request.model_id;
   }
 
-  if (!skeleton && phaseName === "phase2") {
-    // Domain skills are mounted as task-prompt guide blocks; surface their
-    // titles so the UI can show which skills were loaded for this stage.
-    const skills = task.request.messages
-      .filter((m) => isDomainSkillLabel(m.label))
-      .flatMap((m) => m.parts)
-      .map((part) => (part.type === "text" && part.text ? skillTitleOf(part.text) : undefined))
-      .filter((t): t is string => Boolean(t));
-    if (skills.length > 0 && skills.join("\n") !== phase.skills.join("\n")) {
-      phase.skills = skills;
-      addActivity(
-        turn,
-        "skills",
-        `Mounted ${skills.length} domain skill${skills.length > 1 ? "s" : ""}`,
-        skills.join(", "),
-        { skills, cycleIndex: cycle.index },
-      );
-    }
-  }
-
   if (!skeleton) {
     // Recover the user input from the first observed message stack when the
     // command echo was not local (e.g. input came from the Terminal).
@@ -554,9 +530,6 @@ function applyModelRequest(
   }
 
   turn.usage.calls += 1;
-  // Keep the chat-level activity feed free of concrete model identifiers;
-  // the trace drawer remains the place for those details.
-  addActivity(turn, "llm", "Thinking", PHASE_META[phaseName].title);
 }
 
 function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
@@ -591,7 +564,7 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
         addActivity(
           turn,
           "thinking",
-          firstLine(reasoningText),
+          plainExcerpt(reasoningText),
           PHASE_META[phase.phase].title,
           { reasoning: reasoningText, cycleIndex: cycle.index },
         );
@@ -638,11 +611,38 @@ function applyBackgroundEvent(
     for (const link of evicted) pushUnique(phase.backgroundChanges.evicted, link);
   }
 
-  if (loaded.length > 0) {
-    addActivity(turn, "context", `Loaded ${loaded.length} background link${loaded.length > 1 ? "s" : ""}`, loaded.join(", "));
+  // General skills loaded by stage1 get their own semantic step; other
+  // background links stay plain context loads.
+  const skillNames = loaded.filter(isSkillLink).map(skillNameOf);
+  const otherLoaded = loaded.filter((link) => !isSkillLink(link));
+  if (skillNames.length > 0) {
+    addActivity(
+      turn,
+      "skills",
+      skillNames.length === 1
+        ? `Loaded skill: ${skillNames[0]}`
+        : `Loaded ${skillNames.length} skills`,
+      skillNames.join(", "),
+      { skills: skillNames, cycleIndex: cycle?.index },
+    );
+  }
+  if (otherLoaded.length > 0) {
+    addActivity(
+      turn,
+      "context",
+      `Loaded ${otherLoaded.length} background link${otherLoaded.length > 1 ? "s" : ""}`,
+      otherLoaded.join(", "),
+      { cycleIndex: cycle?.index },
+    );
   }
   if (evicted.length > 0) {
-    addActivity(turn, "context", `Evicted ${evicted.length} background link${evicted.length > 1 ? "s" : ""}`, evicted.join(", "));
+    addActivity(
+      turn,
+      "context",
+      `Evicted ${evicted.length} background link${evicted.length > 1 ? "s" : ""}`,
+      evicted.join(", "),
+      { cycleIndex: cycle?.index },
+    );
   }
   void phaseHint;
 }
@@ -755,12 +755,6 @@ function addControlActivity(turn: ChatTurn, op: ControlOp) {
     case "remove_milestone":
       addActivity(turn, "milestone", `Removed milestone ${op.key}`);
       break;
-    case "load_background":
-      addActivity(turn, "context", `Loading ${op.links.length} background link${op.links.length > 1 ? "s" : ""}`, op.links.join(", "));
-      break;
-    case "evict_background":
-      addActivity(turn, "context", `Evicting ${op.links.length} background link${op.links.length > 1 ? "s" : ""}`);
-      break;
     default:
       break;
   }
@@ -862,8 +856,8 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
   if (runningTask) {
     return {
       phase: activePhase.phase,
-      label: PHASE_META[activePhase.phase].title,
-      detail: "thinking",
+      label: "Thinking…",
+      detail: PHASE_META[activePhase.phase].title,
     };
   }
   return { phase: activePhase.phase, label: PHASE_META[activePhase.phase].title };

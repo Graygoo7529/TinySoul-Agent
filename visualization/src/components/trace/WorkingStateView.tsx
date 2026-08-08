@@ -16,10 +16,9 @@ export function WorkingStateView({ working }: { working: WorkingState }) {
             {working.milestones.map((m) => (
               <div
                 key={m.key}
-                className="flex items-center gap-2 rounded-lg bg-warning-soft px-2.5 py-1.5 text-[12px]"
+                className="rounded-md border-l-2 border-warning/60 bg-bg-sunken px-2.5 py-1.5 text-[12px] text-fg"
               >
-                <span className="font-mono text-[11px] text-warning">{m.key}</span>
-                <span className="text-fg">{m.content}</span>
+                {m.content}
               </div>
             ))}
           </div>
