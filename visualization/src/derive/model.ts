@@ -171,18 +171,51 @@ export type ActivityKind =
   | "todo"
   | "milestone"
   | "domain"
+  | "intent"
+  | "skills"
+  | "thinking"
   | "llm"
+  | "retry"
   | "action"
   | "workspace"
   | "answer"
   | "info"
   | "error";
 
+/**
+ * Semantic target of an action call, extracted from well-known parameter
+ * shapes: the file being edited, the command being run, the search query,
+ * the page being fetched, or the memory/session subject.
+ */
+export interface ActionTarget {
+  file?: string; // workspace:/home:/memory: link or plain path
+  command?: string;
+  script?: string;
+  query?: string;
+  url?: string;
+  host?: string;
+  subject?: string; // generic fallback label
+}
+
 export interface ActivityItem {
   time: number;
   kind: ActivityKind;
   text: string;
   detail?: string;
+  /** stage1: selected domains (with `intent`). */
+  domains?: string[];
+  /** stage1: the raw intent text behind the domain selection. */
+  intent?: string;
+  /** stage2: titles of the mounted domain skills. */
+  skills?: string[];
+  /** thinking: the full reasoning summary for inline expansion. */
+  reasoning?: string;
+  /** action: semantic target (file/command/query/url/memory subject). */
+  target?: ActionTarget;
+  /** action: the call id, used to anchor the matching ActionCard. */
+  callId?: string;
+  /** 1-based cycle index at the time the activity was recorded. */
+  cycleIndex?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -209,6 +242,8 @@ export interface PhaseStep {
   tasks: ModelTask[];
   actions: ActionRecord[];
   controlOps: ControlOp[];
+  /** stage2: titles of the domain skills mounted into the task prompt. */
+  skills: string[];
   backgroundChanges: { loaded: string[]; evicted: string[] };
   workspaceEvents: string[]; // event summaries for phase3
 }

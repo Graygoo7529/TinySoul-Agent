@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import { Brain, Clock, FolderOutput, Hash, History, X } from "lucide-react";
-import type { ChatTurn, ModelTask, PhaseStep } from "../../derive/model";
+import { Clock, FolderOutput, Hash, History, X } from "lucide-react";
+import type { ActivityItem, ChatTurn, ModelTask, PhaseStep } from "../../derive/model";
 import { exportTurnTrace } from "../../api/exportTrace";
 import { buildChatTurns } from "../../derive/chat";
 import { hydrateTurnEvents } from "../../hooks/useBackend";
 import { useAppStore } from "../../store/appStore";
 import { skeletonSequencesForTurn } from "../../store/eventRetention";
-import { formatDateTime, formatDuration, formatTokens } from "../../utils/format";
+import { formatDateTime, formatDuration, formatTime, formatTokens } from "../../utils/format";
 import { Button, IconButton } from "../ui/Button";
 import { SectionCard } from "../ui/Card";
-import { TurnStatusBadge, activityColors, activityIcons } from "./semantic";
+import { TurnStatusBadge } from "./semantic";
+import { ActivityStep } from "../chat/ActivityStep";
 import { WorkingStateView } from "./WorkingStateView";
 import { CycleSection } from "./CycleSection";
 import { LlmCallDrawer, MAIN_DRAWER_WIDTH } from "./LlmCallDrawer";
@@ -181,29 +182,7 @@ export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
             </div>
           )}
 
-          {turn.activity.length > 0 && (
-            <SectionCard
-              title="Activity"
-              description="Every semantic event observed during this turn"
-            >
-              <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-                {[...turn.activity].reverse().map((item, i) => {
-                  const Icon = activityIcons[item.kind] ?? Brain;
-                  return (
-                    <div key={i} className="flex items-center gap-2 text-[12px]">
-                      <Icon
-                        size={11}
-                        className={`shrink-0 ${activityColors[item.kind] ?? "text-fg-faint"}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-fg-muted" title={item.detail}>
-                        {item.text}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </SectionCard>
-          )}
+          {turn.activity.length > 0 && <ActivityTimeline activity={turn.activity} />}
         </div>
       </aside>
 
@@ -237,4 +216,89 @@ function countActions(turn: ChatTurn): number {
     }
   }
   return ids.size;
+}
+
+/* ------------------------- activity timeline ------------------------- */
+
+type ActivityFilter = "all" | "thinking" | "actions" | "context" | "errors";
+
+const FILTER_GROUPS: Record<Exclude<ActivityFilter, "all">, ReadonlySet<string>> = {
+  thinking: new Set(["thinking", "llm", "intent", "skills"]),
+  actions: new Set(["action"]),
+  context: new Set(["context", "workspace", "phase", "todo", "milestone"]),
+  errors: new Set(["error", "retry"]),
+};
+
+const FILTERS: { key: ActivityFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "thinking", label: "Thinking" },
+  { key: "actions", label: "Actions" },
+  { key: "context", label: "Context" },
+  { key: "errors", label: "Errors" },
+];
+
+/**
+ * The turn's semantic activity as a timeline: colored rail dots per kind,
+ * rich step bodies shared with the chat live status, clock time per entry,
+ * kind filters, and click-to-anchor navigation into the matching action
+ * card. Reasoning entries expand inline to the full markdown.
+ */
+function ActivityTimeline({ activity }: { activity: ActivityItem[] }) {
+  const [filter, setFilter] = useState<ActivityFilter>("all");
+  const items = activity
+    .map((item, index) => ({ item, index }))
+    .reverse()
+    .filter(({ item }) => filter === "all" || FILTER_GROUPS[filter].has(item.kind));
+
+  const anchorToAction = (callId: string) => {
+    const el = document.getElementById(`action-${callId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("animate-anchor-flash");
+    // Restart the flash animation even when the same card is anchored twice.
+    void el.offsetWidth;
+    el.classList.add("animate-anchor-flash");
+  };
+
+  return (
+    <SectionCard
+      title="Activity"
+      description="Every semantic event observed during this turn"
+    >
+      <div className="mb-2.5 flex flex-wrap items-center gap-1">
+        {FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setFilter(key)}
+            className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+              filter === key
+                ? "border-accent/40 bg-accent-soft text-accent"
+                : "border-line text-fg-muted hover:bg-hover"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-80 overflow-y-auto pr-1">
+        <div className="timeline space-y-2 py-1">
+          {items.map(({ item, index }) => (
+            <div key={`${item.time}-${index}`} className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <ActivityStep item={item} rail onAnchor={anchorToAction} />
+              </div>
+              <span className="mt-0.5 shrink-0 font-mono text-[10px] text-fg-faint">
+                {formatTime(item.time)}
+              </span>
+            </div>
+          ))}
+          {items.length === 0 && (
+            <div className="pl-1 text-[11px] text-fg-faint">
+              No events in this filter.
+            </div>
+          )}
+        </div>
+      </div>
+    </SectionCard>
+  );
 }

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ModelTask, PhaseStep } from "../../derive/model";
 import { phaseHeadline, selectedDomains, selectIntent } from "../../derive/stageSummary";
+import { firstLine, truncate } from "../../derive/activitySemantics";
 import { formatDuration } from "../../utils/format";
 import { Markdown } from "../markdown/Markdown";
 import { ControlOpsView } from "./ControlOpsView";
@@ -32,6 +33,15 @@ export function PhaseCard({
 }) {
   const [open, setOpen] = useState(false);
   const running = phase.status === "running";
+  const intent = phase.phase === "phase1" ? selectIntent(phase) : undefined;
+  const reasoningPreview = phase.tasks
+    .map((t) => t.response?.reasoning?.summary)
+    .find((r) => r);
+  const previewLine = intent
+    ? `“${truncate(intent.replace(/\s+/g, " "), 110)}”`
+    : reasoningPreview
+      ? firstLine(reasoningPreview, 110)
+      : undefined;
 
   return (
     <div
@@ -49,39 +59,50 @@ export function PhaseCard({
             setOpen(!open);
           }
         }}
-        className={`flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left ${
+        className={`w-full cursor-pointer px-2.5 py-2 text-left ${
           running ? "bg-accent-soft/50" : "bg-bg-sunken"
         }`}
       >
-        <ChevronRight
-          size={13}
-          className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
-        />
-        <PhaseStateIcon status={phase.status} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
-          {phaseHeadline(phase)}
-        </span>
-        <CollapsedChips phase={phase} />
-        {phase.tasks.length > 0 && (
+        <div className="flex items-center gap-2">
+          <ChevronRight
+            size={13}
+            className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+          />
+          <PhaseStateIcon status={phase.status} />
           <span
-            role="button"
-            tabIndex={0}
-            title="View the LLM message stack"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenTask(phase.tasks[phase.tasks.length - 1], phase);
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-            className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white"
+            className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${
+              running ? "text-shine inline-block" : "text-fg"
+            }`}
           >
-            <Brain size={10} />
-            {phase.tasks.length > 1 ? `${phase.tasks.length} calls` : "context"}
+            {phaseHeadline(phase)}
           </span>
-        )}
-        {phase.startedAt && shouldShowDuration(phase.startedAt, phase.completedAt) && (
-          <span className="shrink-0 font-mono text-[10px] text-fg-faint">
-            {formatDuration(phase.startedAt, phase.completedAt)}
-          </span>
+          <CollapsedChips phase={phase} />
+          {phase.tasks.length > 0 && (
+            <span
+              role="button"
+              tabIndex={0}
+              title="View the LLM message stack"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenTask(phase.tasks[phase.tasks.length - 1], phase);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="inline-flex h-5.5 shrink-0 items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 text-[10px] font-medium text-accent transition-colors hover:bg-accent hover:text-white"
+            >
+              <Brain size={10} />
+              {phase.tasks.length > 1 ? `${phase.tasks.length} calls` : "context"}
+            </span>
+          )}
+          {phase.startedAt && shouldShowDuration(phase.startedAt, phase.completedAt) && (
+            <span className="shrink-0 font-mono text-[10px] text-fg-faint">
+              {formatDuration(phase.startedAt, phase.completedAt)}
+            </span>
+          )}
+        </div>
+        {!open && previewLine && (
+          <div className="mt-1 truncate pl-[43px] text-[11px] italic text-fg-faint">
+            {previewLine}
+          </div>
         )}
       </div>
 
@@ -110,6 +131,16 @@ function CollapsedChips({ phase }: { phase: PhaseStep }) {
   // stages 2/3: action names with status
   return (
     <span className="flex max-w-[45%] shrink-0 items-center gap-1 overflow-hidden">
+      {phase.phase === "phase2" &&
+        phase.skills.slice(0, 2).map((skill) => (
+          <span
+            key={skill}
+            title={`Domain skill: ${skill}`}
+            className="inline-flex max-w-[110px] items-center truncate rounded-md bg-info-soft px-1.5 py-0.5 text-[10px] text-info"
+          >
+            <span className="truncate">{skill}</span>
+          </span>
+        ))}
       {phase.actions.slice(0, 4).map((a, i) => (
         <span
           key={`${a.callId}-${i}`}
@@ -161,6 +192,22 @@ function PhaseDetail({ phase }: { phase: PhaseStep }) {
       )}
 
       {phase.controlOps.length > 0 && <ControlOpsView ops={phase.controlOps} />}
+
+      {phase.phase === "phase2" && phase.skills.length > 0 && (
+        <div className="space-y-1.5">
+          <SectionLabel>Mounted domain skills</SectionLabel>
+          <div className="flex flex-wrap items-center gap-1">
+            {phase.skills.map((skill) => (
+              <span
+                key={skill}
+                className="rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] text-info"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(phase.backgroundChanges.loaded.length > 0 ||
         phase.backgroundChanges.evicted.length > 0) && (

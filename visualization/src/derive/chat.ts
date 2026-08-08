@@ -30,6 +30,15 @@ import type {
   WorkingState,
 } from "./model";
 import { PHASE_META } from "./model";
+import {
+  actionTargetOf,
+  actionVerb,
+  firstLine,
+  isDomainSkillLabel,
+  resultSummaryOf,
+  skillTitleOf,
+  targetLabel,
+} from "./activitySemantics";
 
 const MAX_ACTIVITY = 120;
 
@@ -201,6 +210,23 @@ export function buildChatTurns(
         applyTaskLifecycle(turn, ev, currentCycleId, currentPhase);
         break;
       }
+      case "llm.model.retry": {
+        const attempt = asNumber(ev.payload?.attempt);
+        addActivity(
+          turn,
+          "retry",
+          `Provider hiccup — retrying${attempt ? ` (attempt ${attempt})` : ""}`,
+          undefined,
+          { cycleIndex: turn.cycles.length || undefined },
+        );
+        break;
+      }
+      case "llm.model.failed": {
+        addActivity(turn, "error", "Model attempt failed", asString(ev.payload?.error_type), {
+          cycleIndex: turn.cycles.length || undefined,
+        });
+        break;
+      }
       case "llm.model.request": {
         applyModelRequest(turn, ev, currentCycleId, currentPhase);
         break;
@@ -303,6 +329,7 @@ function getPhase(cycle: Cycle, phaseName: PhaseName): PhaseStep {
       tasks: [],
       actions: [],
       controlOps: [],
+      skills: [],
       backgroundChanges: { loaded: [], evicted: [] },
       workspaceEvents: [],
     };
@@ -320,7 +347,9 @@ function applyPhaseEvent(turn: ChatTurn, ev: EndpointEvent, cycleId: string | nu
   if (ev.name === "loop.phase.started") {
     phase.status = "running";
     phase.startedAt = ev.created_at;
-    addActivity(turn, "phase", `${PHASE_META[phaseName].title}`, `cycle ${cycle.index}`);
+    addActivity(turn, "phase", `${PHASE_META[phaseName].title}`, `cycle ${cycle.index}`, {
+      cycleIndex: cycle.index,
+    });
   } else {
     phase.status = "completed";
     phase.completedAt = ev.created_at;
@@ -350,7 +379,17 @@ function applyActionCall(
     startedAt: ev.created_at,
   });
   if (phaseName === "phase3") {
-    addActivity(turn, "action", `Executing ${action}`, summarizeParams(payload.params));
+    addActivity(
+      turn,
+      "action",
+      `${actionVerb(action)} ${action}`,
+      summarizeParams(payload.params),
+      {
+        target: actionTargetOf(action, asRecord(payload.params) ?? {}),
+        callId,
+        cycleIndex: cycle.index,
+      },
+    );
   }
 }
 
@@ -383,7 +422,14 @@ function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
           turn,
           ok ? "action" : "error",
           `${planned.action} ${ok ? "succeeded" : result.status}`,
-          ok ? undefined : result.failure?.feedback || result.failure?.reason,
+          ok
+            ? resultSummaryOf(result)
+            : result.failure?.feedback || result.failure?.reason,
+          {
+            target: actionTargetOf(planned.action, planned.params),
+            callId,
+            cycleIndex: cycle.index,
+          },
         );
         return;
       }
@@ -473,6 +519,26 @@ function applyModelRequest(
     turn.modelName = task.request.provider_model || task.request.model_id;
   }
 
+  if (!skeleton && phaseName === "phase2") {
+    // Domain skills are mounted as task-prompt guide blocks; surface their
+    // titles so the UI can show which skills were loaded for this stage.
+    const skills = task.request.messages
+      .filter((m) => isDomainSkillLabel(m.label))
+      .flatMap((m) => m.parts)
+      .map((part) => (part.type === "text" && part.text ? skillTitleOf(part.text) : undefined))
+      .filter((t): t is string => Boolean(t));
+    if (skills.length > 0 && skills.join("\n") !== phase.skills.join("\n")) {
+      phase.skills = skills;
+      addActivity(
+        turn,
+        "skills",
+        `Mounted ${skills.length} domain skill${skills.length > 1 ? "s" : ""}`,
+        skills.join(", "),
+        { skills, cycleIndex: cycle.index },
+      );
+    }
+  }
+
   if (!skeleton) {
     // Recover the user input from the first observed message stack when the
     // command echo was not local (e.g. input came from the Terminal).
@@ -518,6 +584,18 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
         turn.modelName = task.response.model_id;
       }
       accumulateUsage(turn, task.response.usage);
+      const reasoningText = skeleton
+        ? undefined
+        : task.response.reasoning?.summary?.trim();
+      if (reasoningText) {
+        addActivity(
+          turn,
+          "thinking",
+          firstLine(reasoningText),
+          PHASE_META[phase.phase].title,
+          { reasoning: reasoningText, cycleIndex: cycle.index },
+        );
+      }
       if (!skeleton && phase.phase === "phase1" && task.response.tool_calls) {
         for (const call of task.response.tool_calls) {
           const op = parseControlOp(call);
@@ -648,9 +726,23 @@ function applyControlOpToWorking(working: WorkingState, op: ControlOp) {
 
 function addControlActivity(turn: ChatTurn, op: ControlOp) {
   switch (op.kind) {
-    case "select_domains":
-      addActivity(turn, "domain", `Selected domains: ${op.domains.join(", ")}`);
+    case "select_domains": {
+      const intentText = op.intent
+        ? truncate(op.intent.replace(/\s+/g, " "), 120)
+        : undefined;
+      addActivity(
+        turn,
+        "intent",
+        intentText ?? `Selected domains: ${op.domains.join(", ")}`,
+        intentText ? `Domains: ${op.domains.join(", ")}` : undefined,
+        {
+          domains: op.domains,
+          intent: op.intent,
+          cycleIndex: turn.cycles.length || undefined,
+        },
+      );
       break;
+    }
     case "set_todo":
       addActivity(turn, "todo", `Todo ${op.status}: ${op.content}`);
       break;
@@ -760,8 +852,10 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
   if (activePhase.phase === "phase3" && runningAction) {
     return {
       phase: activePhase.phase,
-      label: `Executing ${runningAction.action}`,
-      detail: summarizeParams(runningAction.params),
+      label: `${actionVerb(runningAction.action)} ${runningAction.action}`,
+      detail:
+        targetLabel(actionTargetOf(runningAction.action, runningAction.params)) ??
+        summarizeParams(runningAction.params),
     };
   }
   const runningTask = activePhase.tasks.find((t) => t.status === "running");
@@ -836,8 +930,14 @@ function accumulateUsage(turn: ChatTurn, usage?: Record<string, unknown>) {
 /* Small helpers                                                       */
 /* ------------------------------------------------------------------ */
 
-function addActivity(turn: ChatTurn, kind: ActivityItem["kind"], text: string, detail?: string) {
-  turn.activity.push({ time: Date.now() / 1000, kind, text, detail });
+function addActivity(
+  turn: ChatTurn,
+  kind: ActivityItem["kind"],
+  text: string,
+  detail?: string,
+  extra?: Partial<Omit<ActivityItem, "time" | "kind" | "text" | "detail">>,
+) {
+  turn.activity.push({ time: Date.now() / 1000, kind, text, detail, ...extra });
   if (turn.activity.length > MAX_ACTIVITY) {
     turn.activity.splice(0, turn.activity.length - MAX_ACTIVITY);
   }

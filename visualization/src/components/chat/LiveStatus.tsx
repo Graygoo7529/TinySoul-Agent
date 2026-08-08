@@ -1,4 +1,6 @@
+import { useState } from "react";
 import {
+  Brain,
   CheckCircle2,
   Circle,
   Flag,
@@ -10,47 +12,71 @@ import type { ActivityItem, ChatTurn } from "../../derive/model";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { useAppStore } from "../../store/appStore";
-import { activityColors, activityIcons } from "../trace/semantic";
+import { Markdown } from "../markdown/Markdown";
+import { ActivityStep } from "./ActivityStep";
+
+const STEP_COUNT = 5;
 
 /**
  * Live status disclosure for a running turn.
  *
- * Instead of a static 3-stage stepper, the latest semantic activity floats
- * in with an animation and is replaced as the turn progresses (context
- * loaded → todo set → domain selected → model thinking → action executing…).
- * A steady zone below keeps the current todos and milestones visible.
+ * Layout, top to bottom: a shine-swept headline naming the current activity,
+ * the thinking stream (the latest reasoning summary, auto-expanded and
+ * revealed with a materializing animation), a staggered stack of the most
+ * recent semantic steps (intent + domains, mounted skills, action targets,
+ * context loads…), and the steady working-state zone with todos/milestones.
+ * The whole card breathes a gradient border while the turn runs.
  */
 export function LiveStatus({ turn }: { turn: ChatTurn }) {
   useNow(true, 1000);
   const stopPending = useAppStore((s) => s.stopPending);
   const activity = turn.activity;
-  const latest = activity[activity.length - 1];
-  const trail = activity.slice(-3, -1).reverse();
+
+  const latestThinkingIndex = findLastIndex(activity, (a) => a.kind === "thinking");
+  const thought = latestThinkingIndex >= 0 ? activity[latestThinkingIndex] : undefined;
+
+  // Newest-first semantic steps, excluding the thought shown above; older
+  // thinking entries stay in the stack as collapsed one-liners.
+  const steps = activity
+    .map((item, index) => ({ item, index }))
+    .filter(({ item, index }) => index !== latestThinkingIndex && item.kind !== "llm")
+    .reverse();
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? steps : steps.slice(0, STEP_COUNT);
+  const overflow = steps.length - visible.length;
+
+  const headline = stopPending
+    ? "Stopping turn…"
+    : (turn.currentActivity?.label ?? "Thinking…");
+  const headlineDetail = stopPending ? undefined : turn.currentActivity?.detail;
+
   const runningAction = findRunningAction(turn);
   const runningPhase = turn.currentActivity?.phase;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-bg-elev">
-      {/* floating latest status */}
-      <div className="px-4 pt-3 pb-2">
-        <div className="flex items-center gap-2.5">
+    <div className={stopPending ? "rounded-xl border border-danger/40 p-px" : "live-border"}>
+      <div className="overflow-hidden rounded-[11px] bg-bg-elev">
+        {/* shine-swept headline */}
+        <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
           <Loader2
             size={15}
             className={`animate-spin-slow shrink-0 ${
               stopPending ? "text-danger" : "text-accent"
             }`}
           />
-          <div className="relative min-w-0 flex-1">
-            {stopPending ? (
-              <div className="animate-status-in text-[13px] font-medium text-danger">
-                Stopping turn…
-              </div>
-            ) : latest ? (
-              <div key={activity.length} className="animate-status-in">
-                <StatusLine item={latest} prominent />
-              </div>
-            ) : (
-              <div className="text-[13px] font-medium text-fg-muted">Thinking…</div>
+          <div className="min-w-0 flex-1">
+            <span
+              key={headline}
+              className={`animate-status-in inline-block max-w-full truncate align-middle text-[13px] font-medium ${
+                stopPending ? "text-danger" : "text-shine"
+              }`}
+            >
+              {headline}
+            </span>
+            {headlineDetail && (
+              <span className="ml-2 truncate font-mono text-[11px] text-fg-faint">
+                {headlineDetail}
+              </span>
             )}
           </div>
           <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint">
@@ -72,56 +98,87 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
             )}
           </div>
         </div>
-        {/* fading trail of what just happened */}
-        <div className="mt-1 space-y-0.5 pl-[26px]">
-          {trail.map((item, i) => (
-            <div
-              key={`${item.time}-${i}`}
-              className="transition-opacity"
-              style={{ opacity: 0.45 - i * 0.18 }}
-            >
-              <StatusLine item={item} />
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {/* steady working-state zone */}
-      <WorkingZone turn={turn} />
+        {/* thinking stream: the latest reasoning, auto-expanded */}
+        {thought && <ThinkingStream key={thought.time} item={thought} />}
+
+        {/* semantic step stack */}
+        {visible.length > 0 && (
+          <div className="space-y-1.5 px-4 pb-2.5">
+            {visible.map(({ item, index }, i) => (
+              <div
+                key={`${item.time}-${index}`}
+                className="animate-step-in"
+                style={
+                  {
+                    "--stagger": Math.min(i, 6),
+                    "--step-opacity": Math.max(0.35, 1 - i * 0.14),
+                  } as React.CSSProperties
+                }
+              >
+                <ActivityStep item={item} />
+              </div>
+            ))}
+            {(overflow > 0 || showAll) && (
+              <button
+                onClick={() => setShowAll(!showAll)}
+                className="pl-5 text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+              >
+                {showAll ? "Show fewer steps" : `+${overflow} earlier steps`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* steady working-state zone */}
+        <WorkingZone turn={turn} />
+      </div>
     </div>
   );
 }
 
-function StatusLine({
-  item,
-  prominent,
-}: {
-  item: ActivityItem;
-  prominent?: boolean;
-}) {
-  const Icon = activityIcons[item.kind] ?? Circle;
+/* -------------------------- thinking stream -------------------------- */
+
+function ThinkingStream({ item }: { item: ActivityItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const full = item.reasoning ?? item.text;
+  const collapsible = full.length > 220 || full.includes("\n");
+
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Icon
-        size={prominent ? 13 : 11}
-        className={`shrink-0 ${activityColors[item.kind] ?? "text-fg-faint"}`}
-      />
-      <span
-        className={`truncate ${
-          prominent ? "text-[13px] font-medium text-fg" : "text-[11px] text-fg-muted"
-        }`}
-        title={item.detail}
-      >
-        {item.text}
-      </span>
-      {prominent && item.detail && (
-        <span className="truncate font-mono text-[11px] text-fg-faint">
-          {item.detail}
-        </span>
+    <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-wide text-accent uppercase">
+        <Brain size={10} />
+        Thinking
+        {item.detail && (
+          <span className="font-normal normal-case text-accent/70">· {item.detail}</span>
+        )}
+        {collapsible && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="ml-auto font-normal normal-case text-accent/80 transition-colors hover:text-accent"
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        )}
+      </div>
+      {expanded ? (
+        <div className="animate-reveal">
+          <Markdown className="text-[12px] text-fg-muted">{full}</Markdown>
+        </div>
+      ) : (
+        <div
+          className={`animate-reveal text-[12px] leading-5 whitespace-pre-wrap italic text-fg-muted ${
+            collapsible ? "line-clamp-3" : ""
+          }`}
+        >
+          {full}
+        </div>
       )}
     </div>
   );
 }
+
+/* --------------------------- working zone ---------------------------- */
 
 function WorkingZone({ turn }: { turn: ChatTurn }) {
   const { todos, milestones } = turn.working;
@@ -185,6 +242,8 @@ export function TodoIcon({ status }: { status: string }) {
   }
 }
 
+/* ------------------------------ helpers ------------------------------ */
+
 function findRunningAction(turn: ChatTurn) {
   for (let i = turn.cycles.length - 1; i >= 0; i--) {
     const phase3 = turn.cycles[i].phases.find((p) => p.phase === "phase3");
@@ -195,4 +254,9 @@ function findRunningAction(turn: ChatTurn) {
   return null;
 }
 
-
+function findLastIndex<T>(list: T[], predicate: (item: T) => boolean): number {
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (predicate(list[i])) return i;
+  }
+  return -1;
+}

@@ -264,3 +264,180 @@ describe("turn trace export", () => {
     expect(parsed.final_answer).toBe("Done!");
   });
 });
+
+describe("semantic activity details", () => {
+  it("surfaces reasoning summaries as thinking activities", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+      event("llm.model.request", phaseScope("phase1"), {
+        task_id: "task-1",
+        profile: "loop.phase1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        attempt: 1,
+        messages: [],
+      }),
+      event("llm.model.response", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        reasoning: { summary: "The user wants a docs sweep.\nI should inspect first." },
+        tool_calls: [],
+      }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const thinking = turn.activity.find((a) => a.kind === "thinking");
+    expect(thinking).toBeDefined();
+    expect(thinking?.text).toBe("The user wants a docs sweep.");
+    expect(thinking?.reasoning).toBe(
+      "The user wants a docs sweep.\nI should inspect first.",
+    );
+    expect(thinking?.detail).toBe("Context & Domains");
+    expect(thinking?.cycleIndex).toBe(1);
+  });
+
+  it("surfaces the stage1 intent with structured domains", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+      event("llm.model.request", phaseScope("phase1"), {
+        task_id: "task-1",
+        profile: "loop.phase1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        attempt: 1,
+        messages: [],
+      }),
+      event("llm.model.response", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        tool_calls: [
+          {
+            id: "c2",
+            name: "select_action_domains",
+            arguments: {
+              domains: ["workspace", "web"],
+              intent: "Investigate the docs before editing",
+            },
+          },
+        ],
+      }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const intent = turn.activity.find((a) => a.kind === "intent");
+    expect(intent).toBeDefined();
+    expect(intent?.text).toBe("Investigate the docs before editing");
+    expect(intent?.domains).toEqual(["workspace", "web"]);
+    expect(intent?.intent).toBe("Investigate the docs before editing");
+  });
+
+  it("extracts mounted domain skills from the phase2 message stack", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
+      event("llm.model.request", phaseScope("phase2"), {
+        task_id: "task-2",
+        profile: "loop.phase2",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        attempt: 1,
+        messages: [
+          {
+            role: "user",
+            label: "task_prompt:guide:domain_skill:1",
+            parts: [
+              { type: "text", text: "# Domain Skill\n# Workspace Editing\nEdit carefully." },
+            ],
+          },
+          {
+            role: "user",
+            label: "task_prompt:guide:domain_skill:2",
+            parts: [{ type: "text", text: "# Domain Skill\nSearch broadly first." }],
+          },
+        ],
+      }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const phase2 = turn.cycles[0].phases.find((p) => p.phase === "phase2");
+    expect(phase2?.skills).toEqual(["Workspace Editing", "Search broadly first."]);
+    const skills = turn.activity.find((a) => a.kind === "skills");
+    expect(skills?.text).toBe("Mounted 2 domain skills");
+    expect(skills?.skills).toEqual(["Workspace Editing", "Search broadly first."]);
+  });
+
+  it("enriches executing actions with semantic targets", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase3"), { phase: "phase3" }),
+      event(
+        "action.call",
+        phaseScope("phase3"),
+        {
+          call_id: "call-1",
+          action: "web.search_by_kimi",
+          domain: "web",
+          sequence: 1,
+          params: { query: "kimi code activity stream" },
+        },
+      ),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const activity = turn.activity.find((a) => a.kind === "action");
+    expect(activity?.text).toBe("Searching web.search_by_kimi");
+    expect(activity?.target).toEqual({ query: "kimi code activity stream" });
+    expect(activity?.callId).toBe("call-1");
+    expect(turn.currentActivity?.label ?? "").not.toBe("");
+  });
+
+  it("enriches action results with factual summaries", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
+      event(
+        "action.call",
+        phaseScope("phase2"),
+        {
+          call_id: "call-1",
+          action: "execution.run_bash_command",
+          domain: "execution",
+          sequence: 1,
+          params: { command: "npm run build" },
+        },
+      ),
+      event(
+        "action.result",
+        phaseScope("phase3"),
+        {
+          call_id: "call-1",
+          action: "execution.run_bash_command",
+          domain: "execution",
+          status: "success",
+          stage: "executor",
+          payload: { exit_code: 0, duration_seconds: 2.34, stdout: "built" },
+        },
+      ),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const succeeded = turn.activity.find((a) => a.text.includes("succeeded"));
+    expect(succeeded?.detail).toBe("exit 0 · 2.3s");
+    expect(succeeded?.target).toEqual({ command: "npm run build" });
+  });
+
+  it("records provider retries as retry activities", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+      event("llm.model.retry", phaseScope("phase1"), {
+        profile: "loop.phase1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        attempt: 2,
+      }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const retry = turn.activity.find((a) => a.kind === "retry");
+    expect(retry?.text).toBe("Provider hiccup — retrying (attempt 2)");
+  });
+});

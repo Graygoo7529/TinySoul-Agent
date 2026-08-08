@@ -27,6 +27,7 @@ export function ActionCard({
 
   return (
     <div
+      id={`action-${action.callId}`}
       className={`rounded-lg border bg-bg-sunken ${
         failed ? "border-danger/40" : "border-line"
       }`}

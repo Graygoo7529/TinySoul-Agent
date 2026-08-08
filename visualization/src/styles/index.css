@@ -401,3 +401,136 @@ body {
 .drawer-panel {
   transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+/* ---- flowing shine text (active thinking/executing headline) ---- */
+@keyframes shine-sweep {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -130% 0;
+  }
+}
+.text-shine {
+  background: linear-gradient(
+    110deg,
+    var(--fg) 38%,
+    var(--accent) 48%,
+    var(--info) 52%,
+    var(--fg) 62%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine-sweep 2.6s linear infinite;
+}
+
+/* ---- materializing reveal for fresh reasoning content ---- */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.animate-reveal {
+  animation: reveal 0.45s ease-out both;
+}
+
+/* ---- semantic step stack: staggered slide-up ---- */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: var(--step-opacity, 1);
+    transform: none;
+  }
+}
+.animate-step-in {
+  animation: step-in 0.3s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+  animation-delay: calc(var(--stagger, 0) * 45ms);
+}
+
+/* ---- breathing gradient border for the running status card ---- */
+.live-border {
+  position: relative;
+  border-radius: 12px;
+  padding: 1px;
+  background: var(--line);
+}
+.live-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, var(--accent), var(--info), var(--accent));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: border-breathe 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes border-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* ---- activity timeline rail (Details drawer) ---- */
+.timeline {
+  position: relative;
+}
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--line-strong);
+  opacity: 0.55;
+}
+
+/* ---- one-shot highlight when anchoring to an action card ---- */
+@keyframes anchor-flash {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.animate-anchor-flash {
+  animation: anchor-flash 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text-shine,
+  .animate-reveal,
+  .animate-step-in,
+  .animate-anchor-flash,
+  .live-border::before {
+    animation: none;
+  }
+}
