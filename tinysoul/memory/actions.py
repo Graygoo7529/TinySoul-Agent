@@ -26,9 +26,6 @@ from .errors import MemoryContractError, MemoryError, MemoryInvariantError
 from .links import MemoryKind, MemoryLink
 
 
-MEMORY_ACTIONS = ("memory.memorize", "memory.inspect", "memory.recall")
-
-
 def register_memory_actions(
     builder: ActionEngineBuilder,
     *,
@@ -52,7 +49,7 @@ class MemoryMemorizeExecutor(ActionExecutor):
         expected = params.get("expected_digest")
         raw_operations = params.get("operations")
         if not isinstance(expected, str) or not isinstance(raw_operations, list):
-            return _failed(execution, "memory.memorize requires expected_digest and operations", "invalid_patch")
+            return _failed(execution, "core.memory.memorize requires expected_digest and operations", "invalid_patch")
         try:
             parsed_operations: list[MemoryPatchOperation] = []
             for item in raw_operations:
@@ -126,7 +123,7 @@ class MemoryRecallExecutor(ActionExecutor):
         del context
         link = execution.call.params.get("memory_link")
         if not isinstance(link, str) or not link:
-            return _failed(execution, "memory.recall requires memory_link", "invalid_link")
+            return _failed(execution, "core.memory.recall requires memory_link", "invalid_link")
         try:
             result = self._memory.recall(link)
         except MemoryContractError as exc:
@@ -165,19 +162,19 @@ def _inspect_request(params: JsonObject) -> MemoryInspectRequest:
     link = MemoryLink.parse(raw_link) if isinstance(raw_link, str) else None
     raw_kinds = params.get("kinds", [])
     if not isinstance(raw_kinds, list) or any(not isinstance(item, str) for item in raw_kinds):
-        raise MemoryContractError("memory.inspect kinds must be a list of strings")
+        raise MemoryContractError("core.memory.inspect kinds must be a list of strings")
     try:
         kinds = tuple(MemoryKind(item) for item in raw_kinds)
     except ValueError as exc:
-        raise MemoryContractError("memory.inspect contains an invalid kind") from exc
+        raise MemoryContractError("core.memory.inspect contains an invalid kind") from exc
     limit = params.get("limit")
     continuation = params.get("continuation")
     if continuation is not None and not isinstance(continuation, str):
-        raise MemoryContractError("memory.inspect continuation must be text")
+        raise MemoryContractError("core.memory.inspect continuation must be text")
     if query is not None and not isinstance(query, str):
-        raise MemoryContractError("memory.inspect query must be text")
+        raise MemoryContractError("core.memory.inspect query must be text")
     if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
-        raise MemoryContractError("memory.inspect limit must be an integer")
+        raise MemoryContractError("core.memory.inspect limit must be an integer")
     return MemoryInspectRequest(
         query=query,
         memory_link=link,

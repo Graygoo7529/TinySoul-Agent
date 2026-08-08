@@ -143,6 +143,13 @@ class ActionCatalogLoader:
                     source=str(action_path),
                     default_runtime=default_runtime,
                 )
+                if action.domain != domain.name:
+                    raise ConfigError(
+                        "Action domain must match its catalog package",
+                        key=f"{action_path}.domain",
+                        value=action.domain,
+                        expected=domain.name,
+                    )
                 action = self._apply_llm_action_timeout(
                     action,
                     action_table=action_table,

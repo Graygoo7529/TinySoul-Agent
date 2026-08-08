@@ -84,4 +84,8 @@ class ActionCatalog:
             raise ActionInvariantError(
                 f"Action '{action.name}' references unknown domain: {action.domain}"
             )
+        if not action.name.startswith(f"{action.domain}."):
+            raise ActionInvariantError(
+                f"Action '{action.name}' must use the '{action.domain}.' namespace"
+            )
         self._actions[action.name] = action

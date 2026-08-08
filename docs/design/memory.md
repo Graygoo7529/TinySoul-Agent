@@ -18,7 +18,7 @@ Markdown 是唯一业务事实。进程内 catalog、正向引用、backlinks、
 
 ### 活动记忆
 
-活动记忆固定为 Session root 下的 `Memory.md`。新 Business Day 在 Session root 建立后初始化 schema v1 frontmatter，正文为空；同日重启保留现有文件。`memory.memorize` 使用当前 Background 暴露的 digest 做 CAS patch，支持 append、replace、remove、clear。变更不改写本轮已经构造的 Background，从下一 User Turn 起生效。
+活动记忆固定为 Session root 下的 `Memory.md`。新 Business Day 在 Session root 建立后初始化 schema v1 frontmatter，正文为空；同日重启保留现有文件。User Turn 的 `core.memory.memorize` 使用当前 Background 暴露的 digest 做 CAS patch，支持 append、replace、remove、clear。变更不改写本轮已经构造的 Background，从下一 User Turn 起生效。
 
 活动 `Memory.md` 随 Session 一起归档，是目标日 Maintenance 的直接输入；它不复制到持久 `memory/`，也不是持久 Memory Link。
 
@@ -90,11 +90,11 @@ memory:target + optional memory:latest
 
 ## User Action
 
-### `memory.memorize`
+### `core.memory.memorize`
 
 只 patch `memory:current`。模型应保留 Context 中已经确认且对后续有用的 canonical Memory Link；不知道 Link 时先 inspect，不能为持久知识编造 Link。memorize 不创建或更新 daily/entity/concept/fact/note。
 
-### `memory.inspect`
+### `core.memory.inspect`
 
 inspect 是有界发现和一跳探索，不返回完整 Markdown：
 
@@ -107,7 +107,7 @@ inspect 是有界发现和一跳探索，不返回完整 Markdown：
 
 模型自行决定多跳路径：query 找候选，inspect 候选 Link 查看引用/backlinks，再 inspect 下一 Link；需要完整证据时切换 recall。inspect 结果以 foldable Trace 投影进入当前 Turn，不改变 Background。
 
-### `memory.recall`
+### `core.memory.recall`
 
 recall 只接受一个精确持久 Link，返回 owner 校验后的完整 Markdown、kind、cite、digest、metadata 和 redirect resolution chain。它不自动内联 redirect 终点正文，旧 Link 与新 Link 的内容保持可区分；模型可根据 chain 再 recall 目标。
 

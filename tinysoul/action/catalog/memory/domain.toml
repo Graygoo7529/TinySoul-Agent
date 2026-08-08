@@ -1,7 +1,0 @@
-name = "memory"
-description = "Explicit current memory plus linked daily, entity, concept, fact, and note retrieval."
-selection_hint = "Use memorize for today's explicit state; use inspect to discover or traverse Memory Links and recall for exact full documents."
-
-[runtime]
-timeout_seconds = 30
-parallel_policy = "serial"

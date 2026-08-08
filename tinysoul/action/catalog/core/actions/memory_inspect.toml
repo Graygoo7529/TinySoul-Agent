@@ -1,5 +1,5 @@
-name = "memory.inspect"
-domain = "memory"
+name = "core.memory.inspect"
+domain = "core"
 
 [tool]
 description = "Discover Memory links by lexical/grep/semantic query, or inspect one known link's references, backlinks, and semantic related candidates. Returns bounded summaries, relation counts, and a continuation token, not full documents. Continue step by step for multi-hop exploration."

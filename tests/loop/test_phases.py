@@ -320,13 +320,13 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
         (
             ToolCallRecord(
                 id="recall_1",
-                name="memory.recall",
+                name="core.memory.recall",
                 arguments={"memory_link": "memory:daily/2026-07-13"},
                 kind=ToolKind.ACTION,
             ),
             ToolCallRecord(
                 id="search_1",
-                name="memory.inspect",
+                name="core.memory.inspect",
                 arguments={"query": "remembered"},
                 kind=ToolKind.ACTION,
             ),
@@ -353,10 +353,10 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
 
     results = {result.action_name: result for result in outcome.results}
     assert all(result.failure is None for result in results.values()), repr(results)
-    markdown = results["memory.recall"].payload["markdown"]
+    markdown = results["core.memory.recall"].payload["markdown"]
     assert isinstance(markdown, str)
     assert "free-form remembered fact" in markdown
-    items = results["memory.inspect"].payload["items"]
+    items = results["core.memory.inspect"].payload["items"]
     assert isinstance(items, list)
     first_item = items[0]
     assert isinstance(first_item, dict)

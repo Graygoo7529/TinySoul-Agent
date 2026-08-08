@@ -1,5 +1,5 @@
-name = "memory.memorize"
-domain = "memory"
+name = "core.memory.memorize"
+domain = "core"
 
 [tool]
 description = "Patch today's explicit memory:current using its expected digest. Preserve useful canonical memory:daily/entity/concept/fact/note links that already appear in context so later turns can inspect or recall them."

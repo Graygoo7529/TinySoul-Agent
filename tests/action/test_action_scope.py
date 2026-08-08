@@ -71,6 +71,9 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
     assert [tool.name for tool in tools] == [
         "core.answer",
         "core.context.inspect",
+        "core.memory.inspect",
+        "core.memory.memorize",
+        "core.memory.recall",
         "core.reason",
         "core.session.inspect",
     ]

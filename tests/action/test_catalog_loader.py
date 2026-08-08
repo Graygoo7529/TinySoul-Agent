@@ -13,6 +13,7 @@ from tinysoul.action.core.schema import (
 )
 from tinysoul.action.core.result import ActionTraceMode
 from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
+from tinysoul.action.core.errors import ActionInvariantError
 from tinysoul.infra import JsonObject
 from tinysoul.infra.config import ConfigError
 
@@ -24,7 +25,7 @@ def test_load_builtin_catalog() -> None:
     assert catalog.has_domain("core")
     assert catalog.has_domain("workspace")
     assert catalog.has_domain("home")
-    assert catalog.has_domain("memory")
+    assert not catalog.has_domain("memory")
     assert catalog.has_domain("execution")
     assert not catalog.has_domain("maintenance")
     assert not catalog.has_domain("resource")
@@ -50,6 +51,12 @@ def test_load_builtin_catalog() -> None:
     assert answer.backend.handler == "core.answer"
     reason = catalog.get_action("core.reason")
     assert reason.backend.handler == "core.reason"
+    assert catalog.get_action("core.memory.inspect").backend.handler == "memory.inspect"
+    assert catalog.get_action("core.memory.recall").backend.handler == "memory.recall"
+    assert catalog.get_action("core.memory.memorize").backend.handler == "memory.memorize"
+    assert catalog.get_action("core.memory.inspect").runtime.timeout_seconds == 60.0
+    assert catalog.get_action("core.memory.recall").runtime.timeout_seconds == 60.0
+    assert catalog.get_action("core.memory.memorize").runtime.timeout_seconds == 60.0
     create = catalog.get_action("workspace.create")
     assert create.backend.kind is ActionBackendKind.LLM_ACTION
     assert create.runtime.timeout_seconds == 600.0
@@ -159,11 +166,15 @@ def test_catalog_view_by_domain() -> None:
         "home.top.search",
         "home.top.write",
     ]
-    memory_view = catalog.with_domains(("memory",))
-    assert [action.name for action in memory_view.actions()] == [
-        "memory.inspect",
-        "memory.memorize",
-        "memory.recall",
+    core_view = catalog.with_domains(("core",))
+    assert [action.name for action in core_view.actions()] == [
+        "core.answer",
+        "core.context.inspect",
+        "core.memory.inspect",
+        "core.memory.memorize",
+        "core.memory.recall",
+        "core.reason",
+        "core.session.inspect",
     ]
 
 
@@ -172,6 +183,49 @@ def test_missing_catalog_root_raises_config_error() -> None:
         ActionCatalogLoader().load(Path("does-not-exist"))
 
     assert error.value.key == "does-not-exist"
+
+
+@pytest.mark.parametrize(
+    ("action_name", "action_domain", "error_type"),
+    (
+        ("memory.inspect", "memory", ConfigError),
+        ("memory.inspect", "core", ActionInvariantError),
+    ),
+)
+def test_catalog_rejects_domain_identity_mismatch(
+    tmp_path: Path,
+    action_name: str,
+    action_domain: str,
+    error_type: type[Exception],
+) -> None:
+    root = tmp_path / "catalog"
+    actions = root / "core" / "actions"
+    actions.mkdir(parents=True)
+    (root / "core" / "domain.toml").write_text(
+        'name = "core"\ndescription = "Core."\n',
+        encoding="utf-8",
+    )
+    (actions / "action.toml").write_text(
+        f'''name = "{action_name}"
+domain = "{action_domain}"
+
+[tool]
+description = "Test action."
+
+[tool.schema]
+type = "object"
+required = []
+additionalProperties = false
+
+[backend]
+kind = "native"
+handler = "{action_name}"
+''',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(error_type):
+        ActionCatalogLoader().load(root)
 
 
 def test_action_runtime_inherits_domain_parallel_policy_when_omitted() -> None:

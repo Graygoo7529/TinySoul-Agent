@@ -1,5 +1,5 @@
-name = "memory.recall"
-domain = "memory"
+name = "core.memory.recall"
+domain = "core"
 
 [tool]
 description = "Recall one complete validated daily/entity/concept/fact/note Markdown document by exact canonical Memory Link. Non-active documents remain exact and report their redirect chain."

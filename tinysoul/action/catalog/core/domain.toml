@@ -1,6 +1,6 @@
 name = "core"
-description = "Core conversation, reasoning, and progressive context inspection."
-selection_hint = "Use to answer or reason, or when compressed current/prior Turn facts must be inspected before continuing."
+description = "Turn-level reasoning, conversation completion, and progressive inspection of current context, prior sessions, and memory."
+selection_hint = "Use when the next step is to inspect internal state, preserve useful current memory, reason, or answer."
 
 [runtime]
 timeout_seconds = 60

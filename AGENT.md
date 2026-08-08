@@ -56,7 +56,7 @@
 
 Agent Home：Agent 的持久身份规约、用户偏好、通用 Skill 和行动指导，不包含日期 Memory。actual Home 是已由 Maintenance 接受的基线；普通 User Turn 通过跨日 runtime overlay 形成 effective Home，只有 Home Maintenance 可以把变更提交回 actual Home。顶层内容可进入 Background，渐进资源只通过 Action 使用，领域/动作 Skill 只在对应任务局部挂载。
 
-记忆/Memory：与 Home 平级，分为活动记忆、daily 情景证据和 entity/concept/fact/note 持久知识。活动 `Memory.md` 位于当日 Session root，User Turn 只通过 `memory.memorize` 做 CAS patch；五类持久 Markdown 只由 Memory Maintenance 维护。User Turn 通过 `memory.inspect` 结合 lexical、grep、正向引用、backlinks 和可选语义检索发现 Link，再由 `memory.recall` 精确召回完整文档。Markdown 是唯一业务事实，catalog 与 embedding cache 均是可删除重建的派生数据。
+记忆/Memory：与 Home 平级，分为活动记忆、daily 情景证据和 entity/concept/fact/note 持久知识。活动 `Memory.md` 位于当日 Session root，User Turn 只通过 core domain 的 `core.memory.memorize` 做 CAS patch；五类持久 Markdown 只由 Memory Maintenance 维护。User Turn 通过 `core.memory.inspect` 结合 lexical、grep、正向引用、backlinks 和可选语义检索发现 Link，再由 `core.memory.recall` 精确召回完整文档。Action 的规划域归属 core 不改变 Memory owner；Markdown 是唯一业务事实，catalog 与 embedding cache 均是可删除重建的派生数据。
 
 会话/Session：同一 Business Day 内已经完成的 User Turns 所形成的不可变业务事实。Session 从同一事实图派生 prior-turn Background、渐进检查和 Memory facts，不保存当前 Turn 的运行时 trace，不承担通用日志或前端审计数据库职责。
 

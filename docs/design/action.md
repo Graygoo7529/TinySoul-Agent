@@ -8,7 +8,7 @@ Action 不负责构造基础语境，不负责模型供应商适配，不负责�
 
 Action 的核心职责是把“可选择的域”和“可执行的动作”组织成稳定的 catalog，并把 Phase1 / Phase2 / Phase3 的行为切成清晰的边界。
 
-Memory domain 通过 `register_memory_actions` 接入 `memory.memorize`、`memory.inspect`、`memory.recall`：活动记忆 patch、持久 Link 发现/探索和精确完整召回是三个不同 Action 边界。
+Core domain 通过 `register_memory_actions` 接入 `core.memory.memorize`、`core.memory.inspect`、`core.memory.recall`：活动记忆 patch、持久 Link 发现/探索和精确完整召回是三个不同 Action 边界。它们仍由 Memory owner 的 executor 实现；catalog domain 只决定 Phase1/Phase2 的规划可见范围。
 
 ## 设计目标
 
