@@ -34,8 +34,9 @@
   --info: #0284c7;
   --info-soft: rgba(2, 132, 199, 0.1);
   --code-bg: #f0f2f5;
-  /* aurora accent: brand gradient shared by bubbles, logo, primary actions */
-  --accent-grad: linear-gradient(135deg, #6366f1, #8b5cf6 52%, #0ea5e9);
+  /* aurora accent: calm two-stop indigo→violet gradient, deep enough for
+     white text; shared by bubbles, logo, primary actions */
+  --accent-grad: linear-gradient(135deg, #4f46e5, #7c3aed);
   /* spectral hue used inside motion gradients (shine text, live border) */
   --hue-violet: #8b5cf6;
   /* action-domain hues: one consistent color per backend action domain */
@@ -59,12 +60,13 @@
   --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.6),
     0 12px 40px rgba(15, 23, 42, 0.16);
   --shadow-brand: inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 2px 10px rgba(99, 102, 241, 0.35);
+    0 2px 10px rgba(79, 70, 229, 0.32);
   --focus-ring: 0 0 0 3px var(--accent-soft);
   /* z-index scale: overlay < drawer < toast < sub-drawer */
   --z-overlay: 40;
   --z-drawer: 50;
   --z-toast: 60;
+  --z-subdrawer-overlay: 65;
   --z-subdrawer: 70;
   color-scheme: light;
 }
@@ -92,7 +94,7 @@
   --info: #38bdf8;
   --info-soft: rgba(56, 189, 248, 0.12);
   --code-bg: #1d2129;
-  --accent-grad: linear-gradient(135deg, #818cf8, #a78bfa 52%, #38bdf8);
+  --accent-grad: linear-gradient(135deg, #4f46e5, #7c3aed);
   --hue-violet: #a78bfa;
   --domain-core: var(--accent);
   --domain-core-soft: var(--accent-soft);
@@ -112,7 +114,7 @@
     0 6px 16px rgba(0, 0, 0, 0.32);
   --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 40px rgba(0, 0, 0, 0.55);
   --shadow-brand: inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 2px 12px rgba(99, 102, 241, 0.4);
+    0 2px 12px rgba(109, 40, 217, 0.45);
   --focus-ring: 0 0 0 3px var(--accent-soft);
   color-scheme: dark;
 }
@@ -440,6 +442,12 @@ body {
   accent-color: var(--accent);
 }
 
+/* calm variant for reasoning/thinking: bold runs stay readable, not shouty */
+.md-calm .md-body strong,
+.md-body.md-calm strong {
+  font-weight: 500;
+}
+
 /* ---- JSON tree ---- */
 .json-tree {
   font-family: var(--font-mono);
@@ -475,6 +483,19 @@ body {
 .json-tree .jt-toggle.open {
   transform: rotate(90deg);
 }
+/* nested levels: a hairline guide rail instead of bare padding */
+.json-tree .jt-children {
+  margin-left: 5px;
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+}
+/* row hover for easier scanning */
+.json-tree .jt-row {
+  border-radius: 4px;
+}
+.json-tree .jt-row:hover {
+  background: var(--hover);
+}
 
 /* ---- terminal block (stdout/stderr) ---- */
 .term-block {
@@ -483,6 +504,7 @@ body {
   line-height: 1.5;
   background: #0d1117;
   color: #c9d1d9;
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 8px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -526,6 +548,21 @@ body {
   animation: shine-sweep 2.6s linear infinite;
 }
 
+/* ---- LLM-task sub-drawer: gentle slide + settle from the main drawer ---- */
+@keyframes sub-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-sub-drawer-in {
+  animation: sub-drawer-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* ---- materializing reveal for fresh reasoning content ---- */
 @keyframes reveal {
   from {
@@ -543,11 +580,11 @@ body {
   animation: reveal 0.45s ease-out both;
 }
 
-/* ---- semantic step stack: staggered slide-up ---- */
+/* ---- semantic step stack: staggered slide-up, gentle settle ---- */
 @keyframes step-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: var(--step-opacity, 1);
@@ -555,7 +592,7 @@ body {
   }
 }
 .animate-step-in {
-  animation: step-in 0.3s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+  animation: step-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) both;
   animation-delay: calc(var(--stagger, 0) * 45ms);
 }
 
@@ -640,6 +677,7 @@ body {
   .animate-reveal,
   .animate-step-in,
   .animate-anchor-flash,
+  .animate-sub-drawer-in,
   .live-border::before {
     animation: none;
   }

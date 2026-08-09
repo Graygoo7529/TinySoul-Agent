@@ -142,7 +142,7 @@ function ThinkingBody({ item }: { item: ActivityItem }) {
       </button>
       {open && (
         <div className="animate-reveal mt-1 rounded-lg bg-accent-soft/50 px-2.5 py-2">
-          <Markdown className="text-[12px] text-fg-muted">{item.reasoning}</Markdown>
+          <Markdown className="md-calm text-[12px] text-fg-muted">{item.reasoning}</Markdown>
         </div>
       )}
     </div>

@@ -2,7 +2,9 @@ import { useState } from "react";
 
 /**
  * Collapsible, syntax-colored JSON tree. Colors come from the `.json-tree`
- * classes in the global stylesheet (semantic tokens, theme aware).
+ * classes in the global stylesheet (semantic tokens, theme aware). Nested
+ * levels get a left indent guide; `defaultExpanded` expands the whole tree
+ * (pass false for deliberately collapsed raw/diagnostic views).
  */
 export function JsonTree({
   value,
@@ -50,7 +52,7 @@ function JsonNode({ name, value, depth, defaultExpanded, maxStringLength }: Node
 
   if (!isObject) {
     return (
-      <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
+      <div className="jt-row">
         {keyLabel}
         {keyLabel && <span className="jt-punct">: </span>}
         <Primitive value={value} maxStringLength={maxStringLength} />
@@ -64,8 +66,8 @@ function JsonNode({ name, value, depth, defaultExpanded, maxStringLength }: Node
   const summary = `${entries.length} ${isArray ? "items" : "keys"}`;
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? 14 : 0 }}>
-      <span onClick={() => setOpen(!open)} className="cursor-pointer select-none">
+    <div>
+      <span onClick={() => setOpen(!open)} className="jt-row cursor-pointer select-none">
         <span className={`jt-toggle ${open ? "open" : ""}`}>▸</span>
         {keyLabel}
         {keyLabel && <span className="jt-punct">: </span>}
@@ -75,17 +77,19 @@ function JsonNode({ name, value, depth, defaultExpanded, maxStringLength }: Node
       </span>
       {open && (
         <>
-          {entries.map(([k, v]) => (
-            <JsonNode
-              key={k}
-              name={k}
-              value={v}
-              depth={depth + 1}
-              defaultExpanded={defaultExpanded && depth < 1}
-              maxStringLength={maxStringLength}
-            />
-          ))}
-          <div style={{ paddingLeft: 0 }}>
+          <div className="jt-children">
+            {entries.map(([k, v]) => (
+              <JsonNode
+                key={k}
+                name={k}
+                value={v}
+                depth={depth + 1}
+                defaultExpanded={defaultExpanded}
+                maxStringLength={maxStringLength}
+              />
+            ))}
+          </div>
+          <div>
             <span className="jt-punct">{closeBracket}</span>
           </div>
         </>

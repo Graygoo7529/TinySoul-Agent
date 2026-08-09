@@ -23,7 +23,7 @@
 
 ### 强调色：aurora 渐变
 
-`--accent-grad`（135° indigo → violet → sky）是唯一的品牌渐变，只用于品牌触点：用户气泡、Agent 头像、NavRail logo、primary 按钮、发送按钮。运动渐变（text-shine 流光标题、live-border 呼吸边框）经 `--hue-violet` 在 accent→violet→info 间流动。
+`--accent-grad`（135° 深靛 `#4f46e5` → 深紫 `#7c3aed`）是唯一的品牌渐变——沉稳两段式，白字对比度达标；只用于品牌触点：用户气泡、Agent 头像、NavRail logo、primary 按钮、发送按钮。炫酷感由运动渐变承担：text-shine 流光标题、live-border 呼吸边框经 `--hue-violet` 在 accent→violet→info 间流动。品牌件配 `--shadow-brand`（顶部内高光 + 靛紫色晕）。
 
 ### 行动域色（domain hues）
 
@@ -73,13 +73,15 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 - **聊天气泡**：用户气泡 aurora 渐变 + shadow-brand（含顶部内高光）；Agent 回答卡 bg-elev + shadow-card。
 - **Composer**：e1 抬升输入卡（shadow-card），focus-within 时 accent 边框 + 统一焦点环。
 - **输入框**：bg-elev + line 边框；focus 时 accent 边框 + `--focus-ring`，不用 outline。
-- **JSON 树**：等宽 12.5px，key=info、字符串=success、数字=accent、布尔=warning、null=faint；对象/数组可折叠。
-- **终端块**（stdout/stderr/命令）：固定 `#0d1117` 深底，stderr 红、命令行蓝——双主题下保持一致的可读性；exit 0 用 success token。
+- **JSON 树**：等宽 12.5px，key=info、字符串=success、数字=accent、布尔=warning、null=faint；嵌套层级用 hairline 导轨线（`.jt-children` 左边线），行悬停微亮；`defaultExpanded` 全展开（LLM 面板内 JSON 默认展开），Raw/诊断视图显式传 false 保持折叠。
+- **引述块**（intent/reasoning/thinking 呈现）：accent 左边线 + 浅底色（`border-l-2 border-accent/40 bg-bg-sunken/60`），避免大面积 accent 色块并置；`md-calm` 将 Markdown 加粗降为 500，思考文本可读不喧闹。
+- **终端块**（stdout/stderr/命令）：固定 `#0d1117` 深底 + 细描边，stderr 红、命令行蓝——双主题下保持一致的可读性；exit 0 用 success token。
 - **Markdown**（`.md-body`）：紧凑标题层级、行内 code 灰底 accent 字、pre 圆角 code-bg、表格/引用/任务列表齐全。
 
 ## 动效
 
 - `fade-in`（0.18s）用于弹层与消息进入；`slide-in-right`（0.22s）用于抽屉；drawer 用 0.24s cubic-bezier 推入。
-- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`reveal`（0.45s 实体化）、`step-in`（0.3s 交错 + 纵深渐隐）。
+- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`reveal`（0.45s 实体化）、`step-in`（0.32s 交错 + 纵深渐隐）；活动 feed 经 600ms 最小驻留节流（`useThrottledValue`）。
+- LlmTaskDrawer 弹出用 `sub-drawer-in`（0.22s slide+settle）。
 - 交互反馈只用 `transition-colors`，不用 spring/scale；无限动效全部服务"运行中"语义。
 - `prefers-reduced-motion` 下禁用流光/呼吸/浮动类动效。

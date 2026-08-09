@@ -10,7 +10,8 @@
 
 进行中的用户轮在 Agent 行内展示 LiveStatus 实时状态卡（即主对话界面的浮动状态栏），全部从观察事件流派生：
 
-- **流光标题行**：陈述当前活动——思考中的阶段标题，或执行中的 action（registry 动词 + 目标，如 "编辑 workspace:report/draft.md"）；右侧为轮计时与当前 action/phase 计时。
+- **流光标题行**：陈述当前活动——思考中的阶段标题，或执行中的 action（registry 动词 + 目标，如 "编辑 workspace:report/draft.md"）；右侧为轮计时与当前 action/phase 计时（tabular-nums）。
+- **最小驻留节奏**：活动 feed 经 600ms 尾随节流（`useThrottledValue`），爆发式事件合并为平静可读的步伐，每条信息有最小显示时间；最新状态永不丢失，停止请求即时反馈不经过节流。
 - **思考流**：最新一条 reasoning summary 自动展开，新内容以 materialize 动画浮现。
 - **语义步骤栈**：最新在前的活动条目（intent + domain 胶囊、挂载 skills、todo/milestone、action），交错入场、纵深渐隐，溢出折叠为 "+N earlier steps"。action 条目是状态机（planned 空心点 → running 旋转 → succeeded/failed/timeout），并呈现两条信息：上行 stage2 调用语义（编辑的目标文件、检索意图、待访问链接、待执行命令、inspect/recall 目标），下行 stage3 结果摘要（exit code、结果数、revision、行数）。
 - **Action 内联详情（ActionGlimpse）**：步骤栈中运行中的 action 披露其 stage2 输入（命令行、patch 迷你 diff、生成 instruction、memorize 操作清单），最近完成的 action 披露其 stage3 结果要点（输出尾部、检索前三条、抓取标题摘要、diff 统计 +N/−M、失败 feedback）。保持紧凑，完整呈现归 TurnTraceDrawer。
@@ -26,9 +27,9 @@
 - **CycleSection（可折叠）**：折叠时显示状态徽标、选中的 action domain 胶囊标签、动作/LLM 调用/耗时统计；展开后呈现三个默认折叠的 PhaseSection 行。
 - **PhaseSection（折叠即语义）**：不解释"phase 是什么"，直接陈述"phase 做了什么"——
   - Phase1：折叠直接展示选中的 domain 胶囊，文案为 "Selected N domains" / 运行中 "Maintaining context and selecting domains…"。
-  - Phase2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent），文案为 "Planned 2 actions: 编辑 workspace:x.md" / "Editing workspace:x.md (1/2)" / "2 actions executed · 1 failed"。
-  - 展开后呈现完整语义：推理思考（reasoning summary，Markdown 渲染）、control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、ActionCard 输入输出、工作区变更。
-- **LlmTaskDrawer 子抽屉**：Phase 折叠行右侧的 accent 胶囊按钮（Brain 图标 + "context"/"N calls"）是唯一入口，不展开 Phase 即可直接唤出最近一次任务；子抽屉从主抽屉**左侧**拉出，展示该次任务的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区与逐条 message 均可折叠）、Tools offered（胶囊标签，点击展开 description、kind/strict 徽标与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。
+  - Phase2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent）；Phase2 文案为 "Planned N actions"（折叠行宽度有限，动作语义由胶囊与展开卡片承担），Phase3 运行中为 "Editing workspace:x.md (1/2)"、完成为 "2 actions executed · 1 failed"。折叠行副标题的 intent/reasoning 预览经纯文本化（`plainExcerpt` 剥除 markdown 记号）。
+  - 展开后呈现完整语义：意图与推理思考以引述式块呈现（accent 左边线 + 浅底，避免大面积色块并置突兀；`md-calm` 柔化加粗），control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、ActionCard 输入输出、工作区变更。
+- **LlmTaskDrawer 子抽屉**：Phase 折叠行右侧的 accent 胶囊按钮（Brain 图标 + "context"/"N calls"）是唯一入口，不展开 Phase 即可直接唤出最近一次任务；子抽屉从主抽屉**左侧**弹出（简约 slide+settle 动效，点击面板外收回），头部两行布局（标题行 + 模型/用量元信息行，窄窗口不重叠），展示该次任务的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区可折叠，内部 JSON 字段默认展开）、Tools offered（胶囊标签，点击展开 description、kind/strict 徽标与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。
 - **ActivityTimeline**：全量语义活动时间线（kind 过滤、时钟时间、点击锚定 ActionCard 并闪烁高亮）。
 - **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 任务（Request+Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
 

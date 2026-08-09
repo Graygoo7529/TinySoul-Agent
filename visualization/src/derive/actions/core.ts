@@ -12,7 +12,7 @@ export const CORE_ACTIONS: ActionDescriptor[] = [
     action: "core.answer",
     verb: "Composing answer",
     family: "answer",
-    summarizeCall: () => ({ headline: "撰写回答" }),
+    summarizeCall: () => ({ headline: "进行回答" }),
   },
   {
     action: "core.reason",

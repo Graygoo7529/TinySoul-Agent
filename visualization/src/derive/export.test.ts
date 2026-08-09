@@ -102,7 +102,7 @@ describe("phase summaries", () => {
 
   it("states what each phase did in one direct line", () => {
     expect(phaseHeadline(phase1)).toBe("Selected 1 domain");
-    expect(phaseHeadline(phase2)).toBe("Planned 1 action: 生成 workspace:x.md");
+    expect(phaseHeadline(phase2)).toBe("Planned 1 action");
     expect(phaseHeadline(phase3)).toBe("1 action executed successfully");
   });
 });

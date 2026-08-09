@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { ModelTask, PhaseStep } from "../../derive/model";
 import { phaseHeadline, selectedDomains, selectIntent } from "../../derive/phaseSummary";
-import { firstLine, truncate } from "../../derive/activitySemantics";
+import { plainExcerpt, truncate } from "../../derive/activitySemantics";
 import { formatDuration } from "../../utils/format";
 import { Markdown } from "../markdown/Markdown";
 import { ControlOpsView } from "./ControlOpsView";
@@ -40,7 +40,7 @@ export function PhaseSection({
   const previewLine = intent
     ? `“${truncate(intent.replace(/\s+/g, " "), 110)}”`
     : reasoningPreview
-      ? firstLine(reasoningPreview, 110)
+      ? plainExcerpt(reasoningPreview, 110)
       : undefined;
 
   return (
@@ -165,19 +165,19 @@ function PhaseDetail({ phase }: { phase: PhaseStep }) {
   return (
     <>
       {phase.phase === "phase1" && selectIntent(phase) && (
-        <div className="rounded-lg bg-accent-soft px-2.5 py-2 text-[12px] leading-5 text-fg">
+        <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2 text-[12px] leading-5 text-fg">
           <span className="font-medium text-accent">Intent: </span>
           {selectIntent(phase)}
         </div>
       )}
 
       {reasoning && (
-        <div className="rounded-lg bg-accent-soft px-2.5 py-2">
+        <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
           <div className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold tracking-wide text-accent uppercase">
             <Brain size={10} />
             Reasoning
           </div>
-          <Markdown className="text-[12px] text-fg-muted">{reasoning}</Markdown>
+          <Markdown className="md-calm text-[12px] text-fg-muted">{reasoning}</Markdown>
         </div>
       )}
 

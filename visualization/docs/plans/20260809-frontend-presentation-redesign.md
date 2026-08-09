@@ -146,3 +146,15 @@ export interface ActionDescriptor {
 1. `docs/demand/20260809-action-result-content-preview.md`：编辑/生成类 action result 增加内容预览/diff（前端短期用 params diff + `/v1/workspace/resource` 补拉）。
 2. `docs/demand/20260809-action-execution-started-event.md`：`action.execution.started` 事件（并发批次精确标识运行项；phase3 镜像启发式已够用）。
 3. mounted skills 结构化事件（`docs/demand/20260808-mounted-skills-event.md`，维持 pending）。
+
+---
+
+## 细节微调（done，2026-08-09 第二轮，维护者反馈驱动）
+
+1. **用户气泡沉稳化**：`--accent-grad` 改为深靛→深紫两段渐变（白字对比度达标，双主题同值）；`--shadow-brand` 同步靛紫色晕。炫酷感保留在运动渐变（text-shine/live-border 的 accent→violet→info）。
+2. **LiveStatus 节奏**：新增 `hooks/useThrottledValue.ts`（600ms 尾随节流），activity 与 currentActivity 最小驻留显示，停止请求绕过节流；step-in 动效柔化（位移 6→4px、时长 0.32s）。
+3. **PhaseSection**：折叠行 reasoning 预览用 `plainExcerpt` 剥除 markdown 记号；Phase2 折叠文案改为纯 "Planned N actions"；intent/reasoning 块改引述式（accent 左边线 + 浅底，替代 accent-soft 大色块）；新增 `.md-calm` 将思考文本加粗降为 500（PhaseSection/LlmTaskDrawer/LiveStatus/ActivityStep 统一）；core.answer 文案 "撰写回答" → "进行回答"。
+4. **LlmTaskDrawer**：头部重构为两行（标题行 + 模型/用量元信息行，窄窗口不重叠）；新增 `sub-drawer-in` 弹出动效与点击面板外收回（`--z-subdrawer-overlay: 65`）；抽屉内 JSON 默认展开；JsonTree 重构——嵌套 hairline 导轨线、行悬停、`defaultExpanded` 语义改为全展开（Raw/诊断视图显式 false 不变）。
+5. **走查**：终端块加细描边；确认 NavRail/StatusBar/Card 等无遗留漂移。
+
+验收：`pnpm test` 62 全绿、`pnpm build` 通过。

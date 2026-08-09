@@ -33,41 +33,54 @@ export function LlmTaskDrawer({
   const output = numOf(usage?.output_tokens ?? usage?.completion_tokens);
 
   return (
-    <aside
-      className="animate-slide-in-right glass-panel fixed inset-y-0 left-0 z-(--z-subdrawer) flex flex-col border-r border-line shadow-pop"
-      style={{ right: MAIN_DRAWER_WIDTH }}
-    >
-      <div className="flex items-center gap-2.5 border-b border-line bg-bg-elev px-4 py-3">
-        <Brain size={15} className="shrink-0 text-accent" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">LLM Task</span>
-            <Badge tone="accent" className="font-mono text-[10px]">
+    <>
+      {/* click outside the sub-drawer to dismiss it */}
+      <div className="fixed inset-0 z-(--z-subdrawer-overlay)" onClick={onClose} />
+      <aside
+        className="animate-sub-drawer-in glass-panel fixed inset-y-0 left-0 z-(--z-subdrawer) flex flex-col border-r border-line shadow-pop"
+        style={{ right: MAIN_DRAWER_WIDTH }}
+      >
+        <div className="border-b border-line bg-bg-elev px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Brain size={15} className="shrink-0 text-accent" />
+            <span className="shrink-0 text-sm font-semibold">LLM Task</span>
+            <Badge tone="accent" className="shrink-0 font-mono text-[10px]">
               {task.profile ?? "task"}
             </Badge>
-            <span className="text-[11px] text-fg-faint">{PHASE_META[phase.phase].title}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-fg-faint">
+              {PHASE_META[phase.phase].title}
+            </span>
+            <Badge
+              tone={
+                task.status === "completed"
+                  ? "green"
+                  : task.status === "failed"
+                    ? "red"
+                    : "accent"
+              }
+            >
+              {task.status}
+            </Badge>
+            <IconButton label="Close" onClick={onClose}>
+              <X size={15} />
+            </IconButton>
           </div>
-          <div className="mt-0.5 truncate font-mono text-[11px] text-fg-faint">
-            {request?.model_id ?? response?.model_id ?? task.taskId}
-            {request?.provider_model ? ` · ${request.provider_model}` : ""}
-            {request && request.attempt > 1 ? ` · attempt ${request.attempt}` : ""}
+          <div className="mt-1.5 flex items-center gap-2 pl-[27px]">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-faint">
+              {request?.model_id ?? response?.model_id ?? task.taskId}
+              {request?.provider_model ? ` · ${request.provider_model}` : ""}
+              {request && request.attempt > 1 ? ` · attempt ${request.attempt}` : ""}
+            </span>
+            {(input || output) && (
+              <Badge tone="gray" className="shrink-0 font-mono tabular-nums">
+                {formatTokens(input)} → {formatTokens(output)}
+              </Badge>
+            )}
+            <span className="shrink-0 font-mono text-[10px] text-fg-faint tabular-nums">
+              {formatDuration(task.startedAt, task.completedAt)}
+            </span>
           </div>
         </div>
-        {(input || output) && (
-          <Badge tone="gray" className="font-mono tabular-nums">
-            {formatTokens(input)} → {formatTokens(output)}
-          </Badge>
-        )}
-        <Badge tone={task.status === "completed" ? "green" : task.status === "failed" ? "red" : "accent"}>
-          {task.status}
-        </Badge>
-        <span className="font-mono text-[10px] text-fg-faint">
-          {formatDuration(task.startedAt, task.completedAt)}
-        </span>
-        <IconButton label="Close" onClick={onClose}>
-          <X size={15} />
-        </IconButton>
-      </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {request ? (
@@ -93,11 +106,11 @@ export function LlmTaskDrawer({
           <DrawerSection title="Response" defaultOpen>
             <div className="space-y-2">
               {response.reasoning?.summary && (
-                <div className="rounded-lg bg-accent-soft px-2.5 py-2">
+                <div className="rounded-r-lg border-l-2 border-accent/40 bg-bg-sunken/60 px-3 py-2">
                   <div className="mb-1 text-[10px] font-semibold tracking-wide text-accent uppercase">
                     Reasoning
                   </div>
-                  <Markdown className="text-[12px] text-fg-muted">
+                  <Markdown className="md-calm text-[12px] text-fg-muted">
                     {response.reasoning.summary}
                   </Markdown>
                 </div>
@@ -123,7 +136,7 @@ export function LlmTaskDrawer({
                         </span>
                         <span className="font-mono text-[10px] text-fg-faint">{call.id}</span>
                       </div>
-                      <JsonTree value={call.arguments} defaultExpanded={false} />
+                      <JsonTree value={call.arguments} />
                     </div>
                   ))}
                 </div>
@@ -142,7 +155,8 @@ export function LlmTaskDrawer({
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 
@@ -195,7 +209,7 @@ function ToolsOffered({ tools }: { tools: import("../../derive/model").ToolSpecV
               <div className="mb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
                 Parameters schema
               </div>
-              <JsonTree value={current.parameters} defaultExpanded={false} />
+              <JsonTree value={current.parameters} />
             </div>
           )}
         </div>

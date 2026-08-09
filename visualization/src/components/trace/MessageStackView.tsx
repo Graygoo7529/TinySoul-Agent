@@ -196,7 +196,7 @@ function MessageView({ message, index }: { message: ModelMessage; index: number 
                     </span>
                     <span className="font-mono text-[10px] text-fg-faint">{call.id}</span>
                   </div>
-                  <JsonTree value={call.arguments} defaultExpanded={false} />
+                  <JsonTree value={call.arguments} />
                 </div>
               ))}
             </div>
@@ -241,7 +241,7 @@ function PartView({ part }: { part: MessagePart }) {
       );
     }
     case "json":
-      return <JsonTree value={part.value} defaultExpanded={false} />;
+      return <JsonTree value={part.value} />;
     case "image":
       return (
         <div className="flex items-center gap-2 rounded-lg border border-line bg-bg-elev px-2.5 py-1.5 text-[11px] text-fg-muted">
@@ -258,6 +258,6 @@ function PartView({ part }: { part: MessagePart }) {
         </div>
       );
     default:
-      return <JsonTree value={part} defaultExpanded={false} />;
+      return <JsonTree value={part} />;
   }
 }

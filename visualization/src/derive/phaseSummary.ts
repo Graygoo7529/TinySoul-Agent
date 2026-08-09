@@ -63,11 +63,10 @@ export function phaseHeadline(phase: PhaseStep): string {
       return running ? "Maintaining context and selecting domains…" : "Context maintenance";
     }
     case "phase2": {
+      // Collapsed rows are narrow: the bare count stays readable, per-action
+      // semantics live in the chips and the expanded cards.
       if (phase.actions.length > 0) {
-        const headlines = phase.actions.map(
-          (a) => descriptorFor(a.action).summarizeCall(a.params).headline,
-        );
-        return `Planned ${headlines.length} action${headlines.length > 1 ? "s" : ""}: ${headlines.join(", ")}`;
+        return `Planned ${phase.actions.length} action${phase.actions.length > 1 ? "s" : ""}`;
       }
       return running ? "Generating action parameters…" : "No actions planned";
     }

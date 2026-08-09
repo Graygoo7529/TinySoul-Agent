@@ -12,6 +12,7 @@ import type { ActionRecord, ActivityItem, ChatTurn } from "../../derive/model";
 import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
+import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { ActivityStep } from "./ActivityStep";
@@ -36,7 +37,12 @@ const STEP_COUNT = 5;
 export function LiveStatus({ turn }: { turn: ChatTurn }) {
   useNow(true, 1000);
   const stopPending = useAppStore((s) => s.stopPending);
-  const activity = turn.activity;
+  // The activity feed can burst several entries per second; throttle so each
+  // step stays visible for a calm minimum dwell (trailing edge never drops
+  // the latest state). Stop requests bypass the throttle for instant
+  // feedback, since they change the override text, not the feed.
+  const activity = useThrottledValue(turn.activity, 600);
+  const currentActivity = useThrottledValue(turn.currentActivity, 600);
 
   const latestThinkingIndex = findLastIndex(activity, (a) => a.kind === "thinking");
   const thought = latestThinkingIndex >= 0 ? activity[latestThinkingIndex] : undefined;
@@ -53,11 +59,11 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
 
   const headline = stopPending
     ? "Stopping turn…"
-    : (turn.currentActivity?.label ?? "Thinking…");
-  const headlineDetail = stopPending ? undefined : turn.currentActivity?.detail;
+    : (currentActivity?.label ?? "Thinking…");
+  const headlineDetail = stopPending ? undefined : currentActivity?.detail;
 
   const runningAction = findRunningAction(turn);
-  const runningPhase = turn.currentActivity?.phase;
+  const runningPhase = currentActivity?.phase;
 
   // Action records by call id (phase3 mirrors carry the result, so later
   // writes win); drives the inline glimpses in the step stack.
@@ -195,7 +201,7 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           collapsible && !expanded ? "line-clamp-3" : ""
         }`}
       >
-        <Markdown className="text-[12px] leading-5 text-fg-muted">{full}</Markdown>
+        <Markdown className="md-calm text-[12px] leading-5 text-fg-muted">{full}</Markdown>
       </div>
     </div>
   );
