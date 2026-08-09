@@ -16,7 +16,7 @@ const PAGE = 200;
  * level filtering, text search and expandable payloads. This is the
  * uninterpreted counterpart of the chat view's derived presentation.
  */
-export function EventsView() {
+export function MonitorView() {
   const events = useAppStore((s) => s.events);
   const [level, setLevel] = useState<LevelFilter>("all");
   const [query, setQuery] = useState("");
@@ -56,7 +56,7 @@ export function EventsView() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter events…"
-            className="h-8 w-full rounded-lg border border-line bg-bg-elev pr-3 pl-8 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            className="h-8 w-full rounded-lg border border-line bg-bg-elev pr-3 pl-8 text-[13px] outline-none focus-ring focus:border-accent"
           />
         </div>
       </div>

@@ -8,24 +8,30 @@ import {
   Loader2,
   XCircle,
 } from "lucide-react";
-import type { ActivityItem, ChatTurn } from "../../derive/model";
+import type { ActionRecord, ActivityItem, ChatTurn } from "../../derive/model";
+import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { ActivityStep } from "./ActivityStep";
+import { ActionGlimpse } from "./ActionGlimpse";
 
 const STEP_COUNT = 5;
 
 /**
- * Live status disclosure for a running turn.
+ * Live status disclosure for a running turn (the floating activity card in
+ * the chat view).
  *
  * Layout, top to bottom: a shine-swept headline naming the current activity,
  * the thinking stream (the latest reasoning summary, auto-expanded and
  * revealed with a materializing animation), a staggered stack of the most
  * recent semantic steps (intent + domains, mounted skills, action targets,
  * context loads…), and the steady working-state zone with todos/milestones.
- * The whole card breathes a gradient border while the turn runs.
+ * The running action and the latest settled action carry an ActionGlimpse —
+ * an inline family-specific detail disclosing the stage-2 input (command,
+ * diff, instruction) or the stage-3 result gist (output tail, search hits,
+ * diff stat). The whole card breathes a gradient border while the turn runs.
  */
 export function LiveStatus({ turn }: { turn: ChatTurn }) {
   useNow(true, 1000);
@@ -53,6 +59,29 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
   const runningAction = findRunningAction(turn);
   const runningPhase = turn.currentActivity?.phase;
 
+  // Action records by call id (phase3 mirrors carry the result, so later
+  // writes win); drives the inline glimpses in the step stack.
+  const recordByCallId = actionRecordsByCallId(turn);
+  // Only the latest settled action shows its result gist; older ones stay
+  // one-liners so the stack does not turn into a second trace drawer.
+  const latestSettledCallId = steps.find(
+    ({ item }) =>
+      item.action &&
+      item.callId &&
+      (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
+  )?.item.callId;
+
+  const glimpseFor = (item: ActivityItem) => {
+    if (!item.action || !item.callId) return undefined;
+    const record = recordByCallId.get(item.callId);
+    if (!record) return undefined;
+    if (item.status === "running") return <ActionGlimpse record={record} mode="running" />;
+    if (item.callId === latestSettledCallId && record.result) {
+      return <ActionGlimpse record={record} mode="done" />;
+    }
+    return undefined;
+  };
+
   return (
     <div className={stopPending ? "rounded-xl border border-danger/40 p-px" : "live-border"}>
       <div className="overflow-hidden rounded-[11px] bg-bg-elev">
@@ -79,11 +108,11 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
               </span>
             )}
           </div>
-          <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint">
+          <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{formatDuration(turn.startedAt)}</div>
             {runningAction && (
               <div title={runningAction.action}>
-                action {formatDuration(runningAction.startedAt)}
+                {actionVerb(runningAction.action)} {formatDuration(runningAction.startedAt)}
               </div>
             )}
             {!runningAction && runningPhase && turn.cycles.length > 0 && (
@@ -116,7 +145,7 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
                   } as React.CSSProperties
                 }
               >
-                <ActivityStep item={item} />
+                <ActivityStep item={item} glimpse={glimpseFor(item)} />
               </div>
             ))}
             {(overflow > 0 || showAll) && (
@@ -242,10 +271,25 @@ function findRunningAction(turn: ChatTurn) {
   for (let i = turn.cycles.length - 1; i >= 0; i--) {
     const phase3 = turn.cycles[i].phases.find((p) => p.phase === "phase3");
     if (!phase3) continue;
-    const running = [...phase3.actions].reverse().find((a) => !a.result);
+    // Phase3 mirrors planned calls up front; the first result-less record is
+    // the one the derive layer marks running (results claim them in order).
+    const running = phase3.actions.find((a) => !a.result);
     if (running) return running;
   }
   return null;
+}
+
+/** Index every action record by call id; phase3 mirrors (with results) win. */
+function actionRecordsByCallId(turn: ChatTurn): Map<string, ActionRecord> {
+  const map = new Map<string, ActionRecord>();
+  for (const cycle of turn.cycles) {
+    for (const phase of cycle.phases) {
+      for (const record of phase.actions) {
+        map.set(record.callId, record);
+      }
+    }
+  }
+  return map;
 }
 
 function findLastIndex<T>(list: T[], predicate: (item: T) => boolean): number {

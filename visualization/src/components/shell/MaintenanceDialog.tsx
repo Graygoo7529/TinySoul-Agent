@@ -18,7 +18,7 @@ import { Modal } from "../ui/Modal";
  * nothing is pending the manual commands stay collapsed behind a disclosure;
  * when something is pending the relevant action is presented directly.
  */
-export function MaintenancePanel() {
+export function MaintenanceDialog() {
   const open = useAppStore((s) => s.maintenanceOpen);
   const setOpen = useAppStore((s) => s.setMaintenanceOpen);
   const client = useAppStore((s) => s.client);

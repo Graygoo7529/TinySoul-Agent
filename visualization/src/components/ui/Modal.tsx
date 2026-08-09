@@ -23,13 +23,13 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-(--z-drawer) flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <div
-        className={`animate-fade-in max-h-[85vh] w-full ${width} overflow-hidden rounded-xl border border-line bg-bg-elev shadow-(--shadow-pop)`}
+        className={`animate-fade-in max-h-[85vh] w-full ${width} overflow-hidden rounded-xl border border-line bg-bg-elev shadow-pop`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="text-sm font-semibold">{title}</div>

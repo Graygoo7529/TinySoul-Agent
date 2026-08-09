@@ -13,7 +13,7 @@ import { LiveStatus } from "./LiveStatus";
  * plus a footer with turn metadata and the trace-drawer entry.
  */
 export function TurnView({ turn }: { turn: ChatTurn }) {
-  const openTurnDetail = useAppStore((s) => s.openTurnDetail);
+  const openTurnTrace = useAppStore((s) => s.openTurnTrace);
   const running = turn.status === "running";
   const stats = turn.actionStats;
 
@@ -21,14 +21,14 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
     <div className="animate-fade-in space-y-3">
       {turn.userMessages.map((message, i) => (
         <div key={i} className="flex justify-end">
-          <div className="bg-accent-grad max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words text-white shadow-sm">
+          <div className="bg-accent-grad max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words text-white shadow-brand">
             {message}
           </div>
         </div>
       ))}
 
       <div className="flex gap-2.5">
-        <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm">
+        <div className="bg-accent-grad mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-brand">
           <Bot size={15} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
@@ -113,7 +113,7 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
                 variant="ghost"
                 size="xs"
                 className="ml-auto"
-                onClick={() => openTurnDetail(turn.turnId)}
+                onClick={() => openTurnTrace(turn.turnId)}
               >
                 <PanelRightOpen size={12} />
                 Details
@@ -127,7 +127,7 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
                 variant="ghost"
                 size="xs"
                 className="ml-auto"
-                onClick={() => openTurnDetail(turn.turnId)}
+                onClick={() => openTurnTrace(turn.turnId)}
               >
                 <PanelRightOpen size={12} />
                 Details

@@ -73,7 +73,7 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
   return (
     <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-xl border border-line-strong bg-bg-elev shadow-sm transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">
+        <div className="rounded-xl border border-line-strong bg-bg-elev shadow-card transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-(--focus-ring)">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -138,7 +138,7 @@ function SendButton({
       onClick={onClick}
       disabled={!canSend}
       title="Send"
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-white shadow-sm transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-accent-grad text-white shadow-brand transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Send size={14} className={sending ? "animate-pulse-dot" : ""} />
     </button>

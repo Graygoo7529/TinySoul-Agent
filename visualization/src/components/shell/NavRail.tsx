@@ -8,7 +8,7 @@ const navItems: { tab: AppTab; label: string; icon: typeof MessageSquareText }[]
   { tab: "monitor", label: "Monitor", icon: Activity },
 ];
 
-export function Sidebar() {
+export function NavRail() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const theme = useAppStore((s) => s.theme);
@@ -18,7 +18,7 @@ export function Sidebar() {
 
   return (
     <nav className="flex w-[52px] shrink-0 flex-col items-center border-r border-line bg-bg-elev py-3">
-      <div className="bg-accent-grad mb-4 flex h-8 w-8 items-center justify-center rounded-lg text-white shadow-sm">
+      <div className="bg-accent-grad mb-4 flex h-8 w-8 items-center justify-center rounded-lg text-white shadow-brand">
         <Bot size={18} />
       </div>
       <div className="flex flex-col gap-1">
@@ -28,12 +28,15 @@ export function Sidebar() {
             onClick={() => setActiveTab(tab)}
             disabled={!connected}
             title={label}
-            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+            className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
               activeTab === tab
-                ? "bg-accent-soft text-accent"
+                ? "bg-active text-accent"
                 : "text-fg-muted hover:bg-hover hover:text-fg"
             }`}
           >
+            {activeTab === tab && (
+              <span className="absolute top-1/2 -left-2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent" />
+            )}
             <Icon size={17} />
           </button>
         ))}

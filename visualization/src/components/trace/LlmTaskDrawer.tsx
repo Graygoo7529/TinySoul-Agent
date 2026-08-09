@@ -12,12 +12,12 @@ import { MessageStackView } from "./MessageStackView";
 export const MAIN_DRAWER_WIDTH = "min(640px, 94vw)";
 
 /**
- * The LLM-call sub-drawer: slides out to the LEFT of the turn trace drawer
- * and shows one model call in full — the segmented request message stack
+ * The LLM-task sub-drawer: slides out to the LEFT of the turn trace drawer
+ * and shows one model task in full — the segmented request message stack
  * (Identity / User Inputs / Background / …, each collapsible), the offered
  * tools, and the response (reasoning, answer, tool calls, usage).
  */
-export function LlmCallDrawer({
+export function LlmTaskDrawer({
   task,
   phase,
   onClose,
@@ -34,14 +34,14 @@ export function LlmCallDrawer({
 
   return (
     <aside
-      className="animate-slide-in-right fixed inset-y-0 left-0 z-[70] flex flex-col border-r border-line bg-bg shadow-(--shadow-pop)"
+      className="animate-slide-in-right glass-panel fixed inset-y-0 left-0 z-(--z-subdrawer) flex flex-col border-r border-line shadow-pop"
       style={{ right: MAIN_DRAWER_WIDTH }}
     >
       <div className="flex items-center gap-2.5 border-b border-line bg-bg-elev px-4 py-3">
         <Brain size={15} className="shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">LLM Call</span>
+            <span className="text-sm font-semibold">LLM Task</span>
             <Badge tone="accent" className="font-mono text-[10px]">
               {task.profile ?? "task"}
             </Badge>
@@ -54,7 +54,7 @@ export function LlmCallDrawer({
           </div>
         </div>
         {(input || output) && (
-          <Badge tone="gray" className="font-mono">
+          <Badge tone="gray" className="font-mono tabular-nums">
             {formatTokens(input)} → {formatTokens(output)}
           </Badge>
         )}

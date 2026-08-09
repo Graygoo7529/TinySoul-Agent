@@ -9,10 +9,10 @@ import { Markdown } from "../markdown/Markdown";
 import { LinkChip } from "../trace/semantic";
 
 /**
- * Right slide-over showing the current BackgroundContext: the top-level
- * links loaded into the model's background, with their full content.
+ * Right slide-over drawer showing the current BackgroundContext: the
+ * top-level links loaded into the model's background, with full content.
  */
-export function BackgroundPanel() {
+export function BackgroundDrawer() {
   const open = useAppStore((s) => s.backgroundOpen);
   const setOpen = useAppStore((s) => s.setBackgroundOpen);
   const events = useAppStore((s) => s.events);
@@ -21,7 +21,7 @@ export function BackgroundPanel() {
   if (!open) return null;
 
   return (
-    <aside className="animate-slide-in-right fixed inset-y-0 right-0 z-40 flex w-[min(460px,90vw)] flex-col border-l border-line bg-bg shadow-(--shadow-pop)">
+    <aside className="animate-slide-in-right glass-panel fixed inset-y-0 right-0 z-(--z-overlay) flex w-[min(460px,90vw)] flex-col border-l border-line shadow-pop">
       <div className="flex items-center gap-2 border-b border-line bg-bg-elev px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">Background Context</div>

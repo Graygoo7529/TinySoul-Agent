@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { ActionRecord } from "../../derive/model";
+import type { ActionFailure, ActionRecord } from "../../derive/model";
+import { descriptorFor } from "../../derive/actions/registry";
+import { targetLabel } from "../../derive/activitySemantics";
 import { formatDuration } from "../../utils/format";
 import { Badge } from "../ui/Badge";
 import { JsonTree } from "../ui/JsonTree";
-import { ActionStatusBadge, DomainChip, actionIcon } from "./semantic";
-import { ActionResultBody, ActionInputPreview } from "./actionRenderers";
+import { ActionStatusBadge, DomainChip, actionIcon, domainHueClasses } from "./semantic";
+import { ActionInputView, ActionOutputView } from "./renderers/FamilyView";
 
 /**
- * One action call. In Phase2 it shows the planned call with its generated
- * parameters; in Phase3 it additionally discloses the execution result with
- * domain-aware rendering (documents, terminal output, web results, …) plus
- * the raw payload for full transparency.
+ * One action call. The header speaks the presentation registry (family icon,
+ * verb, semantic target); the body discloses the family-rendered input and —
+ * in Phase3 — the execution result with the full failure tuple, the raw
+ * payload and execution diagnostics for full transparency.
  */
 export function ActionCard({
   action,
@@ -21,7 +23,10 @@ export function ActionCard({
   mode: "planned" | "executed";
 }) {
   const [open, setOpen] = useState(false);
-  const Icon = actionIcon(action.domain);
+  const descriptor = descriptorFor(action.action);
+  const call = descriptor.summarizeCall(action.params);
+  const Icon = actionIcon(descriptor.family);
+  const target = targetLabel(call.target);
   const result = action.result;
   const failed = result && result.status !== "success";
 
@@ -40,11 +45,19 @@ export function ActionCard({
           size={13}
           className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
         />
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-bg-elev text-fg-muted">
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${domainHueClasses(action.domain)}`}>
           <Icon size={13} />
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-medium text-fg">
-          {action.action}
+        <span className="min-w-0 flex-1 truncate text-[12px]" title={action.action}>
+          <span className="font-medium text-fg">{descriptor.verb}</span>
+          {target && (
+            <span className="ml-1.5 font-mono text-[11px] text-fg-muted">
+              {target}
+            </span>
+          )}
+          {call.chips && call.chips.length > 0 && (
+            <span className="ml-1.5 text-[10px] text-fg-faint">{call.chips.join(" · ")}</span>
+          )}
         </span>
         <DomainChip domain={action.domain} />
         {mode === "planned" ? (
@@ -70,7 +83,7 @@ export function ActionCard({
             <div className="mb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
               Input
             </div>
-            <ActionInputPreview action={action} />
+            <ActionInputView action={action} />
             <details className="mt-1.5">
               <summary className="cursor-pointer text-[11px] text-fg-faint select-none hover:text-fg-muted">
                 Raw parameters
@@ -85,20 +98,10 @@ export function ActionCard({
           {mode === "executed" && result && (
             <div>
               <div className="mb-1 text-[10px] font-semibold tracking-wide text-fg-faint uppercase">
-                Output · {result.stage}
+                Output · stage: {result.stage}
               </div>
-              {result.failure && (
-                <div className="mb-2 rounded-lg border border-danger/30 bg-danger-soft px-2.5 py-2 text-[12px] text-danger">
-                  <div className="font-medium">
-                    {result.failure.reason ?? "failed"}
-                    {result.failure.scope ? ` · ${result.failure.scope}` : ""}
-                  </div>
-                  {result.failure.feedback && (
-                    <div className="mt-0.5 text-danger/90">{result.failure.feedback}</div>
-                  )}
-                </div>
-              )}
-              <ActionResultBody action={action} />
+              {result.failure && <FailureBox failure={result.failure} />}
+              <ActionOutputView action={action} />
               {result.payload && Object.keys(result.payload).length > 0 && (
                 <details className="mt-1.5">
                   <summary className="cursor-pointer text-[11px] text-fg-faint select-none hover:text-fg-muted">
@@ -109,8 +112,45 @@ export function ActionCard({
                   </div>
                 </details>
               )}
+              {(result.frame_data || action.invokeId || action.batchId) && (
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-[11px] text-fg-faint select-none hover:text-fg-muted">
+                    Diagnostics
+                  </summary>
+                  <div className="mt-1 space-y-1.5">
+                    {(action.invokeId || action.batchId) && (
+                      <div className="flex flex-wrap gap-x-3 font-mono text-[10px] text-fg-faint">
+                        {action.invokeId && <span>invoke {action.invokeId}</span>}
+                        {action.batchId && <span>batch {action.batchId}</span>}
+                      </div>
+                    )}
+                    {result.frame_data && (
+                      <JsonTree value={result.frame_data} defaultExpanded={false} />
+                    )}
+                  </div>
+                </details>
+              )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The full failure tuple: reason, scope, disposition, feedback, constraint. */
+function FailureBox({ failure }: { failure: ActionFailure }) {
+  return (
+    <div className="mb-2 rounded-lg border border-danger/30 bg-danger-soft px-2.5 py-2 text-[12px] text-danger">
+      <div className="font-medium">
+        {failure.reason ?? "failed"}
+        {failure.scope ? ` · ${failure.scope}` : ""}
+      </div>
+      {failure.feedback && <div className="mt-0.5 text-danger/90">{failure.feedback}</div>}
+      {(failure.disposition || failure.constraint) && (
+        <div className="mt-1 space-y-0.5 font-mono text-[10px] text-danger/80">
+          {failure.disposition && <div>disposition: {failure.disposition}</div>}
+          {failure.constraint && <div>constraint: {failure.constraint}</div>}
         </div>
       )}
     </div>

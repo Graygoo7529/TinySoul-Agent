@@ -31,14 +31,12 @@ import type {
 } from "./model";
 import { PHASE_META } from "./model";
 import {
-  actionTargetOf,
-  actionVerb,
   isSkillLink,
   plainExcerpt,
-  resultSummaryOf,
   skillNameOf,
   targetLabel,
 } from "./activitySemantics";
+import { descriptorFor, resultSummaryFor } from "./actions/registry";
 
 const MAX_ACTIVITY = 120;
 
@@ -96,6 +94,18 @@ export function buildChatTurns(
   let currentTurnId: string | null = null;
   let currentCycleId: string | null = null;
   let currentPhase: PhaseName | null = null;
+
+  // call_id → activity entry, per turn. Action entries mutate through the
+  // planned → running → done state machine as phase2/phase3 events arrive.
+  const actionEntriesByTurn = new Map<string, Map<string, ActivityItem>>();
+  const actionEntriesOf = (turnId: string) => {
+    let entries = actionEntriesByTurn.get(turnId);
+    if (!entries) {
+      entries = new Map();
+      actionEntriesByTurn.set(turnId, entries);
+    }
+    return entries;
+  };
 
   for (const ev of events) {
     const turnFrame = ev.scope.find((f) => f.level === "turn");
@@ -193,7 +203,11 @@ export function buildChatTurns(
       }
       case "loop.phase.started":
       case "loop.phase.completed": {
-        applyPhaseEvent(turn, ev, currentCycleId);
+        applyPhaseEvent(turn, ev, currentCycleId, actionEntriesOf(turnId));
+        break;
+      }
+      case "action.batch.started": {
+        applyBatchStarted(turn, ev, currentCycleId, actionEntriesOf(turnId));
         break;
       }
       case "action.call": {
@@ -201,7 +215,7 @@ export function buildChatTurns(
         break;
       }
       case "action.result": {
-        applyActionResult(turn, ev);
+        applyActionResult(turn, ev, actionEntriesOf(turnId));
         break;
       }
       case "llm.task.started":
@@ -337,7 +351,12 @@ function getPhase(cycle: Cycle, phaseName: PhaseName): PhaseStep {
   return phase;
 }
 
-function applyPhaseEvent(turn: ChatTurn, ev: EndpointEvent, cycleId: string | null) {
+function applyPhaseEvent(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  actionEntries: Map<string, ActivityItem>,
+) {
   const cycle = getCycle(turn, cycleId, ev.created_at);
   if (!cycle) return;
   const phaseName = ev.payload?.phase as PhaseName;
@@ -346,10 +365,87 @@ function applyPhaseEvent(turn: ChatTurn, ev: EndpointEvent, cycleId: string | nu
   if (ev.name === "loop.phase.started") {
     phase.status = "running";
     phase.startedAt = ev.created_at;
+    if (phaseName === "phase3") {
+      mirrorPlannedIntoPhase3(cycle);
+      advanceRunningAction(cycle, actionEntries);
+    }
   } else {
     phase.status = "completed";
     phase.completedAt = ev.created_at;
+    if (phaseName === "phase2") {
+      addPlannedActionActivities(turn, cycle, actionEntries);
+    }
   }
+}
+
+function applyBatchStarted(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  actionEntries: Map<string, ActivityItem>,
+) {
+  const cycleFrame = ev.scope.find((f) => f.level === "cycle");
+  const cycle = getCycle(turn, cycleId ?? cycleFrame?.name ?? null, ev.created_at);
+  if (!cycle) return;
+  mirrorPlannedIntoPhase3(cycle);
+  advanceRunningAction(cycle, actionEntries);
+}
+
+/**
+ * Pre-mirror the unresolved Phase2 planned calls of the current cycle into
+ * Phase3 (params carried, no result yet). Only calls planned since the
+ * previous Phase3 segment qualify: resolved calls and calls already mirrored
+ * are skipped, so transfer-driven multi-segment phase2/phase3 pairs stay
+ * correctly matched.
+ */
+function mirrorPlannedIntoPhase3(cycle: Cycle) {
+  const phase2 = cycle.phases.find((p) => p.phase === "phase2");
+  if (!phase2) return;
+  const phase3 = getPhase(cycle, "phase3");
+  for (const planned of phase2.actions) {
+    if (planned.result) continue;
+    if (phase3.actions.some((a) => a.callId === planned.callId)) continue;
+    phase3.actions.push({ ...planned });
+  }
+}
+
+/** One planned activity entry per Phase2 action, added when Phase2 completes. */
+function addPlannedActionActivities(
+  turn: ChatTurn,
+  cycle: Cycle,
+  actionEntries: Map<string, ActivityItem>,
+) {
+  const phase2 = cycle.phases.find((p) => p.phase === "phase2");
+  if (!phase2) return;
+  for (const action of phase2.actions) {
+    if (actionEntries.has(action.callId)) continue;
+    const summary = descriptorFor(action.action).summarizeCall(action.params);
+    const item = addActivity(turn, "action", summary.headline, summary.chips?.join(" · "), {
+      target: summary.target,
+      callId: action.callId,
+      action: action.action,
+      status: "planned",
+      cycleIndex: cycle.index,
+    });
+    actionEntries.set(action.callId, item);
+  }
+}
+
+/**
+ * Flip the earliest mirrored-but-unresolved action entry to running. At most
+ * one entry runs at a time; derive recomputes from the event stream, so the
+ * transition is a deterministic replay and stays idempotent.
+ */
+function advanceRunningAction(cycle: Cycle, actionEntries: Map<string, ActivityItem>) {
+  const phase3 = cycle.phases.find((p) => p.phase === "phase3");
+  if (!phase3) return;
+  const anyRunning = phase3.actions.some(
+    (a) => !a.result && actionEntries.get(a.callId)?.status === "running",
+  );
+  if (anyRunning) return;
+  const pending = phase3.actions.find((a) => !a.result);
+  const entry = pending ? actionEntries.get(pending.callId) : undefined;
+  if (entry && entry.status === "planned") entry.status = "running";
 }
 
 function applyActionCall(
@@ -374,22 +470,13 @@ function applyActionCall(
     params: asRecord(payload.params) ?? {},
     startedAt: ev.created_at,
   });
-  if (phaseName === "phase3") {
-    addActivity(
-      turn,
-      "action",
-      `${actionVerb(action)} ${action}`,
-      summarizeParams(payload.params),
-      {
-        target: actionTargetOf(action, asRecord(payload.params) ?? {}),
-        callId,
-        cycleIndex: cycle.index,
-      },
-    );
-  }
 }
 
-function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
+function applyActionResult(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  actionEntries: Map<string, ActivityItem>,
+) {
   const payload = ev.payload;
   const callId = asString(payload.call_id);
   if (!callId) return;
@@ -401,43 +488,49 @@ function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
     payload: asRecord(payload.payload),
     frame_data: asRecord(payload.frame_data),
   };
+  const invokeId = asString(payload.invoke_id);
+  const batchId = asString(payload.batch_id);
 
-  // Find the planned call (Phase2) and mirror an executed record into Phase3.
+  // Locate the Phase2 planned call and the Phase3 mirror (when pre-mirrored).
+  let matchedCycle: Cycle | null = null;
+  let plannedRecord: ActionRecord | null = null;
+  let mirrorRecord: ActionRecord | null = null;
   for (const cycle of turn.cycles) {
     for (const phase of cycle.phases) {
-      const planned = phase.actions.find((a) => a.callId === callId);
-      if (planned) {
-        const phase3 = getPhase(cycle, "phase3");
-        phase3.actions.push({
-          ...planned,
-          result,
-          completedAt: ev.created_at,
-        });
-        const ok = result.status === "success";
-        addActivity(
-          turn,
-          ok ? "action" : "error",
-          `${planned.action} ${ok ? "succeeded" : result.status}`,
-          ok
-            ? resultSummaryOf(result)
-            : result.failure?.feedback || result.failure?.reason,
-          {
-            target: actionTargetOf(planned.action, planned.params),
-            callId,
-            cycleIndex: cycle.index,
-          },
-        );
-        return;
-      }
+      const record = phase.actions.find((a) => a.callId === callId);
+      if (!record) continue;
+      matchedCycle = cycle;
+      if (phase.phase === "phase3") mirrorRecord = record;
+      else plannedRecord = record;
     }
   }
 
-  // Fallback: the call event was not observed (buffer window).
-  const cycleFrame = ev.scope.find((f) => f.level === "cycle");
-  const cycle = cycleFrame ? getCycle(turn, cycleFrame.name, ev.created_at) : null;
-  if (cycle) {
+  if (plannedRecord) {
+    // Write the result back onto the Phase2 planned record…
+    plannedRecord.result = result;
+    plannedRecord.completedAt = ev.created_at;
+    plannedRecord.invokeId = invokeId;
+    plannedRecord.batchId = batchId;
+    if (mirrorRecord) {
+      // …and claim the pre-mirrored Phase3 record.
+      mirrorRecord.result = result;
+      mirrorRecord.completedAt = ev.created_at;
+      mirrorRecord.invokeId = invokeId;
+      mirrorRecord.batchId = batchId;
+    } else if (matchedCycle) {
+      // No mirror yet (phase3 start missed the buffer window): keep the
+      // legacy behavior of mirroring the executed record into Phase3.
+      getPhase(matchedCycle, "phase3").actions.push({ ...plannedRecord });
+    }
+  } else {
+    // Fallback: the call event was not observed (normalize failure or
+    // buffer window) — append a single-sided Phase3 record.
+    const cycleFrame = ev.scope.find((f) => f.level === "cycle");
+    const cycle = cycleFrame ? getCycle(turn, cycleFrame.name, ev.created_at) : null;
+    if (!cycle) return;
+    matchedCycle = cycle;
     const action = asString(payload.action) || "unknown";
-    getPhase(cycle, "phase3").actions.push({
+    mirrorRecord = {
       callId,
       action,
       domain: asString(payload.domain) || actionDomain(action),
@@ -446,8 +539,61 @@ function applyActionResult(turn: ChatTurn, ev: EndpointEvent) {
       startedAt: ev.created_at,
       result,
       completedAt: ev.created_at,
-    });
+      invokeId,
+      batchId,
+    };
+    getPhase(cycle, "phase3").actions.push(mirrorRecord);
   }
+
+  updateActionActivity(turn, matchedCycle, plannedRecord ?? mirrorRecord, result, actionEntries);
+  if (matchedCycle) advanceRunningAction(matchedCycle, actionEntries);
+}
+
+/** Flip the call's activity entry to its outcome, creating it when missing. */
+function updateActionActivity(
+  turn: ChatTurn,
+  cycle: Cycle | null,
+  record: ActionRecord | null,
+  result: NonNullable<ActionRecord["result"]>,
+  actionEntries: Map<string, ActivityItem>,
+) {
+  if (!record) return;
+  const status =
+    result.status === "success"
+      ? "succeeded"
+      : result.status === "timeout"
+        ? "timeout"
+        : "failed";
+  const summary = resultSummaryFor(record.action, result);
+  const failureText = result.failure?.feedback || result.failure?.reason;
+  const headline = failureText ?? summary.headline;
+  const callSummary = descriptorFor(record.action).summarizeCall(record.params);
+
+  const entry = actionEntries.get(record.callId);
+  if (entry) {
+    entry.status = status;
+    entry.resultHeadline = headline;
+    entry.detail = headline;
+    entry.target = entry.target ?? callSummary.target;
+    if (status !== "succeeded") entry.kind = "error";
+    return;
+  }
+  // Single-sided result (normalize failure): no planned entry exists yet.
+  const item = addActivity(
+    turn,
+    status === "succeeded" ? "action" : "error",
+    callSummary.headline,
+    headline,
+    {
+      target: callSummary.target,
+      callId: record.callId,
+      action: record.action,
+      status,
+      resultHeadline: headline,
+      cycleIndex: cycle?.index,
+    },
+  );
+  actionEntries.set(record.callId, item);
 }
 
 function applyTaskLifecycle(
@@ -844,12 +990,12 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
 
   const runningAction = [...activePhase.actions].reverse().find((a) => !a.result);
   if (activePhase.phase === "phase3" && runningAction) {
+    const descriptor = descriptorFor(runningAction.action);
+    const target = descriptor.summarizeCall(runningAction.params).target;
     return {
       phase: activePhase.phase,
-      label: `${actionVerb(runningAction.action)} ${runningAction.action}`,
-      detail:
-        targetLabel(actionTargetOf(runningAction.action, runningAction.params)) ??
-        summarizeParams(runningAction.params),
+      label: `${descriptor.verb} ${targetLabel(target) ?? runningAction.action}`,
+      detail: runningAction.action,
     };
   }
   const runningTask = activePhase.tasks.find((t) => t.status === "running");
@@ -930,11 +1076,13 @@ function addActivity(
   text: string,
   detail?: string,
   extra?: Partial<Omit<ActivityItem, "time" | "kind" | "text" | "detail">>,
-) {
-  turn.activity.push({ time: Date.now() / 1000, kind, text, detail, ...extra });
+): ActivityItem {
+  const item: ActivityItem = { time: Date.now() / 1000, kind, text, detail, ...extra };
+  turn.activity.push(item);
   if (turn.activity.length > MAX_ACTIVITY) {
     turn.activity.splice(0, turn.activity.length - MAX_ACTIVITY);
   }
+  return item;
 }
 
 function normalizeMessages(value: unknown): ModelMessage[] {
@@ -972,20 +1120,6 @@ function normalizeToolCalls(value: unknown): ToolCallView[] | undefined {
 export function actionDomain(action: string): string {
   const dot = action.indexOf(".");
   return dot > 0 ? action.slice(0, dot) : "other";
-}
-
-function summarizeParams(params: unknown): string | undefined {
-  if (!params || typeof params !== "object") return undefined;
-  const record = params as Record<string, unknown>;
-  const preferred =
-    asString(record.link) ||
-    asString(record.path) ||
-    asString(record.command) ||
-    asString(record.query) ||
-    asString(record.url) ||
-    asString(record.text);
-  if (!preferred) return undefined;
-  return truncate(preferred.replace(/\s+/g, " "), 80);
 }
 
 function tryParseJson(text?: string): unknown {

@@ -125,6 +125,10 @@ export interface ActionRecord {
   result?: ActionResultView;
   startedAt: number;
   completedAt?: number;
+  /** Executor invocation id, carried in from the action.result payload. */
+  invokeId?: string;
+  /** Phase3 batch id, carried in from the action.result payload. */
+  batchId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,6 +215,12 @@ export interface ActivityItem {
   target?: ActionTarget;
   /** action: the call id, used to anchor the matching ActionCard. */
   callId?: string;
+  /** action: the action name (e.g. "workspace.patch"). */
+  action?: string;
+  /** action: lifecycle status of the planned/executed call. */
+  status?: "planned" | "running" | "succeeded" | "failed" | "timeout";
+  /** action: one-line factual result summary from the registry. */
+  resultHeadline?: string;
   /** 1-based cycle index at the time the activity was recorded. */
   cycleIndex?: number;
 }

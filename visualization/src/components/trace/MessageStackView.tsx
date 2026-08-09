@@ -32,13 +32,13 @@ interface Section {
 }
 
 const sectionStyle: Record<string, { color: string; defaultOpen: boolean }> = {
-  Identity: { color: "bg-purple-400", defaultOpen: false },
-  "User Inputs": { color: "bg-blue-400", defaultOpen: true },
-  Background: { color: "bg-teal-400", defaultOpen: false },
-  "Working Context": { color: "bg-amber-400", defaultOpen: true },
-  "Turn Trace": { color: "bg-orange-400", defaultOpen: false },
-  "Task Prompt": { color: "bg-pink-400", defaultOpen: false },
-  Other: { color: "bg-gray-400", defaultOpen: false },
+  Identity: { color: "bg-domain-home", defaultOpen: false },
+  "User Inputs": { color: "bg-domain-workspace", defaultOpen: true },
+  Background: { color: "bg-domain-web", defaultOpen: false },
+  "Working Context": { color: "bg-warning", defaultOpen: true },
+  "Turn Trace": { color: "bg-domain-execution", defaultOpen: false },
+  "Task Prompt": { color: "bg-domain-memory", defaultOpen: false },
+  Other: { color: "bg-fg-faint", defaultOpen: false },
 };
 
 function sectionOf(message: ModelMessage): string {

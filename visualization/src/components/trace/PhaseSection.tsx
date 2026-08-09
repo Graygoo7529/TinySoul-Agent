@@ -7,7 +7,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { ModelTask, PhaseStep } from "../../derive/model";
-import { phaseHeadline, selectedDomains, selectIntent } from "../../derive/stageSummary";
+import { phaseHeadline, selectedDomains, selectIntent } from "../../derive/phaseSummary";
 import { firstLine, truncate } from "../../derive/activitySemantics";
 import { formatDuration } from "../../utils/format";
 import { Markdown } from "../markdown/Markdown";
@@ -16,15 +16,15 @@ import { ActionCard } from "./ActionCard";
 import { DomainChip, LinkChip } from "./semantic";
 
 /**
- * One stage (phase) row inside a cycle.
+ * One phase row inside a cycle.
  *
- * Collapsed, it states directly what the stage did — domains selected for
- * stage 1, actions planned/executed with their statuses for stages 2 and 3.
- * Expanded, it discloses the full semantics: reasoning, context maintenance,
- * todo/milestone changes, action inputs/outputs, workspace effects, and the
- * LLM calls (each opening the message-stack sub-drawer).
+ * Collapsed, it states directly what the phase did — domains selected for
+ * phase1, actions planned/executed with their statuses for phase2 and
+ * phase3. Expanded, it discloses the full semantics: reasoning, context
+ * maintenance, todo/milestone changes, action inputs/outputs, workspace
+ * effects, and the LLM tasks (each opening the message-stack sub-drawer).
  */
-export function PhaseCard({
+export function PhaseSection({
   phase,
   onOpenTask,
 }: {
@@ -128,7 +128,7 @@ function CollapsedChips({ phase }: { phase: PhaseStep }) {
       </span>
     );
   }
-  // stages 2/3: action names with status
+  // phase2/3: action names with status
   return (
     <span className="flex max-w-[45%] shrink-0 items-center gap-1 overflow-hidden">
       {phase.actions.slice(0, 4).map((a, i) => (

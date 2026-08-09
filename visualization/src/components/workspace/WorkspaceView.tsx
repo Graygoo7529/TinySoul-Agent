@@ -226,7 +226,7 @@ function NewResourceDialog({ onClose }: { onClose: () => void }) {
           value={link}
           onChange={(e) => setLink(e.target.value)}
           placeholder="workspace:notes/example.md"
-          className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 font-mono text-[12px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+          className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 font-mono text-[12px] outline-none focus-ring focus:border-accent"
         />
         {!valid && (
           <p className="text-[11px] text-fg-faint">

@@ -56,4 +56,4 @@ Tauri 通过 Rust 命令读取 App 发布的连接描述（JSON），包含：
 - `src/hooks/useBackend.ts` 负责发现、身份校验、状态轮询、WebSocket 连接与 gap 恢复。
 - `src/api/events.ts` 管理 WebSocket 重连与事件分页。
 - `src/store/appStore.ts` 保存当前连接、原始事件流、Workspace 缓存与 UI 选择。
-- 首次连接读取到待办时只自动打开一次 Maintenance 面板；Home 显示为一个聚合任务，Memory 按日期逐项提交，后续失效事件只刷新投影。
+- 首次连接读取到待办时只自动打开一次 MaintenanceDialog；Home 显示为一个聚合任务，Memory 按日期逐项提交，后续失效事件只刷新投影。

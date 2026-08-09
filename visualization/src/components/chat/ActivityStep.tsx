@@ -4,30 +4,44 @@
  *
  * Every kind renders its structured semantics instead of a bare text line:
  * reasoning excerpts expand inline, the stage-1 intent shows its domains as
- * chips, mounted skills render as chips, and actions disclose their concrete
- * target (file link, shell command, search query, page host, memory subject).
+ * chips, mounted skills render as chips, and action entries render two rows —
+ * the call headline with its lifecycle status icon, then the result headline.
  */
 
-import { useState } from "react";
-import { ChevronRight, Circle, Globe, Search, Terminal } from "lucide-react";
-import type { ActivityItem, ActionTarget } from "../../derive/model";
+import { useState, type ReactNode } from "react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  Circle,
+  CircleDashed,
+  Loader2,
+  XCircle,
+} from "lucide-react";
+import type { ActivityItem } from "../../derive/model";
 import { truncate } from "../../derive/activitySemantics";
 import { Markdown } from "../markdown/Markdown";
-import { activityColors, activityIcons, DomainChip, LinkChip } from "../trace/semantic";
+import { activityColors, activityIcons, DomainChip } from "../trace/semantic";
 
 export function ActivityStep({
   item,
   rail = false,
   onAnchor,
+  glimpse,
 }: {
   item: ActivityItem;
   /** Render a colored timeline dot instead of the kind icon. */
   rail?: boolean;
   /** When set, action steps can be clicked to anchor the matching card. */
   onAnchor?: (callId: string) => void;
+  /** Inline action detail rendered below the body (live activity bar only). */
+  glimpse?: ReactNode;
 }) {
-  const Icon = activityIcons[item.kind] ?? Circle;
-  const color = activityColors[item.kind] ?? "text-fg-faint";
+  // Action entries (kind "action", or "error" once they fail) get their
+  // lifecycle status icon instead of the generic kind icon.
+  const status = item.action ? actionStatusVisual(item.status) : undefined;
+  const Icon = status?.Icon ?? activityIcons[item.kind] ?? Circle;
+  const color = status?.color ?? activityColors[item.kind] ?? "text-fg-faint";
   const anchored = item.kind === "action" && item.callId && onAnchor;
 
   const body = <StepBody item={item} />;
@@ -36,10 +50,17 @@ export function ActivityStep({
     <div className="flex min-w-0 items-start gap-2">
       {rail ? (
         <span className={`flex w-[11px] shrink-0 justify-center ${color}`}>
-          <span className="mt-[5px] block h-[7px] w-[7px] rounded-full bg-current" />
+          <span
+            className={`mt-[5px] block h-[7px] w-[7px] rounded-full ${
+              status?.hollow ? "border border-current" : "bg-current"
+            }`}
+          />
         </span>
       ) : (
-        <Icon size={12} className={`mt-[3px] shrink-0 ${color}`} />
+        <Icon
+          size={12}
+          className={`mt-[3px] shrink-0 ${color} ${status?.spin ? "animate-spin-slow" : ""}`}
+        />
       )}
       {anchored ? (
         <button
@@ -48,9 +69,13 @@ export function ActivityStep({
           className="min-w-0 flex-1 rounded-md text-left transition-colors hover:bg-hover"
         >
           {body}
+          {glimpse}
         </button>
       ) : (
-        <div className="min-w-0 flex-1">{body}</div>
+        <div className="min-w-0 flex-1">
+          {body}
+          {glimpse}
+        </div>
       )}
     </div>
   );
@@ -59,6 +84,7 @@ export function ActivityStep({
 /* ------------------------------ per kind ----------------------------- */
 
 function StepBody({ item }: { item: ActivityItem }) {
+  if (item.action) return <ActionBody item={item} />;
   switch (item.kind) {
     case "thinking":
       return <ThinkingBody item={item} />;
@@ -66,8 +92,6 @@ function StepBody({ item }: { item: ActivityItem }) {
       return <IntentBody item={item} />;
     case "skills":
       return <SkillsBody item={item} />;
-    case "action":
-      return <ActionBody item={item} />;
     case "error":
       return <PlainBody item={item} className="text-danger" />;
     default:
@@ -160,57 +184,50 @@ function SkillsBody({ item }: { item: ActivityItem }) {
   );
 }
 
+/**
+ * Action entries: the top row is the call headline (Chinese verb + target)
+ * with the lifecycle status icon in the leading column; the second row is
+ * the one-line factual result headline (red on failure/timeout).
+ */
 function ActionBody({ item }: { item: ActivityItem }) {
+  const failed = item.status === "failed" || item.status === "timeout";
   return (
     <div className="min-w-0 space-y-0.5">
       <div className="flex min-w-0 items-baseline gap-2">
         <span className="truncate text-[12px] font-medium text-fg">{item.text}</span>
-        {item.detail && (
+        {item.detail && !item.resultHeadline && (
           <span className="truncate font-mono text-[11px] text-fg-faint" title={item.detail}>
             {item.detail}
           </span>
         )}
       </div>
-      {item.target && <TargetView target={item.target} />}
+      {item.resultHeadline && (
+        <div
+          className={`truncate text-[11px] ${failed ? "text-danger" : "text-fg-faint"}`}
+          title={item.resultHeadline}
+        >
+          {item.resultHeadline}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ------------------------------ targets ------------------------------ */
+/* --------------------------- status visuals -------------------------- */
 
-function TargetView({ target }: { target: ActionTarget }) {
-  if (target.command) {
-    return (
-      <span className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-fg-muted">
-        <Terminal size={10} className="shrink-0" />
-        <span className="truncate">$ {truncate(target.command, 100)}</span>
-      </span>
-    );
+function actionStatusVisual(status: ActivityItem["status"]) {
+  switch (status) {
+    case "planned":
+      return { Icon: CircleDashed, color: "text-fg-faint", spin: false, hollow: true };
+    case "running":
+      return { Icon: Loader2, color: "text-accent", spin: true, hollow: false };
+    case "succeeded":
+      return { Icon: Check, color: "text-success", spin: false, hollow: false };
+    case "failed":
+      return { Icon: XCircle, color: "text-danger", spin: false, hollow: false };
+    case "timeout":
+      return { Icon: AlertTriangle, color: "text-danger", spin: false, hollow: false };
+    default:
+      return undefined;
   }
-  if (target.query) {
-    return (
-      <span className="inline-flex max-w-full items-center gap-1 text-[11px] text-fg-muted">
-        <Search size={10} className="shrink-0" />
-        <span className="truncate">“{truncate(target.query, 80)}”</span>
-        {target.subject && (
-          <span className="truncate font-mono text-[10px] text-fg-faint">in {target.subject}</span>
-        )}
-      </span>
-    );
-  }
-  if (target.host) {
-    return (
-      <span className="inline-flex max-w-full items-center gap-1 text-[11px] text-info">
-        <Globe size={10} className="shrink-0" />
-        <span className="truncate">{target.host}</span>
-      </span>
-    );
-  }
-  if (target.file) {
-    return <LinkChip link={target.file} />;
-  }
-  if (target.subject) {
-    return <span className="text-[11px] text-fg-muted">{target.subject}</span>;
-  }
-  return null;
 }

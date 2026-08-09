@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Cycle, ModelTask, PhaseStep } from "../../derive/model";
-import { cycleDomains, cycleStats } from "../../derive/stageSummary";
+import { cycleDomains, cycleStats } from "../../derive/phaseSummary";
 import { formatDuration } from "../../utils/format";
 import { Badge } from "../ui/Badge";
 import { DomainChip } from "./semantic";
-import { PhaseCard } from "./PhaseCard";
+import { PhaseSection } from "./PhaseSection";
 
 /**
  * One agent cycle. Collapsed it shows the status and the selected action
- * domains as tag capsules; expanded it reveals the three stage rows.
+ * domains as tag capsules; expanded it reveals the three phase rows.
  */
 export function CycleSection({
   cycle,
@@ -26,7 +26,7 @@ export function CycleSection({
   const running = cycle.status === "running";
 
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-bg-elev">
+    <div className="overflow-hidden rounded-xl border border-line bg-bg-elev shadow-card">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-2.5 px-3.5 py-3 text-left"
@@ -65,10 +65,10 @@ export function CycleSection({
       {open && (
         <div className="space-y-2 border-t border-line px-3.5 py-3">
           {cycle.phases.map((phase) => (
-            <PhaseCard key={phase.phase} phase={phase} onOpenTask={onOpenTask} />
+            <PhaseSection key={phase.phase} phase={phase} onOpenTask={onOpenTask} />
           ))}
           {cycle.phases.length === 0 && (
-            <div className="text-xs text-fg-faint">No stage activity observed yet.</div>
+            <div className="text-xs text-fg-faint">No phase activity observed yet.</div>
           )}
         </div>
       )}

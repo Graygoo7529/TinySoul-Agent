@@ -13,17 +13,17 @@ import { TurnStatusBadge } from "./semantic";
 import { ActivityStep } from "../chat/ActivityStep";
 import { WorkingStateView } from "./WorkingStateView";
 import { CycleSection } from "./CycleSection";
-import { LlmCallDrawer, MAIN_DRAWER_WIDTH } from "./LlmCallDrawer";
+import { LlmTaskDrawer, MAIN_DRAWER_WIDTH } from "./LlmTaskDrawer";
 
 /**
- * The turn-internal detail drawer: a right-side slide-over that discloses
- * everything that happens inside one user turn — live while it runs. Cycles
- * and stages are collapsible with semantic summaries; each LLM call opens a
- * further sub-drawer to the left with the segmented message stack. The whole
- * trace can be exported to a folder organized by cycle.
+ * The turn trace drawer: a right-side slide-over that discloses everything
+ * that happens inside one user turn — live while it runs. Cycles and phases
+ * are collapsible with semantic summaries; each LLM task opens a further
+ * sub-drawer to the left with the segmented message stack. The whole trace
+ * can be exported to a folder organized by cycle.
  */
-export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
-  const closeTurnDetail = useAppStore((s) => s.closeTurnDetail);
+export function TurnTraceDrawer({ turn }: { turn: ChatTurn }) {
+  const closeTurnTrace = useAppStore((s) => s.closeTurnTrace);
   const pushToast = useAppStore((s) => s.pushToast);
   const client = useAppStore((s) => s.client);
   const [selected, setSelected] = useState<{ task: ModelTask; phase: PhaseStep } | null>(null);
@@ -83,11 +83,11 @@ export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/25 backdrop-blur-[1px]"
-        onClick={closeTurnDetail}
+        className="fixed inset-0 z-(--z-overlay) bg-black/25 backdrop-blur-[1px]"
+        onClick={closeTurnTrace}
       />
       <aside
-        className="drawer-panel fixed inset-y-0 right-0 z-50 flex flex-col border-l border-line bg-bg shadow-(--shadow-pop)"
+        className="drawer-panel glass-panel fixed inset-y-0 right-0 z-(--z-drawer) flex flex-col border-l border-line shadow-pop"
         style={{ width: MAIN_DRAWER_WIDTH }}
       >
         {/* header */}
@@ -132,7 +132,7 @@ export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
             <FolderOutput size={12} />
             Export trace…
           </Button>
-          <IconButton label="Close" onClick={closeTurnDetail}>
+          <IconButton label="Close" onClick={closeTurnTrace}>
             <X size={15} />
           </IconButton>
         </div>
@@ -187,7 +187,7 @@ export function TurnDetailDrawer({ turn }: { turn: ChatTurn }) {
       </aside>
 
       {selected && (
-        <LlmCallDrawer
+        <LlmTaskDrawer
           task={selected.task}
           phase={selected.phase}
           onClose={() => setSelected(null)}
@@ -203,7 +203,7 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-medium tracking-wide text-fg-faint uppercase">
         {label}
       </div>
-      <div className="mt-0.5 font-mono text-[13px] font-medium">{value}</div>
+      <div className="mt-0.5 font-mono text-[13px] font-medium tabular-nums">{value}</div>
     </div>
   );
 }

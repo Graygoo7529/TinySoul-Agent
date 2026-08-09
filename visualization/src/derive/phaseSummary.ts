@@ -1,10 +1,12 @@
 /**
  * Semantic one-line summaries for cycles and phases, used by the trace
- * drawer's collapsed rows: instead of explaining what a stage *is*, these
- * state what the stage *did* (domains selected, actions planned/executed).
+ * drawer's collapsed rows: instead of explaining what a phase *is*, these
+ * state what the phase *did* (domains selected, actions planned/executed).
  */
 
 import type { ActionRecord, Cycle, PhaseStep } from "./model";
+import { targetLabel } from "./activitySemantics";
+import { descriptorFor } from "./actions/registry";
 
 export function selectedDomains(phase: PhaseStep): string[] {
   const op = phase.controlOps.find((o) => o.kind === "select_domains");
@@ -62,8 +64,10 @@ export function phaseHeadline(phase: PhaseStep): string {
     }
     case "phase2": {
       if (phase.actions.length > 0) {
-        const names = phase.actions.map((a) => a.action);
-        return `Planned ${names.length} action${names.length > 1 ? "s" : ""}: ${names.join(", ")}`;
+        const headlines = phase.actions.map(
+          (a) => descriptorFor(a.action).summarizeCall(a.params).headline,
+        );
+        return `Planned ${headlines.length} action${headlines.length > 1 ? "s" : ""}: ${headlines.join(", ")}`;
       }
       return running ? "Generating action parameters…" : "No actions planned";
     }
@@ -72,7 +76,10 @@ export function phaseHeadline(phase: PhaseStep): string {
       if (total === 0) return running ? "Executing…" : "Nothing to execute";
       const pending = phase.actions.find((a) => !a.result);
       if (pending) {
-        return `Executing ${pending.action} (${total - phase.actions.filter((a) => !a.result).length + 1}/${total})`;
+        const descriptor = descriptorFor(pending.action);
+        const target = descriptor.summarizeCall(pending.params).target;
+        const label = `${descriptor.verb} ${targetLabel(target) ?? pending.action}`;
+        return `${label} (${total - phase.actions.filter((a) => !a.result).length + 1}/${total})`;
       }
       const failed = phase.actions.filter((a) => a.result && a.result.status !== "success");
       if (failed.length > 0) {

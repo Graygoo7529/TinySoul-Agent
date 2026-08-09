@@ -27,7 +27,7 @@ export function SettingsDialog() {
             value={value}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Absolute path of the TinySoul project"
-            className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 text-[13px] outline-none focus-ring focus:border-accent"
           />
           <p className="mt-1 text-[11px] leading-4 text-fg-faint">
             The running backend is discovered from the instance lease file of

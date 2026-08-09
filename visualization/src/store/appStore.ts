@@ -97,7 +97,7 @@ export interface AppState {
   activeTab: AppTab;
   theme: ThemeMode;
   projectRoot: string;
-  detailTurnId: string | null;
+  traceTurnId: string | null;
   backgroundOpen: boolean;
   settingsOpen: boolean;
   maintenanceOpen: boolean;
@@ -131,8 +131,8 @@ export interface AppState {
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
   setProjectRoot: (root: string) => void;
-  openTurnDetail: (turnId: string) => void;
-  closeTurnDetail: () => void;
+  openTurnTrace: (turnId: string) => void;
+  closeTurnTrace: () => void;
   setBackgroundOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setMaintenanceOpen: (open: boolean) => void;
@@ -163,7 +163,7 @@ export const useAppStore = create<AppState>()(
       activeTab: "chat",
       theme: "light",
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
-      detailTurnId: null,
+      traceTurnId: null,
       backgroundOpen: false,
       settingsOpen: false,
       maintenanceOpen: false,
@@ -267,8 +267,8 @@ export const useAppStore = create<AppState>()(
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
       setProjectRoot: (projectRoot) => set({ projectRoot }),
-      openTurnDetail: (detailTurnId) => set({ detailTurnId }),
-      closeTurnDetail: () => set({ detailTurnId: null }),
+      openTurnTrace: (traceTurnId) => set({ traceTurnId }),
+      closeTurnTrace: () => set({ traceTurnId: null }),
       setBackgroundOpen: (backgroundOpen) => set({ backgroundOpen }),
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
       setMaintenanceOpen: (maintenanceOpen) => set({ maintenanceOpen }),

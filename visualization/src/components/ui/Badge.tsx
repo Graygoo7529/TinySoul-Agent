@@ -19,10 +19,10 @@ const toneClasses: Record<BadgeTone, string> = {
   yellow: "bg-warning-soft text-warning",
   blue: "bg-info-soft text-info",
   accent: "bg-accent-soft text-accent",
-  purple: "bg-purple-500/10 text-purple-500 dark:text-purple-400",
-  teal: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-  orange: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-  pink: "bg-pink-500/10 text-pink-600 dark:text-pink-400",
+  purple: "bg-domain-home-soft text-domain-home",
+  teal: "bg-domain-web-soft text-domain-web",
+  orange: "bg-domain-execution-soft text-domain-execution",
+  pink: "bg-domain-memory-soft text-domain-memory",
 };
 
 export function Badge({

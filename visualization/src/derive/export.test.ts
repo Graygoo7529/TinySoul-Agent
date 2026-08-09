@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EndpointEvent, ScopeFrame } from "../types";
 import { buildChatTurns } from "./chat";
 import { buildTurnExportBundle } from "./export";
-import { cycleDomains, phaseHeadline, selectedDomains } from "./stageSummary";
+import { cycleDomains, phaseHeadline, selectedDomains } from "./phaseSummary";
 
 let seq = 0;
 
@@ -86,7 +86,7 @@ function turnEvents(): EndpointEvent[] {
   ];
 }
 
-describe("stage summaries", () => {
+describe("phase summaries", () => {
   const [turn] = buildChatTurns(turnEvents());
   const cycle = turn.cycles[0];
   const [phase1, phase2, phase3] = [
@@ -100,9 +100,9 @@ describe("stage summaries", () => {
     expect(cycleDomains(cycle)).toEqual(["workspace"]);
   });
 
-  it("states what each stage did in one direct line", () => {
+  it("states what each phase did in one direct line", () => {
     expect(phaseHeadline(phase1)).toBe("Selected 1 domain");
-    expect(phaseHeadline(phase2)).toBe("Planned 1 action: workspace.create");
+    expect(phaseHeadline(phase2)).toBe("Planned 1 action: 生成 workspace:x.md");
     expect(phaseHeadline(phase3)).toBe("1 action executed successfully");
   });
 });

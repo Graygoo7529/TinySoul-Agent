@@ -5,20 +5,29 @@
  */
 
 import {
+  BookOpen,
+  BookOpenText,
   Brain,
   CheckCircle2,
   Circle,
   Compass,
+  Eye,
+  FileEdit,
+  FilePlus2,
   FileText,
   Flag,
   Home,
-  Lightbulb,
   ListChecks,
   Loader2,
   MemoryStick,
+  MessageSquareText,
+  PlayCircle,
   RotateCcw,
+  ScanSearch,
+  Search,
   Terminal,
   Globe,
+  Trash2,
   WandSparkles,
   Wrench,
   XCircle,
@@ -42,6 +51,32 @@ const domainTones: Record<string, BadgeTone> = {
 
 export function domainTone(domain: string): BadgeTone {
   return domainTones[domain] ?? "gray";
+}
+
+/**
+ * Static soft-bg + text classes in the domain's hue (icon boxes, chips).
+ * Kept as literal class names so Tailwind can see them.
+ */
+export function domainHueClasses(domain: string): string {
+  switch (domain) {
+    case "workspace":
+      return "bg-domain-workspace-soft text-domain-workspace";
+    case "execution":
+    case "shell":
+    case "script":
+    case "supervised_process":
+      return "bg-domain-execution-soft text-domain-execution";
+    case "web":
+      return "bg-domain-web-soft text-domain-web";
+    case "home":
+      return "bg-domain-home-soft text-domain-home";
+    case "memory":
+      return "bg-domain-memory-soft text-domain-memory";
+    case "core":
+      return "bg-accent-soft text-accent";
+    default:
+      return "bg-hover text-fg-muted";
+  }
 }
 
 export function DomainChip({ domain }: { domain: string }) {
@@ -126,24 +161,40 @@ export function ActionStatusBadge({ status }: { status: string }) {
 
 /* --------------------------- action icons ---------------------------- */
 
-export function actionIcon(domain: string) {
-  switch (domain) {
-    case "workspace":
-      return FileText;
-    case "execution":
-    case "shell":
-    case "script":
-      return Terminal;
-    case "web":
-      return Globe;
-    case "home":
-      return Home;
-    case "memory":
-      return MemoryStick;
-    case "core":
+/**
+ * Icon per action presentation family (see derive/actions/registry). The
+ * domain color comes from DomainChip; the icon carries the action kind.
+ */
+export function actionIcon(family: string) {
+  switch (family) {
+    case "answer":
+      return MessageSquareText;
+    case "reason":
       return Brain;
-    case "context":
-      return Lightbulb;
+    case "generate":
+      return FilePlus2;
+    case "patch":
+      return FileEdit;
+    case "command":
+      return Terminal;
+    case "process":
+      return PlayCircle;
+    case "search":
+      return Search;
+    case "fetch":
+      return Globe;
+    case "memory-read":
+      return BookOpen;
+    case "memory-write":
+      return MemoryStick;
+    case "read":
+      return BookOpenText;
+    case "inspect":
+      return Eye;
+    case "scan":
+      return ScanSearch;
+    case "delete":
+      return Trash2;
     default:
       return Wrench;
   }

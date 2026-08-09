@@ -24,7 +24,7 @@ export function DisconnectedScreen({
 
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-xl border border-line bg-bg-elev p-6 shadow-sm">
+      <div className="w-full max-w-md rounded-xl border border-line bg-bg-elev p-6 shadow-card">
         <div className="mb-1 flex items-center gap-2">
           <PlugZap size={17} className="text-accent" />
           <h1 className="text-base font-semibold">Connect to TinySoul</h1>
@@ -41,7 +41,7 @@ export function DisconnectedScreen({
         <input
           value={projectRoot}
           onChange={(e) => setProjectRoot(e.target.value)}
-          className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 font-mono text-[12px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+          className="h-9 w-full rounded-lg border border-line bg-bg-elev px-3 font-mono text-[12px] outline-none focus-ring focus:border-accent"
         />
 
         <div className="mt-3 flex items-center gap-2 rounded-lg bg-bg-sunken px-3 py-2">
