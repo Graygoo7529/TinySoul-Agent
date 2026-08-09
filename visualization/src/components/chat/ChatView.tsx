@@ -43,7 +43,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
       )}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="chat-grid min-h-0 flex-1 overflow-y-auto"
         onScroll={(e) => {
           const el = e.currentTarget;
           pinnedToBottom.current =
@@ -57,7 +57,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
             description="Send a message below. While TinySoul works, live status — context loading, todos, domain selection, running actions — shows up right here; open a turn's trace drawer for full internal detail."
           />
         ) : (
-          <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+          <div className="mx-auto max-w-3xl space-y-8 px-4 py-6">
             {canLoadEarlier && (
               <div className="flex justify-center">
                 <Button
@@ -74,8 +74,8 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
                 </Button>
               </div>
             )}
-            {turns.map((turn) => (
-              <TurnView key={turn.turnId} turn={turn} />
+            {turns.map((turn, i) => (
+              <TurnView key={turn.turnId} turn={turn} isLatest={i === turns.length - 1} />
             ))}
           </div>
         )}

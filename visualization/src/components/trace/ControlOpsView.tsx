@@ -6,6 +6,8 @@ import { JsonTree } from "../ui/JsonTree";
 /**
  * Semantic rendering of Phase1 control-tool operations: domain selection,
  * working-context maintenance (todos / milestones) and background loading.
+ * Every op shares one row style (the set-todo row): sunken block, icon,
+ * muted label, foreground content.
  */
 export function ControlOpsView({ ops }: { ops: ControlOp[] }) {
   return (
@@ -22,13 +24,15 @@ export function ControlOpsView({ ops }: { ops: ControlOp[] }) {
   );
 }
 
+const ROW = "rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]";
+
 function ControlOpRow({ op }: { op: ControlOp }) {
   switch (op.kind) {
     case "select_domains":
       return (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5">
+        <div className={`flex flex-wrap items-center gap-1.5 ${ROW}`}>
           <Layers size={12} className="shrink-0 text-accent" />
-          <span className="text-[12px] text-fg">Selected action domains</span>
+          <span className="text-fg-muted">select domains</span>
           {op.domains.map((domain) => (
             <DomainChip key={domain} domain={domain} />
           ))}
@@ -36,7 +40,7 @@ function ControlOpRow({ op }: { op: ControlOp }) {
       );
     case "set_todo":
       return (
-        <div className="flex items-center gap-2 rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]">
+        <div className={`flex items-center gap-2 ${ROW}`}>
           <ListChecks size={12} className="shrink-0 text-accent" />
           <span className="text-fg-muted">set todo</span>
           <span className="min-w-0 flex-1 truncate text-fg">{op.content}</span>
@@ -47,7 +51,7 @@ function ControlOpRow({ op }: { op: ControlOp }) {
       );
     case "remove_todo":
       return (
-        <div className="flex items-center gap-2 rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]">
+        <div className={`flex items-center gap-2 ${ROW}`}>
           <ListChecks size={12} className="shrink-0 text-fg-faint" />
           <span className="text-fg-muted">removed todo</span>
           <span className="font-mono text-[11px] text-fg-faint">{op.key}</span>
@@ -55,7 +59,7 @@ function ControlOpRow({ op }: { op: ControlOp }) {
       );
     case "set_milestone":
       return (
-        <div className="flex items-center gap-2 rounded-lg bg-warning-soft px-2.5 py-1.5 text-[12px]">
+        <div className={`flex items-center gap-2 ${ROW}`}>
           <Flag size={12} className="shrink-0 text-warning" />
           <span className="text-fg-muted">milestone</span>
           <span className="min-w-0 flex-1 truncate text-fg">{op.content}</span>
@@ -64,27 +68,30 @@ function ControlOpRow({ op }: { op: ControlOp }) {
       );
     case "remove_milestone":
       return (
-        <div className="flex items-center gap-2 rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]">
+        <div className={`flex items-center gap-2 ${ROW}`}>
           <Flag size={12} className="shrink-0 text-fg-faint" />
           <span className="text-fg-muted">removed milestone</span>
           <span className="font-mono text-[11px] text-fg-faint">{op.key}</span>
         </div>
       );
     case "load_background":
-    case "evict_background":
+    case "evict_background": {
+      const loading = op.kind === "load_background";
       return (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]">
-          <span className={op.kind === "load_background" ? "text-info" : "text-warning"}>
-            {op.kind === "load_background" ? "load background" : "evict background"}
+        <div className={`flex flex-wrap items-center gap-1.5 ${ROW}`}>
+          <Layers size={12} className={`shrink-0 ${loading ? "text-info" : "text-warning"}`} />
+          <span className="text-fg-muted">
+            {loading ? "load background" : "evict background"}
           </span>
           {op.links.map((link) => (
             <LinkChip key={link} link={link} />
           ))}
         </div>
       );
+    }
     default:
       return (
-        <div className="rounded-lg bg-bg-sunken px-2.5 py-1.5 text-[12px]">
+        <div className={ROW}>
           <span className="font-mono text-[11px]">{op.name}</span>
           <JsonTree value={op.arguments} defaultExpanded={false} />
         </div>

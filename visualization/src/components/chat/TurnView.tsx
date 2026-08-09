@@ -12,16 +12,20 @@ import { LiveStatus } from "./LiveStatus";
  * the agent row — live status while running, rendered final answer when done,
  * plus a footer with turn metadata and the trace-drawer entry.
  */
-export function TurnView({ turn }: { turn: ChatTurn }) {
+export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolean }) {
   const openTurnTrace = useAppStore((s) => s.openTurnTrace);
   const running = turn.status === "running";
+  // The latest finished turn keeps its LiveStatus as a settled card — the
+  // final activity trail stays visible until the next user turn starts,
+  // then it naturally folds away (the new turn mounts its own live card).
+  const showSettled = !running && isLatest === true && turn.activity.length > 0;
   const stats = turn.actionStats;
 
   return (
-    <div className="animate-fade-in space-y-3">
+    <div className="animate-fade-in space-y-4">
       {turn.userMessages.map((message, i) => (
         <div key={i} className="flex justify-end">
-          <div className="bg-accent-grad max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words text-white shadow-brand">
+          <div className="bubble-user max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words">
             {message}
           </div>
         </div>
@@ -33,9 +37,10 @@ export function TurnView({ turn }: { turn: ChatTurn }) {
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           {running && <LiveStatus turn={turn} />}
+          {showSettled && <LiveStatus turn={turn} mode="settled" />}
 
           {turn.assistantText && (
-            <div className="shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
+            <div className="animate-answer-in shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
               <Markdown>{turn.assistantText}</Markdown>
             </div>
           )}

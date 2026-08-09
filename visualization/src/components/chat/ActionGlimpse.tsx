@@ -9,7 +9,7 @@
  * (`components/trace/renderers`), this is the chat-grade summary.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ActionRecord } from "../../derive/model";
 import { asRecord, asString } from "../../derive/actions/common";
 import { descriptorFor } from "../../derive/actions/registry";
@@ -19,7 +19,6 @@ import { CommandLine, TerminalOutput } from "../trace/renderers/TerminalBlock";
 import { resultItemsOf } from "../trace/renderers/ResultListBlock";
 
 const DIFF_GLIMPSE_ROWS = 5;
-const OUTPUT_TAIL_LINES = 4;
 const SEARCH_GLIMPSE_ITEMS = 3;
 
 export function ActionGlimpse({
@@ -101,9 +100,7 @@ function doneGlimpse(family: string, record: ActionRecord) {
   switch (family) {
     case "command":
     case "process":
-      return payload ? (
-        <TerminalOutput payload={payload} tailLines={OUTPUT_TAIL_LINES} />
-      ) : null;
+      return payload ? <TerminalGlimpse payload={payload} /> : null;
     case "search": {
       if (!payload) return null;
       const items = resultItemsOf(payload).slice(0, SEARCH_GLIMPSE_ITEMS);
@@ -177,6 +174,32 @@ function doneGlimpse(family: string, record: ActionRecord) {
 }
 
 /* ------------------------------- pieces ------------------------------- */
+
+/** Output tail capped at 2 lines; an expand toggle reveals up to 6. */
+function TerminalGlimpse({ payload }: { payload: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = streamLines(payload.stdout) + streamLines(payload.stderr);
+  return (
+    <div>
+      <TerminalOutput payload={payload} tailLines={expanded ? 6 : 2} />
+      {lines > 2 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-0.5 text-[10px] text-fg-faint transition-colors hover:text-fg-muted"
+        >
+          {expanded ? "收起输出" : `展开输出（${lines} 行）`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Line count of one output stream (plain string or { text } shape). */
+function streamLines(value: unknown): number {
+  const text =
+    typeof value === "string" ? value : (asString(asRecord(value)?.text) ?? "");
+  return text ? text.split("\n").length : 0;
+}
 
 /** Compact change list with a +N/−M stat; `statOnly` hides the line rows. */
 function DiffGlimpse({

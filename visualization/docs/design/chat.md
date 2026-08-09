@@ -2,19 +2,20 @@
 
 ## 对话优先
 
-- 主界面是一条连续的聊天历史：右侧为用户气泡，左侧为 Agent 行（渐变头像 + 内容区）。
-- Agent 行在完成态展示 Markdown 渲染的最终回答；页脚给出状态徽标、耗时、概要（cycles/actions/domains/成败数）、token 用量与 Details 入口。
+- 主界面是一条连续的聊天历史（背景为 2% 透明度 24px 微网格）：右侧为用户消息（浅 tinted 玻璃气泡：accent 浅底 + 深靛文字 + 细描边 + 背模糊），左侧为 Agent 行（渐变头像 + 内容区）。
+- Agent 行在完成态展示 Markdown 渲染的最终回答，回答卡以 `answer-in` 动效柔和浮现；页脚给出状态徽标、耗时、概要（cycles/actions/domains/成败数）、token 用量与 Details 入口。
 - 用户输入通过本地回声即时上屏；非本端输入从首个 message stack 的 `user_input` 段恢复。
 
 ## 运行状态动态披露（LiveStatus 活跃状态）
 
 进行中的用户轮在 Agent 行内展示 LiveStatus 实时状态卡（即主对话界面的浮动状态栏），全部从观察事件流派生：
 
-- **流光标题行**：陈述当前活动——思考中的阶段标题，或执行中的 action（registry 动词 + 目标，如 "编辑 workspace:report/draft.md"）；右侧为轮计时与当前 action/phase 计时（tabular-nums）。
-- **最小驻留节奏**：活动 feed 经 600ms 尾随节流（`useThrottledValue`），爆发式事件合并为平静可读的步伐，每条信息有最小显示时间；最新状态永不丢失，停止请求即时反馈不经过节流。
+- **流光标题行**：陈述当前活动——思考中的阶段标题，或执行中的 action（registry 动词 + 目标，如 "编辑 workspace:report/draft.md"）；流光动画与入场动画分层嵌套互不覆盖。准确性采用**单一待定规则**：phase3 只剩 1 个无结果 action 时才具名（此时必然准确），多个待定显示 "Executing N actions…" 批次进度，不妄指（彻底解决依赖后端 `action.execution.started` 事件，见需求单）。右侧为轮计时与当前 action/phase 计时（tabular-nums）。
+- **流动更迭节奏**：350ms 尾随节流（`useThrottledValue`）只合并真正的并发爆发（如一次规划多个 action），同批条目以 90ms 级联交错入场（发牌感）；单事件基本即时。标题与思考流更新只做淡入交换（`headline-swap`），不重挂载、不位移。
+- **沉淀态（settled）**：最新一轮完成后 LiveStatus 以沉淀卡保留——静态边框（不呼吸不流光）、状态行变为"回答完成/轮次失败…"+ 概要 + 定格总时长，活动轨迹与工作区保持可见；发起新 user turn 时旧沉淀卡自然收起（新一轮挂出自己的运行卡）。
 - **思考流**：最新一条 reasoning summary 自动展开，新内容以 materialize 动画浮现。
 - **语义步骤栈**：最新在前的活动条目（intent + domain 胶囊、挂载 skills、todo/milestone、action），交错入场、纵深渐隐，溢出折叠为 "+N earlier steps"。action 条目是状态机（planned 空心点 → running 旋转 → succeeded/failed/timeout），并呈现两条信息：上行 stage2 调用语义（编辑的目标文件、检索意图、待访问链接、待执行命令、inspect/recall 目标），下行 stage3 结果摘要（exit code、结果数、revision、行数）。
-- **Action 内联详情（ActionGlimpse）**：步骤栈中运行中的 action 披露其 stage2 输入（命令行、patch 迷你 diff、生成 instruction、memorize 操作清单），最近完成的 action 披露其 stage3 结果要点（输出尾部、检索前三条、抓取标题摘要、diff 统计 +N/−M、失败 feedback）。保持紧凑，完整呈现归 TurnTraceDrawer。
+- **Action 内联详情（ActionGlimpse）**：步骤栈中运行中的 action 披露其 stage2 输入（命令行、patch 迷你 diff、生成 instruction、memorize 操作清单），最近完成的 action 披露其 stage3 结果要点（输出尾部默认 2 行可展开、检索前三条、抓取标题摘要、diff 统计 +N/−M、失败 feedback）。保持紧凑，完整呈现归 TurnTraceDrawer。
 - **独立工作态区域**：todo 列表（状态图标、进行中高亮、完成划线）与 milestone 在状态卡下部常驻，由 Phase1 control tools 与 message stack 的 `working` 段共同推导。
 - 整卡在运行中呼吸渐变边框（live-border）+ 流光标题（text-shine）；停止请求挂起时降级为静态警示边框。停止按钮在 Composer 上。
 

@@ -158,3 +158,25 @@ export interface ActionDescriptor {
 5. **走查**：终端块加细描边；确认 NavRail/StatusBar/Card 等无遗留漂移。
 
 验收：`pnpm test` 62 全绿、`pnpm build` 通过。
+
+---
+
+## 回退与重设计（done，2026-08-09 第四轮，维护者反馈驱动）
+
+**回退**：第三轮提交（会话面材质/LiveStatus 平滑/玻璃氛围）整体否定——像素电子质感、环境辉光、玻璃框架、暗色回答面板偏离维护者偏好，已 `git reset --hard` 回退至第二轮（reflog 可找回），在第二轮质感基底上重设计。
+
+**根因复盘**：
+1. 字体流光消失是第三轮引入的实现 bug（swap 与 shine 两个 `animation` 简写在同一元素上互相覆盖）；第二轮基线中流光正常。
+2. "刷新感"来自粗节流导致的同帧齐变（标题/思考流/多条步骤攒批同换）。
+3. 抬头指错动作：批次执行顺序与规划顺序可能不一致，"第一个无 result 即运行中"启发式必然指错；turn trace 正确是因为它不做"谁在跑"的猜测。
+
+**重设计实施**：
+1. **LiveStatus 流动化**：流光与入场动画分层嵌套（外 span swap、内 span shine）；节流 350ms 只合并并发爆发 + 同批 90ms 级联交错；标题/思考流仅淡入交换。
+2. **单一待定规则**（derive + 组件三处统一）：phase3 仅剩 1 个无结果 action 才具名显示"动词+目标"并点亮 running；多个待定显示 "Executing N actions…" 批次进度不妄指；新增 chat.test 覆盖乱序结果场景。彻底解依赖后端 `action.execution.started`（需求单已提）。
+3. **沉淀态恢复**：最新完成轮保留静态 LiveStatus（状态行 + 概要 + 定格时长 + 活动轨迹，`answer-in` 入场），新 user turn 自然收起。
+4. **ActionGlimpse 终端收敛**：输出尾部默认 2 行，"展开输出（N 行）"放到 6 行。
+5. **最终回答入场**：`answer-in`（0.5s 上浮 + 去模糊）。
+6. **ControlOpsView**：全部 op 行回齐原 set todo sunken 风格（`rounded-lg bg-bg-sunken`），统一"图标 + muted 标签 + fg 内容"亮度（修正 select_domains 偏亮）；引述块仅留 Intent/Reasoning。
+7. **会话面**：用户消息 `.bubble-user` 浅 tinted 玻璃气泡（accent-soft 底 + 深靛字 + 细描边 + 背模糊，维护者选定方案 B）；会话页背景 `.chat-grid` 24px 2% 微网格；turn 间距 space-y-8；Maintenance/primary 按钮维持深渐变（第三轮亮 aurora 随回退消失）。
+
+验收：`pnpm test` 63 全绿（新增单一待定规则用例）、`pnpm build` 通过。

@@ -70,7 +70,9 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 - **NavRail**：激活 tab 为 bg-active + 左侧 3px accent 指示条；logo 为 aurora 渐变 + shadow-brand。
 - **按钮**：primary（aurora 渐变底白字）/ secondary / ghost / danger / outline 五变体，xs/sm/md 三档高度；发送/停止按钮用 shadow-brand。
 - **Badge**：soft 底 + 同色文字，十色调全 token 化；domain、状态、level 固定映射（见 `components/trace/semantic.tsx`）。
-- **聊天气泡**：用户气泡 aurora 渐变 + shadow-brand（含顶部内高光）；Agent 回答卡 bg-elev + shadow-card。
+- **用户消息**（`.bubble-user`）：浅 tinted 玻璃气泡——accent-soft 底 + 深靛文字（暗色为 accent 深底 + 浅靛文字）+ accent 细描边 + 顶部内高光 + 6px 背模糊，与白色回答卡同属亮面体系、协调不抢戏。
+- **会话页背景**（`.chat-grid`）：24px 微网格（浅色/暗色均 2% 透明度），避免纯底单调，不干扰阅读。
+- **会话面**：用户消息为 `.bubble-user` 浅 tinted 玻璃气泡；Agent 回答卡 bg-elev + shadow-card，`answer-in` 入场（0.5s 上浮 + 去模糊）。
 - **Composer**：e1 抬升输入卡（shadow-card），focus-within 时 accent 边框 + 统一焦点环。
 - **输入框**：bg-elev + line 边框；focus 时 accent 边框 + `--focus-ring`，不用 outline。
 - **JSON 树**：等宽 12.5px，key=info、字符串=success、数字=accent、布尔=warning、null=faint；嵌套层级用 hairline 导轨线（`.jt-children` 左边线），行悬停微亮；`defaultExpanded` 全展开（LLM 面板内 JSON 默认展开），Raw/诊断视图显式传 false 保持折叠。
@@ -81,7 +83,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 ## 动效
 
 - `fade-in`（0.18s）用于弹层与消息进入；`slide-in-right`（0.22s）用于抽屉；drawer 用 0.24s cubic-bezier 推入。
-- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`reveal`（0.45s 实体化）、`step-in`（0.32s 交错 + 纵深渐隐）；活动 feed 经 600ms 最小驻留节流（`useThrottledValue`）。
+- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光，与入场动画分层嵌套）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`headline-swap`（0.24s 淡入交换）、`answer-in`（0.5s 浮现）、`step-in`（0.32s + 90ms 级联交错 + 纵深渐隐）；活动 feed 经 350ms 尾随节流合并并发爆发（`useThrottledValue`）。
 - LlmTaskDrawer 弹出用 `sub-drawer-in`（0.22s slide+settle）。
 - 交互反馈只用 `transition-colors`，不用 spring/scale；无限动效全部服务"运行中"语义。
 - `prefers-reduced-motion` 下禁用流光/呼吸/浮动类动效。

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  AlertTriangle,
   Brain,
   CheckCircle2,
   Circle,
@@ -34,15 +35,25 @@ const STEP_COUNT = 5;
  * diff, instruction) or the stage-3 result gist (output tail, search hits,
  * diff stat). The whole card breathes a gradient border while the turn runs.
  */
-export function LiveStatus({ turn }: { turn: ChatTurn }) {
-  useNow(true, 1000);
+export function LiveStatus({
+  turn,
+  mode = "live",
+}: {
+  turn: ChatTurn;
+  /** live: running turn (breathing border, ticking timers, throttled feed).
+      settled: latest finished turn kept visible until the next turn starts —
+      static border, frozen timers, the final activity trail. */
+  mode?: "live" | "settled";
+}) {
+  const live = mode === "live";
+  useNow(live, 1000);
   const stopPending = useAppStore((s) => s.stopPending);
-  // The activity feed can burst several entries per second; throttle so each
-  // step stays visible for a calm minimum dwell (trailing edge never drops
-  // the latest state). Stop requests bypass the throttle for instant
-  // feedback, since they change the override text, not the feed.
-  const activity = useThrottledValue(turn.activity, 600);
-  const currentActivity = useThrottledValue(turn.currentActivity, 600);
+  // The activity feed can burst several entries per second; a short trailing
+  // throttle coalesces only true bursts (a planned batch landing at once),
+  // which then cascade in with a stagger — single events render immediately.
+  // Stop requests bypass it for instant feedback.
+  const activity = useThrottledValue(turn.activity, live ? 350 : 0);
+  const currentActivity = useThrottledValue(turn.currentActivity, live ? 350 : 0);
 
   const latestThinkingIndex = findLastIndex(activity, (a) => a.kind === "thinking");
   const thought = latestThinkingIndex >= 0 ? activity[latestThinkingIndex] : undefined;
@@ -62,8 +73,9 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
     : (currentActivity?.label ?? "Thinking…");
   const headlineDetail = stopPending ? undefined : currentActivity?.detail;
 
-  const runningAction = findRunningAction(turn);
+  const runningAction = live ? findRunningAction(turn) : null;
   const runningPhase = currentActivity?.phase;
+  const settled = live ? undefined : settledHeadline(turn);
 
   // Action records by call id (phase3 mirrors carry the result, so later
   // writes win); drives the inline glimpses in the step stack.
@@ -89,39 +101,65 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
   };
 
   return (
-    <div className={stopPending ? "rounded-xl border border-danger/40 p-px" : "live-border"}>
-      <div className="overflow-hidden rounded-[11px] bg-bg-elev">
-        {/* shine-swept headline */}
+    <div
+      className={
+        live
+          ? stopPending
+            ? "rounded-xl border border-danger/40 p-px"
+            : "live-border"
+          : "animate-answer-in rounded-xl border border-line shadow-card"
+      }
+    >
+      <div className={`overflow-hidden bg-bg-elev ${live ? "rounded-[11px]" : "rounded-xl"}`}>
+        {/* headline: shine-swept while live, a static status line once settled */}
         <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
-          <Loader2
-            size={15}
-            className={`animate-spin-slow shrink-0 ${
-              stopPending ? "text-danger" : "text-accent"
-            }`}
-          />
-          <div className="min-w-0 flex-1">
-            <span
-              key={headline}
-              className={`animate-status-in inline-block max-w-full truncate align-middle text-[13px] font-medium ${
-                stopPending ? "text-danger" : "text-shine"
+          {live ? (
+            <Loader2
+              size={15}
+              className={`animate-spin-slow shrink-0 ${
+                stopPending ? "text-danger" : "text-accent"
               }`}
+            />
+          ) : (
+            settled && <settled.Icon size={15} className={`shrink-0 ${settled.tone}`} />
+          )}
+          <div className="min-w-0 flex-1">
+            {/* the swap animation lives on the outer span, the flowing shine
+                on the inner one — nesting keeps both composing instead of
+                overriding each other */}
+            <span
+              key={live ? headline : settled?.text}
+              className="animate-headline-swap inline-block max-w-full truncate align-middle"
             >
-              {headline}
+              <span
+                className={`text-[13px] font-medium ${
+                  live
+                    ? stopPending
+                      ? "text-danger"
+                      : "text-shine"
+                    : (settled?.tone ?? "text-fg")
+                }`}
+              >
+                {live ? headline : settled?.text}
+              </span>
             </span>
-            {headlineDetail && (
+            {live && headlineDetail && (
               <span className="ml-2 truncate font-mono text-[11px] text-fg-faint">
                 {headlineDetail}
               </span>
             )}
+            {!live && turn.summary && (
+              <span className="ml-2 truncate text-[11px] text-fg-faint">{turn.summary}</span>
+            )}
           </div>
           <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
-            <div>{formatDuration(turn.startedAt)}</div>
-            {runningAction && (
+            <div>{formatDuration(turn.startedAt, live ? undefined : turn.endedAt)}</div>
+            {live && runningAction && (
               <div title={runningAction.action}>
                 {actionVerb(runningAction.action)} {formatDuration(runningAction.startedAt)}
               </div>
             )}
-            {!runningAction && runningPhase && turn.cycles.length > 0 && (
+            {live && !runningAction && runningPhase && turn.cycles.length > 0 && (
               <div>
                 {runningPhase}{" "}
                 {formatDuration(
@@ -135,7 +173,7 @@ export function LiveStatus({ turn }: { turn: ChatTurn }) {
         </div>
 
         {/* thinking stream: the latest reasoning, auto-expanded */}
-        {thought && <ThinkingStream key={thought.time} item={thought} />}
+        {thought && <ThinkingStream item={thought} />}
 
         {/* semantic step stack */}
         {visible.length > 0 && (
@@ -197,7 +235,8 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
         )}
       </div>
       <div
-        className={`animate-reveal ${
+        key={item.time}
+        className={`animate-headline-swap ${
           collapsible && !expanded ? "line-clamp-3" : ""
         }`}
       >
@@ -277,12 +316,34 @@ function findRunningAction(turn: ChatTurn) {
   for (let i = turn.cycles.length - 1; i >= 0; i--) {
     const phase3 = turn.cycles[i].phases.find((p) => p.phase === "phase3");
     if (!phase3) continue;
-    // Phase3 mirrors planned calls up front; the first result-less record is
-    // the one the derive layer marks running (results claim them in order).
-    const running = phase3.actions.find((a) => !a.result);
-    if (running) return running;
+    // Single-pending rule (mirrors derive/chat.ts): only an unambiguous
+    // in-flight action earns the timer.
+    const pendings = phase3.actions.filter((a) => !a.result);
+    if (pendings.length === 1) return pendings[0];
   }
   return null;
+}
+
+/** Static status line for the settled card (latest finished turn). */
+function settledHeadline(turn: ChatTurn): {
+  text: string;
+  Icon: typeof CheckCircle2;
+  tone: string;
+} {
+  switch (turn.status) {
+    case "answered":
+      return { text: "回答完成", Icon: CheckCircle2, tone: "text-success" };
+    case "completed":
+      return { text: "轮次完成", Icon: CheckCircle2, tone: "text-success" };
+    case "failed":
+      return { text: "轮次失败", Icon: XCircle, tone: "text-danger" };
+    case "stopped":
+      return { text: "已停止", Icon: AlertTriangle, tone: "text-warning" };
+    case "exhausted":
+      return { text: "已达上限", Icon: AlertTriangle, tone: "text-warning" };
+    default:
+      return { text: "已结束", Icon: CheckCircle2, tone: "text-fg-muted" };
+  }
 }
 
 /** Index every action record by call id; phase3 mirrors (with results) win. */

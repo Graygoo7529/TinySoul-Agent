@@ -378,7 +378,7 @@ describe("semantic activity details", () => {
     expect(contextLoad?.detail).toBe("home:agent@preferences");
   });
 
-  it("mirrors planned calls into phase3 and flips the first entry to running", () => {
+  it("mirrors planned calls into phase3 and flips the single pending entry to running", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
       event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
@@ -417,6 +417,56 @@ describe("semantic activity details", () => {
       label: "Searching “kimi code activity stream”",
       detail: "web.search_by_kimi",
     });
+  });
+
+  it("names no runner while several pendings exist, then the last one", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
+      event(
+        "action.call",
+        phaseScope("phase2"),
+        { call_id: "call-1", action: "execution.run_python_script", domain: "execution", sequence: 1, params: { source_link: "workspace:run.py" } },
+        4,
+      ),
+      event(
+        "action.call",
+        phaseScope("phase2"),
+        { call_id: "call-2", action: "web.search_by_kimi", domain: "web", sequence: 2, params: { query: "kimi" } },
+        5,
+      ),
+      event("loop.phase.completed", phaseScope("phase2"), { phase: "phase2" }, 6),
+      event("loop.phase.started", phaseScope("phase3"), { phase: "phase3" }, 7),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    // Two pendings: execution order unknown — no entry claims running, and
+    // the headline states batch progress instead of naming the wrong action.
+    const entries = turn.activity.filter((a) => a.kind === "action");
+    expect(entries.map((a) => a.status)).toEqual(["planned", "planned"]);
+    expect(turn.currentActivity).toEqual({
+      phase: "phase3",
+      label: "Executing 2 actions…",
+      detail: "0/2 done",
+    });
+
+    // The second planned action resolves first (out of plan order): the
+    // remaining single pending becomes the unambiguous runner.
+    const after = [
+      ...events,
+      event(
+        "action.result",
+        phaseScope("phase3"),
+        { call_id: "call-2", action: "web.search_by_kimi", domain: "web", status: "success", stage: "execute", payload: { results: [] } },
+        8,
+      ),
+    ];
+    const [turn2] = buildChatTurns(after, []);
+    const entries2 = turn2.activity.filter((a) => a.kind === "action");
+    expect(entries2.map((a) => [a.callId, a.status])).toEqual([
+      ["call-1", "running"],
+      ["call-2", "succeeded"],
+    ]);
+    expect(turn2.currentActivity?.detail).toBe("execution.run_python_script");
   });
 
   it("keeps planned entries planned before phase3 starts", () => {

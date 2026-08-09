@@ -432,20 +432,26 @@ function addPlannedActionActivities(
 }
 
 /**
- * Flip the earliest mirrored-but-unresolved action entry to running. At most
- * one entry runs at a time; derive recomputes from the event stream, so the
- * transition is a deterministic replay and stays idempotent.
+ * Mark the in-flight action entry — but only when it is unambiguous: a
+ * single unresolved action in phase3 must be the one executing, while with
+ * several pendings the batch's execution order is unknown (results may
+ * arrive out of plan order), so no entry claims "running" rather than
+ * guessing wrong. Derive recomputes from the event stream, so transitions
+ * are a deterministic replay and stay idempotent.
  */
 function advanceRunningAction(cycle: Cycle, actionEntries: Map<string, ActivityItem>) {
   const phase3 = cycle.phases.find((p) => p.phase === "phase3");
   if (!phase3) return;
-  const anyRunning = phase3.actions.some(
-    (a) => !a.result && actionEntries.get(a.callId)?.status === "running",
-  );
-  if (anyRunning) return;
-  const pending = phase3.actions.find((a) => !a.result);
-  const entry = pending ? actionEntries.get(pending.callId) : undefined;
-  if (entry && entry.status === "planned") entry.status = "running";
+  const pendings = phase3.actions.filter((a) => !a.result);
+  if (pendings.length === 1) {
+    const entry = actionEntries.get(pendings[0].callId);
+    if (entry && entry.status === "planned") entry.status = "running";
+    return;
+  }
+  for (const action of pendings) {
+    const entry = actionEntries.get(action.callId);
+    if (entry && entry.status === "running") entry.status = "planned";
+  }
 }
 
 function applyActionCall(
@@ -988,15 +994,29 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
     .find((p) => p.status === "running" || p.actions.length > 0 || p.tasks.length > 0);
   if (!activePhase) return { label: "Preparing context" };
 
-  const runningAction = [...activePhase.actions].reverse().find((a) => !a.result);
-  if (activePhase.phase === "phase3" && runningAction) {
-    const descriptor = descriptorFor(runningAction.action);
-    const target = descriptor.summarizeCall(runningAction.params).target;
-    return {
-      phase: activePhase.phase,
-      label: `${descriptor.verb} ${targetLabel(target) ?? runningAction.action}`,
-      detail: runningAction.action,
-    };
+  if (activePhase.phase === "phase3") {
+    const pendings = activePhase.actions.filter((a) => !a.result);
+    // Single-pending rule: only name the in-flight action when it is
+    // unambiguous; with several pendings, state batch progress instead of
+    // naming the wrong one (see advanceRunningAction).
+    if (pendings.length === 1) {
+      const action = pendings[0];
+      const descriptor = descriptorFor(action.action);
+      const target = descriptor.summarizeCall(action.params).target;
+      return {
+        phase: activePhase.phase,
+        label: `${descriptor.verb} ${targetLabel(target) ?? action.action}`,
+        detail: action.action,
+      };
+    }
+    if (pendings.length > 1) {
+      const done = activePhase.actions.length - pendings.length;
+      return {
+        phase: activePhase.phase,
+        label: `Executing ${pendings.length} actions…`,
+        detail: `${done}/${activePhase.actions.length} done`,
+      };
+    }
   }
   const runningTask = activePhase.tasks.find((t) => t.status === "running");
   if (runningTask) {
