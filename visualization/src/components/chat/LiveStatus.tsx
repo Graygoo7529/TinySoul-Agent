@@ -212,7 +212,7 @@ export function LiveStatus({
       >
         <div
           className="step-depth"
-          style={{ "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties}
+          style={{ "--step-opacity": Math.max(0.5, 1 - i * 0.08) } as React.CSSProperties}
         >
           <motion.div
             initial={instant ? false : { opacity: 0, y: 4, filter: "blur(2px)" }}
@@ -361,7 +361,7 @@ export function LiveStatus({
           <div className="grow-in px-4 pb-2.5">
             <button
               onClick={() => setShowAll(!showAll)}
-              className="pl-5 text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+              className="text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
             >
               {showAll
                 ? "Show fewer steps"
