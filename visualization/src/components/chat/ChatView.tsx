@@ -8,6 +8,11 @@ import { Button } from "../ui/Button";
 import { Composer } from "./Composer";
 import { TurnView } from "./TurnView";
 
+/** While a turn runs, its top edge parks this far below the viewport's top —
+    the live card then grows downward in view instead of its top being pushed
+    up by bottom-pinning. */
+const TOP_ANCHOR = 160;
+
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const interrupted = useAppStore((s) => s.eventStreamInterrupted);
   const historyLoading = useAppStore((s) => s.historyLoading);
@@ -17,6 +22,12 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pinnedToBottom = useRef(true);
+  /** Target of an in-flight programmatic scroll; its scroll events must not
+      be mistaken for the user grabbing the wheel. */
+  const programmatic = useRef<number | null>(null);
+  const smoothGuard = useRef<number | undefined>(undefined);
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
   const empty = turns.length === 0;
 
   const localOldest = events[0]?.sequence ?? 0;
@@ -26,31 +37,71 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     localOldest > 1 &&
     (journalOldest === null || journalOldest < localOldest);
 
+  // Follow target: while the latest turn runs, park its top edge at
+  // TOP_ANCHOR so the breathing card's top stays put and its bottom edge
+  // extends downward as the trail rolls; otherwise follow the bottom.
+  const followTarget = (): number | null => {
+    const scroll = scrollRef.current;
+    const content = contentRef.current;
+    if (!scroll || !content) return null;
+    const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+    const last = turnsRef.current[turnsRef.current.length - 1];
+    const lastEl = content.lastElementChild as HTMLElement | null;
+    if (last?.status === "running" && lastEl) {
+      const gap = lastEl.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      return Math.max(0, Math.min(scroll.scrollTop + (gap - TOP_ANCHOR), maxScroll));
+    }
+    return maxScroll;
+  };
+
   // Follow the stream while the user stays near the bottom. The
   // ResizeObserver tracks the content box, so animated height changes
-  // (status rows rolling in, crossfade height glides) are followed
-  // frame-by-frame — the pinned bottom glides instead of jumping.
+  // (the rolling trail, crossfade glides) are followed frame-by-frame.
   useEffect(() => {
     const scroll = scrollRef.current;
     const content = contentRef.current;
     if (!scroll || !content) return;
     const follow = () => {
-      if (pinnedToBottom.current) scroll.scrollTop = scroll.scrollHeight;
+      if (!pinnedToBottom.current) return;
+      const target = followTarget();
+      if (target === null || Math.abs(scroll.scrollTop - target) < 1) return;
+      programmatic.current = target;
+      scroll.scrollTop = target;
     };
     follow();
     const observer = new ResizeObserver(follow);
     observer.observe(content);
     return () => observer.disconnect();
+    // followTarget reads only refs and the DOM — no stale closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empty]);
 
-  // Discrete appends (a new turn, a finished answer) snap immediately; the
-  // observer above then tracks any animated growth that follows.
+  // A new turn begins: re-engage following and glide its top toward the
+  // anchor (the new turn is always at the stream's end, so this glides
+  // downward to make room for the live card to grow into).
+  const lastTurnId = empty ? null : turns[turns.length - 1].turnId;
+  const prevTurnId = useRef(lastTurnId);
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && pinnedToBottom.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [turns]);
+    if (prevTurnId.current === lastTurnId) return;
+    prevTurnId.current = lastTurnId;
+    if (!lastTurnId) return;
+    pinnedToBottom.current = true;
+    const scroll = scrollRef.current;
+    const lastEl = contentRef.current?.lastElementChild as HTMLElement | null | undefined;
+    if (!scroll || !lastEl) return;
+    const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+    const gap = lastEl.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+    const target = Math.max(0, Math.min(scroll.scrollTop + (gap - TOP_ANCHOR), maxScroll));
+    if (Math.abs(target - scroll.scrollTop) < 2) return;
+    programmatic.current = target;
+    scroll.scrollTo({ top: target, behavior: "smooth" });
+    window.clearTimeout(smoothGuard.current);
+    smoothGuard.current = window.setTimeout(() => {
+      programmatic.current = null;
+    }, 800);
+  }, [lastTurnId]);
+
+  useEffect(() => () => window.clearTimeout(smoothGuard.current), []);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -66,8 +117,21 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
         className="chat-grid min-h-0 flex-1 overflow-y-auto"
         onScroll={(e) => {
           const el = e.currentTarget;
-          pinnedToBottom.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+          if (programmatic.current !== null) {
+            if (Math.abs(el.scrollTop - programmatic.current) < 2) {
+              programmatic.current = null;
+            }
+            return;
+          }
+          pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        }}
+        onWheel={(e) => {
+          // scrolling up is the user taking over; scrolling down re-pins via
+          // the scroll handler once the bottom is reached
+          if (e.deltaY < 0) pinnedToBottom.current = false;
+        }}
+        onTouchStart={() => {
+          pinnedToBottom.current = false;
         }}
       >
         {turns.length === 0 ? (

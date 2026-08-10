@@ -30,15 +30,12 @@ export function ActionGlimpse({
   /** running: disclose the input; done: disclose the result gist. */
   mode: "running" | "done";
 }) {
-  const family = descriptorFor(record.action).family;
-  const body =
-    mode === "running"
-      ? runningGlimpse(family, record.params)
-      : doneGlimpse(family, record);
+  const body = glimpseBody(record, mode);
   if (!body) return null;
   // grow-in: the glimpse expands into place (reserving its height smoothly)
   // instead of popping the stack's layout; the stage-2 → stage-3 flip
-  // crossfades instead of hard-cutting.
+  // crossfades instead of hard-cutting. Disappearance is tweened by the
+  // caller's AnimatePresence (a bare null return would hard-cut the row).
   return (
     <div className="grow-in">
       <Crossfade
@@ -49,6 +46,18 @@ export function ActionGlimpse({
       </Crossfade>
     </div>
   );
+}
+
+/**
+ * The glimpse content for a record, or null when the family has nothing
+ * compact to show. Exported so the live status can tell presence in
+ * advance — an empty glimpse must never mount-then-vanish.
+ */
+export function glimpseBody(record: ActionRecord, mode: "running" | "done") {
+  const family = descriptorFor(record.action).family;
+  return mode === "running"
+    ? runningGlimpse(family, record.params)
+    : doneGlimpse(family, record);
 }
 
 /* ------------------------------- running ------------------------------ */

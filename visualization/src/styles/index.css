@@ -668,7 +668,7 @@ body {
 .xfade {
   position: relative;
   overflow: hidden;
-  transition: height 0.3s cubic-bezier(0.22, 0.9, 0.3, 1);
+  transition: height 0.36s cubic-bezier(0.22, 0.9, 0.3, 1);
 }
 .xfade-exit {
   position: absolute;
@@ -693,10 +693,10 @@ body {
   }
 }
 .animate-xfade-in {
-  animation: xfade-in 0.3s ease-out both;
+  animation: xfade-in 0.36s ease-out both;
 }
 .animate-xfade-out {
-  animation: xfade-out 0.24s ease-in both;
+  animation: xfade-out 0.28s ease-in both;
 }
 
 /* ---- rolling steps viewport: fixed max height once filled; older rows
@@ -716,10 +716,10 @@ body {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent 100%);
 }
 
-/* ---- thinking slate: a fixed three-line panel — thought swaps erase and
-   re-stream the text without ever changing the card's height, so the
-   breathing frame's top edge stays put; overlong content dissolves at the
-   bottom edge (expanding releases the height, user-initiated) ---- */
+/* ---- thinking slate: its height glides between thoughts (measured from a
+   hidden copy, so short thoughts take one line, never standing blank);
+   overlong content dissolves at the bottom edge (expanding releases the
+   height, user-initiated) ---- */
 .thinking-slate {
   position: relative;
   overflow: hidden;
@@ -731,6 +731,15 @@ body {
 .thinking-exit {
   position: absolute;
   inset: 0;
+  pointer-events: none;
+}
+/* hidden full-text copy used to pre-measure the slate's target height */
+.thinking-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 

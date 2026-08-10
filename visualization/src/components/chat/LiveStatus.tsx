@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Brain,
@@ -22,32 +22,32 @@ import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { Crossfade } from "../ui/Crossfade";
 import { ActivityStep } from "./ActivityStep";
-import { ActionGlimpse } from "./ActionGlimpse";
+import { ActionGlimpse, glimpseBody } from "./ActionGlimpse";
 
 const STEP_COUNT = 5;
 /** Live viewport: rows rendered at once — the visible ones plus a small
     buffer scrolling away under the bottom fade. */
 const ROLL_WINDOW = 9;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
-const LIVE_BEAT_MS = 1200;
+const LIVE_BEAT_MS = 1500;
 /** Stagger cap for batched row entrances — longer cascades read as popping. */
 const CASCADE_MAX = 2;
 
 /* Beat timeline (ms after a beat commits): the statement swap (headline +
-   thinking) leads; the trail roll opens behind it; the new row's content
-   materializes mid-roll. Batched rows cascade by CASCADE_MS. The full
-   choreography settles inside one beat (≈1.1s < LIVE_BEAT_MS). */
-const ROLL_DELAY_MS = 420;
-const ROLL_MS = 520;
-const REVEAL_DELAY_MS = 620;
-const REVEAL_MS = 400;
-const CASCADE_MS = 140;
+   thinking) leads; the new thought streams in; the trail roll opens only
+   once the thinking is visibly underway — the cadence of "think first,
+   then record". The full choreography settles inside one beat (≈1.4s). */
+const ROLL_DELAY_MS = 650;
+const ROLL_MS = 600;
+const REVEAL_DELAY_MS = 920;
+const REVEAL_MS = 450;
+const CASCADE_MS = 170;
 /** Thinking: erase the old thought, then stream the new one in. */
-const THINK_ERASE_MS = 240;
-const THINK_TYPE_DELAY_MS = 260;
-const THINK_TYPE_MS = 760;
-/** Fixed thinking panel height: three lines of text-[12px] leading-5. */
-const SLATE_HEIGHT = 60;
+const THINK_ERASE_MS = 300;
+const THINK_TYPE_DELAY_MS = 320;
+const THINK_TYPE_MS = 900;
+/** Thinking slate height glide between thoughts. */
+const SLATE_GLIDE_MS = 360;
 
 /**
  * Live status disclosure for a running turn (the floating activity card in
@@ -66,11 +66,13 @@ const SLATE_HEIGHT = 60;
  * Update rhythm: one atomic beat (LIVE_BEAT_MS) commits the headline and the
  * step trail together, then plays a three-part choreography — the headline
  * crossfades, the thinking slate erases and streams the new thought in, and
- * then the trail rolls: a new row opens its height so older rows glide
+ * only then the trail rolls: a new row opens its height so older rows glide
  * down, and its content materializes mid-roll. Rows reaching the viewport's
- * bottom edge dissolve under a fade instead of popping out. The thinking
- * slate is a fixed three-line panel and the trail viewport clamps at a
- * fixed max height, so once filled the card's breathing frame never moves.
+ * bottom edge dissolve under a fade instead of popping out. The slate's
+ * height glides between thoughts (pre-measured, never a standing blank),
+ * the trail viewport clamps at a fixed max height, and ChatView parks the
+ * turn's top edge while it runs — so the breathing frame's top stays put
+ * and only its bottom extends, until the viewport is full and it freezes.
  */
 export function LiveStatus({
   turn,
@@ -141,13 +143,20 @@ export function LiveStatus({
       (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
   )?.item.callId;
 
-  const glimpseFor = (item: ActivityItem) => {
+  // Glimpse descriptors by row. Presence is decided here (via glimpseBody)
+  // so a row's glimpse never mounts-then-vanishes; disappearance is tweened
+  // by the AnimatePresence wrapper in renderStep.
+  const glimpseFor = (
+    item: ActivityItem,
+  ): { record: ActionRecord; mode: "running" | "done" } | undefined => {
     if (!item.action || !item.callId) return undefined;
     const record = recordByCallId.get(item.callId);
     if (!record) return undefined;
-    if (item.status === "running") return <ActionGlimpse record={record} mode="running" />;
+    if (item.status === "running") {
+      return glimpseBody(record, "running") ? { record, mode: "running" } : undefined;
+    }
     if (item.callId === latestSettledCallId && record.result) {
-      return <ActionGlimpse record={record} mode="done" />;
+      return glimpseBody(record, "done") ? { record, mode: "done" } : undefined;
     }
     return undefined;
   };
@@ -159,6 +168,7 @@ export function LiveStatus({
   const renderStep = ({ item, index }: { item: ActivityItem; index: number }, i: number) => {
     const cascade = Math.min(i, CASCADE_MAX) * CASCADE_MS;
     const instant = !live || reduced === true;
+    const glimpse = glimpseFor(item);
     return (
       <motion.div
         key={`${item.time}-${index}`}
@@ -189,7 +199,30 @@ export function LiveStatus({
               delay: instant ? 0 : (REVEAL_DELAY_MS + cascade) / 1000,
             }}
           >
-            <ActivityStep animate={live} item={item} glimpse={glimpseFor(item)} />
+            <ActivityStep
+              animate={live}
+              item={item}
+              glimpse={
+                // a glimpse leaving the stack (a newer action claimed the
+                // slot) collapses out instead of hard-cutting the row
+                <AnimatePresence initial={false}>
+                  {glimpse && (
+                    <motion.div
+                      key={glimpse.record.callId}
+                      style={{ overflow: "hidden" }}
+                      initial={false}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        transition: { duration: reduced ? 0 : 0.35, ease: EASE_CALM },
+                      }}
+                    >
+                      <ActionGlimpse record={glimpse.record} mode={glimpse.mode} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              }
+            />
           </motion.div>
         </div>
       </motion.div>
@@ -350,11 +383,12 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
 }
 
 /**
- * The thinking slate: a fixed three-line panel. When a new thought arrives
- * the old text erases (fades out on an absolute layer), then the new text
- * streams in like an SSE feed — and the panel height never changes, so the
- * card's breathing frame stays put. Expanding releases the height (motion
- * tweens it); reduced motion swaps instantly.
+ * The thinking slate. When a new thought arrives the old text erases (fades
+ * out on an absolute layer), then the new text streams in like an SSE feed.
+ * The slate's height glides to the incoming thought's settled height —
+ * pre-measured from a hidden copy with the same clamp — so short thoughts
+ * take one line (no standing blank) and swaps never jump the frame.
+ * Expanding releases the height; reduced motion swaps instantly.
  */
 function ThinkingWriter({
   itemTime,
@@ -387,14 +421,28 @@ function ThinkingWriter({
     setExiting({ id: prev, text: shownRef.current });
   }, [itemTime, reduced, expanded]);
 
+  // Pre-measure the incoming thought's settled (clamped) height; the
+  // observer keeps the measurement fresh across rewraps (window resize).
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [slateHeight, setSlateHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const measure = measureRef.current;
+    if (!measure) return;
+    const update = () => setSlateHeight(measure.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [full, collapsible, expanded]);
+
   const textClass = "md-calm text-[12px] leading-5 text-fg-muted";
   return (
     <motion.div
       className="thinking-slate"
       data-clamped={collapsible && !expanded ? "" : undefined}
       initial={false}
-      animate={{ height: expanded ? "auto" : SLATE_HEIGHT }}
-      transition={{ duration: reduced ? 0 : 0.3, ease: EASE_CALM }}
+      animate={{ height: expanded ? "auto" : (slateHeight ?? "auto") }}
+      transition={{ duration: reduced ? 0 : SLATE_GLIDE_MS / 1000, ease: EASE_CALM }}
     >
       <Markdown className={textClass}>{typing ? `${shown}▍` : shown}</Markdown>
       {exiting && (
@@ -409,6 +457,13 @@ function ThinkingWriter({
           <Markdown className={textClass}>{exiting.text}</Markdown>
         </motion.div>
       )}
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        className={`thinking-measure ${collapsible && !expanded ? "line-clamp-3" : ""}`}
+      >
+        <Markdown className={textClass}>{full}</Markdown>
+      </div>
     </motion.div>
   );
 }
@@ -426,12 +481,11 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
       {milestones.length > 0 && (
         <div className="mb-1.5 space-y-1">
           {milestones.map((m) => (
-            <div
-              key={m.key}
-              className="animate-status-in flex items-center gap-2 text-[12px]"
-            >
-              <Flag size={11} className="shrink-0 text-warning" />
-              <span className="min-w-0 truncate text-fg-muted">{m.content}</span>
+            <div key={m.key} className="grow-in">
+              <div className="animate-status-in flex items-center gap-2 text-[12px]">
+                <Flag size={11} className="shrink-0 text-warning" />
+                <span className="min-w-0 truncate text-fg-muted">{m.content}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -444,19 +498,21 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
           </div>
           <div className="space-y-1">
             {todos.map((todo) => (
-              <div key={todo.key} className="animate-status-in flex items-center gap-2 text-[12px]">
-                <TodoIcon status={todo.status} />
-                <span
-                  className={
-                    todo.status === "done" || todo.status === "cancelled"
-                      ? "text-fg-faint line-through"
-                      : todo.status === "in_progress"
-                        ? "font-medium text-fg"
-                        : "text-fg-muted"
-                  }
-                >
-                  {todo.content}
-                </span>
+              <div key={todo.key} className="grow-in">
+                <div className="animate-status-in flex items-center gap-2 text-[12px]">
+                  <TodoIcon status={todo.status} />
+                  <span
+                    className={
+                      todo.status === "done" || todo.status === "cancelled"
+                        ? "text-fg-faint line-through"
+                        : todo.status === "in_progress"
+                          ? "font-medium text-fg"
+                          : "text-fg-muted"
+                    }
+                  >
+                    {todo.content}
+                  </span>
+                </div>
               </div>
             ))}
           </div>

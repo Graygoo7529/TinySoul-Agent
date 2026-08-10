@@ -12,7 +12,7 @@ import { useReducedMotion } from "motion/react";
  * Exit-layer fade duration (the `xfade-out` animation in index.css); the
  * layer is retired shortly after it finishes.
  */
-const EXIT_MS = 240;
+const EXIT_MS = 280;
 
 /**
  * Crossfade swap primitive. When `id` changes, the outgoing content fades
@@ -91,7 +91,7 @@ export function Crossfade({
       window.clearTimeout(releaseTimer.current);
       releaseTimer.current = window.setTimeout(() => {
         box.style.height = "";
-      }, 350);
+      }, 430);
     }
     prevHeight.current = to;
   });
