@@ -31,6 +31,8 @@ export function ActivityStep({
   onAnchor,
   glimpse,
   animate = false,
+  onToggleGlimpse,
+  glimpseExpanded = false,
 }: {
   item: ActivityItem;
   /** Render a colored timeline dot instead of the kind icon. */
@@ -42,6 +44,11 @@ export function ActivityStep({
   /** Live status only: tween in-place content changes (status icon flips,
       the result line growing in) so the trail never hard-cuts. */
   animate?: boolean;
+  /** Live status only: when set, the row body becomes a button toggling the
+      result gist of an older settled action. */
+  onToggleGlimpse?: () => void;
+  /** Drives the chevron direction for onToggleGlimpse rows. */
+  glimpseExpanded?: boolean;
 }) {
   // Action entries (kind "action", or "error" once they fail) get their
   // lifecycle status icon instead of the generic kind icon.
@@ -87,11 +94,32 @@ export function ActivityStep({
           {body}
           {glimpse}
         </button>
+      ) : onToggleGlimpse ? (
+        <div className="min-w-0 flex-1">
+          {/* the gist renders outside the toggle button so its own controls
+              (e.g. the output expander) never nest inside another button */}
+          <button
+            onClick={onToggleGlimpse}
+            title={glimpseExpanded ? "Hide the result detail" : "Show the result detail"}
+            className="block w-full rounded-md text-left transition-colors hover:bg-hover"
+          >
+            {body}
+          </button>
+          {glimpse}
+        </div>
       ) : (
         <div className="min-w-0 flex-1">
           {body}
           {glimpse}
         </div>
+      )}
+      {onToggleGlimpse && (
+        <ChevronRight
+          size={11}
+          className={`mt-[3px] shrink-0 text-fg-faint transition-transform ${
+            glimpseExpanded ? "rotate-90" : ""
+          }`}
+        />
       )}
     </div>
   );

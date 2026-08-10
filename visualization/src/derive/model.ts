@@ -199,6 +199,10 @@ export interface ActionTarget {
 }
 
 export interface ActivityItem {
+  /** Stable identity within the turn, assigned in deterministic replay
+      order — survives full rebuilds and the MAX_ACTIVITY head trim. */
+  seq: number;
+  /** Source event timestamp (epoch seconds). */
   time: number;
   kind: ActivityKind;
   text: string;
@@ -299,6 +303,8 @@ export interface ChatTurn {
   working: WorkingState;
   topLinks: TopLinkSnapshot[];
   activity: ActivityItem[];
+  /** Per-turn monotonic counter backing ActivityItem.seq (derive-internal). */
+  activitySeq: number;
   currentActivity?: CurrentActivity;
   usage: TurnUsage;
   actionStats: TurnActionStats;

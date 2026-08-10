@@ -3,7 +3,7 @@
 ## 对话优先
 
 - 主界面是一条连续的聊天历史（背景为 2% 透明度 24px 微网格）：右侧为用户消息（浅 tinted 玻璃气泡：accent 浅底 + 深靛文字 + 细描边 + 背模糊），左侧为 Agent 行（渐变头像 + 内容区）。
-- Agent 行在完成态展示 Markdown 渲染的最终回答，回答卡以 `answer-in` 动效柔和浮现；页脚给出状态徽标、耗时、概要（cycles/actions/domains/成败数）、token 用量与 Details 入口。
+- Agent 行在完成态展示 Markdown 渲染的最终回答，回答卡以 `answer-in` 动效柔和浮现；当前会话内完成的回答正文以打字机节奏逐字流入（`useTypewriter`，时长按长度缩放约 0.5–2s，带 ▍ 光标），历史恢复的回答直接全量呈现。页脚给出状态徽标、耗时、概要（cycles/actions/domains/成败数）、token 用量与 Details 入口。
 - 用户输入通过本地回声即时上屏；非本端输入从首个 message stack 的 `user_input` 段恢复。
 
 ## 运行状态动态披露（LiveStatus 活跃状态）
@@ -11,12 +11,12 @@
 进行中的用户轮在 Agent 行内展示 LiveStatus 实时状态卡（即主对话界面的浮动状态栏），全部从观察事件流派生：
 
 - **流光标题行**：陈述当前活动——phase 运行中显示与 trace 折叠条同款的运行句（`PHASE_META.running`：Maintaining context and selecting domains… / Generating action parameters… / Executing actions…），执行 action 时显示 registry 动词 + 目标；流光动画与入场动画分层嵌套互不覆盖。准确性采用**单一待定规则**：phase3 只剩 1 个无结果 action 时才具名（此时必然准确），多个待定显示 "Executing N actions…" 批次进度，不妄指（彻底解决依赖后端 `action.execution.started` 事件，见需求单）。右侧为轮计时与当前 action/phase 计时（tabular-nums）。
-- **流动更迭节奏**：1500ms 原子节拍（`useThrottledValue`）把抬头与步骤轨迹合并为同一次提交，爆发期合并为一拍、尾随冲刷保证最终状态不丢。每拍按精确时间线依次播放三类动画（由 motion 库驱动）：① t=0 抬头经 `Crossfade` 交叉淡入淡出（出 280ms / 入 360ms），思考面板旧文本擦除淡出（300ms）；t≈320ms 新思考逐字流入（900ms 预算，模拟 SSE），面板高度同步平滑延展（360ms）；② t≈650ms——思考明显开始之后——步骤区新行高度展开（600ms），旧行随布局流整体下滚；③ t≈920ms 新行内容浮现（fade + 轻微上浮去模糊，450ms），全拍约 1.4s 收定。同拍多条以 170ms 级联（上限 3 级）。工作区新条目（todo/milestone）经 `grow-in` 高度展开，不瞬时占位。
+- **流动更迭节奏**：1500ms 原子节拍（`useThrottledValue`）把抬头与步骤轨迹合并为同一次提交，爆发期合并为一拍、尾随冲刷保证最终状态不丢。每拍按精确时间线依次播放三类动画（由 motion 库驱动）：① t=0 抬头经 `Crossfade` 交叉淡入淡出（出 280ms / 入 360ms），思考行旧文本淡出（300ms）、新行 t≈120ms 起柔和浮现（fade + 上浮 + 去模糊 450ms）；② t≈650ms——新思考明显开始之后——步骤区新行高度展开（600ms），旧行随布局流整体下滚；③ t≈920ms 新行内容浮现（450ms），全拍约 1.4s 收定。同拍多条以 170ms 级联（上限 3 级）。工作区条目（todo/milestone）进出均经高度 tween，移除不瞬跳。步骤行以 activity 条目的稳定 `seq` 为 key——事件流全量重建（derive replay）不会重挂载任何行，这是"坍塌再填充"类闪动的根治。
 - **沉淀态（settled）**：最新一轮完成后 LiveStatus 以沉淀卡保留——静态边框（不呼吸不流光）、状态行变为"回答完成/轮次失败…"+ 概要 + 定格总时长，活动轨迹与工作区保持可见；发起新 user turn 时旧沉淀卡自然收起（新一轮挂出自己的运行卡）。
-- **思考流**：最新一条 reasoning summary 呈现在思考面板（`.thinking-slate`）中——换思考时旧文本擦除淡出、新文本逐字流入（`useTypewriter`，模拟 SSE 节奏，流入中带 ▍ 光标）；面板高度经隐藏副本预选测量（含 clamp），换思考时 360ms 平滑延展到位——短思考只占一行、无空白行；超长内容在面板底边渐变截断，Expand 手动展开时高度平滑释放。整块首次出现时经 `grow-in` 展开入卡。
-- **语义步骤栈**：最新在前的活动条目（intent + domain 胶囊、挂载 skills、todo/milestone、action）。运行中步骤区为**固定最大高度的滚动视口**（`.steps-viewport`，12rem ≈ 7 行，渲染窗口 9 条）：新行先展开高度把旧行整体下滚（滚轮感），内容随后浮现；抵近底边的旧行在渐变消融 mask 中淡出消失（溢出闩锁判定，临界不闪动）；就地更新全部 tween 化——状态图标翻转微淡入、stage3 结果行高度展开（`ActivityStep` 的 `animate` prop）、glimpse 挂载经 `grow-in`、**glimpse 撤下经 `AnimatePresence` 高度坍缩**（新 action 夺得结果位时旧 glimpse 不再瞬时消失）——栈内无瞬时跳变。配合 `ChatView` 的**顶部停泊跟随**（见下），视口填满后卡片边框完全冻结。溢出条目折叠为 "+N earlier steps"，展开时解除高度限制（用户主动行为）。纵深渐隐由 `.step-depth` 过渡承担。action 条目是状态机（planned 空心点 → running 旋转 → succeeded/failed/timeout），并呈现两条信息：上行 stage2 调用语义（编辑的目标文件、检索意图、待访问链接、待执行命令、inspect/recall 目标），下行 stage3 结果摘要（exit code、结果数、revision、行数）。
+- **思考流**：最新一条 reasoning 以**固定一行**的斜体摘要呈现（`.thinking-slate`，内容为 derive 层已剥除记号的 `plainExcerpt`）——换思考时旧行淡出、新行柔和浮现，面板高度恒定不动；有更长 reasoning 时可 Expand 展开为完整 Markdown（高度平滑释放）。整块首次出现时经 `grow-in` 展开入卡。
+- **语义步骤栈**：最新在前的活动条目（intent + domain 胶囊、挂载 skills、todo/milestone、action）。运行中步骤区为**固定最大高度的滚动视口**（`.steps-viewport`，12rem ≈ 7 行，渲染窗口 9 条）：新行先展开高度把旧行整体下滚（滚轮感），内容随后浮现；抵近底边的旧行在渐变消融 mask 中淡出消失（溢出闩锁判定，临界不闪动）；就地更新全部 tween 化——状态图标翻转微淡入、stage3 结果行高度展开（`ActivityStep` 的 `animate` prop）、glimpse 挂载经 `grow-in`、glimpse 撤下经 `AnimatePresence` 高度坍缩——栈内无瞬时跳变。视口填满或存在更早步骤时底部出现 "+N earlier steps"（经 `grow-in` 出现），展开时解除高度限制（用户主动行为）。**有结果要点的已落定 action 行可点击就地展开/收起其 gist**（悬停底色 + 右侧 chevron），滚入历史的行同样可展开。配合 `ChatView` 的**顶部停泊跟随**（见下），视口填满后卡片边框完全冻结。纵深渐隐由 `.step-depth` 过渡承担。action 条目是状态机（planned 空心点 → running 旋转 → succeeded/failed/timeout），并呈现两条信息：上行 stage2 调用语义（编辑的目标文件、检索意图、待访问链接、待执行命令、inspect/recall 目标），下行 stage3 结果摘要（exit code、结果数、revision、行数）。
 - **顶部停泊跟随（ChatView）**：钉底不是钉内容底部——运行中的用户轮顶部停泊在视口顶沿下方（`TOP_ANCHOR` 160px），ResizeObserver 逐帧跟随内容增长：呼吸框上沿稳定不动，下沿随条目滚动自然向下延展；视口填满后边框整体冻结。新一轮开始时平滑滑向锚点并重新跟随；用户向上滚轮/触摸立即脱离跟随（意图优先），程序滚动有目标值保护不被误判。轮次结束后回到钉底跟随。
-- **Action 内联详情（ActionGlimpse）**：步骤栈中运行中的 action 披露其 stage2 输入（命令行、patch 迷你 diff、生成 instruction、memorize 操作清单），最近完成的 action 披露其 stage3 结果要点（输出尾部默认 2 行可展开、检索前三条、抓取标题摘要、diff 统计 +N/−M、失败 feedback）。保持紧凑，完整呈现归 TurnTraceDrawer。
+- **Action 内联详情（ActionGlimpse）**：步骤栈中运行中的 action 披露其 stage2 输入（命令行、patch 迷你 diff、生成 instruction、memorize 操作清单），最近完成的 action 自动披露其 stage3 结果要点（输出尾部默认 2 行可展开、检索前三条、抓取标题摘要、diff 统计 +N/−M、失败 feedback）；其余已落定且要点的 action 行可点击就地展开/收起。保持紧凑，完整呈现归 TurnTraceDrawer。
 - **独立工作态区域**：todo 列表（状态图标、进行中高亮、完成划线）与 milestone 在状态卡下部常驻，由 Phase1 control tools 与 message stack 的 `working` 段共同推导。
 - 整卡在运行中呼吸渐变边框（live-border）+ 流光标题（text-shine）；停止请求挂起时降级为静态警示边框。停止按钮在 Composer 上。
 

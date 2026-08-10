@@ -232,21 +232,6 @@ body {
   animation: slide-in-right 0.22s ease-out;
 }
 
-/* floating live status: the newest activity slides up and settles */
-@keyframes status-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.animate-status-in {
-  animation: status-in 0.28s cubic-bezier(0.22, 0.9, 0.3, 1);
-}
-
 @keyframes pulse-dot {
   0%,
   100% {
@@ -716,30 +701,16 @@ body {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent 100%);
 }
 
-/* ---- thinking slate: its height glides between thoughts (measured from a
-   hidden copy, so short thoughts take one line, never standing blank);
-   overlong content dissolves at the bottom edge (expanding releases the
-   height, user-initiated) ---- */
+/* ---- thinking slate: a one-line panel whose height never changes while
+   collapsed (thought swaps never move the breathing frame); expanding
+   glides it open to the full reasoning ---- */
 .thinking-slate {
   position: relative;
   overflow: hidden;
 }
-.thinking-slate[data-clamped] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
-}
 .thinking-exit {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-}
-/* hidden full-text copy used to pre-measure the slate's target height */
-.thinking-measure {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  visibility: hidden;
   pointer-events: none;
 }
 

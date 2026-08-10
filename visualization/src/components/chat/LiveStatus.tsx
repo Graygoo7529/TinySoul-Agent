@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Brain,
@@ -17,16 +17,15 @@ import { EASE_CALM } from "../../utils/motion";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
-import { useTypewriter } from "../../hooks/useTypewriter";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { Crossfade } from "../ui/Crossfade";
 import { ActivityStep } from "./ActivityStep";
 import { ActionGlimpse, glimpseBody } from "./ActionGlimpse";
 
-const STEP_COUNT = 5;
 /** Live viewport: rows rendered at once — the visible ones plus a small
-    buffer scrolling away under the bottom fade. */
+    buffer scrolling away under the bottom fade. Also the settled card's
+    static window, so completing a turn never shrinks the trail. */
 const ROLL_WINDOW = 9;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
 const LIVE_BEAT_MS = 1500;
@@ -34,19 +33,21 @@ const LIVE_BEAT_MS = 1500;
 const CASCADE_MAX = 2;
 
 /* Beat timeline (ms after a beat commits): the statement swap (headline +
-   thinking) leads; the new thought streams in; the trail roll opens only
-   once the thinking is visibly underway — the cadence of "think first,
-   then record". The full choreography settles inside one beat (≈1.4s). */
+   thinking) leads; the trail roll opens only once the new thought is
+   visibly underway — the cadence of "think first, then record". The full
+   choreography settles inside one beat (≈1.4s). */
 const ROLL_DELAY_MS = 650;
 const ROLL_MS = 600;
 const REVEAL_DELAY_MS = 920;
 const REVEAL_MS = 450;
 const CASCADE_MS = 170;
-/** Thinking: erase the old thought, then stream the new one in. */
+/** Thinking: the old line fades out, the new one materializes behind it. */
 const THINK_ERASE_MS = 300;
-const THINK_TYPE_DELAY_MS = 320;
-const THINK_TYPE_MS = 900;
-/** Thinking slate height glide between thoughts. */
+const THINK_REVEAL_DELAY_MS = 120;
+const THINK_REVEAL_MS = 450;
+/** Collapsed slate: exactly one line of text-[12px] leading-5. */
+const THINK_LINE_HEIGHT = 20;
+/** Thinking slate height glide when expanding/collapsing. */
 const SLATE_GLIDE_MS = 360;
 
 /**
@@ -65,14 +66,15 @@ const SLATE_GLIDE_MS = 360;
  *
  * Update rhythm: one atomic beat (LIVE_BEAT_MS) commits the headline and the
  * step trail together, then plays a three-part choreography — the headline
- * crossfades, the thinking slate erases and streams the new thought in, and
- * only then the trail rolls: a new row opens its height so older rows glide
- * down, and its content materializes mid-roll. Rows reaching the viewport's
- * bottom edge dissolve under a fade instead of popping out. The slate's
- * height glides between thoughts (pre-measured, never a standing blank),
- * the trail viewport clamps at a fixed max height, and ChatView parks the
- * turn's top edge while it runs — so the breathing frame's top stays put
- * and only its bottom extends, until the viewport is full and it freezes.
+ * crossfades, the thinking slate softly materializes the new thought line,
+ * and only then the trail rolls: a new row opens its height so older rows
+ * glide down, and its content materializes mid-roll. Rows reaching the
+ * viewport's bottom edge dissolve under a fade instead of popping out. The
+ * collapsed slate is a fixed one-line panel, the trail viewport clamps at a
+ * fixed max height, and ChatView parks the turn's top edge while it runs —
+ * so the breathing frame's top stays put and only its bottom extends, until
+ * the viewport is full and it freezes. Trail rows are keyed by the items'
+ * stable derive seq, so full event-stream rebuilds never remount them.
  */
 export function LiveStatus({
   turn,
@@ -102,19 +104,17 @@ export function LiveStatus({
   );
   const { activity, currentActivity } = feed;
 
-  const latestThinkingIndex = findLastIndex(activity, (a) => a.kind === "thinking");
-  const thought = latestThinkingIndex >= 0 ? activity[latestThinkingIndex] : undefined;
+  const thoughtIndex = findLastIndex(activity, (a) => a.kind === "thinking");
+  const thought = thoughtIndex >= 0 ? activity[thoughtIndex] : undefined;
 
   // Newest-first semantic steps, excluding the thought shown above; older
   // thinking entries stay in the stack as collapsed one-liners.
-  const steps = activity
-    .map((item, index) => ({ item, index }))
-    .filter(({ index }) => index !== latestThinkingIndex)
-    .reverse();
+  const steps = activity.filter((item) => item.seq !== thought?.seq).reverse();
   const [showAll, setShowAll] = useState(false);
-  // Live mode renders a small rolling window inside the fixed-height
-  // viewport; the settled card keeps the plain five-row list.
-  const visible = showAll ? steps : steps.slice(0, live ? ROLL_WINDOW : STEP_COUNT);
+  // Live mode rolls a small window inside the fixed-height viewport; the
+  // settled card lists the same window statically — completing a turn never
+  // shrinks the trail the user was watching.
+  const visible = showAll ? steps : steps.slice(0, ROLL_WINDOW);
   const overflow = steps.length - visible.length;
   const { ref: viewportRef, overflowing } = useOverflowing<HTMLDivElement>();
   // Latch the fade mask on once the viewport has ever overflowed — content
@@ -134,14 +134,23 @@ export function LiveStatus({
   // Action records by call id (phase3 mirrors carry the result, so later
   // writes win); drives the inline glimpses in the step stack.
   const recordByCallId = actionRecordsByCallId(turn);
-  // Only the latest settled action shows its result gist; older ones stay
-  // one-liners so the stack does not turn into a second trace drawer.
+  // The latest settled action auto-shows its result gist; older settled rows
+  // with a gist can be expanded inline by click (expandedGists).
+  const [expandedGists, setExpandedGists] = useState<ReadonlySet<string>>(new Set());
   const latestSettledCallId = steps.find(
-    ({ item }) =>
+    (item) =>
       item.action &&
       item.callId &&
       (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
-  )?.item.callId;
+  )?.callId;
+
+  const toggleGist = (callId: string) =>
+    setExpandedGists((prev) => {
+      const next = new Set(prev);
+      if (next.has(callId)) next.delete(callId);
+      else next.add(callId);
+      return next;
+    });
 
   // Glimpse descriptors by row. Presence is decided here (via glimpseBody)
   // so a row's glimpse never mounts-then-vanishes; disappearance is tweened
@@ -155,23 +164,38 @@ export function LiveStatus({
     if (item.status === "running") {
       return glimpseBody(record, "running") ? { record, mode: "running" } : undefined;
     }
-    if (item.callId === latestSettledCallId && record.result) {
+    const gistRequested =
+      item.callId === latestSettledCallId || expandedGists.has(item.callId);
+    if (gistRequested && record.result) {
       return glimpseBody(record, "done") ? { record, mode: "done" } : undefined;
     }
     return undefined;
   };
 
+  // A settled action row with a hidden result gist is clickable to expand it.
+  const gistToggleFor = (item: ActivityItem) => {
+    if (!item.action || !item.callId || item.callId === latestSettledCallId) return undefined;
+    if (item.status !== "succeeded" && item.status !== "failed" && item.status !== "timeout") {
+      return undefined;
+    }
+    const record = recordByCallId.get(item.callId);
+    if (!record?.result || !glimpseBody(record, "done")) return undefined;
+    return () => toggleGist(item.callId!);
+  };
+
   // One trail row: the height opens on the roll delay (older rows glide
   // down with the flow — the wheel), the content materializes mid-roll.
   // Depth dimming sits on its own CSS layer so position shifts re-dim with
-  // a transition instead of a jump. Settled rows render instantly.
-  const renderStep = ({ item, index }: { item: ActivityItem; index: number }, i: number) => {
+  // a transition instead of a jump. Settled rows render instantly. Rows are
+  // keyed by the item's stable seq — never by rebuild-volatile data.
+  const renderStep = (item: ActivityItem, i: number) => {
     const cascade = Math.min(i, CASCADE_MAX) * CASCADE_MS;
     const instant = !live || reduced === true;
     const glimpse = glimpseFor(item);
+    const onToggleGlimpse = gistToggleFor(item);
     return (
       <motion.div
-        key={`${item.time}-${index}`}
+        key={item.seq}
         style={{ overflow: "hidden" }}
         initial={instant ? false : { height: 0 }}
         animate={{ height: "auto" }}
@@ -202,9 +226,12 @@ export function LiveStatus({
             <ActivityStep
               animate={live}
               item={item}
+              onToggleGlimpse={onToggleGlimpse}
+              glimpseExpanded={item.callId ? expandedGists.has(item.callId) : false}
               glimpse={
                 // a glimpse leaving the stack (a newer action claimed the
-                // slot) collapses out instead of hard-cutting the row
+                // slot, or the user collapsed it) tweens out instead of
+                // hard-cutting the row
                 <AnimatePresence initial={false}>
                   {glimpse && (
                     <motion.div
@@ -303,9 +330,9 @@ export function LiveStatus({
           </div>
         </div>
 
-        {/* thinking stream: the latest reasoning in a fixed three-line
-            slate; the block grows into the card on first appearance, then
-            erases and re-streams between thoughts without moving the frame */}
+        {/* thinking stream: the latest reasoning as a one-line slate that
+            softly materializes on swap; the block grows into the card on
+            first appearance, Expand discloses the full reasoning */}
         {thought && (
           <div className="grow-in">
             <ThinkingStream item={thought} />
@@ -330,13 +357,17 @@ export function LiveStatus({
           ) : (
             <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
           ))}
-        {(overflow > 0 || showAll) && (
-          <div className="px-4 pb-2.5">
+        {(overflow > 0 || (live && rolledFull.current) || showAll) && (
+          <div className="grow-in px-4 pb-2.5">
             <button
               onClick={() => setShowAll(!showAll)}
               className="pl-5 text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
             >
-              {showAll ? "Show fewer steps" : `+${overflow} earlier steps`}
+              {showAll
+                ? "Show fewer steps"
+                : overflow > 0
+                  ? `+${overflow} earlier steps`
+                  : "Show all steps"}
             </button>
           </div>
         )}
@@ -353,7 +384,9 @@ export function LiveStatus({
 function ThinkingStream({ item }: { item: ActivityItem }) {
   const [expanded, setExpanded] = useState(false);
   const full = item.reasoning ?? item.text;
-  const collapsible = full.length > 220 || full.includes("\n");
+  // The collapsed slate is one plain line; expanding discloses the full
+  // reasoning whenever it says more than the excerpt does.
+  const collapsible = Boolean(item.reasoning) && full.trim() !== item.text;
 
   return (
     <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
@@ -372,98 +405,84 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           </button>
         )}
       </div>
-      <ThinkingWriter
-        itemTime={item.time}
-        full={full}
-        collapsible={collapsible}
-        expanded={expanded}
-      />
+      <ThinkingWriter itemSeq={item.seq} text={item.text} full={full} expanded={expanded} />
     </div>
   );
 }
 
 /**
- * The thinking slate. When a new thought arrives the old text erases (fades
- * out on an absolute layer), then the new text streams in like an SSE feed.
- * The slate's height glides to the incoming thought's settled height —
- * pre-measured from a hidden copy with the same clamp — so short thoughts
- * take one line (no standing blank) and swaps never jump the frame.
- * Expanding releases the height; reduced motion swaps instantly.
+ * The one-line thinking slate. A new thought softly materializes — the old
+ * line fades out on an absolute layer while the new one rises in with a
+ * de-blur — and the collapsed slate's height never changes, so the card's
+ * breathing frame stays put. Expanding glides the slate open to the full
+ * reasoning markdown. Reduced motion swaps instantly.
  */
 function ThinkingWriter({
-  itemTime,
+  itemSeq,
+  text,
   full,
-  collapsible,
   expanded,
 }: {
-  itemTime: number;
+  /** Stable identity of the thought item (ActivityItem.seq). */
+  itemSeq: number;
+  /** One-line plain excerpt shown while collapsed. */
+  text: string;
+  /** Full reasoning markdown shown while expanded. */
   full: string;
-  collapsible: boolean;
   expanded: boolean;
 }) {
   const reduced = useReducedMotion();
-  const { shown, typing } = useTypewriter(full, {
-    durationMs: THINK_TYPE_MS,
-    startDelayMs: THINK_TYPE_DELAY_MS,
-    active: !(reduced || expanded),
-  });
-  const shownRef = useRef(shown);
-  shownRef.current = shown;
+  const textRef = useRef(text);
+  textRef.current = text;
   const [exiting, setExiting] = useState<{ id: number; text: string } | null>(null);
-  const lastTime = useRef(itemTime);
+  const lastSeq = useRef(itemSeq);
 
-  // Thought swap: park whatever is currently visible on the erase layer.
+  // Thought swap: park the outgoing line on the fade layer.
   useEffect(() => {
-    if (lastTime.current === itemTime) return;
-    const prev = lastTime.current;
-    lastTime.current = itemTime;
+    if (lastSeq.current === itemSeq) return;
+    const prev = lastSeq.current;
+    lastSeq.current = itemSeq;
     if (reduced || expanded) return;
-    setExiting({ id: prev, text: shownRef.current });
-  }, [itemTime, reduced, expanded]);
+    setExiting({ id: prev, text: textRef.current });
+  }, [itemSeq, reduced, expanded]);
 
-  // Pre-measure the incoming thought's settled (clamped) height; the
-  // observer keeps the measurement fresh across rewraps (window resize).
-  const measureRef = useRef<HTMLDivElement | null>(null);
-  const [slateHeight, setSlateHeight] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const measure = measureRef.current;
-    if (!measure) return;
-    const update = () => setSlateHeight(measure.offsetHeight);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(measure);
-    return () => observer.disconnect();
-  }, [full, collapsible, expanded]);
-
-  const textClass = "md-calm text-[12px] leading-5 text-fg-muted";
+  const lineClass = "truncate text-[12px] italic leading-5 text-fg-muted";
   return (
     <motion.div
       className="thinking-slate"
-      data-clamped={collapsible && !expanded ? "" : undefined}
       initial={false}
-      animate={{ height: expanded ? "auto" : (slateHeight ?? "auto") }}
+      animate={{ height: expanded ? "auto" : THINK_LINE_HEIGHT }}
       transition={{ duration: reduced ? 0 : SLATE_GLIDE_MS / 1000, ease: EASE_CALM }}
     >
-      <Markdown className={textClass}>{typing ? `${shown}▍` : shown}</Markdown>
-      {exiting && (
+      {expanded ? (
+        <Markdown className="md-calm text-[12px] leading-5 text-fg-muted">{full}</Markdown>
+      ) : (
+        <motion.div
+          key={itemSeq}
+          className={lineClass}
+          initial={reduced ? false : { opacity: 0, y: 3, filter: "blur(2px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{
+            duration: THINK_REVEAL_MS / 1000,
+            ease: EASE_CALM,
+            delay: reduced ? 0 : THINK_REVEAL_DELAY_MS / 1000,
+          }}
+        >
+          {text}
+        </motion.div>
+      )}
+      {exiting && !expanded && (
         <motion.div
           key={exiting.id}
-          className="thinking-exit"
+          className={`thinking-exit ${lineClass}`}
           initial={{ opacity: 1 }}
           animate={{ opacity: 0 }}
           transition={{ duration: THINK_ERASE_MS / 1000, ease: "easeIn" }}
           onAnimationComplete={() => setExiting(null)}
         >
-          <Markdown className={textClass}>{exiting.text}</Markdown>
+          {exiting.text}
         </motion.div>
       )}
-      <div
-        ref={measureRef}
-        aria-hidden="true"
-        className={`thinking-measure ${collapsible && !expanded ? "line-clamp-3" : ""}`}
-      >
-        <Markdown className={textClass}>{full}</Markdown>
-      </div>
     </motion.div>
   );
 }
@@ -471,23 +490,34 @@ function ThinkingWriter({
 /* --------------------------- working zone ---------------------------- */
 
 function WorkingZone({ turn }: { turn: ChatTurn }) {
+  const reduced = useReducedMotion();
   const { todos, milestones } = turn.working;
   if (todos.length === 0 && milestones.length === 0) return null;
   const done = todos.filter((t) => t.status === "done").length;
+  // Rows tween in AND out — a removed todo/milestone never hard-cuts the
+  // card's height.
+  const rowMotion = {
+    initial: { height: 0, opacity: 0 },
+    animate: { height: "auto" as const, opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: { duration: reduced ? 0 : 0.35, ease: EASE_CALM },
+  };
   // grow-in: the zone expands into the card instead of popping its layout.
   return (
     <div className="grow-in">
       <div className="border-t border-line bg-bg-sunken/60 px-4 py-2.5">
       {milestones.length > 0 && (
         <div className="mb-1.5 space-y-1">
-          {milestones.map((m) => (
-            <div key={m.key} className="grow-in">
-              <div className="animate-status-in flex items-center gap-2 text-[12px]">
-                <Flag size={11} className="shrink-0 text-warning" />
-                <span className="min-w-0 truncate text-fg-muted">{m.content}</span>
-              </div>
-            </div>
-          ))}
+          <AnimatePresence initial={false}>
+            {milestones.map((m) => (
+              <motion.div key={m.key} style={{ overflow: "hidden" }} {...rowMotion}>
+                <div className="flex items-center gap-2 text-[12px]">
+                  <Flag size={11} className="shrink-0 text-warning" />
+                  <span className="min-w-0 truncate text-fg-muted">{m.content}</span>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
       {todos.length > 0 && (
@@ -497,24 +527,26 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
             Todos · {done}/{todos.length}
           </div>
           <div className="space-y-1">
-            {todos.map((todo) => (
-              <div key={todo.key} className="grow-in">
-                <div className="animate-status-in flex items-center gap-2 text-[12px]">
-                  <TodoIcon status={todo.status} />
-                  <span
-                    className={
-                      todo.status === "done" || todo.status === "cancelled"
-                        ? "text-fg-faint line-through"
-                        : todo.status === "in_progress"
-                          ? "font-medium text-fg"
-                          : "text-fg-muted"
-                    }
-                  >
-                    {todo.content}
-                  </span>
-                </div>
-              </div>
-            ))}
+            <AnimatePresence initial={false}>
+              {todos.map((todo) => (
+                <motion.div key={todo.key} style={{ overflow: "hidden" }} {...rowMotion}>
+                  <div className="flex items-center gap-2 text-[12px]">
+                    <TodoIcon status={todo.status} />
+                    <span
+                      className={
+                        todo.status === "done" || todo.status === "cancelled"
+                          ? "text-fg-faint line-through"
+                          : todo.status === "in_progress"
+                            ? "font-medium text-fg"
+                            : "text-fg-muted"
+                      }
+                    >
+                      {todo.content}
+                    </span>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
       )}

@@ -246,9 +246,8 @@ const FILTERS: { key: ActivityFilter; label: string }[] = [
 function ActivityTimeline({ activity }: { activity: ActivityItem[] }) {
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const items = activity
-    .map((item, index) => ({ item, index }))
-    .reverse()
-    .filter(({ item }) => filter === "all" || FILTER_GROUPS[filter].has(item.kind));
+    .filter((item) => filter === "all" || FILTER_GROUPS[filter].has(item.kind))
+    .reverse();
 
   const anchorToAction = (callId: string) => {
     const el = document.getElementById(`action-${callId}`);
@@ -282,8 +281,8 @@ function ActivityTimeline({ activity }: { activity: ActivityItem[] }) {
       </div>
       <div className="max-h-80 overflow-y-auto pr-1">
         <div className="timeline space-y-2 py-1">
-          {items.map(({ item, index }) => (
-            <div key={`${item.time}-${index}`} className="flex items-start gap-2">
+          {items.map((item) => (
+            <div key={item.seq} className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <ActivityStep item={item} rail onAnchor={anchorToAction} />
               </div>

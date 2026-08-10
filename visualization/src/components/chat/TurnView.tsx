@@ -1,7 +1,10 @@
+import { useRef } from "react";
 import { AlertTriangle, Bot, History, PanelRightOpen } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import type { ChatTurn } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
+import { useTypewriter } from "../../hooks/useTypewriter";
 import { Button } from "../ui/Button";
 import { Markdown } from "../markdown/Markdown";
 import { TurnStatusBadge } from "../trace/semantic";
@@ -15,6 +18,9 @@ import { LiveStatus } from "./LiveStatus";
 export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolean }) {
   const openTurnTrace = useAppStore((s) => s.openTurnTrace);
   const running = turn.status === "running";
+  // Stream the answer only when the turn completes while this view is
+  // mounted; answers from restored history render instantly.
+  const streamAnswer = useRef(turn.status === "running" && !turn.assistantText).current;
   // The latest finished turn keeps its LiveStatus as a settled card — the
   // final activity trail stays visible until the next user turn starts,
   // then it naturally folds away (the new turn mounts its own live card).
@@ -41,7 +47,7 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
 
           {turn.assistantText && (
             <div className="animate-answer-in answer-card shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
-              <Markdown>{turn.assistantText}</Markdown>
+              <AnswerStream text={turn.assistantText} stream={streamAnswer} />
             </div>
           )}
 
@@ -143,4 +149,18 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
       </div>
     </div>
   );
+}
+
+/**
+ * The final answer streams in like an SSE feed when the turn completes while
+ * this view is mounted (stream=true); answers from restored history render
+ * instantly. Longer answers reveal within a capped time budget.
+ */
+function AnswerStream({ text, stream }: { text: string; stream: boolean }) {
+  const reduced = useReducedMotion();
+  const { shown, typing } = useTypewriter(text, {
+    durationMs: Math.min(500 + text.length * 0.9, 2000),
+    active: stream && !reduced,
+  });
+  return <Markdown>{typing ? `${shown}▍` : shown}</Markdown>;
 }

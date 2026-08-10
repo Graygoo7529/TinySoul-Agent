@@ -133,7 +133,7 @@ export function buildChatTurns(
       if (turnId && text && kind === "append_input") {
         const turn = getTurn(turns, turnId, ev.created_at);
         pushUnique(turn.userMessages, text);
-        addActivity(turn, "answer", "You added input", truncate(text, 80));
+        addActivity(turn, "answer", "You added input", truncate(text, 80), undefined, ev.created_at);
       }
     }
 
@@ -163,7 +163,7 @@ export function buildChatTurns(
         const text = asString(ev.payload?.text);
         if (text) {
           turn.assistantText = text;
-          addActivity(turn, "answer", "Final answer ready");
+          addActivity(turn, "answer", "Final answer ready", undefined, undefined, ev.created_at);
         }
         break;
       }
@@ -186,19 +186,19 @@ export function buildChatTurns(
             : {}),
         };
         turn.endedAt = ev.created_at;
-        addActivity(turn, "error", "Turn failed", ev.message);
+        addActivity(turn, "error", "Turn failed", ev.message, undefined, ev.created_at);
         break;
       }
       case "turn.stopped": {
         turn.status = "stopped";
         turn.endedAt = ev.created_at;
-        addActivity(turn, "info", "Turn stopped");
+        addActivity(turn, "info", "Turn stopped", undefined, undefined, ev.created_at);
         break;
       }
       case "turn.exhausted": {
         turn.status = "exhausted";
         turn.endedAt = ev.created_at;
-        addActivity(turn, "error", "Turn exhausted its cycle budget");
+        addActivity(turn, "error", "Turn exhausted its cycle budget", undefined, undefined, ev.created_at);
         break;
       }
       case "loop.phase.started":
@@ -232,13 +232,14 @@ export function buildChatTurns(
           `Provider hiccup — retrying${attempt ? ` (attempt ${attempt})` : ""}`,
           undefined,
           { cycleIndex: turn.cycles.length || undefined },
+          ev.created_at,
         );
         break;
       }
       case "llm.model.failed": {
         addActivity(turn, "error", "Model attempt failed", asString(ev.payload?.error_type), {
           cycleIndex: turn.cycles.length || undefined,
-        });
+        }, ev.created_at);
         break;
       }
       case "llm.model.request": {
@@ -306,6 +307,7 @@ function getTurn(
       working: { todos: [], milestones: [] },
       topLinks: [],
       activity: [],
+      activitySeq: 0,
       usage: { calls: 0, promptTokens: 0, completionTokens: 0 },
       actionStats: { total: 0, success: 0, failed: 0, timeout: 0 },
       recovered: false,
@@ -373,7 +375,7 @@ function applyPhaseEvent(
     phase.status = "completed";
     phase.completedAt = ev.created_at;
     if (phaseName === "phase2") {
-      addPlannedActionActivities(turn, cycle, actionEntries);
+      addPlannedActionActivities(turn, cycle, actionEntries, ev.created_at);
     }
   }
 }
@@ -414,19 +416,27 @@ function addPlannedActionActivities(
   turn: ChatTurn,
   cycle: Cycle,
   actionEntries: Map<string, ActivityItem>,
+  at: number,
 ) {
   const phase2 = cycle.phases.find((p) => p.phase === "phase2");
   if (!phase2) return;
   for (const action of phase2.actions) {
     if (actionEntries.has(action.callId)) continue;
     const summary = descriptorFor(action.action).summarizeCall(action.params);
-    const item = addActivity(turn, "action", summary.headline, summary.chips?.join(" · "), {
-      target: summary.target,
-      callId: action.callId,
-      action: action.action,
-      status: "planned",
-      cycleIndex: cycle.index,
-    });
+    const item = addActivity(
+      turn,
+      "action",
+      summary.headline,
+      summary.chips?.join(" · "),
+      {
+        target: summary.target,
+        callId: action.callId,
+        action: action.action,
+        status: "planned",
+        cycleIndex: cycle.index,
+      },
+      at,
+    );
     actionEntries.set(action.callId, item);
   }
 }
@@ -551,7 +561,14 @@ function applyActionResult(
     getPhase(cycle, "phase3").actions.push(mirrorRecord);
   }
 
-  updateActionActivity(turn, matchedCycle, plannedRecord ?? mirrorRecord, result, actionEntries);
+  updateActionActivity(
+    turn,
+    matchedCycle,
+    plannedRecord ?? mirrorRecord,
+    result,
+    actionEntries,
+    ev.created_at,
+  );
   if (matchedCycle) advanceRunningAction(matchedCycle, actionEntries);
 }
 
@@ -562,6 +579,7 @@ function updateActionActivity(
   record: ActionRecord | null,
   result: NonNullable<ActionRecord["result"]>,
   actionEntries: Map<string, ActivityItem>,
+  at: number,
 ) {
   if (!record) return;
   const status =
@@ -598,6 +616,7 @@ function updateActionActivity(
       resultHeadline: headline,
       cycleIndex: cycle?.index,
     },
+    at,
   );
   actionEntries.set(record.callId, item);
 }
@@ -719,6 +738,7 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
           plainExcerpt(reasoningText),
           PHASE_META[phase.phase].title,
           { reasoning: reasoningText, cycleIndex: cycle.index },
+          ev.created_at,
         );
       }
       if (!skeleton && phase.phase === "phase1" && task.response.tool_calls) {
@@ -726,7 +746,7 @@ function applyModelResponse(turn: ChatTurn, ev: EndpointEvent) {
           const op = parseControlOp(call);
           phase.controlOps.push(op);
           applyControlOpToWorking(turn.working, op);
-          addControlActivity(turn, op);
+          addControlActivity(turn, op, ev.created_at);
         }
       }
       return;
@@ -776,6 +796,7 @@ function applyBackgroundEvent(
         : `Loaded ${skillNames.length} skills`,
       skillNames.join(", "),
       { skills: skillNames, cycleIndex: cycle?.index },
+      ev.created_at,
     );
   }
   if (otherLoaded.length > 0) {
@@ -785,6 +806,7 @@ function applyBackgroundEvent(
       `Loaded ${otherLoaded.length} background link${otherLoaded.length > 1 ? "s" : ""}`,
       otherLoaded.join(", "),
       { cycleIndex: cycle?.index },
+      ev.created_at,
     );
   }
   if (evicted.length > 0) {
@@ -794,6 +816,7 @@ function applyBackgroundEvent(
       `Evicted ${evicted.length} background link${evicted.length > 1 ? "s" : ""}`,
       evicted.join(", "),
       { cycleIndex: cycle?.index },
+      ev.created_at,
     );
   }
   void phaseHint;
@@ -814,7 +837,7 @@ function applyWorkspaceEvent(
     const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase3";
     getPhase(cycle, phaseName).workspaceEvents.push(summary);
   }
-  addActivity(turn, "workspace", `Workspace ${operation}`, link || undefined);
+  addActivity(turn, "workspace", `Workspace ${operation}`, link || undefined, undefined, ev.created_at);
 }
 
 /* ------------------------------------------------------------------ */
@@ -876,7 +899,7 @@ function applyControlOpToWorking(working: WorkingState, op: ControlOp) {
   }
 }
 
-function addControlActivity(turn: ChatTurn, op: ControlOp) {
+function addControlActivity(turn: ChatTurn, op: ControlOp, at: number) {
   switch (op.kind) {
     case "select_domains": {
       const intentText = op.intent
@@ -892,20 +915,21 @@ function addControlActivity(turn: ChatTurn, op: ControlOp) {
           intent: op.intent,
           cycleIndex: turn.cycles.length || undefined,
         },
+        at,
       );
       break;
     }
     case "set_todo":
-      addActivity(turn, "todo", `Todo ${op.status}: ${op.content}`);
+      addActivity(turn, "todo", `Todo ${op.status}: ${op.content}`, undefined, undefined, at);
       break;
     case "remove_todo":
-      addActivity(turn, "todo", `Removed todo ${op.key}`);
+      addActivity(turn, "todo", `Removed todo ${op.key}`, undefined, undefined, at);
       break;
     case "set_milestone":
-      addActivity(turn, "milestone", `Milestone: ${op.content}`);
+      addActivity(turn, "milestone", `Milestone: ${op.content}`, undefined, undefined, at);
       break;
     case "remove_milestone":
-      addActivity(turn, "milestone", `Removed milestone ${op.key}`);
+      addActivity(turn, "milestone", `Removed milestone ${op.key}`, undefined, undefined, at);
       break;
     default:
       break;
@@ -1097,9 +1121,21 @@ function addActivity(
   kind: ActivityItem["kind"],
   text: string,
   detail?: string,
-  extra?: Partial<Omit<ActivityItem, "time" | "kind" | "text" | "detail">>,
+  extra?: Partial<Omit<ActivityItem, "seq" | "time" | "kind" | "text" | "detail">>,
+  at?: number,
 ): ActivityItem {
-  const item: ActivityItem = { time: Date.now() / 1000, kind, text, detail, ...extra };
+  // seq is the item's stable identity: the derive replays the event stream
+  // deterministically, so the same item receives the same seq on every
+  // rebuild — even when the MAX_ACTIVITY head trim shifts array indices.
+  // time is the source event's timestamp, never the rebuild wall clock.
+  const item: ActivityItem = {
+    seq: turn.activitySeq++,
+    time: at ?? Date.now() / 1000,
+    kind,
+    text,
+    detail,
+    ...extra,
+  };
   turn.activity.push(item);
   if (turn.activity.length > MAX_ACTIVITY) {
     turn.activity.splice(0, turn.activity.length - MAX_ACTIVITY);
