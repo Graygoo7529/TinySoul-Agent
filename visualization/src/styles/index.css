@@ -497,8 +497,17 @@ body {
 }
 
 /* ---- inline single-line markdown (the thinking slate preview): top-level
-   blocks collapse into one line; emphasis is subdued (medium bold, upright
-   italics), links are inert, display math degrades to inline size ---- */
+   blocks collapse into one line; emphasis is flattened (weights and
+   italics inherit the slate's fine slanted style), links are inert,
+   display math degrades to inline size ---- */
+.md-inline .md-body {
+  /* bridge the wrapper's text styling past the .md-body root rule
+     (font-size/line-height/color are set on the root, so they would
+     otherwise win over inheritance) */
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
 .md-inline .md-body p,
 .md-inline .md-body h1,
 .md-inline .md-body h2,
@@ -525,10 +534,10 @@ body {
 .md-inline .md-body h5,
 .md-inline .md-body h6,
 .md-inline .md-body strong {
-  font-weight: 500;
+  font-weight: inherit;
 }
 .md-inline .md-body em {
-  font-style: normal;
+  font-style: inherit;
 }
 .md-inline .md-body a {
   color: inherit;
