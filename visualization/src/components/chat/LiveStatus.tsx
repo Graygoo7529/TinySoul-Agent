@@ -30,6 +30,9 @@ import { ActionGlimpse, glimpseBody } from "./ActionGlimpse";
 const ROLL_WINDOW = 9;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
 const LIVE_BEAT_MS = 1500;
+/** Matches .steps-viewport max-height (12rem): the trail's never-shrink
+    floor once content has reached it. */
+const TRAIL_MAX_PX = 192;
 /** Stagger cap for batched row entrances — longer cascades read as popping. */
 const CASCADE_MAX = 2;
 
@@ -44,7 +47,7 @@ const REVEAL_MS = 450;
 const CASCADE_MS = 170;
 /** Thinking: the old line fades out, the new one materializes behind it. */
 const THINK_ERASE_MS = 300;
-const THINK_REVEAL_DELAY_MS = 120;
+const THINK_REVEAL_DELAY_MS = 60;
 const THINK_REVEAL_MS = 450;
 /** Collapsed slate: exactly one line of text-[12px] leading-5. */
 const THINK_LINE_HEIGHT = 20;
@@ -128,7 +131,12 @@ export function LiveStatus({
   // shrinks the trail the user was watching.
   const visible = showAll ? steps : steps.slice(0, ROLL_WINDOW);
   const overflow = steps.length - visible.length;
-  const { ref: viewportRef, overflowing } = useOverflowing<HTMLDivElement>();
+  const {
+    ref: viewportRef,
+    node: viewportNode,
+    overflowing,
+    contentMaxHeight,
+  } = useOverflowing<HTMLDivElement>();
   // Latch the fade mask on once the viewport has ever overflowed — content
   // hovering around the clamp threshold must not flicker the mask on/off.
   const rolledFull = useRef(false);
@@ -146,9 +154,12 @@ export function LiveStatus({
   // Action records by call id (phase3 mirrors carry the result, so later
   // writes win); drives the inline glimpses in the step stack.
   const recordByCallId = actionRecordsByCallId(turn);
-  // The latest settled action auto-shows its result gist; older settled rows
-  // with a gist can be expanded inline by click (expandedGists).
-  const [expandedGists, setExpandedGists] = useState<ReadonlySet<string>>(new Set());
+  // Result gists are sticky: the latest settled action auto-opens its gist,
+  // and a gist NEVER closes while its row is visible — it only rolls down
+  // with its row and is quietly collected once fully faded below the
+  // viewport's clamp (see the beat check below). Any settled row with a
+  // gist can be toggled manually.
+  const [openGists, setOpenGists] = useState<ReadonlySet<string>>(new Set());
   const latestSettledCallId = steps.find(
     (item) =>
       item.action &&
@@ -156,9 +167,18 @@ export function LiveStatus({
       (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
   )?.callId;
 
+  // Auto-open the latest settled action's gist (re-asserted on the
+  // live→settled flip so re-opening the folded trail shows it again).
+  useEffect(() => {
+    if (!latestSettledCallId) return;
+    setOpenGists((prev) =>
+      prev.has(latestSettledCallId) ? prev : new Set(prev).add(latestSettledCallId),
+    );
+  }, [latestSettledCallId, live]);
+
   const toggleGist = (callId: string) => {
     holdChatFollow();
-    setExpandedGists((prev) => {
+    setOpenGists((prev) => {
       const next = new Set(prev);
       if (next.has(callId)) next.delete(callId);
       else next.add(callId);
@@ -167,8 +187,8 @@ export function LiveStatus({
   };
 
   // Glimpse descriptors by row. Presence is decided here (via glimpseBody)
-  // so a row's glimpse never mounts-then-vanishes; disappearance is tweened
-  // by the AnimatePresence wrapper in renderStep.
+  // so a row's glimpse never mounts-then-vanishes; removal is tweened by
+  // the AnimatePresence wrapper in renderStep.
   const glimpseFor = (
     item: ActivityItem,
   ): { record: ActionRecord; mode: "running" | "done" } | undefined => {
@@ -178,17 +198,15 @@ export function LiveStatus({
     if (item.status === "running") {
       return glimpseBody(record, "running") ? { record, mode: "running" } : undefined;
     }
-    const gistRequested =
-      item.callId === latestSettledCallId || expandedGists.has(item.callId);
-    if (gistRequested && record.result) {
+    if (openGists.has(item.callId) && record.result) {
       return glimpseBody(record, "done") ? { record, mode: "done" } : undefined;
     }
     return undefined;
   };
 
-  // A settled action row with a hidden result gist is clickable to expand it.
+  // Any settled action row with a result gist is clickable to toggle it.
   const gistToggleFor = (item: ActivityItem) => {
-    if (!item.action || !item.callId || item.callId === latestSettledCallId) return undefined;
+    if (!item.action || !item.callId) return undefined;
     if (item.status !== "succeeded" && item.status !== "failed" && item.status !== "timeout") {
       return undefined;
     }
@@ -196,6 +214,29 @@ export function LiveStatus({
     if (!record?.result || !glimpseBody(record, "done")) return undefined;
     return () => toggleGist(item.callId!);
   };
+
+  // Auto-collect gists whose rows have fully faded below the viewport's
+  // clamp — checked on each beat commit, only while the clamp is in force.
+  useEffect(() => {
+    if (!live || showAll) return;
+    const viewport = viewportNode;
+    if (!viewport) return;
+    const bottom = viewport.getBoundingClientRect().bottom;
+    const faded: string[] = [];
+    for (const el of viewport.querySelectorAll("[data-gist-call]")) {
+      if (el.getBoundingClientRect().top >= bottom - 1) {
+        const callId = el.getAttribute("data-gist-call");
+        if (callId) faded.push(callId);
+      }
+    }
+    if (faded.length === 0) return;
+    setOpenGists((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of faded) changed = next.delete(id) || changed;
+      return changed ? next : prev;
+    });
+  }, [visible, live, showAll, viewportNode]);
 
   // One trail row: the height opens on the roll delay (older rows glide
   // down with the flow — the wheel), the content materializes mid-roll.
@@ -211,6 +252,7 @@ export function LiveStatus({
       <motion.div
         key={item.seq}
         style={{ overflow: "hidden" }}
+        data-gist-call={glimpse?.mode === "done" ? item.callId : undefined}
         initial={instant ? false : { height: 0 }}
         animate={{ height: "auto" }}
         exit={{
@@ -241,7 +283,7 @@ export function LiveStatus({
               animate={live}
               item={item}
               onToggleGlimpse={onToggleGlimpse}
-              glimpseExpanded={item.callId ? expandedGists.has(item.callId) : false}
+              glimpseExpanded={item.callId ? openGists.has(item.callId) : false}
               glimpse={
                 // a glimpse leaving the stack (a newer action claimed the
                 // slot, or the user collapsed it) tweens out instead of
@@ -397,6 +439,7 @@ export function LiveStatus({
             <div
               ref={viewportRef}
               className="steps-viewport"
+              style={{ minHeight: Math.min(contentMaxHeight, TRAIL_MAX_PX) }}
               data-overflow={live && rolledFull.current && !showAll ? "" : undefined}
               data-expanded={showAll || !live ? "" : undefined}
             >
