@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -493,6 +494,53 @@ body {
 .md-calm .md-body strong,
 .md-body.md-calm strong {
   font-weight: 500;
+}
+
+/* ---- inline single-line markdown (the thinking slate preview): top-level
+   blocks collapse into one line; emphasis is subdued (medium bold, upright
+   italics), links are inert, display math degrades to inline size ---- */
+.md-inline .md-body p,
+.md-inline .md-body h1,
+.md-inline .md-body h2,
+.md-inline .md-body h3,
+.md-inline .md-body h4,
+.md-inline .md-body h5,
+.md-inline .md-body h6,
+.md-inline .md-body blockquote,
+.md-inline .md-body ul,
+.md-inline .md-body ol,
+.md-inline .md-body li,
+.md-inline .md-body pre {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+.md-inline .md-body h1,
+.md-inline .md-body h2,
+.md-inline .md-body h3,
+.md-inline .md-body h4,
+.md-inline .md-body h5,
+.md-inline .md-body h6,
+.md-inline .md-body strong {
+  font-weight: 500;
+}
+.md-inline .md-body em {
+  font-style: normal;
+}
+.md-inline .md-body a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: none;
+}
+.md-inline .md-body .katex-display {
+  display: inline;
+  margin: 0;
+}
+.md-inline .md-body .katex {
+  font-size: 1em;
 }
 
 /* ---- JSON tree ---- */

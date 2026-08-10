@@ -212,7 +212,7 @@ export function LiveStatus({
       >
         <div
           className="step-depth"
-          style={{ "--step-opacity": Math.max(0.5, 1 - i * 0.08) } as React.CSSProperties}
+          style={{ "--step-opacity": Math.max(0.68, 1 - i * 0.06) } as React.CSSProperties}
         >
           <motion.div
             initial={instant ? false : { opacity: 0, y: 4, filter: "blur(2px)" }}
@@ -361,7 +361,7 @@ export function LiveStatus({
           <div className="grow-in px-4 pb-2.5">
             <button
               onClick={() => setShowAll(!showAll)}
-              className="text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+              className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
             >
               {showAll
                 ? "Show fewer steps"
@@ -384,9 +384,14 @@ export function LiveStatus({
 function ThinkingStream({ item }: { item: ActivityItem }) {
   const [expanded, setExpanded] = useState(false);
   const full = item.reasoning ?? item.text;
-  // The collapsed slate is one plain line; expanding discloses the full
-  // reasoning whenever it says more than the excerpt does.
-  const collapsible = Boolean(item.reasoning) && full.trim() !== item.text;
+  // The collapsed slate previews the first non-empty line as inline
+  // markdown; expanding discloses the full reasoning when it says more.
+  const previewLine =
+    full
+      .split("\n")
+      .find((l) => l.trim().length > 0)
+      ?.trim() ?? item.text;
+  const collapsible = full.trim() !== previewLine;
 
   return (
     <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
@@ -405,35 +410,41 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           </button>
         )}
       </div>
-      <ThinkingWriter itemSeq={item.seq} text={item.text} full={full} expanded={expanded} />
+      <ThinkingWriter
+        itemSeq={item.seq}
+        preview={previewLine}
+        full={full}
+        expanded={expanded}
+      />
     </div>
   );
 }
 
 /**
- * The one-line thinking slate. A new thought softly materializes — the old
- * line fades out on an absolute layer while the new one rises in with a
- * de-blur — and the collapsed slate's height never changes, so the card's
- * breathing frame stays put. Expanding glides the slate open to the full
- * reasoning markdown. Reduced motion swaps instantly.
+ * The one-line thinking slate: the thought's first line rendered as inline
+ * markdown (subdued emphasis, math typeset). A new thought softly
+ * materializes — the old line fades out on an absolute layer while the new
+ * one rises in with a de-blur — and the collapsed slate's height never
+ * changes, so the card's breathing frame stays put. Expanding glides the
+ * slate open to the full reasoning markdown. Reduced motion swaps instantly.
  */
 function ThinkingWriter({
   itemSeq,
-  text,
+  preview,
   full,
   expanded,
 }: {
   /** Stable identity of the thought item (ActivityItem.seq). */
   itemSeq: number;
-  /** One-line plain excerpt shown while collapsed. */
-  text: string;
+  /** First-line markdown source shown (inline) while collapsed. */
+  preview: string;
   /** Full reasoning markdown shown while expanded. */
   full: string;
   expanded: boolean;
 }) {
   const reduced = useReducedMotion();
-  const textRef = useRef(text);
-  textRef.current = text;
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
   const [exiting, setExiting] = useState<{ id: number; text: string } | null>(null);
   const lastSeq = useRef(itemSeq);
 
@@ -443,10 +454,10 @@ function ThinkingWriter({
     const prev = lastSeq.current;
     lastSeq.current = itemSeq;
     if (reduced || expanded) return;
-    setExiting({ id: prev, text: textRef.current });
+    setExiting({ id: prev, text: previewRef.current });
   }, [itemSeq, reduced, expanded]);
 
-  const lineClass = "truncate text-[12px] italic leading-5 text-fg-muted";
+  const lineClass = "md-inline truncate text-[12px] leading-5 text-fg-muted";
   return (
     <motion.div
       className="thinking-slate"
@@ -468,7 +479,7 @@ function ThinkingWriter({
             delay: reduced ? 0 : THINK_REVEAL_DELAY_MS / 1000,
           }}
         >
-          {text}
+          <Markdown className="truncate">{preview}</Markdown>
         </motion.div>
       )}
       {exiting && !expanded && (
@@ -480,7 +491,7 @@ function ThinkingWriter({
           transition={{ duration: THINK_ERASE_MS / 1000, ease: "easeIn" }}
           onAnimationComplete={() => setExiting(null)}
         >
-          {exiting.text}
+          <Markdown className="truncate">{exiting.text}</Markdown>
         </motion.div>
       )}
     </motion.div>

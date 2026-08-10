@@ -1,5 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 
 /**
  * Shared Markdown renderer.
@@ -7,7 +9,8 @@ import remarkGfm from "remark-gfm";
  * Used for final answers in the chat view, workspace document previews,
  * background content, and any model-produced prose. Styled by the `.md-body`
  * rules in the global stylesheet; GFM enabled (tables, task lists,
- * strikethrough, autolinks).
+ * strikethrough, autolinks); math via remark-math + KaTeX (`$inline$`,
+ * `$$display$$`, `\(...\)` / `\[...\]`).
  */
 export function Markdown({
   children,
@@ -18,7 +21,9 @@ export function Markdown({
 }) {
   return (
     <div className={`md-body ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }

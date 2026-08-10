@@ -79,7 +79,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 - **JSON 树**：等宽 12.5px，key=info、字符串=success、数字=accent、布尔=warning、null=faint；嵌套层级用 hairline 导轨线（`.jt-children` 左边线），行悬停微亮；`defaultExpanded` 全展开（LLM 面板内 JSON 默认展开），Raw/诊断视图显式传 false 保持折叠。
 - **引述块**（intent/reasoning/thinking 呈现）：accent 左边线 + 浅底色（`border-l-2 border-accent/40 bg-bg-sunken/60`），避免大面积 accent 色块并置；`md-calm` 将 Markdown 加粗降为 500，思考文本可读不喧闹。
 - **终端块**（stdout/stderr/命令）：固定 `#0d1117` 深底 + 细描边，stderr 红、命令行蓝——双主题下保持一致的可读性；exit 0 用 success token。
-- **Markdown**（`.md-body`）：紧凑标题层级、行内 code 灰底 accent 字、pre 圆角 code-bg、表格/引用/任务列表齐全。
+- **Markdown**（`.md-body`）：紧凑标题层级、行内 code 灰底 accent 字、pre 圆角 code-bg、表格/引用/任务列表齐全；数学经 remark-math + KaTeX 排版（`$行内$` / `$$块级$$` / `\(...\)`，KaTeX 字体随包体分发）。变体：`.md-calm` 柔化加粗为 500；`.md-inline` 单行预览（思考面板折叠态——块元素行内化、斜体正立、链接惰性、数学行内尺寸、省略号截断）。
 
 ## 动效
 
