@@ -40,7 +40,7 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
           {showSettled && <LiveStatus turn={turn} mode="settled" />}
 
           {turn.assistantText && (
-            <div className="animate-answer-in shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
+            <div className="animate-answer-in answer-card shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
               <Markdown>{turn.assistantText}</Markdown>
             </div>
           )}

@@ -180,3 +180,13 @@ export interface ActionDescriptor {
 7. **会话面**：用户消息 `.bubble-user` 浅 tinted 玻璃气泡（accent-soft 底 + 深靛字 + 细描边 + 背模糊，维护者选定方案 B）；会话页背景 `.chat-grid` 24px 2% 微网格；turn 间距 space-y-8；Maintenance/primary 按钮维持深渐变（第三轮亮 aurora 随回退消失）。
 
 验收：`pnpm test` 63 全绿（新增单一待定规则用例）、`pnpm build` 通过。
+
+---
+
+## 细节微调（done，2026-08-10 第五轮，维护者反馈驱动）
+
+1. **抬头运行文案**：`PHASE_META` 新增 `running` 字段（Maintaining context and selecting domains… / Generating action parameters… / Executing actions…），`computeCurrentActivity` 与 `phaseSummary` 统一引用——LiveStatus 抬头在 phase1/2 运行中不再只有泛化的 "Thinking…"，并消除两处文案漂移。
+2. **品牌渐变去紫**：`--accent-grad` 改 `#4f46e5 → #2563eb`（深靛→蓝，维护者选定），Maintenance/发送按钮、头像、logo 同步。浅色用户气泡锐化（文字 `#1e1b4b`、底色 accent 8% 实色调和、描边 26%）；暗色主题用户气泡加深 + 微弱外晕，Agent 回答卡新增 `.answer-card` 暗色微渐变 + accent 细描边 + 柔影（仅 `.dark` 作用域，浅色不动）。
+3. **高度展开动效（grow-in）**：新条目、glimpse、工作区首次出现的"布局跳变"是下方闪烁根因——改为 grid 0fr→1fr 高度展开动画（旧内容平滑下推、新内容展开淡入，终态与硬插入一致、无固定高度裁剪），reduced-motion 直落终态。
+
+验收：`pnpm test` 63 全绿、`pnpm build` 通过。

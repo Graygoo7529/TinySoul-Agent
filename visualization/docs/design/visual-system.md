@@ -23,7 +23,7 @@
 
 ### 强调色：aurora 渐变
 
-`--accent-grad`（135° 深靛 `#4f46e5` → 深紫 `#7c3aed`）是唯一的品牌渐变——沉稳两段式，白字对比度达标；只用于品牌触点：用户气泡、Agent 头像、NavRail logo、primary 按钮、发送按钮。炫酷感由运动渐变承担：text-shine 流光标题、live-border 呼吸边框经 `--hue-violet` 在 accent→violet→info 间流动。品牌件配 `--shadow-brand`（顶部内高光 + 靛紫色晕）。
+`--accent-grad`（135° 深靛 `#4f46e5` → 蓝 `#2563eb`，无紫、白字对比达标）是唯一的品牌渐变，用于品牌触点：Maintenance/发送等 primary 按钮、Agent 头像、NavRail logo。炫酷感由运动渐变承担：text-shine 流光标题、live-border 呼吸边框经 `--hue-violet` 在 accent→violet→info 间流动。品牌件配 `--shadow-brand`（顶部内高光 + 靛色晕）。
 
 ### 行动域色（domain hues）
 
@@ -70,8 +70,9 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 - **NavRail**：激活 tab 为 bg-active + 左侧 3px accent 指示条；logo 为 aurora 渐变 + shadow-brand。
 - **按钮**：primary（aurora 渐变底白字）/ secondary / ghost / danger / outline 五变体，xs/sm/md 三档高度；发送/停止按钮用 shadow-brand。
 - **Badge**：soft 底 + 同色文字，十色调全 token 化；domain、状态、level 固定映射（见 `components/trace/semantic.tsx`）。
-- **用户消息**（`.bubble-user`）：浅 tinted 玻璃气泡——accent-soft 底 + 深靛文字（暗色为 accent 深底 + 浅靛文字）+ accent 细描边 + 顶部内高光 + 6px 背模糊，与白色回答卡同属亮面体系、协调不抢戏。
+- **用户消息**（`.bubble-user`）：浅 tinted 玻璃气泡——accent 8% 实色调和底 + 深靛黑文字（锐利可读；暗色为 accent 深底 16% + 浅靛文字 + 微弱外晕）+ accent 细描边 + 顶部内高光 + 6px 背模糊，与白色回答卡同属亮面体系、协调不抢戏。
 - **会话页背景**（`.chat-grid`）：24px 微网格（浅色/暗色均 2% 透明度），避免纯底单调，不干扰阅读。
+- **Agent 回答卡**：浅色主题为 bg-elev + shadow-card 亮卡；暗色主题为 `.answer-card` 微渐变面（#1a2030→#151a23）+ accent 细描边 + 内高光 + 柔影微光。
 - **会话面**：用户消息为 `.bubble-user` 浅 tinted 玻璃气泡；Agent 回答卡 bg-elev + shadow-card，`answer-in` 入场（0.5s 上浮 + 去模糊）。
 - **Composer**：e1 抬升输入卡（shadow-card），focus-within 时 accent 边框 + 统一焦点环。
 - **输入框**：bg-elev + line 边框；focus 时 accent 边框 + `--focus-ring`，不用 outline。
@@ -83,7 +84,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 ## 动效
 
 - `fade-in`（0.18s）用于弹层与消息进入；`slide-in-right`（0.22s）用于抽屉；drawer 用 0.24s cubic-bezier 推入。
-- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光，与入场动画分层嵌套）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`headline-swap`（0.24s 淡入交换）、`answer-in`（0.5s 浮现）、`step-in`（0.32s + 90ms 级联交错 + 纵深渐隐）；活动 feed 经 350ms 尾随节流合并并发爆发（`useThrottledValue`）。
+- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光，与入场动画分层嵌套）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`headline-swap`（0.24s 淡入交换）、`answer-in`（0.5s 浮现）、`step-in`（0.32s + 90ms 级联交错 + 纵深渐隐）、`grow-in`（0.32s 高度展开，grid 0fr→1fr，reduced-motion 下直落终态）；活动 feed 经 350ms 尾随节流合并并发爆发（`useThrottledValue`）。
 - LlmTaskDrawer 弹出用 `sub-drawer-in`（0.22s slide+settle）。
 - 交互反馈只用 `transition-colors`，不用 spring/scale；无限动效全部服务"运行中"语义。
 - `prefers-reduced-motion` 下禁用流光/呼吸/浮动类动效。

@@ -10,8 +10,8 @@
 
 进行中的用户轮在 Agent 行内展示 LiveStatus 实时状态卡（即主对话界面的浮动状态栏），全部从观察事件流派生：
 
-- **流光标题行**：陈述当前活动——思考中的阶段标题，或执行中的 action（registry 动词 + 目标，如 "编辑 workspace:report/draft.md"）；流光动画与入场动画分层嵌套互不覆盖。准确性采用**单一待定规则**：phase3 只剩 1 个无结果 action 时才具名（此时必然准确），多个待定显示 "Executing N actions…" 批次进度，不妄指（彻底解决依赖后端 `action.execution.started` 事件，见需求单）。右侧为轮计时与当前 action/phase 计时（tabular-nums）。
-- **流动更迭节奏**：350ms 尾随节流（`useThrottledValue`）只合并真正的并发爆发（如一次规划多个 action），同批条目以 90ms 级联交错入场（发牌感）；单事件基本即时。标题与思考流更新只做淡入交换（`headline-swap`），不重挂载、不位移。
+- **流光标题行**：陈述当前活动——phase 运行中显示与 trace 折叠条同款的运行句（`PHASE_META.running`：Maintaining context and selecting domains… / Generating action parameters… / Executing actions…），执行 action 时显示 registry 动词 + 目标；流光动画与入场动画分层嵌套互不覆盖。准确性采用**单一待定规则**：phase3 只剩 1 个无结果 action 时才具名（此时必然准确），多个待定显示 "Executing N actions…" 批次进度，不妄指（彻底解决依赖后端 `action.execution.started` 事件，见需求单）。右侧为轮计时与当前 action/phase 计时（tabular-nums）。
+- **流动更迭节奏**：350ms 尾随节流（`useThrottledValue`）只合并真正的并发爆发，同批条目以 90ms 级联交错入场；标题与思考流更新只做淡入交换（`headline-swap`）；新条目、glimpse 与工作区首次出现均经 `grow-in` 高度展开动画（grid 0fr→1fr，旧内容平滑下推、无布局跳变）。
 - **沉淀态（settled）**：最新一轮完成后 LiveStatus 以沉淀卡保留——静态边框（不呼吸不流光）、状态行变为"回答完成/轮次失败…"+ 概要 + 定格总时长，活动轨迹与工作区保持可见；发起新 user turn 时旧沉淀卡自然收起（新一轮挂出自己的运行卡）。
 - **思考流**：最新一条 reasoning summary 自动展开，新内容以 materialize 动画浮现。
 - **语义步骤栈**：最新在前的活动条目（intent + domain 胶囊、挂载 skills、todo/milestone、action），交错入场、纵深渐隐，溢出折叠为 "+N earlier steps"。action 条目是状态机（planned 空心点 → running 旋转 → succeeded/failed/timeout），并呈现两条信息：上行 stage2 调用语义（编辑的目标文件、检索意图、待访问链接、待执行命令、inspect/recall 目标），下行 stage3 结果摘要（exit code、结果数、revision、行数）。

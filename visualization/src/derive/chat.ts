@@ -1019,11 +1019,13 @@ function computeCurrentActivity(turn: ChatTurn): ChatTurn["currentActivity"] {
     }
   }
   const runningTask = activePhase.tasks.find((t) => t.status === "running");
-  if (runningTask) {
+  if (runningTask || activePhase.status === "running") {
+    // Speak the phase's running sentence (shared with the trace's collapsed
+    // rows via PHASE_META.running) instead of a vague "Thinking…".
     return {
       phase: activePhase.phase,
-      label: "Thinking…",
-      detail: PHASE_META[activePhase.phase].title,
+      label: PHASE_META[activePhase.phase].running,
+      detail: runningTask ? PHASE_META[activePhase.phase].title : undefined,
     };
   }
   return { phase: activePhase.phase, label: PHASE_META[activePhase.phase].title };

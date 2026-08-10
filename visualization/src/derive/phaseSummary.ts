@@ -5,6 +5,7 @@
  */
 
 import type { ActionRecord, Cycle, PhaseStep } from "./model";
+import { PHASE_META } from "./model";
 import { targetLabel } from "./activitySemantics";
 import { descriptorFor } from "./actions/registry";
 
@@ -60,7 +61,7 @@ export function phaseHeadline(phase: PhaseStep): string {
       if (domains.length > 0) {
         return `Selected ${domains.length} domain${domains.length > 1 ? "s" : ""}`;
       }
-      return running ? "Maintaining context and selecting domains…" : "Context maintenance";
+      return running ? PHASE_META.phase1.running : "Context maintenance";
     }
     case "phase2": {
       // Collapsed rows are narrow: the bare count stays readable, per-action
@@ -68,11 +69,11 @@ export function phaseHeadline(phase: PhaseStep): string {
       if (phase.actions.length > 0) {
         return `Planned ${phase.actions.length} action${phase.actions.length > 1 ? "s" : ""}`;
       }
-      return running ? "Generating action parameters…" : "No actions planned";
+      return running ? PHASE_META.phase2.running : "No actions planned";
     }
     case "phase3": {
       const total = phase.actions.length;
-      if (total === 0) return running ? "Executing…" : "Nothing to execute";
+      if (total === 0) return running ? PHASE_META.phase3.running : "Nothing to execute";
       const pending = phase.actions.find((a) => !a.result);
       if (pending) {
         const descriptor = descriptorFor(pending.action);

@@ -35,9 +35,13 @@ export function ActionGlimpse({
       ? runningGlimpse(family, record.params)
       : doneGlimpse(family, record);
   if (!body) return null;
+  // grow-in: the glimpse expands into place (reserving its height smoothly)
+  // instead of popping the stack's layout.
   return (
-    <div className="animate-status-in mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
-      {body}
+    <div className="grow-in">
+      <div className="animate-headline-swap mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+        {body}
+      </div>
     </div>
   );
 }

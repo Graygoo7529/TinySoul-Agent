@@ -34,9 +34,9 @@
   --info: #0284c7;
   --info-soft: rgba(2, 132, 199, 0.1);
   --code-bg: #f0f2f5;
-  /* aurora accent: calm two-stop indigo→violet gradient, deep enough for
-     white text; shared by bubbles, logo, primary actions */
-  --accent-grad: linear-gradient(135deg, #4f46e5, #7c3aed);
+  /* aurora accent: calm deep indigo→blue gradient (no violet), white-text
+     safe; shared by bubbles, logo, primary actions */
+  --accent-grad: linear-gradient(135deg, #4f46e5, #2563eb);
   /* spectral hue used inside motion gradients (shine text, live border) */
   --hue-violet: #8b5cf6;
   /* action-domain hues: one consistent color per backend action domain */
@@ -94,7 +94,7 @@
   --info: #38bdf8;
   --info-soft: rgba(56, 189, 248, 0.12);
   --code-bg: #1d2129;
-  --accent-grad: linear-gradient(135deg, #4f46e5, #7c3aed);
+  --accent-grad: linear-gradient(135deg, #4f46e5, #2563eb);
   --hue-violet: #a78bfa;
   --domain-core: var(--accent);
   --domain-core-soft: var(--accent-soft);
@@ -310,9 +310,9 @@ body {
 
 /* ---- user bubble: tinted glass (accent wash, hairline, gloss, blur) ---- */
 .bubble-user {
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  color: #312e81;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  color: #1e1b4b;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
     0 1px 3px rgba(79, 70, 229, 0.08);
@@ -320,12 +320,24 @@ body {
   -webkit-backdrop-filter: blur(6px);
 }
 .dark .bubble-user {
-  background: rgba(129, 140, 248, 0.14);
-  border-color: rgba(129, 140, 248, 0.26);
-  color: #d9ddff;
+  background: rgba(129, 140, 248, 0.16);
+  border-color: rgba(129, 140, 248, 0.3);
+  color: #e0e4ff;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 3px rgba(0, 0, 0, 0.3);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 10px rgba(0, 0, 0, 0.35),
+    0 0 14px rgba(129, 140, 248, 0.1);
+}
+
+/* dark theme: the agent answer gets a subtle vertical sheen, an accent
+   hairline and a soft glow — light theme keeps the bright gloss card */
+.dark .answer-card {
+  background: linear-gradient(180deg, #1a2030, #151a23 32%);
+  border-color: rgba(129, 140, 248, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 4px 16px rgba(0, 0, 0, 0.35),
+    0 0 20px rgba(99, 102, 241, 0.06);
 }
 
 /* ---- chat page background: barely-there 24px grid ---- */
@@ -613,6 +625,24 @@ body {
   animation: sub-drawer-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* ---- grow-in: reserve-then-expand insertion (grid 0fr→1fr, no fixed
+   height) — old content is pushed down smoothly while the new block fades
+   in; the settled layout is identical to a plain insert ---- */
+.grow-in {
+  display: grid;
+  grid-template-rows: 0fr;
+  animation: grow-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
+}
+.grow-in > * {
+  overflow: hidden;
+  min-height: 0;
+}
+@keyframes grow-in {
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
 /* ---- materializing reveal for fresh reasoning content ---- */
 @keyframes reveal {
   from {
@@ -732,5 +762,10 @@ body {
   .animate-answer-in,
   .live-border::before {
     animation: none;
+  }
+  /* grow-in relies on its animation to reach 1fr — force the end state */
+  .grow-in {
+    animation: none;
+    grid-template-rows: 1fr;
   }
 }

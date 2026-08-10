@@ -313,17 +313,23 @@ export interface ChatTurn {
   summary: string;
 }
 
-export const PHASE_META: Record<PhaseName, { title: string; subtitle: string }> = {
+export const PHASE_META: Record<
+  PhaseName,
+  { title: string; subtitle: string; running: string }
+> = {
   phase1: {
     title: "Context & Domains",
     subtitle: "Update context, maintain working state, select action domains",
+    running: "Maintaining context and selecting domains…",
   },
   phase2: {
     title: "Action Planning",
     subtitle: "Generate concrete action calls within the selected domains",
+    running: "Generating action parameters…",
   },
   phase3: {
     title: "Action Execution",
     subtitle: "Execute the planned action batch and collect results",
+    running: "Executing actions…",
   },
 };

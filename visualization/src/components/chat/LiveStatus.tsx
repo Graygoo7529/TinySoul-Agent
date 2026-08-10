@@ -181,15 +181,17 @@ export function LiveStatus({
             {visible.map(({ item, index }, i) => (
               <div
                 key={`${item.time}-${index}`}
-                className="animate-step-in"
-                style={
-                  {
-                    "--stagger": Math.min(i, 6),
-                    "--step-opacity": Math.max(0.35, 1 - i * 0.14),
-                  } as React.CSSProperties
-                }
+                className="grow-in"
+                style={{ "--stagger": Math.min(i, 6) } as React.CSSProperties}
               >
-                <ActivityStep item={item} glimpse={glimpseFor(item)} />
+                <div
+                  className="animate-step-in"
+                  style={
+                    { "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties
+                  }
+                >
+                  <ActivityStep item={item} glimpse={glimpseFor(item)} />
+                </div>
               </div>
             ))}
             {(overflow > 0 || showAll) && (
@@ -252,8 +254,10 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
   const { todos, milestones } = turn.working;
   if (todos.length === 0 && milestones.length === 0) return null;
   const done = todos.filter((t) => t.status === "done").length;
+  // grow-in: the zone expands into the card instead of popping its layout.
   return (
-    <div className="border-t border-line bg-bg-sunken/60 px-4 py-2.5">
+    <div className="grow-in">
+      <div className="border-t border-line bg-bg-sunken/60 px-4 py-2.5">
       {milestones.length > 0 && (
         <div className="mb-1.5 space-y-1">
           {milestones.map((m) => (
@@ -293,6 +297,7 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
