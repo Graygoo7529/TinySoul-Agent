@@ -627,11 +627,13 @@ body {
 
 /* ---- grow-in: reserve-then-expand insertion (grid 0fr→1fr, no fixed
    height) — old content is pushed down smoothly while the new block fades
-   in; the settled layout is identical to a plain insert ---- */
+   in; the settled layout is identical to a plain insert. Deliberately
+   slower than a pop: the row opens room first, the content fades in
+   behind the phase delay on `.animate-step-in` ---- */
 .grow-in {
   display: grid;
   grid-template-rows: 0fr;
-  animation: grow-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
+  animation: grow-in 0.45s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
 }
 .grow-in > * {
   overflow: hidden;
@@ -660,20 +662,78 @@ body {
   animation: reveal 0.45s ease-out both;
 }
 
-/* ---- semantic step stack: staggered slide-up, gentle settle ---- */
+/* ---- crossfade swap (headline, thinking stream, glimpse): the outgoing
+   render fades on an absolute layer while the incoming one fades in; the
+   wrapper glides between the two content heights (see Crossfade.tsx) ---- */
+.xfade {
+  position: relative;
+  overflow: hidden;
+  transition: height 0.3s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+.xfade-exit {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  pointer-events: none;
+}
+@keyframes xfade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes xfade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.animate-xfade-in {
+  animation: xfade-in 0.3s ease-out both;
+}
+.animate-xfade-out {
+  animation: xfade-out 0.24s ease-in both;
+}
+
+/* ---- rolling steps viewport: fixed max height once filled; older rows
+   scroll down with the flow and dissolve at the bottom edge instead of
+   popping out, so the card stops changing height at the page bottom ---- */
+.steps-viewport {
+  /* ≈5 one-line rows + gaps — the footprint of the previous 5-row slice */
+  max-height: 8rem;
+  overflow: hidden;
+}
+.steps-viewport[data-expanded] {
+  max-height: none;
+}
+.steps-viewport[data-overflow] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
+}
+
+/* ---- semantic step stack: two-phase beat — the headline/thinking swap
+   leads, the trail fades in ~200ms later; a short cascade covers batched
+   rows. Depth dimming lives on a parent layer so rows that shift position
+   re-dim with a transition instead of a jump ---- */
 @keyframes step-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
-    opacity: var(--step-opacity, 1);
-    transform: none;
+    opacity: 1;
   }
 }
 .animate-step-in {
-  animation: step-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) both;
-  animation-delay: calc(var(--stagger, 0) * 90ms);
+  animation: step-in 0.45s ease-out both;
+  animation-delay: calc(200ms + var(--stagger, 0) * 70ms);
+}
+.step-depth {
+  opacity: var(--step-opacity, 1);
+  transition: opacity 0.5s ease;
 }
 
 /* ---- breathing gradient border for the running status card ---- */
@@ -758,10 +818,16 @@ body {
   .animate-step-in,
   .animate-anchor-flash,
   .animate-sub-drawer-in,
-  .animate-headline-swap,
+  .animate-xfade-in,
+  .animate-xfade-out,
   .animate-answer-in,
   .live-border::before {
     animation: none;
+  }
+  /* crossfade height glide and depth re-dimming fall flat too */
+  .xfade,
+  .step-depth {
+    transition: none;
   }
   /* grow-in relies on its animation to reach 1fr — force the end state */
   .grow-in {

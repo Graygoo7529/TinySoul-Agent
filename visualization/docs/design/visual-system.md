@@ -84,7 +84,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 ## 动效
 
 - `fade-in`（0.18s）用于弹层与消息进入；`slide-in-right`（0.22s）用于抽屉；drawer 用 0.24s cubic-bezier 推入。
-- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光，与入场动画分层嵌套）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`headline-swap`（0.24s 淡入交换）、`answer-in`（0.5s 浮现）、`step-in`（0.32s + 90ms 级联交错 + 纵深渐隐）、`grow-in`（0.32s 高度展开，grid 0fr→1fr，reduced-motion 下直落终态）；活动 feed 经 350ms 尾随节流合并并发爆发（`useThrottledValue`）。
+- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光，与入场动画分层嵌套）、`live-border`（2.8s 呼吸）、`status-in`（0.28s 上浮）、`answer-in`（0.5s 浮现）、`xfade`（0.24/0.3s 交叉淡入淡出 + 0.3s 高度收放，`Crossfade` 组件承载抬头/思考流/glimpse 的内容交换）、`step-in`（0.45s 纯淡入 + 200ms 相位延迟 + 70ms 短级联，纵深渐隐由 `.step-depth` 过渡承担）、`grow-in`（0.45s 高度展开，grid 0fr→1fr，reduced-motion 下直落终态）；步骤区滚动视口 `.steps-viewport`（固定最大高度 + 溢出时底边渐变消融）；活动 feed 经 900ms 原子节拍合并并发爆发（`useThrottledValue`，抬头与步骤同拍提交）。
 - LlmTaskDrawer 弹出用 `sub-drawer-in`（0.22s slide+settle）。
 - 交互反馈只用 `transition-colors`，不用 spring/scale；无限动效全部服务"运行中"语义。
 - `prefers-reduced-motion` 下禁用流光/呼吸/浮动类动效。

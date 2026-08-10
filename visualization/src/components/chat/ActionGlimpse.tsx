@@ -17,6 +17,7 @@ import { firstLine } from "../../derive/activitySemantics";
 import { diffLines } from "../../utils/diff";
 import { CommandLine, TerminalOutput } from "../trace/renderers/TerminalBlock";
 import { resultItemsOf } from "../trace/renderers/ResultListBlock";
+import { Crossfade } from "../ui/Crossfade";
 
 const DIFF_GLIMPSE_ROWS = 5;
 const SEARCH_GLIMPSE_ITEMS = 3;
@@ -36,12 +37,16 @@ export function ActionGlimpse({
       : doneGlimpse(family, record);
   if (!body) return null;
   // grow-in: the glimpse expands into place (reserving its height smoothly)
-  // instead of popping the stack's layout.
+  // instead of popping the stack's layout; the stage-2 → stage-3 flip
+  // crossfades instead of hard-cutting.
   return (
     <div className="grow-in">
-      <div className="animate-headline-swap mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5">
+      <Crossfade
+        id={`${record.callId}:${mode}`}
+        className="mt-1 rounded-lg border border-line/70 bg-bg-sunken/70 px-2.5 py-1.5"
+      >
         {body}
-      </div>
+      </Crossfade>
     </div>
   );
 }

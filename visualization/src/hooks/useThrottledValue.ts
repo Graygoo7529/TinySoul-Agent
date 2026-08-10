@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Trailing-edge throttle for rapidly changing values.
+ * Trailing-edge throttle for rapidly changing values — the live status beat.
  *
  * The derived activity feed can update several times per second while the
  * agent works; rendering every change makes the live status strobe. This
  * hook guarantees each rendered value stays visible for at least
- * `intervalMs` — rapid bursts coalesce into calm, readable steps. The most
+ * `intervalMs` — rapid bursts coalesce into calm, readable beats. The most
  * recent value always flushes through on the trailing edge, so nothing is
- * ever lost.
+ * ever lost. Pass a composite object to commit several values atomically on
+ * the same beat (the live status headline and step trail move together).
  */
 export function useThrottledValue<T>(value: T, intervalMs = 600): T {
   const [throttled, setThrottled] = useState(value);

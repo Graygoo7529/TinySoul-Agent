@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   Brain,
@@ -14,26 +14,42 @@ import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
+import { useOverflowing } from "../../hooks/useOverflowing";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
+import { Crossfade } from "../ui/Crossfade";
 import { ActivityStep } from "./ActivityStep";
 import { ActionGlimpse } from "./ActionGlimpse";
 
 const STEP_COUNT = 5;
+/** Live viewport: rows rendered at once — the visible ones plus a small
+    buffer scrolling away under the bottom fade. */
+const ROLL_WINDOW = 7;
+/** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
+const LIVE_BEAT_MS = 900;
+/** Stagger cap for batched row entrances — longer cascades read as popping. */
+const CASCADE_MAX = 2;
 
 /**
  * Live status disclosure for a running turn (the floating activity card in
  * the chat view).
  *
  * Layout, top to bottom: a shine-swept headline naming the current activity,
- * the thinking stream (the latest reasoning summary, auto-expanded and
- * revealed with a materializing animation), a staggered stack of the most
- * recent semantic steps (intent + domains, mounted skills, action targets,
- * context loads…), and the steady working-state zone with todos/milestones.
- * The running action and the latest settled action carry an ActionGlimpse —
- * an inline family-specific detail disclosing the stage-2 input (command,
- * diff, instruction) or the stage-3 result gist (output tail, search hits,
- * diff stat). The whole card breathes a gradient border while the turn runs.
+ * the thinking stream (the latest reasoning summary, auto-expanded), a
+ * rolling stack of the most recent semantic steps (intent + domains, mounted
+ * skills, action targets, context loads…), and the steady working-state zone
+ * with todos/milestones. The running action and the latest settled action
+ * carry an ActionGlimpse — an inline family-specific detail disclosing the
+ * stage-2 input (command, diff, instruction) or the stage-3 result gist
+ * (output tail, search hits, diff stat). The whole card breathes a gradient
+ * border while the turn runs.
+ *
+ * Update rhythm: one atomic beat (LIVE_BEAT_MS) commits the headline and the
+ * step trail together, then plays two phases — the headline and thinking
+ * stream crossfade first, the trail rolls in behind them. The trail lives in
+ * a fixed-max-height viewport: new rows gently push older ones down, and
+ * rows that reach the bottom edge dissolve under a fade instead of popping
+ * out, so the card's height settles once the viewport is full.
  */
 export function LiveStatus({
   turn,
@@ -48,12 +64,19 @@ export function LiveStatus({
   const live = mode === "live";
   useNow(live, 1000);
   const stopPending = useAppStore((s) => s.stopPending);
-  // The activity feed can burst several entries per second; a short trailing
-  // throttle coalesces only true bursts (a planned batch landing at once),
-  // which then cascade in with a stagger — single events render immediately.
-  // Stop requests bypass it for instant feedback.
-  const activity = useThrottledValue(turn.activity, live ? 350 : 0);
-  const currentActivity = useThrottledValue(turn.currentActivity, live ? 350 : 0);
+  // One atomic beat: the headline and the step trail commit together so the
+  // two-phase choreography (statement swap first, the trail rolls in behind
+  // it) never runs out of sync. Bursts coalesce into a single beat — the
+  // activity feed accumulates, so no trail entries are ever lost, they just
+  // enter in one short cascade. Stop requests bypass it for instant feedback.
+  const feed = useThrottledValue(
+    useMemo(
+      () => ({ activity: turn.activity, currentActivity: turn.currentActivity }),
+      [turn.activity, turn.currentActivity],
+    ),
+    live ? LIVE_BEAT_MS : 0,
+  );
+  const { activity, currentActivity } = feed;
 
   const latestThinkingIndex = findLastIndex(activity, (a) => a.kind === "thinking");
   const thought = latestThinkingIndex >= 0 ? activity[latestThinkingIndex] : undefined;
@@ -65,8 +88,11 @@ export function LiveStatus({
     .filter(({ index }) => index !== latestThinkingIndex)
     .reverse();
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? steps : steps.slice(0, STEP_COUNT);
+  // Live mode renders a small rolling window inside the fixed-height
+  // viewport; the settled card keeps the plain five-row list.
+  const visible = showAll ? steps : steps.slice(0, live ? ROLL_WINDOW : STEP_COUNT);
   const overflow = steps.length - visible.length;
+  const { ref: viewportRef, overflowing } = useOverflowing<HTMLDivElement>();
 
   const headline = stopPending
     ? "Stopping turn…"
@@ -100,6 +126,26 @@ export function LiveStatus({
     return undefined;
   };
 
+  // One trail row: grow-in opens the room (pushing older rows down), the
+  // content fades in behind the phase delay; depth dimming sits on its own
+  // layer so rows that shift position re-dim smoothly.
+  const renderStep = ({ item, index }: { item: ActivityItem; index: number }, i: number) => (
+    <div
+      key={`${item.time}-${index}`}
+      className="grow-in"
+      style={{ "--stagger": Math.min(i, CASCADE_MAX) } as React.CSSProperties}
+    >
+      <div
+        className="step-depth"
+        style={{ "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties}
+      >
+        <div className="animate-step-in">
+          <ActivityStep item={item} glimpse={glimpseFor(item)} />
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div
       className={
@@ -124,33 +170,35 @@ export function LiveStatus({
             settled && <settled.Icon size={15} className={`shrink-0 ${settled.tone}`} />
           )}
           <div className="min-w-0 flex-1">
-            {/* the swap animation lives on the outer span, the flowing shine
-                on the inner one — nesting keeps both composing instead of
-                overriding each other */}
-            <span
-              key={live ? headline : settled?.text}
-              className="animate-headline-swap inline-block max-w-full truncate align-middle"
+            {/* the crossfade swaps the statement softly (label and detail
+                together); the flowing shine lives on the inner text span so
+                the two animations never override each other */}
+            <Crossfade
+              id={live ? `${headline}\n${headlineDetail ?? ""}` : (settled?.text ?? "")}
+              className="max-w-full"
             >
-              <span
-                className={`text-[13px] font-medium ${
-                  live
-                    ? stopPending
-                      ? "text-danger"
-                      : "text-shine"
-                    : (settled?.tone ?? "text-fg")
-                }`}
-              >
-                {live ? headline : settled?.text}
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span
+                  className={`min-w-0 truncate text-[13px] font-medium ${
+                    live
+                      ? stopPending
+                        ? "text-danger"
+                        : "text-shine"
+                      : (settled?.tone ?? "text-fg")
+                  }`}
+                >
+                  {live ? headline : settled?.text}
+                </span>
+                {live && headlineDetail && (
+                  <span className="min-w-0 truncate font-mono text-[11px] text-fg-faint">
+                    {headlineDetail}
+                  </span>
+                )}
+                {!live && turn.summary && (
+                  <span className="min-w-0 truncate text-[11px] text-fg-faint">{turn.summary}</span>
+                )}
               </span>
-            </span>
-            {live && headlineDetail && (
-              <span className="ml-2 truncate font-mono text-[11px] text-fg-faint">
-                {headlineDetail}
-              </span>
-            )}
-            {!live && turn.summary && (
-              <span className="ml-2 truncate text-[11px] text-fg-faint">{turn.summary}</span>
-            )}
+            </Crossfade>
           </div>
           <div className="shrink-0 space-y-0.5 text-right font-mono text-[11px] text-fg-faint tabular-nums">
             <div>{formatDuration(turn.startedAt, live ? undefined : turn.endedAt)}</div>
@@ -172,36 +220,39 @@ export function LiveStatus({
           </div>
         </div>
 
-        {/* thinking stream: the latest reasoning, auto-expanded */}
-        {thought && <ThinkingStream item={thought} />}
+        {/* thinking stream: the latest reasoning, auto-expanded; the block
+            grows into the card on first appearance, then crossfades between
+            thoughts */}
+        {thought && (
+          <div className="grow-in">
+            <ThinkingStream item={thought} />
+          </div>
+        )}
 
-        {/* semantic step stack */}
-        {visible.length > 0 && (
-          <div className="space-y-1.5 px-4 pb-2.5">
-            {visible.map(({ item, index }, i) => (
-              <div
-                key={`${item.time}-${index}`}
-                className="grow-in"
-                style={{ "--stagger": Math.min(i, 6) } as React.CSSProperties}
-              >
-                <div
-                  className="animate-step-in"
-                  style={
-                    { "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties
-                  }
-                >
-                  <ActivityStep item={item} glimpse={glimpseFor(item)} />
-                </div>
-              </div>
-            ))}
-            {(overflow > 0 || showAll) && (
-              <button
-                onClick={() => setShowAll(!showAll)}
-                className="pl-5 text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
-              >
-                {showAll ? "Show fewer steps" : `+${overflow} earlier steps`}
-              </button>
-            )}
+        {/* semantic step trail: live mode rolls inside a fixed-height
+            viewport — older rows scroll down and dissolve at the bottom
+            edge; the settled card keeps the plain static list */}
+        {visible.length > 0 &&
+          (live ? (
+            <div
+              ref={viewportRef}
+              className="steps-viewport"
+              data-overflow={overflowing && !showAll ? "" : undefined}
+              data-expanded={showAll ? "" : undefined}
+            >
+              <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
+            </div>
+          ) : (
+            <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
+          ))}
+        {(overflow > 0 || showAll) && (
+          <div className="px-4 pb-2.5">
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className="pl-5 text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+            >
+              {showAll ? "Show fewer steps" : `+${overflow} earlier steps`}
+            </button>
           </div>
         )}
 
@@ -236,14 +287,11 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           </button>
         )}
       </div>
-      <div
-        key={item.time}
-        className={`animate-headline-swap ${
-          collapsible && !expanded ? "line-clamp-3" : ""
-        }`}
-      >
-        <Markdown className="md-calm text-[12px] leading-5 text-fg-muted">{full}</Markdown>
-      </div>
+      <Crossfade id={item.time}>
+        <div className={collapsible && !expanded ? "line-clamp-3" : ""}>
+          <Markdown className="md-calm text-[12px] leading-5 text-fg-muted">{full}</Markdown>
+        </div>
+      </Crossfade>
     </div>
   );
 }
