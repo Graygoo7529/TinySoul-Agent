@@ -458,7 +458,7 @@ function ThinkingWriter({
   }, [itemSeq, reduced, expanded]);
 
   const lineClass =
-    "md-inline truncate pl-1 text-[11px] leading-5 font-[340] text-fg-faint [font-style:oblique_8deg]";
+    "md-inline truncate pl-3 text-[11.5px] leading-5 font-[380] text-fg-faint [font-style:oblique_8deg]";
   return (
     <motion.div
       className="thinking-slate"
@@ -467,7 +467,7 @@ function ThinkingWriter({
       transition={{ duration: reduced ? 0 : SLATE_GLIDE_MS / 1000, ease: EASE_CALM }}
     >
       {expanded ? (
-        <Markdown className="md-calm pl-1 text-[12px] leading-5 text-fg-muted">{full}</Markdown>
+        <Markdown className="thinking-md pl-3">{full}</Markdown>
       ) : (
         <motion.div
           key={itemSeq}
