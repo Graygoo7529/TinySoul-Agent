@@ -18,8 +18,10 @@ import {
   Loader2,
   XCircle,
 } from "lucide-react";
+import { motion } from "motion/react";
 import type { ActivityItem } from "../../derive/model";
 import { truncate } from "../../derive/activitySemantics";
+import { EASE_CALM } from "../../utils/motion";
 import { Markdown } from "../markdown/Markdown";
 import { activityColors, activityIcons, DomainChip } from "../trace/semantic";
 
@@ -28,6 +30,7 @@ export function ActivityStep({
   rail = false,
   onAnchor,
   glimpse,
+  animate = false,
 }: {
   item: ActivityItem;
   /** Render a colored timeline dot instead of the kind icon. */
@@ -36,6 +39,9 @@ export function ActivityStep({
   onAnchor?: (callId: string) => void;
   /** Inline action detail rendered below the body (live activity bar only). */
   glimpse?: ReactNode;
+  /** Live status only: tween in-place content changes (status icon flips,
+      the result line growing in) so the trail never hard-cuts. */
+  animate?: boolean;
 }) {
   // Action entries (kind "action", or "error" once they fail) get their
   // lifecycle status icon instead of the generic kind icon.
@@ -44,7 +50,7 @@ export function ActivityStep({
   const color = status?.color ?? activityColors[item.kind] ?? "text-fg-faint";
   const anchored = item.kind === "action" && item.callId && onAnchor;
 
-  const body = <StepBody item={item} />;
+  const body = <StepBody item={item} animate={animate} />;
 
   return (
     <div className="flex min-w-0 items-start gap-2">
@@ -56,6 +62,16 @@ export function ActivityStep({
             }`}
           />
         </span>
+      ) : animate ? (
+        <motion.span
+          key={item.status ?? item.kind}
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.2, ease: EASE_CALM }}
+          className={`mt-[3px] inline-flex shrink-0 ${color}`}
+        >
+          <Icon size={12} className={status?.spin ? "animate-spin-slow" : ""} />
+        </motion.span>
       ) : (
         <Icon
           size={12}
@@ -83,8 +99,8 @@ export function ActivityStep({
 
 /* ------------------------------ per kind ----------------------------- */
 
-function StepBody({ item }: { item: ActivityItem }) {
-  if (item.action) return <ActionBody item={item} />;
+function StepBody({ item, animate }: { item: ActivityItem; animate?: boolean }) {
+  if (item.action) return <ActionBody item={item} animate={animate} />;
   switch (item.kind) {
     case "thinking":
       return <ThinkingBody item={item} />;
@@ -189,8 +205,16 @@ function SkillsBody({ item }: { item: ActivityItem }) {
  * with the lifecycle status icon in the leading column; the second row is
  * the one-line factual result headline (red on failure/timeout).
  */
-function ActionBody({ item }: { item: ActivityItem }) {
+function ActionBody({ item, animate }: { item: ActivityItem; animate?: boolean }) {
   const failed = item.status === "failed" || item.status === "timeout";
+  const resultLine = item.resultHeadline && (
+    <div
+      className={`truncate text-[11px] ${failed ? "text-danger" : "text-fg-faint"}`}
+      title={item.resultHeadline}
+    >
+      {item.resultHeadline}
+    </div>
+  );
   return (
     <div className="min-w-0 space-y-0.5">
       <div className="flex min-w-0 items-baseline gap-2">
@@ -201,14 +225,20 @@ function ActionBody({ item }: { item: ActivityItem }) {
           </span>
         )}
       </div>
-      {item.resultHeadline && (
-        <div
-          className={`truncate text-[11px] ${failed ? "text-danger" : "text-fg-faint"}`}
-          title={item.resultHeadline}
-        >
-          {item.resultHeadline}
-        </div>
-      )}
+      {resultLine &&
+        (animate ? (
+          // the result line grows into the row instead of popping its height
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            transition={{ duration: 0.35, ease: EASE_CALM }}
+            style={{ overflow: "hidden" }}
+          >
+            {resultLine}
+          </motion.div>
+        ) : (
+          resultLine
+        ))}
     </div>
   );
 }

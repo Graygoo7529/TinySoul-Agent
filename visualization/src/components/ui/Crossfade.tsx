@@ -6,7 +6,7 @@ import {
   type Key,
   type ReactNode,
 } from "react";
-import { useReducedMotion } from "../../hooks/useReducedMotion";
+import { useReducedMotion } from "motion/react";
 
 /**
  * Exit-layer fade duration (the `xfade-out` animation in index.css); the

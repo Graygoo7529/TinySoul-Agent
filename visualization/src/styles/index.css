@@ -703,34 +703,40 @@ body {
    scroll down with the flow and dissolve at the bottom edge instead of
    popping out, so the card stops changing height at the page bottom ---- */
 .steps-viewport {
-  /* ≈5 one-line rows + gaps — the footprint of the previous 5-row slice */
-  max-height: 8rem;
+  /* ≈7 one-line rows — roomy enough to read the trail, bounded so the
+     card's frame freezes once the viewport is full */
+  max-height: 12rem;
   overflow: hidden;
 }
 .steps-viewport[data-expanded] {
   max-height: none;
 }
 .steps-viewport[data-overflow] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent 100%);
 }
 
-/* ---- semantic step stack: two-phase beat — the headline/thinking swap
-   leads, the trail fades in ~200ms later; a short cascade covers batched
-   rows. Depth dimming lives on a parent layer so rows that shift position
-   re-dim with a transition instead of a jump ---- */
-@keyframes step-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* ---- thinking slate: a fixed three-line panel — thought swaps erase and
+   re-stream the text without ever changing the card's height, so the
+   breathing frame's top edge stays put; overlong content dissolves at the
+   bottom edge (expanding releases the height, user-initiated) ---- */
+.thinking-slate {
+  position: relative;
+  overflow: hidden;
 }
-.animate-step-in {
-  animation: step-in 0.45s ease-out both;
-  animation-delay: calc(200ms + var(--stagger, 0) * 70ms);
+.thinking-slate[data-clamped] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
 }
+.thinking-exit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---- semantic step stack: rows roll in with motion tweens (height opens,
+   then the content materializes); depth dimming lives on this parent layer
+   so rows that shift position re-dim with a transition instead of a jump ---- */
 .step-depth {
   opacity: var(--step-opacity, 1);
   transition: opacity 0.5s ease;
@@ -815,7 +821,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .text-shine,
   .animate-reveal,
-  .animate-step-in,
   .animate-anchor-flash,
   .animate-sub-drawer-in,
   .animate-xfade-in,

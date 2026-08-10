@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Brain,
@@ -9,12 +9,15 @@ import {
   Loader2,
   XCircle,
 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ActionRecord, ActivityItem, ChatTurn } from "../../derive/model";
 import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
+import { EASE_CALM } from "../../utils/motion";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
+import { useTypewriter } from "../../hooks/useTypewriter";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { Crossfade } from "../ui/Crossfade";
@@ -24,11 +27,27 @@ import { ActionGlimpse } from "./ActionGlimpse";
 const STEP_COUNT = 5;
 /** Live viewport: rows rendered at once — the visible ones plus a small
     buffer scrolling away under the bottom fade. */
-const ROLL_WINDOW = 7;
+const ROLL_WINDOW = 9;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
-const LIVE_BEAT_MS = 900;
+const LIVE_BEAT_MS = 1200;
 /** Stagger cap for batched row entrances — longer cascades read as popping. */
 const CASCADE_MAX = 2;
+
+/* Beat timeline (ms after a beat commits): the statement swap (headline +
+   thinking) leads; the trail roll opens behind it; the new row's content
+   materializes mid-roll. Batched rows cascade by CASCADE_MS. The full
+   choreography settles inside one beat (≈1.1s < LIVE_BEAT_MS). */
+const ROLL_DELAY_MS = 420;
+const ROLL_MS = 520;
+const REVEAL_DELAY_MS = 620;
+const REVEAL_MS = 400;
+const CASCADE_MS = 140;
+/** Thinking: erase the old thought, then stream the new one in. */
+const THINK_ERASE_MS = 240;
+const THINK_TYPE_DELAY_MS = 260;
+const THINK_TYPE_MS = 760;
+/** Fixed thinking panel height: three lines of text-[12px] leading-5. */
+const SLATE_HEIGHT = 60;
 
 /**
  * Live status disclosure for a running turn (the floating activity card in
@@ -45,11 +64,13 @@ const CASCADE_MAX = 2;
  * border while the turn runs.
  *
  * Update rhythm: one atomic beat (LIVE_BEAT_MS) commits the headline and the
- * step trail together, then plays two phases — the headline and thinking
- * stream crossfade first, the trail rolls in behind them. The trail lives in
- * a fixed-max-height viewport: new rows gently push older ones down, and
- * rows that reach the bottom edge dissolve under a fade instead of popping
- * out, so the card's height settles once the viewport is full.
+ * step trail together, then plays a three-part choreography — the headline
+ * crossfades, the thinking slate erases and streams the new thought in, and
+ * then the trail rolls: a new row opens its height so older rows glide
+ * down, and its content materializes mid-roll. Rows reaching the viewport's
+ * bottom edge dissolve under a fade instead of popping out. The thinking
+ * slate is a fixed three-line panel and the trail viewport clamps at a
+ * fixed max height, so once filled the card's breathing frame never moves.
  */
 export function LiveStatus({
   turn,
@@ -63,6 +84,7 @@ export function LiveStatus({
 }) {
   const live = mode === "live";
   useNow(live, 1000);
+  const reduced = useReducedMotion();
   const stopPending = useAppStore((s) => s.stopPending);
   // One atomic beat: the headline and the step trail commit together so the
   // two-phase choreography (statement swap first, the trail rolls in behind
@@ -93,6 +115,10 @@ export function LiveStatus({
   const visible = showAll ? steps : steps.slice(0, live ? ROLL_WINDOW : STEP_COUNT);
   const overflow = steps.length - visible.length;
   const { ref: viewportRef, overflowing } = useOverflowing<HTMLDivElement>();
+  // Latch the fade mask on once the viewport has ever overflowed — content
+  // hovering around the clamp threshold must not flicker the mask on/off.
+  const rolledFull = useRef(false);
+  if (overflowing) rolledFull.current = true;
 
   const headline = stopPending
     ? "Stopping turn…"
@@ -126,25 +152,49 @@ export function LiveStatus({
     return undefined;
   };
 
-  // One trail row: grow-in opens the room (pushing older rows down), the
-  // content fades in behind the phase delay; depth dimming sits on its own
-  // layer so rows that shift position re-dim smoothly.
-  const renderStep = ({ item, index }: { item: ActivityItem; index: number }, i: number) => (
-    <div
-      key={`${item.time}-${index}`}
-      className="grow-in"
-      style={{ "--stagger": Math.min(i, CASCADE_MAX) } as React.CSSProperties}
-    >
-      <div
-        className="step-depth"
-        style={{ "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties}
+  // One trail row: the height opens on the roll delay (older rows glide
+  // down with the flow — the wheel), the content materializes mid-roll.
+  // Depth dimming sits on its own CSS layer so position shifts re-dim with
+  // a transition instead of a jump. Settled rows render instantly.
+  const renderStep = ({ item, index }: { item: ActivityItem; index: number }, i: number) => {
+    const cascade = Math.min(i, CASCADE_MAX) * CASCADE_MS;
+    const instant = !live || reduced === true;
+    return (
+      <motion.div
+        key={`${item.time}-${index}`}
+        style={{ overflow: "hidden" }}
+        initial={instant ? false : { height: 0 }}
+        animate={{ height: "auto" }}
+        exit={{
+          height: 0,
+          opacity: 0,
+          transition: { duration: reduced ? 0 : 0.4, ease: EASE_CALM },
+        }}
+        transition={{
+          duration: reduced ? 0 : ROLL_MS / 1000,
+          ease: EASE_CALM,
+          delay: instant ? 0 : (ROLL_DELAY_MS + cascade) / 1000,
+        }}
       >
-        <div className="animate-step-in">
-          <ActivityStep item={item} glimpse={glimpseFor(item)} />
+        <div
+          className="step-depth"
+          style={{ "--step-opacity": Math.max(0.35, 1 - i * 0.14) } as React.CSSProperties}
+        >
+          <motion.div
+            initial={instant ? false : { opacity: 0, y: 4, filter: "blur(2px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            transition={{
+              duration: reduced ? 0 : REVEAL_MS / 1000,
+              ease: EASE_CALM,
+              delay: instant ? 0 : (REVEAL_DELAY_MS + cascade) / 1000,
+            }}
+          >
+            <ActivityStep animate={live} item={item} glimpse={glimpseFor(item)} />
+          </motion.div>
         </div>
-      </div>
-    </div>
-  );
+      </motion.div>
+    );
+  };
 
   return (
     <div
@@ -220,9 +270,9 @@ export function LiveStatus({
           </div>
         </div>
 
-        {/* thinking stream: the latest reasoning, auto-expanded; the block
-            grows into the card on first appearance, then crossfades between
-            thoughts */}
+        {/* thinking stream: the latest reasoning in a fixed three-line
+            slate; the block grows into the card on first appearance, then
+            erases and re-streams between thoughts without moving the frame */}
         {thought && (
           <div className="grow-in">
             <ThinkingStream item={thought} />
@@ -237,10 +287,12 @@ export function LiveStatus({
             <div
               ref={viewportRef}
               className="steps-viewport"
-              data-overflow={overflowing && !showAll ? "" : undefined}
+              data-overflow={rolledFull.current && !showAll ? "" : undefined}
               data-expanded={showAll ? "" : undefined}
             >
-              <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
+              <div className="space-y-1.5 px-4 pb-2.5">
+                <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
+              </div>
             </div>
           ) : (
             <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
@@ -287,12 +339,77 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
           </button>
         )}
       </div>
-      <Crossfade id={item.time}>
-        <div className={collapsible && !expanded ? "line-clamp-3" : ""}>
-          <Markdown className="md-calm text-[12px] leading-5 text-fg-muted">{full}</Markdown>
-        </div>
-      </Crossfade>
+      <ThinkingWriter
+        itemTime={item.time}
+        full={full}
+        collapsible={collapsible}
+        expanded={expanded}
+      />
     </div>
+  );
+}
+
+/**
+ * The thinking slate: a fixed three-line panel. When a new thought arrives
+ * the old text erases (fades out on an absolute layer), then the new text
+ * streams in like an SSE feed — and the panel height never changes, so the
+ * card's breathing frame stays put. Expanding releases the height (motion
+ * tweens it); reduced motion swaps instantly.
+ */
+function ThinkingWriter({
+  itemTime,
+  full,
+  collapsible,
+  expanded,
+}: {
+  itemTime: number;
+  full: string;
+  collapsible: boolean;
+  expanded: boolean;
+}) {
+  const reduced = useReducedMotion();
+  const { shown, typing } = useTypewriter(full, {
+    durationMs: THINK_TYPE_MS,
+    startDelayMs: THINK_TYPE_DELAY_MS,
+    active: !(reduced || expanded),
+  });
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const [exiting, setExiting] = useState<{ id: number; text: string } | null>(null);
+  const lastTime = useRef(itemTime);
+
+  // Thought swap: park whatever is currently visible on the erase layer.
+  useEffect(() => {
+    if (lastTime.current === itemTime) return;
+    const prev = lastTime.current;
+    lastTime.current = itemTime;
+    if (reduced || expanded) return;
+    setExiting({ id: prev, text: shownRef.current });
+  }, [itemTime, reduced, expanded]);
+
+  const textClass = "md-calm text-[12px] leading-5 text-fg-muted";
+  return (
+    <motion.div
+      className="thinking-slate"
+      data-clamped={collapsible && !expanded ? "" : undefined}
+      initial={false}
+      animate={{ height: expanded ? "auto" : SLATE_HEIGHT }}
+      transition={{ duration: reduced ? 0 : 0.3, ease: EASE_CALM }}
+    >
+      <Markdown className={textClass}>{typing ? `${shown}▍` : shown}</Markdown>
+      {exiting && (
+        <motion.div
+          key={exiting.id}
+          className="thinking-exit"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: THINK_ERASE_MS / 1000, ease: "easeIn" }}
+          onAnimationComplete={() => setExiting(null)}
+        >
+          <Markdown className={textClass}>{exiting.text}</Markdown>
+        </motion.div>
+      )}
+    </motion.div>
   );
 }
 
