@@ -72,7 +72,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 - **Badge**：soft 底 + 同色文字，十色调全 token 化；domain、状态、level 固定映射（见 `components/trace/semantic.tsx`）。
 - **用户消息**（`.bubble-user`）：浅 tinted 玻璃气泡——accent 8% 实色调和底 + 深靛黑文字（锐利可读；暗色为 accent 深底 16% + 浅靛文字 + 微弱外晕）+ accent 细描边 + 顶部内高光 + 6px 背模糊，与白色回答卡同属亮面体系、协调不抢戏。
 - **会话页背景**（`.chat-grid`）：24px 微网格（浅色/暗色均 2% 透明度），避免纯底单调，不干扰阅读。
-- **Agent 回答卡**：浅色主题为 bg-elev + shadow-card 亮卡；暗色主题为 `.answer-card` 微渐变面（#1a2030→#151a23）+ accent 细描边 + 内高光 + 柔影微光。
+- **Agent 回答卡**：浅色主题为白→极浅蓝灰微渐变 + 顶部内高光 + accent 淡彩柔影的亮面纸感卡；暗色主题为 `.answer-card` 微渐变面（#1a2030→#151a23）+ accent 细描边 + 内高光 + 柔影微光。回答流入期间叠加 accent 柔光与顶部流光扫掠（`answer-streaming`）。
 - **会话面**：用户消息为 `.bubble-user` 浅 tinted 玻璃气泡；Agent 回答卡 bg-elev + shadow-card，`answer-in` 入场（0.5s 上浮 + 去模糊）。
 - **Composer**：e1 抬升输入卡（shadow-card），focus-within 时 accent 边框 + 统一焦点环。
 - **输入框**：bg-elev + line 边框；focus 时 accent 边框 + `--focus-ring`，不用 outline。

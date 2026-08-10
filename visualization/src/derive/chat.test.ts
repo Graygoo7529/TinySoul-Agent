@@ -148,9 +148,11 @@ describe("buildChatTurns", () => {
       "select_domains",
     ]);
     // The message-stack snapshot is adopted first (todo pending); the later
-    // Phase1 control op then overrides it to in_progress.
+    // Phase1 control op then overrides it to in_progress — and since the
+    // turn has ended, the terminal sweep settles it to cancelled (nothing
+    // in flight may survive finalization).
     expect(turn.working.todos).toEqual([
-      { key: "t1", content: "do thing", status: "in_progress" },
+      { key: "t1", content: "do thing", status: "cancelled" },
     ]);
     expect(turn.usage).toEqual({ calls: 1, promptTokens: 100, completionTokens: 20 });
   });

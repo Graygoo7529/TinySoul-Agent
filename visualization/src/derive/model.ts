@@ -221,8 +221,10 @@ export interface ActivityItem {
   callId?: string;
   /** action: the action name (e.g. "workspace.patch"). */
   action?: string;
-  /** action: lifecycle status of the planned/executed call. */
-  status?: "planned" | "running" | "succeeded" | "failed" | "timeout";
+  /** action: lifecycle status of the planned/executed call. "stopped" is
+      assigned at turn finalization when the turn ended before a result
+      arrived — nothing may look alive once the turn is over. */
+  status?: "planned" | "running" | "succeeded" | "failed" | "timeout" | "stopped";
   /** action: one-line factual result summary from the registry. */
   resultHeadline?: string;
   /** 1-based cycle index at the time the activity was recorded. */
@@ -247,7 +249,7 @@ export interface TopLinkSnapshot {
 
 export interface PhaseStep {
   phase: PhaseName;
-  status: "idle" | "running" | "completed";
+  status: "idle" | "running" | "completed" | "ended";
   startedAt?: number;
   completedAt?: number;
   tasks: ModelTask[];

@@ -74,6 +74,9 @@ export interface AppState {
   /** True while a stop_turn command has been accepted but the turn has not
    * yet emitted a terminal observation. */
   stopPending: boolean;
+  /** The turn whose answer is currently streaming in (typewriter) — the chat
+      view keeps that turn top-anchored while the stream plays. */
+  answerStreamingTurnId: string | null;
   /** True while a history page fetch (connect recovery / load earlier) runs. */
   historyLoading: boolean;
   /** Model-event sequences hydrated for detail/export; skip re-skeletonizing. */
@@ -117,6 +120,7 @@ export interface AppState {
   setRecoveredThroughSequence: (sequence: number | null) => void;
   setRecoveryPreserveRunning: (preserve: boolean) => void;
   setStopPending: (pending: boolean) => void;
+  setAnswerStreaming: (turnId: string | null) => void;
   setHistoryLoading: (loading: boolean) => void;
   pinFullSequences: (sequences: number[]) => void;
   recordLocalInput: (commandId: string, text: string) => void;
@@ -152,6 +156,7 @@ export const useAppStore = create<AppState>()(
       recoveredThroughSequence: null,
       recoveryPreserveRunning: false,
       stopPending: false,
+      answerStreamingTurnId: null,
       historyLoading: false,
       pinnedFullSequences: [],
       localInputs: [],
@@ -218,6 +223,7 @@ export const useAppStore = create<AppState>()(
       setRecoveryPreserveRunning: (recoveryPreserveRunning) =>
         set({ recoveryPreserveRunning }),
       setStopPending: (stopPending) => set({ stopPending }),
+      setAnswerStreaming: (answerStreamingTurnId) => set({ answerStreamingTurnId }),
       setHistoryLoading: (historyLoading) => set({ historyLoading }),
       pinFullSequences: (sequences) =>
         set((state) => ({

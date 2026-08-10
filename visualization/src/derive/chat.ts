@@ -1005,6 +1005,24 @@ function finalizeTurn(turn: ChatTurn) {
       cycle.completedAt = turn.endedAt;
     }
   });
+  if (turn.status !== "running") {
+    // Terminal sweep: once the turn is over, nothing may keep spinning —
+    // orphaned running phases, never-settled action entries and in-flight
+    // todos all collapse to their static ended forms.
+    for (const cycle of turn.cycles) {
+      for (const phase of cycle.phases) {
+        if (phase.status === "running") phase.status = "ended";
+      }
+    }
+    for (const item of turn.activity) {
+      if (item.action && (item.status === "running" || item.status === "planned")) {
+        item.status = "stopped";
+      }
+    }
+    for (const todo of turn.working.todos) {
+      if (todo.status === "in_progress") todo.status = "cancelled";
+    }
+  }
   turn.actionStats = computeActionStats(turn);
   turn.summary = computeTurnSummary(turn);
   turn.currentActivity = turn.status === "running" ? computeCurrentActivity(turn) : undefined;

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Brain,
   CheckCircle2,
+  ChevronRight,
   Circle,
   Flag,
   ListChecks,
@@ -13,7 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ActionRecord, ActivityItem, ChatTurn } from "../../derive/model";
 import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
-import { EASE_CALM } from "../../utils/motion";
+import { EASE_CALM, LIVE_FOLD_MS } from "../../utils/motion";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
@@ -90,6 +91,11 @@ export function LiveStatus({
   useNow(live, 1000);
   const reduced = useReducedMotion();
   const stopPending = useAppStore((s) => s.stopPending);
+  // Settled cards start folded into their header line; the trail re-opens
+  // on demand. bodyOpen drives the fold tween (turn completion rolls the
+  // body up out of view).
+  const [trailOpen, setTrailOpen] = useState(false);
+  const bodyOpen = live || trailOpen;
   // One atomic beat: the headline and the step trail commit together so the
   // two-phase choreography (statement swap first, the trail rolls in behind
   // it) never runs out of sync. Bursts coalesce into a single beat — the
@@ -263,7 +269,7 @@ export function LiveStatus({
           ? stopPending
             ? "rounded-xl border border-danger/40 p-px"
             : "live-border"
-          : "animate-answer-in rounded-xl border border-line shadow-card"
+          : "rounded-xl border border-line shadow-card"
       }
     >
       <div className={`overflow-hidden bg-bg-elev ${live ? "rounded-[11px]" : "rounded-xl"}`}>
@@ -328,52 +334,78 @@ export function LiveStatus({
               </div>
             )}
           </div>
+          {/* the settled bar carries the folded trail; re-open on demand */}
+          {!live && steps.length > 0 && (
+            <button
+              onClick={() => setTrailOpen(!trailOpen)}
+              title={trailOpen ? "Fold the trail" : "Unfold the trail"}
+              className="shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-fg-muted"
+            >
+              <ChevronRight
+                size={13}
+                className={`transition-transform ${trailOpen ? "rotate-90" : ""}`}
+              />
+            </button>
+          )}
         </div>
 
-        {/* thinking stream: the latest reasoning as a one-line slate that
-            softly materializes on swap; the block grows into the card on
-            first appearance, Expand discloses the full reasoning */}
-        {thought && (
-          <div className="grow-in">
-            <ThinkingStream item={thought} />
-          </div>
-        )}
-
-        {/* semantic step trail: live mode rolls inside a fixed-height
-            viewport — older rows scroll down and dissolve at the bottom
-            edge; the settled card keeps the plain static list */}
-        {visible.length > 0 &&
-          (live ? (
-            <div
-              ref={viewportRef}
-              className="steps-viewport"
-              data-overflow={rolledFull.current && !showAll ? "" : undefined}
-              data-expanded={showAll ? "" : undefined}
-            >
-              <div className="space-y-1.5 px-4 pb-2.5">
-                <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
-              </div>
+        {/* card body: while live it rolls freely; when the turn completes it
+            folds up from its bottom edge into the header line (LIVE_FOLD_MS),
+            and a settled bar re-opens it on demand */}
+        <motion.div
+          style={{ overflow: "hidden" }}
+          initial={false}
+          animate={{ height: bodyOpen ? "auto" : 0, opacity: bodyOpen ? 1 : 0 }}
+          transition={{
+            height: { duration: reduced ? 0 : LIVE_FOLD_MS / 1000, ease: EASE_CALM },
+            opacity: { duration: reduced ? 0 : 0.28, ease: "easeIn" },
+          }}
+        >
+          {/* thinking stream: the latest reasoning as a one-line slate that
+              softly materializes on swap; the block grows into the card on
+              first appearance, Expand discloses the full reasoning */}
+          {thought && (
+            <div className="grow-in">
+              <ThinkingStream item={thought} />
             </div>
-          ) : (
-            <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
-          ))}
-        {(overflow > 0 || (live && rolledFull.current) || showAll) && (
-          <div className="grow-in px-4 pb-2.5">
-            <button
-              onClick={() => setShowAll(!showAll)}
-              className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
-            >
-              {showAll
-                ? "Show fewer steps"
-                : overflow > 0
-                  ? `+${overflow} earlier steps`
-                  : "Show all steps"}
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* steady working-state zone */}
-        <WorkingZone turn={turn} />
+          {/* semantic step trail: live mode rolls inside a fixed-height
+              viewport — older rows scroll down and dissolve at the bottom
+              edge; the settled card keeps the plain static list */}
+          {visible.length > 0 &&
+            (live ? (
+              <div
+                ref={viewportRef}
+                className="steps-viewport"
+                data-overflow={rolledFull.current && !showAll ? "" : undefined}
+                data-expanded={showAll ? "" : undefined}
+              >
+                <div className="space-y-1.5 px-4 pb-2.5">
+                  <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
+            ))}
+          {(overflow > 0 || (live && rolledFull.current) || showAll) && (
+            <div className="grow-in px-4 pb-2.5">
+              <button
+                onClick={() => setShowAll(!showAll)}
+                className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+              >
+                {showAll
+                  ? "Show fewer steps"
+                  : overflow > 0
+                    ? `+${overflow} earlier steps`
+                    : "Show all steps"}
+              </button>
+            </div>
+          )}
+
+          {/* steady working-state zone */}
+          <WorkingZone turn={turn} />
+        </motion.div>
       </div>
     </div>
   );

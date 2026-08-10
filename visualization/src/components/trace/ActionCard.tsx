@@ -18,9 +18,13 @@ import { ActionInputView, ActionOutputView } from "./renderers/FamilyView";
 export function ActionCard({
   action,
   mode,
+  ended = false,
 }: {
   action: ActionRecord;
   mode: "planned" | "executed";
+  /** The owning phase is over (turn ended before a result arrived) — the
+      card must not claim to be running. */
+  ended?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const descriptor = descriptorFor(action.action);
@@ -64,6 +68,8 @@ export function ActionCard({
           <Badge tone="gray">planned</Badge>
         ) : result ? (
           <ActionStatusBadge status={result.status} />
+        ) : ended ? (
+          <Badge tone="gray">interrupted</Badge>
         ) : (
           <Badge tone="accent">
             <span className="animate-pulse-dot">●</span> running

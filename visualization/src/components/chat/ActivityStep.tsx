@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Circle,
   CircleDashed,
+  CircleStop,
   Loader2,
   XCircle,
 } from "lucide-react";
@@ -285,6 +286,8 @@ function actionStatusVisual(status: ActivityItem["status"]) {
       return { Icon: XCircle, color: "text-danger", spin: false, hollow: false };
     case "timeout":
       return { Icon: AlertTriangle, color: "text-danger", spin: false, hollow: false };
+    case "stopped":
+      return { Icon: CircleStop, color: "text-fg-faint", spin: false, hollow: true };
     default:
       return undefined;
   }

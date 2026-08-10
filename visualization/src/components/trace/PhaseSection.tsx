@@ -220,6 +220,7 @@ function PhaseDetail({ phase }: { phase: PhaseStep }) {
               key={`${action.callId}-${i}`}
               action={action}
               mode={phase.phase === "phase2" ? "planned" : "executed"}
+              ended={phase.status !== "running"}
             />
           ))}
         </div>

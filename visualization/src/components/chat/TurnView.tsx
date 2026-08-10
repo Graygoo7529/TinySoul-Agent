@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { AlertTriangle, Bot, History, PanelRightOpen } from "lucide-react";
-import { useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import type { ChatTurn } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
+import { EASE_CALM, LIVE_FOLD_MS } from "../../utils/motion";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { Button } from "../ui/Button";
 import { Markdown } from "../markdown/Markdown";
@@ -28,7 +29,7 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
   const stats = turn.actionStats;
 
   return (
-    <div className="animate-fade-in space-y-4">
+    <div data-turn-root={turn.turnId} className="animate-fade-in space-y-4">
       {turn.userMessages.map((message, i) => (
         <div key={i} className="flex justify-end">
           <div className="bubble-user max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words">
@@ -42,13 +43,14 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
           <Bot size={15} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          {running && <LiveStatus turn={turn} />}
-          {showSettled && <LiveStatus turn={turn} mode="settled" />}
+          {/* one card instance across the run/finish boundary: completing
+              the turn folds the live trail up into the settled bar */}
+          {(running || showSettled) && (
+            <LiveStatus turn={turn} mode={running ? "live" : "settled"} />
+          )}
 
           {turn.assistantText && (
-            <div className="animate-answer-in answer-card shadow-card rounded-2xl rounded-tl-sm border border-line bg-bg-elev px-4 py-3">
-              <AnswerStream text={turn.assistantText} stream={streamAnswer} />
-            </div>
+            <AnswerCard turnId={turn.turnId} text={turn.assistantText} stream={streamAnswer} />
           )}
 
           {turn.status === "failed" && (
@@ -152,15 +154,43 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
 }
 
 /**
- * The final answer streams in like an SSE feed when the turn completes while
- * this view is mounted (stream=true); answers from restored history render
- * instantly. Longer answers reveal within a capped time budget.
+ * The final answer card. When the turn completes while this view is
+ * mounted, the card materializes just as the live status finishes folding
+ * away, then the text streams in at a fixed cadence (~330 chars/s, capped
+ * at 6s for long answers) under a soft streaming glow. Answers from
+ * restored history render instantly. While streaming, the chat view keeps
+ * the turn top-anchored (answerStreamingTurnId).
  */
-function AnswerStream({ text, stream }: { text: string; stream: boolean }) {
+function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; stream: boolean }) {
   const reduced = useReducedMotion();
+  const setAnswerStreaming = useAppStore((s) => s.setAnswerStreaming);
+  const streaming = stream && !reduced;
   const { shown, typing } = useTypewriter(text, {
-    durationMs: Math.min(500 + text.length * 0.9, 2000),
-    active: stream && !reduced,
+    durationMs: Math.min(text.length * 3, 6000),
+    startDelayMs: streaming ? LIVE_FOLD_MS + 60 : 0,
+    active: streaming,
   });
-  return <Markdown>{typing ? `${shown}▍` : shown}</Markdown>;
+
+  useEffect(() => {
+    if (!(streaming && typing)) return;
+    setAnswerStreaming(turnId);
+    return () => setAnswerStreaming(null);
+  }, [streaming, typing, turnId, setAnswerStreaming]);
+
+  return (
+    <motion.div
+      className={`answer-card rounded-2xl rounded-tl-sm border px-4 py-3 ${
+        typing ? "answer-streaming" : ""
+      }`}
+      initial={reduced ? false : { opacity: 0, y: 8, filter: "blur(3px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{
+        duration: 0.5,
+        ease: EASE_CALM,
+        delay: streaming ? (LIVE_FOLD_MS - 100) / 1000 : 0,
+      }}
+    >
+      <Markdown>{typing ? `${shown}▍` : shown}</Markdown>
+    </motion.div>
+  );
 }
