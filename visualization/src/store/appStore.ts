@@ -77,6 +77,10 @@ export interface AppState {
   /** The turn whose answer is currently streaming in (typewriter) — the chat
       view keeps that turn top-anchored while the stream plays. */
   answerStreamingTurnId: string | null;
+  /** Timestamp until which chat auto-follow is suspended — set when the
+      user toggles collapsible regions so expansions always unfold
+      downward instead of being pushed up by bottom-follow. */
+  chatFollowHoldUntil: number | null;
   /** True while a history page fetch (connect recovery / load earlier) runs. */
   historyLoading: boolean;
   /** Model-event sequences hydrated for detail/export; skip re-skeletonizing. */
@@ -121,6 +125,7 @@ export interface AppState {
   setRecoveryPreserveRunning: (preserve: boolean) => void;
   setStopPending: (pending: boolean) => void;
   setAnswerStreaming: (turnId: string | null) => void;
+  holdChatFollow: () => void;
   setHistoryLoading: (loading: boolean) => void;
   pinFullSequences: (sequences: number[]) => void;
   recordLocalInput: (commandId: string, text: string) => void;
@@ -157,6 +162,7 @@ export const useAppStore = create<AppState>()(
       recoveryPreserveRunning: false,
       stopPending: false,
       answerStreamingTurnId: null,
+      chatFollowHoldUntil: null,
       historyLoading: false,
       pinnedFullSequences: [],
       localInputs: [],
@@ -224,6 +230,7 @@ export const useAppStore = create<AppState>()(
         set({ recoveryPreserveRunning }),
       setStopPending: (stopPending) => set({ stopPending }),
       setAnswerStreaming: (answerStreamingTurnId) => set({ answerStreamingTurnId }),
+      holdChatFollow: () => set({ chatFollowHoldUntil: Date.now() + 1100 }),
       setHistoryLoading: (historyLoading) => set({ historyLoading }),
       pinFullSequences: (sequences) =>
         set((state) => ({

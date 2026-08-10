@@ -1,10 +1,9 @@
 import { useEffect, useRef } from "react";
 import { History, MessageSquareText, RefreshCw } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import { useAppStore } from "../../store/appStore";
 import type { ChatTurn } from "../../derive/model";
 import { loadEarlierEvents } from "../../hooks/useBackend";
-import { EASE_CALM } from "../../utils/motion";
 import { EmptyState } from "../ui/EmptyState";
 import { Button } from "../ui/Button";
 import { Composer } from "./Composer";
@@ -14,11 +13,15 @@ import { TurnView } from "./TurnView";
     top — the user bubble sits at the top of the view and the agent's card
     grows downward beneath it. */
 const TOP_ANCHOR = 20;
-/** New-turn anchor glide duration (deliberately unhurried). */
-const ANCHOR_GLIDE_MS = 750;
-/** While a turn is active, this much room is reserved below it so the
-    anchor is always reachable (the bubble can actually reach the top). */
-const SPACER_RATIO = 0.85;
+/** New-turn anchor glide: deliberately unhurried, fast-out soft-landing. */
+const ANCHOR_GLIDE_MS = 950;
+/** Completion choreography: a short settle pause, then the re-anchor glide;
+    the fold and the answer stream sequence behind them (FOLD_DELAY_MS). */
+const COMPLETION_PAUSE_MS = 300;
+const COMPLETION_GLIDE_MS = 800;
+/** A completion re-anchor is skipped only while the user is actively
+    scrolling (a scroll gesture within this window counts as active). */
+const USER_SCROLL_IDLE_MS = 700;
 
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const interrupted = useAppStore((s) => s.eventStreamInterrupted);
@@ -27,6 +30,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const client = useAppStore((s) => s.client);
   const journal = useAppStore((s) => s.status?.event_journal);
   const answerStreaming = useAppStore((s) => s.answerStreamingTurnId);
+  const reduced = useReducedMotion();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pinnedToBottom = useRef(true);
@@ -34,12 +38,12 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
       be mistaken for the user grabbing the wheel. */
   const programmatic = useRef<number | null>(null);
   const glideFrame = useRef<number | undefined>(undefined);
+  const lastUserScrollAt = useRef(0);
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
   const empty = turns.length === 0;
 
   const lastTurn = empty ? undefined : turns[turns.length - 1];
-  const turnActive = !!lastTurn && (lastTurn.status === "running" || lastTurn.turnId === answerStreaming);
 
   const localOldest = events[0]?.sequence ?? 0;
   const journalOldest = journal?.oldest_sequence ?? null;
@@ -55,20 +59,44 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     return (list[list.length - 1] as HTMLElement | undefined) ?? null;
   };
 
-  // Follow target: while the latest turn is active, park its top edge at
-  // TOP_ANCHOR — as long as the turn fits in view. Once it outgrows the
-  // viewport, hand off to bottom-follow so the freshest content (the
-  // streaming answer's tail) stays visible. Otherwise follow the bottom.
+  // The permanent ~85vh blank below the stream keeps the anchor reachable
+  // in every state — no dynamic fill, no release adjustment.
+  const spacerHeight = () => {
+    const content = contentRef.current;
+    const el = content?.querySelector("[data-chat-spacer]") as HTMLElement | null;
+    return el?.offsetHeight ?? 0;
+  };
+
+  const anchorTarget = (): number | null => {
+    const scroll = scrollRef.current;
+    if (!scroll) return null;
+    const el = lastTurnEl();
+    if (!el) return null;
+    const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+    const gap = el.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+    return Math.max(0, Math.min(scroll.scrollTop + (gap - TOP_ANCHOR), maxScroll));
+  };
+
+  // Follow target: while the turn runs, park its top edge at TOP_ANCHOR —
+  // the live card is transient and simply extends below; never chase its
+  // bottom. Only the streaming answer hands off to content-bottom follow
+  // once it outgrows the viewport (the freshest typed text sits at the
+  // bottom). "Bottom" means the content's end, never the blank spacer.
   const followTarget = (): number | null => {
     const scroll = scrollRef.current;
     if (!scroll) return null;
     const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
-    if (!turnActive) return maxScroll;
+    const contentMax = Math.max(0, maxScroll - spacerHeight());
+    if (!lastTurn) return contentMax;
+    const running = lastTurn.status === "running";
+    const streaming = lastTurn.turnId === answerStreaming;
+    if (!running && !streaming) return contentMax;
     const el = lastTurnEl();
-    if (!el) return maxScroll;
-    if (el.offsetHeight + TOP_ANCHOR + 24 > scroll.clientHeight) return maxScroll;
-    const gap = el.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
-    return Math.max(0, Math.min(scroll.scrollTop + (gap - TOP_ANCHOR), maxScroll));
+    if (!el) return contentMax;
+    if (streaming && el.offsetHeight + TOP_ANCHOR + 24 > scroll.clientHeight) {
+      return contentMax;
+    }
+    return anchorTarget();
   };
 
   const cancelGlide = () => {
@@ -76,18 +104,24 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     glideFrame.current = undefined;
   };
 
-  // A slow, deliberate glide toward the anchor — the user bubble travels
-  // smoothly to the top edge. Any user scroll input cancels it instantly.
-  const glideTo = (target: number) => {
+  // A slow, deliberate glide toward the anchor — fast out, soft landing.
+  // Any user scroll input cancels it instantly.
+  const glideTo = (target: number, durationMs: number) => {
     const scroll = scrollRef.current;
     if (!scroll) return;
     cancelGlide();
+    if (reduced) {
+      programmatic.current = target;
+      scroll.scrollTop = target;
+      return;
+    }
     const start = scroll.scrollTop;
     const delta = target - start;
     const t0 = performance.now();
     const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / ANCHOR_GLIDE_MS);
-      const eased = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      const k = Math.min(1, (t - t0) / durationMs);
+      // easeOutQuart: fast departure, soft landing — matches the EASE_CALM family
+      const eased = 1 - Math.pow(1 - k, 4);
       programmatic.current = target;
       scroll.scrollTop = start + delta * eased;
       if (k < 1) {
@@ -109,6 +143,8 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     if (!scroll || !content) return;
     const follow = () => {
       if (!pinnedToBottom.current || glideFrame.current !== undefined) return;
+      const hold = useAppStore.getState().chatFollowHoldUntil;
+      if (hold !== null && Date.now() < hold) return;
       const target = followTarget();
       if (target === null || Math.abs(scroll.scrollTop - target) < 1) return;
       programmatic.current = target;
@@ -123,7 +159,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   }, [empty]);
 
   // A new turn begins: re-engage following and glide the turn's top toward
-  // the anchor (the spacer below guarantees room for the glide).
+  // the anchor — the permanent blank below makes it always reachable.
   const lastTurnId = lastTurn?.turnId ?? null;
   const prevTurnId = useRef(lastTurnId);
   useEffect(() => {
@@ -133,19 +169,34 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     pinnedToBottom.current = true;
     const scroll = scrollRef.current;
     if (!scroll) return;
-    const target = followTarget();
+    const target = anchorTarget();
     if (target === null || Math.abs(target - scroll.scrollTop) < 2) return;
-    glideTo(target);
+    glideTo(target, ANCHOR_GLIDE_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastTurnId]);
 
-  // When the answer finishes streaming, release the view — the user takes
-  // over from wherever the stream ended.
-  const wasStreaming = useRef(false);
+  // The turn just ended: after a short settle pause, glide back to the
+  // anchor (a long run may have drifted, or the user scrolled mid-run).
+  // Skipped only while the user is actively scrolling right now.
+  const lastStatus = lastTurn?.status ?? null;
+  const prevStatus = useRef(lastStatus);
   useEffect(() => {
-    if (wasStreaming.current && !answerStreaming) pinnedToBottom.current = false;
-    wasStreaming.current = !!answerStreaming;
-  }, [answerStreaming]);
+    const prev = prevStatus.current;
+    prevStatus.current = lastStatus;
+    if (!lastTurnId || !lastStatus) return;
+    if (prev !== "running" || lastStatus === "running") return;
+    if (Date.now() - lastUserScrollAt.current < USER_SCROLL_IDLE_MS) return;
+    const timer = window.setTimeout(() => {
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      const target = anchorTarget();
+      if (target === null || Math.abs(target - scroll.scrollTop) < 2) return;
+      pinnedToBottom.current = true;
+      glideTo(target, COMPLETION_GLIDE_MS);
+    }, COMPLETION_PAUSE_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastStatus, lastTurnId]);
 
   useEffect(() => () => cancelGlide(), []);
 
@@ -179,11 +230,13 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
           // any user input takes over instantly; scrolling up also unpins
           cancelGlide();
           programmatic.current = null;
+          lastUserScrollAt.current = Date.now();
           if (e.deltaY < 0) pinnedToBottom.current = false;
         }}
         onTouchStart={() => {
           cancelGlide();
           programmatic.current = null;
+          lastUserScrollAt.current = Date.now();
           pinnedToBottom.current = false;
         }}
       >
@@ -214,24 +267,9 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
             {turns.map((turn, i) => (
               <TurnView key={turn.turnId} turn={turn} isLatest={i === turns.length - 1} />
             ))}
-            {/* room reserved under the active turn so its top edge can
-                actually reach the anchor; shrinks away once it ends */}
-            <AnimatePresence>
-              {turnActive && (
-                <motion.div
-                  key="active-turn-spacer"
-                  initial={{ height: 0 }}
-                  animate={{
-                    height: (scrollRef.current?.clientHeight ?? 800) * SPACER_RATIO,
-                  }}
-                  exit={{
-                    height: 0,
-                    transition: { duration: 0.6, ease: EASE_CALM },
-                  }}
-                  transition={{ duration: 0.3, ease: EASE_CALM }}
-                />
-              )}
-            </AnimatePresence>
+            {/* permanent blank tail: the latest bubble can always reach the
+                top anchor, and completion needs no layout adjustment */}
+            <div data-chat-spacer style={{ height: "85vh" }} />
           </div>
         )}
       </div>

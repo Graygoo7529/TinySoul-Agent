@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from "motion/react";
 import type { ChatTurn } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
-import { EASE_CALM, LIVE_FOLD_MS } from "../../utils/motion";
+import { EASE_CALM, ANSWER_STREAM_DELAY_MS, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { Button } from "../ui/Button";
 import { Markdown } from "../markdown/Markdown";
@@ -166,8 +166,10 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
   const setAnswerStreaming = useAppStore((s) => s.setAnswerStreaming);
   const streaming = stream && !reduced;
   const { shown, typing } = useTypewriter(text, {
-    durationMs: Math.min(text.length * 3, 6000),
-    startDelayMs: streaming ? LIVE_FOLD_MS + 60 : 0,
+    // fixed cadence ≈280 chars/s; very long answers finish within 6s. The
+    // stream starts only after the fold has finished plus a short beat.
+    durationMs: Math.min(text.length * 3.6, 6000),
+    startDelayMs: streaming ? ANSWER_STREAM_DELAY_MS : 0,
     active: streaming,
   });
 
@@ -187,7 +189,7 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
       transition={{
         duration: 0.5,
         ease: EASE_CALM,
-        delay: streaming ? (LIVE_FOLD_MS - 100) / 1000 : 0,
+        delay: streaming ? (FOLD_DELAY_MS + LIVE_FOLD_MS - 120) / 1000 : 0,
       }}
     >
       <Markdown>{typing ? `${shown}▍` : shown}</Markdown>

@@ -7,4 +7,8 @@ export const EASE_CALM: [number, number, number, number] = [0.22, 0.9, 0.3, 1];
 
 /** Turn-completion fold: the live status body rolls up into its header
     line; the answer starts streaming once the fold completes. */
-export const LIVE_FOLD_MS = 550;
+export const LIVE_FOLD_MS = 700;
+/** Settling pause + re-anchor glide between turn completion and the fold. */
+export const FOLD_DELAY_MS = 1100;
+/** The answer stream starts once the fold has finished plus a short beat. */
+export const ANSWER_STREAM_DELAY_MS = FOLD_DELAY_MS + LIVE_FOLD_MS + 280;

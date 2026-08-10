@@ -14,7 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ActionRecord, ActivityItem, ChatTurn } from "../../derive/model";
 import { actionVerb } from "../../derive/actions/registry";
 import { formatDuration } from "../../utils/format";
-import { EASE_CALM, LIVE_FOLD_MS } from "../../utils/motion";
+import { EASE_CALM, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
@@ -95,7 +95,12 @@ export function LiveStatus({
   // on demand. bodyOpen drives the fold tween (turn completion rolls the
   // body up out of view).
   const [trailOpen, setTrailOpen] = useState(false);
+  const trailOpenedOnce = useRef(false);
+  const holdChatFollow = useAppStore((s) => s.holdChatFollow);
   const bodyOpen = live || trailOpen;
+  // The completion fold waits for the re-anchor glide to land first; a
+  // user-driven fold/unfold responds immediately.
+  const foldDelayS = live || reduced || trailOpenedOnce.current ? 0 : FOLD_DELAY_MS / 1000;
   // One atomic beat: the headline and the step trail commit together so the
   // two-phase choreography (statement swap first, the trail rolls in behind
   // it) never runs out of sync. Bursts coalesce into a single beat — the
@@ -150,13 +155,15 @@ export function LiveStatus({
       (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
   )?.callId;
 
-  const toggleGist = (callId: string) =>
+  const toggleGist = (callId: string) => {
+    holdChatFollow();
     setExpandedGists((prev) => {
       const next = new Set(prev);
       if (next.has(callId)) next.delete(callId);
       else next.add(callId);
       return next;
     });
+  };
 
   // Glimpse descriptors by row. Presence is decided here (via glimpseBody)
   // so a row's glimpse never mounts-then-vanishes; disappearance is tweened
@@ -337,7 +344,11 @@ export function LiveStatus({
           {/* the settled bar carries the folded trail; re-open on demand */}
           {!live && steps.length > 0 && (
             <button
-              onClick={() => setTrailOpen(!trailOpen)}
+              onClick={() => {
+                trailOpenedOnce.current = true;
+                holdChatFollow();
+                setTrailOpen(!trailOpen);
+              }}
               title={trailOpen ? "Fold the trail" : "Unfold the trail"}
               className="shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-fg-muted"
             >
@@ -357,8 +368,16 @@ export function LiveStatus({
           initial={false}
           animate={{ height: bodyOpen ? "auto" : 0, opacity: bodyOpen ? 1 : 0 }}
           transition={{
-            height: { duration: reduced ? 0 : LIVE_FOLD_MS / 1000, ease: EASE_CALM },
-            opacity: { duration: reduced ? 0 : 0.28, ease: "easeIn" },
+            height: {
+              duration: reduced ? 0 : LIVE_FOLD_MS / 1000,
+              ease: EASE_CALM,
+              delay: foldDelayS,
+            },
+            opacity: {
+              duration: reduced ? 0 : 0.3,
+              ease: "easeIn",
+              delay: foldDelayS,
+            },
           }}
         >
           {/* thinking stream: the latest reasoning as a one-line slate that
@@ -391,7 +410,10 @@ export function LiveStatus({
           {(overflow > 0 || (live && rolledFull.current) || showAll) && (
             <div className="grow-in px-4 pb-2.5">
               <button
-                onClick={() => setShowAll(!showAll)}
+                onClick={() => {
+                  holdChatFollow();
+                  setShowAll(!showAll);
+                }}
                 className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
               >
                 {showAll
@@ -415,6 +437,7 @@ export function LiveStatus({
 
 function ThinkingStream({ item }: { item: ActivityItem }) {
   const [expanded, setExpanded] = useState(false);
+  const holdChatFollow = useAppStore((s) => s.holdChatFollow);
   const full = item.reasoning ?? item.text;
   // The collapsed slate previews the first non-empty line as inline
   // markdown; expanding discloses the full reasoning when it says more.
@@ -435,7 +458,10 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
         )}
         {collapsible && (
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => {
+              holdChatFollow();
+              setExpanded(!expanded);
+            }}
             className="ml-auto font-normal normal-case text-accent/80 transition-colors hover:text-accent"
           >
             {expanded ? "Collapse" : "Expand"}
