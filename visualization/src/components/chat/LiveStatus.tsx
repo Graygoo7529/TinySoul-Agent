@@ -118,9 +118,10 @@ export function LiveStatus({
   const thoughtIndex = findLastIndex(activity, (a) => a.kind === "thinking");
   const thought = thoughtIndex >= 0 ? activity[thoughtIndex] : undefined;
 
-  // Newest-first semantic steps, excluding the thought shown above; older
-  // thinking entries stay in the stack as collapsed one-liners.
-  const steps = activity.filter((item) => item.seq !== thought?.seq).reverse();
+  // Newest-first semantic steps — the full feed, thinking entries included.
+  // Every entry joins at arrival and only ever scrolls down afterwards, so
+  // the trail never mid-inserts; the slate above mirrors the latest thought.
+  const steps = [...activity].reverse();
   const [showAll, setShowAll] = useState(false);
   // Live mode rolls a small window inside the fixed-height viewport; the
   // settled card lists the same window statically — completing a turn never
@@ -389,24 +390,21 @@ export function LiveStatus({
             </div>
           )}
 
-          {/* semantic step trail: live mode rolls inside a fixed-height
-              viewport — older rows scroll down and dissolve at the bottom
-              edge; the settled card keeps the plain static list */}
-          {visible.length > 0 &&
-            (live ? (
-              <div
-                ref={viewportRef}
-                className="steps-viewport"
-                data-overflow={rolledFull.current && !showAll ? "" : undefined}
-                data-expanded={showAll ? "" : undefined}
-              >
-                <div className="space-y-1.5 px-4 pb-2.5">
-                  <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
-                </div>
+          {/* semantic step trail: one container in both modes — live clamps
+              it into the rolling viewport, settled lifts the clamp via
+              data-expanded, so the run/finish flip never remounts a row */}
+          {visible.length > 0 && (
+            <div
+              ref={viewportRef}
+              className="steps-viewport"
+              data-overflow={live && rolledFull.current && !showAll ? "" : undefined}
+              data-expanded={showAll || !live ? "" : undefined}
+            >
+              <div className="space-y-1.5 px-4 pb-2.5">
+                <AnimatePresence initial={false}>{visible.map(renderStep)}</AnimatePresence>
               </div>
-            ) : (
-              <div className="space-y-1.5 px-4 pb-2.5">{visible.map(renderStep)}</div>
-            ))}
+            </div>
+          )}
           {(overflow > 0 || (live && rolledFull.current) || showAll) && (
             <div className="grow-in px-4 pb-2.5">
               <button

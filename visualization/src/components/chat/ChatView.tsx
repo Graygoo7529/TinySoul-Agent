@@ -13,8 +13,8 @@ import { TurnView } from "./TurnView";
     top — the user bubble sits at the top of the view and the agent's card
     grows downward beneath it. */
 const TOP_ANCHOR = 20;
-/** New-turn anchor glide: deliberately unhurried, fast-out soft-landing. */
-const ANCHOR_GLIDE_MS = 950;
+/** New-turn anchor glide: brisk but still a visible, soft-landing travel. */
+const ANCHOR_GLIDE_MS = 700;
 /** Completion choreography: a short settle pause, then the re-anchor glide;
     the fold and the answer stream sequence behind them (FOLD_DELAY_MS). */
 const COMPLETION_PAUSE_MS = 300;
@@ -29,7 +29,6 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const events = useAppStore((s) => s.events);
   const client = useAppStore((s) => s.client);
   const journal = useAppStore((s) => s.status?.event_journal);
-  const answerStreaming = useAppStore((s) => s.answerStreamingTurnId);
   const reduced = useReducedMotion();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -87,9 +86,13 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     if (!scroll) return null;
     const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     const contentMax = Math.max(0, maxScroll - spacerHeight());
-    if (!lastTurn) return contentMax;
-    const running = lastTurn.status === "running";
-    const streaming = lastTurn.turnId === answerStreaming;
+    // read fresh values — this callback outlives its render via the
+    // ResizeObserver, so component-scope variables would be stale
+    const list = turnsRef.current;
+    const last = list.length > 0 ? list[list.length - 1] : undefined;
+    if (!last) return contentMax;
+    const running = last.status === "running";
+    const streaming = last.turnId === useAppStore.getState().answerStreamingTurnId;
     if (!running && !streaming) return contentMax;
     const el = lastTurnEl();
     if (!el) return contentMax;
