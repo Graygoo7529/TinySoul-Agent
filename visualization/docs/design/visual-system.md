@@ -84,7 +84,7 @@ Badge 十色调全部经 token：gray/green/red/yellow/blue/accent 用语义变�
 ## 动效
 
 - `fade-in`（0.18s）用于弹层与消息进入；`slide-in-right`（0.22s）用于抽屉；drawer 用 0.24s cubic-bezier 推入。
-- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光）、`live-border`（2.8s 呼吸）、`answer-in`（0.5s 浮现）、`xfade`（0.28/0.36s 交叉淡入淡出 + 0.36s 高度收放，`Crossfade` 承载抬头交换）、`grow-in`（0.45s 高度展开，grid 0fr→1fr，reduced-motion 下直落终态）；步骤滚动、思考行浮现、最终回答打字机（`useTypewriter`，时长按长度缩放约 0.5–2s）与就地更新由 **motion 库**驱动（height auto tween、`AnimatePresence` 退出/坍缩、reduced-motion 经 `useReducedMotion` 直落终态），节拍时间线详见 chat.md；思考面板 `.thinking-slate`（固定一行，Expand 平滑释放）与步骤视口 `.steps-viewport`（16rem 固定最大高度 + 溢出闩锁 + 底边 2.5rem 渐变消融）配合 `ChatView` 顶部停泊跟随（`TOP_ANCHOR`）共同稳定卡片呼吸边框；陈述层（抬头与思考）经 1500ms 原子节拍合并并发爆发（`useThrottledValue`），步骤轨迹监听未节流 feed、经放行游标按自身节奏逐条入栈（陈述层换段或积压 ≥4 条时整批冲刷）；activity 条目携带稳定 `seq` 与源事件时间戳，全量重建不重挂载、时间不漂移。
+- 运行态统一 `pulse-dot` / `spin-slow`；LiveStatus 专属 `text-shine`（2.6s 流光）、`live-border`（2.8s 呼吸）、`answer-in`（0.5s 浮现）、`xfade`（0.28/0.36s 交叉淡入淡出 + 0.36s 高度收放，`Crossfade` 承载抬头交换）、`grow-in`（0.45s 高度展开，grid 0fr→1fr，reduced-motion 下直落终态）；步骤滚动、思考行浮现、最终回答打字机（`useTypewriter`，时长按长度缩放约 0.5–2s）与就地更新由 **motion 库**驱动（height auto tween、`AnimatePresence` 退出/坍缩、reduced-motion 经 `useReducedMotion` 直落终态），节拍时间线详见 chat.md；思考面板 `.thinking-slate`（固定一行，Expand 平滑释放）与步骤视口 `.steps-viewport`（16rem 固定最大高度 + 溢出闩锁 + 底边 2.5rem 渐变消融）配合 `ChatView` 顶部停泊跟随（`TOP_ANCHOR`）共同稳定卡片呼吸边框；陈述层（抬头与思考）经 1500ms 原子节拍合并并发爆发（`useThrottledValue`），步骤轨迹监听未节流 feed、经放行游标按自身节奏逐条入栈（陈述层 thinking 前进时 drain 队列至该思考条目为止，积压 ≥10 条时放出最旧 6 条）；activity 条目携带稳定 `seq` 与源事件时间戳，全量重建不重挂载、时间不漂移。
 - LlmTaskDrawer 弹出用 `sub-drawer-in`（0.22s slide+settle）。
 - 交互反馈只用 `transition-colors`，不用 spring/scale；无限动效全部服务"运行中"语义。
 - `prefers-reduced-motion` 下禁用流光/呼吸/浮动类动效。

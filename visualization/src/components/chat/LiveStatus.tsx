@@ -36,22 +36,26 @@ const TRAIL_MAX_PX = 256;
 
 /* Trail roller: new steps queue in arrival order behind a release cursor
    and join the stack one at a time, one per stride. When the statement
-   layer moves on (the headline/thinking visibly changes — a paragraph
-   break), whatever is still queued flushes as one batch so the trail
-   catches up with the narrative; a deep backlog flushes immediately. */
+   layer's thinking moves on (a paragraph break), the trail drains the
+   queue up to and including that thinking entry — a fast sequential
+   insertion so the trail catches the narrative's anchor. A deep backlog
+   drains the oldest few to bound the lag. */
 const ROLL_STRIDE_MS = 1100;
-const ROLL_BATCH = 4;
+const DRAIN_STRIDE_MS = 240;
+const SAFETY_THRESHOLD = 10;
+const SAFETY_RELEASE = 6;
 
-/* Single-row entrance: the row inserts collapsed, its content sliding in
-   from the right at once (push #1 as older rows glide down); the gist pops
-   open inside the landed row a beat later (push #2). Batch-flushed rows
-   enter fast and tight with gists pre-expanded. */
-const ROLL_MS = 500;
-const REVEAL_MS = 400;
-const GIST_POP_DELAY_MS = 450;
+/* Single-row entrance: a quick insert, then a clear pause before the next.
+   The row inserts collapsed, its content sliding in from the right at once
+   (push #1 as older rows glide down); the gist pops open inside the landed
+   row a beat later (push #2). Drained rows play the same entrance faster,
+   gists pre-expanded. */
+const ROLL_MS = 420;
+const REVEAL_MS = 340;
+const GIST_POP_DELAY_MS = 400;
 const GIST_POP_MS = 350;
-const FLUSH_MS = 350;
-const FLUSH_CASCADE_MS = 80;
+const DRAIN_ROLL_MS = 320;
+const DRAIN_REVEAL_MS = 280;
 /** Thinking: the old line fades out, the new one materializes behind it. */
 const THINK_ERASE_MS = 300;
 const THINK_REVEAL_DELAY_MS = 60;
@@ -80,11 +84,13 @@ const SLATE_GLIDE_MS = 360;
  * atomic beat (LIVE_BEAT_MS); the trail watches the raw feed and rolls at
  * its own rhythm through a release cursor — new steps queue in arrival
  * order and join one at a time, one per stride (ROLL_STRIDE_MS). Each
- * single entrance is two pushes: the row inserts collapsed, its content
- * sliding in from the right at once so older rows visibly glide down, then
- * its gist pops open inside the landed row. A statement paragraph break
- * (the headline/thinking visibly moves on) or a deep backlog flushes the
- * queue as one tight batch with gists pre-expanded. Gists faded below the
+ * single entrance is a quick insert with a clear pause: the row inserts
+ * collapsed, its content sliding in from the right at once so older rows
+ * visibly glide down, then its gist pops open inside the landed row. When
+ * the statement's thinking moves on (a paragraph break), the trail drains
+ * the queue up to and including that thinking entry — the same insertion
+ * at a fast stride, gists pre-expanded, oldest first so the batch grows
+ * bottom-up; a deep backlog drains the oldest few. Gists faded below the
  * viewport are collected instantly and only while the roll is idle, so a
  * collapse never fights a push. Rows reaching the viewport's bottom edge
  * dissolve under a fade instead of popping out. The collapsed slate is a
@@ -141,25 +147,10 @@ export function LiveStatus({
   const steps = [...turn.activity].reverse();
   const [showAll, setShowAll] = useState(false);
 
-  // Statement paragraph breaks: a beat that actually changes the headline
-  // or the thinking entry means the agent visibly moved on — the trail
-  // then flushes whatever is still queued so it catches up (roller below).
-  const statementKey = `${currentActivity?.label ?? ""}\n${currentActivity?.detail ?? ""}`;
+  // The statement's thinking entry is the trail's paragraph anchor: when
+  // the beat moves it on, the trail drains the queue up to and including
+  // that very entry so the two layers resync at the thought (roller below).
   const thoughtSeq = thought?.seq ?? -1;
-  const [statementStamp, setStatementStamp] = useState(0);
-  const statementSig = useRef<{ key: string; thought: number } | null>(null);
-  useEffect(() => {
-    const sig = { key: statementKey, thought: thoughtSeq };
-    if (statementSig.current === null) {
-      statementSig.current = sig;
-      return;
-    }
-    if (statementSig.current.key === sig.key && statementSig.current.thought === sig.thought) {
-      return;
-    }
-    statementSig.current = sig;
-    setStatementStamp((s) => s + 1);
-  }, [statementKey, thoughtSeq]);
 
   const {
     ref: viewportRef,
@@ -203,12 +194,16 @@ export function LiveStatus({
     turn.activity.length > 0 ? turn.activity[turn.activity.length - 1].seq : -1,
   );
   const lastReleaseAt = useRef(0);
-  /** Rows that entered via a batch flush (fast entrance, gists pre-opened). */
+  /** Rows that entered via a drain (fast entrance, gists pre-opened). */
   const flushedSeqs = useRef<Set<number>>(new Set());
   /** Gists collected below the fold exit instantly — their collapse is
       invisible down there, and tweening it would fight the roll above. */
   const instantGistExit = useRef<Set<number>>(new Set());
-  const seenStatementStamp = useRef(0);
+  const seenThoughtSeq = useRef(-1);
+  /** Drain mode: release one queued row per DRAIN_STRIDE until the cursor
+      passes this seq — set to the statement's thinking entry on a
+      paragraph break, or to the oldest few on a deep backlog. */
+  const [drainUntil, setDrainUntil] = useState<number | null>(null);
 
   // Collect the gists whose rows have fully faded below the viewport's
   // clamp — instantly, and only ever called while the roll is idle.
@@ -234,21 +229,34 @@ export function LiveStatus({
   };
 
   useEffect(() => {
-    // A statement paragraph break with a non-empty queue, or a deep
-    // backlog: flush so the trail catches up with the narrative. The stamp
-    // is consumed on every run so trails arriving after the break roll
-    // normally as singles.
-    const statementAdvanced = statementStamp !== seenStatementStamp.current;
-    seenStatementStamp.current = statementStamp;
-
     const raw = turn.activity;
     const last = raw[raw.length - 1];
     if (!live || reduced === true) {
       if (last && last.seq > releasedSeq) setReleasedSeq(last.seq);
       return;
     }
+
+    // Paragraph break: the statement's thinking moved on — drain the queue
+    // up to and including that very entry so the trail catches the anchor.
+    if (thoughtSeq !== seenThoughtSeq.current) {
+      seenThoughtSeq.current = thoughtSeq;
+      if (thoughtSeq > releasedSeq) {
+        setDrainUntil((prev) => Math.max(prev ?? -1, thoughtSeq));
+        return;
+      }
+    }
+    // Drain complete: back to singles.
+    if (drainUntil !== null && releasedSeq >= drainUntil) {
+      setDrainUntil(null);
+      return;
+    }
+
     const pending = raw.filter((a) => a.seq > releasedSeq);
     if (pending.length === 0) {
+      if (drainUntil !== null) {
+        setDrainUntil(null);
+        return;
+      }
       // Idle: sweep faded gists once the last entrance has fully settled,
       // so a collapse never overlaps a push.
       const settleLeft =
@@ -261,39 +269,36 @@ export function LiveStatus({
       return () => window.clearTimeout(settleTimer);
     }
 
-    // Batch flush: one push for the whole queue, gists pre-expanded.
-    const flush = () => {
-      lastReleaseAt.current = Date.now();
-      const gists: number[] = [];
-      for (const item of pending) {
+    // Safety valve: a deep backlog drains the oldest few.
+    if (drainUntil === null && pending.length >= SAFETY_THRESHOLD) {
+      setDrainUntil(pending[SAFETY_RELEASE - 1].seq);
+      return;
+    }
+
+    const release = (drain: boolean) => {
+      const item = pending[0];
+      if (drain) {
+        // Drained rows enter fast with their gist pre-expanded — no pop.
         flushedSeqs.current.add(item.seq);
         if (!autoOpened.current.has(item.seq) && glimpseAvailable(item)) {
           autoOpened.current.add(item.seq);
-          gists.push(item.seq);
+          setOpenGists((prev) => {
+            if (prev.has(item.seq)) return prev;
+            const next = new Set(prev);
+            next.add(item.seq);
+            return next;
+          });
         }
       }
-      if (gists.length > 0) {
-        setOpenGists((prev) => {
-          const next = new Set(prev);
-          for (const seq of gists) next.add(seq);
-          return next;
-        });
-      }
-      setReleasedSeq(pending[pending.length - 1].seq);
-    };
-    const releaseOne = () => {
       lastReleaseAt.current = Date.now();
-      setReleasedSeq(pending[0].seq);
+      setReleasedSeq(item.seq);
     };
 
-    if (statementAdvanced || pending.length >= ROLL_BATCH) {
-      flush();
-      return;
-    }
-    const wait = Math.max(0, ROLL_STRIDE_MS - (Date.now() - lastReleaseAt.current));
-    const timer = window.setTimeout(releaseOne, wait);
+    const stride = drainUntil !== null ? DRAIN_STRIDE_MS : ROLL_STRIDE_MS;
+    const wait = Math.max(0, stride - (Date.now() - lastReleaseAt.current));
+    const timer = window.setTimeout(() => release(drainUntil !== null), wait);
     return () => window.clearTimeout(timer);
-  }, [turn.activity, releasedSeq, live, reduced, statementStamp, showAll, viewportNode]);
+  }, [turn.activity, releasedSeq, live, reduced, thoughtSeq, drainUntil, showAll, viewportNode]);
 
   // Live mode rolls a small window inside the fixed-height viewport; the
   // settled card lists the same window statically — completing a turn never
@@ -370,17 +375,17 @@ export function LiveStatus({
   // One trail row: a single-released row plays the two-push entrance — it
   // inserts collapsed while its content slides in from the right at once
   // (the glide of older rows is never a blank gap), then its gist pops open
-  // inside the landed row. Batch-flushed rows enter fast and tight with
-  // gists pre-expanded. Depth dimming sits on its own CSS layer so position
-  // shifts re-dim with a transition instead of a jump. Settled rows render
-  // instantly. Rows are keyed by the item's stable seq — never by
-  // rebuild-volatile data.
+  // inside the landed row. Drained rows play the same entrance faster with
+  // gists pre-expanded, one per fast stride, oldest first — so a drain
+  // grows bottom-up like an accelerated one-by-one insertion. Depth
+  // dimming sits on its own CSS layer so position shifts re-dim with a
+  // transition instead of a jump. Settled rows render instantly. Rows are
+  // keyed by the item's stable seq — never by rebuild-volatile data.
   const renderStep = (item: ActivityItem, i: number) => {
     const instant = !live || reduced === true;
-    const flushed = flushedSeqs.current.has(item.seq);
+    const drained = flushedSeqs.current.has(item.seq);
     const glimpse = glimpseFor(item);
     const onToggleGlimpse = gistToggleFor(item);
-    const cascade = flushed ? Math.min(i, 4) * FLUSH_CASCADE_MS : 0;
     return (
       <motion.div
         key={item.seq}
@@ -394,9 +399,8 @@ export function LiveStatus({
           transition: { duration: reduced ? 0 : 0.4, ease: EASE_CALM },
         }}
         transition={{
-          duration: reduced ? 0 : (flushed ? FLUSH_MS : ROLL_MS) / 1000,
+          duration: reduced ? 0 : (drained ? DRAIN_ROLL_MS : ROLL_MS) / 1000,
           ease: EASE_CALM,
-          delay: instant ? 0 : cascade / 1000,
         }}
       >
         <div
@@ -407,9 +411,8 @@ export function LiveStatus({
             initial={instant ? false : { opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{
-              duration: reduced ? 0 : (flushed ? 0.3 : REVEAL_MS / 1000),
+              duration: reduced ? 0 : (drained ? DRAIN_REVEAL_MS : REVEAL_MS) / 1000,
               ease: EASE_CALM,
-              delay: instant ? 0 : cascade / 1000,
             }}
           >
             <ActivityStep
@@ -419,7 +422,7 @@ export function LiveStatus({
               glimpseExpanded={openGists.has(item.seq)}
               glimpse={
                 // the gist pops open inside its landed row (push #2); on a
-                // batch flush it is pre-expanded — AnimatePresence skips the
+                // drain it is pre-expanded — AnimatePresence skips the
                 // child's initial at the group's first mount. Collected
                 // gists exit instantly, a user fold tweens out.
                 <AnimatePresence initial={false}>
