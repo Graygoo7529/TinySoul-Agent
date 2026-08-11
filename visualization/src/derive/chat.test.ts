@@ -251,12 +251,21 @@ describe("buildChatTurns", () => {
     const [turn] = buildChatTurns(realisticTurnEvents(), []);
     const texts = turn.activity.map((a) => a.text).join("\n");
     expect(texts).toContain("Selected domains: workspace");
+    // One plan/result pair per call: the plan entry keeps its planned
+    // content and settles as executed; the outcome is its own entry.
     const actionEntries = turn.activity.filter((a) => a.kind === "action");
-    expect(actionEntries).toHaveLength(1);
+    expect(actionEntries).toHaveLength(2);
     expect(actionEntries[0]).toMatchObject({
       text: "生成 workspace:a.md",
       callId: "call-1",
       action: "workspace.create",
+      stage: "plan",
+      status: "executed",
+    });
+    expect(actionEntries[1]).toMatchObject({
+      callId: "call-1",
+      action: "workspace.create",
+      stage: "result",
       status: "succeeded",
       resultHeadline: "workspace:a.md",
     });
@@ -410,6 +419,7 @@ describe("semantic activity details", () => {
       text: "检索 “kimi code activity stream”",
       callId: "call-1",
       action: "web.search_by_kimi",
+      stage: "plan",
       status: "running",
       target: { query: "kimi code activity stream" },
     });
@@ -464,9 +474,12 @@ describe("semantic activity details", () => {
     ];
     const [turn2] = buildChatTurns(after, []);
     const entries2 = turn2.activity.filter((a) => a.kind === "action");
-    expect(entries2.map((a) => [a.callId, a.status])).toEqual([
-      ["call-1", "running"],
-      ["call-2", "succeeded"],
+    // call-2's plan settles to executed and its outcome is a separate entry;
+    // call-1's plan becomes the unambiguous runner.
+    expect(entries2.map((a) => [a.callId, a.stage, a.status])).toEqual([
+      ["call-1", "plan", "running"],
+      ["call-2", "plan", "executed"],
+      ["call-2", "result", "succeeded"],
     ]);
     expect(turn2.currentActivity?.detail).toBe("execution.run_python_script");
   });
@@ -493,6 +506,7 @@ describe("semantic activity details", () => {
     expect(activity).toMatchObject({
       text: "读取 workspace:a.md",
       detail: "120-180 行",
+      stage: "plan",
       status: "planned",
     });
   });
@@ -528,10 +542,17 @@ describe("semantic activity details", () => {
       ),
     ];
     const [turn] = buildChatTurns(events, []);
-    const succeeded = turn.activity.find((a) => a.kind === "action");
-    expect(succeeded).toMatchObject({
+    // The plan entry keeps its planned content and settles as executed…
+    const plan = turn.activity.find((a) => a.kind === "action" && a.stage === "plan");
+    expect(plan).toMatchObject({
       text: "执行 npm run build",
-      detail: "exit 0 · 2.3s",
+      status: "executed",
+      target: { command: "npm run build" },
+    });
+    // …and the outcome arrives as its own entry, never overwriting the plan.
+    const result = turn.activity.find((a) => a.kind === "action" && a.stage === "result");
+    expect(result).toMatchObject({
+      text: "执行 npm run build",
       status: "succeeded",
       resultHeadline: "exit 0 · 2.3s",
       target: { command: "npm run build" },
@@ -564,9 +585,9 @@ describe("semantic activity details", () => {
     expect(entry).toMatchObject({
       kind: "error",
       action: "workspace.patch",
+      stage: "result",
       status: "failed",
       text: "编辑",
-      detail: "target_link is required",
       resultHeadline: "target_link is required",
     });
   });
@@ -621,11 +642,14 @@ describe("semantic activity details", () => {
     expect(phase3.actions.map((a) => a.callId)).toEqual(["call-1", "call-2"]);
     expect(phase3.actions[0].result?.status).toBe("success");
     expect(phase3.actions[1].result?.status).toBe("success");
-    // One activity entry per call, both resolved with registry summaries.
+    // One plan/result pair per call, stacked in arrival order, both
+    // resolved with registry summaries.
     const entries = turn.activity.filter((a) => a.kind === "action");
-    expect(entries.map((a) => [a.callId, a.status, a.resultHeadline])).toEqual([
-      ["call-1", "succeeded", "4 个资源"],
-      ["call-2", "succeeded", "10 行"],
+    expect(entries.map((a) => [a.callId, a.stage, a.status, a.resultHeadline])).toEqual([
+      ["call-1", "plan", "executed", undefined],
+      ["call-1", "result", "succeeded", "4 个资源"],
+      ["call-2", "plan", "executed", undefined],
+      ["call-2", "result", "succeeded", "10 行"],
     ]);
   });
 
@@ -663,5 +687,23 @@ describe("semantic activity details", () => {
     const [turn] = buildChatTurns(events, []);
     const retry = turn.activity.find((a) => a.kind === "retry");
     expect(retry?.text).toBe("Provider hiccup — retrying (attempt 2)");
+  });
+
+  it("stops unresolved plan entries when the turn ends, but not executed ones", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase2"), { phase: "phase2" }),
+      event(
+        "action.call",
+        phaseScope("phase2"),
+        { call_id: "call-1", action: "workspace.read", domain: "workspace", sequence: 1, params: { link: "workspace:a.md" } },
+      ),
+      event("loop.phase.completed", phaseScope("phase2"), { phase: "phase2" }),
+      // The turn ends before phase3 ran the call — no result ever arrives.
+      event("turn.completed", turnScope, { turn_id: "turn_1", status: "stopped" }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    const entry = turn.activity.find((a) => a.kind === "action");
+    expect(entry).toMatchObject({ callId: "call-1", stage: "plan", status: "stopped" });
   });
 });

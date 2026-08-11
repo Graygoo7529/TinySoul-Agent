@@ -823,9 +823,9 @@ body {
    scroll down with the flow and dissolve at the bottom edge instead of
    popping out, so the card stops changing height at the page bottom ---- */
 .steps-viewport {
-  /* ≈7 one-line rows — roomy enough to read the trail, bounded so the
-     card's frame freezes once the viewport is full */
-  max-height: 12rem;
+  /* roomy enough to keep an expanded plan/result pair in view, bounded so
+     the card's frame freezes once the viewport is full */
+  max-height: 16rem;
   overflow: hidden;
 }
 .steps-viewport[data-expanded] {

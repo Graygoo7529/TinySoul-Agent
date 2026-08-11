@@ -4,8 +4,9 @@
  *
  * Every kind renders its structured semantics instead of a bare text line:
  * reasoning excerpts expand inline, the stage-1 intent shows its domains as
- * chips, mounted skills render as chips, and action entries render two rows —
- * the call headline with its lifecycle status icon, then the result headline.
+ * chips, mounted skills render as chips, and action calls come as paired
+ * entries — the plan entry shows the stage-2 call headline, the result
+ * entry leads with the stage-3 outcome headline.
  */
 
 import { useState, type ReactNode } from "react";
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { ActivityItem } from "../../derive/model";
+import { actionVerb } from "../../derive/actions/registry";
 import { truncate } from "../../derive/activitySemantics";
 import { EASE_CALM } from "../../utils/motion";
 import { Markdown } from "../markdown/Markdown";
@@ -42,8 +44,8 @@ export function ActivityStep({
   onAnchor?: (callId: string) => void;
   /** Inline action detail rendered below the body (live activity bar only). */
   glimpse?: ReactNode;
-  /** Live status only: tween in-place content changes (status icon flips,
-      the result line growing in) so the trail never hard-cuts. */
+  /** Live status only: tween in-place status icon flips so the trail never
+      hard-cuts. */
   animate?: boolean;
   /** Live status only: when set, the row body becomes a button toggling the
       result gist of an older settled action. */
@@ -58,7 +60,7 @@ export function ActivityStep({
   const color = status?.color ?? activityColors[item.kind] ?? "text-fg-faint";
   const anchored = item.kind === "action" && item.callId && onAnchor;
 
-  const body = <StepBody item={item} animate={animate} />;
+  const body = <StepBody item={item} />;
 
   return (
     <div className="flex min-w-0 items-start gap-2">
@@ -128,8 +130,10 @@ export function ActivityStep({
 
 /* ------------------------------ per kind ----------------------------- */
 
-function StepBody({ item, animate }: { item: ActivityItem; animate?: boolean }) {
-  if (item.action) return <ActionBody item={item} animate={animate} />;
+function StepBody({ item }: { item: ActivityItem }) {
+  if (item.action) {
+    return item.stage === "result" ? <ResultBody item={item} /> : <ActionBody item={item} />;
+  }
   switch (item.kind) {
     case "thinking":
       return <ThinkingBody item={item} />;
@@ -230,44 +234,42 @@ function SkillsBody({ item }: { item: ActivityItem }) {
 }
 
 /**
- * Action entries: the top row is the call headline (Chinese verb + target)
- * with the lifecycle status icon in the leading column; the second row is
- * the one-line factual result headline (red on failure/timeout).
+ * Plan-stage action entry: the call headline (Chinese verb + target) with
+ * its parameter chips; the lifecycle status icon sits in the leading column.
  */
-function ActionBody({ item, animate }: { item: ActivityItem; animate?: boolean }) {
-  const failed = item.status === "failed" || item.status === "timeout";
-  const resultLine = item.resultHeadline && (
-    <div
-      className={`truncate text-[11px] ${failed ? "text-danger" : "text-fg-faint"}`}
-      title={item.resultHeadline}
-    >
-      {item.resultHeadline}
+function ActionBody({ item }: { item: ActivityItem }) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span className="truncate text-[12px] font-medium text-fg">{item.text}</span>
+      {item.detail && (
+        <span className="truncate font-mono text-[11px] text-fg-faint" title={item.detail}>
+          {item.detail}
+        </span>
+      )}
     </div>
   );
+}
+
+/**
+ * Result-stage action entry: the factual outcome headline leads (red on
+ * failure/timeout); the action verb trails in mono so the row still names
+ * what ran — the call's full semantics stay on the paired plan entry.
+ */
+function ResultBody({ item }: { item: ActivityItem }) {
+  const failed = item.status === "failed" || item.status === "timeout";
   return (
-    <div className="min-w-0 space-y-0.5">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <span className="truncate text-[12px] font-medium text-fg">{item.text}</span>
-        {item.detail && !item.resultHeadline && (
-          <span className="truncate font-mono text-[11px] text-fg-faint" title={item.detail}>
-            {item.detail}
-          </span>
-        )}
-      </div>
-      {resultLine &&
-        (animate ? (
-          // the result line grows into the row instead of popping its height
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            transition={{ duration: 0.35, ease: EASE_CALM }}
-            style={{ overflow: "hidden" }}
-          >
-            {resultLine}
-          </motion.div>
-        ) : (
-          resultLine
-        ))}
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span
+        className={`truncate text-[12px] ${failed ? "text-danger" : "text-fg-muted"}`}
+        title={item.resultHeadline}
+      >
+        {item.resultHeadline ?? item.text}
+      </span>
+      {item.action && (
+        <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+          {actionVerb(item.action)}
+        </span>
+      )}
     </div>
   );
 }
@@ -280,6 +282,10 @@ function actionStatusVisual(status: ActivityItem["status"]) {
       return { Icon: CircleDashed, color: "text-fg-faint", spin: false, hollow: true };
     case "running":
       return { Icon: Loader2, color: "text-accent", spin: true, hollow: false };
+    case "executed":
+      // the plan was carried out — a quiet check badge; the paired result
+      // entry carries the actual outcome
+      return { Icon: Check, color: "text-fg-faint", spin: false, hollow: true };
     case "succeeded":
       return { Icon: Check, color: "text-success", spin: false, hollow: false };
     case "failed":

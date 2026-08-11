@@ -30,21 +30,28 @@ import { ActionGlimpse, glimpseBody } from "./ActionGlimpse";
 const ROLL_WINDOW = 9;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
 const LIVE_BEAT_MS = 1500;
-/** Matches .steps-viewport max-height (12rem): the trail's never-shrink
+/** Matches .steps-viewport max-height (16rem): the trail's never-shrink
     floor once content has reached it. */
-const TRAIL_MAX_PX = 192;
-/** Stagger cap for batched row entrances — longer cascades read as popping. */
-const CASCADE_MAX = 2;
+const TRAIL_MAX_PX = 256;
 
-/* Beat timeline (ms after a beat commits): the statement swap (headline +
-   thinking) leads; the trail roll opens only once the new thought is
-   visibly underway — the cadence of "think first, then record". The full
-   choreography settles inside one beat (≈1.4s). */
-const ROLL_DELAY_MS = 650;
-const ROLL_MS = 600;
-const REVEAL_DELAY_MS = 920;
-const REVEAL_MS = 450;
-const CASCADE_MS = 170;
+/* Trail roller: new steps queue in arrival order behind a release cursor
+   and join the stack one at a time, one per stride. When the statement
+   layer moves on (the headline/thinking visibly changes — a paragraph
+   break), whatever is still queued flushes as one batch so the trail
+   catches up with the narrative; a deep backlog flushes immediately. */
+const ROLL_STRIDE_MS = 1100;
+const ROLL_BATCH = 4;
+
+/* Single-row entrance: the row inserts collapsed, its content sliding in
+   from the right at once (push #1 as older rows glide down); the gist pops
+   open inside the landed row a beat later (push #2). Batch-flushed rows
+   enter fast and tight with gists pre-expanded. */
+const ROLL_MS = 500;
+const REVEAL_MS = 400;
+const GIST_POP_DELAY_MS = 450;
+const GIST_POP_MS = 350;
+const FLUSH_MS = 350;
+const FLUSH_CASCADE_MS = 80;
 /** Thinking: the old line fades out, the new one materializes behind it. */
 const THINK_ERASE_MS = 300;
 const THINK_REVEAL_DELAY_MS = 60;
@@ -61,24 +68,31 @@ const SLATE_GLIDE_MS = 360;
  * Layout, top to bottom: a shine-swept headline naming the current activity,
  * the thinking stream (the latest reasoning summary, auto-expanded), a
  * rolling stack of the most recent semantic steps (intent + domains, mounted
- * skills, action targets, context loads…), and the steady working-state zone
- * with todos/milestones. The running action and the latest settled action
- * carry an ActionGlimpse — an inline family-specific detail disclosing the
- * stage-2 input (command, diff, instruction) or the stage-3 result gist
- * (output tail, search hits, diff stat). The whole card breathes a gradient
- * border while the turn runs.
+ * skills, action plans and their outcomes…), and the steady working-state
+ * zone with todos/milestones. Action steps come in paired stages: the plan
+ * entry carries an ActionGlimpse disclosing the stage-2 input (command,
+ * diff, instruction), the result entry one disclosing the stage-3 gist
+ * (output tail, search hits, diff stat) — both auto-open as their row joins,
+ * never close while visible, and are collected only after fading below the
+ * viewport. The whole card breathes a gradient border while the turn runs.
  *
- * Update rhythm: one atomic beat (LIVE_BEAT_MS) commits the headline and the
- * step trail together, then plays a three-part choreography — the headline
- * crossfades, the thinking slate softly materializes the new thought line,
- * and only then the trail rolls: a new row opens its height so older rows
- * glide down, and its content materializes mid-roll. Rows reaching the
- * viewport's bottom edge dissolve under a fade instead of popping out. The
- * collapsed slate is a fixed one-line panel, the trail viewport clamps at a
- * fixed max height, and ChatView parks the turn's top edge while it runs —
- * so the breathing frame's top stays put and only its bottom extends, until
- * the viewport is full and it freezes. Trail rows are keyed by the items'
- * stable derive seq, so full event-stream rebuilds never remount them.
+ * Update rhythm: the statement layer (headline + thinking) commits on one
+ * atomic beat (LIVE_BEAT_MS); the trail watches the raw feed and rolls at
+ * its own rhythm through a release cursor — new steps queue in arrival
+ * order and join one at a time, one per stride (ROLL_STRIDE_MS). Each
+ * single entrance is two pushes: the row inserts collapsed, its content
+ * sliding in from the right at once so older rows visibly glide down, then
+ * its gist pops open inside the landed row. A statement paragraph break
+ * (the headline/thinking visibly moves on) or a deep backlog flushes the
+ * queue as one tight batch with gists pre-expanded. Gists faded below the
+ * viewport are collected instantly and only while the roll is idle, so a
+ * collapse never fights a push. Rows reaching the viewport's bottom edge
+ * dissolve under a fade instead of popping out. The collapsed slate is a
+ * fixed one-line panel, the trail viewport clamps at a fixed max height,
+ * and ChatView parks the turn's top edge while it runs — so the breathing
+ * frame's top stays put and only its bottom extends, until the viewport is
+ * full and it freezes. Trail rows are keyed by the items' stable derive
+ * seq, so full event-stream rebuilds never remount them.
  */
 export function LiveStatus({
   turn,
@@ -104,11 +118,9 @@ export function LiveStatus({
   // The completion fold waits for the re-anchor glide to land first; a
   // user-driven fold/unfold responds immediately.
   const foldDelayS = live || reduced || trailOpenedOnce.current ? 0 : FOLD_DELAY_MS / 1000;
-  // One atomic beat: the headline and the step trail commit together so the
-  // two-phase choreography (statement swap first, the trail rolls in behind
-  // it) never runs out of sync. Bursts coalesce into a single beat — the
-  // activity feed accumulates, so no trail entries are ever lost, they just
-  // enter in one short cascade. Stop requests bypass it for instant feedback.
+  // One atomic beat: the statement layer (headline + thinking) commits here
+  // so its swap never strobes; bursts coalesce, the latest always flushes.
+  // Stop requests bypass the beat for instant feedback.
   const feed = useThrottledValue(
     useMemo(
       () => ({ activity: turn.activity, currentActivity: turn.currentActivity }),
@@ -116,21 +128,39 @@ export function LiveStatus({
     ),
     live ? LIVE_BEAT_MS : 0,
   );
-  const { activity, currentActivity } = feed;
+  const { activity: statementActivity, currentActivity } = feed;
 
-  const thoughtIndex = findLastIndex(activity, (a) => a.kind === "thinking");
-  const thought = thoughtIndex >= 0 ? activity[thoughtIndex] : undefined;
+  const thoughtIndex = findLastIndex(statementActivity, (a) => a.kind === "thinking");
+  const thought = thoughtIndex >= 0 ? statementActivity[thoughtIndex] : undefined;
 
-  // Newest-first semantic steps — the full feed, thinking entries included.
-  // Every entry joins at arrival and only ever scrolls down afterwards, so
-  // the trail never mid-inserts; the slate above mirrors the latest thought.
-  const steps = [...activity].reverse();
+  // Newest-first semantic steps — the raw, unthrottled feed, so the trail
+  // reacts to new steps at its own rhythm while the statement layer keeps
+  // the beat. Every entry joins at the top and only ever scrolls down
+  // afterwards, so the trail never mid-inserts; the slate above mirrors
+  // the latest thought on its own beat.
+  const steps = [...turn.activity].reverse();
   const [showAll, setShowAll] = useState(false);
-  // Live mode rolls a small window inside the fixed-height viewport; the
-  // settled card lists the same window statically — completing a turn never
-  // shrinks the trail the user was watching.
-  const visible = showAll ? steps : steps.slice(0, ROLL_WINDOW);
-  const overflow = steps.length - visible.length;
+
+  // Statement paragraph breaks: a beat that actually changes the headline
+  // or the thinking entry means the agent visibly moved on — the trail
+  // then flushes whatever is still queued so it catches up (roller below).
+  const statementKey = `${currentActivity?.label ?? ""}\n${currentActivity?.detail ?? ""}`;
+  const thoughtSeq = thought?.seq ?? -1;
+  const [statementStamp, setStatementStamp] = useState(0);
+  const statementSig = useRef<{ key: string; thought: number } | null>(null);
+  useEffect(() => {
+    const sig = { key: statementKey, thought: thoughtSeq };
+    if (statementSig.current === null) {
+      statementSig.current = sig;
+      return;
+    }
+    if (statementSig.current.key === sig.key && statementSig.current.thought === sig.thought) {
+      return;
+    }
+    statementSig.current = sig;
+    setStatementStamp((s) => s + 1);
+  }, [statementKey, thoughtSeq]);
+
   const {
     ref: viewportRef,
     node: viewportNode,
@@ -142,6 +172,136 @@ export function LiveStatus({
   const rolledFull = useRef(false);
   if (overflowing) rolledFull.current = true;
 
+  // Action records by call id (phase3 mirrors carry the result, so later
+  // writes win); drives the inline glimpses in the step stack.
+  const recordByCallId = useMemo(() => actionRecordsByCallId(turn), [turn]);
+
+  // Glimpses are keyed by the row's seq — a call now has two rows (plan and
+  // result), each with its own glimpse. A row's glimpse pops open shortly
+  // after the row lands, exactly once per row (a manually folded row stays
+  // folded); it NEVER closes while its row is visible — it only rolls down
+  // with its row and is quietly collected once fully faded below the
+  // viewport's clamp (see the roller below).
+  const [openGists, setOpenGists] = useState<ReadonlySet<number>>(new Set());
+  const autoOpened = useRef<Set<number>>(new Set());
+
+  const glimpseModeOf = (item: ActivityItem): "plan" | "done" | undefined => {
+    if (!item.action || !item.callId) return undefined;
+    return item.stage === "result" ? "done" : "plan";
+  };
+  const glimpseAvailable = (item: ActivityItem): boolean => {
+    const mode = glimpseModeOf(item);
+    if (!mode) return false;
+    const record = recordByCallId.get(item.callId!);
+    return record ? Boolean(glimpseBody(record, mode)) : false;
+  };
+
+  // Trail roller: `releasedSeq` is the cursor — entries with seq up to it
+  // are in the stack, newer ones wait in line. Anything already committed
+  // at mount (recovery, the live→settled flip) is released instantly.
+  const [releasedSeq, setReleasedSeq] = useState(() =>
+    turn.activity.length > 0 ? turn.activity[turn.activity.length - 1].seq : -1,
+  );
+  const lastReleaseAt = useRef(0);
+  /** Rows that entered via a batch flush (fast entrance, gists pre-opened). */
+  const flushedSeqs = useRef<Set<number>>(new Set());
+  /** Gists collected below the fold exit instantly — their collapse is
+      invisible down there, and tweening it would fight the roll above. */
+  const instantGistExit = useRef<Set<number>>(new Set());
+  const seenStatementStamp = useRef(0);
+
+  // Collect the gists whose rows have fully faded below the viewport's
+  // clamp — instantly, and only ever called while the roll is idle.
+  const collectFadedGists = () => {
+    const viewport = viewportNode;
+    if (!viewport || showAll) return;
+    const bottom = viewport.getBoundingClientRect().bottom;
+    const faded: number[] = [];
+    for (const el of viewport.querySelectorAll("[data-gist-seq]")) {
+      if (el.getBoundingClientRect().top >= bottom - 1) {
+        const seq = Number(el.getAttribute("data-gist-seq"));
+        if (Number.isFinite(seq)) faded.push(seq);
+      }
+    }
+    if (faded.length === 0) return;
+    for (const seq of faded) instantGistExit.current.add(seq);
+    setOpenGists((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const seq of faded) changed = next.delete(seq) || changed;
+      return changed ? next : prev;
+    });
+  };
+
+  useEffect(() => {
+    // A statement paragraph break with a non-empty queue, or a deep
+    // backlog: flush so the trail catches up with the narrative. The stamp
+    // is consumed on every run so trails arriving after the break roll
+    // normally as singles.
+    const statementAdvanced = statementStamp !== seenStatementStamp.current;
+    seenStatementStamp.current = statementStamp;
+
+    const raw = turn.activity;
+    const last = raw[raw.length - 1];
+    if (!live || reduced === true) {
+      if (last && last.seq > releasedSeq) setReleasedSeq(last.seq);
+      return;
+    }
+    const pending = raw.filter((a) => a.seq > releasedSeq);
+    if (pending.length === 0) {
+      // Idle: sweep faded gists once the last entrance has fully settled,
+      // so a collapse never overlaps a push.
+      const settleLeft =
+        ROLL_MS + GIST_POP_DELAY_MS + GIST_POP_MS - (Date.now() - lastReleaseAt.current);
+      if (settleLeft <= 0) {
+        collectFadedGists();
+        return;
+      }
+      const settleTimer = window.setTimeout(collectFadedGists, settleLeft);
+      return () => window.clearTimeout(settleTimer);
+    }
+
+    // Batch flush: one push for the whole queue, gists pre-expanded.
+    const flush = () => {
+      lastReleaseAt.current = Date.now();
+      const gists: number[] = [];
+      for (const item of pending) {
+        flushedSeqs.current.add(item.seq);
+        if (!autoOpened.current.has(item.seq) && glimpseAvailable(item)) {
+          autoOpened.current.add(item.seq);
+          gists.push(item.seq);
+        }
+      }
+      if (gists.length > 0) {
+        setOpenGists((prev) => {
+          const next = new Set(prev);
+          for (const seq of gists) next.add(seq);
+          return next;
+        });
+      }
+      setReleasedSeq(pending[pending.length - 1].seq);
+    };
+    const releaseOne = () => {
+      lastReleaseAt.current = Date.now();
+      setReleasedSeq(pending[0].seq);
+    };
+
+    if (statementAdvanced || pending.length >= ROLL_BATCH) {
+      flush();
+      return;
+    }
+    const wait = Math.max(0, ROLL_STRIDE_MS - (Date.now() - lastReleaseAt.current));
+    const timer = window.setTimeout(releaseOne, wait);
+    return () => window.clearTimeout(timer);
+  }, [turn.activity, releasedSeq, live, reduced, statementStamp, showAll, viewportNode]);
+
+  // Live mode rolls a small window inside the fixed-height viewport; the
+  // settled card lists the same window statically — completing a turn never
+  // shrinks the trail the user was watching.
+  const released = steps.filter((s) => s.seq <= releasedSeq);
+  const visible = showAll ? steps : released.slice(0, ROLL_WINDOW);
+  const overflow = showAll ? 0 : released.length - visible.length;
+
   const headline = stopPending
     ? "Stopping turn…"
     : (currentActivity?.label ?? "Thinking…");
@@ -151,37 +311,39 @@ export function LiveStatus({
   const runningPhase = currentActivity?.phase;
   const settled = live ? undefined : settledHeadline(turn);
 
-  // Action records by call id (phase3 mirrors carry the result, so later
-  // writes win); drives the inline glimpses in the step stack.
-  const recordByCallId = actionRecordsByCallId(turn);
-  // Result gists are sticky: the latest settled action auto-opens its gist,
-  // and a gist NEVER closes while its row is visible — it only rolls down
-  // with its row and is quietly collected once fully faded below the
-  // viewport's clamp (see the beat check below). Any settled row with a
-  // gist can be toggled manually.
-  const [openGists, setOpenGists] = useState<ReadonlySet<string>>(new Set());
-  const latestSettledCallId = steps.find(
-    (item) =>
-      item.action &&
-      item.callId &&
-      (item.status === "succeeded" || item.status === "failed" || item.status === "timeout"),
-  )?.callId;
-
-  // Auto-open the latest settled action's gist (re-asserted on the
-  // live→settled flip so re-opening the folded trail shows it again).
+  // The gist pop (push #2): a single-released row's glimpse opens once its
+  // insert has landed. Batch-flushed rows were pre-opened by the roller;
+  // settled/reduced cards open right away. Timers are left to fire (open is
+  // guarded and idempotent) so re-renders never postpone a scheduled pop.
   useEffect(() => {
-    if (!latestSettledCallId) return;
-    setOpenGists((prev) =>
-      prev.has(latestSettledCallId) ? prev : new Set(prev).add(latestSettledCallId),
+    const newly = visible.filter(
+      (item) =>
+        !autoOpened.current.has(item.seq) && !openGists.has(item.seq) && glimpseAvailable(item),
     );
-  }, [latestSettledCallId, live]);
+    if (newly.length === 0) return;
+    const open = () => {
+      const todo = newly.filter((item) => !autoOpened.current.has(item.seq));
+      if (todo.length === 0) return;
+      for (const item of todo) autoOpened.current.add(item.seq);
+      setOpenGists((prev) => {
+        const next = new Set(prev);
+        for (const item of todo) next.add(item.seq);
+        return next;
+      });
+    };
+    if (!live || reduced === true) {
+      open();
+      return;
+    }
+    window.setTimeout(open, GIST_POP_DELAY_MS);
+  });
 
-  const toggleGist = (callId: string) => {
+  const toggleGist = (seq: number) => {
     holdChatFollow();
     setOpenGists((prev) => {
       const next = new Set(prev);
-      if (next.has(callId)) next.delete(callId);
-      else next.add(callId);
+      if (next.has(seq)) next.delete(seq);
+      else next.add(seq);
       return next;
     });
   };
@@ -191,68 +353,39 @@ export function LiveStatus({
   // the AnimatePresence wrapper in renderStep.
   const glimpseFor = (
     item: ActivityItem,
-  ): { record: ActionRecord; mode: "running" | "done" } | undefined => {
-    if (!item.action || !item.callId) return undefined;
-    const record = recordByCallId.get(item.callId);
-    if (!record) return undefined;
-    if (item.status === "running") {
-      return glimpseBody(record, "running") ? { record, mode: "running" } : undefined;
-    }
-    if (openGists.has(item.callId) && record.result) {
-      return glimpseBody(record, "done") ? { record, mode: "done" } : undefined;
-    }
-    return undefined;
+  ): { record: ActionRecord; mode: "plan" | "done" } | undefined => {
+    const mode = glimpseModeOf(item);
+    if (!mode || !openGists.has(item.seq)) return undefined;
+    const record = recordByCallId.get(item.callId!);
+    if (!record || !glimpseBody(record, mode)) return undefined;
+    return { record, mode };
   };
 
-  // Any settled action row with a result gist is clickable to toggle it.
+  // Any action row with glimpse content is clickable to toggle it.
   const gistToggleFor = (item: ActivityItem) => {
-    if (!item.action || !item.callId) return undefined;
-    if (item.status !== "succeeded" && item.status !== "failed" && item.status !== "timeout") {
-      return undefined;
-    }
-    const record = recordByCallId.get(item.callId);
-    if (!record?.result || !glimpseBody(record, "done")) return undefined;
-    return () => toggleGist(item.callId!);
+    if (!glimpseAvailable(item)) return undefined;
+    return () => toggleGist(item.seq);
   };
 
-  // Auto-collect gists whose rows have fully faded below the viewport's
-  // clamp — checked on each beat commit, only while the clamp is in force.
-  useEffect(() => {
-    if (!live || showAll) return;
-    const viewport = viewportNode;
-    if (!viewport) return;
-    const bottom = viewport.getBoundingClientRect().bottom;
-    const faded: string[] = [];
-    for (const el of viewport.querySelectorAll("[data-gist-call]")) {
-      if (el.getBoundingClientRect().top >= bottom - 1) {
-        const callId = el.getAttribute("data-gist-call");
-        if (callId) faded.push(callId);
-      }
-    }
-    if (faded.length === 0) return;
-    setOpenGists((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const id of faded) changed = next.delete(id) || changed;
-      return changed ? next : prev;
-    });
-  }, [visible, live, showAll, viewportNode]);
-
-  // One trail row: the height opens on the roll delay (older rows glide
-  // down with the flow — the wheel), the content materializes mid-roll.
-  // Depth dimming sits on its own CSS layer so position shifts re-dim with
-  // a transition instead of a jump. Settled rows render instantly. Rows are
-  // keyed by the item's stable seq — never by rebuild-volatile data.
+  // One trail row: a single-released row plays the two-push entrance — it
+  // inserts collapsed while its content slides in from the right at once
+  // (the glide of older rows is never a blank gap), then its gist pops open
+  // inside the landed row. Batch-flushed rows enter fast and tight with
+  // gists pre-expanded. Depth dimming sits on its own CSS layer so position
+  // shifts re-dim with a transition instead of a jump. Settled rows render
+  // instantly. Rows are keyed by the item's stable seq — never by
+  // rebuild-volatile data.
   const renderStep = (item: ActivityItem, i: number) => {
-    const cascade = Math.min(i, CASCADE_MAX) * CASCADE_MS;
     const instant = !live || reduced === true;
+    const flushed = flushedSeqs.current.has(item.seq);
     const glimpse = glimpseFor(item);
     const onToggleGlimpse = gistToggleFor(item);
+    const cascade = flushed ? Math.min(i, 4) * FLUSH_CASCADE_MS : 0;
     return (
       <motion.div
         key={item.seq}
         style={{ overflow: "hidden" }}
-        data-gist-call={glimpse?.mode === "done" ? item.callId : undefined}
+        data-gist-seq={glimpse ? String(item.seq) : undefined}
         initial={instant ? false : { height: 0 }}
         animate={{ height: "auto" }}
         exit={{
@@ -261,9 +394,9 @@ export function LiveStatus({
           transition: { duration: reduced ? 0 : 0.4, ease: EASE_CALM },
         }}
         transition={{
-          duration: reduced ? 0 : ROLL_MS / 1000,
+          duration: reduced ? 0 : (flushed ? FLUSH_MS : ROLL_MS) / 1000,
           ease: EASE_CALM,
-          delay: instant ? 0 : (ROLL_DELAY_MS + cascade) / 1000,
+          delay: instant ? 0 : cascade / 1000,
         }}
       >
         <div
@@ -271,33 +404,42 @@ export function LiveStatus({
           style={{ "--step-opacity": Math.max(0.68, 1 - i * 0.06) } as React.CSSProperties}
         >
           <motion.div
-            initial={instant ? false : { opacity: 0, y: 4, filter: "blur(2px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            initial={instant ? false : { opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
             transition={{
-              duration: reduced ? 0 : REVEAL_MS / 1000,
+              duration: reduced ? 0 : (flushed ? 0.3 : REVEAL_MS / 1000),
               ease: EASE_CALM,
-              delay: instant ? 0 : (REVEAL_DELAY_MS + cascade) / 1000,
+              delay: instant ? 0 : cascade / 1000,
             }}
           >
             <ActivityStep
               animate={live}
               item={item}
               onToggleGlimpse={onToggleGlimpse}
-              glimpseExpanded={item.callId ? openGists.has(item.callId) : false}
+              glimpseExpanded={openGists.has(item.seq)}
               glimpse={
-                // a glimpse leaving the stack (a newer action claimed the
-                // slot, or the user collapsed it) tweens out instead of
-                // hard-cutting the row
+                // the gist pops open inside its landed row (push #2); on a
+                // batch flush it is pre-expanded — AnimatePresence skips the
+                // child's initial at the group's first mount. Collected
+                // gists exit instantly, a user fold tweens out.
                 <AnimatePresence initial={false}>
                   {glimpse && (
                     <motion.div
                       key={glimpse.record.callId}
                       style={{ overflow: "hidden" }}
-                      initial={false}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
                       exit={{
                         height: 0,
                         opacity: 0,
-                        transition: { duration: reduced ? 0 : 0.35, ease: EASE_CALM },
+                        transition: {
+                          duration: reduced || instantGistExit.current.has(item.seq) ? 0 : 0.35,
+                          ease: EASE_CALM,
+                        },
+                      }}
+                      transition={{
+                        duration: reduced ? 0 : GIST_POP_MS / 1000,
+                        ease: EASE_CALM,
                       }}
                     >
                       <ActionGlimpse record={glimpse.record} mode={glimpse.mode} />

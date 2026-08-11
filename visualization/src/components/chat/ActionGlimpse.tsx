@@ -1,12 +1,12 @@
 /**
  * Inline action detail for the live activity bar.
  *
- * While an action runs, the glimpse discloses its stage-2 input — the command
- * line, the patch diff, the instruction being drafted. Once the action
- * settles, the glimpse flips to the stage-3 result gist — the output tail,
- * top search hits, the fetched page, the diff stat, or the failure feedback.
- * Deliberately compact: the full family renderers live in the trace drawer
- * (`components/trace/renderers`), this is the chat-grade summary.
+ * The plan entry discloses its stage-2 input — the command line, the patch
+ * diff, the instruction being drafted. The result entry discloses its
+ * stage-3 gist — the output tail, top search hits, the fetched page, the
+ * diff stat, or the failure feedback. Deliberately compact: the full family
+ * renderers live in the trace drawer (`components/trace/renderers`), this
+ * is the chat-grade summary.
  */
 
 import { useMemo, useState } from "react";
@@ -20,6 +20,7 @@ import { resultItemsOf } from "../trace/renderers/ResultListBlock";
 import { Crossfade } from "../ui/Crossfade";
 
 const DIFF_GLIMPSE_ROWS = 5;
+const DIFF_GLIMPSE_ROWS_EXPANDED = 14;
 const SEARCH_GLIMPSE_ITEMS = 3;
 
 export function ActionGlimpse({
@@ -27,14 +28,13 @@ export function ActionGlimpse({
   mode,
 }: {
   record: ActionRecord;
-  /** running: disclose the input; done: disclose the result gist. */
-  mode: "running" | "done";
+  /** plan: disclose the stage-2 input; done: disclose the result gist. */
+  mode: "plan" | "done";
 }) {
   const body = glimpseBody(record, mode);
   if (!body) return null;
   // grow-in: the glimpse expands into place (reserving its height smoothly)
-  // instead of popping the stack's layout; the stage-2 → stage-3 flip
-  // crossfades instead of hard-cutting. Disappearance is tweened by the
+  // instead of popping the stack's layout. Disappearance is tweened by the
   // caller's AnimatePresence (a bare null return would hard-cut the row).
   return (
     <div className="grow-in">
@@ -53,16 +53,16 @@ export function ActionGlimpse({
  * compact to show. Exported so the live status can tell presence in
  * advance — an empty glimpse must never mount-then-vanish.
  */
-export function glimpseBody(record: ActionRecord, mode: "running" | "done") {
+export function glimpseBody(record: ActionRecord, mode: "plan" | "done") {
   const family = descriptorFor(record.action).family;
-  return mode === "running"
-    ? runningGlimpse(family, record.params)
+  return mode === "plan"
+    ? planGlimpse(family, record.params)
     : doneGlimpse(family, record);
 }
 
-/* ------------------------------- running ------------------------------ */
+/* -------------------------------- plan ------------------------------- */
 
-function runningGlimpse(family: string, params: Record<string, unknown>) {
+function planGlimpse(family: string, params: Record<string, unknown>) {
   switch (family) {
     case "patch": {
       const oldText = asString(params.old_text) ?? "";
@@ -219,7 +219,8 @@ function streamLines(value: unknown): number {
   return text ? text.split("\n").length : 0;
 }
 
-/** Compact change list with a +N/−M stat; `statOnly` hides the line rows. */
+/** Compact change list with a +N/−M stat; `statOnly` hides the line rows.
+    Beyond the preview cap the row list expands on demand. */
 function DiffGlimpse({
   oldText,
   newText,
@@ -229,18 +230,28 @@ function DiffGlimpse({
   newText: string;
   statOnly?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const rows = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
   const changes = rows.filter((row) => row.type !== "same");
   if (changes.length === 0) return null;
   const adds = changes.filter((row) => row.type === "add").length;
   const dels = changes.length - adds;
-  const shown = statOnly ? [] : changes.slice(0, DIFF_GLIMPSE_ROWS);
+  const cap = expanded ? DIFF_GLIMPSE_ROWS_EXPANDED : DIFF_GLIMPSE_ROWS;
+  const shown = statOnly ? [] : changes.slice(0, cap);
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-2 font-mono text-[10px]">
         <span className="text-success">+{adds}</span>
         <span className="text-danger">−{dels}</span>
         {statOnly && <span className="text-fg-faint">行变更</span>}
+        {!statOnly && changes.length > DIFF_GLIMPSE_ROWS && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-fg-faint transition-colors hover:text-fg-muted"
+          >
+            {expanded ? "收起" : "展开"}
+          </button>
+        )}
       </div>
       {shown.length > 0 && (
         <div className="mt-0.5 font-mono text-[10.5px] leading-4.5">

@@ -221,10 +221,16 @@ export interface ActivityItem {
   callId?: string;
   /** action: the action name (e.g. "workspace.patch"). */
   action?: string;
-  /** action: lifecycle status of the planned/executed call. "stopped" is
-      assigned at turn finalization when the turn ended before a result
-      arrived — nothing may look alive once the turn is over. */
-  status?: "planned" | "running" | "succeeded" | "failed" | "timeout" | "stopped";
+  /** action: which side of the call this entry presents — the stage-2 plan
+      or the stage-3 result. The two are separate trail entries: the outcome
+      arrives as its own newer step and never overwrites the plan entry. */
+  stage?: "plan" | "result";
+  /** action: lifecycle status of the entry. A plan entry flows
+      planned → running → executed (its outcome arrived as the paired
+      result entry); a result entry is born succeeded/failed/timeout.
+      "stopped" is assigned at turn finalization when the turn ended before
+      a result arrived — nothing may look alive once the turn is over. */
+  status?: "planned" | "running" | "executed" | "succeeded" | "failed" | "timeout" | "stopped";
   /** action: one-line factual result summary from the registry. */
   resultHeadline?: string;
   /** 1-based cycle index at the time the activity was recorded. */

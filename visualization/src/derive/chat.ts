@@ -432,6 +432,7 @@ function addPlannedActionActivities(
         target: summary.target,
         callId: action.callId,
         action: action.action,
+        stage: "plan",
         status: "planned",
         cycleIndex: cycle.index,
       },
@@ -572,7 +573,12 @@ function applyActionResult(
   if (matchedCycle) advanceRunningAction(matchedCycle, actionEntries);
 }
 
-/** Flip the call's activity entry to its outcome, creating it when missing. */
+/**
+ * Settle the call's plan entry and append the outcome as its own trail
+ * entry — the result never overwrites the plan in place, it stacks above
+ * the plan as the newer step. Single-sided results (normalize failures,
+ * no observed call event) simply get only the result entry.
+ */
 function updateActionActivity(
   turn: ChatTurn,
   cycle: Cycle | null,
@@ -593,32 +599,29 @@ function updateActionActivity(
   const headline = failureText ?? summary.headline;
   const callSummary = descriptorFor(record.action).summarizeCall(record.params);
 
-  const entry = actionEntries.get(record.callId);
-  if (entry) {
-    entry.status = status;
-    entry.resultHeadline = headline;
-    entry.detail = headline;
-    entry.target = entry.target ?? callSummary.target;
-    if (status !== "succeeded") entry.kind = "error";
-    return;
+  const planEntry = actionEntries.get(record.callId);
+  if (planEntry) {
+    // The plan was carried out; its content stays put — the outcome lives
+    // on the result entry below.
+    planEntry.status = "executed";
+    planEntry.target = planEntry.target ?? callSummary.target;
   }
-  // Single-sided result (normalize failure): no planned entry exists yet.
-  const item = addActivity(
+  addActivity(
     turn,
     status === "succeeded" ? "action" : "error",
     callSummary.headline,
-    headline,
+    undefined,
     {
       target: callSummary.target,
       callId: record.callId,
       action: record.action,
+      stage: "result",
       status,
       resultHeadline: headline,
       cycleIndex: cycle?.index,
     },
     at,
   );
-  actionEntries.set(record.callId, item);
 }
 
 function applyTaskLifecycle(
