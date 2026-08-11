@@ -24,10 +24,12 @@ import { Crossfade } from "../ui/Crossfade";
 import { ActivityStep } from "./ActivityStep";
 import { ActionGlimpse, glimpseBody } from "./ActionGlimpse";
 
-/** Live viewport: rows rendered at once — the visible ones plus a small
-    buffer scrolling away under the bottom fade. Also the settled card's
-    static window, so completing a turn never shrinks the trail. */
-const ROLL_WINDOW = 9;
+/** Live viewport: rows rendered at once — deep enough that the oldest
+    rendered row always exits below the fade mask (one-line rows ≈ 280px,
+    past the 16rem clamp), so its exit tween is never visible. Also the
+    settled card's static window, so completing a turn never shrinks the
+    trail. */
+const ROLL_WINDOW = 14;
 /** Minimum dwell per status beat; bursts coalesce, the latest always flushes. */
 const LIVE_BEAT_MS = 1500;
 /** Matches .steps-viewport max-height (16rem): the trail's never-shrink
@@ -76,9 +78,9 @@ const SLATE_GLIDE_MS = 360;
  * zone with todos/milestones. Action steps come in paired stages: the plan
  * entry carries an ActionGlimpse disclosing the stage-2 input (command,
  * diff, instruction), the result entry one disclosing the stage-3 gist
- * (output tail, search hits, diff stat) — both auto-open as their row joins,
- * never close while visible, and are collected only after fading below the
- * viewport. The whole card breathes a gradient border while the turn runs.
+ * (output tail, search hits, diff stat) — both auto-open as their row joins
+ * and stay open for the row's whole life in the stack. The whole card
+ * breathes a gradient border while the turn runs.
  *
  * Update rhythm: the statement layer (headline + thinking) commits on one
  * atomic beat (LIVE_BEAT_MS); the trail watches the raw feed and rolls at
@@ -90,15 +92,17 @@ const SLATE_GLIDE_MS = 360;
  * the statement's thinking moves on (a paragraph break), the trail drains
  * the queue up to and including that thinking entry — the same insertion
  * at a fast stride, gists pre-expanded, oldest first so the batch grows
- * bottom-up; a deep backlog drains the oldest few. Gists faded below the
- * viewport are collected instantly and only while the roll is idle, so a
- * collapse never fights a push. Rows reaching the viewport's bottom edge
- * dissolve under a fade instead of popping out. The collapsed slate is a
- * fixed one-line panel, the trail viewport clamps at a fixed max height,
- * and ChatView parks the turn's top edge while it runs — so the breathing
- * frame's top stays put and only its bottom extends, until the viewport is
- * full and it freezes. Trail rows are keyed by the items' stable derive
- * seq, so full event-stream rebuilds never remount them.
+ * bottom-up; a deep backlog drains the oldest few. A row's gist stays put
+ * for the row's whole life — visible or faded — so rows only ever scroll
+ * down and dissolve under the viewport's bottom fade, never collapsing
+ * mid-roll; the render window is deep enough that exits happen below the
+ * fade, and expanding the full trail folds gists outside the window to
+ * keep the long list readable. The collapsed slate is a fixed one-line
+ * panel, the trail viewport clamps at a fixed max height, and ChatView
+ * parks the turn's top edge while it runs — so the breathing frame's top
+ * stays put and only its bottom extends, until the viewport is full and
+ * it freezes. Trail rows are keyed by the items' stable derive seq, so
+ * full event-stream rebuilds never remount them.
  */
 export function LiveStatus({
   turn,
@@ -154,7 +158,6 @@ export function LiveStatus({
 
   const {
     ref: viewportRef,
-    node: viewportNode,
     overflowing,
     contentMaxHeight,
   } = useOverflowing<HTMLDivElement>();
@@ -170,9 +173,10 @@ export function LiveStatus({
   // Glimpses are keyed by the row's seq — a call now has two rows (plan and
   // result), each with its own glimpse. A row's glimpse pops open shortly
   // after the row lands, exactly once per row (a manually folded row stays
-  // folded); it NEVER closes while its row is visible — it only rolls down
-  // with its row and is quietly collected once fully faded below the
-  // viewport's clamp (see the roller below).
+  // folded); from then on it stays open for the row's whole life in the
+  // stack — rows scroll down and fade with their gist intact. Expanding
+  // the full trail folds gists outside the rolling window (see the toggle
+  // below).
   const [openGists, setOpenGists] = useState<ReadonlySet<number>>(new Set());
   const autoOpened = useRef<Set<number>>(new Set());
 
@@ -196,37 +200,11 @@ export function LiveStatus({
   const lastReleaseAt = useRef(0);
   /** Rows that entered via a drain (fast entrance, gists pre-opened). */
   const flushedSeqs = useRef<Set<number>>(new Set());
-  /** Gists collected below the fold exit instantly — their collapse is
-      invisible down there, and tweening it would fight the roll above. */
-  const instantGistExit = useRef<Set<number>>(new Set());
   const seenThoughtSeq = useRef(-1);
   /** Drain mode: release one queued row per DRAIN_STRIDE until the cursor
       passes this seq — set to the statement's thinking entry on a
       paragraph break, or to the oldest few on a deep backlog. */
   const [drainUntil, setDrainUntil] = useState<number | null>(null);
-
-  // Collect the gists whose rows have fully faded below the viewport's
-  // clamp — instantly, and only ever called while the roll is idle.
-  const collectFadedGists = () => {
-    const viewport = viewportNode;
-    if (!viewport || showAll) return;
-    const bottom = viewport.getBoundingClientRect().bottom;
-    const faded: number[] = [];
-    for (const el of viewport.querySelectorAll("[data-gist-seq]")) {
-      if (el.getBoundingClientRect().top >= bottom - 1) {
-        const seq = Number(el.getAttribute("data-gist-seq"));
-        if (Number.isFinite(seq)) faded.push(seq);
-      }
-    }
-    if (faded.length === 0) return;
-    for (const seq of faded) instantGistExit.current.add(seq);
-    setOpenGists((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const seq of faded) changed = next.delete(seq) || changed;
-      return changed ? next : prev;
-    });
-  };
 
   useEffect(() => {
     const raw = turn.activity;
@@ -253,20 +231,10 @@ export function LiveStatus({
 
     const pending = raw.filter((a) => a.seq > releasedSeq);
     if (pending.length === 0) {
-      if (drainUntil !== null) {
-        setDrainUntil(null);
-        return;
-      }
-      // Idle: sweep faded gists once the last entrance has fully settled,
-      // so a collapse never overlaps a push.
-      const settleLeft =
-        ROLL_MS + GIST_POP_DELAY_MS + GIST_POP_MS - (Date.now() - lastReleaseAt.current);
-      if (settleLeft <= 0) {
-        collectFadedGists();
-        return;
-      }
-      const settleTimer = window.setTimeout(collectFadedGists, settleLeft);
-      return () => window.clearTimeout(settleTimer);
+      // A drain whose target vanished from the feed (MAX_ACTIVITY trim)
+      // must not wedge the roller.
+      if (drainUntil !== null) setDrainUntil(null);
+      return;
     }
 
     // Safety valve: a deep backlog drains the oldest few.
@@ -298,7 +266,7 @@ export function LiveStatus({
     const wait = Math.max(0, stride - (Date.now() - lastReleaseAt.current));
     const timer = window.setTimeout(() => release(drainUntil !== null), wait);
     return () => window.clearTimeout(timer);
-  }, [turn.activity, releasedSeq, live, reduced, thoughtSeq, drainUntil, showAll, viewportNode]);
+  }, [turn.activity, releasedSeq, live, reduced, thoughtSeq, drainUntil]);
 
   // Live mode rolls a small window inside the fixed-height viewport; the
   // settled card lists the same window statically — completing a turn never
@@ -317,10 +285,13 @@ export function LiveStatus({
   const settled = live ? undefined : settledHeadline(turn);
 
   // The gist pop (push #2): a single-released row's glimpse opens once its
-  // insert has landed. Batch-flushed rows were pre-opened by the roller;
+  // insert has landed. Drained rows were pre-opened by the roller;
   // settled/reduced cards open right away. Timers are left to fire (open is
   // guarded and idempotent) so re-renders never postpone a scheduled pop.
+  // The expanded full trail never auto-opens — it stays compact (gists
+  // outside the window were folded by the toggle, rows toggle manually).
   useEffect(() => {
+    if (showAll) return;
     const newly = visible.filter(
       (item) =>
         !autoOpened.current.has(item.seq) && !openGists.has(item.seq) && glimpseAvailable(item),
@@ -390,7 +361,6 @@ export function LiveStatus({
       <motion.div
         key={item.seq}
         style={{ overflow: "hidden" }}
-        data-gist-seq={glimpse ? String(item.seq) : undefined}
         initial={instant ? false : { height: 0 }}
         animate={{ height: "auto" }}
         exit={{
@@ -423,8 +393,8 @@ export function LiveStatus({
               glimpse={
                 // the gist pops open inside its landed row (push #2); on a
                 // drain it is pre-expanded — AnimatePresence skips the
-                // child's initial at the group's first mount. Collected
-                // gists exit instantly, a user fold tweens out.
+                // child's initial at the group's first mount. A user fold
+                // tweens out; the gist otherwise stays for the row's life.
                 <AnimatePresence initial={false}>
                   {glimpse && (
                     <motion.div
@@ -435,10 +405,7 @@ export function LiveStatus({
                       exit={{
                         height: 0,
                         opacity: 0,
-                        transition: {
-                          duration: reduced || instantGistExit.current.has(item.seq) ? 0 : 0.35,
-                          ease: EASE_CALM,
-                        },
+                        transition: { duration: reduced ? 0 : 0.35, ease: EASE_CALM },
                       }}
                       transition={{
                         duration: reduced ? 0 : GIST_POP_MS / 1000,
@@ -598,6 +565,21 @@ export function LiveStatus({
               <button
                 onClick={() => {
                   holdChatFollow();
+                  if (!showAll) {
+                    // Expanding the full trail: fold every gist outside the
+                    // rolling window so the long list stays readable —
+                    // rows toggle individually.
+                    const windowSeqs = new Set(
+                      released.slice(0, ROLL_WINDOW).map((s) => s.seq),
+                    );
+                    setOpenGists((prev) => {
+                      const next = new Set<number>();
+                      for (const seq of prev) {
+                        if (windowSeqs.has(seq)) next.add(seq);
+                      }
+                      return next.size === prev.size ? prev : next;
+                    });
+                  }
                   setShowAll(!showAll);
                 }}
                 className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
@@ -745,11 +727,18 @@ function ThinkingWriter({
 
 /* --------------------------- working zone ---------------------------- */
 
+/** Milestones keep the working zone steady at the latest few. */
+const MILESTONE_WINDOW = 3;
+
 function WorkingZone({ turn }: { turn: ChatTurn }) {
   const reduced = useReducedMotion();
+  const holdChatFollow = useAppStore((s) => s.holdChatFollow);
+  const [showAllMilestones, setShowAllMilestones] = useState(false);
   const { todos, milestones } = turn.working;
   if (todos.length === 0 && milestones.length === 0) return null;
   const done = todos.filter((t) => t.status === "done").length;
+  const shownMilestones = showAllMilestones ? milestones : milestones.slice(-MILESTONE_WINDOW);
+  const hiddenMilestones = milestones.length - shownMilestones.length;
   // Rows tween in AND out — a removed todo/milestone never hard-cuts the
   // card's height.
   const rowMotion = {
@@ -765,7 +754,7 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
       {milestones.length > 0 && (
         <div className="mb-1.5 space-y-1">
           <AnimatePresence initial={false}>
-            {milestones.map((m) => (
+            {shownMilestones.map((m) => (
               <motion.div key={m.key} style={{ overflow: "hidden" }} {...rowMotion}>
                 <div className="flex items-center gap-2 text-[12px]">
                   <Flag size={11} className="shrink-0 text-warning" />
@@ -774,6 +763,21 @@ function WorkingZone({ turn }: { turn: ChatTurn }) {
               </motion.div>
             ))}
           </AnimatePresence>
+          {(hiddenMilestones > 0 || showAllMilestones) && (
+            <div className="grow-in">
+              <button
+                onClick={() => {
+                  holdChatFollow();
+                  setShowAllMilestones(!showAllMilestones);
+                }}
+                className="w-fit text-left text-[11px] text-fg-faint transition-colors hover:text-fg-muted"
+              >
+                {showAllMilestones
+                  ? "Show fewer milestones"
+                  : `+${hiddenMilestones} earlier milestones`}
+              </button>
+            </div>
+          )}
         </div>
       )}
       {todos.length > 0 && (
