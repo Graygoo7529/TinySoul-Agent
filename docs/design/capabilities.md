@@ -28,9 +28,12 @@ tinysoul/capabilities/
 Capabilities 共用 `[capabilities]` 顶层命名空间，但项目文件按能力拆分：
 
 ```text
-configs/capabilities.resource.toml
-configs/capabilities.web.toml
-configs/capabilities.utility.toml
+configs/capabilities/
+  resource.toml
+  script.toml
+  shell.toml
+  supervised_process.toml
+  web.toml
 ```
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。

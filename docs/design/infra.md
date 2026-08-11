@@ -28,7 +28,7 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml` 与 `configs/llm.models/*.toml`。app/action/context/home/memory/embedding/loop/workspace 和 LLM provider/task 分别保存在对应配置文件中；Memory 使用独立 `[memory]`，embedding 使用独立 `[embedding]`，Home parser 不接受旧 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/capabilities/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。单一 owner 的 app/action/context/home/memory/embedding/loop/workspace 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，embedding 使用独立 `[embedding]`，Home parser 不接受旧 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。Infra 只负责读取和合并这些文件，不解释其中的领域语义；模块 parser 在实际模块边界把 section tree 转成 Settings。
 
 `tinysoul init --config-profile` 与 `tinysoul reset --config-profile` 属于 App-owned 的项目模板物化期文件选择，不是新的配置来源。standard/development profile 各自提供一套完整配置，initializer/resetter 只物化其中一套为普通 `configs/` 与 `.env.example`；resetter 只把旧项目的普通 `.env` 作为不解释内容的保留文件复制进新项目。生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
 

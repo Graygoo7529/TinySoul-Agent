@@ -13,7 +13,7 @@ python -m pip install .
 tinysoul init my-agent
 ```
 
-Enable a provider in `my-agent/configs/llm.providers.toml` and add its credentials to `my-agent/.env`, then start the backend:
+Enable a provider in `my-agent/configs/llm/providers.toml` and add its credentials to `my-agent/.env`, then start the backend:
 
 ```powershell
 tinysoul start --root my-agent --mode normal

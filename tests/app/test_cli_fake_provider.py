@@ -76,7 +76,7 @@ def _fake_provider() -> Iterator[_FakeProviderServer]:
 
 def _configure_fake_provider(root: Path, *, port: int) -> None:
     (root / ".env").write_text("FAKE_API_KEY=test-key\n", encoding="utf-8")
-    (root / "configs" / "llm.providers.toml").write_text(
+    (root / "configs" / "llm" / "providers.toml").write_text(
         "[llm.providers.fake]\n"
         "enabled = true\n"
         'adapter = "generic"\n'
@@ -85,7 +85,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         'api_key_envs = ["FAKE_API_KEY"]\n',
         encoding="utf-8",
     )
-    model_root = root / "configs" / "llm.models"
+    model_root = root / "configs" / "llm" / "models"
     for path in model_root.glob("*.toml"):
         path.unlink()
     (model_root / "fake.toml").write_text(
@@ -100,7 +100,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         "]\n",
         encoding="utf-8",
     )
-    (root / "configs" / "llm.tasks.toml").write_text(
+    (root / "configs" / "llm" / "tasks.toml").write_text(
         _task_config("framework") + "\n" + _task_config("llm_action"),
         encoding="utf-8",
     )

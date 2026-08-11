@@ -108,12 +108,12 @@ def test_shell_settings_reject_unknown_keys_and_project_profiles_are_explicit(
         config_profile=ProjectConfigProfile.DEVELOPMENT,
     )
     standard = tomllib.loads(
-        (standard_root / "configs" / "capabilities.shell.toml").read_text(
+        (standard_root / "configs" / "capabilities" / "shell.toml").read_text(
             encoding="utf-8"
         )
     )["capabilities"]["shell"]
     development = tomllib.loads(
-        (development_root / "configs" / "capabilities.shell.toml").read_text(
+        (development_root / "configs" / "capabilities" / "shell.toml").read_text(
             encoding="utf-8"
         )
     )["capabilities"]["shell"]

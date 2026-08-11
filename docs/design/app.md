@@ -112,7 +112,7 @@ TinySoulAppBuilder 负责：
 - 构建 ObservationRouter，把同一 emitter 交给 owner builder 与进程级组件；
 - 返回 TinySoulApp。
 
-AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml` 和模型文件；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
+AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml`、`configs/capabilities/*.toml`、`configs/llm/*.toml` 和 `configs/llm/models/*.toml`；Infra 只加载与合并，Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
 Resource capability 在此边界解析 `[capabilities.resource]`，检查 enabled action 推导出的依赖，为 Workspace Domain 的 `workspace.convert_with_markitdown`/`workspace.convert_with_pypdf` 注册 `resource.*` handler，或把禁用 action 从 effective Catalog 移除。AppBuilder 不解析文档、不选择 converter，也不读取转换正文；Home prompt mount reconciliation 只观察 ActionEngine 最终暴露的 domain/action identities。
 

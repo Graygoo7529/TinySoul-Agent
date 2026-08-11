@@ -9,26 +9,27 @@ from tinysoul.infra.config import ConfigError, ProjectConfig
 
 
 def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
-    config_dir = local_tmp / "configs"
-    config_dir.mkdir()
+    llm_dir = local_tmp / "configs" / "llm"
+    model_dir = llm_dir / "models"
+    model_dir.mkdir(parents=True)
     (local_tmp / "tinysoul.toml").write_text(
         """
         [config]
-        include = ["configs/llm.models.toml", "configs/llm.tasks.toml"]
+        include = ["configs/llm/models/*.toml", "configs/llm/tasks.toml"]
 
         [llm.models.kimi_k2_7]
         provider = "kimi"
         """,
         encoding="utf-8",
     )
-    (config_dir / "llm.models.toml").write_text(
+    (model_dir / "deepseek.toml").write_text(
         """
         [llm.models.deepseek_v4]
         provider = "deepseek"
         """,
         encoding="utf-8",
     )
-    (config_dir / "llm.tasks.toml").write_text(
+    (llm_dir / "tasks.toml").write_text(
         """
         [llm.tasks.framework]
         models = ["kimi_k2_7", "deepseek_v4"]

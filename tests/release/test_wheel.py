@@ -107,11 +107,17 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         assert f"{profile_root}/configs/embedding.toml" in names
         assert f"{profile_root}/configs/maintenance.toml" in names
         assert f"{profile_root}/configs/session.toml" in names
-        assert f"{profile_root}/configs/capabilities.resource.toml" in names
-        assert f"{profile_root}/configs/capabilities.web.toml" in names
-        assert f"{profile_root}/configs/capabilities.script.toml" in names
-        assert f"{profile_root}/configs/capabilities.shell.toml" in names
-        assert f"{profile_root}/configs/capabilities.supervised_process.toml" in names
+        assert f"{profile_root}/configs/capabilities/resource.toml" in names
+        assert f"{profile_root}/configs/capabilities/web.toml" in names
+        assert f"{profile_root}/configs/capabilities/script.toml" in names
+        assert f"{profile_root}/configs/capabilities/shell.toml" in names
+        assert (
+            f"{profile_root}/configs/capabilities/supervised_process.toml"
+            in names
+        )
+        assert f"{profile_root}/configs/llm/providers.toml" in names
+        assert f"{profile_root}/configs/llm/tasks.toml" in names
+        assert f"{profile_root}/configs/llm/models/openai.toml" in names
         assert f"{profile_root}/.env.example" in names
         assert f"{profile_root}/home/agent/user/user.md" in names
     assert "tinysoul/assets/project/README.md" in names
@@ -234,12 +240,17 @@ raise SystemExit(main(["reset", {str(development)!r}]))
     assert (
         initialized / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
     ).is_file()
-    assert (initialized / "configs" / "capabilities.resource.toml").is_file()
-    assert (initialized / "configs" / "capabilities.web.toml").is_file()
-    assert (initialized / "configs" / "capabilities.script.toml").is_file()
-    assert (initialized / "configs" / "capabilities.shell.toml").is_file()
     assert (
-        initialized / "configs" / "capabilities.supervised_process.toml"
+        initialized / "configs" / "capabilities" / "resource.toml"
+    ).is_file()
+    assert (initialized / "configs" / "capabilities" / "web.toml").is_file()
+    assert (initialized / "configs" / "capabilities" / "script.toml").is_file()
+    assert (initialized / "configs" / "capabilities" / "shell.toml").is_file()
+    assert (
+        initialized
+        / "configs"
+        / "capabilities"
+        / "supervised_process.toml"
     ).is_file()
     assert (
         initialized / "home" / "skills_domain" / "execution" / "DOMAIN.md"
@@ -258,14 +269,14 @@ raise SystemExit(main(["reset", {str(development)!r}]))
     )["session"]
     assert session_config["inspect_max_chars"] == 8000
     script_config = tomllib.loads(
-        (initialized / "configs" / "capabilities.script.toml").read_text(
+        (initialized / "configs" / "capabilities" / "script.toml").read_text(
             encoding="utf-8"
         )
     )["capabilities"]["script"]
     assert script_config["enabled"] is False
     assert script_config["python"]["enabled"] is False
     assert "enabled = false" in (
-        initialized / "configs" / "capabilities.shell.toml"
+        initialized / "configs" / "capabilities" / "shell.toml"
     ).read_text(encoding="utf-8")
     assert (
         initialized / "home" / "skills_domain" / "workspace" / "DOMAIN.md"
@@ -297,8 +308,8 @@ raise SystemExit(main(["reset", {str(development)!r}]))
         initialized / "home" / "agent" / "AGENT.md"
     ).read_bytes()
     assert "enabled = true" in (
-        development / "configs" / "capabilities.shell.toml"
+        development / "configs" / "capabilities" / "shell.toml"
     ).read_text(encoding="utf-8")
     assert "sublyx_proxy" in (
-        development / "configs" / "llm.providers.toml"
+        development / "configs" / "llm" / "providers.toml"
     ).read_text(encoding="utf-8")

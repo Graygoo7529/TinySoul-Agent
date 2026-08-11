@@ -97,7 +97,7 @@ Resource executor 在 source staging 前、worker 返回后以及 Workspace comm
 
 ## 配置与依赖
 
-项目配置位于 `configs/capabilities.resource.toml`：
+项目配置位于 `configs/capabilities/resource.toml`：
 
 ```toml
 [capabilities.resource]

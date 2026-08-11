@@ -60,13 +60,15 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     ).is_file()
 
     providers = tomllib.loads(
-        (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")
+        (root / "configs" / "llm" / "providers.toml").read_text(
+            encoding="utf-8"
+        )
     )["llm"]["providers"]
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
     assert providers["kimi"]["api_key_envs"] == ["MOONSHOT_API_KEY"]
     models = tomllib.loads(
-        (root / "configs" / "llm.models" / "kimi.toml").read_text(
+        (root / "configs" / "llm" / "models" / "kimi.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
@@ -75,7 +77,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert models["kimi_k3"]["provider"] == "kimi"
     assert models["kimi_k3"]["provider_model"] == "kimi-k3"
     openai_models = tomllib.loads(
-        (root / "configs" / "llm.models" / "openai.toml").read_text(
+        (root / "configs" / "llm" / "models" / "openai.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
@@ -83,11 +85,15 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert openai_models["gpt_5_6_terra"]["provider"] == "openai"
     assert openai_models["gpt_5_6_luna"]["provider"] == "openai"
     web = tomllib.loads(
-        (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
+        (root / "configs" / "capabilities" / "web.toml").read_text(
+            encoding="utf-8"
+        )
     )["capabilities"]["web"]
     assert web["search_by_kimi"]["model"] == "kimi-k2.6"
     script = tomllib.loads(
-        (root / "configs" / "capabilities.script.toml").read_text(encoding="utf-8")
+        (root / "configs" / "capabilities" / "script.toml").read_text(
+            encoding="utf-8"
+        )
     )["capabilities"]["script"]
     assert script["enabled"] is False
     assert script["python"]["enabled"] is False
@@ -112,7 +118,9 @@ def test_cli_init_development_profile_copies_enabled_development_config(
 
     assert result == 0
     providers = tomllib.loads(
-        (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")
+        (root / "configs" / "llm" / "providers.toml").read_text(
+            encoding="utf-8"
+        )
     )["llm"]["providers"]
     assert providers["sublyx_proxy"] == {
         "enabled": True,
@@ -123,7 +131,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     }
     assert providers["kimi"]["enabled"] is True
     openai_models = tomllib.loads(
-        (root / "configs" / "llm.models" / "openai.toml").read_text(
+        (root / "configs" / "llm" / "models" / "openai.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
@@ -131,13 +139,17 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     assert openai_models["gpt_5_6_terra"]["provider"] == "sublyx_proxy"
     assert openai_models["gpt_5_6_luna"]["provider"] == "sublyx_proxy"
     shell = tomllib.loads(
-        (root / "configs" / "capabilities.shell.toml").read_text(encoding="utf-8")
+        (root / "configs" / "capabilities" / "shell.toml").read_text(
+            encoding="utf-8"
+        )
     )["capabilities"]["shell"]
     assert shell["enabled"] is True
     assert shell["powershell"]["enabled"] is True
     assert shell["cmd"]["enabled"] is True
     web = tomllib.loads(
-        (root / "configs" / "capabilities.web.toml").read_text(encoding="utf-8")
+        (root / "configs" / "capabilities" / "web.toml").read_text(
+            encoding="utf-8"
+        )
     )["capabilities"]["web"]
     assert web["search_by_kimi"]["enabled"] is True
     assert web["discover_pages"]["enabled"] is True
@@ -222,7 +234,7 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     (root / "home" / "agent" / "AGENT.md").write_text(
         "custom home", encoding="utf-8"
     )
-    (root / "configs" / "llm.providers.toml").write_text(
+    (root / "configs" / "llm" / "providers.toml").write_text(
         "custom config", encoding="utf-8"
     )
     for relative in (
@@ -252,7 +264,9 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     assert not (root / "unknown-project-data.txt").exists()
     assert list((root / "memory").iterdir()) == []
     providers = tomllib.loads(
-        (root / "configs" / "llm.providers.toml").read_text(encoding="utf-8")
+        (root / "configs" / "llm" / "providers.toml").read_text(
+            encoding="utf-8"
+        )
     )["llm"]["providers"]
     assert providers["sublyx_proxy"]["enabled"] is True
     assert providers["kimi"]["enabled"] is True
