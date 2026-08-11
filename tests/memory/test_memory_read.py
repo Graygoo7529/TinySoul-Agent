@@ -277,12 +277,14 @@ def test_memory_config_uses_current_sections_and_rejects_old_names(tmp_path: Pat
             "root": "memory",
             "max_active_chars": 1000,
             "inspect": {"candidate_limit": 12, "default_top_k": 3, "max_top_k": 6},
+            "semantic_search": {"embedding_cache_max_chars": 123456},
             "daily_composition": {"chunk_max_chars": 100, "source_max_chars": 500},
         },
         project_root=tmp_path,
     )
     assert settings.root == (tmp_path / "memory").resolve()
     assert settings.inspect.max_top_k == 6
+    assert settings.semantic_search.embedding_cache_max_chars == 123456
     with pytest.raises(Exception):
         parse_memory_settings({"search": {}}, project_root=tmp_path)
 

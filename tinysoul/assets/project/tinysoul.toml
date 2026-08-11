@@ -2,6 +2,7 @@
 include = [
   "configs/*.toml",
   "configs/capabilities/*.toml",
+  "configs/infra/*.toml",
   "configs/llm/*.toml",
   "configs/llm/models/*.toml",
 ]

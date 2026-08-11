@@ -1,4 +1,4 @@
-[embedding]
+[infra.embedding]
 enabled = false
 base_url = "https://open.bigmodel.cn/api/paas/v4"
 model = "embedding-3"
@@ -6,4 +6,3 @@ api_key_env = "GLM_EMBEDDING_API_KEY"
 dimensions = 1024
 batch_size = 64
 timeout_seconds = 30.0
-cache_max_chars = 16000000

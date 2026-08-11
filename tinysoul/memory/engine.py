@@ -65,7 +65,6 @@ class MemoryEngine:
         active_session_root: Path | None = None,
         semantic_search: MemorySemanticSearch | None = None,
         embedding_client: EmbeddingClient | None = None,
-        embedding_cache_max_chars: int = 16_000_000,
     ) -> None:
         if not isinstance(settings, MemorySettings):
             raise MemoryContractError("Memory settings are invalid")
@@ -76,7 +75,7 @@ class MemoryEngine:
             MemoryEmbeddingIndex(
                 path=self._store.internal_root / "embedding-cache.json",
                 client=embedding_client,
-                cache_max_chars=embedding_cache_max_chars,
+                cache_max_chars=settings.semantic_search.embedding_cache_max_chars,
             )
             if embedding_client is not None
             else None

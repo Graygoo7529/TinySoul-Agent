@@ -29,7 +29,7 @@ from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.infra import (
     EmbeddingClient,
     build_embedding_client,
-    parse_embedding_settings,
+    parse_infra_settings,
 )
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.provider import ProviderError
@@ -233,13 +233,14 @@ class TinySoulAppBuilder:
                     "context",
                     "home",
                     "memory",
-                    "embedding",
+                    "infra",
                     "maintenance",
                     "session",
                     "workspace",
                     "capabilities",
                 }
             )
+            infra_settings = config.parse_section("infra", parse_infra_settings)
             loop_settings = (
                 self._loop_settings
                 if self._loop_settings is not None
@@ -335,12 +336,8 @@ class TinySoulAppBuilder:
             if self._memory is not None:
                 memory = self._memory
             else:
-                embedding_settings = config.parse_section(
-                    "embedding",
-                    parse_embedding_settings,
-                )
                 embedding_client = build_embedding_client(
-                    embedding_settings,
+                    infra_settings.embedding,
                     env=config.runtime_env,
                 )
                 memory = self._build_memory(
@@ -348,7 +345,6 @@ class TinySoulAppBuilder:
                     memory_bridge,
                     session_root=session.root,
                     embedding_client=embedding_client,
-                    embedding_cache_max_chars=embedding_settings.cache_max_chars,
                 )
             if memory.active_session_root is None:
                 memory.bind_active_session_root(session.root)
@@ -618,7 +614,6 @@ class TinySoulAppBuilder:
         *,
         session_root: Path,
         embedding_client: EmbeddingClient | None,
-        embedding_cache_max_chars: int,
     ) -> MemoryEngine:
         try:
             settings = config.parse_section(
@@ -629,7 +624,6 @@ class TinySoulAppBuilder:
                 settings=settings,
                 active_session_root=session_root,
                 embedding_client=embedding_client,
-                embedding_cache_max_chars=embedding_cache_max_chars,
             )
         except ConfigError as exc:
             raise bridge.from_config_error(exc) from exc

@@ -12,6 +12,9 @@ from openai import OpenAI
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 
+_CONFIG_KEY = "infra.embedding"
+
+
 class EmbeddingError(Exception):
     """Embedding adapter/configuration boundary failure."""
 
@@ -25,24 +28,34 @@ class EmbeddingSettings:
     dimensions: int = 1024
     batch_size: int = 64
     timeout_seconds: float = 30.0
-    cache_max_chars: int = 16_000_000
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
-            raise ConfigError("Embedding enabled must be boolean", key="embedding.enabled")
+            raise ConfigError(
+                "Embedding enabled must be boolean",
+                key=f"{_CONFIG_KEY}.enabled",
+            )
         for name in ("base_url", "model"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value:
-                raise ConfigError(f"Embedding {name} must be non-empty", key=f"embedding.{name}")
+                raise ConfigError(
+                    f"Embedding {name} must be non-empty",
+                    key=f"{_CONFIG_KEY}.{name}",
+                )
         if not isinstance(self.api_key_env, str) or not self.api_key_env:
             raise ConfigError(
                 "Embedding api_key_env is invalid",
-                key="embedding.api_key_env",
+                key=f"{_CONFIG_KEY}.api_key_env",
             )
-        if self.model == "embedding-3" and self.dimensions not in {256, 512, 1024, 2048}:
+        if self.model == "embedding-3" and self.dimensions not in {
+            256,
+            512,
+            1024,
+            2048,
+        }:
             raise ConfigError(
                 "embedding-3 dimensions must be 256, 512, 1024, or 2048",
-                key="embedding.dimensions",
+                key=f"{_CONFIG_KEY}.dimensions",
             )
         if (
             isinstance(self.dimensions, bool)
@@ -51,25 +64,34 @@ class EmbeddingSettings:
         ):
             raise ConfigError(
                 "Embedding dimensions must be positive",
-                key="embedding.dimensions",
+                key=f"{_CONFIG_KEY}.dimensions",
             )
-        if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, int) or not 1 <= self.batch_size <= 64:
-            raise ConfigError("Embedding batch_size must be between 1 and 64", key="embedding.batch_size")
+        if (
+            isinstance(self.batch_size, bool)
+            or not isinstance(self.batch_size, int)
+            or not 1 <= self.batch_size <= 64
+        ):
+            raise ConfigError(
+                "Embedding batch_size must be between 1 and 64",
+                key=f"{_CONFIG_KEY}.batch_size",
+            )
         if (
             isinstance(self.timeout_seconds, bool)
             or not isinstance(self.timeout_seconds, (int, float))
             or self.timeout_seconds <= 0
         ):
-            raise ConfigError("Embedding timeout_seconds must be positive", key="embedding.timeout_seconds")
-        if isinstance(self.cache_max_chars, bool) or not isinstance(self.cache_max_chars, int) or self.cache_max_chars <= 0:
-            raise ConfigError("Embedding cache_max_chars must be positive", key="embedding.cache_max_chars")
+            raise ConfigError(
+                "Embedding timeout_seconds must be positive",
+                key=f"{_CONFIG_KEY}.timeout_seconds",
+            )
+
     def resolve_api_key(self, env: Mapping[str, str]) -> str:
         value = env.get(self.api_key_env)
         if value:
             return value
         raise ConfigError(
             "Embedding API key is not configured",
-            key="embedding.api_key_env",
+            key=f"{_CONFIG_KEY}.api_key_env",
             value=self.api_key_env,
         )
 
@@ -119,9 +141,15 @@ class OpenAICompatibleEmbeddingClient:
         client: object | None = None,
     ) -> None:
         if not settings.enabled:
-            raise ConfigError("Cannot build a disabled Embedding client", key="embedding.enabled")
+            raise ConfigError(
+                "Cannot build a disabled Embedding client",
+                key=f"{_CONFIG_KEY}.enabled",
+            )
         if not isinstance(api_key, str) or not api_key:
-            raise ConfigError("Embedding API key is empty", key="embedding.api_key_env")
+            raise ConfigError(
+                "Embedding API key is empty",
+                key=f"{_CONFIG_KEY}.api_key_env",
+            )
         self._settings = settings
         self._client = client or OpenAI(
             api_key=api_key,
@@ -189,9 +217,8 @@ def parse_embedding_settings(tree: Mapping[str, object]) -> EmbeddingSettings:
         "dimensions",
         "batch_size",
         "timeout_seconds",
-        "cache_max_chars",
     }
-    reject_unknown_keys(tree, names, key="embedding")
+    reject_unknown_keys(tree, names, key=_CONFIG_KEY)
     defaults = EmbeddingSettings()
     return EmbeddingSettings(
         enabled=_bool(tree.get("enabled", defaults.enabled), "enabled"),
@@ -200,8 +227,10 @@ def parse_embedding_settings(tree: Mapping[str, object]) -> EmbeddingSettings:
         api_key_env=_text(tree.get("api_key_env", defaults.api_key_env), "api_key_env"),
         dimensions=_int(tree.get("dimensions", defaults.dimensions), "dimensions"),
         batch_size=_int(tree.get("batch_size", defaults.batch_size), "batch_size"),
-        timeout_seconds=_float(tree.get("timeout_seconds", defaults.timeout_seconds), "timeout_seconds"),
-        cache_max_chars=_int(tree.get("cache_max_chars", defaults.cache_max_chars), "cache_max_chars"),
+        timeout_seconds=_float(
+            tree.get("timeout_seconds", defaults.timeout_seconds),
+            "timeout_seconds",
+        ),
     )
 
 
@@ -220,23 +249,35 @@ def build_embedding_client(
 
 def _bool(value: object, name: str) -> bool:
     if not isinstance(value, bool):
-        raise ConfigError("Embedding value must be boolean", key=f"embedding.{name}")
+        raise ConfigError(
+            "Embedding value must be boolean",
+            key=f"{_CONFIG_KEY}.{name}",
+        )
     return value
 
 
 def _text(value: object, name: str) -> str:
     if not isinstance(value, str) or not value:
-        raise ConfigError("Embedding value must be non-empty text", key=f"embedding.{name}")
+        raise ConfigError(
+            "Embedding value must be non-empty text",
+            key=f"{_CONFIG_KEY}.{name}",
+        )
     return value
 
 
 def _int(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError("Embedding value must be an integer", key=f"embedding.{name}")
+        raise ConfigError(
+            "Embedding value must be an integer",
+            key=f"{_CONFIG_KEY}.{name}",
+        )
     return value
 
 
 def _float(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ConfigError("Embedding value must be numeric", key=f"embedding.{name}")
+        raise ConfigError(
+            "Embedding value must be numeric",
+            key=f"{_CONFIG_KEY}.{name}",
+        )
     return float(value)

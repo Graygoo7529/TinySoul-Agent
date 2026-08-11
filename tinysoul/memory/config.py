@@ -66,6 +66,17 @@ class MemoryInspectSettings:
 
 
 @dataclass(frozen=True)
+class MemorySemanticSearchSettings:
+    embedding_cache_max_chars: int = 16_000_000
+
+    def __post_init__(self) -> None:
+        _positive(
+            self.embedding_cache_max_chars,
+            "memory.semantic_search.embedding_cache_max_chars",
+        )
+
+
+@dataclass(frozen=True)
 class MemoryDailyCompositionSettings:
     chunk_max_chars: int = 12_000
     source_max_chars: int = 240_000
@@ -97,6 +108,9 @@ class MemorySettings:
     max_active_chars: int = 12_000
     documents: MemoryDocumentSettings = field(default_factory=MemoryDocumentSettings)
     inspect: MemoryInspectSettings = field(default_factory=MemoryInspectSettings)
+    semantic_search: MemorySemanticSearchSettings = field(
+        default_factory=MemorySemanticSearchSettings
+    )
     daily_composition: MemoryDailyCompositionSettings = field(
         default_factory=MemoryDailyCompositionSettings
     )
@@ -109,6 +123,11 @@ class MemorySettings:
             raise ConfigError("Memory documents settings are invalid", key="memory.documents")
         if not isinstance(self.inspect, MemoryInspectSettings):
             raise ConfigError("Memory inspect settings are invalid", key="memory.inspect")
+        if not isinstance(self.semantic_search, MemorySemanticSearchSettings):
+            raise ConfigError(
+                "Memory semantic search settings are invalid",
+                key="memory.semantic_search",
+            )
         if not isinstance(self.daily_composition, MemoryDailyCompositionSettings):
             raise ConfigError(
                 "Memory daily composition settings are invalid",
@@ -123,7 +142,14 @@ def parse_memory_settings(
 ) -> MemorySettings:
     reject_unknown_keys(
         tree,
-        {"root", "max_active_chars", "documents", "inspect", "daily_composition"},
+        {
+            "root",
+            "max_active_chars",
+            "documents",
+            "inspect",
+            "semantic_search",
+            "daily_composition",
+        },
         key="memory",
     )
     return MemorySettings(
@@ -131,6 +157,7 @@ def parse_memory_settings(
         max_active_chars=_int(tree, "max_active_chars", 12_000, "memory"),
         documents=_parse_documents(tree.get("documents")),
         inspect=_parse_inspect(tree.get("inspect")),
+        semantic_search=_parse_semantic_search(tree.get("semantic_search")),
         daily_composition=_parse_daily(tree.get("daily_composition")),
     )
 
@@ -171,6 +198,24 @@ def _parse_inspect(value: object) -> MemoryInspectSettings:
             name: _int(tree, name, getattr(defaults, name), "memory.inspect")
             for name in names
         }
+    )
+
+
+def _parse_semantic_search(value: object) -> MemorySemanticSearchSettings:
+    tree = _table(value, "memory.semantic_search")
+    reject_unknown_keys(
+        tree,
+        {"embedding_cache_max_chars"},
+        key="memory.semantic_search",
+    )
+    defaults = MemorySemanticSearchSettings()
+    return MemorySemanticSearchSettings(
+        embedding_cache_max_chars=_int(
+            tree,
+            "embedding_cache_max_chars",
+            defaults.embedding_cache_max_chars,
+            "memory.semantic_search",
+        )
     )
 
 

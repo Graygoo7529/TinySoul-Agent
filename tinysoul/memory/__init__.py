@@ -28,6 +28,7 @@ from .config import (
     MemoryDailyCompositionSettings,
     MemoryDocumentSettings,
     MemoryInspectSettings,
+    MemorySemanticSearchSettings,
     MemorySettings,
     parse_memory_settings,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "MemoryInspectRequest",
     "MemoryInspectResult",
     "MemoryInspectSettings",
+    "MemorySemanticSearchSettings",
     "MemoryInvariantError",
     "MemoryKind",
     "MemoryLink",

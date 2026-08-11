@@ -28,6 +28,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert (root / "tinysoul.toml").is_file()
     assert (root / "configs" / "home.toml").is_file()
     assert (root / "configs" / "action.toml").is_file()
+    assert (root / "configs" / "infra" / "embedding.toml").is_file()
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
     assert (root / "README.md").is_file()
@@ -97,6 +98,17 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     )["capabilities"]["script"]
     assert script["enabled"] is False
     assert script["python"]["enabled"] is False
+    embedding = tomllib.loads(
+        (root / "configs" / "infra" / "embedding.toml").read_text(
+            encoding="utf-8"
+        )
+    )["infra"]["embedding"]
+    memory = tomllib.loads(
+        (root / "configs" / "memory.toml").read_text(encoding="utf-8")
+    )["memory"]
+    assert embedding["enabled"] is False
+    assert "cache_max_chars" not in embedding
+    assert memory["semantic_search"]["embedding_cache_max_chars"] == 16000000
     context = tomllib.loads(
         (root / "configs" / "context.toml").read_text(encoding="utf-8")
     )["context"]

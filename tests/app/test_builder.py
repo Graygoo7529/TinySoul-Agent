@@ -463,6 +463,27 @@ def test_app_builder_home_config_error_is_home_startup_failure(tmp_path: Path) -
     assert exc.payload["key"] == "home.max_read_chars"
 
 
+def test_app_builder_infra_embedding_config_error_is_infra_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(tmp_path, {"infra.embedding.batch_size": 0})
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder(root=tmp_path)
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "infra"
+    assert exc.payload["kind"] == "infra.configuration_failed"
+    assert exc.payload["key"] == "infra.embedding.batch_size"
+
+
 def test_app_builder_workspace_config_error_is_workspace_startup_failure(
     tmp_path: Path,
 ) -> None:

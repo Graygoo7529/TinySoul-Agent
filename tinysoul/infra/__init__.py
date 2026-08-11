@@ -53,6 +53,7 @@ from .staging import (
     StagingDirectoryManager,
     StagingError,
 )
+from .settings import InfraSettings, parse_infra_settings
 from .time import BusinessDay, BusinessDayError
 from .continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
@@ -89,6 +90,7 @@ __all__ = [
     "JsonScalar",
     "JsonTypeError",
     "JsonValue",
+    "InfraSettings",
     "MIN_CONTINUATION_PAGE_CHARS",
     "OpaqueContinuationCodec",
     "OpenAICompatibleEmbeddingClient",
@@ -110,6 +112,7 @@ __all__ = [
     "read_text_line_slice",
     "read_text_prefix",
     "parse_embedding_settings",
+    "parse_infra_settings",
     "resolve_under_root",
     "to_json_object",
     "to_json_value",
