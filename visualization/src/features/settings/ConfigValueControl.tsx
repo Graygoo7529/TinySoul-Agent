@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 
-import type { JsonValue } from "../../types";
+import type { ConfigFieldDescriptor, JsonValue } from "../../types";
 import { IconButton } from "../../components/ui/Button";
 
 const inputClass =
@@ -12,11 +12,15 @@ export function ConfigValueControl({
   disabled,
   saving,
   onCommit,
+  descriptor,
+  referenceOptions = [],
 }: {
   value: JsonValue;
   disabled: boolean;
   saving: boolean;
   onCommit: (value: JsonValue) => Promise<void>;
+  descriptor?: ConfigFieldDescriptor;
+  referenceOptions?: string[];
 }) {
   const [draft, setDraft] = useState(() => serializeValue(value));
   const [invalid, setInvalid] = useState(false);
@@ -46,6 +50,30 @@ export function ConfigValueControl({
           }`}
         />
       </button>
+    );
+  }
+
+  const selectOptions = descriptor?.choices?.map((choice) => ({
+    value: choice.value,
+    label: choice.label,
+  })) ?? referenceOptions.map((item) => ({ value: item, label: item }));
+  if (
+    typeof value === "string" &&
+    (descriptor?.value_kind === "enum" || descriptor?.value_kind === "reference")
+  ) {
+    return (
+      <select
+        aria-label={descriptor.title}
+        value={value}
+        disabled={disabled || saving}
+        onChange={(event) => void onCommit(event.target.value)}
+        className={`${inputClass} h-8 max-w-[420px]`}
+      >
+        {descriptor.value_kind === "reference" && !value && <option value="">Select…</option>}
+        {selectOptions.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
     );
   }
 

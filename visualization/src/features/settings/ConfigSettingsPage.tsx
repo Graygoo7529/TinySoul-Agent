@@ -1,32 +1,38 @@
 import { AlertCircle } from "lucide-react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
-import type { ConfigStatus, JsonValue } from "../../types";
 import { Badge } from "../../components/ui/Badge";
+import { Collapsible } from "../../components/ui/Collapsible";
 import { EmptyState } from "../../components/ui/EmptyState";
+import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
+import { ConfigFieldRow } from "./ConfigFieldRow";
 import {
-  configFieldsForPage,
-  groupConfigFields,
+  groupSurfaceFields,
+  surfaceFields,
   type ConfigSettingField,
-  type SettingsPageId,
 } from "./model";
-import { ConfigValueControl } from "./ConfigValueControl";
 
 export function ConfigSettingsPage({
   client,
   status,
-  page,
+  catalog,
+  surface,
 }: {
   client: TinySoulClient;
   status: ConfigStatus;
-  page: SettingsPageId;
+  catalog: ConfigCatalog;
+  surface: string;
 }) {
   const savingPath = useConfigStore((state) => state.savingPath);
   const patch = useConfigStore((state) => state.patch);
   const pushToast = useAppStore((state) => state.pushToast);
-  const groups = groupConfigFields(configFieldsForPage(status, page), page);
+  const fields = surfaceFields(status, catalog, surface);
+  const writable = fields.filter((field) => field.writable);
+  const primary = writable.filter((field) => field.descriptor.importance === "primary");
+  const advanced = writable.filter((field) => field.descriptor.importance === "advanced");
+  const readOnly = fields.filter((field) => !field.writable);
   const canWrite = status.activity.can_write && !savingPath;
 
   const commit = async (field: ConfigSettingField, value: JsonValue) => {
@@ -43,6 +49,8 @@ export function ConfigSettingsPage({
     }
   };
 
+  if (fields.length === 0) return <EmptyState title="No settings in this section" />;
+
   return (
     <div>
       {!status.activity.can_write && (
@@ -51,65 +59,93 @@ export function ConfigSettingsPage({
           {status.activity.reason || "Configuration is read-only while a turn is active."}
         </div>
       )}
-
-      {groups.length === 0 ? (
-        <EmptyState title="No settings in this section" />
-      ) : (
-        groups.map((group) => (
-          <section key={group.id} className="border-b border-line last:border-b-0">
-            <div className="flex h-11 items-center justify-between bg-bg-sunken/40 px-5">
-              <h3 className="text-[12px] font-semibold text-fg-muted">{group.title}</h3>
-              <Badge>{group.fields.length}</Badge>
-            </div>
-            <div className="divide-y divide-line">
-              {group.fields.map((field) => (
-                <div
-                  key={`${field.sourceId}:${field.path}`}
-                  className="grid min-h-16 gap-3 px-5 py-3 md:grid-cols-[minmax(220px,1fr)_minmax(260px,420px)] md:items-center"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-medium text-fg">{field.label}</span>
-                      {!field.writable && <Badge tone="gray">Read only</Badge>}
-                      {field.overridden && <Badge tone="yellow">Overridden</Badge>}
-                    </div>
-                    <div className="mt-0.5 truncate font-mono text-[10px] text-fg-faint" title={field.path}>
-                      {field.path}
-                    </div>
-                    <div className="mt-1 truncate text-[10px] text-fg-faint" title={field.sourcePath}>
-                      {field.sourcePath}
-                    </div>
-                    {field.overridden && (
-                      <div
-                        className="mt-1 truncate text-[10px] text-warning"
-                        title={`${field.effectiveSource}: ${formatValue(field.effectiveValue)}`}
-                      >
-                        Effective from {field.effectiveSource}: {formatValue(field.effectiveValue)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex justify-start md:justify-end">
-                    <ConfigValueControl
-                      value={field.storedValue}
-                      disabled={!canWrite || !field.writable}
-                      saving={savingPath === field.path}
-                      onCommit={(value) => commit(field, value)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))
+      <FieldGroups
+        fields={primary}
+        surface={surface}
+        status={status}
+        catalog={catalog}
+        canWrite={canWrite}
+        savingPath={savingPath}
+        onCommit={commit}
+      />
+      {advanced.length > 0 && (
+        <div className="border-t border-line p-4">
+          <Collapsible title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
+            <FieldGroups
+              fields={advanced}
+              surface={surface}
+              status={status}
+              catalog={catalog}
+              canWrite={canWrite}
+              savingPath={savingPath}
+              onCommit={commit}
+            />
+          </Collapsible>
+        </div>
+      )}
+      {readOnly.length > 0 && (
+        <div className="border-t border-line p-4">
+          <Collapsible title="Read-only" meta={<Badge>{readOnly.length}</Badge>}>
+            <FieldGroups
+              fields={readOnly}
+              surface={surface}
+              status={status}
+              catalog={catalog}
+              canWrite={false}
+              savingPath={savingPath}
+              onCommit={commit}
+            />
+          </Collapsible>
+        </div>
       )}
     </div>
   );
 }
 
-function shortId(value: string): string {
-  return value.length > 12 ? value.slice(0, 12) : value;
+function FieldGroups({
+  fields,
+  surface,
+  status,
+  catalog,
+  canWrite,
+  savingPath,
+  onCommit,
+}: {
+  fields: ConfigSettingField[];
+  surface: string;
+  status: ConfigStatus;
+  catalog: ConfigCatalog;
+  canWrite: boolean;
+  savingPath: string | null;
+  onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
+}) {
+  return (
+    <>
+      {groupSurfaceFields(fields, surface).map((group) => (
+        <section key={group.id} className="border-b border-line last:border-b-0">
+          <div className="flex h-10 items-center justify-between bg-bg-sunken/40 px-5">
+            <h3 className="text-[12px] font-semibold text-fg-muted">{group.title}</h3>
+            <Badge>{group.fields.length}</Badge>
+          </div>
+          <div className="divide-y divide-line">
+            {group.fields.map((field) => (
+              <ConfigFieldRow
+                key={`${field.sourceId}:${field.path}`}
+                field={field}
+                status={status}
+                catalog={catalog}
+                canWrite={canWrite}
+                saving={savingPath === field.path}
+                onCommit={onCommit}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
 }
 
-function formatValue(value: JsonValue): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+function shortId(value: string): string {
+  return value.length > 12 ? value.slice(0, 12) : value;
 }

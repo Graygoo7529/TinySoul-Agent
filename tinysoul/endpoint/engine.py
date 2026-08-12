@@ -97,6 +97,8 @@ class EndpointAppGateway(Protocol):
 class EndpointConfigController(Protocol):
     def status(self) -> JsonObject: ...
 
+    def catalog(self) -> JsonObject: ...
+
     def section(self, section_id: str) -> JsonObject: ...
 
     def validate(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject: ...
@@ -106,10 +108,17 @@ class EndpointConfigController(Protocol):
 
 class EndpointRuntimeGeneration(Protocol):
     @property
+    def user_turn(self) -> "EndpointUserTurn": ...
+
+    @property
     def maintenance(self) -> EndpointMaintenanceStatus: ...
 
     @property
     def workspace(self) -> WorkspaceEngine: ...
+
+
+class EndpointUserTurn(Protocol):
+    def action_catalog(self) -> JsonObject: ...
 
 
 EndpointGenerationT = TypeVar(
@@ -326,6 +335,9 @@ class EndpointEngine(Generic[EndpointGenerationT]):
             },
         }
         return result
+
+    def config_catalog(self) -> JsonObject:
+        return self._config_controller().catalog()
 
     def config_section(self, section_id: str) -> JsonObject:
         try:
@@ -565,6 +577,16 @@ class EndpointEngine(Generic[EndpointGenerationT]):
         except (LoopError, MaintenanceError) as exc:
             raise _not_ready(exc) from exc
         return {"availability": availability}
+
+    def action_catalog(self) -> JsonObject:
+        if self._runtime_handle is None:
+            raise EndpointRequestError(
+                status_code=404,
+                code="actions.unavailable",
+                message="Action catalog is not available.",
+            )
+        with self._runtime_handle.read() as generation:
+            return generation.user_turn.action_catalog()
 
     def _sync_workspace_change(self, manifest: WorkspaceManifest) -> None:
         self._gateway.sync_workspace_context(

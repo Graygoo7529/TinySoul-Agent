@@ -128,6 +128,8 @@ TinySoulAppBuilder 负责：
 
 AppBuilder 是跨模块配置装配边界，但配置错误归属仍属于对应模块。项目配置由 `tinysoul.toml` 显式 include `configs/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 和 `configs/llm/models/*.toml`；ConfigEnvironment 只加载与合并，Infra、Context、LLM、Loop、App、Session、Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 在 package resource 上执行自己的 TOML 加载与 catalog 校验。AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
+Action 的 LLM routing 是一个需要跨模块引用检查的配置契约：Action 模块解析 route 结构并校验 Action ID/backend kind，LLM 模块提供 task profile 查询，AppBuilder 只协调二者并在候选 Generation 建立前完成引用校验。配置页面使用的标题、说明、字段层级、引用提示和受控对象创建 source 全部由 `infra.config` 的 package catalog 提供；App 不聚合 descriptor，不缓存 Provider/Model/Task 等配置对象投影，也不判断前端页面。Endpoint 对 catalog 的读取仍通过 Infra controller，对有效 Action 的读取仍通过当前 Runtime Generation 的只读门面。
+
 Resource capability 在此边界解析 `[capabilities.resource]`，检查 enabled action 推导出的依赖，为 Workspace Domain 的 `workspace.convert_with_markitdown`/`workspace.convert_with_pypdf` 注册 `resource.*` handler，或把禁用 action 从 effective Catalog 移除。AppBuilder 不解析文档、不选择 converter，也不读取转换正文；Home prompt mount reconciliation 只观察 ActionEngine 最终暴露的 domain/action identities。
 
 Script capability 在此边界解析 `[capabilities.script]`，装配 Workspace transaction mirror、Home/Workspace source resolver、Turn-scoped job manager 和 Script registrar，并为 Execution Domain 注册脚本 author/run handler。AppBuilder 不解释脚本正文、job state 或 candidate diff；TurnRunner 只接收通用 activity controller，用于在普通 Cycle 预算后申请有限额外 Cycle并在 Turn 边界 cleanup。Python 默认启用，Bash 只有显式启用且 executable 检查通过时才进入 effective Catalog。

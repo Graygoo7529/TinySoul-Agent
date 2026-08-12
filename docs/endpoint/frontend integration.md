@@ -205,3 +205,22 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 - Workspace：Manifest、资源查看/添加/编辑/Trash/Restore。
 
 不存在 History/Session Explorer 页面。prior Turn 的渐进查找由 Agent 在当前 Turn 调用 `core.session.inspect`，相应 call/result 和后续 MessageStack 会自然出现在 Chat 事件流中。
+
+## 9. Settings 与配置目录
+
+- `GET /v1/config`：当前 activity、sources、stored/effective fields 与 Generation 状态；
+- `GET /v1/config/catalog`：Infra 集中维护的 surfaces、collections、field title/description、
+  value kind、importance、choices、references 与 credential reference；
+- `GET /v1/actions/catalog`：当前 Generation 的有效 User Action ID、domain、description 和
+  backend kind；
+- `PATCH /v1/config`：一次 source-aware operations 数组，返回时已完成持久化与当前
+  Generation 激活。
+
+前端必须把 ConfigStatus 作为唯一配置事实，catalog 只用于组织和解释；不得复制业务默认值或按
+dotted path 猜字段说明。Provider、Model、Task Chain 通过 collection root 动态枚举，创建和删除
+使用完整 root mutation。Task Chain models 与 `action.llm_action.overrides` 写回完整数组；Action
+picker 只展示 `/v1/actions/catalog` 中 `backend_kind=llm_action` 的当前有效 Action。
+
+任意 User/Maintenance Turn 或配置激活期间，三个 GET 仍可读取，所有 TOML/dotenv 控件禁用；
+PATCH 返回 `409 config.activation_unavailable`。进程环境不枚举、不编辑；dotenv credential 值只
+由 credential reference 与 `.env` source 组合展示。

@@ -24,7 +24,6 @@ from tinysoul.llm.requests import (
     ModelContextOverflowPolicy,
     TaskCall,
     TaskCancellation,
-    TaskProfile,
 )
 from tinysoul.llm.responses import (
     AnswerFormat,
@@ -37,6 +36,8 @@ from tinysoul.llm.responses import (
 from tinysoul.llm.tools import ToolUse
 from tinysoul.runtime import CONTEXT_COMPRESSION_REQUIRED, RuntimeException
 from tinysoul.runtime.bridge import RuntimeContextBridge
+
+from tinysoul.action.config import LLMActionProfileResolver
 
 
 class LLMActionModelRunner(Protocol):
@@ -98,11 +99,13 @@ class LLMActionTaskRunner:
         context: ContextEngine,
         action_skills: ActionSkillProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
+        profile_resolver: LLMActionProfileResolver | None = None,
     ) -> None:
         self._llm_runner = llm_runner
         self._context = context
         self._action_skills = action_skills or EmptyActionSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
+        self._profile_resolver = profile_resolver or LLMActionProfileResolver()
 
     def prompt_with_skills(
         self,
@@ -237,7 +240,9 @@ class LLMActionTaskRunner:
                 cancellation.check()
             result = self._llm_runner.run(
                 TaskCall(
-                    profile=TaskProfile.LLM_ACTION,
+                    profile=self._profile_resolver.profile_for(
+                        execution.call.action_name
+                    ),
                     messages=self._context.compose(prompt),
                     settings=CallSettings(
                         answer_format=answer_format,

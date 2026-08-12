@@ -60,7 +60,7 @@ class ActionCatalogLoader:
         ):
             raise ConfigError(
                 "llm_action_timeout_seconds must be positive",
-                key="action.llm_action_timeout_seconds",
+                key="action.llm_action.timeout_seconds",
                 value=llm_action_timeout_seconds,
                 expected="positive number",
             )

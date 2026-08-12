@@ -154,7 +154,7 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
                 "operations": [
                     {
                         "source_id": "project:configs/action.toml",
-                        "path": "action.llm_action_timeout_seconds",
+                        "path": "action.llm_action.timeout_seconds",
                         "op": "set",
                         "value": 30.0,
                     }
@@ -168,6 +168,10 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         websocket_completed = websocket.receive_json()
 
     after = endpoint.config_status()["runtime"]
+    action_catalog = client.get(
+        "/v1/actions/catalog",
+        headers={"Authorization": f"Bearer {'x' * 32}"},
+    )
     assert isinstance(before, dict)
     assert isinstance(after, dict)
     assert result["state"] == "active"
@@ -175,7 +179,13 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert after["generation_id"] != before["generation_id"]
     assert after["activity"] == "idle"
     assert endpoint.events is events
-    assert "llm_action_timeout_seconds = 30.0" in (
+    assert action_catalog.status_code == 200
+    assert any(
+        item["id"] == "workspace.analyze"
+        and item["backend_kind"] == "llm_action"
+        for item in action_catalog.json()["actions"]
+    )
+    assert "timeout_seconds = 30.0" in (
         project_root / "configs" / "action.toml"
     ).read_text(encoding="utf-8")
     activation_events = events.replay(

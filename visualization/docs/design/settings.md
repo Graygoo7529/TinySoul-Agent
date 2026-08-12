@@ -2,55 +2,80 @@
 
 ## 定位
 
-Settings 是主导航中的独立页面，不是覆盖当前业务视图的对话框。页面负责三类配置表面：
+Settings 是主导航中的独立工作页，负责项目 TOML、项目 dotenv credential 和客户端偏好。
+前端不直接访问运行目录，不解释业务 parser，也不持有第二份可写配置 tree。`ConfigStatus` 是
+当前配置事实；Infra catalog 只提供集中维护的展示语义；Action catalog 只提供当前 Generation
+有效 User Action 的有限选择范围。
 
-- 项目业务配置：运行根目录内的 TOML 配置源；
-- 项目凭据：配置声明引用并由项目 `.env` 持有的环境变量；
-- 客户端偏好：项目连接路径和界面主题。
+字段标题、说明、value kind、primary/advanced 层级、static choices、reference target 和
+credential reference 全部来自 `GET /v1/config/catalog`。前端不得按 dotted path 生成标签、猜
+页面归属或复制业务默认值；unknown descriptor 应进入可诊断只读表面，而不是静默隐藏。
 
-前端不直接读取或写入项目文件。TOML 与 `.env` 的查询、校验、持久化和运行实例激活都由 Endpoint 配置控制面拥有。
+## 信息架构
 
-## 页面结构
+桌面端使用一列栏目侧栏，栏目标题不可点击，子页面才是导航入口：
 
-Settings 使用稳定的二级导航：
+```text
+GENERAL             Overview · Application · Credentials
+MODELS & ROUTING    Providers · Models · Task Chains · Action Routing
+CAPABILITIES        Web · Resource · Execution
+CONTEXT             Home · Session · Memory · Workspace · Context Rules
+RUNTIME             Behavior · Maintenance · Infrastructure
+```
 
-- Overview 展示 Runtime Generation、运行活动、配置源和进程外壳摘要；
-- Models、Embedding、Capabilities、Memory、Workspace、Maintenance、Behavior、System 按配置路径归属展示 TOML 字段；System 包含 `config.*` 和除 embedding 外的 `infra.*`，因此进程持有的不可写字段仍然逐项可读；
-- Credentials 单独展示和编辑 `.env` 原始键值；
-- Application 管理仅属于前端的项目连接和主题偏好。
+Infrastructure 页面内部提供 System/Embedding 局部入口。窄屏先选择栏目，再横向选择该栏子页；
+不建立第二列侧栏。Application 未连接时仍可用，其余项目页面禁用。
 
-配置分区由 TOML 顶层路径的模块所有权决定。页面分组只组织展示，不建立前端配置 schema，不解释后端业务默认值，也不复制模块配置解析器。
+## 状态与刷新
 
-## 状态所有权
+`configStore` 同时读取：
 
-`appStore` 继续拥有连接句柄、事件、工作区缓存和持久化客户端偏好。`configStore` 是独立、非持久化的 Endpoint 配置快照：
+- `GET /v1/config` 的 sources/effective fields/activity/Generation；
+- `GET /v1/config/catalog` 的 package-owned descriptors；
+- `GET /v1/actions/catalog` 的当前有效 User Actions。
 
-- `GET /v1/config` 是页面读取事实源；
-- 实例切换或断开时清空快照，不能把旧实例配置带入新连接；
-- `/v1/status` 中 Runtime activity 变化以及 Turn、Maintenance、Daily Transition 状态事件都会触发权威重读，使统一只读状态跟随当前实例；
-- `config.activation.started/completed/failed` 只使快照失效并触发重读，不从 Observation payload 派生第二份激活状态；
-- 并发重读使用最后一次请求获胜，旧请求以及旧实例迟到的 PATCH/GET 结果不能覆盖更新后的 Generation。
+实例切换或断开时三者一并清空。并发请求仍使用最后一次请求获胜；PATCH 返回 active 后并发刷新
+ConfigStatus 与 Action catalog，catalog 作为同一 package contract 无需每次 PATCH 重读。事件只
+使权威快照失效，不从 Observation payload 派生第二份激活状态。
 
-TOML source value 是控件编辑的持久值，effective field 用于判断最终来源、运行值和可写性。正常项目 TOML 字段两者一致；若 process environment 或 override 赢得优先级，控件只读并明确显示 effective source/value。
+## 通用字段页
 
-## 写入与激活
+每个 surface 页包含用途说明、Runtime activity、Primary 字段、默认关闭的 Advanced 和
+Read-only 折叠区。字段主信息只显示 catalog title/description；dotted path、source path、
+effective source/value 收进 Details。Turn 活跃时所有字段继续可读，仅禁用控件。
 
-每次字段编辑生成一个 source-aware mutation，并直接调用 `PATCH /v1/config`。该请求在后端完成候选校验、Runtime Generation 重建、文件原子提交和句柄切换后才返回 `state=active`。
+boolean 使用 switch，enum/reference 使用 select，scalar 使用输入框，普通 structured value 使用
+JSON editor。reference options 从 catalog collection 与当前 ConfigStatus 枚举，不硬编码对象列表。
 
-- 布尔值通过 switch 单字段即时提交；
-- 字符串、数值和结构值在字段内确认后单字段提交；
-- `.env` 值必须是字符串，支持设置和删除；
-- 任意 User Turn、Maintenance Turn 或其他非 idle 活动期间，配置页面完整可读但统一只读；
-- 成功提示使用 PATCH receipt 的 Generation id，随后重新读取权威快照；快照重读失败不反转已经成功的激活结果。
+## 对象页
 
-前端不提供独立 Apply Runtime 操作，也不先调用 validate 再调用 patch。PATCH 本身就是“持久化 + 当前实例激活”的完整用户操作。
+Provider、Model、Task Chain 不是前端状态实体，只是 catalog collection root 下的动态视图。页面
+使用对象列表加详情编辑器，不显示反向引用或全局 current Provider。
+
+- Provider 支持完整 root 创建、字段编辑和删除；列表摘要只展示 enabled、adapter、endpoint。
+- Model 新建必须选择现有 Model 作为模板。provider adapter 相同可保留 options；adapter 变化时
+  在同一次 batch PATCH 删除 provider options。
+- Task Chain 新建至少选择一个 Model；models 禁止重复或为空，支持拖放与上下移动图标，写回
+  完整有序数组。未被 default/override 使用时显示 Unbound。
+- Action Routing 顶部编辑 default profile；override 只能选择当前 Action catalog 中
+  `backend_kind=llm_action` 的 Action 和当前 Task Chain。删除 override 自动回退 default。
+
+创建/替换对完整 object root 执行 `set`，删除执行 `delete`。Provider 和 Task Chain 使用 catalog
+template；Model 写入 catalog 预声明的 `configs/llm/models/custom.toml`。Backend parser 与候选
+Generation 校验仍是最终权威。
 
 ## Credentials
 
-Credentials 从两处构造列表：TOML 中的 `api_key_env` / `api_key_envs` 声明，以及 `.env` 中已有的原始变量。值只保存在非持久化配置 store 中，输入默认遮罩，可显式查看、更新、删除或新增合法环境变量名；变量未写入、已写入空值和已配置非空值是三个不同状态。
+Credentials 从 catalog 中 `credential_reference=true` 的有效字段值和 dotenv 当前键合并。页面
+只显示、编辑或删除 dotenv stored value；系统进程环境不枚举、不编辑。输入默认遮罩，区分
+Unset、Empty 和 Configured。
 
-系统进程环境仍可作为后端高优先级覆盖，但不是前端配置表面。前端不枚举、不修改进程环境；出现覆盖时只按 Endpoint 的 effective source 投影为只读状态。
+## 写入与激活
 
-## 扩展规则
+每次用户提交直接调用 `PATCH /v1/config`。后端在返回前完成候选校验、Generation 构建、文件
+原子提交和 RuntimeHandle 切换；前端没有独立 Apply Runtime 或 revision。单字段通常提交一个
+mutation；Model adapter 切换、Task order 和 Action overrides 使用一次 batch/完整数组 mutation。
 
-新增后端模块配置时，只在路径到 Settings 子页的归属表中增加稳定映射。字段控件继续由 JSON 值类型选择，不为每个 TOML 文件建立专用表单。只有确有领域交互语义的字段才增加局部专用控件，不能让展示层演化为第二套配置解释器。
+任意 User Turn、Maintenance Turn、Daily Transition 或 config activation 期间，页面完整可读但
+统一禁用。Backend 错误保留当前编辑器 draft 并显示 owner 提供的 message；成功提示显示 receipt
+Generation id，再以权威 GET 替换页面事实。

@@ -31,12 +31,23 @@ from .responses import AnswerFormat
 from .tools import ToolUse
 
 
+def _validate_object_id(value: str, *, key: str) -> None:
+    if not value or value != value.strip() or "." in value:
+        raise ConfigError(
+            "LLM configuration object ID must not contain dots or outer whitespace",
+            key=key,
+            value=value,
+            expected="non-empty identifier without '.'",
+        )
+
+
 class ProviderConfigParser:
     """Parse configured LLM provider definitions."""
 
     def parse(self, table: Mapping[str, object]) -> list[ProviderSpec]:
         providers: list[ProviderSpec] = []
         for provider_id, value in table.items():
+            _validate_object_id(provider_id, key=f"llm.providers.{provider_id}")
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
             reject_unknown_keys(
                 provider_table,
@@ -104,6 +115,7 @@ class ModelConfigParser:
     ) -> ModelRegistry:
         registry = ModelRegistry()
         for model_id, value in table.items():
+            _validate_object_id(model_id, key=f"llm.models.{model_id}")
             model_table = as_table(value, key=f"llm.models.{model_id}")
             reject_unknown_keys(
                 model_table,
@@ -176,6 +188,7 @@ class TaskConfigParser:
     ) -> TaskSpecTable:
         tasks = TaskSpecTable()
         for profile, value in table.items():
+            _validate_object_id(profile, key=f"llm.tasks.{profile}")
             task_table = as_table(value, key=f"llm.tasks.{profile}")
             reject_unknown_keys(
                 task_table,

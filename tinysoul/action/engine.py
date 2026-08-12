@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Self
 
@@ -49,6 +49,24 @@ from .core.scope import (
 )
 
 
+@dataclass(frozen=True)
+class ActionCatalogEntry:
+    """Finite public projection of one effective Action."""
+
+    action_id: str
+    domain: str
+    description: str
+    backend_kind: ActionBackendKind
+
+    def to_json(self) -> JsonObject:
+        return {
+            "id": self.action_id,
+            "domain": self.domain,
+            "description": self.description,
+            "backend_kind": self.backend_kind.value,
+        }
+
+
 class ActionEngine:
     """Assembled action module entry point for loop/context integration."""
 
@@ -82,6 +100,19 @@ class ActionEngine:
         """Expose catalog action identities without leaking mutable catalog state."""
 
         return tuple((action.domain, action.name) for action in self._catalog.actions())
+
+    def catalog_projection(self) -> tuple[ActionCatalogEntry, ...]:
+        """Expose the effective Action surface without catalog implementation state."""
+
+        return tuple(
+            ActionCatalogEntry(
+                action_id=action.name,
+                domain=action.domain,
+                description=action.tool.description,
+                backend_kind=action.backend.kind,
+            )
+            for action in self._catalog.actions()
+        )
 
     def view(self, action_names: tuple[str, ...]) -> "ActionEngine":
         """Return an immutable catalog view sharing the assembled runtime."""

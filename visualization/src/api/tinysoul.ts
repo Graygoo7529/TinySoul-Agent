@@ -11,9 +11,11 @@ import type {
   BackendStatus,
   CommandReceipt,
   ConnectionInfo,
+  ConfigCatalog,
   ConfigPatchRequest,
   ConfigPatchResult,
   ConfigStatus,
+  ActionCatalog,
   ControlRequest,
   EndpointEvent,
   InputRequest,
@@ -109,6 +111,14 @@ export class TinySoulClient {
 
   async configStatus(): Promise<ConfigStatus> {
     return this.request<ConfigStatus>("GET", "/v1/config");
+  }
+
+  async configCatalog(): Promise<ConfigCatalog> {
+    return this.request<ConfigCatalog>("GET", "/v1/config/catalog");
+  }
+
+  async actionCatalog(): Promise<ActionCatalog> {
+    return this.request<ActionCatalog>("GET", "/v1/actions/catalog");
   }
 
   async patchConfig(request: ConfigPatchRequest): Promise<ConfigPatchResult> {

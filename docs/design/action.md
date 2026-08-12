@@ -236,7 +236,17 @@ Phase3 action-internal LLM task 会自动追加 domain skill 与 action skill gu
 
 LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer 作为 envelope 顶层 `failure` 投影。`retry_same` 可以在 disposition 允许的瞬态或可恢复条件下重复同一参数；运行时不把重复参数判为错误。`change_request` 要求改变 `scope` 指出的限制条件；`use_fallback` 要求改变真实生成/执行路径；`stop` 表示当前配置不可继续。该协议不自动调度重试，也不把 provider 或诊断异常暴露给模型。内置 `core.reason` 由 `tinysoul/action/builtins/core/actions.py` 提供，作为通用推理动作，只接受 `reference_links`；内置 `core.answer` 同样由 Action builtins core actions 提供，作为 User Turn 正常完成动作，要求内部 LLM task 返回包含字符串 `text` 的 JSON object，并可把使用过的 `reference_links` 一并返回为来源链接。它既可以交付当前成果，也可以在后续工作依赖用户时提出问题、请求确认、申请进一步指示或请求路线选择；成功只表示当前 User Turn 已产生正式响应，不表示整体多轮目标或 WorkingContext todos 已完成。Workspace 内置 `workspace.create`、`workspace.append`、`workspace.patch` 与 `workspace.rewrite` 分别表达创建、精确追加、精确替换和完整覆盖；`workspace.analyze` 仍返回经过 executor 验证的结构化结论。Phase3 在外层 ActionResult 产生前就可能启动嵌套 task，因此 LLM provider 适配器不能把当前未完成的 Phase2 tool call 当作完整 provider-native history 回放；当嵌套 task 禁用工具时，已完成的 ToolResultMessage 也只作为普通上下文文本传入。
 
-`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入；`LLMActionTaskRunner` 从 owner 剩余时间中固定预留 5 秒，让内部 Task 在 owner deadline 前完成取消、失败归一化和 executor 返回，再把扣除后的剩余时间交给 LLM runner/provider request timeout。Task 成功返回后，runner 在把结果交给领域 executor 前重新检查同一 cancellation，从而阻止迟返工件进入 Workspace/Script mutation；迟返失败仍保留原 Task failure。预留窗口到期映射为普通 `execution_timeout/action.timeout`，不向模型暴露 backend、provider 或线程事实。项目配置 `[action] llm_action_timeout_seconds`（默认 600）填充未声明专用超时的 `llm_action`；当前具体 LLM action 和 `web.search_by_kimi` 均显式使用 600 秒，具体 action 仍可覆盖通用默认。`max_output_tokens` 是具体 action 或 owner 选择的 provider generation budget；最终 artifact boundary 由拥有提交语义的 owner 决定。Workspace create/rewrite 不在 Catalog backend options 中重复声明字符或 token 上限，而是统一使用 `workspace.max_write_chars=12000`，并在 task 与 commit 两侧共同校验。超过上限应按任务状态选择自然片段、`workspace.append` 或 digest-guarded `workspace.patch`，而不是重复同一路径的无界重试。其它 Action 继续使用所属 Catalog runtime 边界；该机制不是对供应商不可中断网络请求的硬停止保证——Turn 取消令牌可放弃本地等待并丢弃迟到结果。
+`llm_action` 后端只表达“动作内部需要一次模型推理”，不拥有独立语境，也不绕开 Context/LLM 模块的调用协议。外层 Action control 通过 LLM task cancellation contract 传入；`LLMActionTaskRunner` 从 owner 剩余时间中固定预留 5 秒，让内部 Task 在 owner deadline 前完成取消、失败归一化和 executor 返回，再把扣除后的剩余时间交给 LLM runner/provider request timeout。Task 成功返回后，runner 在把结果交给领域 executor 前重新检查同一 cancellation，从而阻止迟返工件进入 Workspace/Script mutation；迟返失败仍保留原 Task failure。预留窗口到期映射为普通 `execution_timeout/action.timeout`，不向模型暴露 backend、provider 或线程事实。
+
+项目配置 `[action.llm_action]` 包含 `timeout_seconds`、`default_task_profile` 和 inline-table
+`overrides`。timeout（默认 600）只填充未声明专用超时的 `llm_action`；具体 Action 的 runtime
+值仍可覆盖通用默认。`LLMActionProfileResolver` 先按完整 Action ID 查 override，再回退 default
+profile，并把字符串 profile 交给现有 LLM task runner。候选 AppConfigPlan 构建时，Action
+模块会把 override Action ID 对照 package catalog，要求 backend kind 为 `llm_action`；App 再用
+LLM `TaskSpecTable.profiles()` 协调 profile 引用。unknown Action、非 LLM Action、unknown
+profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError`，不会推迟到执行期。
+
+`max_output_tokens` 是具体 action 或 owner 选择的 provider generation budget；最终 artifact boundary 由拥有提交语义的 owner 决定。Workspace create/rewrite 不在 Catalog backend options 中重复声明字符或 token 上限，而是统一使用 `workspace.max_write_chars=12000`，并在 task 与 commit 两侧共同校验。超过上限应按任务状态选择自然片段、`workspace.append` 或 digest-guarded `workspace.patch`，而不是重复同一路径的无界重试。其它 Action 继续使用所属 Catalog runtime 边界；该机制不是对供应商不可中断网络请求的硬停止保证——Turn 取消令牌可放弃本地等待并丢弃迟到结果。
 
 ## 组装入口
 
@@ -247,6 +257,10 @@ LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer
 Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`ActionExecution`、`ActionExecutionContext`、`ActionExecutor`、Action 结果类型和模块错误基类。Workspace、Home、Memory 与 Loop 只从顶层包引用这些协作类型；`action.core` 散件继续只服务于 Action 内部实现与底层单元测试。公共 SPI 不取代 `ActionEngine` 的调用门面，上层仍不直接调用 runner、hook pipeline 或 execution builder。
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
+
+`ActionEngine.catalog_projection()` 进一步提供当前 effective User Action 的有限只读投影，只含
+Action ID、domain、tool description 和 backend kind。`UserTurnEntry` 持有已装配 ActionEngine
+并把该投影交给 Endpoint；投影不包含 executor、prompt、schema 或 package 路径。
 
 `ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。Builder 不按 backend kind 自动提供 executor；所有 native、subprocess、supervised_process 与 capability-specific handler 都由其 owner registrar 显式注册。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；validator 在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。不为没有实际消费者的单个 handler 保留独立 validator 注册通道。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
 

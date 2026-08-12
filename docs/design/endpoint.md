@@ -52,7 +52,7 @@ Endpoint 也不提供 Context inspect REST、canonical trace REST 或前端审�
 
 ## Configuration API
 
-Endpoint 提供四个配置协议入口：
+Endpoint 提供以下配置协议入口：
 
 - `GET /v1/config` 返回 activity、generation/activation 状态、全部 effective fields、每个
   source 的类型、相对路径、值投影和静态 writable；`config.*` 入口及 Endpoint 进程外壳以
@@ -61,10 +61,21 @@ Endpoint 提供四个配置协议入口：
 - `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。当前投影由
   Infra `ConfigController` 从 effective fields 按 dotted key 前缀筛选，不引入 owner descriptor
   或第二套业务配置 schema；字段的业务解释和可编辑布局仍由各模块及前端负责。
+- `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、collections 和 fields。它只
+  表达展示元数据与受控创建 source，不返回当前值、前端 navigation 或 revision；当前事实仍
+  只来自 `GET /v1/config`。
+- `GET /v1/actions/catalog` 在 RuntimeHandle read lease 下读取当前 Generation 的 User Action
+  有限投影，返回 Action ID、domain、description 和 backend kind。Endpoint 不扫描 package
+  TOML，也不缓存 Action 状态。
 - `POST /v1/config/validate` 只构建候选 ConfigEnvironment/Plan，不写文件或切换 Generation。
 - `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。Infra 临时编辑 TOML/.env，
   App 构建候选 Generation；文件提交和 handle 切换完成后才返回 `state=active` 与
-  `generation_id`。候选解析、事务或激活失败会保留旧文件和旧 Generation。
+`generation_id`。候选解析、事务或激活失败会保留旧文件和旧 Generation。
+
+Provider、Model 和 Task Chain 的创建/替换对 collection object root 使用一次 `set`；删除对同一
+root 使用 `delete`。Action overrides 与 Task Chain 排序提交完整数组，TOML writer 使用 inline
+table 保持结构化 round trip。Backend 不额外提供 config object endpoint，前端用 catalog
+collection descriptor 与 ConfigStatus 动态枚举对象。
 
 所有配置修改统一要求 Runtime activity 为 `idle`；User Turn、Maintenance Turn、每日切换或
 已有激活期间返回 `409 config.activation_unavailable`，不提供字段级 currently_writable 或

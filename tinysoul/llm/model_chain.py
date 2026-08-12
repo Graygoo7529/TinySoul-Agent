@@ -114,6 +114,15 @@ class TaskSpecTable:
         except KeyError as exc:
             raise LLMContractError(f"Unknown task profile: {profile_name}") from exc
 
+    def profiles(self) -> tuple[str, ...]:
+        """Return configured task-profile identities in stable order."""
+
+        return tuple(sorted(self._specs))
+
+    def has(self, profile: TaskProfile | str) -> bool:
+        profile_name = profile.value if isinstance(profile, TaskProfile) else profile
+        return profile_name in self._specs
+
 
 class ModelChainState:
     """Mutable current-position state for model chains."""

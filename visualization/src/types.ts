@@ -254,6 +254,77 @@ export interface ConfigStatus {
   };
 }
 
+export type ConfigFieldImportance = "primary" | "advanced";
+
+export type ConfigValueKind =
+  | "boolean"
+  | "integer"
+  | "number"
+  | "string"
+  | "enum"
+  | "string_list"
+  | "reference"
+  | "reference_list"
+  | "object"
+  | "object_list";
+
+export interface ConfigChoiceDescriptor {
+  value: string;
+  label: string;
+}
+
+export interface ConfigReferenceDescriptor {
+  collection: string;
+  multiple: boolean;
+}
+
+export interface ConfigFieldDescriptor {
+  path: string;
+  surface: string;
+  title: string;
+  description: string;
+  value_kind: ConfigValueKind;
+  importance: ConfigFieldImportance;
+  credential_reference: boolean;
+  choices?: ConfigChoiceDescriptor[];
+  reference?: ConfigReferenceDescriptor;
+}
+
+export interface ConfigSurfaceDescriptor {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface ConfigCollectionDescriptor {
+  id: string;
+  surface: string;
+  root: string;
+  title: string;
+  description: string;
+  create_source: string;
+  create_template: Record<string, JsonValue>;
+  allow_create: boolean;
+  allow_delete: boolean;
+}
+
+export interface ConfigCatalog {
+  surfaces: ConfigSurfaceDescriptor[];
+  collections: ConfigCollectionDescriptor[];
+  fields: ConfigFieldDescriptor[];
+}
+
+export interface ActionCatalogEntry {
+  id: string;
+  domain: string;
+  description: string;
+  backend_kind: string;
+}
+
+export interface ActionCatalog {
+  actions: ActionCatalogEntry[];
+}
+
 export interface ConfigMutation {
   source_id: string;
   path: string;

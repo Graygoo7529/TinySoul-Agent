@@ -43,7 +43,7 @@ from .core.specs import (
     ActionSpec,
     ActionToolSpec,
 )
-from .engine import ActionEngine, ActionEngineBuilder
+from .engine import ActionCatalogEntry, ActionEngine, ActionEngineBuilder
 from .resources import builtin_action_catalog_root
 
 __all__ = [
@@ -52,6 +52,7 @@ __all__ = [
     "ActionBatch",
     "ActionBatchPreparation",
     "ActionCall",
+    "ActionCatalogEntry",
     "ActionCatalog",
     "ActionDomainSpec",
     "ActionDomainPromptRenderer",

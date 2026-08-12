@@ -27,3 +27,7 @@ class ConfigError(Exception):
             parts.append(f"value={self.value!r}")
         return " | ".join(parts)
 
+
+class ConfigCatalogError(Exception):
+    """Raised when the package-owned configuration catalog is invalid."""
+

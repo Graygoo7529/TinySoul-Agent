@@ -1,0 +1,189 @@
+[[surface]]
+id = "behavior"
+title = "Behavior"
+description = "User Turn limits, application input behavior, output projection, and Action defaults."
+
+[[surface]]
+id = "maintenance"
+title = "Maintenance"
+description = "Business timezone, scheduled maintenance, archive, and Maintenance Turn behavior."
+
+[[surface]]
+id = "infrastructure"
+title = "Infrastructure"
+description = "External foundational services, project configuration sources, and process-owned settings."
+
+[[surface]]
+id = "embedding"
+title = "Embedding"
+description = "External embedding service used by rebuildable semantic indexes."
+
+[[field]]
+path = "app.interactive"
+surface = "behavior"
+title = "Interactive Terminal"
+description = "Starts the terminal input source when no Endpoint input source is configured."
+value_kind = "boolean"
+
+[[field]]
+path = "app.exit_commands"
+surface = "behavior"
+title = "Exit Commands"
+description = "Terminal command words that request Program exit."
+value_kind = "string_list"
+importance = "advanced"
+
+[[field]]
+path = "app.stop_turn_commands"
+surface = "behavior"
+title = "Stop Turn Commands"
+description = "Terminal command words that request cooperative cancellation of the active User Turn."
+value_kind = "string_list"
+importance = "advanced"
+
+[[field]]
+path = "app.retained_outcomes"
+surface = "behavior"
+title = "Retained Outcomes"
+description = "Number of completed Program outcomes retained in the process shell."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "app.output.mode"
+surface = "behavior"
+title = "Output Detail"
+description = "Default terminal output projection level."
+value_kind = "enum"
+choices = [
+  { value = "normal", label = "Normal" },
+  { value = "verbose", label = "Verbose" },
+  { value = "model", label = "Model context" },
+]
+
+[[field]]
+path = "app.output.model_max_chars"
+surface = "behavior"
+title = "Model Output Display Length"
+description = "Maximum model-context characters rendered by the terminal output sink."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "loop.user.max_cycles"
+surface = "behavior"
+title = "User Turn Cycles"
+description = "Maximum complete Agent Cycles allowed in one User Turn."
+value_kind = "integer"
+
+[[field]]
+path = "maintenance.timezone"
+surface = "maintenance"
+title = "Business Timezone"
+description = "IANA timezone used to determine business days and maintenance schedule time."
+value_kind = "string"
+
+[[field]]
+path = "maintenance.archive_root"
+surface = "maintenance"
+title = "Archive Root"
+description = "Project-relative directory containing frozen business-day archives."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "maintenance.runtime_root"
+surface = "maintenance"
+title = "Maintenance Runtime Root"
+description = "Project-relative directory containing maintenance availability and runtime state."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "maintenance.turn.max_cycles"
+surface = "maintenance"
+title = "Maintenance Turn Cycles"
+description = "Maximum complete Agent Cycles allowed in one Home or Memory Maintenance Turn."
+value_kind = "integer"
+
+[[field]]
+path = "maintenance.schedule.enabled"
+surface = "maintenance"
+title = "Daily Maintenance"
+description = "Allows the stable scheduler to enqueue daily maintenance work."
+value_kind = "boolean"
+
+[[field]]
+path = "maintenance.schedule.daily_time"
+surface = "maintenance"
+title = "Daily Maintenance Time"
+description = "Local business-time clock value used for scheduled daily maintenance."
+value_kind = "string"
+
+[[field]]
+path = "infra.embedding.enabled"
+surface = "embedding"
+title = "Embedding Service"
+description = "Enables external embedding generation for semantic Memory search indexes."
+value_kind = "boolean"
+
+[[field]]
+path = "infra.embedding.base_url"
+surface = "embedding"
+title = "Embedding API Base URL"
+description = "OpenAI-compatible API root used for embedding requests."
+value_kind = "string"
+
+[[field]]
+path = "infra.embedding.model"
+surface = "embedding"
+title = "Embedding Model"
+description = "Provider model identifier used to generate embedding vectors."
+value_kind = "string"
+
+[[field]]
+path = "infra.embedding.api_key_env"
+surface = "embedding"
+title = "Embedding Credential Name"
+description = "Dotenv variable that contains the embedding service API key."
+value_kind = "string"
+credential_reference = true
+
+[[field]]
+path = "infra.embedding.dimensions"
+surface = "embedding"
+title = "Embedding Dimensions"
+description = "Expected vector dimension produced by the configured embedding model."
+value_kind = "integer"
+
+[[field]]
+path = "infra.embedding.batch_size"
+surface = "embedding"
+title = "Embedding Batch Size"
+description = "Maximum number of text inputs included in one embedding request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "infra.embedding.timeout_seconds"
+surface = "embedding"
+title = "Embedding Timeout"
+description = "Maximum time allowed for one embedding API request."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "config.include"
+surface = "infrastructure"
+title = "Configuration Includes"
+description = "Project-owned TOML include patterns loaded into the configuration source graph."
+value_kind = "string_list"
+importance = "advanced"
+
+[[field]]
+path = "config.env_file"
+surface = "infrastructure"
+title = "Dotenv File"
+description = "Project-relative dotenv file loaded for configured credential names."
+value_kind = "string"
+importance = "advanced"

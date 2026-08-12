@@ -10,6 +10,19 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 配置加载机制属于 Infra；具体配置项属于使用它的模块。
 
+Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置语义。目录位于
+`tinysoul/infra/config/catalog/*.toml`，集中维护稳定 surface、collection、字段标题、说明、
+输入类型、primary/advanced 层级、静态 choices、正向引用和 credential reference 标记；
+`ConfigCatalog` 在加载时校验 ID、pattern、引用与 source policy，并通过
+`ConfigController.catalog()` 提供 JSON-safe 投影。业务模块不得复制这些展示说明，前端也不按
+dotted path 猜测标签和归属。
+
+Catalog 不包含当前值、Runtime activity、业务默认值、parser callable、前端 route、React
+component 或 secret value。Provider、Model、Task Chain 等对象仍只是 `ConfigStatus` 中同一
+source/effective 配置事实的 collection view；Infra 不缓存对象投影，也不 import LLM、Action、
+Capabilities 等业务模块。Catalog 资源错误是 Infra package contract failure，项目 TOML 的结构
+与引用错误仍由各业务 parser 形成 `ConfigError`。
+
 例如，Infra 可以提供读取配置、合并来源、类型转换、配置树访问和错误报告的机制，但不应把 LLM provider catalog、Action 策略、Loop 语义或 Workspace 规则集中放进 Infra。
 
 各模块应定义自己的配置结构和默认值。应用入口或组合层负责构建统一配置环境，再把相关配置交给模块。模块内部不应依赖导入时生成的全局配置对象。

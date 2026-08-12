@@ -6,7 +6,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from tinysoul.action import ActionEngine
-from tinysoul.action.config import ActionSettings, parse_action_settings
+from tinysoul.action.config import (
+    ActionSettings,
+    parse_action_settings,
+    validate_llm_action_routes,
+)
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
 from tinysoul.context import ContextEngine, ContextSettings, parse_context_settings
 from tinysoul.endpoint import (
@@ -27,6 +31,7 @@ from tinysoul.memory import MemoryEngine, parse_memory_settings
 from tinysoul.memory.errors import MemoryError
 from tinysoul.infra.config import (
     ConfigController,
+    ConfigCatalogError,
     ConfigEnvironment,
     ConfigError,
     PreparedConfigActivation,
@@ -421,6 +426,11 @@ class TinySoulAppBuilder:
                 observations=observations,
                 endpoint=endpoint,
             )
+        except ConfigCatalogError as exc:
+            raise infra_bridge.startup_failure(
+                message=str(exc),
+                payload={"error_type": type(exc).__name__},
+            ) from exc
         except ConfigError as exc:
             raise infra_bridge.from_config_error(exc) from exc
         except ProviderError as exc:
@@ -614,7 +624,7 @@ class TinySoulAppBuilder:
                 "capabilities",
             }
         )
-        return AppConfigPlan(
+        plan = AppConfigPlan(
             environment=config,
             infra=config.parse_section("infra", parse_infra_settings),
             app=(
@@ -627,10 +637,12 @@ class TinySoulAppBuilder:
                 "capabilities", parse_capabilities_settings
             ),
             context=config.parse_section("context", parse_context_settings),
-            llm=(
-                None
-                if self._llm is not None
-                else config.parse_section("llm", LLMConfigParser().parse)
+            llm=config.parse_section(
+                "llm",
+                lambda tree: LLMConfigParser().parse(
+                    tree,
+                    require_enabled_providers=self._llm is None,
+                ),
             ),
             loop=(
                 self._loop_settings
@@ -677,6 +689,11 @@ class TinySoulAppBuilder:
                 ),
             ),
         )
+        validate_llm_action_routes(
+            plan.action.llm_action,
+            task_profiles=plan.llm.tasks.profiles(),
+        )
+        return plan
 
     @staticmethod
     def _map_owned_config_error(error: ConfigError) -> RuntimeException:

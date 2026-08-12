@@ -1,0 +1,576 @@
+[[surface]]
+id = "capabilities.web"
+title = "Web"
+description = "Web search, discovery, fetching, and shared network result limits."
+
+[[surface]]
+id = "capabilities.resource"
+title = "Resource"
+description = "Document conversion, extraction, and generated asset limits."
+
+[[surface]]
+id = "capabilities.execution"
+title = "Execution"
+description = "Script, shell, and supervised process execution boundaries."
+
+[[field]]
+path = "capabilities.web.max_source_bytes"
+surface = "capabilities.web"
+title = "Maximum Download Bytes"
+description = "Largest web response body accepted before content processing."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.max_output_chars"
+surface = "capabilities.web"
+title = "Maximum Stored Output"
+description = "Largest extracted web result that may be written as a workspace resource."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.max_excerpt_chars"
+surface = "capabilities.web"
+title = "Excerpt Length"
+description = "Maximum character count retained for each compact web result excerpt."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.request_timeout_seconds"
+surface = "capabilities.web"
+title = "Request Timeout"
+description = "Maximum time allowed for one web HTTP request."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.web.max_redirects"
+surface = "capabilities.web"
+title = "Maximum Redirects"
+description = "Maximum HTTP redirects followed by a web request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.user_agent"
+surface = "capabilities.web"
+title = "User Agent"
+description = "HTTP User-Agent sent by TinySoul web requests."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.enabled"
+surface = "capabilities.web"
+title = "Kimi Search"
+description = "Registers the Kimi-backed web search action in the effective Action Catalog."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.base_url"
+surface = "capabilities.web"
+title = "Search API Base URL"
+description = "OpenAI-compatible endpoint used by the Kimi search integration."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.api_key_env"
+surface = "capabilities.web"
+title = "Search Credential Name"
+description = "Dotenv variable that contains the Kimi search API key."
+value_kind = "string"
+credential_reference = true
+
+[[field]]
+path = "capabilities.web.search_by_kimi.model"
+surface = "capabilities.web"
+title = "Search Model"
+description = "Provider model identifier used for tool-assisted web search."
+value_kind = "string"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_query_chars"
+surface = "capabilities.web"
+title = "Maximum Query Length"
+description = "Largest search instruction accepted by the Kimi search action."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_result_chars"
+surface = "capabilities.web"
+title = "Maximum Search Result"
+description = "Largest complete search result retained as a workspace resource."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_inline_chars"
+surface = "capabilities.web"
+title = "Inline Search Result"
+description = "Maximum search result characters returned directly in the Action result."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_tool_rounds"
+surface = "capabilities.web"
+title = "Maximum Search Rounds"
+description = "Maximum provider tool-call rounds used to complete one search."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_search_tokens"
+surface = "capabilities.web"
+title = "Search Token Budget"
+description = "Maximum provider search-tool token budget for one action."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.search_by_kimi.max_output_tokens"
+surface = "capabilities.web"
+title = "Search Output Tokens"
+description = "Maximum provider generation tokens for one search result."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.enabled"
+surface = "capabilities.web"
+title = "Page Discovery"
+description = "Registers bounded same-origin page discovery in the effective Action Catalog."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_visit_depth"
+surface = "capabilities.web"
+title = "Visit Depth"
+description = "Maximum same-origin link depth visited from the seed page."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_pages"
+surface = "capabilities.web"
+title = "Maximum Pages"
+description = "Maximum pages fetched during one discovery action."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_candidates"
+surface = "capabilities.web"
+title = "Maximum Candidates"
+description = "Maximum discovered page candidates retained in the result."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_links_per_page"
+surface = "capabilities.web"
+title = "Links Per Page"
+description = "Maximum eligible links considered from one fetched page."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_result_chars"
+surface = "capabilities.web"
+title = "Discovery Result Size"
+description = "Largest complete discovery result written to the workspace."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_inline_chars"
+surface = "capabilities.web"
+title = "Inline Discovery Size"
+description = "Maximum discovery result characters returned directly to the Agent."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_concurrency"
+surface = "capabilities.web"
+title = "Discovery Concurrency"
+description = "Maximum concurrent page requests during discovery."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_tasks_per_minute"
+surface = "capabilities.web"
+title = "Discovery Rate"
+description = "Maximum page request tasks started per minute."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_request_retries"
+surface = "capabilities.web"
+title = "Request Retries"
+description = "Maximum retries for a failed page request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.max_crawl_seconds"
+surface = "capabilities.web"
+title = "Discovery Runtime"
+description = "Maximum total runtime for one page discovery action."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.discover_pages.allow_query_links"
+surface = "capabilities.web"
+title = "Follow Query Links"
+description = "Allows discovery to expand links that differ through URL query parameters."
+value_kind = "boolean"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.web.fetch_with_defuddle.enabled"
+surface = "capabilities.web"
+title = "Defuddle Fetch"
+description = "Registers Defuddle-based readable page extraction."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.web.fetch_with_trafilatura.enabled"
+surface = "capabilities.web"
+title = "Trafilatura Fetch"
+description = "Registers Trafilatura-based readable page extraction."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.max_source_bytes"
+surface = "capabilities.resource"
+title = "Maximum Source Bytes"
+description = "Largest source document accepted by a conversion action."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.resource.max_output_chars"
+surface = "capabilities.resource"
+title = "Maximum Output Characters"
+description = "Largest converted Markdown resource that may be committed."
+value_kind = "integer"
+
+[[field]]
+path = "capabilities.resource.max_assets"
+surface = "capabilities.resource"
+title = "Maximum Assets"
+description = "Maximum extracted assets retained from one source document."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.resource.max_total_asset_bytes"
+surface = "capabilities.resource"
+title = "Total Asset Bytes"
+description = "Maximum combined size of assets extracted from one document."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.resource.max_pdf_pages"
+surface = "capabilities.resource"
+title = "Maximum PDF Pages"
+description = "Maximum page count accepted by PDF conversion."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.resource.render_pdf_pages"
+surface = "capabilities.resource"
+title = "PDF Page Rendering"
+description = "Controls when PDF pages are rendered as image assets."
+value_kind = "enum"
+choices = [
+  { value = "never", label = "Never" },
+  { value = "on_no_text", label = "When no text is extracted" },
+  { value = "always", label = "Always" },
+]
+
+[[field]]
+path = "capabilities.resource.convert_with_markitdown.enabled"
+surface = "capabilities.resource"
+title = "MarkItDown Conversion"
+description = "Registers document conversion backed by MarkItDown."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.convert_with_markitdown.formats"
+surface = "capabilities.resource"
+title = "MarkItDown Formats"
+description = "Source file formats accepted by the MarkItDown converter."
+value_kind = "string_list"
+
+[[field]]
+path = "capabilities.resource.convert_with_markitdown.extract_images"
+surface = "capabilities.resource"
+title = "Extract Images"
+description = "Keeps embedded images as related workspace assets during MarkItDown conversion."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.convert_with_markitdown.extract_attachments"
+surface = "capabilities.resource"
+title = "Extract Attachments"
+description = "Keeps embedded attachments as related workspace assets during MarkItDown conversion."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.convert_with_pypdf.enabled"
+surface = "capabilities.resource"
+title = "PyPDF Conversion"
+description = "Registers PDF conversion backed by PyPDF."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.convert_with_pypdf.extract_images"
+surface = "capabilities.resource"
+title = "Extract PDF Images"
+description = "Keeps images extracted from PDF pages as related workspace assets."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.resource.convert_with_pypdf.extract_attachments"
+surface = "capabilities.resource"
+title = "Extract PDF Attachments"
+description = "Keeps embedded PDF attachments as related workspace assets."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.script.enabled"
+surface = "capabilities.execution"
+title = "Script Execution"
+description = "Allows configured script language actions to enter the effective Action Catalog."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.script.max_source_chars"
+surface = "capabilities.execution"
+title = "Script Source Limit"
+description = "Maximum characters accepted in a generated or executed script source."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.script.max_args"
+surface = "capabilities.execution"
+title = "Maximum Script Arguments"
+description = "Maximum number of arguments passed to a script process."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.script.max_arg_chars"
+surface = "capabilities.execution"
+title = "Script Argument Length"
+description = "Maximum characters allowed in one script process argument."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.script.python.enabled"
+surface = "capabilities.execution"
+title = "Python Scripts"
+description = "Enables Python script authoring and execution actions."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.script.python.executable"
+surface = "capabilities.execution"
+title = "Python Executable"
+description = "Executable used for Python script processes; an omitted value uses the active interpreter."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.script.bash.enabled"
+surface = "capabilities.execution"
+title = "Bash Scripts"
+description = "Enables Bash script authoring and execution actions."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.script.bash.executable"
+surface = "capabilities.execution"
+title = "Bash Executable"
+description = "Executable used to run Bash scripts."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.shell.enabled"
+surface = "capabilities.execution"
+title = "Shell Commands"
+description = "Allows configured direct shell actions to enter the effective Action Catalog."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.shell.max_command_chars"
+surface = "capabilities.execution"
+title = "Command Length"
+description = "Maximum characters accepted in one direct shell command."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.shell.powershell.enabled"
+surface = "capabilities.execution"
+title = "PowerShell"
+description = "Enables direct PowerShell command execution."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.shell.powershell.executable"
+surface = "capabilities.execution"
+title = "PowerShell Executable"
+description = "Executable used for PowerShell commands."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.shell.cmd.enabled"
+surface = "capabilities.execution"
+title = "Command Prompt"
+description = "Enables direct Windows Command Prompt execution."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.shell.cmd.executable"
+surface = "capabilities.execution"
+title = "Command Prompt Executable"
+description = "Executable used for Windows Command Prompt commands."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.shell.bash.enabled"
+surface = "capabilities.execution"
+title = "Bash Commands"
+description = "Enables direct Bash command execution."
+value_kind = "boolean"
+
+[[field]]
+path = "capabilities.shell.bash.executable"
+surface = "capabilities.execution"
+title = "Bash Command Executable"
+description = "Executable used for direct Bash commands."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_mirror_files"
+surface = "capabilities.execution"
+title = "Mirror File Count"
+description = "Maximum workspace files mirrored into one supervised process staging area."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_mirror_bytes"
+surface = "capabilities.execution"
+title = "Mirror Total Bytes"
+description = "Maximum combined size of files mirrored for one supervised process."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_mirror_file_bytes"
+surface = "capabilities.execution"
+title = "Mirror File Bytes"
+description = "Maximum size of one file mirrored for a supervised process."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_candidates"
+surface = "capabilities.execution"
+title = "Candidate Files"
+description = "Maximum generated process candidates tracked at one time."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_candidate_read_chars"
+surface = "capabilities.execution"
+title = "Candidate Read Length"
+description = "Maximum characters returned when inspecting one process candidate."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_log_bytes"
+surface = "capabilities.execution"
+title = "Process Log Bytes"
+description = "Maximum retained log bytes for one supervised process."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_log_delta_chars"
+surface = "capabilities.execution"
+title = "Log Update Length"
+description = "Maximum new log characters returned by one process status update."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.initial_wait_seconds"
+surface = "capabilities.execution"
+title = "Initial Process Wait"
+description = "Initial wait before the first supervised process status check."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.cycle_wait_seconds"
+surface = "capabilities.execution"
+title = "Cycle Process Wait"
+description = "Wait applied between Agent cycles while a process remains active."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.min_wait_seconds"
+surface = "capabilities.execution"
+title = "Minimum Wait"
+description = "Smallest accepted explicit wait for a supervised process."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.default_wait_seconds"
+surface = "capabilities.execution"
+title = "Default Wait"
+description = "Default explicit wait used when no process wait is requested."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_wait_seconds"
+surface = "capabilities.execution"
+title = "Maximum Wait"
+description = "Largest accepted explicit wait for one process status request."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "capabilities.supervised_process.max_runtime_seconds"
+surface = "capabilities.execution"
+title = "Maximum Process Runtime"
+description = "Hard runtime limit for one supervised process."
+value_kind = "number"
+
+[[field]]
+path = "capabilities.supervised_process.max_supervision_cycles"
+surface = "capabilities.execution"
+title = "Supervision Cycles"
+description = "Maximum Agent cycles allowed while supervising one process."
+value_kind = "integer"
+importance = "advanced"

@@ -190,3 +190,45 @@ def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
     ):
         with pytest.raises(ConfigError, match="read-only"):
             controller.patch((mutation,))
+
+
+def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -> None:
+    environment = _project(tmp_path)
+    target = tmp_path / "configs" / "infra.toml"
+    controller = ConfigController(root=tmp_path, environment=environment)
+
+    controller.patch(
+        (
+            ConfigMutation(
+                source_id="project:configs/infra.toml",
+                path="infra.external_services.embedding_secondary",
+                op="set",
+                value={
+                    "enabled": False,
+                    "endpoint": "https://api.example.com/v1",
+                },
+            ),
+        )
+    )
+
+    assert controller.environment.effective_values()[
+        "infra.external_services.embedding_secondary.endpoint"
+    ] == "https://api.example.com/v1"
+    assert "[infra.external_services.embedding_secondary]" in target.read_text(
+        encoding="utf-8"
+    )
+
+    controller.patch(
+        (
+            ConfigMutation(
+                source_id="project:configs/infra.toml",
+                path="infra.external_services.embedding_secondary",
+                op="delete",
+            ),
+        )
+    )
+
+    assert not any(
+        key.startswith("infra.external_services.embedding_secondary")
+        for key in controller.environment.effective_values()
+    )

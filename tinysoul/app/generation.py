@@ -33,7 +33,7 @@ class AppConfigPlan:
     action: ActionSettings
     capabilities: CapabilitiesSettings
     context: ContextSettings
-    llm: LLMConfig | None
+    llm: LLMConfig
     loop: LoopSettings
     maintenance: MaintenanceSettings
     home: AgentHomeSettings

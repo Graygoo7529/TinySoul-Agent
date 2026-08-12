@@ -1,135 +1,125 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConfigStatus } from "../../types";
+import type { ConfigCatalog, ConfigStatus } from "../../types";
 import {
-  configFieldsForPage,
+  configObjects,
   deriveCredentials,
-  groupConfigFields,
-  settingsPageForPath,
+  descriptorForPath,
+  groupSurfaceFields,
+  pathMatches,
+  surfaceFields,
+  validObjectId,
 } from "./model";
 
-describe("settings configuration projection", () => {
-  it("maps owned TOML paths to stable settings pages", () => {
-    expect(settingsPageForPath("llm.models.primary.model")).toBe("models");
-    expect(settingsPageForPath("infra.embedding.model")).toBe("embedding");
-    expect(settingsPageForPath("capabilities.web.search.enabled")).toBe("capabilities");
-    expect(settingsPageForPath("loop.user.cycle_limit")).toBe("behavior");
-    expect(settingsPageForPath("config.profile")).toBe("system");
+describe("settings catalog projection", () => {
+  it("matches wildcard descriptors without guessing page ownership", () => {
+    expect(pathMatches("llm.models.*.provider", "llm.models.primary.provider")).toBe(true);
+    expect(pathMatches("llm.models.*.provider", "llm.models.primary.provider.id")).toBe(false);
+    expect(descriptorForPath(catalog(), "llm.models.primary.provider")?.surface).toBe("models");
   });
 
-  it("keeps the TOML source value while exposing endpoint write semantics", () => {
-    const status = configStatus();
-    const fields = configFieldsForPage(status, "models");
-    expect(fields).toHaveLength(3);
-    expect(fields.find((field) => field.path === "llm.models.primary.model")).toMatchObject({
-      path: "llm.models.primary.model",
-      storedValue: "gpt-5.5",
-      effectiveValue: "gpt-5.5",
-      writable: true,
-      overridden: false,
-    });
-    expect(fields.find((field) => field.path === "llm.providers.openai.api_style")).toMatchObject({
-      path: "llm.providers.openai.api_style",
-      storedValue: "responses",
-      effectiveValue: "chat",
-      writable: false,
-      overridden: true,
-    });
-  });
-
-  it("groups model fields by concrete model or provider", () => {
-    const groups = groupConfigFields(
-      configFieldsForPage(configStatus(), "models"),
-      "models",
-    );
-    expect(groups.map((group) => group.title)).toEqual([
-      "Model: Primary",
-      "Provider: Openai",
+  it("uses catalog titles and importance for effective fields", () => {
+    const fields = surfaceFields(status(), catalog(), "models");
+    expect(fields).toHaveLength(2);
+    expect(fields.map((field) => field.descriptor.title)).toEqual([
+      "Provider",
+      "Provider Model ID",
     ]);
+    expect(groupSurfaceFields(fields, "models")[0].fields).toHaveLength(2);
   });
 
-  it("keeps module root fields together and separates real subdomains", () => {
-    const fields = [
-      settingField("memory.enabled"),
-      settingField("memory.base_dir"),
-      settingField("memory.documents.max_chars"),
-    ];
-
-    expect(groupConfigFields(fields, "memory").map((group) => group.title)).toEqual([
-      "General",
-      "Documents",
-    ]);
+  it("derives collection objects from the shared status facts", () => {
+    const objects = configObjects(status(), catalog(), "llm.models");
+    expect(objects).toHaveLength(1);
+    expect(objects[0].id).toBe("primary");
+    expect(objects[0].value).toEqual({ provider: "openai", provider_model: "gpt-5" });
   });
 
-  it("combines declared API key names with existing dotenv values", () => {
-    const { source, credentials } = deriveCredentials(configStatus());
-    expect(source?.id).toBe("dotenv");
-    expect(credentials).toEqual([
-      {
-        name: "EXTRA_TOKEN",
-        value: "extra",
-        present: true,
-        configured: true,
-        declaredBy: [],
-      },
+  it("uses credential_reference descriptors instead of suffix conventions", () => {
+    const result = deriveCredentials(status(), catalog());
+    expect(result.credentials).toEqual([
       {
         name: "OPENAI_API_KEY",
         value: "secret",
         present: true,
         configured: true,
-        declaredBy: ["llm.providers.openai.api_key_env"],
+        declaredBy: ["llm.providers.openai.api_key_envs"],
       },
     ]);
   });
 
-  it("distinguishes declared, empty, and absent dotenv values", () => {
-    const status = configStatus();
-    const dotenv = status.sources.find((source) => source.kind === "dotenv");
-    dotenv!.values.OPENAI_API_KEY = "";
-    delete dotenv!.values.EXTRA_TOKEN;
-    status.sources[0].values["llm.providers.other.api_key_env"] = "ABSENT_API_KEY";
-
-    const { credentials } = deriveCredentials(status);
-    expect(credentials.find((item) => item.name === "OPENAI_API_KEY")).toMatchObject({
-      present: true,
-      configured: false,
-    });
-    expect(credentials.find((item) => item.name === "ABSENT_API_KEY")).toMatchObject({
-      present: false,
-      configured: false,
-    });
+  it("accepts stable object IDs without dotted mutation ambiguity", () => {
+    expect(validObjectId("gpt_5_6")).toBe(true);
+    expect(validObjectId("gpt.5")).toBe(false);
+    expect(validObjectId(" model ")).toBe(false);
   });
 });
 
-function settingField(path: string) {
+function catalog(): ConfigCatalog {
   return {
-    path,
-    label: path,
-    sourceId: "project:config/memory.toml",
-    sourcePath: "config/memory.toml",
-    storedValue: true,
-    effectiveValue: true,
-    effectiveSource: "project:config/memory.toml",
-    writable: true,
-    overridden: false,
+    surfaces: [
+      { id: "models", title: "Models", description: "Configured models." },
+      { id: "providers", title: "Providers", description: "Configured providers." },
+    ],
+    collections: [
+      {
+        id: "llm.models",
+        surface: "models",
+        root: "llm.models",
+        title: "Model",
+        description: "A model.",
+        create_source: "project:configs/llm/models/custom.toml",
+        create_template: {},
+        allow_create: true,
+        allow_delete: true,
+      },
+    ],
+    fields: [
+      {
+        path: "llm.models.*.provider",
+        surface: "models",
+        title: "Provider",
+        description: "Provider used by this model.",
+        value_kind: "reference",
+        importance: "primary",
+        credential_reference: false,
+      },
+      {
+        path: "llm.models.*.provider_model",
+        surface: "models",
+        title: "Provider Model ID",
+        description: "Provider model identifier.",
+        value_kind: "string",
+        importance: "primary",
+        credential_reference: false,
+      },
+      {
+        path: "llm.providers.*.api_key_envs",
+        surface: "providers",
+        title: "Credential Names",
+        description: "Credential references.",
+        value_kind: "string_list",
+        importance: "primary",
+        credential_reference: true,
+      },
+    ],
   };
 }
 
-function configStatus(): ConfigStatus {
+function status(): ConfigStatus {
   return {
     activity: { state: "idle", can_write: true, reason: "" },
     sources: [
       {
-        id: "project:config/llm/models.toml",
+        id: "project:configs/llm/models/custom.toml",
         kind: "project_toml",
-        path: "config/llm/models.toml",
+        path: "configs/llm/models/custom.toml",
         exists: true,
         writable: true,
         values: {
-          "llm.models.primary.model": "gpt-5.5",
-          "llm.providers.openai.api_style": "responses",
-          "llm.providers.openai.api_key_env": "OPENAI_API_KEY",
-          "infra.embedding.enabled": true,
+          "llm.models.primary.provider": "openai",
+          "llm.models.primary.provider_model": "gpt-5",
+          "llm.providers.openai.api_key_envs": ["OPENAI_API_KEY"],
         },
       },
       {
@@ -138,41 +128,31 @@ function configStatus(): ConfigStatus {
         path: ".env",
         exists: true,
         writable: true,
-        values: {
-          OPENAI_API_KEY: "secret",
-          EXTRA_TOKEN: "extra",
-        },
-      },
-      {
-        id: "environment",
-        kind: "environment",
-        path: "process environment",
-        exists: true,
-        writable: false,
-        values: { "llm.providers.openai.api_style": "chat" },
+        values: { OPENAI_API_KEY: "secret" },
       },
     ],
     fields: {
-      "llm.models.primary.model": {
-        value: "gpt-5.5",
-        source: "project:config/llm/models.toml",
+      "llm.models.primary.provider": {
+        value: "openai",
+        source: "project:configs/llm/models/custom.toml",
         writable: true,
       },
-      "llm.providers.openai.api_style": {
-        value: "chat",
-        source: "environment",
-        writable: false,
+      "llm.models.primary.provider_model": {
+        value: "gpt-5",
+        source: "project:configs/llm/models/custom.toml",
+        writable: true,
+      },
+      "llm.providers.openai.api_key_envs": {
+        value: ["OPENAI_API_KEY"],
+        source: "project:configs/llm/models/custom.toml",
+        writable: true,
       },
     },
-    runtime: {
-      generation_id: "generation-1",
-      activity: "idle",
-      activation: "active",
-    },
+    runtime: { generation_id: "g1", activity: "idle", activation: "stable" },
     process_shell: {
       writable: false,
       reason: "process_owned",
-      endpoint: { host: "127.0.0.1", port: 8000, instance_id: "instance-1" },
+      endpoint: { host: "127.0.0.1", port: 1, instance_id: "i" },
     },
   };
 }

@@ -362,7 +362,7 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
     )
     target = config_dir / "action.toml"
     target.write_text(
-        "[action]\nllm_action_timeout_seconds = 10.0\n",
+        "[action.llm_action]\ntimeout_seconds = 10.0\n",
         encoding="utf-8",
     )
     engine._config = ConfigController(  # noqa: SLF001
@@ -374,7 +374,7 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
         "operations": [
             {
                 "source_id": "project:configs/action.toml",
-                "path": "action.llm_action_timeout_seconds",
+                "path": "action.llm_action.timeout_seconds",
                 "op": "set",
                 "value": 30.0,
             }
@@ -383,16 +383,23 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
 
     status = client.get("/v1/config", headers=_auth())
     assert status.status_code == 200
-    assert status.json()["fields"]["action.llm_action_timeout_seconds"]["writable"] is True
+    assert status.json()["fields"]["action.llm_action.timeout_seconds"]["writable"] is True
+
+    catalog = client.get("/v1/config/catalog", headers=_auth())
+    assert catalog.status_code == 200
+    assert any(
+        field["path"] == "action.llm_action.timeout_seconds"
+        for field in catalog.json()["fields"]
+    )
 
     validated = client.post("/v1/config/validate", headers=_auth(), json=body)
     assert validated.status_code == 200
-    assert "llm_action_timeout_seconds = 10.0" in target.read_text(encoding="utf-8")
+    assert "timeout_seconds = 10.0" in target.read_text(encoding="utf-8")
 
     patched = client.patch("/v1/config", headers=_auth(), json=body)
     assert patched.status_code == 200
     assert patched.json()["state"] == "active"
-    assert 'llm_action_timeout_seconds = 30.0' in target.read_text(encoding="utf-8")
+    assert 'timeout_seconds = 30.0' in target.read_text(encoding="utf-8")
 
 
 def test_config_activation_failure_uses_config_error_and_keeps_file(
@@ -406,7 +413,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
         encoding="utf-8",
     )
     target = config_dir / "action.toml"
-    original = "[action]\nllm_action_timeout_seconds = 10.0\n"
+    original = "[action.llm_action]\ntimeout_seconds = 10.0\n"
     target.write_text(original, encoding="utf-8")
 
     def fail_activation(_candidate: ConfigEnvironment):
@@ -429,7 +436,7 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
             "operations": [
                 {
                     "source_id": "project:configs/action.toml",
-                    "path": "action.llm_action_timeout_seconds",
+                    "path": "action.llm_action.timeout_seconds",
                     "op": "set",
                     "value": 30.0,
                 }

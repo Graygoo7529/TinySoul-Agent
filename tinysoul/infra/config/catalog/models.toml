@@ -1,0 +1,374 @@
+[[surface]]
+id = "providers"
+title = "Providers"
+description = "API connections that models use to reach inference providers."
+
+[[surface]]
+id = "models"
+title = "Models"
+description = "Named model definitions, capabilities, context limits, and provider-specific behavior."
+
+[[surface]]
+id = "task_chains"
+title = "Task Chains"
+description = "Ordered model fallback chains and generation behavior for each LLM task profile."
+
+[[surface]]
+id = "action_routing"
+title = "Action Routing"
+description = "Default and per-action task-chain selection for actions backed by an LLM task."
+
+[[collection]]
+id = "llm.providers"
+surface = "providers"
+root = "llm.providers"
+title = "Provider"
+description = "A reusable API endpoint and adapter configuration referenced by models."
+create_source = "project:configs/llm/providers.toml"
+create_template = { enabled = false, adapter = "generic", api_style = "openai_chat", base_url = "https://api.example.com/v1", api_key_envs = ["PROVIDER_API_KEY"] }
+
+[[collection]]
+id = "llm.models"
+surface = "models"
+root = "llm.models"
+title = "Model"
+description = "A provider model with TinySoul-visible capabilities and request options."
+create_source = "project:configs/llm/models/custom.toml"
+create_template = { provider = "", provider_model = "", context_window_tokens = 262144, capabilities = ["text_input"] }
+
+[[collection]]
+id = "llm.tasks"
+surface = "task_chains"
+root = "llm.tasks"
+title = "Task Chain"
+description = "An ordered model chain and call policy selected by a stable task profile."
+create_source = "project:configs/llm/tasks.toml"
+create_template = { models = [], required_capabilities = ["text_input"], answer_format = "json_object", tool_use = "disabled", temperature = 0.3, max_output_tokens = 2048, max_retries_per_model = 2, retry_wait_seconds = 1.0, switch_wait_seconds = 2.0, max_cycles = 10, prefer_successful_model_seconds = 600.0 }
+
+[[field]]
+path = "llm.providers.*.enabled"
+surface = "providers"
+title = "Enabled"
+description = "Allows models that reference this provider to participate in task chains."
+value_kind = "boolean"
+
+[[field]]
+path = "llm.providers.*.adapter"
+surface = "providers"
+title = "Adapter"
+description = "Selects the provider request and response behavior used by this endpoint."
+value_kind = "enum"
+choices = [
+  { value = "generic", label = "Generic OpenAI-compatible" },
+  { value = "openai", label = "OpenAI" },
+  { value = "kimi", label = "Kimi" },
+  { value = "deepseek", label = "DeepSeek" },
+  { value = "glm", label = "GLM" },
+  { value = "minimax", label = "MiniMax" },
+]
+
+[[field]]
+path = "llm.providers.*.api_style"
+surface = "providers"
+title = "API Style"
+description = "Protocol shape used for provider requests. The selected adapter may require a specific style."
+value_kind = "enum"
+choices = [
+  { value = "openai_chat", label = "OpenAI Chat Completions" },
+  { value = "openai_responses", label = "OpenAI Responses" },
+]
+
+[[field]]
+path = "llm.providers.*.base_url"
+surface = "providers"
+title = "Base URL"
+description = "HTTPS API root used for requests to this provider."
+value_kind = "string"
+
+[[field]]
+path = "llm.providers.*.api_key_envs"
+surface = "providers"
+title = "Credential Names"
+description = "Ordered dotenv variable names checked for this provider's API key."
+value_kind = "string_list"
+credential_reference = true
+
+[[field]]
+path = "llm.models.*.provider"
+surface = "models"
+title = "Provider"
+description = "Provider connection used to call this model."
+value_kind = "reference"
+reference = { collection = "llm.providers" }
+
+[[field]]
+path = "llm.models.*.provider_model"
+surface = "models"
+title = "Provider Model ID"
+description = "Model identifier sent to the provider API."
+value_kind = "string"
+
+[[field]]
+path = "llm.models.*.context_window_tokens"
+surface = "models"
+title = "Context Window"
+description = "Maximum input and reserved output token budget accepted by the model."
+value_kind = "integer"
+
+[[field]]
+path = "llm.models.*.capabilities"
+surface = "models"
+title = "Capabilities"
+description = "Features TinySoul may rely on when routing tasks to this model."
+value_kind = "string_list"
+
+[[field]]
+path = "llm.models.*.provider_options.thinking"
+surface = "models"
+title = "Thinking Mode"
+description = "Provider-specific control for enabling, disabling, or adapting hidden reasoning."
+value_kind = "object"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.reasoning_effort"
+surface = "models"
+title = "Reasoning Effort"
+description = "Provider-specific reasoning effort requested for this model."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.reasoning_keep"
+surface = "models"
+title = "Reasoning Retention"
+description = "Controls whether reasoning state is omitted, retained as content, or retained in encrypted form."
+value_kind = "enum"
+importance = "advanced"
+choices = [
+  { value = "none", label = "Do not retain" },
+  { value = "content", label = "Retain content" },
+  { value = "encrypted", label = "Retain encrypted state" },
+]
+
+[[field]]
+path = "llm.models.*.provider_options.reasoning_summary"
+surface = "models"
+title = "Reasoning Summary"
+description = "Provider-specific summary detail requested for reasoning output."
+value_kind = "enum"
+importance = "advanced"
+choices = [
+  { value = "auto", label = "Automatic" },
+  { value = "concise", label = "Concise" },
+  { value = "detailed", label = "Detailed" },
+]
+
+[[field]]
+path = "llm.models.*.provider_options.verbosity"
+surface = "models"
+title = "Response Verbosity"
+description = "Provider-specific text verbosity preference for generated responses."
+value_kind = "enum"
+importance = "advanced"
+choices = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+]
+
+[[field]]
+path = "llm.models.*.provider_options.prompt_cache_retention"
+surface = "models"
+title = "Prompt Cache Retention"
+description = "Provider-specific lifetime requested for reusable prompt cache entries."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.reasoning_split"
+surface = "models"
+title = "Separate Reasoning"
+description = "Requests provider reasoning content separately from the final answer when supported."
+value_kind = "boolean"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.top_p"
+surface = "models"
+title = "Top P"
+description = "Provider-specific nucleus sampling value."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.service_tier"
+surface = "models"
+title = "Service Tier"
+description = "Provider-specific service tier used for this model."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.safety_identifier"
+surface = "models"
+title = "Safety Identifier"
+description = "Provider-specific stable safety identifier attached to requests."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.user"
+surface = "models"
+title = "Provider User"
+description = "Provider-specific end-user identifier attached to requests."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.request_id"
+surface = "models"
+title = "Request ID"
+description = "Optional provider request identifier override."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.user_id"
+surface = "models"
+title = "User ID"
+description = "Optional provider-specific user identifier."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.request_overrides.temperature"
+surface = "models"
+title = "Request Temperature"
+description = "Overrides the task-chain temperature only when this model is selected."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.models.*.provider_options.request_overrides.max_output_tokens"
+surface = "models"
+title = "Request Output Tokens"
+description = "Overrides the task-chain output token limit only when this model is selected."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.models"
+surface = "task_chains"
+title = "Model Order"
+description = "Models attempted in order, with later models used after retry or switching decisions."
+value_kind = "reference_list"
+reference = { collection = "llm.models", multiple = true }
+
+[[field]]
+path = "llm.tasks.*.required_capabilities"
+surface = "task_chains"
+title = "Required Capabilities"
+description = "Capabilities every model used by this task profile must provide."
+value_kind = "string_list"
+
+[[field]]
+path = "llm.tasks.*.answer_format"
+surface = "task_chains"
+title = "Answer Format"
+description = "Default answer format requested from models in this task chain."
+value_kind = "enum"
+choices = [
+  { value = "none", label = "No answer payload" },
+  { value = "text", label = "Text" },
+  { value = "json_object", label = "JSON object" },
+]
+
+[[field]]
+path = "llm.tasks.*.tool_use"
+surface = "task_chains"
+title = "Tool Use"
+description = "Default tool-call policy for this task profile."
+value_kind = "enum"
+choices = [
+  { value = "disabled", label = "Disabled" },
+  { value = "optional", label = "Optional" },
+  { value = "required", label = "Required" },
+]
+
+[[field]]
+path = "llm.tasks.*.temperature"
+surface = "task_chains"
+title = "Temperature"
+description = "Default sampling temperature for model calls in this chain."
+value_kind = "number"
+
+[[field]]
+path = "llm.tasks.*.max_output_tokens"
+surface = "task_chains"
+title = "Maximum Output Tokens"
+description = "Maximum provider generation budget reserved for one model call."
+value_kind = "integer"
+
+[[field]]
+path = "llm.tasks.*.max_retries_per_model"
+surface = "task_chains"
+title = "Retries Per Model"
+description = "Maximum attempts made with one model before the chain switches."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.retry_wait_seconds"
+surface = "task_chains"
+title = "Retry Wait"
+description = "Delay before retrying the same model after a retryable failure."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.switch_wait_seconds"
+surface = "task_chains"
+title = "Switch Wait"
+description = "Delay before moving to the next model in the chain."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.max_cycles"
+surface = "task_chains"
+title = "Maximum Chain Cycles"
+description = "Maximum complete passes over this model chain for one task."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.prefer_successful_model_seconds"
+surface = "task_chains"
+title = "Successful Model Preference"
+description = "How long a recently successful model remains preferred within this chain."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "action.llm_action.timeout_seconds"
+surface = "action_routing"
+title = "Action Task Timeout"
+description = "Default execution timeout for LLM-backed actions without a dedicated action timeout."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "action.llm_action.default_task_profile"
+surface = "action_routing"
+title = "Default Task Chain"
+description = "Task profile used by every LLM-backed action without an explicit override."
+value_kind = "reference"
+reference = { collection = "llm.tasks" }
+
+[[field]]
+path = "action.llm_action.overrides"
+surface = "action_routing"
+title = "Action Overrides"
+description = "Explicit Action ID to task-profile bindings that replace the default chain."
+value_kind = "object_list"

@@ -8,8 +8,8 @@ export function StatusBar() {
   const connected = connection.status === "connected";
 
   return (
-    <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-line bg-bg-elev px-3 text-[11px] text-fg-muted tabular-nums">
-      <span className="flex items-center gap-1.5">
+    <footer className="flex h-7 shrink-0 items-center gap-3 overflow-hidden border-t border-line bg-bg-elev px-3 text-[11px] text-fg-muted tabular-nums whitespace-nowrap">
+      <span className="flex shrink-0 items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${
             connected
@@ -29,9 +29,9 @@ export function StatusBar() {
       </span>
       {status && (
         <>
-          <span className="text-fg-faint">day {status.active_day}</span>
-          <span className="text-fg-faint">workspace rev {status.workspace_revision}</span>
-          <span className={status.turn_active ? "text-accent" : "text-fg-faint"}>
+          <span className="hidden text-fg-faint sm:inline">day {status.active_day}</span>
+          <span className="hidden text-fg-faint sm:inline">workspace rev {status.workspace_revision}</span>
+          <span className={`hidden sm:inline ${status.turn_active ? "text-accent" : "text-fg-faint"}`}>
             {status.turn_active ? "turn active" : "waiting for input"}
           </span>
         </>

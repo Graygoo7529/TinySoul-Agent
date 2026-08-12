@@ -11,6 +11,7 @@ from typing import cast
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object, to_json_value
 
 from .dotenv import DotenvDocument, DotenvSource, _env_mapping_to_dotted
+from .catalog import ConfigCatalog, load_config_catalog
 from .environment import ConfigEnvironment
 from .errors import ConfigError
 from .source import ConfigSource, ConfigSourceKind
@@ -70,6 +71,7 @@ class ConfigController:
         activity: Callable[[], str] | None = None,
         activation_observer: Callable[[str, JsonObject], None] | None = None,
         generation_id: Callable[[], str] | None = None,
+        catalog: ConfigCatalog | None = None,
     ) -> None:
         self.root = root.resolve()
         self._environment = environment or ConfigEnvironment.from_project_root(self.root)
@@ -79,6 +81,7 @@ class ConfigController:
         self._lock = RLock()
         self._activation_observer = activation_observer
         self._generation_id_provider = generation_id
+        self._catalog = catalog or load_config_catalog()
 
     @property
     def environment(self) -> ConfigEnvironment:
@@ -112,6 +115,11 @@ class ConfigController:
             "sources": source_items,
             "fields": self._effective_fields(),
         })
+
+    def catalog(self) -> JsonObject:
+        """Return the package-owned configuration presentation catalog."""
+
+        return self._catalog.to_json()
 
     def section(self, section_id: str) -> JsonObject:
         if not isinstance(section_id, str) or not section_id.strip():

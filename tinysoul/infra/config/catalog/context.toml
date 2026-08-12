@@ -1,0 +1,493 @@
+[[surface]]
+id = "home"
+title = "Home"
+description = "Persistent Agent identity, preference, skill, and progressive resource access limits."
+
+[[surface]]
+id = "session"
+title = "Session"
+description = "Completed User Turn history projection and progressive inspection limits."
+
+[[surface]]
+id = "memory"
+title = "Memory"
+description = "Active memory, persistent knowledge documents, search, and daily composition limits."
+
+[[surface]]
+id = "workspace"
+title = "Workspace"
+description = "Current business-day resources, search, writing, analysis, and file boundaries."
+
+[[surface]]
+id = "context_rules"
+title = "Context Rules"
+description = "Message-stack identity, compression, trace, and inspection behavior for active Turns."
+
+[[field]]
+path = "home.root"
+surface = "home"
+title = "Home Root"
+description = "Project-relative directory containing the actual persistent Agent Home."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "home.runtime_root"
+surface = "home"
+title = "Home Runtime Root"
+description = "Project-relative runtime directory used for cross-day Home overlays."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "home.max_read_chars"
+surface = "home"
+title = "Resource Read Length"
+description = "Default maximum characters returned by one progressive Home resource read."
+value_kind = "integer"
+
+[[field]]
+path = "home.max_write_chars"
+surface = "home"
+title = "Resource Write Length"
+description = "Maximum characters accepted by one Home content write or rewrite."
+value_kind = "integer"
+
+[[field]]
+path = "home.skill_catalog_max_chars"
+surface = "home"
+title = "Skill Catalog Length"
+description = "Maximum characters used to present the available skill catalog in Context."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "home.search.candidate_limit"
+surface = "home"
+title = "Search Candidates"
+description = "Maximum Home entries considered before semantic reranking."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "home.search.default_top_k"
+surface = "home"
+title = "Default Search Results"
+description = "Default number of Home search results returned to the Agent."
+value_kind = "integer"
+
+[[field]]
+path = "home.search.max_top_k"
+surface = "home"
+title = "Maximum Search Results"
+description = "Largest result count accepted by a Home search request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "home.search.prefix_max_chars"
+surface = "home"
+title = "Search Prefix Length"
+description = "Maximum source prefix used when reranking a Home search candidate."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "home.search.summary_max_chars"
+surface = "home"
+title = "Search Summary Length"
+description = "Maximum characters retained in one Home search result summary."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "session.root"
+surface = "session"
+title = "Session Root"
+description = "Project-relative runtime directory containing the active business-day Session."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "session.background_max_chars"
+surface = "session"
+title = "Session Background Length"
+description = "Maximum completed-turn history characters included as fixed Session Background."
+value_kind = "integer"
+
+[[field]]
+path = "session.summary_watermark_ratio"
+surface = "session"
+title = "Summary Watermark"
+description = "Context usage ratio at which older completed turns are summarized."
+value_kind = "number"
+
+[[field]]
+path = "session.summary_target_ratio"
+surface = "session"
+title = "Summary Target"
+description = "Target history ratio retained after Session background summarization."
+value_kind = "number"
+
+[[field]]
+path = "session.min_recent_turns"
+surface = "session"
+title = "Recent Turns"
+description = "Minimum number of recent completed turns kept in direct Session background form."
+value_kind = "integer"
+
+[[field]]
+path = "session.inspect_max_chars"
+surface = "session"
+title = "Inspection Length"
+description = "Maximum characters returned by one progressive Session inspection."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.root"
+surface = "memory"
+title = "Memory Root"
+description = "Project-relative directory containing persistent Memory Markdown and derived indexes."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "memory.max_active_chars"
+surface = "memory"
+title = "Active Memory Length"
+description = "Maximum characters stored in the current business-day active Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.daily_max_chars"
+surface = "memory"
+title = "Daily Memory Length"
+description = "Maximum characters allowed in one persistent daily Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.entity_max_chars"
+surface = "memory"
+title = "Entity Memory Length"
+description = "Maximum characters allowed in one persistent entity Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.concept_max_chars"
+surface = "memory"
+title = "Concept Memory Length"
+description = "Maximum characters allowed in one persistent concept Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.fact_max_chars"
+surface = "memory"
+title = "Fact Memory Length"
+description = "Maximum characters allowed in one persistent fact Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.note_max_chars"
+surface = "memory"
+title = "Note Memory Length"
+description = "Maximum characters allowed in one persistent note Memory document."
+value_kind = "integer"
+
+[[field]]
+path = "memory.documents.redirect_max_hops"
+surface = "memory"
+title = "Redirect Hops"
+description = "Maximum redirect chain followed when resolving superseded persistent Memory links."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.inspect.candidate_limit"
+surface = "memory"
+title = "Inspection Candidates"
+description = "Maximum persistent Memory candidates gathered before ranking."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.inspect.default_top_k"
+surface = "memory"
+title = "Default Inspection Results"
+description = "Default number of Memory candidates returned by inspect."
+value_kind = "integer"
+
+[[field]]
+path = "memory.inspect.max_top_k"
+surface = "memory"
+title = "Maximum Inspection Results"
+description = "Largest result count accepted by a Memory inspection request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.inspect.summary_max_chars"
+surface = "memory"
+title = "Candidate Summary Length"
+description = "Maximum characters retained in each Memory inspection candidate summary."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.inspect.page_max_chars"
+surface = "memory"
+title = "Inspection Page Length"
+description = "Maximum combined characters returned in one Memory inspection page."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.semantic_search.embedding_cache_max_chars"
+surface = "memory"
+title = "Embedding Cache Text"
+description = "Maximum source text characters retained in the rebuildable semantic-search embedding cache."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.daily_composition.chunk_max_chars"
+surface = "memory"
+title = "Composition Chunk Length"
+description = "Maximum source characters presented in one daily Memory composition chunk."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.daily_composition.source_max_chars"
+surface = "memory"
+title = "Composition Source Length"
+description = "Maximum total Session and Workspace source characters considered for daily composition."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.daily_composition.max_calls"
+surface = "memory"
+title = "Composition Calls"
+description = "Maximum LLM calls allowed while composing one daily Memory changeset."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "memory.daily_composition.validation_retries"
+surface = "memory"
+title = "Composition Validation Retries"
+description = "Maximum correction attempts after an invalid daily Memory composition result."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.root"
+surface = "workspace"
+title = "Workspace Root"
+description = "Project-relative directory containing active business-day workspace resources."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "workspace.max_files"
+surface = "workspace"
+title = "Maximum Files"
+description = "Maximum resources tracked by the active Workspace manifest."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.max_read_chars"
+surface = "workspace"
+title = "Default Read Length"
+description = "Default maximum characters returned by one Workspace text read."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.max_write_chars"
+surface = "workspace"
+title = "Text Artifact Length"
+description = "Maximum characters accepted by a complete Workspace text artifact write."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.max_image_bytes"
+surface = "workspace"
+title = "Image Size"
+description = "Maximum bytes accepted for one Workspace image resource."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.ignore_dirs"
+surface = "workspace"
+title = "Ignored Directories"
+description = "Directory names excluded while reconciling Workspace resources."
+value_kind = "string_list"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.max_query_chars"
+surface = "workspace"
+title = "Search Query Length"
+description = "Maximum characters accepted in one Workspace text search query."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.search.max_scan_chars"
+surface = "workspace"
+title = "Search Scan Length"
+description = "Maximum Workspace text characters scanned by one search."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.candidate_limit"
+surface = "workspace"
+title = "Search Candidates"
+description = "Maximum matching Workspace candidates considered before result paging."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.default_top_k"
+surface = "workspace"
+title = "Default Search Results"
+description = "Default number of Workspace search results returned."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.search.max_top_k"
+surface = "workspace"
+title = "Maximum Search Results"
+description = "Largest result count accepted by a Workspace search request."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.context_lines"
+surface = "workspace"
+title = "Search Context Lines"
+description = "Lines included around each Workspace text match."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.max_excerpt_chars"
+surface = "workspace"
+title = "Search Excerpt Length"
+description = "Maximum characters retained in one Workspace search excerpt."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.search.max_result_chars"
+surface = "workspace"
+title = "Search Result Length"
+description = "Maximum combined characters returned by one Workspace search."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.analysis.max_intent_chars"
+surface = "workspace"
+title = "Analysis Instruction Length"
+description = "Maximum characters accepted in a Workspace analysis instruction."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.analysis.max_reference_links"
+surface = "workspace"
+title = "Analysis References"
+description = "Maximum reference resources accepted by one Workspace analysis action."
+value_kind = "integer"
+
+[[field]]
+path = "workspace.analysis.max_source_chars"
+surface = "workspace"
+title = "Analysis Source Length"
+description = "Maximum combined source characters read for one Workspace analysis."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.analysis.max_chars_per_reference"
+surface = "workspace"
+title = "Reference Read Length"
+description = "Maximum characters read from each reference used by Workspace analysis."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "workspace.analysis.max_answer_chars"
+surface = "workspace"
+title = "Analysis Answer Length"
+description = "Maximum characters returned in a completed Workspace analysis answer."
+value_kind = "integer"
+
+[[field]]
+path = "context.system_text"
+surface = "context_rules"
+title = "System Identity"
+description = "Stable system-role identity text placed first in every constructed MessageStack."
+value_kind = "string"
+
+[[field]]
+path = "context.journal"
+surface = "context_rules"
+title = "Context Journal"
+description = "Optional fixed journal text added to the Context message construction."
+value_kind = "string"
+importance = "advanced"
+
+[[field]]
+path = "context.budget_max_image_bytes"
+surface = "context_rules"
+title = "Image Context Budget"
+description = "Maximum combined image bytes accepted by one constructed model context."
+value_kind = "integer"
+
+[[field]]
+path = "context.compression_trigger_ratio"
+surface = "context_rules"
+title = "Compression Trigger"
+description = "Context-window usage ratio that requests Context recomposition."
+value_kind = "number"
+
+[[field]]
+path = "context.compression_target_ratio"
+surface = "context_rules"
+title = "Compression Target"
+description = "Target usage ratio after Context recomposition."
+value_kind = "number"
+
+[[field]]
+path = "context.trace_chunk_max_chars"
+surface = "context_rules"
+title = "Trace Chunk Length"
+description = "Maximum characters in one TurnTrace heap chunk before it branches."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "context.trace_branch_factor"
+surface = "context_rules"
+title = "Trace Branch Factor"
+description = "Number of trace chunks combined at each TurnTrace heap level."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "context.trace_min_hot_entries"
+surface = "context_rules"
+title = "Hot Trace Entries"
+description = "Minimum recent TurnTrace entries retained in direct form."
+value_kind = "integer"
+importance = "advanced"
+
+[[field]]
+path = "context.trace_inspect_max_chars"
+surface = "context_rules"
+title = "Trace Inspection Length"
+description = "Maximum characters returned by one progressive TurnTrace inspection."
+value_kind = "integer"
+importance = "advanced"

@@ -221,6 +221,14 @@ def create_endpoint_app(
     def config_status() -> JsonObject:
         return engine.config_status()
 
+    @app.get("/v1/config/catalog")
+    def config_catalog() -> JsonObject:
+        return engine.config_catalog()
+
+    @app.get("/v1/actions/catalog")
+    def action_catalog() -> JsonObject:
+        return engine.action_catalog()
+
     @app.get("/v1/config/sections/{section_id}")
     def config_section(section_id: str) -> JsonObject:
         return engine.config_section(section_id)

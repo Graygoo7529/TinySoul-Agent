@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.action import ActionEngine
+from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import RunScope
 
@@ -10,8 +12,9 @@ from ..turn import TurnOutcome, TurnRunner
 
 
 class UserTurnEntry:
-    def __init__(self, runner: TurnRunner) -> None:
+    def __init__(self, runner: TurnRunner, *, action: ActionEngine) -> None:
         self._runner = runner
+        self._action = action
 
     @property
     def active_scope(self) -> RunScope | None:
@@ -21,6 +24,13 @@ class UserTurnEntry:
         """Fire the active Turn's cooperative cancel token, if any."""
 
         return self._runner.request_active_cancel(kind)
+
+    def action_catalog(self) -> JsonObject:
+        """Return the effective User Action catalog for external clients."""
+
+        return {
+            "actions": [item.to_json() for item in self._action.catalog_projection()]
+        }
 
     def run(
         self,

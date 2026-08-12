@@ -1,2 +1,4 @@
-[action]
-llm_action_timeout_seconds = 600
+[action.llm_action]
+timeout_seconds = 600
+default_task_profile = "llm_action"
+overrides = []

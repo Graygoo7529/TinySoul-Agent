@@ -20,6 +20,7 @@ describe("configStore", () => {
     const client = {
       patchConfig,
       configStatus: configStatusCall,
+      actionCatalog: vi.fn().mockResolvedValue({ actions: [] }),
     } as unknown as TinySoulClient;
 
     const result = await useConfigStore.getState().patch(client, {
@@ -69,6 +70,7 @@ describe("configStore", () => {
         generation_id: "generation-2",
       }),
       configStatus: vi.fn().mockRejectedValue(new Error("temporarily unavailable")),
+      actionCatalog: vi.fn().mockResolvedValue({ actions: [] }),
     } as unknown as TinySoulClient;
 
     const result = await useConfigStore.getState().patch(client, {

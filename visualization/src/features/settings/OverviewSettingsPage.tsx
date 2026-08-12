@@ -1,7 +1,18 @@
-import type { ConfigStatus } from "../../types";
+import type { ConfigCatalog, ConfigStatus } from "../../types";
 import { Badge } from "../../components/ui/Badge";
+import { Collapsible } from "../../components/ui/Collapsible";
+import { descriptorForPath } from "./model";
 
-export function OverviewSettingsPage({ status }: { status: ConfigStatus }) {
+export function OverviewSettingsPage({
+  status,
+  catalog,
+}: {
+  status: ConfigStatus;
+  catalog: ConfigCatalog;
+}) {
+  const unsupported = Object.entries(status.fields).filter(
+    ([path]) => !descriptorForPath(catalog, path),
+  );
   return (
     <div>
       <OverviewSection title="Runtime">
@@ -36,6 +47,23 @@ export function OverviewSettingsPage({ status }: { status: ConfigStatus }) {
         <Fact label="Instance" value={status.process_shell.endpoint.instance_id} mono />
         <Fact label="Ownership" value={status.process_shell.reason} />
       </OverviewSection>
+
+      {unsupported.length > 0 && (
+        <div className="p-4">
+          <Collapsible title="Unsupported configuration" meta={<Badge tone="yellow">{unsupported.length}</Badge>}>
+            <div className="divide-y divide-line">
+              {unsupported.map(([path, field]) => (
+                <div key={path} className="py-2">
+                  <div className="font-mono text-[10px] text-warning">{path}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-fg-faint">
+                    {field.source} · {JSON.stringify(field.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Collapsible>
+        </div>
+      )}
     </div>
   );
 }

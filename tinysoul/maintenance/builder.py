@@ -103,7 +103,7 @@ class MaintenanceBuilder:
             home_controller=home_controller,
             memory_controller=memory_controller,
             llm_action_timeout_seconds=(
-                self._action_settings.llm_action_timeout_seconds
+                self._action_settings.llm_action.timeout_seconds
             ),
         )
         memory_action = build_maintenance_action(
@@ -114,7 +114,7 @@ class MaintenanceBuilder:
             home_controller=home_controller,
             memory_controller=memory_controller,
             llm_action_timeout_seconds=(
-                self._action_settings.llm_action_timeout_seconds
+                self._action_settings.llm_action.timeout_seconds
             ),
         )
         home_turn = self._build_turn(

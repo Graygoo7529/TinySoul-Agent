@@ -43,6 +43,9 @@ where = ["."]
 include = ["tinysoul*"]
 
 [tool.setuptools.package-data]
+"tinysoul.infra.config" = [
+    "catalog/*.toml",
+]
 "tinysoul.action" = [
     "catalog/*/*.toml",
     "catalog/*/actions/*.toml",

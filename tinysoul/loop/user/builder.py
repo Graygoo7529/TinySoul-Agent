@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tinysoul.action import ActionEngine
 from tinysoul.action.backends.llm_action import LLMActionTaskRunner
-from tinysoul.action.config import ActionSettings
+from tinysoul.action.config import ActionSettings, LLMActionProfileResolver
 from tinysoul.capabilities import CapabilitiesSettings
 from tinysoul.capabilities.script import ScriptSourceResolver
 from tinysoul.capabilities.supervised_process import SupervisedProcessManager
@@ -167,6 +167,9 @@ class UserTurnBuilder:
                         self._home,
                         runtime_bridge=RuntimeAgentHomeBridge(),
                     ),
+                    profile_resolver=LLMActionProfileResolver(
+                        self._action_settings.llm_action
+                    ),
                 ),
                 llm=self._llm,
                 observations=self._observations,
@@ -176,7 +179,7 @@ class UserTurnBuilder:
                 process_jobs=process_jobs,
                 script_resolver=script_resolver,
                 llm_action_timeout_seconds=(
-                    self._action_settings.llm_action_timeout_seconds
+                    self._action_settings.llm_action.timeout_seconds
                 ),
             )
         try:
@@ -237,4 +240,4 @@ class UserTurnBuilder:
             activity_controller=process_jobs,
             observations=self._observations,
         )
-        return UserTurnEntry(runner)
+        return UserTurnEntry(runner, action=action)

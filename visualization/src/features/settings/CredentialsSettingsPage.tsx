@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Check, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
-import type { ConfigStatus } from "../../types";
+import type { ConfigCatalog, ConfigStatus } from "../../types";
 import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -16,11 +16,13 @@ const inputClass =
 export function CredentialsSettingsPage({
   client,
   status,
+  catalog,
 }: {
   client: TinySoulClient;
   status: ConfigStatus;
+  catalog: ConfigCatalog;
 }) {
-  const { source, credentials } = deriveCredentials(status);
+  const { source, credentials } = deriveCredentials(status, catalog);
   const patch = useConfigStore((state) => state.patch);
   const savingPath = useConfigStore((state) => state.savingPath);
   const pushToast = useAppStore((state) => state.pushToast);

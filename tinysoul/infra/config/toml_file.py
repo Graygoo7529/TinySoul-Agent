@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 import tomllib
+import re
 
 from .errors import ConfigError
 from .source import ConfigSource, ConfigSourceKind
@@ -173,10 +174,10 @@ def _write_section(
     if path:
         if lines and lines[-1] != "":
             lines.append("")
-        lines.append(f"[{'.'.join(path)}]")
+        lines.append(f"[{'.'.join(_format_toml_key(part) for part in path)}]")
 
     for key, value in sorted(scalar_items):
-        lines.append(f"{key} = {_format_toml_value(value)}")
+        lines.append(f"{_format_toml_key(str(key))} = {_format_toml_value(value)}")
 
     for key, value in sorted(nested_items):
         _write_section(
@@ -207,6 +208,12 @@ def _format_toml_value(value: object) -> str:
         return str(value)
     if isinstance(value, list):
         return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        table = _string_key_mapping(cast(Mapping[str, object], value))
+        return "{ " + ", ".join(
+            f"{_format_toml_key(key)} = {_format_toml_value(item)}"
+            for key, item in sorted(table.items())
+        ) + " }"
     if isinstance(value, Path):
         return _quote(str(value))
     if isinstance(value, str):
@@ -215,8 +222,12 @@ def _format_toml_value(value: object) -> str:
         "Unsupported TOML value type",
         key="config",
         value=type(value).__name__,
-        expected="bool | int | float | str | list | Path",
+        expected="bool | int | float | str | list | table | Path",
     )
+
+
+def _format_toml_key(value: str) -> str:
+    return value if re.fullmatch(r"[A-Za-z0-9_-]+", value) else _quote(value)
 
 
 def _quote(value: str) -> str:
