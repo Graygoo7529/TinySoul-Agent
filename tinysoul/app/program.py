@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections import deque
 from contextlib import AbstractContextManager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from queue import Empty, Queue
 from threading import RLock
-from typing import Protocol
+from types import SimpleNamespace
+from typing import Generic, Protocol, TypeVar
 from uuid import uuid4
 
 from tinysoul.infra.json import JsonObject
@@ -35,6 +37,8 @@ from tinysoul.runtime import (
     RuntimeTransfer,
     RuntimeTransferAction,
     RuntimeTransferInterrupt,
+    RuntimeActivity,
+    RuntimeHandle,
     SignalBus,
     emit_observation,
     observation_enabled,
@@ -75,6 +79,17 @@ class ProgramMaintenanceEngine(Protocol):
     ) -> MaintenanceOutcome: ...
 
 
+class ProgramGeneration(Protocol):
+    @property
+    def user_turn(self) -> UserTurnExecutor: ...
+
+    @property
+    def maintenance(self) -> ProgramMaintenanceEngine: ...
+
+
+ProgramGenerationT = TypeVar("ProgramGenerationT", bound=ProgramGeneration)
+
+
 @dataclass(frozen=True)
 class ProgramOutcome:
     """Bounded results retained from one Program run."""
@@ -94,7 +109,7 @@ class ProgramOutcome:
         object.__setattr__(self, "maintenance", tuple(self.maintenance))
 
 
-class ProgramRunner:
+class ProgramRunner(Generic[ProgramGenerationT]):
     """Dispatch each app request to a User Turn or MaintenanceEngine."""
 
     def __init__(
@@ -108,6 +123,7 @@ class ProgramRunner:
         retained_outcomes: int = 32,
         maintenance_bridge: MaintenanceRuntimeBridge | None = None,
         observations: ObservationEmitter | None = None,
+        generation_handle: RuntimeHandle[ProgramGenerationT] | None = None,
     ) -> None:
         if (
             isinstance(retained_outcomes, bool)
@@ -117,6 +133,7 @@ class ProgramRunner:
             raise AppContractError("retained_outcomes must be positive")
         self._user_turn = user_turn
         self._maintenance = maintenance
+        self._generation_handle = generation_handle
         self._bus = bus
         self._trap = trap
         self._input_queue: Queue[AppRequest] = input_queue or Queue()
@@ -161,8 +178,9 @@ class ProgramRunner:
             request_id=request_id or f"request_{uuid4().hex}",
         )
         with self._request_lock:
-            transition = self._preflight()
-            return self._run_user_request(request, transition=transition)
+            with self._generation_activity(RuntimeActivity.USER_TURN):
+                transition = self._maintenance_engine().preflight(scope=self._scope)
+                return self._run_user_request(request, transition=transition)
 
     def run(self) -> ProgramOutcome:
         turns: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)
@@ -177,7 +195,7 @@ class ProgramRunner:
             self._prepared_transition = None
         self._emit("program.started", "Program started.", {})
         try:
-            self._emit_availability(self._maintenance.availability())
+            self._emit_availability(self._maintenance_engine().availability())
         except MaintenanceError as exc:
             transfer = self._capture_maintenance_failure(
                 exc,
@@ -204,11 +222,14 @@ class ProgramRunner:
             if isinstance(request, UserTurnRequest):
                 try:
                     with self._request_lock:
-                        transition = self._maintenance.preflight(scope=self._scope)
-                        outcome = self._run_user_request(
-                            request,
-                            transition=transition,
-                        )
+                        with self._generation_activity(RuntimeActivity.USER_TURN):
+                            transition = self._maintenance_engine().preflight(
+                                scope=self._scope
+                            )
+                            outcome = self._run_user_request(
+                                request,
+                                transition=transition,
+                            )
                 except MaintenanceError as exc:
                     transfer = self._capture_maintenance_failure(
                         exc,
@@ -238,7 +259,7 @@ class ProgramRunner:
             if isinstance(request, MaintenanceRequest):
                 try:
                     with self._request_lock:
-                        outcome = self._maintenance.run(request, scope=self._scope)
+                        outcome = self._run_maintenance(request)
                 except RuntimeTransferInterrupt as interrupt:
                     transfer = self._consume_program_transfer(interrupt.transfer)
                     return self._outcome(
@@ -283,7 +304,8 @@ class ProgramRunner:
 
     def _preflight(self) -> DailyTransitionOutcome:
         try:
-            return self._maintenance.preflight(scope=self._scope)
+            with self._generation_activity(RuntimeActivity.DAILY_TRANSITION) as generation:
+                return generation.maintenance.preflight(scope=self._scope)
         except MaintenanceError as exc:
             raise self._maintenance_bridge.startup_failure(
                 message=str(exc),
@@ -296,16 +318,49 @@ class ProgramRunner:
         *,
         transition: DailyTransitionOutcome,
     ) -> TurnOutcome:
-        with self._maintenance.active_day_lease() as leased_day:
-            if leased_day != transition.active_day:
-                raise AppContractError("Active Business Day changed before User Turn")
-            return self._user_turn.run(
-                request.text,
-                business_day=leased_day,
-                scope=self._scope,
-                request_id=request.request_id,
-                input_source=request.source,
+        with self._generation_lease() as generation:
+            with generation.maintenance.active_day_lease() as leased_day:
+                if leased_day != transition.active_day:
+                    raise AppContractError("Active Business Day changed before User Turn")
+                return generation.user_turn.run(
+                    request.text,
+                    business_day=leased_day,
+                    scope=self._scope,
+                    request_id=request.request_id,
+                    input_source=request.source,
+                )
+
+    def _run_maintenance(self, request: MaintenanceRequest) -> MaintenanceOutcome:
+        with self._generation_activity(RuntimeActivity.MAINTENANCE_TURN) as generation:
+            return generation.maintenance.run(request, scope=self._scope)
+
+    @contextmanager
+    def _generation_lease(self):
+        if self._generation_handle is None:
+            yield SimpleNamespace(
+                user_turn=self._user_turn,
+                maintenance=self._maintenance,
             )
+            return
+        with self._generation_handle.read() as generation:
+            yield generation
+
+    def _maintenance_engine(self) -> ProgramMaintenanceEngine:
+        if self._generation_handle is None:
+            return self._maintenance
+        return self._generation_handle.snapshot().generation.maintenance
+
+    @contextmanager
+    def _generation_activity(self, activity: RuntimeActivity):
+        if self._generation_handle is None:
+            yield SimpleNamespace(
+                user_turn=self._user_turn,
+                maintenance=self._maintenance,
+            )
+            return
+        with self._generation_handle.activity_lease(activity):
+            with self._generation_handle.read() as generation:
+                yield generation
 
     def _capture_maintenance_failure(
         self,

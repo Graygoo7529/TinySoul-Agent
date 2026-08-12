@@ -19,6 +19,7 @@ from starlette.responses import Response
 import uvicorn
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.config import ConfigMutation
 from tinysoul.runtime import ObservationLevel
 from tinysoul.workspace import WorkspaceRetention
 
@@ -78,6 +79,21 @@ class WorkspaceRestoreRequest(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class ConfigMutationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    op: Literal["set", "delete"]
+    value: object = None
+
+
+class ConfigPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operations: list[ConfigMutationRequest] = Field(min_length=1)
+
+
 def create_endpoint_app(
     engine: EndpointEngine,
     settings: EndpointSettings,
@@ -91,7 +107,7 @@ def create_endpoint_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=[
             "X-TinySoul-Link",
@@ -200,6 +216,22 @@ def create_endpoint_app(
         limit: int = Query(default=200, ge=1, le=1000),
     ) -> JsonObject:
         return engine.replay_events(after=after, mode=mode, limit=limit).to_json()
+
+    @app.get("/v1/config")
+    def config_status() -> JsonObject:
+        return engine.config_status()
+
+    @app.get("/v1/config/sections/{section_id}")
+    def config_section(section_id: str) -> JsonObject:
+        return engine.config_section(section_id)
+
+    @app.post("/v1/config/validate")
+    def validate_config(body: ConfigPatchRequest) -> JsonObject:
+        return engine.validate_config(_config_mutations(body))
+
+    @app.patch("/v1/config")
+    def patch_config(body: ConfigPatchRequest) -> JsonObject:
+        return engine.patch_config(_config_mutations(body))
 
     @app.get("/v1/workspace/manifest")
     def workspace_manifest() -> JsonObject:
@@ -318,6 +350,18 @@ def create_endpoint_app(
             await websocket.close(code=1008)
 
     return app
+
+
+def _config_mutations(body: ConfigPatchRequest) -> tuple[ConfigMutation, ...]:
+    return tuple(
+        ConfigMutation(
+            source_id=operation.source_id,
+            path=operation.path,
+            op=operation.op,
+            value=operation.value,
+        )
+        for operation in body.operations
+    )
 
 
 class EndpointASGIServer:

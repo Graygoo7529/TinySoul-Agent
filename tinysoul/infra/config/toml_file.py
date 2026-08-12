@@ -8,7 +8,8 @@ from typing import cast
 import tomllib
 
 from .errors import ConfigError
-from .source import ConfigSource
+from .source import ConfigSource, ConfigSourceKind
+from ..filesystem import atomic_write_text
 
 
 class ConfigFileToml:
@@ -27,7 +28,12 @@ class ConfigFileToml:
         return deep_copy_mapping(self._data)
 
     def to_source(self) -> ConfigSource:
-        return ConfigSource(name=str(self.path), values=flatten_mapping(self._data))
+        return ConfigSource(
+            name=str(self.path),
+            values=flatten_mapping(self._data),
+            kind=ConfigSourceKind.PROJECT_TOML,
+            path=self.path,
+        )
 
     def set_value(self, dotted_key: str, value: object) -> None:
         if not dotted_key:
@@ -57,9 +63,44 @@ class ConfigFileToml:
             current = cast(dict[str, object], existing)
         current[parts[-1]] = value
 
+    def delete_value(self, dotted_key: str) -> None:
+        if not dotted_key:
+            raise ConfigError(
+                "Configuration key must be non-empty",
+                key="config",
+                source=str(self.path),
+                expected="non-empty dotted key",
+            )
+        parts = dotted_key.split(".")
+        current: dict[str, object] = self._data
+        parents: list[tuple[dict[str, object], str]] = []
+        for part in parts[:-1]:
+            existing = current.get(part)
+            if existing is None:
+                return
+            if not isinstance(existing, dict):
+                raise ConfigError(
+                    "Cannot delete nested key below scalar",
+                    key=dotted_key,
+                    value=part,
+                    source=str(self.path),
+                    expected="table",
+                )
+            parents.append((current, part))
+            current = cast(dict[str, object], existing)
+        current.pop(parts[-1], None)
+        for parent, part in reversed(parents):
+            value = parent.get(part)
+            if isinstance(value, dict) and not value:
+                parent.pop(part, None)
+                continue
+            break
+
+    def render(self) -> str:
+        return _to_toml(self._data)
+
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(_to_toml(self._data), encoding="utf-8")
+        atomic_write_text(self.path, self.render())
 
 
 def flatten_mapping(data: Mapping[str, object], prefix: str = "") -> dict[str, object]:

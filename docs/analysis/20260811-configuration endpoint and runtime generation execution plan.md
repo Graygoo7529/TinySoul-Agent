@@ -106,7 +106,8 @@ Endpoint 返回全部配置字段，包括不可修改字段。字段级只表�
 
 所有业务配置统一在 `idle` 时写入。User Turn、Maintenance Turn 或已有配置激活期间，`PATCH /v1/config` 返回 `409 config.activation_unavailable`，不写入任何文件。
 
-Endpoint 配置、实例锁、端口、token 等进程外壳配置可读但 `writable=false`，并返回 `write_reason=process_owned`。
+Endpoint 配置、实例锁、端口、token，以及 App 的 interactive、输入命令、输出路由和 retained
+outcome 等进程外壳配置可读但 `writable=false`，并返回 `write_reason=process_owned`。
 
 ### Revision 语义
 
@@ -215,51 +216,51 @@ PATCH 的成功响应是同步权威结果；事件用于前端刷新配置页�
 
 ### 阶段一：Infra 配置文档和事务
 
-- [ ] 为 `ConfigSource` 增加类型化 source identity 和相对路径投影。
-- [ ] 为 `ProjectConfig` 暴露完整 source graph 和重新加载入口。
-- [ ] 扩展 `ConfigFileToml`，支持结构化 set/delete 和原子保存。
-- [ ] 增加 `DotenvDocument`，支持键值 set/delete、保留未修改内容和原子保存。
-- [ ] 增加配置事务，支持多个 TOML/.env source 的候选写入、校验和恢复。
-- [ ] 保持配置错误包含 key、source、expected 和有限原因。
+- [x] 为 `ConfigSource` 增加类型化 source identity 和相对路径投影。
+- [x] 为 `ProjectConfig` 暴露完整 source graph 和重新加载入口。
+- [x] 扩展 `ConfigFileToml`，支持结构化 set/delete 和原子保存。
+- [x] 增加 `DotenvDocument`，支持键值 set/delete、保留未修改内容和原子保存。
+- [x] 增加配置事务，支持多个 TOML/.env source 的候选写入、校验和恢复。
+- [x] 保持配置错误包含 key、source、expected 和有限原因。
 
 ### 阶段二：Runtime Generation 基础
 
-- [ ] 新建 `tinysoul/runtime/generation` 子包。
-- [ ] 实现泛型 `RuntimeHandle`、Generation lease 和 RuntimeActivity。
-- [ ] 明确 idle、active turn、maintenance 和 activation 的状态转移。
-- [ ] 提供 Generation 原子替换和旧 Generation 关闭生命周期。
-- [ ] 通过 Runtime Observation 发布激活开始、完成和失败。
+- [x] 新建 `tinysoul/runtime/generation` 子包。
+- [x] 实现泛型 `RuntimeHandle`、Generation lease 和 RuntimeActivity。
+- [x] 明确 idle、active turn、maintenance 和 activation 的状态转移。
+- [x] 提供 Generation 原子替换和旧 Generation 关闭生命周期。
+- [x] 通过 Runtime Observation 发布激活开始、完成和失败。
 
 ### 阶段三：App 装配适配
 
-- [ ] 从 `TinySoulAppBuilder` 提取 `AppConfigPlan` 编译步骤。
-- [ ] 提取 `RuntimeGenerationFactory`，复用现有模块 parser 和 builder。
-- [ ] 将 User Turn、Maintenance、Workspace、Memory、LLM、Action 和 Capability Engine 放入 Generation。
-- [ ] 保持 SignalBus、ObservationRouter 等稳定设施的生命周期清晰。
-- [ ] 让 Program 在 idle 边界访问和切换当前 Generation。
-- [ ] 为旧 Generation 增加显式关闭和资源释放路径。
+- [x] 从 `TinySoulAppBuilder` 提取 `AppConfigPlan` 编译步骤。
+- [x] 提取 App-owned Generation factory，复用现有模块 parser 和 builder。
+- [x] 将 User Turn、Maintenance、Workspace、Memory、LLM、Action 和 Capability Engine 放入 Generation。
+- [x] 保持 SignalBus、ObservationRouter 等稳定设施的生命周期清晰。
+- [x] 让 Program 在 idle 边界访问和切换当前 Generation。
+- [x] 为旧 Generation增加显式关闭和资源释放路径。
 
 ### 阶段四：Endpoint 配置协议
 
-- [ ] EndpointEngine 注入 RuntimeHandle 和 ConfigEndpointFacade，不再永久持有旧业务 Engine。
-- [ ] 增加 `/v1/config` 查询、section 查询、validate 和 PATCH DTO。
-- [ ] 增加全局 activity/can_write 投影，不增加字段级 currently_writable。
-- [ ] 活跃 Turn 时将 PATCH 映射为 `409 config.activation_unavailable`。
-- [ ] 增加 dotenv source 查询和更新。
-- [ ] PATCH 成功后返回 Generation 切换完成的同步结果。
-- [ ] 保持 EndpointHost、token、port、事件缓冲和 WebSocket 连接稳定。
+- [x] EndpointEngine 注入 RuntimeHandle 和配置控制器，不再永久使用旧业务 Engine。
+- [x] 增加 `/v1/config` 查询、section 查询、validate 和 PATCH DTO。
+- [x] 增加全局 activity/can_write 投影，不增加字段级 currently_writable。
+- [x] 活跃 Turn 时将 PATCH 映射为 `409 config.activation_unavailable`。
+- [x] 增加 dotenv source 查询和更新。
+- [x] PATCH 成功后返回 Generation 切换完成的同步结果。
+- [x] 保持 EndpointHost、token、port、事件缓冲和 WebSocket 连接稳定。
 
 ### 阶段五：文档和测试
 
-- [ ] 更新 `docs/design/infra.md` 的 source、dotenv 和事务语义。
-- [ ] 更新 `docs/design/runtime.md` 的 Generation 子包和 Handle 语义。
-- [ ] 更新 `docs/design/app.md` 的 AppConfigPlan 与 Generation 装配边界。
-- [ ] 更新 `docs/design/endpoint.md` 的配置 API、activity gate 和激活事件。
-- [ ] 测试 TOML/dotenv 查询、set/delete、原子事务和错误恢复。
-- [ ] 测试活跃 User/Maintenance Turn 拒绝写入。
-- [ ] 测试候选 Generation 构建失败时旧 Generation 保持运行。
-- [ ] 测试成功 PATCH 后文件和当前 Generation 同时更新。
-- [ ] 测试 EndpointHost、WebSocket 和 EventBuffer 在 Generation 切换后保持可用。
+- [x] 更新 `docs/design/infra.md` 的 source、dotenv 和事务语义。
+- [x] 更新 `docs/design/runtime.md` 的 Generation 子包和 Handle 语义。
+- [x] 更新 `docs/design/app.md` 的 AppConfigPlan 与 Generation 装配边界。
+- [x] 更新 `docs/design/endpoint.md` 的配置 API、activity gate 和激活事件。
+- [x] 测试 TOML/dotenv 查询、set/delete、原子事务和错误恢复。
+- [x] 测试活跃 User/Maintenance Turn 拒绝写入。
+- [x] 测试候选 Generation 构建失败时旧 Generation 保持运行。
+- [x] 测试成功 PATCH 后文件和当前 Generation 同时更新。
+- [x] 测试 EndpointHost、WebSocket 和 EventBuffer 在 Generation 切换后保持可用。
 
 ## 完成标准
 
@@ -268,6 +269,7 @@ PATCH 的成功响应是同步权威结果；事件用于前端刷新配置页�
 3. 空闲时一次 PATCH 可以同时更新 TOML/.env 并切换当前业务 Generation。
 4. 任意活跃 User/Maintenance Turn 期间不会发生配置写入或 Generation 切换。
 5. 配置构建失败不会污染当前运行实例或产生半写入文件。
-6. RuntimeHandle 位于 `runtime/generation`，不携带业务模块依赖。
-7. App 只组合各模块配置 parser 和 Generation factory，不建立第二套配置语义。
-8. EndpointHost、连接信息、实例锁、EventBuffer 和 WebSocket 不因 Generation 切换而重启。
+6. 激活失败时旧 Generation 继续提供业务服务，文件事务可恢复。
+7. RuntimeHandle 位于 `runtime/generation`，不携带业务模块依赖。
+8. App 只组合各模块配置 parser 和 Generation factory，不建立第二套配置语义。
+9. EndpointHost、连接信息、实例锁、EventBuffer 和 WebSocket 不因 Generation 切换而重启。

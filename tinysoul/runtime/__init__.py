@@ -29,6 +29,16 @@ from .observation import (
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap import TrapHandler, TrapHandlerRegistry, TrapResult, TrapSnap, RuntimeTrap
 from .signals import Signal, SignalBus, SignalWatch
+from .generation import (
+    RuntimeActivationState,
+    RuntimeActivity,
+    RuntimeGenerationError,
+    RuntimeActivityLease,
+    RuntimeGenerationLease,
+    RuntimeGenerationSnapshot,
+    RuntimeHandle,
+    RuntimeWriteLease,
+)
 
 __all__ = [
     "CONTEXT_COMPRESSION_REQUIRED",
@@ -65,4 +75,12 @@ __all__ = [
     "TrapHandlerRegistry",
     "TrapResult",
     "TrapSnap",
+    "RuntimeActivationState",
+    "RuntimeActivity",
+    "RuntimeGenerationError",
+    "RuntimeActivityLease",
+    "RuntimeGenerationLease",
+    "RuntimeGenerationSnapshot",
+    "RuntimeHandle",
+    "RuntimeWriteLease",
 ]

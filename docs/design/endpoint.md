@@ -50,6 +50,25 @@ Endpoint 不提供 Home、Memory 或 Session 任意文件 API，也不提供 Ses
 
 Endpoint 也不提供 Context inspect REST、canonical trace REST 或前端审计 checkpoint。应用界面以 Chat 事件观测和 Workspace 资源操作为两个主表面。
 
+## Configuration API
+
+Endpoint 提供四个配置协议入口：
+
+- `GET /v1/config` 返回 activity、generation/activation 状态、全部 effective fields、每个
+  source 的类型、相对路径、值投影和静态 writable；`config.*` 入口及 Endpoint 进程外壳以
+  `writable=false` 返回。App 的 interactive、输入命令、输出路由和 retained outcome
+  也属于进程外壳，读取可见但不在当前进程内改写。
+- `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。
+- `POST /v1/config/validate` 只构建候选 ConfigEnvironment/Plan，不写文件或切换 Generation。
+- `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。Infra 临时编辑 TOML/.env，
+  App 构建候选 Generation；文件提交和 handle 切换完成后才返回 `state=active` 与
+  `generation_id`。候选解析、事务或激活失败会保留旧文件和旧 Generation。
+
+所有配置修改统一要求 Runtime activity 为 `idle`；User Turn、Maintenance Turn、每日切换或
+已有激活期间返回 `409 config.activation_unavailable`，不提供字段级 currently_writable 或
+前端 revision/CAS。dotenv 读取保留原始键值、不会修改 `os.environ`，下一代 Generation 从
+新的 dotenv source 重新创建 runtime env。
+
 ## 失败边界
 
 鉴权、schema、状态冲突和 Workspace CAS 失败映射为稳定 HTTP error envelope。模块 I/O 或内部失败不返回绝对路径、traceback 或原始异常。服务启动失败由 RuntimeEndpointBridge 映射为 startup failure；普通请求失败不得改变 Program 控制流。

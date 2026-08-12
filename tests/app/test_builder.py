@@ -4,12 +4,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 import pytest
 from pypdf import PdfWriter
 
 from tinysoul.app import AppSettings, ProjectInitializer, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
-from tinysoul.infra.config import ConfigEnvironment
+from tinysoul.endpoint.server import create_endpoint_app
+from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
@@ -114,6 +116,82 @@ def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     assert app.input_sources == ()
     assert len(app.services) == 1
     assert app.observations.mode.value == "model"
+
+
+def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    ProjectInitializer().initialize(project_root)
+    app = (
+        TinySoulAppBuilder(root=project_root)
+        .with_config_environment(ConfigEnvironment.from_project_root(project_root))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .build()
+    )
+    assert app.endpoint is not None
+    endpoint = app.endpoint
+    events = endpoint.events
+    before = endpoint.config_status()["runtime"]
+    after_sequence = events.latest_sequence
+
+    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
+    with client.websocket_connect("/v1/events/ws") as websocket:
+        websocket.send_json(
+            {
+                "token": "x" * 32,
+                "after": after_sequence,
+                "mode": "normal",
+            }
+        )
+        assert websocket.receive_json()["type"] == "authenticated"
+        response = client.patch(
+            "/v1/config",
+            headers={"Authorization": f"Bearer {'x' * 32}"},
+            json={
+                "operations": [
+                    {
+                        "source_id": "project:configs/action.toml",
+                        "path": "action.llm_action_timeout_seconds",
+                        "op": "set",
+                        "value": 30.0,
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200
+        result = response.json()
+        websocket_events = websocket.receive_json()
+        websocket_completed = websocket.receive_json()
+
+    after = endpoint.config_status()["runtime"]
+    assert result["state"] == "active"
+    assert result["generation_id"] == after["generation_id"]
+    assert after["generation_id"] != before["generation_id"]
+    assert after["activity"] == "idle"
+    assert endpoint.events is events
+    assert "llm_action_timeout_seconds = 30.0" in (
+        project_root / "configs" / "action.toml"
+    ).read_text(encoding="utf-8")
+    activation_events = events.replay(
+        after=after_sequence,
+        mode=ObservationLevel.NORMAL,
+        limit=20,
+    )
+    assert [event.name for event in activation_events.events] == [
+        "config.activation.started",
+        "config.activation.completed",
+    ]
+    assert websocket_events["type"] == "events"
+    assert [event["name"] for event in websocket_events["events"]] == [
+        "config.activation.started"
+    ]
+    assert websocket_completed["type"] == "events"
+    assert [event["name"] for event in websocket_completed["events"]] == [
+        "config.activation.completed"
+    ]
 
 
 def test_agent_workspace_mutation_reaches_endpoint_event_stream(

@@ -238,6 +238,7 @@ class InputDispatcher:
         observations: ObservationEmitter | None = None,
         program_scope: RunScope | None = None,
         request_turn_cancel: Callable[[LoopControlKind], bool] | None = None,
+        parser_provider: Callable[[], InputCommandParser] | None = None,
     ) -> None:
         self._parser = parser
         self._bus = bus
@@ -248,10 +249,12 @@ class InputDispatcher:
             RunLevel.PROGRAM, "program"
         )
         self._request_turn_cancel = request_turn_cancel
+        self._parser_provider = parser_provider
 
     def submit(self, event: InputEvent) -> CommandReceipt:
         turn_scope = self._active_turn_scope()
-        intent = self._parser.parse(event, turn_active=turn_scope is not None)
+        parser = self._parser_provider() if self._parser_provider is not None else self._parser
+        intent = parser.parse(event, turn_active=turn_scope is not None)
         if intent.kind is InputIntentKind.IGNORE:
             return self._receipt(intent, True, "ignored")
         if intent.kind is InputIntentKind.USER_TURN:

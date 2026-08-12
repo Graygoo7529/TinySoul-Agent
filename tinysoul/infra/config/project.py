@@ -9,7 +9,7 @@ from typing import cast
 
 from ..filesystem import FilesystemBoundaryError, resolve_under_root
 from .errors import ConfigError
-from .source import ConfigSource
+from .source import ConfigSource, ConfigSourceKind
 from .toml_file import ConfigFileToml, deep_copy_mapping, flatten_mapping, merge_trees
 from .validation import reject_unknown_keys
 
@@ -32,8 +32,20 @@ class ProjectConfig:
 
         return self._sources
 
+    @property
+    def source_paths(self) -> tuple[Path, ...]:
+        return tuple(
+            source.path for source in self._sources if source.path is not None
+        )
+
     def to_source(self) -> ConfigSource:
-        return ConfigSource(name=str(self.main_path), values=flatten_mapping(self._data))
+        return ConfigSource(
+            name=str(self.main_path),
+            values=flatten_mapping(self._data),
+            kind=ConfigSourceKind.PROJECT_TOML,
+            path=self.main_path,
+            source_id="project:merged",
+        )
 
     def env_file_path(self, default_name: str = ".env") -> Path:
         configured = _get_config_string(self._data, "env_file")
@@ -50,7 +62,7 @@ class ProjectConfig:
         main = main_file.data
         _validate_config_table(main, source=str(self.main_path))
         result = deep_copy_mapping(main)
-        sources = [main_file.to_source()]
+        sources = [_with_project_identity(self.root, main_file.to_source())]
         for include_path in _expand_include_paths(
             self.root,
             _get_config_string_list(main, "include"),
@@ -67,7 +79,7 @@ class ProjectConfig:
                     value=str(include_path),
                 )
             result = merge_trees(result, include_data)
-            sources.append(include_file.to_source())
+            sources.append(_with_project_identity(self.root, include_file.to_source()))
         return result, tuple(sources)
 
 
@@ -116,6 +128,20 @@ def _expand_include_paths(root: Path, includes: list[str], *, source: str) -> li
             seen.add(normalized)
             result.append(path)
     return result
+
+
+def _with_project_identity(root: Path, source: ConfigSource) -> ConfigSource:
+    try:
+        relative = source.path.resolve().relative_to(root.resolve()).as_posix()  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        relative = source.name
+    return ConfigSource(
+        name=source.name,
+        values=source.values,
+        kind=ConfigSourceKind.PROJECT_TOML,
+        path=source.path,
+        source_id=f"project:{relative}",
+    )
 
 
 def _include_matches(root: Path, include: str, *, source: str) -> list[Path]:

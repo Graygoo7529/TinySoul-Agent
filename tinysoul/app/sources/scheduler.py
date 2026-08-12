@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Event, RLock, Thread, current_thread
 from typing import Protocol
 
@@ -33,12 +34,22 @@ class MaintenanceScheduler:
         *,
         clock: BusinessClock | None = None,
         timezone: str = "Asia/Shanghai",
+        settings_provider: (
+            Callable[[], tuple[MaintenanceScheduleSettings, str]] | None
+        ) = None,
     ) -> None:
         self._settings = settings
         self._clock = clock or IanaBusinessClock(timezone)
         self._stop_event = Event()
+        self._refresh_event = Event()
         self._thread: Thread | None = None
         self._lock = RLock()
+        self._settings_provider = settings_provider
+
+    def refresh(self) -> None:
+        """Wake the stable scheduler so it re-reads current Generation settings."""
+
+        self._refresh_event.set()
 
     @property
     def running(self) -> bool:
@@ -50,10 +61,10 @@ class MaintenanceScheduler:
             if self.running:
                 return
             self._stop_event.clear()
-            schedule = MaintenanceSchedule(self._settings, now=self._clock.now())
+            self._refresh_event.clear()
             self._thread = Thread(
                 target=self._run,
-                args=(sink, schedule),
+                args=(sink,),
                 name="tinysoul-maintenance-scheduler",
                 daemon=True,
             )
@@ -63,17 +74,42 @@ class MaintenanceScheduler:
         with self._lock:
             thread = self._thread
             self._stop_event.set()
+            self._refresh_event.set()
         if thread is not None and thread is not current_thread():
             thread.join(timeout=2.0)
 
     def _run(
         self,
         sink: ProgramRequestSink,
-        schedule: MaintenanceSchedule,
     ) -> None:
+        settings, timezone = self._current_settings()
+        clock = (
+            self._clock
+            if self._settings_provider is None
+            else IanaBusinessClock(timezone)
+        )
+        schedule = MaintenanceSchedule(settings, now=clock.now())
         while not self._stop_event.is_set():
-            now = self._clock.now()
+            current_settings, current_timezone = self._current_settings()
+            if current_settings != settings or current_timezone != timezone:
+                settings = current_settings
+                timezone = current_timezone
+                clock = (
+                    self._clock
+                    if self._settings_provider is None
+                    else IanaBusinessClock(timezone)
+                )
+                schedule = MaintenanceSchedule(settings, now=clock.now())
+            now = clock.now()
             for request in schedule.due(now):
                 sink.submit_request(request)
-            if self._stop_event.wait(schedule.seconds_until_next(now)):
+            wait_seconds = schedule.seconds_until_next(now)
+            if self._refresh_event.wait(wait_seconds):
+                self._refresh_event.clear()
+            if self._stop_event.is_set():
                 return
+
+    def _current_settings(self) -> tuple[MaintenanceScheduleSettings, str]:
+        if self._settings_provider is None:
+            return self._settings, ""
+        return self._settings_provider()

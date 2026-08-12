@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from contextlib import AbstractContextManager
-from typing import Protocol
+from contextlib import contextmanager
+from typing import Generic, Protocol, TypeVar
 
+from tinysoul.infra.config import ConfigController, ConfigError, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import BusinessDay, BusinessDayError
 from tinysoul.loop import LoopControlKind
@@ -20,7 +22,9 @@ from tinysoul.maintenance import (
 from tinysoul.runtime import (
     ObservationLevel,
     RunScope,
+    RuntimeException,
     RuntimeGatewayError,
+    RuntimeHandle,
 )
 from tinysoul.workspace import (
     WorkspaceEngine,
@@ -90,6 +94,30 @@ class EndpointAppGateway(Protocol):
     ) -> None: ...
 
 
+class EndpointConfigController(Protocol):
+    def status(self) -> JsonObject: ...
+
+    def section(self, section_id: str) -> JsonObject: ...
+
+    def validate(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject: ...
+
+    def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject: ...
+
+
+class EndpointRuntimeGeneration(Protocol):
+    @property
+    def maintenance(self) -> EndpointMaintenanceStatus: ...
+
+    @property
+    def workspace(self) -> WorkspaceEngine: ...
+
+
+EndpointGenerationT = TypeVar(
+    "EndpointGenerationT",
+    bound=EndpointRuntimeGeneration,
+)
+
+
 @dataclass(frozen=True)
 class EndpointResourceBlob:
     link: str
@@ -99,7 +127,7 @@ class EndpointResourceBlob:
     digest: str
 
 
-class EndpointEngine:
+class EndpointEngine(Generic[EndpointGenerationT]):
     """Authenticated local protocol facade over existing TinySoul modules."""
 
     def __init__(
@@ -110,12 +138,16 @@ class EndpointEngine:
         gateway: EndpointAppGateway,
         workspace: WorkspaceEngine,
         maintenance: EndpointMaintenanceStatus,
+        config: EndpointConfigController | None = None,
+        runtime_handle: RuntimeHandle[EndpointGenerationT] | None = None,
     ) -> None:
         self._settings = settings
         self._events = events
         self._gateway = gateway
         self._workspace = workspace
         self._maintenance = maintenance
+        self._config = config
+        self._runtime_handle = runtime_handle
 
     @property
     def settings(self) -> EndpointSettings:
@@ -127,10 +159,17 @@ class EndpointEngine:
 
     def status(self) -> JsonObject:
         turn_scope = self._gateway.active_turn_scope
+        generation_id = ""
+        activity = "idle"
+        if self._runtime_handle is not None:
+            snapshot = self._runtime_handle.snapshot()
+            generation_id = snapshot.generation_id
+            activity = snapshot.activity.value
         try:
-            with self._maintenance.active_day_lease() as day:
-                workspace_revision = self._workspace.load_manifest().revision
-                active_day = str(day)
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease() as day:
+                    workspace_revision = workspace.load_manifest().revision
+                    active_day = str(day)
         except LoopError:
             workspace_revision = -1
             active_day = ""
@@ -141,6 +180,10 @@ class EndpointEngine:
             "ready": bool(active_day),
             "active_day": active_day,
             "turn_active": turn_scope is not None,
+            "runtime": {
+                "generation_id": generation_id,
+                "activity": activity,
+            },
             "workspace_revision": workspace_revision,
             "latest_event_sequence": self._events.latest_sequence,
             "event_journal": self._events.journal_status(),
@@ -264,10 +307,57 @@ class EndpointEngine:
     ) -> EndpointEventPage:
         return self._events.replay(after=after, mode=mode, limit=limit)
 
+    def config_status(self) -> JsonObject:
+        result = self._config_controller().status()
+        if self._runtime_handle is not None:
+            snapshot = self._runtime_handle.snapshot()
+            result["runtime"] = {
+                "generation_id": snapshot.generation_id,
+                "activity": snapshot.activity.value,
+                "activation": snapshot.activation.value,
+            }
+        result["process_shell"] = {
+            "writable": False,
+            "reason": "process_owned",
+            "endpoint": {
+                "host": self._settings.host,
+                "port": self._settings.port,
+                "instance_id": self._settings.instance_id,
+            },
+        }
+        return result
+
+    def config_section(self, section_id: str) -> JsonObject:
+        try:
+            return self._config_controller().section(section_id)
+        except ConfigError as exc:
+            raise _config_error(exc, missing=True) from exc
+
+    def validate_config(
+        self,
+        mutations: tuple[ConfigMutation, ...],
+    ) -> JsonObject:
+        try:
+            return self._config_controller().validate(mutations)
+        except ConfigError as exc:
+            raise _config_error(exc) from exc
+
+    def patch_config(
+        self,
+        mutations: tuple[ConfigMutation, ...],
+    ) -> JsonObject:
+        try:
+            return self._config_controller().patch(mutations)
+        except ConfigError as exc:
+            raise _config_error(exc) from exc
+        except RuntimeException as exc:
+            raise _config_activation_error(exc) from exc
+
     def workspace_manifest(self) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                result = self._workspace.reconcile()
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    result = workspace.reconcile()
                 if not result.complete:
                     raise EndpointRequestError(
                         status_code=409,
@@ -287,18 +377,19 @@ class EndpointEngine:
 
     def read_workspace_text(self, link: str) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                read = self._workspace.read_text(
-                    link,
-                    max_chars=self._settings.max_resource_chars,
-                )
-                return {
-                    "link": read.link,
-                    "text": read.text,
-                    "truncated": read.truncated,
-                    "size": read.size,
-                    "digest": read.digest,
-                }
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    read = workspace.read_text(
+                        link,
+                        max_chars=self._settings.max_resource_chars,
+                    )
+                    return {
+                        "link": read.link,
+                        "text": read.text,
+                        "truncated": read.truncated,
+                        "size": read.size,
+                        "digest": read.digest,
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -306,18 +397,19 @@ class EndpointEngine:
 
     def read_workspace_blob(self, link: str) -> EndpointResourceBlob:
         try:
-            with self._maintenance.active_day_lease():
-                read = self._workspace.read_bytes(
-                    link,
-                    max_bytes=self._settings.max_resource_bytes,
-                )
-                return EndpointResourceBlob(
-                    link=read.link,
-                    data=read.data,
-                    media_type=read.media_type,
-                    size=read.size,
-                    digest=read.digest,
-                )
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    read = workspace.read_bytes(
+                        link,
+                        max_bytes=self._settings.max_resource_bytes,
+                    )
+                    return EndpointResourceBlob(
+                        link=read.link,
+                        data=read.data,
+                        media_type=read.media_type,
+                        size=read.size,
+                        digest=read.digest,
+                    )
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -334,21 +426,22 @@ class EndpointEngine:
         retention: WorkspaceRetention | None,
     ) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                record = self._workspace.write_text(
-                    link,
-                    text,
-                    overwrite=overwrite,
-                    expected_digest=expected_digest,
-                    expected_revision=expected_revision,
-                    retention=retention,
-                )
-                manifest = self._workspace.load_manifest()
-                self._sync_workspace_change(manifest)
-                return {
-                    "record": record.to_json(),
-                    "manifest": manifest.to_json(),
-                }
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    record = workspace.write_text(
+                        link,
+                        text,
+                        overwrite=overwrite,
+                        expected_digest=expected_digest,
+                        expected_revision=expected_revision,
+                        retention=retention,
+                    )
+                    manifest = workspace.load_manifest()
+                    self._sync_workspace_change(manifest)
+                    return {
+                        "record": record.to_json(),
+                        "manifest": manifest.to_json(),
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -362,19 +455,20 @@ class EndpointEngine:
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                item = self._workspace.trash_resource(
-                    link,
-                    reason="endpoint.delete",
-                    expected_digest=expected_digest,
-                    expected_revision=expected_revision,
-                )
-                manifest = self._workspace.load_manifest()
-                self._sync_workspace_change(manifest)
-                return {
-                    "trash": {"ref": item.ref, **item.to_json()},
-                    "manifest": manifest.to_json(),
-                }
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    item = workspace.trash_resource(
+                        link,
+                        reason="endpoint.delete",
+                        expected_digest=expected_digest,
+                        expected_revision=expected_revision,
+                    )
+                    manifest = workspace.load_manifest()
+                    self._sync_workspace_change(manifest)
+                    return {
+                        "trash": {"ref": item.ref, **item.to_json()},
+                        "manifest": manifest.to_json(),
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -397,25 +491,26 @@ class EndpointEngine:
                 message="Workspace blob is too large.",
             )
         try:
-            with self._maintenance.active_day_lease():
-                result = self._workspace.write_bundle(
-                    (
-                        WorkspaceBundleWrite(
-                            link=link,
-                            data=data,
-                            overwrite=overwrite,
-                            expected_digest=expected_digest,
-                            retention=retention,
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    result = workspace.write_bundle(
+                        (
+                            WorkspaceBundleWrite(
+                                link=link,
+                                data=data,
+                                overwrite=overwrite,
+                                expected_digest=expected_digest,
+                                retention=retention,
+                            ),
                         ),
-                    ),
-                    expected_revision=expected_revision,
-                )
-                record = result.records[0]
-                self._sync_workspace_change(result.manifest)
-                return {
-                    "record": record.to_json(),
-                    "manifest": result.manifest.to_json(),
-                }
+                        expected_revision=expected_revision,
+                    )
+                    record = result.records[0]
+                    self._sync_workspace_change(result.manifest)
+                    return {
+                        "record": record.to_json(),
+                        "manifest": result.manifest.to_json(),
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -423,13 +518,14 @@ class EndpointEngine:
 
     def workspace_trash(self) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                return {
-                    "items": [
-                        {"ref": item.ref, **item.to_json()}
-                        for item in self._workspace.trash_items()
-                    ]
-                }
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    return {
+                        "items": [
+                            {"ref": item.ref, **item.to_json()}
+                            for item in workspace.trash_items()
+                        ]
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -442,17 +538,18 @@ class EndpointEngine:
         expected_revision: int,
     ) -> JsonObject:
         try:
-            with self._maintenance.active_day_lease():
-                record = self._workspace.restore_resource(
-                    trash_ref,
-                    expected_revision=expected_revision,
-                )
-                manifest = self._workspace.load_manifest()
-                self._sync_workspace_change(manifest)
-                return {
-                    "record": record.to_json(),
-                    "manifest": manifest.to_json(),
-                }
+            with self._workspace_lease() as (maintenance, workspace):
+                with maintenance.active_day_lease():
+                    record = workspace.restore_resource(
+                        trash_ref,
+                        expected_revision=expected_revision,
+                    )
+                    manifest = workspace.load_manifest()
+                    self._sync_workspace_change(manifest)
+                    return {
+                        "record": record.to_json(),
+                        "manifest": manifest.to_json(),
+                    }
         except LoopError as exc:
             raise _not_ready(exc) from exc
         except WorkspaceError as exc:
@@ -460,7 +557,11 @@ class EndpointEngine:
 
     def maintenance_status(self) -> JsonObject:
         try:
-            availability = self._maintenance.availability().to_json()
+            if self._runtime_handle is None:
+                availability = self._maintenance.availability().to_json()
+            else:
+                with self._runtime_handle.read() as generation:
+                    availability = generation.maintenance.availability().to_json()
         except (LoopError, MaintenanceError) as exc:
             raise _not_ready(exc) from exc
         return {"availability": availability}
@@ -470,6 +571,23 @@ class EndpointEngine:
             manifest,
             source="endpoint.workspace",
         )
+
+    def _config_controller(self) -> EndpointConfigController:
+        if self._config is None:
+            raise EndpointRequestError(
+                status_code=404,
+                code="config.unavailable",
+                message="Configuration control is not available.",
+            )
+        return self._config
+
+    @contextmanager
+    def _workspace_lease(self):
+        if self._runtime_handle is None:
+            yield self._maintenance, self._workspace
+            return
+        with self._runtime_handle.read() as generation:
+            yield generation.maintenance, generation.workspace
 
 
 def _not_ready(error: Exception) -> EndpointRequestError:
@@ -493,4 +611,35 @@ def _workspace_error(error: WorkspaceError) -> EndpointRequestError:
         code="workspace.failed",
         message="Workspace operation failed.",
         details={"error_type": type(error).__name__},
+    )
+
+
+def _config_error(error: ConfigError, *, missing: bool = False) -> EndpointRequestError:
+    if error.key == "config.activation_unavailable":
+        return EndpointRequestError(
+            status_code=409,
+            code="config.activation_unavailable",
+            message="Configuration changes require an idle runtime.",
+        )
+    return EndpointRequestError(
+        status_code=404 if missing else 422,
+        code="config.not_found" if missing else "config.invalid",
+        message=error.message,
+        details={
+            **({"key": error.key} if error.key else {}),
+            **({"source": error.source} if error.source else {}),
+            **({"expected": error.expected} if error.expected else {}),
+        },
+    )
+
+
+def _config_activation_error(error: RuntimeException) -> EndpointRequestError:
+    return EndpointRequestError(
+        status_code=500,
+        code="config.activation_failed",
+        message="Configuration activation failed; the previous runtime remains active.",
+        details={
+            "reason": error.reason,
+            "error_type": type(error).__name__,
+        },
     )

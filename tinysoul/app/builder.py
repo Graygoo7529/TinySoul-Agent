@@ -25,7 +25,12 @@ from tinysoul.home import (
 from tinysoul.home.errors import AgentHomeError
 from tinysoul.memory import MemoryEngine, parse_memory_settings
 from tinysoul.memory.errors import MemoryError
-from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tinysoul.infra.config import (
+    ConfigController,
+    ConfigEnvironment,
+    ConfigError,
+    PreparedConfigActivation,
+)
 from tinysoul.infra import (
     EmbeddingClient,
     build_embedding_client,
@@ -50,8 +55,11 @@ from tinysoul.maintenance import (
 )
 from tinysoul.runtime import (
     ObservationEmitter,
+    ObservationEvent,
     ObservationLevel,
     RuntimeException,
+    RuntimeHandle,
+    RuntimeGenerationError,
     SignalBus,
 )
 from tinysoul.runtime.bridge import (
@@ -85,6 +93,7 @@ from .inputs import InputCommandParser, InputDispatcher, InputSource
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .program import ProgramRunner
 from .runtime import TinySoulApp
+from .generation import AppConfigPlan, AppRuntimeGeneration
 from .runtime_policy import build_program_trap
 from .sources import MaintenanceScheduler, TerminalInputSource
 
@@ -206,17 +215,7 @@ class TinySoulAppBuilder:
         app_bridge = RuntimeAppBridge()
         infra_bridge = RuntimeInfraBridge()
         llm_bridge = RuntimeLLMBridge()
-        loop_bridge = RuntimeLoopBridge()
-        action_bridge = RuntimeActionBridge()
         maintenance_bridge = MaintenanceRuntimeBridge()
-        context_bridge = RuntimeContextBridge()
-        session_bridge = RuntimeSessionBridge()
-        workspace_bridge = RuntimeWorkspaceBridge()
-        home_bridge = RuntimeAgentHomeBridge()
-        memory_bridge = RuntimeMemoryBridge()
-        script_bridge = RuntimeScriptBridge()
-        shell_bridge = RuntimeShellBridge()
-        supervised_process_bridge = RuntimeSupervisedProcessBridge()
         try:
             config = (
                 self._config_env
@@ -240,12 +239,6 @@ class TinySoulAppBuilder:
                     "capabilities",
                 }
             )
-            infra_settings = config.parse_section("infra", parse_infra_settings)
-            loop_settings = (
-                self._loop_settings
-                if self._loop_settings is not None
-                else self._build_loop_settings(config, loop_bridge)
-            )
             maintenance_settings = (
                 self._maintenance_settings
                 if self._maintenance_settings is not None
@@ -255,14 +248,6 @@ class TinySoulAppBuilder:
                 self._app_settings
                 if self._app_settings is not None
                 else self._build_app_settings(config, app_bridge)
-            )
-            context_settings = self._build_context_settings(config, context_bridge)
-            action_settings = self._build_action_settings(config, action_bridge)
-            capabilities_settings = self._build_capabilities_settings(
-                config,
-                script_bridge,
-                shell_bridge,
-                supervised_process_bridge,
             )
             output_sinks = tuple(self._output_sinks)
             endpoint_events: EndpointEventBuffer | None = None
@@ -317,84 +302,17 @@ class TinySoulAppBuilder:
                 routes=output_routes,
             )
             bus = self._bus if self._bus is not None else SignalBus()
-            llm = (
-                self._llm
-                if self._llm is not None
-                else self._build_llm(
-                    config,
-                    llm_bridge,
-                    observations,
-                    context_trigger_ratio=context_settings.compression_trigger_ratio,
-                )
-            )
-            home = self._build_home(config, home_bridge)
-            session = (
-                self._session
-                if self._session is not None
-                else self._build_session(config, session_bridge)
-            )
-            if self._memory is not None:
-                memory = self._memory
-            else:
-                embedding_client = build_embedding_client(
-                    infra_settings.embedding,
-                    env=config.runtime_env,
-                )
-                memory = self._build_memory(
-                    config,
-                    memory_bridge,
-                    session_root=session.root,
-                    embedding_client=embedding_client,
-                )
-            if memory.active_session_root is None:
-                memory.bind_active_session_root(session.root)
-            elif memory.active_session_root.resolve() != session.root.resolve():
-                raise AppInvariantError(
-                    "Injected Memory active Session root does not match Session"
-                )
-            workspace = self._build_workspace(
+            generation = self._build_generation(
                 config,
-                workspace_bridge,
-                observations,
-            )
-            user_builder = UserTurnBuilder(
-                root=self._root,
-                context_settings=context_settings,
-                loop_settings=loop_settings,
-                capabilities_settings=capabilities_settings,
-                runtime_env=config.runtime_env,
-                llm=llm,
-                home=home,
-                memory=memory,
-                session=session,
-                workspace=workspace,
-                bus=bus,
                 observations=observations,
-                action_settings=action_settings,
-            )
-            if self._user_context is not None:
-                user_builder.with_context(self._user_context)
-            if self._user_action is not None:
-                user_builder.with_action(self._user_action)
-            if self._user_domain_skills is not None:
-                user_builder.with_domain_skills(self._user_domain_skills)
-            for handler in self._user_turn_completion_handlers:
-                user_builder.add_completion_handler(handler)
-            user_turn = user_builder.build()
-            maintenance_engine = MaintenanceBuilder(
-                context_settings=context_settings,
-                loop_settings=loop_settings,
-                settings=maintenance_settings,
-                llm=llm,
-                home=home,
-                memory=memory,
-                session=session,
-                workspace=workspace,
                 bus=bus,
-                observations=observations,
-                clock=self._business_clock,
-                action_settings=action_settings,
-            ).build()
+                map_config_errors=True,
+            )
+            user_turn = generation.user_turn
+            maintenance_engine = generation.maintenance
+            workspace = generation.workspace
+            parser = generation.input_parser
+            generation_handle = RuntimeHandle(generation)
             program_trap = build_program_trap()
             program_runner = ProgramRunner(
                 user_turn=user_turn,
@@ -404,26 +322,63 @@ class TinySoulAppBuilder:
                 retained_outcomes=app_settings.retained_outcomes,
                 maintenance_bridge=maintenance_bridge,
                 observations=observations,
+                generation_handle=generation_handle,
             )
-            parser = self._input_parser or InputCommandParser(app_settings.input_commands)
             dispatcher = InputDispatcher(
                 parser=parser,
                 bus=bus,
                 program_inputs=program_runner.input_queue,
-                active_turn_scope=lambda: user_turn.active_scope,
+                active_turn_scope=lambda: generation_handle.snapshot().generation.user_turn.active_scope,
                 observations=observations,
                 program_scope=program_runner.scope,
-                request_turn_cancel=user_turn.request_cancel,
+                request_turn_cancel=lambda kind: generation_handle.snapshot().generation.user_turn.request_cancel(kind),
+                parser_provider=lambda: generation_handle.snapshot().generation.input_parser,
             )
             gateway = AppCommandGateway(
                 dispatcher=dispatcher,
                 bus=bus,
-                active_turn_scope=lambda: user_turn.active_scope,
+                active_turn_scope=lambda: generation_handle.snapshot().generation.user_turn.active_scope,
                 program_scope=program_runner.scope,
             )
             endpoint: EndpointEngine | None = None
             services = ()
             input_sources = tuple(self._input_sources)
+
+            def current_maintenance_schedule():
+                current = generation_handle.snapshot().generation
+                return (
+                    current.maintenance_settings.schedule,
+                    current.maintenance_settings.timezone,
+                )
+
+            scheduler = MaintenanceScheduler(
+                maintenance_settings.schedule,
+                timezone=maintenance_settings.timezone,
+                settings_provider=current_maintenance_schedule,
+            )
+            config_controller = ConfigController(
+                root=self._root,
+                environment=config,
+                validator=self._validate_config_candidate,
+                activator=lambda candidate: self._prepare_generation_activation(
+                    generation_handle,
+                    candidate,
+                    observations=observations,
+                    bus=bus,
+                    after_commit=scheduler.refresh,
+                ),
+                activity=lambda: generation_handle.activity.value,
+                generation_id=lambda: generation_handle.generation_id,
+                activation_observer=lambda state, payload: observations.emit(
+                    ObservationEvent(
+                        name=f"config.activation.{state}",
+                        level=ObservationLevel.NORMAL,
+                        source="app.config",
+                        message=f"Configuration activation {state}.",
+                        payload=payload,
+                    )
+                ),
+            )
             if self._endpoint_settings is not None:
                 if endpoint_events is None:
                     raise AppInvariantError("Endpoint event buffer was not assembled")
@@ -433,6 +388,8 @@ class TinySoulAppBuilder:
                     gateway=gateway,
                     workspace=workspace,
                     maintenance=maintenance_engine,
+                    config=config_controller,
+                    runtime_handle=generation_handle,
                 )
                 services = (
                     EndpointHost(
@@ -452,14 +409,7 @@ class TinySoulAppBuilder:
                     ),
                 )
             program_request_sources = (
-                (
-                    MaintenanceScheduler(
-                        maintenance_settings.schedule,
-                        timezone=maintenance_settings.timezone,
-                    ),
-                )
-                if maintenance_settings.schedule.enabled
-                else ()
+                (scheduler,)
             )
             return TinySoulApp(
                 program_runner=program_runner,
@@ -482,6 +432,282 @@ class TinySoulAppBuilder:
             raise app_bridge.from_app_error(exc) from exc
         except RuntimeException:
             raise
+
+    def _prepare_generation_activation(
+        self,
+        handle: RuntimeHandle[AppRuntimeGeneration],
+        candidate: ConfigEnvironment,
+        *,
+        observations: ObservationEmitter,
+        bus: SignalBus,
+        after_commit: Callable[[], None] | None = None,
+    ) -> PreparedConfigActivation:
+        try:
+            handle.begin_activation()
+        except RuntimeGenerationError as exc:
+            raise ConfigError(
+                "Configuration changes require an idle runtime",
+                key="config.activation_unavailable",
+            ) from exc
+        try:
+            generation = self._build_generation(
+                candidate,
+                observations=observations,
+                bus=bus,
+            )
+        except BaseException:
+            handle.fail_activation()
+            raise
+
+        def commit() -> None:
+            previous = handle.snapshot().generation
+            with handle.write():
+                handle.activate(generation)
+            previous.close()
+            if after_commit is not None:
+                after_commit()
+
+        return PreparedConfigActivation(commit=commit, abort=handle.fail_activation)
+
+    def _build_generation(
+        self,
+        config: ConfigEnvironment,
+        *,
+        observations: ObservationEmitter,
+        bus: SignalBus,
+        map_config_errors: bool = False,
+    ) -> AppRuntimeGeneration:
+        """Compile module settings and construct one complete business generation."""
+
+        plan = self._compile_config_plan(
+            config,
+            map_runtime_errors=map_config_errors,
+        )
+        infra_settings = plan.infra
+        loop_settings = plan.loop
+        maintenance_settings = plan.maintenance
+        context_settings = plan.context
+        action_settings = plan.action
+        capabilities_settings = plan.capabilities
+        app_settings = plan.app
+        llm = (
+            self._llm
+            if self._llm is not None
+            else self._build_llm(
+                config,
+                RuntimeLLMBridge(),
+                observations,
+                context_trigger_ratio=context_settings.compression_trigger_ratio,
+            )
+        )
+        home = self._build_home(config, RuntimeAgentHomeBridge())
+        session = (
+            self._session
+            if self._session is not None
+            else self._build_session(config, RuntimeSessionBridge())
+        )
+        memory = self._memory
+        if memory is None:
+            memory = self._build_memory(
+                config,
+                RuntimeMemoryBridge(),
+                session_root=session.root,
+                embedding_client=build_embedding_client(
+                    infra_settings.embedding,
+                    env=config.runtime_env,
+                ),
+            )
+        if memory.active_session_root is None:
+            memory.bind_active_session_root(session.root)
+        workspace = self._build_workspace(
+            config,
+            RuntimeWorkspaceBridge(),
+            observations,
+        )
+        user_builder = UserTurnBuilder(
+            root=self._root,
+            context_settings=context_settings,
+            loop_settings=loop_settings,
+            capabilities_settings=capabilities_settings,
+            runtime_env=config.runtime_env,
+            llm=llm,
+            home=home,
+            memory=memory,
+            session=session,
+            workspace=workspace,
+            bus=bus,
+            observations=observations,
+            action_settings=action_settings,
+        )
+        if self._user_context is not None:
+            user_builder.with_context(self._user_context)
+        if self._user_action is not None:
+            user_builder.with_action(self._user_action)
+        if self._user_domain_skills is not None:
+            user_builder.with_domain_skills(self._user_domain_skills)
+        for handler in self._user_turn_completion_handlers:
+            user_builder.add_completion_handler(handler)
+        user_turn = user_builder.build()
+        maintenance = MaintenanceBuilder(
+            context_settings=context_settings,
+            loop_settings=loop_settings,
+            settings=maintenance_settings,
+            llm=llm,
+            home=home,
+            memory=memory,
+            session=session,
+            workspace=workspace,
+            bus=bus,
+            observations=observations,
+            clock=self._business_clock,
+            action_settings=action_settings,
+        ).build()
+        return AppRuntimeGeneration(
+            config=config,
+            plan=plan,
+            user_turn=user_turn,
+            maintenance=maintenance,
+            workspace=workspace,
+            input_parser=(
+                self._input_parser
+                if self._input_parser is not None
+                else InputCommandParser(app_settings.input_commands)
+            ),
+            app_settings=app_settings,
+            maintenance_settings=maintenance_settings,
+        )
+
+    def _validate_config_candidate(self, config: ConfigEnvironment) -> None:
+        self._compile_config_plan(config)
+
+    def _compile_config_plan(
+        self,
+        config: ConfigEnvironment,
+        *,
+        map_runtime_errors: bool = False,
+    ) -> AppConfigPlan:
+        try:
+            return self._compile_config_plan_values(config)
+        except ConfigError as exc:
+            if map_runtime_errors:
+                raise self._map_owned_config_error(exc) from exc
+            raise
+
+    def _compile_config_plan_values(
+        self,
+        config: ConfigEnvironment,
+    ) -> AppConfigPlan:
+        config.validate_sections(
+            {
+                "config",
+                "app",
+                "action",
+                "loop",
+                "llm",
+                "context",
+                "home",
+                "memory",
+                "infra",
+                "maintenance",
+                "session",
+                "workspace",
+                "capabilities",
+            }
+        )
+        return AppConfigPlan(
+            environment=config,
+            infra=config.parse_section("infra", parse_infra_settings),
+            app=(
+                self._app_settings
+                if self._app_settings is not None
+                else config.parse_section("app", parse_app_settings)
+            ),
+            action=config.parse_section("action", parse_action_settings),
+            capabilities=config.parse_section(
+                "capabilities", parse_capabilities_settings
+            ),
+            context=config.parse_section("context", parse_context_settings),
+            llm=(
+                None
+                if self._llm is not None
+                else config.parse_section("llm", LLMConfigParser().parse)
+            ),
+            loop=(
+                self._loop_settings
+                if self._loop_settings is not None
+                else config.parse_section("loop", parse_loop_settings)
+            ),
+            maintenance=(
+                self._maintenance_settings
+                if self._maintenance_settings is not None
+                else config.parse_section(
+                    "maintenance",
+                    lambda tree: parse_maintenance_settings(
+                        tree,
+                        project_root=self._root,
+                    ),
+                )
+            ),
+            home=config.parse_section(
+                "home",
+                lambda tree: parse_agent_home_settings(
+                    tree,
+                    project_root=self._root,
+                ),
+            ),
+            memory=config.parse_section(
+                "memory",
+                lambda tree: parse_memory_settings(
+                    tree,
+                    project_root=self._root,
+                ),
+            ),
+            session=config.parse_section(
+                "session",
+                lambda tree: parse_session_settings(
+                    tree,
+                    project_root=self._root,
+                ),
+            ),
+            workspace=config.parse_section(
+                "workspace",
+                lambda tree: parse_workspace_settings(
+                    tree,
+                    project_root=self._root,
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _map_owned_config_error(error: ConfigError) -> RuntimeException:
+        key = error.key.split(".", 1)[0] if error.key else "infra"
+        if error.key == "capabilities.script" or error.key.startswith(
+            "capabilities.script."
+        ):
+            return RuntimeScriptBridge().from_config_error(error)
+        if error.key == "capabilities.shell" or error.key.startswith(
+            "capabilities.shell."
+        ):
+            return RuntimeShellBridge().from_config_error(error)
+        if error.key == "capabilities.supervised_process" or error.key.startswith(
+            "capabilities.supervised_process."
+        ):
+            return RuntimeSupervisedProcessBridge().from_config_error(error)
+        bridges = {
+            "app": RuntimeAppBridge(),
+            "action": RuntimeActionBridge(),
+            "context": RuntimeContextBridge(),
+            "home": RuntimeAgentHomeBridge(),
+            "llm": RuntimeLLMBridge(),
+            "loop": RuntimeLoopBridge(),
+            "memory": RuntimeMemoryBridge(),
+            "session": RuntimeSessionBridge(),
+            "workspace": RuntimeWorkspaceBridge(),
+            "maintenance": MaintenanceRuntimeBridge(),
+            "infra": RuntimeInfraBridge(),
+        }
+        bridge = bridges.get(key, RuntimeInfraBridge())
+        return bridge.from_config_error(error)
 
     def _build_llm(
         self,

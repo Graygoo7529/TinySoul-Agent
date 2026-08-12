@@ -38,6 +38,7 @@ from .instance import (
 from .outputs import ConsoleOutputSink, ObservationRoute, ObservationRouter, OutputSink
 from .requests import AppRequest, ExitRequest, UserTurnRequest
 from .runtime import TinySoulApp
+from .generation import AppConfigPlan, AppRuntimeGeneration
 from .services import AppService
 from .sources import MaintenanceScheduler, TerminalInputSource
 
@@ -78,6 +79,8 @@ __all__ = [
     "ProjectResetter",
     "TerminalInputSource",
     "TinySoulApp",
+    "AppRuntimeGeneration",
+    "AppConfigPlan",
     "TinySoulAppBuilder",
     "UserTurnRequest",
     "instance_directory",

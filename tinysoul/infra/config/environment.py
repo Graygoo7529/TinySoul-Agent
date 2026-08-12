@@ -13,7 +13,7 @@ from typing import TypeVar, cast, get_args, get_origin, get_type_hints
 from .dotenv import DotenvSource, _env_mapping_to_dotted
 from .errors import ConfigError
 from .project import ProjectConfig
-from .source import ConfigSource
+from .source import ConfigSource, ConfigSourceKind
 from .toml_file import deep_copy_mapping
 
 T = TypeVar("T")
@@ -28,10 +28,18 @@ class ConfigEnvironment:
         project: ProjectConfig,
         sources: list[ConfigSource],
         runtime_env: Mapping[str, str] | None = None,
+        process_env: Mapping[str, str] | None = None,
+        project_tree: Mapping[str, object] | None = None,
+        dotenv_path: Path | None = None,
     ) -> None:
         self._project = project
         self._sources = list(sources)
         self._runtime_env = dict(runtime_env or {})
+        self._process_env = dict(process_env or {})
+        self._project_tree = deep_copy_mapping(
+            project_tree if project_tree is not None else project.data
+        )
+        self._dotenv_path = dotenv_path or project.env_file_path()
 
     @classmethod
     def from_project_root(
@@ -53,19 +61,35 @@ class ConfigEnvironment:
             ConfigSource(
                 name="environment",
                 values=_env_mapping_to_dotted(process_env),
+                kind=ConfigSourceKind.ENVIRONMENT,
+                source_id="environment",
             ),
         ]
         if overrides:
-            sources.append(ConfigSource(name="overrides", values=dict(overrides)))
+            sources.append(
+                ConfigSource(
+                    name="overrides",
+                    values=dict(overrides),
+                    kind=ConfigSourceKind.OVERRIDE,
+                    source_id="overrides",
+                )
+            )
         return cls(
             project=project,
             sources=sources,
             runtime_env={**dotenv_raw, **process_env},
+            process_env=process_env,
         )
 
     @property
     def project_tree(self) -> dict[str, object]:
-        return self._project.data
+        return deep_copy_mapping(self._project_tree)
+
+    @property
+    def project(self) -> ProjectConfig:
+        """Project source graph and its configured dotenv path."""
+
+        return self._project
 
     @property
     def sources(self) -> tuple[ConfigSource, ...]:
@@ -74,6 +98,41 @@ class ConfigEnvironment:
     @property
     def runtime_env(self) -> dict[str, str]:
         return dict(self._runtime_env)
+
+    @property
+    def process_env(self) -> dict[str, str]:
+        return dict(self._process_env)
+
+    @property
+    def dotenv_path(self) -> Path:
+        return self._dotenv_path
+
+    def effective_values(self) -> dict[str, object]:
+        """Return the flattened values after source precedence is applied."""
+
+        values: dict[str, object] = {}
+        for source in self._sources:
+            values.update(source.values)
+        return values
+
+    def source_id_for(self, key: str) -> str:
+        """Return the winning source identity for a dotted key."""
+
+        if not key:
+            return ""
+        prefix = f"{key}."
+        for source in reversed(self._sources):
+            if key in source.values or any(
+                candidate.startswith(prefix) for candidate in source.values
+            ):
+                return source.source_id
+        parts = key.split(".")
+        for end in range(len(parts) - 1, 0, -1):
+            parent = ".".join(parts[:end])
+            for source in reversed(self._sources):
+                if parent in source.values:
+                    return source.source_id
+        return ""
 
     def source_for(self, key: str) -> str:
         """Return the winning or nearest owning source for a dotted key."""

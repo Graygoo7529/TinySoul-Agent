@@ -16,6 +16,13 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 ## 配置来源
 
+运行时配置控制仍由 Infra 提供 source-aware 的无业务控制面：`ConfigSource` 带有
+`PROJECT_TOML`、`DOTENV`、`ENVIRONMENT` 和 `OVERRIDE` 类型、稳定 `source_id` 与项目相对路径。
+`ConfigFileToml` 和 `DotenvDocument` 在临时文档上执行结构化 set/delete；`ConfigFileTransaction`
+以同根原子替换多个文档，并在后续激活失败时恢复已替换文件。`ConfigController` 只编排 source
+图、候选环境、校验回调和两阶段 activation callback，不解析业务 section。dotenv 原始键值
+单独保留在 `runtime_env`，系统环境仍覆盖 dotenv，进程 `os.environ` 不被写回。
+
 配置应支持多种来源，并保持明确优先级：
 
 1. 代码默认值

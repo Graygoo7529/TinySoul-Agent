@@ -21,6 +21,7 @@ from tinysoul.endpoint import (
     EndpointSettings,
 )
 from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
+from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import LoopControlKind
@@ -35,6 +36,7 @@ from tinysoul.runtime import (
     ObservationLevel,
     RunLevel,
     RunScope,
+    RuntimeException,
 )
 from tinysoul.session import SessionEngine, SessionSettings
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceManifest, WorkspaceSettings
@@ -348,6 +350,96 @@ def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
         assert response.json() == {"ok": True}
     finally:
         server.stop()
+
+
+def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) -> None:
+    engine, _gateway = _engine(tmp_path)
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (tmp_path / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["configs/action.toml"]\n',
+        encoding="utf-8",
+    )
+    target = config_dir / "action.toml"
+    target.write_text(
+        "[action]\nllm_action_timeout_seconds = 10.0\n",
+        encoding="utf-8",
+    )
+    engine._config = ConfigController(  # noqa: SLF001
+        root=tmp_path,
+        environment=ConfigEnvironment.from_project_root(tmp_path, env={}),
+    )
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+    body = {
+        "operations": [
+            {
+                "source_id": "project:configs/action.toml",
+                "path": "action.llm_action_timeout_seconds",
+                "op": "set",
+                "value": 30.0,
+            }
+        ]
+    }
+
+    status = client.get("/v1/config", headers=_auth())
+    assert status.status_code == 200
+    assert status.json()["fields"]["action.llm_action_timeout_seconds"]["writable"] is True
+
+    validated = client.post("/v1/config/validate", headers=_auth(), json=body)
+    assert validated.status_code == 200
+    assert "llm_action_timeout_seconds = 10.0" in target.read_text(encoding="utf-8")
+
+    patched = client.patch("/v1/config", headers=_auth(), json=body)
+    assert patched.status_code == 200
+    assert patched.json()["state"] == "active"
+    assert 'llm_action_timeout_seconds = 30.0' in target.read_text(encoding="utf-8")
+
+
+def test_config_activation_failure_uses_config_error_and_keeps_file(
+    tmp_path: Path,
+) -> None:
+    engine, _gateway = _engine(tmp_path)
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (tmp_path / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["configs/action.toml"]\n',
+        encoding="utf-8",
+    )
+    target = config_dir / "action.toml"
+    original = "[action]\nllm_action_timeout_seconds = 10.0\n"
+    target.write_text(original, encoding="utf-8")
+
+    def fail_activation(_candidate: ConfigEnvironment):
+        raise RuntimeException(
+            reason="runtime.startup_failed",
+            message="candidate failed",
+        )
+
+    engine._config = ConfigController(  # noqa: SLF001
+        root=tmp_path,
+        environment=ConfigEnvironment.from_project_root(tmp_path, env={}),
+        activator=fail_activation,
+    )
+    client = TestClient(create_endpoint_app(engine, engine.settings))
+
+    response = client.patch(
+        "/v1/config",
+        headers=_auth(),
+        json={
+            "operations": [
+                {
+                    "source_id": "project:configs/action.toml",
+                    "path": "action.llm_action_timeout_seconds",
+                    "op": "set",
+                    "value": 30.0,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "config.activation_failed"
+    assert target.read_text(encoding="utf-8") == original
 
 
 def _engine(
