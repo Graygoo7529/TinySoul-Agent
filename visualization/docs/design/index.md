@@ -6,7 +6,7 @@
 
 - **仅前端**：编辑范围限定在 `visualization/` 目录；不修改后端 Python/Rust 业务代码。
 - **纯连接模式**：Tauri 不启动、不持有、不停止 Python 进程；前端只读取 App 发布的项目实例连接描述，发现并连接当前已运行的 Endpoint。
-- **后端为真相源**：Workspace 通过 Endpoint REST 管理；Agent 运行过程与真实模型语境通过 Observation 展示。前端不直接读取 `runtime/`、`home/`、`memory/` 或 `archive/`。
+- **后端为真相源**：Workspace 与项目配置通过 Endpoint REST 管理；Agent 运行过程与真实模型语境通过 Observation 展示。前端不直接读取 `runtime/`、`home/`、`memory/`、`archive/` 或配置文件。
 - **MODEL 级事件订阅**：WebSocket 始终订阅 `model` 等级事件；前端在本地按名称、scope、identity 派生展示。服务端只在连接起始读一次鉴权帧，切换游标/等级通过重连实现。
 
 ## 核心设计原则
@@ -27,7 +27,8 @@
 | Chat    |                                                     |
 | Work-   |              Main Content Area                      |  <= TurnTraceDrawer
 | space   |              (Chat / Workspace / Monitor)           |     (right slide-over)
-| Monitor +-----------------------------------------------------+
+| Monitor |              (Chat / Workspace / Monitor / Settings)|
+| Settings+-----------------------------------------------------+
 | Theme   |              StatusBar                              |
 | Settings                                                      |
 +---------------------------------------------------------------+
@@ -57,7 +58,7 @@
 | LlmTaskDrawer 模型任务抽屉 | `LlmTaskDrawer` | `components/trace/LlmTaskDrawer.tsx` |
 | BackgroundDrawer 背景抽屉 | `BackgroundDrawer` | `components/shell/BackgroundDrawer.tsx` |
 | MaintenanceDialog 维护对话框 | `MaintenanceDialog` | `components/shell/MaintenanceDialog.tsx` |
-| SettingsDialog 设置对话框 | `SettingsDialog` | `components/shell/SettingsDialog.tsx` |
+| Settings 设置页面 | `SettingsPage` | `features/settings/SettingsPage.tsx` |
 | WorkspaceView 工作区视图 | `WorkspaceView` | `components/workspace/WorkspaceView.tsx` |
 | MonitorView 监视器视图 | `MonitorView` | `components/monitor/MonitorView.tsx` |
 
@@ -71,13 +72,15 @@
 - `src/api/` — Endpoint HTTP 客户端与 WebSocket 事件流（指数退避重连、gap 检测）。
 - `src/derive/` — 从扁平事件流派生对话模型：`chat.ts`（Turn/Cycle/Phase/control ops/working state/activity feed/usage）、`model.ts`（派生类型）、`actions/`（action 呈现 registry：verb/family/调用摘要/结果摘要）、`phaseSummary.ts`（Cycle/Phase 折叠行文案）、`activitySemantics.ts`（skills 与文本辅助）、`export.ts`（turn trace 导出）。
 - `src/store/appStore.ts` — Zustand store：连接、事件、workspace 缓存、UI 状态（主题、抽屉、toast）；仅持久化 projectRoot / theme / activeTab。
+- `src/store/configStore.ts` — 非持久化 Endpoint 配置快照、写入和激活后重读状态；实例切换时清空。
+- `src/features/settings/` — 独立 Settings 页面、二级导航、TOML 类型化字段、Credentials 与客户端偏好。
 - `src/components/ui/` — 设计系统基元（Button/Badge/Card/Modal/Tabs/Toast/JsonTree/Collapsible/CopyButton/EmptyState）。
 - `src/components/markdown/` — 复用的 Markdown 渲染模块（react-markdown + GFM），服务于最终回答、工作区文档预览、背景内容等。
 - `src/components/chat/` — ChatView 对话视图（TurnView 用户轮、LiveStatus 活跃状态、ActivityStep 活动条目、ActionGlimpse 内联详情、Composer 输入框）。
 - `src/components/trace/` — TurnTraceDrawer 追溯抽屉（CycleSection/PhaseSection/ActionCard、renderers/ 家族渲染器、LlmTaskDrawer、MessageStackView、ControlOpsView、semantic 共享语义芯片）。
 - `src/components/workspace/` — WorkspaceView 工作区视图（目录树、编辑器 + Markdown 预览、二进制预览、回收站）。
 - `src/components/monitor/` — MonitorView 原始观察事件监视器（等级过滤、搜索、payload 展开）。
-- `src/components/shell/` — 应用外壳（NavRail、TopBar、StatusBar、SettingsDialog、BackgroundDrawer、MaintenanceDialog、DisconnectedScreen）。
+- `src/components/shell/` — 应用外壳（NavRail、TopBar、StatusBar、BackgroundDrawer、MaintenanceDialog、DisconnectedScreen）。
 
 ## 连接与恢复
 

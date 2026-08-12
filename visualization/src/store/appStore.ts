@@ -106,7 +106,6 @@ export interface AppState {
   projectRoot: string;
   traceTurnId: string | null;
   backgroundOpen: boolean;
-  settingsOpen: boolean;
   maintenanceOpen: boolean;
   toasts: ToastItem[];
 
@@ -143,7 +142,6 @@ export interface AppState {
   openTurnTrace: (turnId: string) => void;
   closeTurnTrace: () => void;
   setBackgroundOpen: (open: boolean) => void;
-  setSettingsOpen: (open: boolean) => void;
   setMaintenanceOpen: (open: boolean) => void;
   pushToast: (kind: ToastItem["kind"], text: string) => void;
   dismissToast: (id: string) => void;
@@ -176,7 +174,6 @@ export const useAppStore = create<AppState>()(
       projectRoot: "B:/WorkSpace/TinySoul-Agent",
       traceTurnId: null,
       backgroundOpen: false,
-      settingsOpen: false,
       maintenanceOpen: false,
       toasts: [],
 
@@ -283,7 +280,6 @@ export const useAppStore = create<AppState>()(
       openTurnTrace: (traceTurnId) => set({ traceTurnId }),
       closeTurnTrace: () => set({ traceTurnId: null }),
       setBackgroundOpen: (backgroundOpen) => set({ backgroundOpen }),
-      setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
       setMaintenanceOpen: (maintenanceOpen) => set({ maintenanceOpen }),
 
       pushToast: (kind, text) =>

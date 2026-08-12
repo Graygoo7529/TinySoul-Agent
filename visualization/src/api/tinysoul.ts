@@ -1,9 +1,9 @@
 /**
  * HTTP client for the TinySoul local Endpoint.
  *
- * All mutations use the active-day lease and revision/digest CAS checks
- * provided by the backend; the frontend never touches the local filesystem
- * directly.
+ * The frontend never touches the local filesystem directly. Workspace writes
+ * use backend CAS checks; configuration writes are persisted and activated by
+ * the Endpoint as one operation.
  */
 
 import type {
@@ -11,6 +11,9 @@ import type {
   BackendStatus,
   CommandReceipt,
   ConnectionInfo,
+  ConfigPatchRequest,
+  ConfigPatchResult,
+  ConfigStatus,
   ControlRequest,
   EndpointEvent,
   InputRequest,
@@ -102,6 +105,16 @@ export class TinySoulClient {
 
   async status(): Promise<BackendStatus> {
     return this.request<BackendStatus>("GET", "/v1/status");
+  }
+
+  async configStatus(): Promise<ConfigStatus> {
+    return this.request<ConfigStatus>("GET", "/v1/config");
+  }
+
+  async patchConfig(request: ConfigPatchRequest): Promise<ConfigPatchResult> {
+    return this.request<ConfigPatchResult>("PATCH", "/v1/config", {
+      body: request,
+    });
   }
 
   async submitInput(request: InputRequest): Promise<CommandReceipt> {

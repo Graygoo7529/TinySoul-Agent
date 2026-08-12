@@ -47,6 +47,10 @@ export interface BackendStatus {
   workspace_revision: number;
   latest_event_sequence: number;
   event_journal?: EventJournalStatus;
+  runtime?: {
+    generation_id: string;
+    activity: string;
+  };
 }
 
 export interface BackendError {
@@ -195,4 +199,77 @@ export interface TopLinkEntry {
   evictable: boolean;
 }
 
-export type AppTab = "chat" | "workspace" | "monitor";
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type ConfigSourceKind =
+  | "project_toml"
+  | "dotenv"
+  | "environment"
+  | "override";
+
+export interface ConfigActivity {
+  state: string;
+  can_write: boolean;
+  reason: string;
+}
+
+export interface ConfigSourceProjection {
+  id: string;
+  kind: ConfigSourceKind;
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  values: Record<string, JsonValue>;
+}
+
+export interface ConfigFieldProjection {
+  value: JsonValue;
+  source: string;
+  writable: boolean;
+}
+
+export interface ConfigStatus {
+  activity: ConfigActivity;
+  sources: ConfigSourceProjection[];
+  fields: Record<string, ConfigFieldProjection>;
+  runtime: {
+    generation_id: string;
+    activity: string;
+    activation: string;
+  };
+  process_shell: {
+    writable: false;
+    reason: string;
+    endpoint: {
+      host: string;
+      port: number;
+      instance_id: string;
+    };
+  };
+}
+
+export interface ConfigMutation {
+  source_id: string;
+  path: string;
+  op: "set" | "delete";
+  value?: JsonValue;
+}
+
+export interface ConfigPatchRequest {
+  operations: ConfigMutation[];
+}
+
+export interface ConfigPatchResult {
+  state: "active";
+  changed_sources: string[];
+  changed_fields: string[];
+  generation_id: string;
+}
+
+export type AppTab = "chat" | "workspace" | "monitor" | "settings";

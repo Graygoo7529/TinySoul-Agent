@@ -11,6 +11,7 @@ import {
 } from "../api/history";
 import { useAppStore } from "../store/appStore";
 import { selectLatestSequence } from "../store/appStore";
+import { useConfigStore } from "../store/configStore";
 import type { ConnectionInfo, EndpointEvent } from "../types";
 
 /** Identity checks are enforced for lease-discovered connections; the web
@@ -106,6 +107,7 @@ export function useBackend() {
         if (instanceChanged) {
           store.clearEvents();
           store.setMaintenanceStatus(null);
+          useConfigStore.getState().reset();
         }
         store.setClient(nextClient);
         store.setStatus(status);
@@ -444,6 +446,25 @@ function handleEventSideEffects(
     names.has("maintenance.availability.changed")
   ) {
     void refreshMaintenance(client);
+  }
+  if (
+    names.has("config.activation.started") ||
+    names.has("config.activation.completed") ||
+    names.has("config.activation.failed") ||
+    names.has("turn.started") ||
+    names.has("turn.stopped") ||
+    names.has("turn.failed") ||
+    names.has("turn.completed") ||
+    names.has("turn.answered") ||
+    names.has("turn.exhausted") ||
+    names.has("maintenance.started") ||
+    names.has("maintenance.completed") ||
+    names.has("daily.transition.started") ||
+    names.has("daily.transition.completed") ||
+    names.has("daily.transition.failed") ||
+    names.has("daily.transition.recovered")
+  ) {
+    void useConfigStore.getState().refresh(client);
   }
 }
 

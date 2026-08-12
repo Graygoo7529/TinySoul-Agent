@@ -14,7 +14,6 @@ export function NavRail() {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
   const connected = useAppStore((s) => s.connection.status === "connected");
-  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
 
   return (
     <nav className="flex w-[52px] shrink-0 flex-col items-center border-r border-line bg-bg-elev py-3">
@@ -50,10 +49,17 @@ export function NavRail() {
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </button>
         <button
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => setActiveTab("settings")}
           title="Settings"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-hover hover:text-fg"
+          className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+            activeTab === "settings"
+              ? "bg-active text-accent"
+              : "text-fg-muted hover:bg-hover hover:text-fg"
+          }`}
         >
+          {activeTab === "settings" && (
+            <span className="absolute top-1/2 -left-2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent" />
+          )}
           <Settings size={16} />
         </button>
       </div>

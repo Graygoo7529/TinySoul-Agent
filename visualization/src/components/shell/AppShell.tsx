@@ -5,7 +5,6 @@ import { useDerivedChat } from "../../derive/chat";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
-import { SettingsDialog } from "./SettingsDialog";
 import { BackgroundDrawer } from "./BackgroundDrawer";
 import { MaintenanceDialog } from "./MaintenanceDialog";
 import { ChatView } from "../chat/ChatView";
@@ -14,6 +13,7 @@ import { MonitorView } from "../monitor/MonitorView";
 import { TurnTraceDrawer } from "../trace/TurnTraceDrawer";
 import { Toasts } from "../ui/Toasts";
 import { DisconnectedScreen } from "./DisconnectedScreen";
+import { SettingsPage } from "../../features/settings/SettingsPage";
 
 /**
  * The application shell: NavRail on the left; the main column (TopBar, the
@@ -54,7 +54,9 @@ export function AppShell({
               and reconnects automatically.
             </div>
           )}
-          {connected ? (
+          {activeTab === "settings" ? (
+            <SettingsPage connect={connect} />
+          ) : connected ? (
             activeTab === "chat" ? (
               <ChatView turns={turns} />
             ) : activeTab === "workspace" ? (
@@ -72,7 +74,6 @@ export function AppShell({
 
       <BackgroundDrawer />
       {traceTurn && <TurnTraceDrawer turn={traceTurn} />}
-      <SettingsDialog />
       <MaintenanceDialog />
       <Toasts />
     </div>
