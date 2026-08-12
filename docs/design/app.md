@@ -109,9 +109,10 @@ builder override。`RuntimeGenerationFactory`（当前由 builder 的 `_build_ge
 
 稳定 `RuntimeHandle[AppRuntimeGeneration]` 被 Program、InputDispatcher、Gateway 和 Endpoint
 以 provider/lease 方式使用。PATCH 在 idle 时先编译和构建候选 Generation，再提交 TOML/.env
-文件事务，最后原子替换 handle；成功响应携带当前 generation id。旧 Generation 仅释放自身
-登记的 close callbacks。Scheduler 线程属于稳定外壳，但每次唤醒都会读取当前 Generation 的
-schedule/timezone，故维护计划修改无需重启进程即可生效。
+文件事务，最后原子替换 handle；成功响应携带当前 generation id。旧 Generation 只执行自身
+登记的 close callbacks；当前业务对象不注册额外清理函数，因此不会伪造不存在的资源释放语义。
+Scheduler 线程属于稳定外壳，但每次唤醒都会读取当前 Generation 的 schedule/timezone，故维护
+计划修改无需重启进程即可生效。
 
 TinySoulAppBuilder 负责：
 

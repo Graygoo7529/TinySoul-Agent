@@ -58,7 +58,9 @@ Endpoint 提供四个配置协议入口：
   source 的类型、相对路径、值投影和静态 writable；`config.*` 入口及 Endpoint 进程外壳以
   `writable=false` 返回。App 的 interactive、输入命令、输出路由和 retained outcome
   也属于进程外壳，读取可见但不在当前进程内改写。
-- `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。
+- `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。当前投影由
+  Infra `ConfigController` 从 effective fields 按 dotted key 前缀筛选，不引入 owner descriptor
+  或第二套业务配置 schema；字段的业务解释和可编辑布局仍由各模块及前端负责。
 - `POST /v1/config/validate` 只构建候选 ConfigEnvironment/Plan，不写文件或切换 Generation。
 - `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。Infra 临时编辑 TOML/.env，
   App 构建候选 Generation；文件提交和 handle 切换完成后才返回 `state=active` 与

@@ -29,8 +29,15 @@ def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: P
     controller = ConfigController(root=tmp_path, environment=environment)
 
     status = controller.status()
+    assert isinstance(status, dict)
+    assert isinstance(status["activity"], dict)
+    assert isinstance(status["sources"], list)
     assert status["activity"]["can_write"] is True
-    assert any(source["id"] == "project:configs/infra.toml" for source in status["sources"])
+    assert any(
+        isinstance(source, dict)
+        and source.get("id") == "project:configs/infra.toml"
+        for source in status["sources"]
+    )
 
     result = controller.patch(
         (
@@ -162,7 +169,11 @@ def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
 def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
     controller = ConfigController(root=tmp_path, environment=_project(tmp_path))
 
-    assert controller.status()["fields"]["config.include"]["writable"] is False
+    status = controller.status()
+    assert isinstance(status, dict)
+    assert isinstance(status["fields"], dict)
+    assert isinstance(status["fields"]["config.include"], dict)
+    assert status["fields"]["config.include"]["writable"] is False
     for mutation in (
         ConfigMutation(
             source_id="project:tinysoul.toml",

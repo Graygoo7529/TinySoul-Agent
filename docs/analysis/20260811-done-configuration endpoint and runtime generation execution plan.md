@@ -1,5 +1,7 @@
 # Configuration Endpoint and Runtime Generation Execution Plan
 
+状态：done
+
 ## 目标
 
 为本地前端提供统一的配置读取和修改入口。一次配置修改必须同时完成：
@@ -46,7 +48,8 @@ Infra 只提供配置基础能力：
 
 - 配置 source graph、合并顺序和来源诊断。
 - TOML、dotenv 的结构化读取和写入。
-- source 文件 revision/fingerprint 的内部一致性检查。
+- 由进程内串行化、候选校验、原子替换和回滚保障单次 source 写入的一致性；不计算或暴露
+  source fingerprint/revision。
 - 原子文件写入和多文件配置事务。
 - 候选 `ConfigEnvironment` 的重新加载。
 
@@ -64,18 +67,16 @@ Infra 不解析 `llm`、`memory`、`capabilities` 或其他业务 section。
 tinysoul/runtime/generation/
 ├── __init__.py
 ├── activity.py
-├── handle.py
-├── lease.py
-└── lifecycle.py
+└── handle.py
 ```
 
 Runtime 子包只处理泛型对象，不导入 Workspace、LLM、Memory 或其他业务模块：
 
 - `RuntimeHandle[TGeneration]`：当前 Generation 的稳定引用。
-- `RuntimeGenerationLease[TGeneration]`：请求或 Turn 使用 Generation 时持有的 lease。
+- `RuntimeGenerationLease[TGeneration]`、`RuntimeWriteLease[TGeneration]` 和
+  `RuntimeActivityLease[TGeneration]`：请求、切换或 Turn 使用句柄时持有的 lease。
 - `RuntimeActivity`：`idle`、`user_turn`、`maintenance_turn`、`config_activation` 等状态。
 - `RuntimeActivationState`：配置激活过程的有限状态。
-- `RuntimeActivationReceipt`：激活结果的内部类型。
 
 真正的 `RuntimeGeneration` 类型和构造逻辑仍归 App。
 
@@ -113,7 +114,8 @@ outcome 等进程外壳配置可读但 `writable=false`，并返回 `write_reaso
 
 当前不向前端暴露 revision，也不要求前端提交 `expected_revision`。Endpoint 是项目配置的主要写入口，后端负责串行化配置操作；PATCH 只接受字段级操作，不接受整棵配置树替换。
 
-Infra 内部仍可使用文件 fingerprint 或事务状态保护单次写入的一致性，但 revision 不是前端协议的一部分。未来如果需要严格协调多个前端或人工编辑器，再增加公开 revision/CAS。
+当前不计算或暴露文件 fingerprint/revision。单次配置写入的一致性由 ConfigController 的进程内串行化、
+候选环境校验、ConfigFileTransaction 的原子替换和激活失败回滚保证；revision/CAS 不属于当前前端协议。
 
 ### `.env` 语义
 
@@ -156,7 +158,9 @@ PATCH /v1/config
 
 ### `GET /v1/config/sections/{section_id}`
 
-返回单个业务 owner 的完整配置投影。投影由 owner 的 parser/descriptor 提供，Endpoint 只做 JSON 映射。前端负责显示名称、布局和本地化。
+返回指定 section 的字段投影。当前由 Infra `ConfigController` 从 effective fields 按 dotted
+key 前缀筛选，不引入 owner descriptor 或第二套业务配置 schema；业务模块仍负责解释自己的
+section，前端负责显示名称、布局和本地化。
 
 ### `POST /v1/config/validate`
 
@@ -228,7 +232,8 @@ PATCH 的成功响应是同步权威结果；事件用于前端刷新配置页�
 - [x] 新建 `tinysoul/runtime/generation` 子包。
 - [x] 实现泛型 `RuntimeHandle`、Generation lease 和 RuntimeActivity。
 - [x] 明确 idle、active turn、maintenance 和 activation 的状态转移。
-- [x] 提供 Generation 原子替换和旧 Generation 关闭生命周期。
+- [x] 提供 Generation 原子替换和旧 Generation 的 close callback 生命周期；当前无额外
+  Generation-owned 资源需要注册清理函数。
 - [x] 通过 Runtime Observation 发布激活开始、完成和失败。
 
 ### 阶段三：App 装配适配
@@ -238,7 +243,7 @@ PATCH 的成功响应是同步权威结果；事件用于前端刷新配置页�
 - [x] 将 User Turn、Maintenance、Workspace、Memory、LLM、Action 和 Capability Engine 放入 Generation。
 - [x] 保持 SignalBus、ObservationRouter 等稳定设施的生命周期清晰。
 - [x] 让 Program 在 idle 边界访问和切换当前 Generation。
-- [x] 为旧 Generation增加显式关闭和资源释放路径。
+- [x] 为旧 Generation 提供显式 close callback 资源释放边界；当前装配对象不注册额外回调。
 
 ### 阶段四：Endpoint 配置协议
 
@@ -273,3 +278,9 @@ PATCH 的成功响应是同步权威结果；事件用于前端刷新配置页�
 7. RuntimeHandle 位于 `runtime/generation`，不携带业务模块依赖。
 8. App 只组合各模块配置 parser 和 Generation factory，不建立第二套配置语义。
 9. EndpointHost、连接信息、实例锁、EventBuffer 和 WebSocket 不因 Generation 切换而重启。
+
+## 验证结果
+
+- `scripts/test.ps1 -Suite Full`：`899 passed, 2 skipped, 21 deselected`。
+- `scripts/typecheck.ps1`：通过。
+- `git diff --check`：通过。

@@ -131,10 +131,13 @@ def _expand_include_paths(root: Path, includes: list[str], *, source: str) -> li
 
 
 def _with_project_identity(root: Path, source: ConfigSource) -> ConfigSource:
-    try:
-        relative = source.path.resolve().relative_to(root.resolve()).as_posix()  # type: ignore[union-attr]
-    except (AttributeError, ValueError):
+    if source.path is None:
         relative = source.name
+    else:
+        try:
+            relative = source.path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            relative = source.name
     return ConfigSource(
         name=source.name,
         values=source.values,

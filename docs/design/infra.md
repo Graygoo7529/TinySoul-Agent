@@ -23,6 +23,10 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 图、候选环境、校验回调和两阶段 activation callback，不解析业务 section。dotenv 原始键值
 单独保留在 `runtime_env`，系统环境仍覆盖 dotenv，进程 `os.environ` 不被写回。
 
+配置写入由 `ConfigController` 的进程内锁串行化；事务在替换前保存原文，并在候选激活失败时
+回滚已替换文件。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
+提交协议；单次写入的一致性由候选校验、串行化、原子替换和回滚保证。
+
 配置应支持多种来源，并保持明确优先级：
 
 1. 代码默认值

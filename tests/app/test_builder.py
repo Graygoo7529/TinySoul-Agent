@@ -163,10 +163,13 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         )
         assert response.status_code == 200
         result = response.json()
+        assert isinstance(result, dict)
         websocket_events = websocket.receive_json()
         websocket_completed = websocket.receive_json()
 
     after = endpoint.config_status()["runtime"]
+    assert isinstance(before, dict)
+    assert isinstance(after, dict)
     assert result["state"] == "active"
     assert result["generation_id"] == after["generation_id"]
     assert after["generation_id"] != before["generation_id"]

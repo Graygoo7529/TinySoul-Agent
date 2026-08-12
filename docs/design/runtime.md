@@ -120,7 +120,9 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 
 ## Runtime Generation
 
-`tinysoul.runtime.generation` 提供不携带业务依赖的泛型运行时句柄。`RuntimeHandle[T]`
+`tinysoul.runtime.generation` 提供不携带业务依赖的泛型运行时句柄。当前子包由
+`activity.py`、`handle.py` 和 `__init__.py` 组成；lease 类型与句柄实现集中在 `handle.py`，
+不额外拆分没有独立职责的 lifecycle 或 receipt 模块。`RuntimeHandle[T]`
 持有当前业务 Generation，读者通过 `read()` lease 固定一次请求或 Turn 的对象，写者通过
 `write()` 在无 reader 时串行切换。`activity_lease()` 将 User Turn、Maintenance Turn 和每日
 确定性切换登记到同一句柄；配置激活使用 `begin_activation()`、候选构建、文件事务和
@@ -129,8 +131,9 @@ Runtime 只定义信号信封和分发机制，不定义所有业务载荷字段
 句柄只表达 activity、generation id 和激活状态，不导入 App、LLM、Memory 或 Workspace。
 业务 `AppRuntimeGeneration` 由 App factory 构造并聚合 User Turn、Maintenance、Workspace、
 LLM、Embedding、Action、Context 及各 owner 门面；切换完成后旧 Generation 执行自身登记的
-幂等 close callbacks。EndpointHost、事件缓冲、连接信息、程序请求队列和实例锁属于稳定进程
-外壳，不进入 Generation。
+close callbacks。当前装配的业务对象没有额外 Generation-owned close callback，`close()` 保留
+为明确的资源释放边界，未来仅由实际拥有资源的 Generation 注册清理函数。EndpointHost、事件
+缓冲、连接信息、程序请求队列和实例锁属于稳定进程外壳，不进入 Generation。
 
 ## 观察事件
 
