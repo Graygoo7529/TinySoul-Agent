@@ -227,6 +227,7 @@ class ConfigCatalog:
     field_groups: tuple[ConfigFieldGroupDescriptor, ...]
     collections: tuple[ConfigCollectionDescriptor, ...]
     fields: tuple[ConfigFieldDescriptor, ...]
+    rules: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         surfaces = tuple(self.surfaces)
@@ -265,6 +266,18 @@ class ConfigCatalog:
         object.__setattr__(self, "field_groups", field_groups)
         object.__setattr__(self, "collections", collections)
         object.__setattr__(self, "fields", fields)
+        object.__setattr__(self, "rules", dict(self.rules))
+
+    def with_rules(self, rules: Mapping[str, object]) -> "ConfigCatalog":
+        """Return this catalog with runtime-owned machine rules attached."""
+
+        return ConfigCatalog(
+            surfaces=self.surfaces,
+            field_groups=self.field_groups,
+            collections=self.collections,
+            fields=self.fields,
+            rules=cast(JsonObject, to_json_value(rules)),
+        )
 
     def match(self, path: str) -> ConfigFieldDescriptor | None:
         matches = tuple(item for item in self.fields if item.matches(path))
@@ -280,6 +293,7 @@ class ConfigCatalog:
             "field_groups": [item.to_json() for item in self.field_groups],
             "collections": [item.to_json() for item in self.collections],
             "fields": [item.to_json() for item in self.fields],
+            "rules": dict(self.rules),
         }
 
 

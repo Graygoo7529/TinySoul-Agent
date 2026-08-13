@@ -34,6 +34,7 @@ from tinysoul.infra.config import (
     ConfigCatalogError,
     ConfigEnvironment,
     ConfigError,
+    load_config_catalog,
     PreparedConfigActivation,
 )
 from tinysoul.infra import (
@@ -42,6 +43,7 @@ from tinysoul.infra import (
     parse_infra_settings,
 )
 from tinysoul.llm.config import LLMConfigParser
+from tinysoul.llm.adapter import adapter_specs_json
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
@@ -382,6 +384,9 @@ class TinySoulAppBuilder:
                         message=f"Configuration activation {state}.",
                         payload=payload,
                     )
+                ),
+                catalog=load_config_catalog().with_rules(
+                    {"llm": {"adapters": adapter_specs_json()}}
                 ),
             )
             if self._endpoint_settings is not None:

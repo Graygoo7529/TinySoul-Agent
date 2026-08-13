@@ -87,6 +87,8 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
         extra_body: dict[str, object] = {}
         thinking: dict[str, object] = {}
         for key, value in options.items():
+            if key == "protocol":
+                continue
             if key == "thinking":
                 if uses_k3_protocol:
                     raise ProviderError(
@@ -171,4 +173,4 @@ def _reasoning_effort(value: object) -> str:
 
 
 def _uses_k3_protocol(request: ProviderRequest) -> bool:
-    return request.model.provider_model in {"k3", "kimi-k3"}
+    return request.model.adapter_options.values.get("protocol") == "k3"

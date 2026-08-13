@@ -109,7 +109,7 @@ title = "Model"
 description = "A provider model with TinySoul-visible capabilities and request options."
 identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/models/custom.toml"
-create_template = { provider = "", provider_model = "", context_window_tokens = 262144, capabilities = ["text_input"] }
+create_template = { adapter = "generic", provider = "", provider_model = "", context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {} }
 delete_policy = "create_source_only"
 
 [[collection]]
@@ -177,6 +177,22 @@ value_kind = "string_list"
 credential_reference = true
 
 [[field]]
+path = "llm.models.*.adapter"
+surface = "models"
+group = "models.binding"
+title = "Adapter"
+description = "Behavior implementation required by this model and its provider connection."
+value_kind = "enum"
+choices = [
+  { value = "generic", label = "Generic OpenAI-compatible" },
+  { value = "openai", label = "OpenAI" },
+  { value = "kimi", label = "Kimi" },
+  { value = "deepseek", label = "DeepSeek" },
+  { value = "glm", label = "GLM" },
+  { value = "minimax", label = "MiniMax" },
+]
+
+[[field]]
 path = "llm.models.*.provider"
 surface = "models"
 group = "models.binding"
@@ -208,6 +224,19 @@ group = "models.capabilities"
 title = "Capabilities"
 description = "Features TinySoul may rely on when routing tasks to this model."
 value_kind = "string_list"
+
+[[field]]
+path = "llm.models.*.adapter_options.protocol"
+surface = "models"
+group = "models.adapter_options"
+title = "Adapter Protocol"
+description = "Selects an adapter-internal protocol branch when the adapter exposes one."
+value_kind = "enum"
+importance = "advanced"
+choices = [
+  { value = "k2", label = "Kimi K2" },
+  { value = "k3", label = "Kimi K3" },
+]
 
 [[field]]
 path = "llm.models.*.adapter_options.thinking"

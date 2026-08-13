@@ -49,6 +49,7 @@ class OpenAIResponsesAdapter:
         id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
+        self.adapter_kind = provider.adapter
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if responses is None:
@@ -122,6 +123,7 @@ class OpenAICompatibleChatAdapter:
         id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
+        self.adapter_kind = provider.adapter
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if completions is None:

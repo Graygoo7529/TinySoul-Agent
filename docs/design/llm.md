@@ -174,6 +174,8 @@ OpenAI 的推理设置可以通过模型配置中的推理强度和推理摘要�
 
 OpenAI SDK 形态的适配分为通用接口形态和具体供应商差异两层。通用层位于 `tinysoul.llm.provider.openai_sdk` 包内：client protocol 表达最小 SDK 面，payload mapper 负责消息、图片和 tool payload 映射，response parser 负责文本、tool call 和 reasoning 抽取，request-local tool name mapper 负责内部 identity 与供应商临时名称的双向映射，common helper 负责通用请求字段、错误归类和 metadata 提取，adapter 类只组合这些能力完成调用。供应商层负责自身支持的扩展参数、推理内容位置、缓存选项和接口风格约束。这样可以复用 OpenAI 兼容接口的共同结构，同时避免把不同供应商的专属参数混在同一个通用映射中。
 
+Adapter 是 Provider 与 Model 共同引用的稳定行为基石。Provider 声明 endpoint 实际装配的 adapter；Model 也声明自身需要的 adapter，并且只能绑定 adapter 相同的 Provider。`provider_model` 是发送给 endpoint 的不透明标识，不用于选择 TinySoul 内部行为分支。存在真实协议分支时由 adapter-owned `adapter_options.protocol` 表达；当前 Kimi 的 K2/K3 分支由 `protocol = "k2" | "k3"` 决定，别名或自定义 provider model 不改变该选择。
+
 Kimi 采用兼容 OpenAI Chat Completions 的接口形态。K2.x 的思考开关由模型额外选项表达并映射为 `thinking`；声明保留文本推理内容时，K2.x 同时使用 preserved thinking 设置并把助手历史消息中的 `reasoning_content` 传回供应商。K3 始终思考，不接受 K2.x `thinking` 参数，而是使用顶层 `reasoning_effort`；声明保留文本推理内容时仍回放 `reasoning_content`，但不得因此生成 `thinking.keep`。供应商 option 映射因此可以读取完整 `ProviderRequest`，依据供应商模型身份解释同名上层保留意图。模型侧工具调用映射为 Chat Completions 的 tools、assistant tool_calls 和 tool role 消息；K3 支持原生 required tool choice，K2.x 只发送 auto 并继续由任务解释层校验 required 和 forced_name 语义。Kimi function name 的字符约束由公共 request-local tool name mapper 吸收，Kimi behavior 继续校验工具数量、schema 根类型和模型参数等无法通过名称映射消除的真实能力差异。Kimi 的预填续写能力属于供应商对最后一条助手消息的专属扩展，不进入当前 TinySoul 通用消息语义。
 
 DeepSeek 采用兼容 OpenAI Chat Completions 的接口形态。其推理开关和推理强度属于供应商扩展参数，服务端缓存采用前缀缓存语义，而不是请求侧显式缓存键。模型侧工具调用可以映射为 Chat Completions 的 tools、assistant tool_calls 和 tool role 消息。DeepSeek 的 strict 模式和 schema 支持范围属于供应商能力差异，应由适配层解释和校验。DeepSeek 可以返回文本推理内容，适配层会把它保留为统一推理信息；只有声明保留文本推理内容时，适配层才把助手历史消息中的文本推理内容传入供应商请求。模型能力配置应反映这些差异，避免把请求侧缓存键或不支持的多模态能力误标为通用能力。

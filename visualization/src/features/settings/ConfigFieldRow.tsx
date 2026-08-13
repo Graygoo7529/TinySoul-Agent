@@ -1,4 +1,6 @@
 import { Badge } from "../../components/ui/Badge";
+import { IconButton } from "../../components/ui/Button";
+import { Trash2 } from "lucide-react";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { ConfigValueControl } from "./ConfigValueControl";
 import {
@@ -14,6 +16,7 @@ export function ConfigFieldRow({
   canWrite,
   saving,
   onCommit,
+  onDelete,
   selectOptions,
 }: {
   field: ConfigSettingField;
@@ -22,6 +25,7 @@ export function ConfigFieldRow({
   canWrite: boolean;
   saving: boolean;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
+  onDelete?: (field: ConfigSettingField) => Promise<void>;
   selectOptions?: ConfigSelectOption[];
 }) {
   return (
@@ -48,7 +52,7 @@ export function ConfigFieldRow({
           </div>
         </details>
       </div>
-      <div className="flex min-w-0 justify-start md:justify-end">
+      <div className="flex min-w-0 items-center justify-start gap-1.5 md:justify-end">
         <ConfigValueControl
           value={field.storedValue}
           descriptor={field.descriptor}
@@ -58,7 +62,12 @@ export function ConfigFieldRow({
           disabled={!canWrite || !field.writable}
           saving={saving}
           onCommit={(value) => onCommit(field, value)}
-        />
+          />
+        {onDelete && field.writable && (
+          <IconButton label="Remove option" onClick={() => void onDelete(field)} disabled={!canWrite || saving}>
+            <Trash2 size={14} />
+          </IconButton>
+        )}
       </div>
     </div>
   );

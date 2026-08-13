@@ -8,7 +8,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.config import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import AdapterKind, ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -1036,7 +1036,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
             model=_model(
                 provider_id="kimi_coding",
                 provider_model="k3",
-                options={"reasoning_keep": "content", "reasoning_effort": "max"},
+                options={"protocol": "k3", "reasoning_keep": "content", "reasoning_effort": "max"},
             ),
             messages=MessageStack.of(
                 UserMessage.from_text("hello"),
@@ -1050,6 +1050,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
             temperature=0.2,
             max_output_tokens=128,
             adapter_options={
+                "protocol": "k3",
                 "reasoning_keep": "content",
                 "reasoning_effort": "max",
             },
@@ -1113,10 +1114,10 @@ def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
     with pytest.raises(ProviderError) as exc:
         adapter.invoke(
             ProviderRequest(
-                model=_model(provider_id="kimi_coding", provider_model="k3"),
+                model=_model(provider_id="kimi_coding", provider_model="k3", options={"protocol": "k3"}),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                adapter_options={"thinking": "enabled"},
+                adapter_options={"protocol": "k3", "thinking": "enabled"},
             )
         )
 
@@ -1250,7 +1251,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="kimi_coding", provider_model="k3"),
+            model=_model(provider_id="kimi_coding", provider_model="k3", options={"protocol": "k3"}),
             messages=MessageStack.of(
                 AssistantMessage.from_parts(
                     reasoning="tool reasoning",
@@ -1266,6 +1267,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
             tool_scope=ToolScope(tools=(tool,)),
             tool_use=ToolUse.OPTIONAL,
             adapter_options={
+                "protocol": "k3",
                 "reasoning_keep": "content",
                 "reasoning_effort": "max",
             },
@@ -1627,10 +1629,11 @@ def test_kimi_adapter_maps_model_specific_required_tool_choice(
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(
-                provider_id="kimi_coding",
-                provider_model=provider_model,
-            ),
+                model=_model(
+                    provider_id="kimi_coding",
+                    provider_model=provider_model,
+                    options={"protocol": "k3"} if provider_model == "k3" else {"protocol": "k2"},
+                ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(_tool(),)),
@@ -2725,14 +2728,14 @@ def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
         (
             ProviderSpec(
                 id="kimi",
-                adapter=ProviderAdapterKind.KIMI,
+                adapter=AdapterKind.KIMI,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://api.moonshot.cn/v1",
                 api_key_envs=("MOONSHOT_API_KEY",),
             ),
             ProviderSpec(
                 id="kimi_coding",
-                adapter=ProviderAdapterKind.KIMI,
+                adapter=AdapterKind.KIMI,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://api.kimi.com/coding/v1",
                 api_key_envs=("KIMI_CODING_API_KEY",),
@@ -2809,11 +2812,20 @@ def test_provider_spec_reports_missing_api_key() -> None:
 
 
 def _provider(provider_id: str, api_style: ProviderApiStyle) -> ProviderSpec:
+    adapter = {
+        "kimi": AdapterKind.KIMI,
+        "kimi_coding": AdapterKind.KIMI,
+        "deepseek": AdapterKind.DEEPSEEK,
+        "glm": AdapterKind.GLM,
+        "minimax": AdapterKind.MINIMAX,
+        "openai": AdapterKind.OPENAI if api_style is ProviderApiStyle.OPENAI_RESPONSES else AdapterKind.GENERIC,
+    }.get(provider_id, AdapterKind.GENERIC)
     return ProviderSpec(
         id=provider_id,
         api_style=api_style,
         base_url="https://example.test/v1",
         api_key_envs=("API_KEY",),
+        adapter=adapter,
     )
 
 
@@ -2823,6 +2835,14 @@ def _model(
     provider_model: str,
     options: dict[str, object] | None = None,
 ) -> ModelSpec:
+    adapter = {
+        "kimi": AdapterKind.KIMI,
+        "kimi_coding": AdapterKind.KIMI,
+        "deepseek": AdapterKind.DEEPSEEK,
+        "glm": AdapterKind.GLM,
+        "minimax": AdapterKind.MINIMAX,
+        "openai": AdapterKind.OPENAI,
+    }.get(provider_id, AdapterKind.GENERIC)
     return ModelSpec(
         id=provider_model.replace(".", "_"),
         provider_id=provider_id,
@@ -2838,6 +2858,7 @@ def _model(
             }
         ),
         adapter_options=AdapterOptions(options or {}),
+        adapter=adapter,
     )
 
 

@@ -23,7 +23,9 @@ from .config_helpers import (
     required_str,
     required_str_list,
 )
-from .config_types import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
+from .adapter import adapter_spec
+from .adapter_types import AdapterKind
+from .config_types import ProviderApiStyle, ProviderSpec
 from .errors import LLMContractError
 from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
 from .models import ModelCapability, ModelRegistry, ModelSpec
@@ -65,7 +67,7 @@ class ProviderConfigParser:
                             key=f"llm.providers.{provider_id}",
                         ),
                         adapter=enum_value(
-                            ProviderAdapterKind,
+                            AdapterKind,
                             required_str(
                                 provider_table,
                                 "adapter",
@@ -121,6 +123,7 @@ class ModelConfigParser:
             reject_unknown_keys(
                 model_table,
                 {
+                    "adapter",
                     "provider",
                     "provider_model",
                     "context_window_tokens",
@@ -141,6 +144,23 @@ class ModelConfigParser:
                     key=f"llm.models.{model_id}.provider",
                     value=provider_id,
                 )
+            adapter = enum_value(
+                AdapterKind,
+                required_str(
+                    model_table,
+                    "adapter",
+                    key=f"llm.models.{model_id}",
+                ),
+                key=f"llm.models.{model_id}.adapter",
+            )
+            provider = providers[provider_id]
+            if adapter is not provider.adapter:
+                raise ConfigError(
+                    "Model adapter must match its provider adapter",
+                    key=f"llm.models.{model_id}.adapter",
+                    value=adapter.value,
+                    expected=provider.adapter.value,
+                )
             provider_model = required_str(
                 model_table,
                 "provider_model",
@@ -157,13 +177,13 @@ class ModelConfigParser:
                 )
                 _validate_adapter_option_keys(
                     adapter_options.values,
-                    adapter=providers[provider_id].adapter,
-                    provider_model=provider_model,
+                    adapter=adapter,
                     key=f"llm.models.{model_id}.adapter_options",
                 )
                 registry.register(
                     ModelSpec(
                         id=model_id,
+                        adapter=adapter,
                         provider_id=provider_id,
                         provider_model=provider_model,
                         context_window_tokens=required_int(
@@ -389,55 +409,13 @@ class TaskConfigParser:
                 )
 
 
-_ADAPTER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
-    ProviderAdapterKind.GENERIC: frozenset(),
-    ProviderAdapterKind.OPENAI: frozenset(
-        {
-            "reasoning_effort",
-            "reasoning_summary",
-            "reasoning_keep",
-            "verbosity",
-            "prompt_cache_retention",
-            "service_tier",
-            "store",
-            "top_p",
-        }
-    ),
-    ProviderAdapterKind.KIMI: frozenset(
-        {"thinking", "reasoning_effort", "reasoning_keep", "top_p"}
-    ),
-    ProviderAdapterKind.DEEPSEEK: frozenset(
-        {"thinking", "reasoning_effort", "reasoning_keep"}
-    ),
-    ProviderAdapterKind.GLM: frozenset(
-        {
-            "thinking",
-            "reasoning_keep",
-            "reasoning_effort",
-            "do_sample",
-            "top_p",
-            "request_id",
-            "user_id",
-        }
-    ),
-    ProviderAdapterKind.MINIMAX: frozenset(
-        {"thinking", "reasoning_split", "reasoning_keep", "top_p"}
-    ),
-}
-
-
 def _validate_adapter_option_keys(
     options: Mapping[str, object],
     *,
-    adapter: ProviderAdapterKind,
-    provider_model: str,
+    adapter: AdapterKind,
     key: str,
 ) -> None:
-    reject_unknown_keys(
-        options,
-        _ADAPTER_OPTION_KEYS[adapter],
-        key=key,
-    )
+    protocol = adapter_spec(adapter).validate_option_keys(options, key=key)
     if "thinking" in options:
         _validate_thinking_option(
             options["thinking"],
@@ -449,7 +427,7 @@ def _validate_adapter_option_keys(
             option_key,
             value,
             adapter=adapter,
-            provider_model=provider_model,
+            protocol=protocol,
             key=f"{key}.{option_key}",
         )
 
@@ -458,12 +436,12 @@ def _validate_adapter_option_value(
     option_key: str,
     value: object,
     *,
-    adapter: ProviderAdapterKind,
-    provider_model: str,
+    adapter: AdapterKind,
+    protocol: str | None,
     key: str,
 ) -> None:
     if option_key == "reasoning_keep":
-        if adapter is ProviderAdapterKind.OPENAI:
+        if adapter is AdapterKind.OPENAI:
             allowed = {"none", "encrypted"}
         else:
             allowed = {"none", "content"}
@@ -475,8 +453,10 @@ def _validate_adapter_option_value(
                 expected=" | ".join(sorted(allowed)),
             )
         return
-    if option_key == "thinking" and adapter is ProviderAdapterKind.KIMI:
-        if _is_kimi_k3(provider_model):
+    if option_key == "protocol":
+        return
+    if option_key == "thinking" and adapter is AdapterKind.KIMI:
+        if protocol == "k3":
             raise ConfigError(
                 "Kimi K3 does not accept the K2.x thinking option",
                 key=key,
@@ -484,10 +464,10 @@ def _validate_adapter_option_value(
             )
         return
     if option_key == "reasoning_effort":
-        if adapter is ProviderAdapterKind.DEEPSEEK:
+        if adapter is AdapterKind.DEEPSEEK:
             allowed = {"high", "max"}
-        elif adapter is ProviderAdapterKind.KIMI:
-            if not _is_kimi_k3(provider_model):
+        elif adapter is AdapterKind.KIMI:
+            if protocol != "k3":
                 raise ConfigError(
                     "Kimi reasoning_effort requires a K3 provider model",
                     key=key,
@@ -552,18 +532,14 @@ def _require_non_empty_string(value: object, *, key: str) -> None:
         )
 
 
-def _is_kimi_k3(provider_model: str) -> bool:
-    return provider_model in {"k3", "kimi-k3"}
-
-
 def _validate_thinking_option(
     value: object,
     *,
-    adapter: ProviderAdapterKind,
+    adapter: AdapterKind,
     key: str,
 ) -> None:
     allowed_types = {"enabled", "disabled"}
-    if adapter is ProviderAdapterKind.MINIMAX:
+    if adapter is AdapterKind.MINIMAX:
         allowed_types.add("adaptive")
     if isinstance(value, str):
         if value not in allowed_types:
@@ -574,15 +550,15 @@ def _validate_thinking_option(
                 expected=" | ".join(sorted(allowed_types)),
             )
         return
-    if adapter is ProviderAdapterKind.KIMI or not isinstance(value, Mapping):
+    if adapter is AdapterKind.KIMI or not isinstance(value, Mapping):
         raise ConfigError(
             "Adapter thinking option has an invalid type",
             key=key,
             value=value,
-            expected="string" if adapter is ProviderAdapterKind.KIMI else "string | table",
+        expected="string" if adapter is AdapterKind.KIMI else "string | table",
         )
     table = as_table(value, key=key)
-    allowed_keys = {"type", "clear_thinking"} if adapter is ProviderAdapterKind.GLM else {"type"}
+    allowed_keys = {"type", "clear_thinking"} if adapter is AdapterKind.GLM else {"type"}
     reject_unknown_keys(table, allowed_keys, key=key)
     raw_type = table.get("type")
     if raw_type not in allowed_types:

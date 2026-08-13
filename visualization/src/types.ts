@@ -329,6 +329,7 @@ export interface ConfigCatalog {
   field_groups: ConfigFieldGroupDescriptor[];
   collections: ConfigCollectionDescriptor[];
   fields: ConfigFieldDescriptor[];
+  rules?: Record<string, JsonValue>;
 }
 
 export interface ActionCatalogEntry {

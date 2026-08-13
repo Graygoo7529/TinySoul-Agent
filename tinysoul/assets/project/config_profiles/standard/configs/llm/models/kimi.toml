@@ -1,4 +1,5 @@
 [llm.models.kimi_k2_7]
+adapter = "kimi"
 provider = "kimi"
 provider_model = "kimi-k2.7-code-highspeed"
 context_window_tokens = 262144
@@ -12,6 +13,7 @@ capabilities = [
 ]
 
 [llm.models.kimi_k2_7.adapter_options]
+protocol = "k2"
 reasoning_keep = "content"
 thinking = "enabled"
 
@@ -19,6 +21,7 @@ thinking = "enabled"
 temperature = 1.0
 
 [llm.models.kimi_k3]
+adapter = "kimi"
 provider = "kimi"
 provider_model = "kimi-k3"
 context_window_tokens = 1048576
@@ -32,6 +35,7 @@ capabilities = [
 ]
 
 [llm.models.kimi_k3.adapter_options]
+protocol = "k3"
 reasoning_keep = "content"
 reasoning_effort = "max"
 

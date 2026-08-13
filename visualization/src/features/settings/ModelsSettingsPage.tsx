@@ -13,6 +13,10 @@ import {
   collectionFor,
   configObjects,
   modelProviderOptions,
+  adapterProtocolOptions,
+  adapterOptionKeys,
+  missingModelOptionFields,
+  modelOptionFields,
   objectDeletable,
   subtreeDeleteMutations,
   type ConfigSettingField,
@@ -41,7 +45,7 @@ export function ModelsSettingsPage({
   const pushToast = useAppStore((state) => state.pushToast);
   useEffect(() => {
     if (!objects.some((item) => item.id === selected)) setSelected(objects[0]?.id ?? null);
-    if (!objects.some((item) => item.id === template)) setTemplate(objects[0]?.id ?? "");
+    if (template && !objects.some((item) => item.id === template)) setTemplate(objects[0]?.id ?? "");
   }, [objects, selected, template]);
   const current = objects.find((item) => item.id === selected) ?? null;
   const canDelete = objectDeletable(current);
@@ -58,8 +62,49 @@ export function ModelsSettingsPage({
     }
   };
   const commit = async (field: ConfigSettingField, value: JsonValue) => {
+    if (current && field.path.endsWith(".adapter") && typeof value === "string") {
+      const provider = providers.find((item) => item.value.adapter === value);
+      if (!provider) {
+        pushToast("error", `No provider uses the ${value} adapter.`);
+        return;
+      }
+      const providerField = current.fields.find((item) => item.path.endsWith(".provider"));
+      const protocol = adapterProtocolOptions(catalog, value)[0]?.value;
+      const mutations: ConfigMutation[] = [
+        { source_id: field.sourceId, path: field.path, op: "set", value },
+        {
+          source_id: providerField?.sourceId ?? field.sourceId,
+          path: `${collection.root}.${current.id}.provider`,
+          op: "set",
+          value: provider.id,
+        },
+      ];
+      if (protocol !== undefined) {
+        mutations.push({ source_id: field.sourceId, path: `${collection.root}.${current.id}.adapter_options.protocol`, op: "set", value: protocol });
+      }
+      const allowed = adapterOptionKeys(catalog, value, protocol);
+      for (const option of current.fields.filter((item) => item.path.includes(".adapter_options."))) {
+        const key = option.path.split(".").pop() ?? "";
+        if (!allowed.has(key)) mutations.push({ source_id: option.sourceId, path: option.path, op: "delete" });
+      }
+      await apply(mutations, "Model adapter active");
+      return;
+    }
+    if (current && field.path.endsWith(".adapter_options.protocol") && typeof value === "string") {
+      const mutations: ConfigMutation[] = [{ source_id: field.sourceId, path: field.path, op: "set", value }];
+      const allowed = adapterOptionKeys(catalog, current.value.adapter, value);
+      for (const option of current.fields.filter((item) => item.path.includes(".adapter_options.") && !item.path.endsWith(".protocol"))) {
+        const key = option.path.split(".").pop() ?? "";
+        if (!allowed.has(key)) mutations.push({ source_id: option.sourceId, path: option.path, op: "delete" });
+      }
+      await apply(mutations, "Model protocol active");
+      return;
+    }
     await apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Model active");
   };
+  const editorFields = current
+    ? [...modelOptionFields(current.fields, current, catalog), ...missingModelOptionFields(current, catalog)]
+    : [];
 
   return (
     <>
@@ -70,7 +115,7 @@ export function ModelsSettingsPage({
         selected={selected}
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
-        addDisabled={!canWrite || !collection.allow_create || objects.length === 0}
+        addDisabled={!canWrite || !collection.allow_create}
         deleteDisabled={!canWrite || !canDelete}
         showDelete={canDelete}
         selectedMeta={
@@ -93,17 +138,23 @@ export function ModelsSettingsPage({
       >
         {current && (
           <ObjectFieldEditor
-            fields={current.fields}
+            fields={editorFields}
             status={status}
             catalog={catalog}
             canWrite={canWrite}
             savingPath={savingPath}
             onCommit={commit}
             selectOptions={(field) =>
-              field.path.endsWith(".provider")
-                ? modelProviderOptions(current, providers)
+                field.path.endsWith(".provider")
+                ? modelProviderOptions(current, providers, current.value.adapter)
+                : field.path.endsWith(".adapter_options.protocol")
+                  ? adapterProtocolOptions(catalog, current.value.adapter)
                 : undefined
             }
+            onDelete={async (field) => {
+              if (!field.path.includes(".adapter_options.") && !field.path.includes(".request_overrides.")) return;
+              await apply({ source_id: field.sourceId, path: field.path, op: "delete" }, "Model option removed");
+            }}
           />
         )}
       </ObjectSettingsLayout>
@@ -112,16 +163,27 @@ export function ModelsSettingsPage({
         existing={objects.map((item) => item.id)}
         open={creating}
         onClose={() => setCreating(false)}
-        valid={Boolean(template)}
+        valid={Boolean(template) || providers.length > 0}
         onCreate={async (id) => {
           const source = objects.find((item) => item.id === template);
-          if (!source) return;
+          const value = source
+            ? cloneJson(source.value)
+            : {
+                ...cloneJson(collection.create_template),
+                adapter: providers[0]?.value.adapter ?? "generic",
+                provider: providers[0]?.id ?? "",
+                provider_model: "model",
+              };
+          if (!source) {
+            const protocol = adapterProtocolOptions(catalog, value.adapter)[0]?.value;
+            if (protocol) value.adapter_options = { protocol };
+          }
           const applied = await apply(
             {
               source_id: collection.create_source,
               path: `${collection.root}.${id}`,
               op: "set",
-              value: cloneJson(source.value),
+              value,
             },
             "Model created",
           );
@@ -139,6 +201,7 @@ export function ModelsSettingsPage({
             onChange={(event) => setTemplate(event.target.value)}
             className={selectClass}
           >
+            <option value="">Blank model</option>
             {objects.map((item) => <option key={item.id}>{item.id}</option>)}
           </select>
         </label>

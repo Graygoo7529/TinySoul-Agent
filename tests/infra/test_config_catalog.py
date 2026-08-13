@@ -7,7 +7,8 @@ import pytest
 from tinysoul.app.initializer import ProjectConfigProfile, ProjectInitializer
 from tinysoul.infra.config import ConfigEnvironment, load_config_catalog
 from tinysoul.infra.config.catalog import ConfigCollectionDeletePolicy
-from tinysoul.llm.config_types import ProviderAdapterKind, ProviderApiStyle
+from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.config_types import ProviderApiStyle
 from tinysoul.llm.responses import AnswerFormat
 from tinysoul.llm.tools import ToolUse
 
@@ -37,7 +38,7 @@ def test_config_catalog_static_choices_match_business_enums() -> None:
     catalog = load_config_catalog()
 
     assert _choices(catalog, "llm.providers.*.adapter") == {
-        item.value for item in ProviderAdapterKind
+        item.value for item in AdapterKind
     }
     assert _choices(catalog, "llm.providers.*.api_style") == {
         item.value for item in ProviderApiStyle

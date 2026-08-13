@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderAdapterKind, ProviderApiStyle, ProviderSpec
+from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
 
 from .base import ProviderAdapter, ProviderError, ProviderErrorKind
 from .deepseek import DeepSeekProviderAdapter
@@ -26,7 +27,7 @@ def build_provider_registry(
         if not provider.enabled:
             continue
         api_key = provider.resolve_api_key(env)
-        if provider.adapter is ProviderAdapterKind.OPENAI:
+        if provider.adapter is AdapterKind.OPENAI:
             adapters.append(
                 OpenAIProviderAdapter(
                     provider=provider,
@@ -34,7 +35,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.adapter is ProviderAdapterKind.KIMI:
+        if provider.adapter is AdapterKind.KIMI:
             adapters.append(
                 KimiProviderAdapter(
                     provider=provider,
@@ -42,7 +43,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.adapter is ProviderAdapterKind.DEEPSEEK:
+        if provider.adapter is AdapterKind.DEEPSEEK:
             adapters.append(
                 DeepSeekProviderAdapter(
                     provider=provider,
@@ -50,7 +51,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.adapter is ProviderAdapterKind.GLM:
+        if provider.adapter is AdapterKind.GLM:
             adapters.append(
                 GlmProviderAdapter(
                     provider=provider,
@@ -58,7 +59,7 @@ def build_provider_registry(
                 )
             )
             continue
-        if provider.adapter is ProviderAdapterKind.MINIMAX:
+        if provider.adapter is AdapterKind.MINIMAX:
             adapters.append(
                 MiniMaxProviderAdapter(
                     provider=provider,

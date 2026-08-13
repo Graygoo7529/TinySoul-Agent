@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from .errors import LLMContractError, LLMInvariantError
 from .reasoning import ReasoningKeep
+from .adapter_types import AdapterKind
 
 
 class ModelCapability(StrEnum):
@@ -88,12 +89,15 @@ class ModelSpec:
     )
     adapter_options: AdapterOptions = field(default_factory=AdapterOptions)
     request_overrides: RequestOverrides = field(default_factory=RequestOverrides)
+    adapter: AdapterKind = AdapterKind.GENERIC
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ModelSpec.id must be non-empty")
         if not isinstance(self.provider_id, str) or not self.provider_id:
             raise LLMContractError("ModelSpec.provider_id must be non-empty")
+        if not isinstance(self.adapter, AdapterKind):
+            raise LLMContractError("ModelSpec.adapter must be an AdapterKind")
         if not isinstance(self.provider_model, str) or not self.provider_model:
             raise LLMContractError("ModelSpec.provider_model must be non-empty")
         if (

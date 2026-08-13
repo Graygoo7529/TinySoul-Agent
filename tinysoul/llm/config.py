@@ -8,7 +8,8 @@ from tinysoul.infra.config import reject_unknown_keys
 
 from .config_helpers import required_table
 from .config_sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
-from .config_types import LLMConfig, ProviderAdapterKind, ProviderApiStyle, ProviderSpec
+from .adapter_types import AdapterKind
+from .config_types import LLMConfig, ProviderApiStyle, ProviderSpec
 
 
 class LLMConfigParser:
@@ -62,7 +63,7 @@ __all__ = [
     "LLMConfig",
     "LLMConfigParser",
     "ModelConfigParser",
-    "ProviderAdapterKind",
+    "AdapterKind",
     "ProviderApiStyle",
     "ProviderConfigParser",
     "ProviderSpec",

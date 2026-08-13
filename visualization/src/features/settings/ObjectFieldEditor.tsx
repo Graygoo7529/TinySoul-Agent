@@ -15,6 +15,7 @@ export function ObjectFieldEditor({
   canWrite,
   savingPath,
   onCommit,
+  onDelete,
   selectOptions,
 }: {
   fields: ConfigSettingField[];
@@ -23,6 +24,7 @@ export function ObjectFieldEditor({
   canWrite: boolean;
   savingPath: string | null;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
+  onDelete?: (field: ConfigSettingField) => Promise<void>;
   selectOptions?: (field: ConfigSettingField) => ConfigSelectOption[] | undefined;
 }) {
   const primary = fields.filter((field) => field.descriptor.importance === "primary" && field.writable);
@@ -49,6 +51,7 @@ export function ObjectFieldEditor({
                 canWrite={canWrite && writable}
                 saving={savingPath === field.path}
                 onCommit={onCommit}
+                onDelete={onDelete}
                 selectOptions={selectOptions?.(field)}
               />
             ))}

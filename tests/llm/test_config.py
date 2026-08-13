@@ -6,7 +6,7 @@ import pytest
 
 from tinysoul.app import ProjectConfigProfile, ProjectInitializer
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
-from tinysoul.llm.config import LLMConfigParser, ProviderAdapterKind, ProviderApiStyle
+from tinysoul.llm.config import AdapterKind, LLMConfigParser, ProviderApiStyle
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
@@ -29,12 +29,12 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_provider.api_style is ProviderApiStyle.OPENAI_CHAT
     assert kimi_provider.base_url == "https://api.moonshot.cn/v1"
     assert kimi_provider.api_key_envs == ("MOONSHOT_API_KEY",)
-    assert kimi_provider.adapter is ProviderAdapterKind.KIMI
+    assert kimi_provider.adapter is AdapterKind.KIMI
     assert kimi_provider.enabled is True
 
     proxy_provider = config.provider("sublyx_proxy")
     assert proxy_provider.enabled is True
-    assert proxy_provider.adapter is ProviderAdapterKind.OPENAI
+    assert proxy_provider.adapter is AdapterKind.OPENAI
     assert config.provider("openai").enabled is False
 
     openai_model = config.models.get("gpt_5_5")
@@ -73,6 +73,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert kimi_model.adapter_options.values == {
         "reasoning_keep": "content",
+        "protocol": "k2",
         "thinking": "enabled",
     }
     assert kimi_model.request_overrides.temperature == pytest.approx(1.0)
@@ -89,6 +90,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_k3_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
     assert kimi_k3_model.adapter_options.values == {
         "reasoning_keep": "content",
+        "protocol": "k3",
         "reasoning_effort": "max",
     }
     assert kimi_k3_model.request_overrides.temperature == pytest.approx(1.0)
@@ -169,10 +171,12 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
         },
         "models": {
             "bad": {
+                "adapter": "kimi",
                 "provider": "missing",
                 "provider_model": "model",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k2"},
             }
         },
         "tasks": {
@@ -183,6 +187,40 @@ def test_llm_config_rejects_model_with_unknown_provider() -> None:
     }
 
     with pytest.raises(ConfigError):
+        LLMConfigParser().parse(tree)
+
+
+def test_model_adapter_must_match_provider_and_kimi_protocol_is_explicit() -> None:
+    tree = {
+        "providers": {
+            "kimi": {
+                "enabled": True,
+                "adapter": "kimi",
+                "api_style": "openai_chat",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key_envs": ["KIMI_API_KEY"],
+            }
+        },
+        "models": {
+            "alias": {
+                "adapter": "kimi",
+                "provider": "kimi",
+                "provider_model": "arbitrary-kimi-alias",
+                "context_window_tokens": 262144,
+                "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k3", "reasoning_effort": "max"},
+            }
+        },
+        "tasks": {"framework": {"models": ["alias"]}},
+    }
+
+    config = LLMConfigParser().parse(tree)
+    model = config.models.get("alias")
+    assert model.adapter is AdapterKind.KIMI
+    assert model.adapter_options.values["protocol"] == "k3"
+
+    tree["models"]["alias"]["adapter"] = "generic"
+    with pytest.raises(ConfigError, match="match its provider adapter"):
         LLMConfigParser().parse(tree)
 
 
@@ -199,6 +237,7 @@ def test_llm_config_requires_model_context_window() -> None:
         },
         "models": {
             "missing_window": {
+                "adapter": "generic",
                 "provider": "fake",
                 "provider_model": "model",
                 "capabilities": ["text_input"],
@@ -226,10 +265,12 @@ def test_llm_config_rejects_task_with_unknown_model() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k2"},
             }
         },
         "tasks": {
@@ -256,10 +297,12 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k2"},
             }
         },
         "tasks": {
@@ -289,6 +332,7 @@ def test_adapter_options_rejects_unknown_reasoning_keep() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
@@ -320,6 +364,7 @@ def test_llm_config_rejects_invalid_request_override() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
@@ -351,10 +396,12 @@ def test_llm_config_rejects_invalid_enum_values_at_parse_time() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k2"},
             }
         },
         "tasks": {
@@ -384,10 +431,12 @@ def test_llm_config_rejects_invalid_retry_policy_at_parse_time() -> None:
         },
         "models": {
             "kimi_k2_7": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
+                "adapter_options": {"protocol": "k2"},
             }
         },
         "tasks": {
@@ -417,6 +466,7 @@ def test_llm_config_rejects_task_required_capability_missing_from_chain_model() 
         },
         "models": {
             "text_model": {
+                "adapter": "kimi",
                 "provider": "kimi",
                 "provider_model": "text-model",
                 "context_window_tokens": 262144,
@@ -448,6 +498,7 @@ def test_llm_config_rejects_unknown_nested_adapter_option_key() -> None:
         },
         "models": {
             "glm_model": {
+                "adapter": "glm",
                 "provider": "glm",
                 "provider_model": "glm-model",
                 "context_window_tokens": 262144,
@@ -489,12 +540,14 @@ def test_disabled_provider_is_filtered_without_resolving_its_credential() -> Non
         },
         "models": {
             "disabled_model": {
+                "adapter": "generic",
                 "provider": "disabled",
                 "provider_model": "disabled-model",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
             },
             "enabled_model": {
+                "adapter": "generic",
                 "provider": "enabled",
                 "provider_model": "enabled-model",
                 "context_window_tokens": 262144,

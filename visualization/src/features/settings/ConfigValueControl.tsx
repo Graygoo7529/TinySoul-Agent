@@ -54,10 +54,10 @@ export function ConfigValueControl({
     );
   }
 
-  const options: ConfigSelectOption[] = descriptor?.choices?.map((choice) => ({
+  const options: ConfigSelectOption[] = selectOptions.length > 0 ? selectOptions : descriptor?.choices?.map((choice) => ({
     value: choice.value,
     label: choice.label,
-  })) ?? selectOptions;
+  })) ?? [];
   if (
     typeof value === "string" &&
     (descriptor?.value_kind === "enum" || descriptor?.value_kind === "reference")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .cache import PromptCache
+from .adapter_types import AdapterKind
 from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
 from .messages import (
     AssistantMessage,
@@ -83,6 +84,7 @@ __all__ = [
     "Answer",
     "AnswerFormat",
     "AdapterOptions",
+    "AdapterKind",
     "AssistantMessage",
     "CallSettings",
     "CapabilityPolicy",

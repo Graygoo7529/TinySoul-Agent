@@ -210,10 +210,11 @@ export function objectDeletable(object: ConfigObject | null): boolean {
 export function modelProviderOptions(
   model: ConfigObject,
   providers: ConfigObject[],
+  adapterOverride?: JsonValue,
 ): ConfigSelectOption[] {
   const currentProviderId = model.value.provider;
   const currentProvider = providers.find((provider) => provider.id === currentProviderId);
-  const currentAdapter = currentProvider?.value.adapter;
+  const currentAdapter = adapterOverride ?? model.value.adapter ?? currentProvider?.value.adapter;
   return providers.map((provider) => {
     const adapter = provider.value.adapter;
     const adapterLabel = typeof adapter === "string" ? adapter : "unknown adapter";
@@ -223,6 +224,86 @@ export function modelProviderOptions(
       disabled: adapter !== currentAdapter,
     };
   });
+}
+
+export function adapterProtocolOptions(
+  catalog: ConfigCatalog,
+  adapter: JsonValue,
+): ConfigSelectOption[] {
+  const rules = catalog.rules?.llm;
+  const entries = rules && typeof rules === "object" && !Array.isArray(rules) ? rules.adapters : undefined;
+  if (!Array.isArray(entries)) return [];
+  const selected = entries.find((item) => item && typeof item === "object" && !Array.isArray(item) && item.id === adapter);
+  if (!selected || typeof selected !== "object" || Array.isArray(selected) || !Array.isArray(selected.protocols)) return [];
+  const descriptor = catalog.fields.find((item) => item.path === "llm.models.*.adapter_options.protocol");
+  const labels = new Map((descriptor?.choices ?? []).map((choice) => [choice.value, choice.label]));
+  return selected.protocols.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.id !== "string") return [];
+    return { value: item.id, label: labels.get(item.id) ?? item.id };
+  });
+}
+
+export function adapterOptionKeys(
+  catalog: ConfigCatalog,
+  adapter: JsonValue,
+  protocol?: JsonValue,
+): Set<string> {
+  const rules = catalog.rules?.llm;
+  const entries = rules && typeof rules === "object" && !Array.isArray(rules) ? rules.adapters : undefined;
+  const spec = Array.isArray(entries) ? entries.find((item) => item && typeof item === "object" && !Array.isArray(item) && item.id === adapter) : undefined;
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) return new Set();
+  const keys = new Set<string>(Array.isArray(spec.common_option_keys) ? spec.common_option_keys.filter((item): item is string => typeof item === "string") : []);
+  if (Array.isArray(spec.protocols)) {
+    keys.add("protocol");
+    const branch = spec.protocols.find((item) => item && typeof item === "object" && !Array.isArray(item) && item.id === protocol);
+    if (branch && typeof branch === "object" && !Array.isArray(branch) && Array.isArray(branch.option_keys)) {
+      for (const item of branch.option_keys) if (typeof item === "string") keys.add(item);
+    }
+  }
+  return keys;
+}
+
+export function modelOptionFields(fields: ConfigSettingField[], model: ConfigObject, catalog: ConfigCatalog): ConfigSettingField[] {
+  const adapter = model.value.adapter;
+  const options = model.value.adapter_options;
+  const protocol = options && typeof options === "object" && !Array.isArray(options) ? options.protocol : undefined;
+  const rules = catalog.rules?.llm;
+  const entries = rules && typeof rules === "object" && !Array.isArray(rules) ? rules.adapters : undefined;
+  const spec = Array.isArray(entries) ? entries.find((item) => item && typeof item === "object" && !Array.isArray(item) && item.id === adapter) : undefined;
+  const common = spec && typeof spec === "object" && !Array.isArray(spec) && Array.isArray(spec.common_option_keys) ? spec.common_option_keys.filter((item): item is string => typeof item === "string") : [];
+  const branch = spec && typeof spec === "object" && !Array.isArray(spec) && Array.isArray(spec.protocols) ? spec.protocols.find((item) => item && typeof item === "object" && !Array.isArray(item) && item.id === protocol) : undefined;
+  const branchKeys = branch && typeof branch === "object" && !Array.isArray(branch) && Array.isArray(branch.option_keys) ? branch.option_keys.filter((item): item is string => typeof item === "string") : [];
+  return fields.filter((field) => {
+    if (!field.path.includes(".adapter_options.")) return true;
+    const parts = field.path.split(".");
+    const key = parts[parts.length - 1] ?? "";
+    if (key === "protocol") return adapterProtocolOptions(catalog, adapter).length > 0;
+    if (spec === undefined) return true;
+    return common.includes(key) || branchKeys.includes(key);
+  });
+}
+
+export function missingModelOptionFields(model: ConfigObject, catalog: ConfigCatalog): ConfigSettingField[] {
+  const existing = new Set(model.fields.map((field) => field.path));
+  const protocolRequired = adapterProtocolOptions(catalog, model.value.adapter).length > 0;
+  const descriptors = protocolRequired
+    ? catalog.fields.filter((descriptor) => descriptor.path === "llm.models.*.adapter_options.protocol")
+    : [];
+  const fields = modelOptionFields(descriptors.map((descriptor) => ({
+    path: descriptor.path.replace("llm.models.*", `llm.models.${model.id}`), descriptor,
+    sourceId: model.collection.create_source, sourcePath: model.collection.create_source,
+    storedValue: defaultForDescriptor(descriptor), effectiveValue: defaultForDescriptor(descriptor),
+    effectiveSource: model.collection.create_source, writable: true, overridden: false,
+  })), model, catalog);
+  return fields.filter((field) => !existing.has(field.path));
+}
+
+function defaultForDescriptor(descriptor: ConfigFieldDescriptor): JsonValue {
+  if (descriptor.value_kind === "boolean") return false;
+  if (descriptor.value_kind === "integer" || descriptor.value_kind === "number") return 0;
+  if (descriptor.value_kind === "string_list" || descriptor.value_kind === "reference_list") return [];
+  if (descriptor.value_kind === "object" || descriptor.value_kind === "object_list") return {};
+  return descriptor.choices?.[0]?.value ?? "";
 }
 
 export function deriveCredentials(
