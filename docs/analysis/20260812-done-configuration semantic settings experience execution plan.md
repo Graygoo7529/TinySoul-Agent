@@ -267,9 +267,9 @@ RUNTIME
 
 - 列表显示 Model ID、Provider、provider model ID 和 capabilities 摘要。
 - 新建必须先选择现有 Model 模板。
-- 模板中的 provider options 与模型一起复制；切换 Provider 只修改 provider 字段，前端不根据
-  Provider adapter 隐式清理 options，最终解释由 LLM parser/adapter 负责。
-- provider options 和 request overrides 放入 Advanced。
+- 模板中的 `adapter_options` 与 `request_overrides` 作为独立模型配置事实一起复制；切换 Provider
+  只修改 provider 字段，前端不根据 adapter 隐式清理两者，最终解释由 LLM parser/adapter 负责。
+- adapter options 和 request overrides 分别放入 Advanced 分组。
 
 ### Task Chains
 

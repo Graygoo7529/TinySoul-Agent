@@ -9,6 +9,6 @@ capabilities = [
   "reasoning_output",
 ]
 
-[llm.models.glm_5_1.provider_options]
+[llm.models.glm_5_1.adapter_options]
 reasoning_keep = "content"
 thinking = "enabled"

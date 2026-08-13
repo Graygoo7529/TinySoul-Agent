@@ -14,7 +14,8 @@ from tinysoul.llm.models import (
     ModelCapability,
     ModelRegistry,
     ModelSpec,
-    ProviderOptions,
+    AdapterOptions,
+    RequestOverrides,
 )
 from tinysoul.llm.provider import ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
@@ -24,32 +25,31 @@ from tinysoul.llm.responses import AnswerFormat, RawResponse
 from tinysoul.llm.tools import ToolCallRecord, ToolUse
 
 
-def test_provider_options_reports_contract_errors() -> None:
+def test_adapter_options_reports_contract_errors() -> None:
     with pytest.raises(LLMContractError):
-        ProviderOptions({"reasoning_keep": "forever"}).reasoning_keep()
-
-    with pytest.raises(LLMContractError):
-        ProviderOptions({"reasoning_keep": 1}).reasoning_keep()
+        AdapterOptions({"reasoning_keep": "forever"}).reasoning_keep()
 
     with pytest.raises(LLMContractError):
-        ProviderOptions({"request_overrides": "bad"}).request_overrides()
+        AdapterOptions({"reasoning_keep": 1}).reasoning_keep()
 
-    with pytest.raises(LLMContractError):
-        ProviderOptions(
-            {"request_overrides": {"temperature": True}}
-        ).request_overrides()
-
-
-def test_provider_options_accepts_valid_reasoning_keep() -> None:
+def test_adapter_options_accepts_valid_reasoning_keep() -> None:
     assert (
-        ProviderOptions({"reasoning_keep": "encrypted"}).reasoning_keep()
+        AdapterOptions({"reasoning_keep": "encrypted"}).reasoning_keep()
         is ReasoningKeep.ENCRYPTED
     )
 
 
-def test_provider_options_rejects_non_string_keys() -> None:
+def test_adapter_options_rejects_non_string_keys() -> None:
     with pytest.raises(LLMContractError):
-        ProviderOptions(cast(dict[str, object], {1: "bad"}))
+        AdapterOptions(cast(dict[str, object], {1: "bad"}))
+
+
+def test_request_overrides_reject_invalid_values() -> None:
+    with pytest.raises(LLMContractError):
+        RequestOverrides(temperature=True)
+
+    with pytest.raises(LLMContractError):
+        RequestOverrides(max_output_tokens=0)
 
 
 def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:

@@ -6,10 +6,10 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import TypeVar, cast
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
 from .errors import LLMContractError
-from .models import ModelCapability, ProviderOptions
+from .models import AdapterOptions, ModelCapability, RequestOverrides
 
 E = TypeVar("E", bound=StrEnum)
 
@@ -126,41 +126,66 @@ def required_str_list(
     return result
 
 
-def optional_provider_options(
+def optional_adapter_options(
     table: Mapping[str, object],
     *,
     key: str,
-) -> ProviderOptions:
-    value = table.get("provider_options")
+) -> AdapterOptions:
+    value = table.get("adapter_options")
     if value is None:
-        return ProviderOptions()
+        return AdapterOptions()
     if not isinstance(value, Mapping):
         raise ConfigError(
             "Configuration value must be a table",
-            key=f"{key}.provider_options",
+            key=f"{key}.adapter_options",
             value=value,
             expected="table",
         )
     options_table = cast(Mapping[str, object], value)
-    options = ProviderOptions(options_table)
+    options = AdapterOptions(options_table)
     try:
         options.reasoning_keep()
     except LLMContractError as exc:
         raise ConfigError(
             str(exc),
-            key=f"{key}.provider_options.reasoning_keep",
+            key=f"{key}.adapter_options.reasoning_keep",
             value=options_table.get("reasoning_keep"),
             expected="none | content | encrypted",
         ) from exc
-    try:
-        options.request_overrides()
-    except LLMContractError as exc:
-        raise ConfigError(
-            str(exc),
-            key=f"{key}.provider_options.request_overrides",
-            value=value,
-        ) from exc
     return options
+
+
+def optional_request_overrides(
+    table: Mapping[str, object],
+    *,
+    key: str,
+) -> RequestOverrides:
+    value = table.get("request_overrides")
+    if value is None:
+        return RequestOverrides()
+    overrides_table = as_table(value, key=f"{key}.request_overrides")
+    reject_unknown_keys(
+        overrides_table,
+        {"temperature", "max_output_tokens"},
+        key=f"{key}.request_overrides",
+    )
+    try:
+        return RequestOverrides(
+            temperature=optional_float_or_none(
+                overrides_table,
+                "temperature",
+                default=None,
+                key=f"{key}.request_overrides",
+            ),
+            max_output_tokens=optional_int_or_none(
+                overrides_table,
+                "max_output_tokens",
+                default=None,
+                key=f"{key}.request_overrides",
+            ),
+        )
+    except LLMContractError as exc:
+        raise ConfigError(str(exc), key=f"{key}.request_overrides") from exc
 
 
 def optional_capability_set(

@@ -14,7 +14,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
-    provider_reasoning_keep,
+    adapter_reasoning_keep,
 )
 
 
@@ -37,7 +37,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     ) -> object | None:
         if request.tool_use is ToolUse.DISABLED:
             return None
-        if _deepseek_thinking_enabled(request.provider_options):
+        if _deepseek_thinking_enabled(request.adapter_options):
             return "auto"
         return None
 
@@ -46,7 +46,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if provider_reasoning_keep(options, provider="DeepSeek") is not ReasoningKeep.CONTENT:
+        if adapter_reasoning_keep(options, adapter="DeepSeek") is not ReasoningKeep.CONTENT:
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
@@ -67,7 +67,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
 
         for key, value in options.items():
             if key == "reasoning_keep":
-                keep = provider_reasoning_keep(options, provider="DeepSeek")
+                keep = adapter_reasoning_keep(options, adapter="DeepSeek")
                 if keep is ReasoningKeep.ENCRYPTED:
                     raise ProviderError(
                         "DeepSeek does not support encrypted reasoning keep",
@@ -83,7 +83,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
                 kwargs["reasoning_effort"] = _reasoning_effort(value)
                 continue
             raise ProviderError(
-                f"Unsupported DeepSeek provider option: {key}",
+                f"Unsupported DeepSeek adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
 

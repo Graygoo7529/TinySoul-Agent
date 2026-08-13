@@ -49,10 +49,10 @@ title = "Capabilities"
 description = "Describes the model context limit and features available to task routing."
 
 [[field_group]]
-id = "models.provider_behavior"
+id = "models.adapter_options"
 surface = "models"
-title = "Provider Behavior"
-description = "Configures model-specific behavior interpreted by the selected provider adapter."
+title = "Adapter Options"
+description = "Configures model-level behavior interpreted by the Provider's selected adapter."
 
 [[field_group]]
 id = "models.request_overrides"
@@ -207,27 +207,27 @@ description = "Features TinySoul may rely on when routing tasks to this model."
 value_kind = "string_list"
 
 [[field]]
-path = "llm.models.*.provider_options.thinking"
+path = "llm.models.*.adapter_options.thinking"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Thinking Mode"
-description = "Provider-specific control for enabling, disabling, or adapting hidden reasoning."
+description = "Adapter-specific control for enabling, disabling, or adapting hidden reasoning."
 value_kind = "object"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.reasoning_effort"
+path = "llm.models.*.adapter_options.reasoning_effort"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Reasoning Effort"
-description = "Provider-specific reasoning effort requested for this model."
+description = "Adapter-specific reasoning effort requested for this model."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.reasoning_keep"
+path = "llm.models.*.adapter_options.reasoning_keep"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Reasoning Retention"
 description = "Controls whether reasoning state is omitted, retained as content, or retained in encrypted form."
 value_kind = "enum"
@@ -239,11 +239,11 @@ choices = [
 ]
 
 [[field]]
-path = "llm.models.*.provider_options.reasoning_summary"
+path = "llm.models.*.adapter_options.reasoning_summary"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Reasoning Summary"
-description = "Provider-specific summary detail requested for reasoning output."
+description = "Adapter-specific summary detail requested for reasoning output."
 value_kind = "enum"
 importance = "advanced"
 choices = [
@@ -253,11 +253,11 @@ choices = [
 ]
 
 [[field]]
-path = "llm.models.*.provider_options.verbosity"
+path = "llm.models.*.adapter_options.verbosity"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Response Verbosity"
-description = "Provider-specific text verbosity preference for generated responses."
+description = "Adapter-specific text verbosity preference for generated responses."
 value_kind = "enum"
 importance = "advanced"
 choices = [
@@ -267,79 +267,79 @@ choices = [
 ]
 
 [[field]]
-path = "llm.models.*.provider_options.prompt_cache_retention"
+path = "llm.models.*.adapter_options.prompt_cache_retention"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Prompt Cache Retention"
-description = "Provider-specific lifetime requested for reusable prompt cache entries."
+description = "Adapter-specific lifetime requested for reusable prompt cache entries."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.reasoning_split"
+path = "llm.models.*.adapter_options.reasoning_split"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Separate Reasoning"
 description = "Requests provider reasoning content separately from the final answer when supported."
 value_kind = "boolean"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.top_p"
+path = "llm.models.*.adapter_options.top_p"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Top P"
-description = "Provider-specific nucleus sampling value."
+description = "Adapter-specific nucleus sampling value."
 value_kind = "number"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.service_tier"
+path = "llm.models.*.adapter_options.service_tier"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Service Tier"
-description = "Provider-specific service tier used for this model."
+description = "Adapter-specific service tier used for this model."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.safety_identifier"
+path = "llm.models.*.adapter_options.store"
 surface = "models"
-group = "models.provider_behavior"
-title = "Safety Identifier"
-description = "Provider-specific stable safety identifier attached to requests."
-value_kind = "string"
+group = "models.adapter_options"
+title = "Store Response"
+description = "Allows the selected adapter to request provider-side response storage."
+value_kind = "boolean"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.user"
+path = "llm.models.*.adapter_options.do_sample"
 surface = "models"
-group = "models.provider_behavior"
-title = "Provider User"
-description = "Provider-specific end-user identifier attached to requests."
-value_kind = "string"
+group = "models.adapter_options"
+title = "Sample Output"
+description = "Allows the selected adapter to enable or disable sampling for this model."
+value_kind = "boolean"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.request_id"
+path = "llm.models.*.adapter_options.request_id"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "Request ID"
 description = "Optional provider request identifier override."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.user_id"
+path = "llm.models.*.adapter_options.user_id"
 surface = "models"
-group = "models.provider_behavior"
+group = "models.adapter_options"
 title = "User ID"
-description = "Optional provider-specific user identifier."
+description = "Optional adapter-specific user identifier."
 value_kind = "string"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.request_overrides.temperature"
+path = "llm.models.*.request_overrides.temperature"
 surface = "models"
 group = "models.request_overrides"
 title = "Request Temperature"
@@ -348,7 +348,7 @@ value_kind = "number"
 importance = "advanced"
 
 [[field]]
-path = "llm.models.*.provider_options.request_overrides.max_output_tokens"
+path = "llm.models.*.request_overrides.max_output_tokens"
 surface = "models"
 group = "models.request_overrides"
 title = "Request Output Tokens"

@@ -44,8 +44,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert openai_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert openai_model.supports(ModelCapability.TOOL_CALLING)
     assert openai_model.supports(ModelCapability.PROMPT_CACHE)
-    assert openai_model.provider_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
-    assert openai_model.provider_options.values == {
+    assert openai_model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
+    assert openai_model.adapter_options.values == {
         "reasoning_keep": "encrypted",
         "prompt_cache_retention": "24h",
         "verbosity": "medium",
@@ -62,7 +62,7 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
         assert model.provider_id == "sublyx_proxy"
         assert model.provider_model == provider_model
         assert model.capabilities == openai_model.capabilities
-        assert model.provider_options.values == openai_model.provider_options.values
+        assert model.adapter_options.values == openai_model.adapter_options.values
 
     kimi_model = config.models.get("kimi_k2_7")
     assert kimi_model.provider_id == "kimi"
@@ -70,18 +70,13 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_model.supports(ModelCapability.IMAGE_INPUT)
     assert kimi_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_model.supports(ModelCapability.PROMPT_CACHE)
-    assert kimi_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
-    assert kimi_model.provider_options.values == {
+    assert kimi_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert kimi_model.adapter_options.values == {
         "reasoning_keep": "content",
         "thinking": "enabled",
-        "request_overrides": {
-            "temperature": 1.0,
-        },
     }
-    assert kimi_model.provider_options.request_overrides().temperature == pytest.approx(
-        1.0
-    )
-    assert kimi_model.provider_options.request_overrides().max_output_tokens is None
+    assert kimi_model.request_overrides.temperature == pytest.approx(1.0)
+    assert kimi_model.request_overrides.max_output_tokens is None
 
     kimi_k3_model = config.models.get("kimi_k3")
     assert kimi_k3_model.provider_id == "kimi"
@@ -91,21 +86,19 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_k3_model.supports(ModelCapability.TOOL_CALLING)
     assert kimi_k3_model.supports(ModelCapability.REASONING_OUTPUT)
     assert kimi_k3_model.supports(ModelCapability.PROMPT_CACHE)
-    assert kimi_k3_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
-    assert kimi_k3_model.provider_options.values == {
+    assert kimi_k3_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert kimi_k3_model.adapter_options.values == {
         "reasoning_keep": "content",
         "reasoning_effort": "max",
-        "request_overrides": {
-            "temperature": 1.0,
-        },
     }
+    assert kimi_k3_model.request_overrides.temperature == pytest.approx(1.0)
 
     deepseek_model = config.models.get("deepseek_v4")
     assert deepseek_model.provider_id == "deepseek"
     assert deepseek_model.provider_model == "deepseek-v4-pro"
     assert deepseek_model.supports(ModelCapability.TOOL_CALLING)
-    assert deepseek_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
-    assert deepseek_model.provider_options.values == {
+    assert deepseek_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert deepseek_model.adapter_options.values == {
         "thinking": "enabled",
         "reasoning_effort": "high",
         "reasoning_keep": "content",
@@ -115,8 +108,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert glm_model.provider_id == "glm"
     assert glm_model.provider_model == "glm-5.1"
     assert glm_model.supports(ModelCapability.TOOL_CALLING)
-    assert glm_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
-    assert glm_model.provider_options.values == {
+    assert glm_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert glm_model.adapter_options.values == {
         "reasoning_keep": "content",
         "thinking": "enabled",
     }
@@ -132,8 +125,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert minimax_model.supports(ModelCapability.IMAGE_REMOTE_URL)
     assert minimax_model.supports(ModelCapability.TOOL_CALLING)
     assert not minimax_model.supports(ModelCapability.JSON_OBJECT_OUTPUT)
-    assert minimax_model.provider_options.reasoning_keep() is ReasoningKeep.CONTENT
-    assert minimax_model.provider_options.values == {
+    assert minimax_model.adapter_options.reasoning_keep() is ReasoningKeep.CONTENT
+    assert minimax_model.adapter_options.values == {
         "reasoning_keep": "content",
         "thinking": "adaptive",
         "reasoning_split": True,
@@ -283,7 +276,7 @@ def test_llm_config_uses_retry_defaults_when_omitted() -> None:
     assert task.chain.retry_policy.max_retries_per_model == 1
 
 
-def test_provider_options_rejects_unknown_reasoning_keep() -> None:
+def test_adapter_options_rejects_unknown_reasoning_keep() -> None:
     tree = {
         "providers": {
             "kimi": {
@@ -300,7 +293,7 @@ def test_provider_options_rejects_unknown_reasoning_keep() -> None:
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
-                "provider_options": {"reasoning_keep": "forever"},
+                "adapter_options": {"reasoning_keep": "forever"},
             }
         },
         "tasks": {
@@ -331,9 +324,7 @@ def test_llm_config_rejects_invalid_request_override() -> None:
                 "provider_model": "kimi-k2.7-code",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
-                "provider_options": {
-                    "request_overrides": {"temperature": True},
-                },
+                "request_overrides": {"temperature": True},
             }
         },
         "tasks": {
@@ -444,7 +435,7 @@ def test_llm_config_rejects_task_required_capability_missing_from_chain_model() 
         LLMConfigParser().parse(tree)
 
 
-def test_llm_config_rejects_unknown_nested_provider_option_key() -> None:
+def test_llm_config_rejects_unknown_nested_adapter_option_key() -> None:
     tree = {
         "providers": {
             "glm": {
@@ -461,7 +452,7 @@ def test_llm_config_rejects_unknown_nested_provider_option_key() -> None:
                 "provider_model": "glm-model",
                 "context_window_tokens": 262144,
                 "capabilities": ["text_input"],
-                "provider_options": {
+                "adapter_options": {
                     "thinking": {
                         "type": "enabled",
                         "clear_thikning": True,

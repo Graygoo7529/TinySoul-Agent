@@ -7,12 +7,7 @@ from typing import cast
 
 from openai import APIConnectionError, APIError, APIStatusError
 
-from tinysoul.llm.errors import LLMContractError
-from tinysoul.llm.models import (
-    ModelCapability,
-    ProviderOptions,
-    ProviderRequestOverrides,
-)
+from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.responses import AnswerFormat
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
@@ -20,59 +15,14 @@ from .clients import ModelDumpable
 
 
 def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
-    overrides = request_overrides(request.provider_options)
     kwargs: dict[str, object] = {"model": request.model.provider_model}
-    temperature = effective_temperature(request, overrides=overrides)
-    if temperature is not None:
-        kwargs["temperature"] = temperature
-    max_output_tokens = effective_max_output_tokens(request, overrides=overrides)
-    if max_output_tokens is not None:
-        kwargs["max_output_tokens"] = max_output_tokens
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
+    if request.max_output_tokens is not None:
+        kwargs["max_output_tokens"] = request.max_output_tokens
     if request.timeout_seconds is not None:
         kwargs["timeout"] = request.timeout_seconds
     return kwargs
-
-
-def effective_temperature(
-    request: ProviderRequest,
-    *,
-    overrides: ProviderRequestOverrides | None = None,
-) -> float | None:
-    resolved = overrides or request_overrides(request.provider_options)
-    return (
-        resolved.temperature
-        if resolved.temperature is not None
-        else request.temperature
-    )
-
-
-def effective_max_output_tokens(
-    request: ProviderRequest,
-    *,
-    overrides: ProviderRequestOverrides | None = None,
-) -> int | None:
-    resolved = overrides or request_overrides(request.provider_options)
-    return (
-        resolved.max_output_tokens
-        if resolved.max_output_tokens is not None
-        else request.max_output_tokens
-    )
-
-
-def request_overrides(
-    options: Mapping[str, object] | None,
-) -> ProviderRequestOverrides:
-    try:
-        return ProviderOptions(options or {}).request_overrides()
-    except LLMContractError as exc:
-        raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
-
-
-def provider_options(options: Mapping[str, object] | None) -> dict[str, object]:
-    try:
-        return ProviderOptions(options or {}).provider_values()
-    except LLMContractError as exc:
-        raise ProviderError(str(exc), kind=ProviderErrorKind.CONFIG) from exc
 
 
 def uses_native_json_output(request: ProviderRequest) -> bool:
@@ -160,13 +110,9 @@ def get_attr(value: object, name: str) -> object:
 
 __all__ = [
     "common_create_kwargs",
-    "effective_max_output_tokens",
-    "effective_temperature",
     "get_attr",
     "model_dump_mapping",
     "provider_error",
-    "provider_options",
-    "request_overrides",
     "response_metadata",
     "uses_native_json_output",
 ]

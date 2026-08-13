@@ -47,7 +47,7 @@ class ProviderRequest:
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
-    provider_options: Mapping[str, object] | None = None
+    adapter_options: Mapping[str, object] | None = None
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
@@ -92,15 +92,15 @@ class ProviderRequest:
             raise LLMContractError(
                 "ProviderRequest.timeout_seconds must be a positive number or None"
             )
-        if self.provider_options is not None:
+        if self.adapter_options is not None:
             options: dict[str, object] = {}
-            for key, value in self.provider_options.items():
+            for key, value in self.adapter_options.items():
                 if not isinstance(key, str):
                     raise LLMContractError(
-                        "ProviderRequest.provider_options keys must be strings"
+                        "ProviderRequest.adapter_options keys must be strings"
                     )
                 options[key] = value
-            object.__setattr__(self, "provider_options", options)
+            object.__setattr__(self, "adapter_options", options)
 
 
 class ProviderAdapter(Protocol):

@@ -207,6 +207,98 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     ]
 
 
+def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    ProjectInitializer().initialize(project_root)
+    providers_path = project_root / "configs" / "llm" / "providers.toml"
+    with providers_path.open("a", encoding="utf-8") as providers:
+        providers.write(
+            "\n[llm.providers.openai_proxy]\n"
+            "enabled = true\n"
+            'adapter = "openai"\n'
+            'api_style = "openai_responses"\n'
+            'base_url = "https://proxy.example/v1"\n'
+            'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
+        )
+    app = (
+        TinySoulAppBuilder(root=project_root)
+        .with_config_environment(ConfigEnvironment.from_project_root(project_root))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .build()
+    )
+    assert app.endpoint is not None
+    endpoint = app.endpoint
+    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
+    headers = {"Authorization": f"Bearer {'x' * 32}"}
+    source_id = "project:configs/llm/models/openai.toml"
+    model_path = project_root / "configs" / "llm" / "models" / "openai.toml"
+
+    overrides = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": source_id,
+                    "path": "llm.models.gpt_5_5.request_overrides.temperature",
+                    "op": "set",
+                    "value": 0.4,
+                }
+            ]
+        },
+    )
+    assert overrides.status_code == 200
+
+    switched = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": source_id,
+                    "path": "llm.models.gpt_5_5.provider",
+                    "op": "set",
+                    "value": "openai_proxy",
+                }
+            ]
+        },
+    )
+    assert switched.status_code == 200
+    switched_generation = switched.json()["generation_id"]
+    switched_source = model_path.read_text(encoding="utf-8")
+    assert 'provider = "openai_proxy"' in switched_source
+    assert "[llm.models.gpt_5_5.adapter_options]" in switched_source
+    assert 'reasoning_keep = "encrypted"' in switched_source
+    assert "[llm.models.gpt_5_5.request_overrides]" in switched_source
+    assert "temperature = 0.4" in switched_source
+
+    incompatible = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": source_id,
+                    "path": "llm.models.gpt_5_5.provider",
+                    "op": "set",
+                    "value": "kimi",
+                }
+            ]
+        },
+    )
+
+    assert incompatible.status_code == 422
+    assert incompatible.json()["error"]["code"] == "config.invalid"
+    assert model_path.read_text(encoding="utf-8") == switched_source
+    runtime = endpoint.config_status()["runtime"]
+    assert isinstance(runtime, dict)
+    assert runtime["generation_id"] == switched_generation
+
+
 def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     tmp_path: Path,
 ) -> None:

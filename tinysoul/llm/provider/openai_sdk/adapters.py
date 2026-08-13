@@ -20,7 +20,6 @@ from .common import (
     get_attr,
     model_dump_mapping,
     provider_error,
-    provider_options,
     response_metadata,
     uses_native_json_output,
 )
@@ -65,7 +64,7 @@ class OpenAIResponsesAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
-        configured_options = provider_options(request.provider_options)
+        configured_options = request.adapter_options
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)
@@ -138,7 +137,7 @@ class OpenAICompatibleChatAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
-        configured_options = provider_options(request.provider_options)
+        configured_options = request.adapter_options
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)

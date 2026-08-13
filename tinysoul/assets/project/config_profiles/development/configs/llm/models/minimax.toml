@@ -10,7 +10,7 @@ capabilities = [
   "reasoning_output",
 ]
 
-[llm.models.minimax_m3.provider_options]
+[llm.models.minimax_m3.adapter_options]
 reasoning_keep = "content"
 thinking = "adaptive"
 reasoning_split = true

@@ -313,7 +313,9 @@ class LLMTaskRunner:
             model,
             self._capability_policy.required_capabilities(call, settings=settings),
         )
-        reserved_output_tokens = _effective_max_output_tokens(model, settings)
+        temperature = _effective_temperature(model, settings)
+        max_output_tokens = _effective_max_output_tokens(model, settings)
+        reserved_output_tokens = max_output_tokens or 0
         context_usage = self._context_policy.usage(
             model=model,
             messages=call.messages,
@@ -374,9 +376,9 @@ class LLMTaskRunner:
                         tool_use=tool_use,
                         tool_scope=call.tool_scope,
                         prompt_cache=call.prompt_cache,
-                        temperature=settings.temperature,
-                        max_output_tokens=settings.max_output_tokens,
-                        provider_options=dict(model.provider_options.values),
+                        temperature=temperature,
+                        max_output_tokens=max_output_tokens,
+                        adapter_options=dict(model.adapter_options.values),
                         timeout_seconds=_remaining_seconds(call),
                     ),
                     call,
@@ -406,7 +408,7 @@ class LLMTaskRunner:
                 )
             completion_failure = _completion_failure(
                 response,
-                max_output_tokens=settings.max_output_tokens,
+                max_output_tokens=max_output_tokens,
             )
             if completion_failure is not None:
                 return TaskResult.failure_result(
@@ -578,11 +580,21 @@ def _completion_failure(
 def _effective_max_output_tokens(
     model: ModelSpec,
     settings: CallSettings,
-) -> int:
-    override = model.provider_options.request_overrides().max_output_tokens
+) -> int | None:
+    override = model.request_overrides.max_output_tokens
     if override is not None:
         return override
-    return settings.max_output_tokens or 0
+    return settings.max_output_tokens
+
+
+def _effective_temperature(
+    model: ModelSpec,
+    settings: CallSettings,
+) -> float | None:
+    override = model.request_overrides.temperature
+    if override is not None:
+        return override
+    return settings.temperature
 
 
 def _check_cancellation(call: TaskCall) -> None:

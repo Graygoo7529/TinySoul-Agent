@@ -124,7 +124,7 @@ def to_responses_input(
             if not message.tool_calls or replayed_tool_calls:
                 for reasoning_item in behavior.responses_input_reasoning(
                     message,
-                    request.provider_options,
+                    request.adapter_options,
                 ):
                     items.append({key: value for key, value in reasoning_item.items()})
             rendered = renderer.render(message.parts)
@@ -201,7 +201,7 @@ def to_chat_messages(
         if isinstance(message, AssistantMessage):
             reasoning_content = behavior.chat_input_reasoning(
                 message,
-                request.provider_options,
+                request.adapter_options,
             )
             replayed_tool_calls = (
                 ()

@@ -16,7 +16,13 @@ from tinysoul.llm.model_chain import (
     TaskSpec,
     TaskSpecTable,
 )
-from tinysoul.llm.models import ModelCapability, ModelRegistry, ModelSpec, ProviderOptions
+from tinysoul.llm.models import (
+    AdapterOptions,
+    ModelCapability,
+    ModelRegistry,
+    ModelSpec,
+    RequestOverrides,
+)
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import (
@@ -785,7 +791,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
                 ModelCapability.JSON_OBJECT_OUTPUT,
             }
         ),
-        provider_options=ProviderOptions({"thinking": "enabled"}),
+        adapter_options=AdapterOptions({"thinking": "enabled"}),
     )
     runner = LLMTaskRunner(
         models=ModelRegistry([model]),
@@ -817,7 +823,57 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     request = provider.requests[0]
     assert request.temperature == pytest.approx(0.6)
     assert request.max_output_tokens == 1024
-    assert request.provider_options == {"thinking": "enabled"}
+    assert request.adapter_options == {"thinking": "enabled"}
+
+
+def test_runner_applies_model_request_overrides_after_call_settings() -> None:
+    provider = FakeProvider(provider_id="fake")
+    model = ModelSpec(
+        id="a",
+        provider_id="fake",
+        provider_model="a",
+        context_window_tokens=262_144,
+        capabilities=frozenset(
+            {
+                ModelCapability.TEXT_INPUT,
+                ModelCapability.JSON_OBJECT_OUTPUT,
+            }
+        ),
+        request_overrides=RequestOverrides(
+            temperature=1.0,
+            max_output_tokens=128,
+        ),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([provider]),
+        tasks=TaskSpecTable(
+            [
+                TaskSpec(
+                    profile="framework",
+                    chain=ModelChain(profile="framework", model_ids=("a",)),
+                    settings=CallSettings(
+                        answer_format=AnswerFormat.JSON_OBJECT,
+                        tool_use=ToolUse.DISABLED,
+                        temperature=0.6,
+                        max_output_tokens=4096,
+                    ),
+                )
+            ]
+        ),
+    )
+
+    runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+            settings=CallSettings(temperature=0.2, max_output_tokens=1024),
+        )
+    )
+
+    request = provider.requests[0]
+    assert request.temperature == pytest.approx(1.0)
+    assert request.max_output_tokens == 128
 
 
 def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
@@ -1342,5 +1398,4 @@ def _json_output(result: TaskResult) -> JsonObject:
     if not isinstance(result.answer, JsonAnswer):
         raise AssertionError("Expected JSON answer")
     return result.answer.value
-
 

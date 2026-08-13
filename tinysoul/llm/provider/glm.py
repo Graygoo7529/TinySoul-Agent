@@ -14,7 +14,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
-    provider_reasoning_keep,
+    adapter_reasoning_keep,
 )
 
 
@@ -49,7 +49,7 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if provider_reasoning_keep(options, provider="GLM") is not ReasoningKeep.CONTENT:
+        if adapter_reasoning_keep(options, adapter="GLM") is not ReasoningKeep.CONTENT:
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
@@ -87,11 +87,11 @@ class GlmProviderBehavior(OpenAIAdapterBehavior):
                 kwargs[key] = _string_option(value, key=key)
                 continue
             raise ProviderError(
-                f"Unsupported GLM provider option: {key}",
+                f"Unsupported GLM adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
 
-        keep = provider_reasoning_keep(options, provider="GLM")
+        keep = adapter_reasoning_keep(options, adapter="GLM")
         if keep is ReasoningKeep.ENCRYPTED:
             raise ProviderError(
                 "GLM does not support encrypted reasoning keep",

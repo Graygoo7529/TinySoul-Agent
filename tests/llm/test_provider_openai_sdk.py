@@ -20,7 +20,7 @@ from tinysoul.llm.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.models import ModelCapability, ModelSpec, ProviderOptions
+from tinysoul.llm.models import ModelCapability, ModelSpec, AdapterOptions
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -139,7 +139,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
             prompt_cache=PromptCache("stable-prefix"),
             temperature=0.2,
             max_output_tokens=256,
-            provider_options={
+            adapter_options={
                 "prompt_cache_retention": "24h",
                 "reasoning_effort": "high",
                 "reasoning_summary": "auto",
@@ -179,14 +179,14 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"reasoning": {"effort": "high"}},
+                adapter_options={"reasoning": {"effort": "high"}},
             )
         )
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_openai_responses_adapter_applies_request_overrides() -> None:
+def test_openai_responses_adapter_applies_resolved_request_settings() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="ok", output=[], usage={})
     )
@@ -198,26 +198,11 @@ def test_openai_responses_adapter_applies_request_overrides() -> None:
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(
-                provider_id="openai",
-                provider_model="gpt-5.5",
-                options={
-                    "request_overrides": {
-                        "temperature": 1.0,
-                        "max_output_tokens": 128,
-                    }
-                },
-            ),
+            model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
-            temperature=0.2,
-            max_output_tokens=256,
-            provider_options={
-                "request_overrides": {
-                    "temperature": 1.0,
-                    "max_output_tokens": 128,
-                }
-            },
+            temperature=1.0,
+            max_output_tokens=128,
         )
     )
 
@@ -331,7 +316,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
                 UserMessage.from_text("continue"),
             ),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"reasoning_keep": "encrypted"},
+            adapter_options={"reasoning_keep": "encrypted"},
         )
     )
 
@@ -419,7 +404,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
                 )
             ),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"reasoning_keep": "encrypted"},
+            adapter_options={"reasoning_keep": "encrypted"},
         )
     )
 
@@ -446,7 +431,7 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"reasoning_keep": "content"},
+                adapter_options={"reasoning_keep": "content"},
             )
         )
 
@@ -466,7 +451,7 @@ def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"reasoning_summary": "full"},
+                adapter_options={"reasoning_summary": "full"},
             )
         )
 
@@ -752,7 +737,7 @@ def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() ->
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             tool_use=ToolUse.DISABLED,
-            provider_options={"reasoning_keep": "encrypted"},
+            adapter_options={"reasoning_keep": "encrypted"},
         )
     )
 
@@ -1001,17 +986,16 @@ def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
             prompt_cache=PromptCache("kimi-prefix"),
             temperature=0.2,
             max_output_tokens=128,
-            provider_options={
+            adapter_options={
                 "thinking": "enabled",
                 "reasoning_keep": "content",
-                "request_overrides": {"temperature": 1.0},
             },
         )
     )
 
     call = client.calls[0]
     assert call["model"] == "kimi-for-coding-highspeed"
-    assert call["temperature"] == pytest.approx(1.0)
+    assert call["temperature"] == pytest.approx(0.2)
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
         {
@@ -1065,17 +1049,16 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
             prompt_cache=PromptCache("kimi-k3-prefix"),
             temperature=0.2,
             max_output_tokens=128,
-            provider_options={
+            adapter_options={
                 "reasoning_keep": "content",
                 "reasoning_effort": "max",
-                "request_overrides": {"temperature": 1.0},
             },
         )
     )
 
     call = client.calls[0]
     assert call["model"] == "k3"
-    assert call["temperature"] == pytest.approx(1.0)
+    assert call["temperature"] == pytest.approx(0.2)
     assert call["reasoning_effort"] == "max"
     assert call["messages"] == [
         {"role": "user", "content": "hello"},
@@ -1133,7 +1116,7 @@ def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
                 model=_model(provider_id="kimi_coding", provider_model="k3"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"thinking": "enabled"},
+                adapter_options={"thinking": "enabled"},
             )
         )
 
@@ -1282,7 +1265,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(tool,)),
             tool_use=ToolUse.OPTIONAL,
-            provider_options={
+            adapter_options={
                 "reasoning_keep": "content",
                 "reasoning_effort": "max",
             },
@@ -1360,7 +1343,7 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             tool_use=ToolUse.DISABLED,
-            provider_options={
+            adapter_options={
                 "thinking": "enabled",
                 "reasoning_keep": "content",
             },
@@ -1410,7 +1393,7 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             tool_use=ToolUse.DISABLED,
-            provider_options={"thinking": "enabled"},
+            adapter_options={"thinking": "enabled"},
         )
     )
 
@@ -1736,7 +1719,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             answer_format=AnswerFormat.JSON_OBJECT,
             temperature=0.7,
             max_output_tokens=128,
-            provider_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
+            adapter_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
         )
     )
 
@@ -1783,7 +1766,7 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
                 )
             ),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+            adapter_options={"thinking": "enabled", "reasoning_effort": "high"},
         )
     )
 
@@ -1819,7 +1802,7 @@ def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> N
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
-            provider_options={"thinking": "enabled", "reasoning_effort": "high"},
+            adapter_options={"thinking": "enabled", "reasoning_effort": "high"},
         )
     )
 
@@ -1862,7 +1845,7 @@ def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
                 selection=ToolSelection(forced_name="read_file"),
             ),
             tool_use=ToolUse.REQUIRED,
-            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
+            adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
     )
 
@@ -1895,7 +1878,7 @@ def test_glm_adapter_rejects_strict_tool_calling() -> None:
                 answer_format=AnswerFormat.TEXT,
                 tool_scope=ToolScope(tools=(strict_tool,)),
                 tool_use=ToolUse.REQUIRED,
-                provider_options={"thinking": "enabled"},
+                adapter_options={"thinking": "enabled"},
             )
         )
 
@@ -1933,7 +1916,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             max_output_tokens=128,
-            provider_options={"thinking": "enabled", "reasoning_keep": "content"},
+            adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
     )
 
@@ -1976,7 +1959,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
                 )
             ),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"thinking": "enabled"},
+            adapter_options={"thinking": "enabled"},
         )
     )
 
@@ -2009,7 +1992,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
                 )
             ),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"thinking": "enabled"},
+            adapter_options={"thinking": "enabled"},
         )
     )
 
@@ -2040,7 +2023,7 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
             model=_model(provider_id="glm", provider_model="glm-5.2"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
-            provider_options={"reasoning_effort": "max"},
+            adapter_options={"reasoning_effort": "max"},
         )
     )
 
@@ -2090,7 +2073,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
             ),
             answer_format=AnswerFormat.JSON_OBJECT,
             max_output_tokens=128,
-            provider_options={
+            adapter_options={
                 "thinking": "adaptive",
                 "reasoning_split": True,
                 "reasoning_keep": "content",
@@ -2150,7 +2133,7 @@ def test_minimax_adapter_removes_required_tool_choice() -> None:
                 selection=ToolSelection(forced_name="read_file"),
             ),
             tool_use=ToolUse.REQUIRED,
-            provider_options={
+            adapter_options={
                 "thinking": "adaptive",
                 "reasoning_split": True,
                 "reasoning_keep": "content",
@@ -2187,7 +2170,7 @@ def test_minimax_adapter_rejects_strict_tool_calling() -> None:
                 answer_format=AnswerFormat.TEXT,
                 tool_scope=ToolScope(tools=(strict_tool,)),
                 tool_use=ToolUse.REQUIRED,
-                provider_options={"thinking": "adaptive"},
+                adapter_options={"thinking": "adaptive"},
             )
         )
 
@@ -2219,7 +2202,7 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
             model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
-            provider_options={
+            adapter_options={
                 "thinking": "adaptive",
                 "reasoning_split": True,
             },
@@ -2283,7 +2266,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
                         )
                     ),
                     answer_format=AnswerFormat.TEXT,
-                    provider_options={"reasoning_keep": "forever"},
+                    adapter_options={"reasoning_keep": "forever"},
                 )
             )
 
@@ -2303,7 +2286,7 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"partial": True},
+                adapter_options={"partial": True},
             )
         )
 
@@ -2491,26 +2474,6 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
     )
 
     assert client.calls[0]["tools"] == [_provider_tool_payload()]
-
-
-def test_adapter_rejects_invalid_request_override_value() -> None:
-    adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
-        api_key="key",
-        completions=FakeCreateClient(response=object()),
-    )
-
-    with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
-            ProviderRequest(
-                model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
-                messages=MessageStack.of(UserMessage.from_text("hello")),
-                answer_format=AnswerFormat.TEXT,
-                provider_options={"request_overrides": {"temperature": True}},
-            )
-        )
-
-    assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
 def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
@@ -2734,7 +2697,7 @@ def test_provider_option_rejects_unknown_key() -> None:
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
-                provider_options={"unknown": "value"},
+                adapter_options={"unknown": "value"},
             )
         )
 
@@ -2874,7 +2837,7 @@ def _model(
                 ModelCapability.PROMPT_CACHE,
             }
         ),
-        provider_options=ProviderOptions(options or {}),
+        adapter_options=AdapterOptions(options or {}),
     )
 
 
@@ -2942,4 +2905,3 @@ def _mapping_payload(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise AssertionError("Expected nested mapping payload")
     return {str(key): payload for key, payload in value.items()}
-

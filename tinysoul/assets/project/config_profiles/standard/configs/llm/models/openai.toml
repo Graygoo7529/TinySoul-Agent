@@ -12,7 +12,7 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.gpt_5_5.provider_options]
+[llm.models.gpt_5_5.adapter_options]
 reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"
@@ -33,7 +33,7 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.gpt_5_6_sol.provider_options]
+[llm.models.gpt_5_6_sol.adapter_options]
 reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"
@@ -54,7 +54,7 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.gpt_5_6_terra.provider_options]
+[llm.models.gpt_5_6_terra.adapter_options]
 reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"
@@ -75,7 +75,7 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.gpt_5_6_luna.provider_options]
+[llm.models.gpt_5_6_luna.adapter_options]
 reasoning_keep = "encrypted"
 prompt_cache_retention = "24h"
 verbosity = "medium"

@@ -13,7 +13,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
-    provider_reasoning_keep,
+    adapter_reasoning_keep,
 )
 
 
@@ -38,7 +38,7 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if provider_reasoning_keep(options, provider="MiniMax") is not ReasoningKeep.CONTENT:
+        if adapter_reasoning_keep(options, adapter="MiniMax") is not ReasoningKeep.CONTENT:
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
@@ -73,7 +73,7 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
                 )
                 continue
             if key == "reasoning_keep":
-                keep = provider_reasoning_keep(options, provider="MiniMax")
+                keep = adapter_reasoning_keep(options, adapter="MiniMax")
                 if keep is ReasoningKeep.ENCRYPTED:
                     raise ProviderError(
                         "MiniMax does not support encrypted reasoning keep",
@@ -84,7 +84,7 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
                 kwargs[key] = _number_option(value, key=key)
                 continue
             raise ProviderError(
-                f"Unsupported MiniMax provider option: {key}",
+                f"Unsupported MiniMax adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
         if extra_body:

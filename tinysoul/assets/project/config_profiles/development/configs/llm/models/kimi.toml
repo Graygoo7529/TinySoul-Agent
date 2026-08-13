@@ -11,11 +11,11 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.kimi_k2_7.provider_options]
+[llm.models.kimi_k2_7.adapter_options]
 reasoning_keep = "content"
 thinking = "enabled"
 
-[llm.models.kimi_k2_7.provider_options.request_overrides]
+[llm.models.kimi_k2_7.request_overrides]
 temperature = 1.0
 
 [llm.models.kimi_k3]
@@ -31,9 +31,9 @@ capabilities = [
   "prompt_cache",
 ]
 
-[llm.models.kimi_k3.provider_options]
+[llm.models.kimi_k3.adapter_options]
 reasoning_keep = "content"
 reasoning_effort = "max"
 
-[llm.models.kimi_k3.provider_options.request_overrides]
+[llm.models.kimi_k3.request_overrides]
 temperature = 1.0

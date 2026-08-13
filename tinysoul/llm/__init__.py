@@ -20,11 +20,11 @@ from .messages import (
     UserMessage,
 )
 from .models import (
+    AdapterOptions,
     ModelCapability,
     ModelRegistry,
     ModelSpec,
-    ProviderOptions,
-    ProviderRequestOverrides,
+    RequestOverrides,
 )
 from .reasoning import Reasoning, ReasoningKeep
 from .requests import (
@@ -82,6 +82,7 @@ _TASK_EXPORTS = {
 __all__ = [
     "Answer",
     "AnswerFormat",
+    "AdapterOptions",
     "AssistantMessage",
     "CallSettings",
     "CapabilityPolicy",
@@ -104,8 +105,7 @@ __all__ = [
     "ModelRegistry",
     "ModelSpec",
     "PromptCache",
-    "ProviderOptions",
-    "ProviderRequestOverrides",
+    "RequestOverrides",
     "RawResponse",
     "ResponseStopReason",
     "Reasoning",

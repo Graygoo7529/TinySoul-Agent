@@ -15,7 +15,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIResponsesAdapter,
     OpenAIResponsesClient,
-    provider_reasoning_keep,
+    adapter_reasoning_keep,
 )
 
 
@@ -41,7 +41,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return ()
         reasoning = message.reasoning
-        keep = provider_reasoning_keep(options, provider="OpenAI")
+        keep = adapter_reasoning_keep(options, adapter="OpenAI")
         if keep is ReasoningKeep.NONE:
             return ()
         if keep is ReasoningKeep.ENCRYPTED:
@@ -81,7 +81,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
                 )
                 continue
             if key == "reasoning_keep":
-                keep = provider_reasoning_keep(options, provider="OpenAI")
+                keep = adapter_reasoning_keep(options, adapter="OpenAI")
                 if keep is ReasoningKeep.ENCRYPTED:
                     _merge_include(kwargs, "reasoning.encrypted_content")
                     continue
@@ -105,7 +105,7 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
                 kwargs[key] = _number_option(value, key=key)
                 continue
             raise ProviderError(
-                f"Unsupported OpenAI provider option: {key}",
+                f"Unsupported OpenAI adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
 

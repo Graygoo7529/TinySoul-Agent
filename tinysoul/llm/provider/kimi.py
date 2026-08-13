@@ -15,7 +15,7 @@ from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
     OpenAICompatibleChatAdapter,
-    provider_reasoning_keep,
+    adapter_reasoning_keep,
 )
 
 
@@ -68,7 +68,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
         message: Message,
         options: Mapping[str, object] | None,
     ) -> str | None:
-        if provider_reasoning_keep(options, provider="Kimi") is not ReasoningKeep.CONTENT:
+        if adapter_reasoning_keep(options, adapter="Kimi") is not ReasoningKeep.CONTENT:
             return None
         if not isinstance(message, AssistantMessage) or message.reasoning is None:
             return None
@@ -96,7 +96,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                 thinking["type"] = _thinking_type(value)
                 continue
             if key == "reasoning_keep":
-                keep = provider_reasoning_keep(options, provider="Kimi")
+                keep = adapter_reasoning_keep(options, adapter="Kimi")
                 if keep is ReasoningKeep.CONTENT:
                     if not uses_k3_protocol:
                         thinking["keep"] = "all"
@@ -120,7 +120,7 @@ class KimiProviderBehavior(OpenAIAdapterBehavior):
                 kwargs[key] = value
                 continue
             raise ProviderError(
-                f"Unsupported Kimi provider option: {key}",
+                f"Unsupported Kimi adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
         if thinking:

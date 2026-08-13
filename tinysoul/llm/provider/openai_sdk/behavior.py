@@ -33,7 +33,7 @@ class OpenAIAdapterBehavior:
             return
         key = next(iter(options))
         raise ProviderError(
-            f"Unsupported provider option: {key}",
+            f"Unsupported adapter option: {key}",
             kind=ProviderErrorKind.CONFIG,
         )
 
@@ -99,10 +99,10 @@ class OpenAIAdapterBehavior:
         return ()
 
 
-def provider_reasoning_keep(
+def adapter_reasoning_keep(
     options: Mapping[str, object] | None,
     *,
-    provider: str,
+    adapter: str,
 ) -> ReasoningKeep:
     if options is None:
         return ReasoningKeep.NONE
@@ -111,19 +111,19 @@ def provider_reasoning_keep(
         return ReasoningKeep.NONE
     if not isinstance(value, str):
         raise ProviderError(
-            f"{provider} reasoning_keep must be a string",
+            f"{adapter} reasoning_keep must be a string",
             kind=ProviderErrorKind.CONFIG,
         )
     try:
         return ReasoningKeep(value)
     except ValueError as exc:
         raise ProviderError(
-            f"{provider} reasoning_keep must be 'none', 'content', or 'encrypted'",
+            f"{adapter} reasoning_keep must be 'none', 'content', or 'encrypted'",
             kind=ProviderErrorKind.CONFIG,
         ) from exc
 
 
 __all__ = [
     "OpenAIAdapterBehavior",
-    "provider_reasoning_keep",
+    "adapter_reasoning_keep",
 ]

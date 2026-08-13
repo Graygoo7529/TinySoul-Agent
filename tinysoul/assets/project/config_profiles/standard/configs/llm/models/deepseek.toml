@@ -9,7 +9,7 @@ capabilities = [
   "tool_calling",
 ]
 
-[llm.models.deepseek_v4.provider_options]
+[llm.models.deepseek_v4.adapter_options]
 thinking = "enabled"
 reasoning_effort = "high"
 reasoning_keep = "content"

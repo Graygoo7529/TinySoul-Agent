@@ -23,16 +23,34 @@ class ModelCapability(StrEnum):
 
 
 @dataclass(frozen=True)
-class ProviderRequestOverrides:
+class RequestOverrides:
     """Model-level overrides for provider-neutral request settings."""
 
     temperature: float | None = None
     max_output_tokens: int | None = None
 
+    def __post_init__(self) -> None:
+        if self.temperature is not None:
+            if isinstance(self.temperature, bool) or not isinstance(
+                self.temperature, (int, float)
+            ):
+                raise LLMContractError(
+                    "RequestOverrides.temperature must be a number or None"
+                )
+            object.__setattr__(self, "temperature", float(self.temperature))
+        if self.max_output_tokens is not None and (
+            isinstance(self.max_output_tokens, bool)
+            or not isinstance(self.max_output_tokens, int)
+            or self.max_output_tokens <= 0
+        ):
+            raise LLMContractError(
+                "RequestOverrides.max_output_tokens must be a positive integer or None"
+            )
+
 
 @dataclass(frozen=True)
-class ProviderOptions:
-    """Provider-specific model options."""
+class AdapterOptions:
+    """Model-level options interpreted by the selected provider adapter."""
 
     values: Mapping[str, object] = field(default_factory=dict)
 
@@ -40,7 +58,7 @@ class ProviderOptions:
         items: dict[str, object] = {}
         for key, value in self.values.items():
             if not isinstance(key, str):
-                raise LLMContractError("provider option keys must be strings")
+                raise LLMContractError("adapter option keys must be strings")
             items[key] = value
         object.__setattr__(self, "values", items)
 
@@ -57,53 +75,6 @@ class ProviderOptions:
                 ) from exc
         raise LLMContractError("reasoning_keep must be a string")
 
-    def request_overrides(self) -> ProviderRequestOverrides:
-        value = self.values.get("request_overrides")
-        if value is None:
-            return ProviderRequestOverrides()
-        if not isinstance(value, Mapping):
-            raise LLMContractError("request_overrides must be a table")
-        items: dict[str, object] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise LLMContractError("request_overrides keys must be strings")
-            items[key] = item
-        known_keys = {"temperature", "max_output_tokens"}
-        unknown_keys = sorted(key for key in items if key not in known_keys)
-        if unknown_keys:
-            names = ", ".join(unknown_keys)
-            raise LLMContractError(f"Unsupported request_overrides keys: {names}")
-        return ProviderRequestOverrides(
-            temperature=_optional_float(items, "temperature"),
-            max_output_tokens=_optional_int(items, "max_output_tokens"),
-        )
-
-    def provider_values(self) -> dict[str, object]:
-        return {
-            str(key): value
-            for key, value in self.values.items()
-            if key != "request_overrides"
-        }
-
-
-def _optional_float(table: Mapping[str, object], key: str) -> float | None:
-    value = table.get(key)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise LLMContractError(f"{key} must be a number")
-    return float(value)
-
-
-def _optional_int(table: Mapping[str, object], key: str) -> int | None:
-    value = table.get(key)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise LLMContractError(f"{key} must be an integer")
-    return value
-
-
 @dataclass(frozen=True)
 class ModelSpec:
     """A registered model and its TinySoul-visible capabilities."""
@@ -115,7 +86,8 @@ class ModelSpec:
     capabilities: frozenset[ModelCapability] = field(
         default_factory=lambda: frozenset({ModelCapability.TEXT_INPUT})
     )
-    provider_options: ProviderOptions = field(default_factory=ProviderOptions)
+    adapter_options: AdapterOptions = field(default_factory=AdapterOptions)
+    request_overrides: RequestOverrides = field(default_factory=RequestOverrides)
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
@@ -146,9 +118,13 @@ class ModelSpec:
                     "ModelSpec.capabilities must contain ModelCapability values"
                 )
         object.__setattr__(self, "capabilities", capabilities)
-        if not isinstance(self.provider_options, ProviderOptions):
+        if not isinstance(self.adapter_options, AdapterOptions):
             raise LLMContractError(
-                "ModelSpec.provider_options must be a ProviderOptions value"
+                "ModelSpec.adapter_options must be an AdapterOptions value"
+            )
+        if not isinstance(self.request_overrides, RequestOverrides):
+            raise LLMContractError(
+                "ModelSpec.request_overrides must be a RequestOverrides value"
             )
 
     def supports(self, capability: ModelCapability) -> bool:
@@ -176,4 +152,3 @@ class ModelRegistry:
 
     def has(self, model_id: str) -> bool:
         return model_id in self._models
-

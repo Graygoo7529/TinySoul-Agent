@@ -9,12 +9,13 @@ from tinysoul.infra.config import ConfigError, reject_unknown_keys
 from .config_helpers import (
     as_table,
     enum_value,
+    optional_adapter_options,
     optional_capability_set,
     optional_float,
     optional_float_or_none,
     optional_int,
     optional_int_or_none,
-    optional_provider_options,
+    optional_request_overrides,
     optional_str,
     required_bool,
     required_capability_set,
@@ -124,7 +125,8 @@ class ModelConfigParser:
                     "provider_model",
                     "context_window_tokens",
                     "capabilities",
-                    "provider_options",
+                    "adapter_options",
+                    "request_overrides",
                 },
                 key=f"llm.models.{model_id}",
             )
@@ -139,25 +141,31 @@ class ModelConfigParser:
                     key=f"llm.models.{model_id}.provider",
                     value=provider_id,
                 )
+            provider_model = required_str(
+                model_table,
+                "provider_model",
+                key=f"llm.models.{model_id}",
+            )
             try:
-                provider_options = optional_provider_options(
+                adapter_options = optional_adapter_options(
                     model_table,
                     key=f"llm.models.{model_id}",
                 )
-                _validate_provider_option_keys(
-                    provider_options.values,
+                request_overrides = optional_request_overrides(
+                    model_table,
+                    key=f"llm.models.{model_id}",
+                )
+                _validate_adapter_option_keys(
+                    adapter_options.values,
                     adapter=providers[provider_id].adapter,
-                    key=f"llm.models.{model_id}.provider_options",
+                    provider_model=provider_model,
+                    key=f"llm.models.{model_id}.adapter_options",
                 )
                 registry.register(
                     ModelSpec(
                         id=model_id,
                         provider_id=provider_id,
-                        provider_model=required_str(
-                            model_table,
-                            "provider_model",
-                            key=f"llm.models.{model_id}",
-                        ),
+                        provider_model=provider_model,
                         context_window_tokens=required_int(
                             model_table,
                             "context_window_tokens",
@@ -168,7 +176,8 @@ class ModelConfigParser:
                             "capabilities",
                             key=f"llm.models.{model_id}",
                         ),
-                        provider_options=provider_options,
+                        adapter_options=adapter_options,
+                        request_overrides=request_overrides,
                     )
                 )
             except LLMContractError as exc:
@@ -380,7 +389,7 @@ class TaskConfigParser:
                 )
 
 
-_PROVIDER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
+_ADAPTER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
     ProviderAdapterKind.GENERIC: frozenset(),
     ProviderAdapterKind.OPENAI: frozenset(
         {
@@ -417,15 +426,16 @@ _PROVIDER_OPTION_KEYS: dict[ProviderAdapterKind, frozenset[str]] = {
 }
 
 
-def _validate_provider_option_keys(
+def _validate_adapter_option_keys(
     options: Mapping[str, object],
     *,
     adapter: ProviderAdapterKind,
+    provider_model: str,
     key: str,
 ) -> None:
     reject_unknown_keys(
         options,
-        {*_PROVIDER_OPTION_KEYS[adapter], "request_overrides"},
+        _ADAPTER_OPTION_KEYS[adapter],
         key=key,
     )
     if "thinking" in options:
@@ -434,6 +444,116 @@ def _validate_provider_option_keys(
             adapter=adapter,
             key=f"{key}.thinking",
         )
+    for option_key, value in options.items():
+        _validate_adapter_option_value(
+            option_key,
+            value,
+            adapter=adapter,
+            provider_model=provider_model,
+            key=f"{key}.{option_key}",
+        )
+
+
+def _validate_adapter_option_value(
+    option_key: str,
+    value: object,
+    *,
+    adapter: ProviderAdapterKind,
+    provider_model: str,
+    key: str,
+) -> None:
+    if option_key == "reasoning_keep":
+        if adapter is ProviderAdapterKind.OPENAI:
+            allowed = {"none", "encrypted"}
+        else:
+            allowed = {"none", "content"}
+        if not isinstance(value, str) or value not in allowed:
+            raise ConfigError(
+                "Adapter reasoning_keep is incompatible with the selected adapter",
+                key=key,
+                value=value,
+                expected=" | ".join(sorted(allowed)),
+            )
+        return
+    if option_key == "thinking" and adapter is ProviderAdapterKind.KIMI:
+        if _is_kimi_k3(provider_model):
+            raise ConfigError(
+                "Kimi K3 does not accept the K2.x thinking option",
+                key=key,
+                value=value,
+            )
+        return
+    if option_key == "reasoning_effort":
+        if adapter is ProviderAdapterKind.DEEPSEEK:
+            allowed = {"high", "max"}
+        elif adapter is ProviderAdapterKind.KIMI:
+            if not _is_kimi_k3(provider_model):
+                raise ConfigError(
+                    "Kimi reasoning_effort requires a K3 provider model",
+                    key=key,
+                    value=value,
+                )
+            allowed = {"max"}
+        else:
+            _require_non_empty_string(value, key=key)
+            return
+        if value not in allowed:
+            raise ConfigError(
+                "Adapter reasoning_effort is invalid",
+                key=key,
+                value=value,
+                expected=" | ".join(sorted(allowed)),
+            )
+        return
+    if option_key == "reasoning_summary":
+        if value not in {"auto", "concise", "detailed"}:
+            raise ConfigError(
+                "OpenAI reasoning_summary is invalid",
+                key=key,
+                value=value,
+                expected="auto | concise | detailed",
+            )
+        return
+    if option_key in {
+        "verbosity",
+        "prompt_cache_retention",
+        "service_tier",
+        "request_id",
+        "user_id",
+    }:
+        _require_non_empty_string(value, key=key)
+        return
+    if option_key in {"store", "do_sample", "reasoning_split"}:
+        if not isinstance(value, bool):
+            raise ConfigError(
+                "Adapter option must be a boolean",
+                key=key,
+                value=value,
+                expected="bool",
+            )
+        return
+    if option_key == "top_p":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConfigError(
+                "Adapter option must be a number",
+                key=key,
+                value=value,
+                expected="float",
+            )
+
+
+def _require_non_empty_string(value: object, *, key: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise ConfigError(
+            "Adapter option must be a non-empty string",
+            key=key,
+            value=value,
+            expected="str",
+        )
+
+
+def _is_kimi_k3(provider_model: str) -> bool:
+    return provider_model in {"k3", "kimi-k3"}
 
 
 def _validate_thinking_option(
@@ -448,7 +568,7 @@ def _validate_thinking_option(
     if isinstance(value, str):
         if value not in allowed_types:
             raise ConfigError(
-                "Provider thinking type is invalid",
+                "Adapter thinking type is invalid",
                 key=key,
                 value=value,
                 expected=" | ".join(sorted(allowed_types)),
@@ -456,7 +576,7 @@ def _validate_thinking_option(
         return
     if adapter is ProviderAdapterKind.KIMI or not isinstance(value, Mapping):
         raise ConfigError(
-            "Provider thinking option has an invalid type",
+            "Adapter thinking option has an invalid type",
             key=key,
             value=value,
             expected="string" if adapter is ProviderAdapterKind.KIMI else "string | table",
@@ -467,7 +587,7 @@ def _validate_thinking_option(
     raw_type = table.get("type")
     if raw_type not in allowed_types:
         raise ConfigError(
-            "Provider thinking type is invalid",
+                "Adapter thinking type is invalid",
             key=f"{key}.type",
             value=raw_type,
             expected=" | ".join(sorted(allowed_types)),
@@ -475,7 +595,7 @@ def _validate_thinking_option(
     clear_thinking = table.get("clear_thinking")
     if clear_thinking is not None and not isinstance(clear_thinking, bool):
         raise ConfigError(
-            "Provider clear_thinking must be a boolean",
+                "Adapter clear_thinking must be a boolean",
             key=f"{key}.clear_thinking",
             value=clear_thinking,
             expected="bool",

@@ -172,7 +172,7 @@ OpenAI 供应商使用 Responses API。Kimi 以及其他兼容 OpenAI Chat Compl
 
 OpenAI 的推理设置可以通过模型配置中的推理强度和推理摘要选项表达，由 OpenAI 适配层映射到底层 Responses 的推理结构。OpenAI 的历史推理回放使用 Responses 返回的加密推理项；模型声明保留加密推理项时，适配层请求供应商返回对应加密内容，并在后续调用中把这些结构化推理项作为 Responses 输入的一部分传回。OpenAI Responses 的文本 reasoning content 不作为输入回放；历史消息中只有文本 reasoning 且未声明回放时会被跳过，显式声明 `reasoning_keep=content` 则作为不支持的供应商配置报错。OpenAI 的模型侧工具调用可以映射为 Responses 的 function call item，工具结果可以映射为 function call output item。Responses 的 call_id 属于供应商相关性标识，适配层应将其映射到 TinySoul 内部工具调用结构，并避免上层模块直接依赖该标识。OpenAI 的推理摘要只作为可观察摘要保留，不作为可回放推理内容。输出详细度、提示缓存保留时间和服务层级等选项也属于供应商专属配置，由对应适配层映射到底层请求结构。这样可以保持 TinySoul 通用调用设置只表达跨模型通用意图，同时允许不同供应商模型保留各自可解释的 option 字段。
 
-OpenAI SDK 形态的适配分为通用接口形态和具体供应商差异两层。通用层位于 `tinysoul.llm.provider.openai_sdk` 包内：client protocol 表达最小 SDK 面，payload mapper 负责消息、图片和 tool payload 映射，response parser 负责文本、tool call 和 reasoning 抽取，request-local tool name mapper 负责内部 identity 与供应商临时名称的双向映射，common helper 负责请求覆盖、错误归类和 metadata 提取，adapter 类只组合这些能力完成调用。供应商层负责自身支持的扩展参数、推理内容位置、缓存选项和接口风格约束。这样可以复用 OpenAI 兼容接口的共同结构，同时避免把不同供应商的专属参数混在同一个通用映射中。
+OpenAI SDK 形态的适配分为通用接口形态和具体供应商差异两层。通用层位于 `tinysoul.llm.provider.openai_sdk` 包内：client protocol 表达最小 SDK 面，payload mapper 负责消息、图片和 tool payload 映射，response parser 负责文本、tool call 和 reasoning 抽取，request-local tool name mapper 负责内部 identity 与供应商临时名称的双向映射，common helper 负责通用请求字段、错误归类和 metadata 提取，adapter 类只组合这些能力完成调用。供应商层负责自身支持的扩展参数、推理内容位置、缓存选项和接口风格约束。这样可以复用 OpenAI 兼容接口的共同结构，同时避免把不同供应商的专属参数混在同一个通用映射中。
 
 Kimi 采用兼容 OpenAI Chat Completions 的接口形态。K2.x 的思考开关由模型额外选项表达并映射为 `thinking`；声明保留文本推理内容时，K2.x 同时使用 preserved thinking 设置并把助手历史消息中的 `reasoning_content` 传回供应商。K3 始终思考，不接受 K2.x `thinking` 参数，而是使用顶层 `reasoning_effort`；声明保留文本推理内容时仍回放 `reasoning_content`，但不得因此生成 `thinking.keep`。供应商 option 映射因此可以读取完整 `ProviderRequest`，依据供应商模型身份解释同名上层保留意图。模型侧工具调用映射为 Chat Completions 的 tools、assistant tool_calls 和 tool role 消息；K3 支持原生 required tool choice，K2.x 只发送 auto 并继续由任务解释层校验 required 和 forced_name 语义。Kimi function name 的字符约束由公共 request-local tool name mapper 吸收，Kimi behavior 继续校验工具数量、schema 根类型和模型参数等无法通过名称映射消除的真实能力差异。Kimi 的预填续写能力属于供应商对最后一条助手消息的专属扩展，不进入当前 TinySoul 通用消息语义。
 
@@ -186,11 +186,11 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 模型配置描述 TinySoul 内部模型标识、所属供应商、供应商真实模型名、必填的 `context_window_tokens` 和模型能力。任务配置只引用 TinySoul 内部模型标识，不直接引用供应商模型名。内部模型标识应使用小写和下划线，避免点号等容易与配置路径混淆的字符。
 
-模型配置可以携带供应商适配层专属选项，用于表达某些模型或供应商才理解的调用开关。这些选项不进入通用任务抽象，应由对应适配层解释和校验。
+Model 以四项边界清晰的事实参与调用：Provider 引用选择 endpoint、凭据、API style 与 adapter；`provider_model` 表达该 endpoint 的真实模型名；capabilities 表达路由可依赖的能力；`adapter_options` 与 `request_overrides` 是两个同级对象。`AdapterOptions` 只承载由所选 adapter 解释的模型级选项，例如推理协议、缓存和供应商扩展参数。`RequestOverrides` 只承载模型对通用调用参数的固定覆盖，当前包括 `temperature` 与 `max_output_tokens`，由 TaskRunner 在构造 `ProviderRequest` 前覆盖任务和单次调用设置，Provider adapter 不解析该配置容器。
 
-模型配置可以携带额外选项，用于表达某些模型或供应商才理解的调用开关，也可以承载适配层需要解释的 TinySoul 上层意图。推理轨迹保留方式从模型额外选项中读取，它只描述模型历史推理内容在后续调用中可被保留的形态；具体供应商参数仍由适配层根据该语义和自身协议进行解释。模型额外选项中可以包含通用请求覆盖，用于表达某个具体模型对通用调用参数的固定要求；该覆盖在最终请求构造阶段优先于任务配置和单次调用设置，但不进入供应商专属参数映射。
+推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 adapter 以何种形态回放；具体供应商参数仍由 adapter 根据该语义和自身协议解释。切换 Model 的 Provider 引用时，前端和配置控制层不自动修改或删除 `adapter_options` 与 `request_overrides`。候选配置由新 Provider 选择的 adapter 完整校验；不兼容时整个 PATCH 失败，持久配置和当前 Runtime Generation 均保持原样。
 
-配置文件属于动态边界。provider 的 `enabled`、`adapter`、API 形态，模型能力、任务回答格式、工具使用策略、通用 provider options 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
+配置文件属于动态边界。provider 的 `enabled`、`adapter`、API 形态，模型能力、任务回答格式、工具使用策略、adapter options、request overrides 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
 
 任务配置描述不同任务用途对应的调用设置、候选模型顺序和重试策略。调用设置包含回答格式、工具使用策略、通用调用参数和必备模型能力。配置文件中的键名应使用适合 TOML 的安全写法，并与运行时使用的任务用途名称一致。
 
@@ -200,7 +200,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 内置 `memory_daily_composition` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Maintenance Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory inspect 的 lexical/grep/references/backlinks 是确定性能力，可选 embedding 通过 Infra adapter 调用，不使用 LLM task。
 
-单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型对通用参数存在固定要求时，该要求可以放入模型额外选项中的通用请求覆盖，并在最终请求阶段解释和覆盖。
+单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型有固定要求时，模型级 `request_overrides` 在最终请求阶段具有更高优先级。
 
 任务配置中的必备能力会在配置加载时检查链上所有模型。单次调用可以追加必备能力，但不应放松任务配置已经要求的能力。
 

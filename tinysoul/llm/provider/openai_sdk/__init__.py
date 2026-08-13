@@ -1,7 +1,7 @@
 """OpenAI SDK shaped provider adapter package."""
 
 from .adapters import OpenAICompatibleChatAdapter, OpenAIResponsesAdapter
-from .behavior import OpenAIAdapterBehavior, provider_reasoning_keep
+from .behavior import OpenAIAdapterBehavior, adapter_reasoning_keep
 from .clients import OpenAIChatCompletionsClient, OpenAIResponsesClient
 
 __all__ = [
@@ -10,5 +10,5 @@ __all__ = [
     "OpenAICompatibleChatAdapter",
     "OpenAIResponsesAdapter",
     "OpenAIResponsesClient",
-    "provider_reasoning_keep",
+    "adapter_reasoning_keep",
 ]

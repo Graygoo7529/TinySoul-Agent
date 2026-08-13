@@ -97,7 +97,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
-            provider_options=dict(model.provider_options.values),
+            adapter_options=dict(model.adapter_options.values),
         ),
         provider_id=provider.id,
         model_id=model.id,
@@ -145,7 +145,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
-            provider_options=dict(model.provider_options.values),
+            adapter_options=dict(model.adapter_options.values),
         ),
         provider_id=provider.id,
         model_id=model.id,
@@ -196,7 +196,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
-            provider_options=dict(model.provider_options.values),
+            adapter_options=dict(model.adapter_options.values),
         ),
         provider_id=provider.id,
         model_id=model.id,
@@ -264,7 +264,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
             prompt_cache=prompt_cache,
             temperature=0.2,
             max_output_tokens=max_output_tokens,
-            provider_options=dict(model.provider_options.values),
+            adapter_options=dict(model.adapter_options.values),
         ),
         provider_id=provider.id,
         model_id=model.id,
@@ -465,7 +465,7 @@ def _print_run_header(model: ModelSpec, provider: ProviderSpec) -> None:
         f"model_id={model.id} provider_model={model.provider_model}"
     )
     print(f"[real-llm] capabilities={capabilities}")
-    print(f"[real-llm] provider_options={dict(model.provider_options.values)}")
+    print(f"[real-llm] adapter_options={dict(model.adapter_options.values)}")
 
 
 def _print_response_summary(
