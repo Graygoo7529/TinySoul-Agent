@@ -1,2 +1,6 @@
+[loop.cycle]
+phase1_task_profile = "framework"
+phase2_task_profile = "framework"
+
 [loop.user]
 max_cycles = 20

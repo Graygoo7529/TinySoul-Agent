@@ -195,6 +195,7 @@ class MaintenanceBuilder:
             bus=self._bus,
             trap=build_maintenance_turn_trap(context),
             settings=self._settings.turn,
+            cycle_settings=self._loop_settings.cycle,
             turn_guidance=maintenance_turn_guidance(kind),
             completion_detector=MaintenanceCompletionDetector(),
             preparation_pipeline=preparation,

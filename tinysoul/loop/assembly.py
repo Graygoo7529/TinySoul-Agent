@@ -16,7 +16,7 @@ from tinysoul.runtime import (
 )
 
 from .completion import TurnCompletionPipeline
-from .config import TurnSettings
+from .config import CycleSettings, TurnSettings
 from .context_signals import ContextSignalConsumer
 from .cycle import CycleRunner
 from .outcomes import TurnOutput
@@ -40,6 +40,7 @@ def build_turn_kernel(
     bus: SignalBus,
     trap: RuntimeTrap,
     settings: TurnSettings,
+    cycle_settings: CycleSettings,
     turn_guidance: tuple[str, ...],
     completion_detector: TurnCompletionDetector,
     preparation_pipeline: TurnPreparationPipeline | None = None,
@@ -67,6 +68,7 @@ def build_turn_kernel(
         action=action,
         llm=llm,
         bus=bus,
+        task_profile=cycle_settings.phase1_task_profile,
         signal_consumer=signal_consumer,
         turn_guidance=turn_guidance,
     )
@@ -75,6 +77,7 @@ def build_turn_kernel(
         action=action,
         llm=llm,
         bus=bus,
+        task_profile=cycle_settings.phase2_task_profile,
         domain_skills=domain_skills or EmptyDomainSkillProvider(),
         signal_consumer=signal_consumer,
         observations=emitter,

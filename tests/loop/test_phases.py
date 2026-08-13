@@ -173,8 +173,70 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         "action.call",
         "action.result",
     ]
+    assert [call.profile for call in llm.calls] == ["framework", "framework"]
     assert action_events[0].payload["call_id"] == "answer_1"
     assert action_events[1].payload["call_id"] == "answer_1"
+
+
+def test_phase_units_use_independent_task_profiles() -> None:
+    context = ContextEngineBuilder(system_text="sys").build()
+    turn_id = context.begin_turn("answer now")
+    action = _action_engine()
+    bus = SignalBus()
+    llm = FakeLLM(
+        (
+            _tool_result(
+                ToolCallRecord(
+                    id="select_1",
+                    name="select_action_domains",
+                    arguments={"domains": ["core"]},
+                    kind=ToolKind.CONTROL,
+                )
+            ),
+            _tool_result(
+                ToolCallRecord(
+                    id="answer_1",
+                    name="core.answer",
+                    arguments={"guide_blocks": [{"text": "answer"}]},
+                    kind=ToolKind.ACTION,
+                )
+            ),
+        )
+    )
+    scope = (
+        RunScope()
+        .push(RunLevel.PROGRAM, "program")
+        .push(RunLevel.TURN, turn_id)
+        .push(RunLevel.CYCLE, "cycle_1")
+    )
+
+    phase1 = Phase1Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="cycle_planner",
+    ).run(
+        scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
+        cycle_id="cycle_1",
+    )
+    Phase2Unit(
+        context=context,
+        action=action,
+        llm=llm,
+        bus=bus,
+        task_profile="cycle_executor",
+    ).run(
+        selected_domains=phase1.selected_domains,
+        scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
+        cycle_id="cycle_1",
+        turn_id=turn_id,
+    )
+
+    assert [call.profile for call in llm.calls] == [
+        "cycle_planner",
+        "cycle_executor",
+    ]
 
 
 def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:

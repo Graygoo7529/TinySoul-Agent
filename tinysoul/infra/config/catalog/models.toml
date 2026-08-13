@@ -18,6 +18,11 @@ id = "action_routing"
 title = "Action Routing"
 description = "Default and per-action task-chain selection for actions backed by an LLM task."
 
+[[surface]]
+id = "cycle_routing"
+title = "Cycle Routing"
+description = "Task-chain selection for the shared Phase1 and Phase2 Cycle protocol."
+
 [[field_group]]
 id = "providers.availability"
 surface = "providers"
@@ -89,6 +94,12 @@ id = "action_routing.routes"
 surface = "action_routing"
 title = "Routes"
 description = "Selects the default task chain and explicit per-Action overrides."
+
+[[field_group]]
+id = "cycle_routing.phases"
+surface = "cycle_routing"
+title = "Cycle Phases"
+description = "Selects the task chain used by each shared Cycle phase for User and Maintenance Turns."
 
 [[collection]]
 id = "llm.providers"
@@ -517,3 +528,21 @@ group = "action_routing.routes"
 title = "Action Overrides"
 description = "Explicit Action ID to task-profile bindings that replace the default chain."
 value_kind = "object_list"
+
+[[field]]
+path = "loop.cycle.phase1_task_profile"
+surface = "cycle_routing"
+group = "cycle_routing.phases"
+title = "Phase1 Task Chain"
+description = "Task profile used to update Context controls and select visible action domains."
+value_kind = "reference"
+reference = { collection = "llm.tasks" }
+
+[[field]]
+path = "loop.cycle.phase2_task_profile"
+surface = "cycle_routing"
+group = "cycle_routing.phases"
+title = "Phase2 Task Chain"
+description = "Task profile used to generate Action calls inside the domains selected by Phase1."
+value_kind = "reference"
+reference = { collection = "llm.tasks" }

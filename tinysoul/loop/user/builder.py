@@ -208,6 +208,7 @@ class UserTurnBuilder:
             bus=self._bus,
             trap=trap,
             settings=self._loop_settings.user,
+            cycle_settings=self._loop_settings.cycle,
             turn_guidance=USER_TURN_GUIDANCE,
             completion_detector=UserAnswerCompletionDetector(),
             completion_to_output=user_output_from_completion,

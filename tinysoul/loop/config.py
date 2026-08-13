@@ -30,12 +30,38 @@ class TurnSettings:
 
 
 @dataclass(frozen=True)
+class CycleSettings:
+    """Task-profile routing shared by every reusable Cycle."""
+
+    phase1_task_profile: str = "framework"
+    phase2_task_profile: str = "framework"
+
+    def __post_init__(self) -> None:
+        _validate_task_profile(
+            self.phase1_task_profile,
+            key="loop.cycle.phase1_task_profile",
+        )
+        _validate_task_profile(
+            self.phase2_task_profile,
+            key="loop.cycle.phase2_task_profile",
+        )
+
+
+@dataclass(frozen=True)
 class LoopSettings:
     """Runtime settings owned by the Loop module."""
 
+    cycle: CycleSettings = field(default_factory=CycleSettings)
     user: TurnSettings = field(default_factory=TurnSettings)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.cycle, CycleSettings):
+            raise ConfigError(
+                "Loop cycle settings must be CycleSettings",
+                key="loop.cycle",
+                value=self.cycle,
+                expected="CycleSettings",
+            )
         if not isinstance(self.user, TurnSettings):
             raise ConfigError(
                 "Loop user settings must be TurnSettings",
@@ -50,11 +76,44 @@ def parse_loop_settings(tree: Mapping[str, object]) -> LoopSettings:
 
     reject_unknown_keys(
         tree,
-        {"user"},
+        {"cycle", "user"},
         key="loop",
     )
     return LoopSettings(
+        cycle=parse_cycle_settings(tree.get("cycle"), key="loop.cycle"),
         user=parse_turn_settings(tree.get("user"), key="loop.user"),
+    )
+
+
+def parse_cycle_settings(value: object, *, key: str) -> CycleSettings:
+    if value is None:
+        return CycleSettings()
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            "Loop Cycle settings must be a table",
+            key=key,
+            value=value,
+            expected="table",
+        )
+    table = cast(Mapping[str, object], value)
+    reject_unknown_keys(
+        table,
+        {"phase1_task_profile", "phase2_task_profile"},
+        key=key,
+    )
+    return CycleSettings(
+        phase1_task_profile=_optional_task_profile(
+            table,
+            "phase1_task_profile",
+            default=CycleSettings.phase1_task_profile,
+            key=f"{key}.phase1_task_profile",
+        ),
+        phase2_task_profile=_optional_task_profile(
+            table,
+            "phase2_task_profile",
+            default=CycleSettings.phase2_task_profile,
+            key=f"{key}.phase2_task_profile",
+        ),
     )
 
 
@@ -96,3 +155,50 @@ def _optional_int(
             expected="int",
         )
     return value
+
+
+def _optional_task_profile(
+    tree: Mapping[str, object],
+    name: str,
+    *,
+    default: str,
+    key: str,
+) -> str:
+    value = tree.get(name, default)
+    _validate_task_profile(value, key=key)
+    return cast(str, value)
+
+
+def _validate_task_profile(value: object, *, key: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or "." in value
+    ):
+        raise ConfigError(
+            "Loop task profile ID must be a non-empty identifier without dots or outer whitespace",
+            key=key,
+            value=value,
+            expected="task profile ID",
+        )
+
+
+def validate_cycle_task_profiles(
+    settings: CycleSettings,
+    *,
+    task_profiles: tuple[str, ...],
+) -> None:
+    """Validate Cycle phase references against the configured LLM task table."""
+
+    profiles = frozenset(task_profiles)
+    for name, profile in (
+        ("phase1_task_profile", settings.phase1_task_profile),
+        ("phase2_task_profile", settings.phase2_task_profile),
+    ):
+        if profile not in profiles:
+            raise ConfigError(
+                "Loop Cycle phase references an unknown task profile",
+                key=f"loop.cycle.{name}",
+                value=profile,
+            )

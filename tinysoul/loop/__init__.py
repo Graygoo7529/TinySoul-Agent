@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .config import LoopSettings, TurnSettings, parse_loop_settings
+from .config import (
+    CycleSettings,
+    LoopSettings,
+    TurnSettings,
+    parse_loop_settings,
+    validate_cycle_task_profiles,
+)
 from .errors import LoopContractError, LoopError, LoopInvariantError
 from .failures import LoopFailureKind
 from .outcomes import TurnFailure, TurnOutcomeStatus, TurnOutput
@@ -46,6 +52,7 @@ if TYPE_CHECKING:
 __all__ = [
     "CycleOutcome",
     "CycleRunner",
+    "CycleSettings",
     "LoopContractError",
     "LoopControlKind",
     "LoopControlRequest",
@@ -80,6 +87,7 @@ __all__ = [
     "consume_control_signal_requests",
     "parse_control_request_signal",
     "parse_loop_settings",
+    "validate_cycle_task_profiles",
 ]
 
 

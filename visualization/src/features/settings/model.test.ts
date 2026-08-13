@@ -31,6 +31,15 @@ describe("settings catalog projection", () => {
     expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(2);
   });
 
+  it("projects shared Cycle phase task-profile references", () => {
+    const fields = surfaceFields(status(), catalog(), "cycle_routing");
+    expect(fields.map((field) => field.descriptor.title)).toEqual([
+      "Phase1 Task Chain",
+      "Phase2 Task Chain",
+    ]);
+    expect(fields.every((field) => field.descriptor.value_kind === "reference")).toBe(true);
+  });
+
   it("derives collection objects from the shared status facts", () => {
     const objects = configObjects(status(), catalog(), "llm.models");
     expect(objects).toHaveLength(1);
@@ -138,6 +147,7 @@ function catalog(): ConfigCatalog {
     surfaces: [
       { id: "models", title: "Models", description: "Configured models." },
       { id: "providers", title: "Providers", description: "Configured providers." },
+      { id: "cycle_routing", title: "Cycle Routing", description: "Shared Cycle phase routes." },
     ],
     collections: [
       {
@@ -154,6 +164,26 @@ function catalog(): ConfigCatalog {
       },
     ],
     fields: [
+      {
+        path: "loop.cycle.phase1_task_profile",
+        surface: "cycle_routing",
+        group: "cycle_routing.phases",
+        title: "Phase1 Task Chain",
+        description: "Task profile used by Phase1.",
+        value_kind: "reference",
+        importance: "primary",
+        credential_reference: false,
+      },
+      {
+        path: "loop.cycle.phase2_task_profile",
+        surface: "cycle_routing",
+        group: "cycle_routing.phases",
+        title: "Phase2 Task Chain",
+        description: "Task profile used by Phase2.",
+        value_kind: "reference",
+        importance: "primary",
+        credential_reference: false,
+      },
       {
         path: "llm.models.*.provider",
         surface: "models",
@@ -186,6 +216,7 @@ function catalog(): ConfigCatalog {
       },
     ],
     field_groups: [
+      { id: "cycle_routing.phases", surface: "cycle_routing", title: "Cycle Phases", description: "Shared phase routes." },
       { id: "models.binding", surface: "models", title: "Binding", description: "Model binding." },
       { id: "providers.credentials", surface: "providers", title: "Credentials", description: "Credential references." },
     ],
@@ -218,6 +249,16 @@ function status(): ConfigStatus {
       },
     ],
     fields: {
+      "loop.cycle.phase1_task_profile": {
+        value: "framework",
+        source: "project:configs/loop.toml",
+        writable: true,
+      },
+      "loop.cycle.phase2_task_profile": {
+        value: "framework",
+        source: "project:configs/loop.toml",
+        writable: true,
+      },
       "llm.models.primary.provider": {
         value: "openai",
         source: "project:configs/llm/models/custom.toml",

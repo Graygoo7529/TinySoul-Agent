@@ -47,7 +47,11 @@ from tinysoul.llm.adapter import adapter_specs_json
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.task import LLMTaskRunner
-from tinysoul.loop.config import LoopSettings, parse_loop_settings
+from tinysoul.loop.config import (
+    LoopSettings,
+    parse_loop_settings,
+    validate_cycle_task_profiles,
+)
 from tinysoul.loop.completion import TurnCompletionHandler
 from tinysoul.loop.phases import LLMRunner
 from tinysoul.loop.prompts import DomainSkillProvider
@@ -694,10 +698,20 @@ class TinySoulAppBuilder:
                 ),
             ),
         )
-        validate_llm_action_routes(
-            plan.action.llm_action,
-            task_profiles=plan.llm.tasks.profiles(),
-        )
+        try:
+            validate_cycle_task_profiles(
+                plan.loop.cycle,
+                task_profiles=plan.llm.tasks.profiles(),
+            )
+            validate_llm_action_routes(
+                plan.action.llm_action,
+                task_profiles=plan.llm.tasks.profiles(),
+            )
+        except ConfigError as exc:
+            enriched = config.enrich_error(exc)
+            if enriched is exc:
+                raise
+            raise enriched from exc
         return plan
 
     @staticmethod

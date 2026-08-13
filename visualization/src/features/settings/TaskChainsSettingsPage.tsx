@@ -35,6 +35,16 @@ export function TaskChainsSettingsPage({
   const objects = configObjects(status, catalog, collection.id);
   const models = configObjects(status, catalog, "llm.models");
   const overrideField = status.fields["action.llm_action.overrides"]?.value;
+  const phaseProfiles = [
+    { label: "Phase1", value: status.fields["loop.cycle.phase1_task_profile"]?.value },
+    { label: "Phase2", value: status.fields["loop.cycle.phase2_task_profile"]?.value },
+  ].flatMap((entry) =>
+    typeof entry.value === "string" ? [{ label: entry.label, value: entry.value }] : [],
+  );
+  const cycleBindings = new Map<string, string[]>();
+  phaseProfiles.forEach(({ label, value }) => {
+    cycleBindings.set(value, [...(cycleBindings.get(value) ?? []), label]);
+  });
   const boundProfiles = new Set(
     Array.isArray(overrideField)
       ? overrideField.flatMap((item) =>
@@ -44,6 +54,7 @@ export function TaskChainsSettingsPage({
         )
       : [],
   );
+  phaseProfiles.forEach(({ value }) => boundProfiles.add(value));
   const [selected, setSelected] = useState<string | null>(objects[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const [initialModel, setInitialModel] = useState(models[0]?.id ?? "");
@@ -98,9 +109,12 @@ export function TaskChainsSettingsPage({
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const count = Array.isArray(item?.value.models) ? item.value.models.length : 0;
-          const binding = boundProfiles.has(id) || status.fields["action.llm_action.default_task_profile"]?.value === id
-            ? "Routed"
-            : "Unbound";
+          const bindings = [...(cycleBindings.get(id) ?? [])];
+          if (status.fields["action.llm_action.default_task_profile"]?.value === id && !bindings.includes("Action")) {
+            bindings.push("Action");
+          }
+          if (boundProfiles.has(id) && !bindings.length) bindings.push("Action");
+          const binding = bindings.length > 0 ? bindings.join(" + ") : "Unbound";
           return `${count} models · ${binding}`;
         }}
         onDelete={(id) => {

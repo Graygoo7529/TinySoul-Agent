@@ -30,7 +30,6 @@ from tinysoul.llm.requests import (
     ModelContextOverflowPolicy,
     TaskCall,
     TaskCancellation,
-    TaskProfile,
 )
 from tinysoul.llm.responses import AnswerFormat, TaskResult, TaskResultStatus
 from tinysoul.llm.tools import ToolScope, ToolSelection, ToolSpec, ToolUse
@@ -134,6 +133,7 @@ class Phase1Unit:
         action: ActionEngine,
         llm: LLMRunner,
         bus: SignalBus,
+        task_profile: str = "framework",
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
         loop_bridge: RuntimeLoopBridge | None = None,
@@ -144,6 +144,7 @@ class Phase1Unit:
         self._action = action
         self._llm = llm
         self._bus = bus
+        self._task_profile = task_profile
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
         self._loop_bridge = loop_bridge or RuntimeLoopBridge()
@@ -181,7 +182,7 @@ class Phase1Unit:
 
         result = self._llm.run(
             TaskCall(
-                profile=TaskProfile.FRAMEWORK,
+                profile=self._task_profile,
                 messages=messages,
                 tool_scope=tool_scope,
                 settings=_required_tool_settings(),
@@ -305,6 +306,7 @@ class Phase2Unit:
         action: ActionEngine,
         llm: LLMRunner,
         bus: SignalBus,
+        task_profile: str = "framework",
         domain_skills: DomainSkillProvider | None = None,
         context_bridge: RuntimeContextBridge | None = None,
         action_bridge: RuntimeActionBridge | None = None,
@@ -316,6 +318,7 @@ class Phase2Unit:
         self._action = action
         self._llm = llm
         self._bus = bus
+        self._task_profile = task_profile
         self._domain_skills = domain_skills or EmptyDomainSkillProvider()
         self._context_bridge = context_bridge or RuntimeContextBridge()
         self._action_bridge = action_bridge or RuntimeActionBridge()
@@ -360,7 +363,7 @@ class Phase2Unit:
             raise self._context_bridge.from_context_error(exc) from exc
         result = self._llm.run(
             TaskCall(
-                profile=TaskProfile.FRAMEWORK,
+                profile=self._task_profile,
                 messages=messages,
                 tool_scope=preparation.tool_scope,
                 settings=_required_tool_settings(),

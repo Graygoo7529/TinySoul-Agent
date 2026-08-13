@@ -54,7 +54,7 @@ Control Tool 是框架内部控制工具，主要用于 Phase1。它用于表达
 
 Action Tool 是智能体行动工具，主要用于 Phase2。Phase2 只暴露 Phase1 已选择 domain 内的 Action Tools，并结合 action 工具结构、补充语义和自动注入的 domain skill 生成行动参数。Action Tool Call 被归一化为 ActionCall，之后由 Phase3 装配和执行。
 
-Loop 的 Phase1/Phase2 framework task 使用 `answer_format=NONE` 与 `ToolUse.REQUIRED`：阶段完成以结构化 Control/Action Tool Call 为准，不要求自由文本 answer。Provider 同时返回的 `raw_response.answer_text` 或 reasoning 可以保留在 trace 中，供观察和诊断使用，但不能替代工具调用、改变阶段边界或宣布 Turn 完成。
+Loop 选择的 Phase1/Phase2 task profile 使用 `answer_format=NONE` 与 `ToolUse.REQUIRED`：阶段完成以结构化 Control/Action Tool Call 为准，不要求自由文本 answer。Provider 同时返回的 `raw_response.answer_text` 或 reasoning 可以保留在 trace 中，供观察和诊断使用，但不能替代工具调用、改变阶段边界或宣布 Turn 完成。
 
 LLM 模块只负责模型侧工具定义、工具调用和工具结果在 TinySoul 内部结构与供应商协议之间的映射。供应商工具调用标识只在适配层用于相关性映射，TinySoul 内部应使用自己的调用标识，避免 Context、Action 或 Loop 依赖供应商私有标识。工具调用可以作为任务结果的一等输出，而不是把工具调用伪装成普通 JSON 对象。
 
@@ -159,6 +159,12 @@ LLM 模块与 Runtime 的语义桥接通过独立桥接层完成。LLM 内部维
 LLM 的桥接方式应作为其他业务模块接入 Runtime 的参考：模块内 bridge failure 类型描述需要 Runtime 协调控制流的模块失败，bridge 映射表描述运行控制语义，任务失败结果描述可以由调用方继续处理或反馈给模型的局部失败。不要把第三方供应商异常、解析器异常或临时实现异常直接暴露为 Runtime 原因；也不要为了局部失败强行扩展 Runtime bridge failure 枚举。
 
 ## 配置
+
+Loop 通过 `loop.cycle.phase1_task_profile` 和
+`loop.cycle.phase2_task_profile` 选择可复用 Cycle 各阶段使用的 task profile。
+被引用的 profile 仍由 LLM 模块定义，提供模型顺序、重试策略和通用调用默认值；
+Loop 覆盖阶段协议，要求工具调用且不产生 answer payload。Runtime Generation
+激活前由 App 校验这些跨模块引用。
 
 LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM 模块负责解释供应商、模型和任务配置的语义。
 

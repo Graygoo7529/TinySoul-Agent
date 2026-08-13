@@ -76,10 +76,17 @@ Home 与 Memory Maintenance Turn 不互相暴露 actions，也不提供 `core.an
 
 ## Cycle 与 Phase
 
+Cycle 阶段 task profile 路由由 Loop 所有，并在 `[loop.cycle]` 下配置。
+`phase1_task_profile` 和 `phase2_task_profile` 引用 `llm.tasks` 所有的 profile；
+同一组引用由 User Turn 和所有 Maintenance Turn 共享。Turn-specific prompt、
+Action scope、preparation 和 cycle budget 仍由各自 Turn builder 管理。Phase
+单元继续保持固定的框架协议（`answer_format=none`、`tool_use=required`），
+选中的 LLM profile 提供模型链和通用调用默认值。
+
 每个 Cycle 固定顺序执行三个单元：
 
-1. Phase1 基于完整 Context 调用 framework task，消费 Context control tools，并选择一个或多个可见 action domain。可由模型修正的协议失败返回 `PhaseFailure`，当前 Cycle 在 Phase1 边界结束，反馈随下一完整 Cycle 的 Phase1 prompt 重新构造；Phase1 不在同一 Cycle 内重复协议调用。
-2. Phase2 只暴露已选 domain 的具体 Action Tools，生成并归一化 ActionCall。可由模型修正的协议失败同样返回 `PhaseFailure`，Cycle 在 Phase2 边界结束，不把空 normalization 交给 Phase3；下一完整 Cycle 重新经过 Phase1，由模型决定修正 Context、域或行动计划。
+1. Phase1 基于完整 Context 调用 `[loop.cycle].phase1_task_profile` 指定的 task profile，消费 Context control tools，并选择一个或多个可见 action domain。可由模型修正的协议失败返回 `PhaseFailure`，当前 Cycle 在 Phase1 边界结束，反馈随下一完整 Cycle 的 Phase1 prompt 重新构造；Phase1 不在同一 Cycle 内重复协议调用。
+2. Phase2 只暴露已选 domain 的具体 Action Tools，使用 `[loop.cycle].phase2_task_profile` 指定的 task profile 生成并归一化 ActionCall。可由模型修正的协议失败同样返回 `PhaseFailure`，Cycle 在 Phase2 边界结束，不把空 normalization 交给 Phase3；下一完整 Cycle 重新经过 Phase1，由模型决定修正 Context、域或行动计划。
 3. Phase3 装配和执行 ActionBatch，把 ActionResult 反馈写入 TurnTrace，并交给 profile completion detector。
 
 PhaseFailure 是 Loop 内部的局部恢复结果，不是 Runtime exception。TurnRunner 只负责把有限 feedback 去重后带到下一个 Cycle，并继续服从 `max_cycles`、supervision cycle、取消和 Runtime transfer。LLM provider/model chain 的调用级重试仍归 LLM 模块；模型链耗尽、Context 不变量和模块边界错误继续经 bridge 进入 Runtime。

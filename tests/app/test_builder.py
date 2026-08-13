@@ -853,6 +853,29 @@ def test_app_builder_loop_config_error_is_loop_startup_failure(tmp_path: Path) -
     assert exc.payload["key"] == "loop.max_cycles_per_turn"
 
 
+def test_app_builder_unknown_cycle_task_profile_is_loop_startup_failure(
+    tmp_path: Path,
+) -> None:
+    config = _test_config(
+        tmp_path,
+        {"loop.cycle.phase1_task_profile": "missing_profile"},
+    )
+
+    with pytest.raises(RuntimeException) as raised:
+        (
+            TinySoulAppBuilder(root=tmp_path)
+            .with_config_environment(config)
+            .with_app_settings(AppSettings(interactive=False))
+            .with_llm_runner(FakeLLM(()))
+            .build()
+        )
+
+    exc = raised.value
+    assert exc.reason == RUNTIME_STARTUP_FAILED
+    assert exc.payload["module"] == "loop"
+    assert exc.payload["key"] == "loop.cycle.phase1_task_profile"
+
+
 def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> None:
     config = _test_config(tmp_path, {"app.interactive": "bad"})
 
