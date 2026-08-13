@@ -59,10 +59,9 @@ export function ConfigSettingsPage({
           {status.activity.reason || "Configuration is read-only while a turn is active."}
         </div>
       )}
-      <FieldGroups
-        fields={primary}
-        surface={surface}
-        status={status}
+            <FieldGroups
+              fields={primary}
+              status={status}
         catalog={catalog}
         canWrite={canWrite}
         savingPath={savingPath}
@@ -73,7 +72,6 @@ export function ConfigSettingsPage({
           <Collapsible title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
             <FieldGroups
               fields={advanced}
-              surface={surface}
               status={status}
               catalog={catalog}
               canWrite={canWrite}
@@ -88,7 +86,6 @@ export function ConfigSettingsPage({
           <Collapsible title="Read-only" meta={<Badge>{readOnly.length}</Badge>}>
             <FieldGroups
               fields={readOnly}
-              surface={surface}
               status={status}
               catalog={catalog}
               canWrite={false}
@@ -104,7 +101,6 @@ export function ConfigSettingsPage({
 
 function FieldGroups({
   fields,
-  surface,
   status,
   catalog,
   canWrite,
@@ -112,7 +108,6 @@ function FieldGroups({
   onCommit,
 }: {
   fields: ConfigSettingField[];
-  surface: string;
   status: ConfigStatus;
   catalog: ConfigCatalog;
   canWrite: boolean;
@@ -121,12 +116,15 @@ function FieldGroups({
 }) {
   return (
     <>
-      {groupSurfaceFields(fields, surface).map((group) => (
+      {groupSurfaceFields(fields, catalog).map((group) => (
         <section key={group.id} className="border-b border-line last:border-b-0">
           <div className="flex h-10 items-center justify-between bg-bg-sunken/40 px-5">
             <h3 className="text-[12px] font-semibold text-fg-muted">{group.title}</h3>
             <Badge>{group.fields.length}</Badge>
           </div>
+          <p className="border-b border-line px-5 py-2 text-[11px] text-fg-muted">
+            {group.description}
+          </p>
           <div className="divide-y divide-line">
             {group.fields.map((field) => (
               <ConfigFieldRow

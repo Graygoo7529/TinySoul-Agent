@@ -7,7 +7,7 @@ import { useConfigStore } from "../../store/configStore";
 import { CreateObjectModal } from "./CreateObjectModal";
 import { ObjectFieldEditor } from "./ObjectFieldEditor";
 import { ObjectSettingsLayout } from "./ObjectSettingsLayout";
-import { cloneJson, collectionFor, configObjects, type ConfigSettingField } from "./model";
+import { cloneJson, collectionFor, configObjects, subtreeDeleteMutations, type ConfigSettingField } from "./model";
 
 const selectClass =
   "focus-ring h-8 w-full rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent";
@@ -23,7 +23,6 @@ export function ModelsSettingsPage({
 }) {
   const collection = collectionFor(catalog, "llm.models");
   const objects = configObjects(status, catalog, collection.id);
-  const providers = configObjects(status, catalog, "llm.providers");
   const [selected, setSelected] = useState<string | null>(objects[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const [template, setTemplate] = useState(objects[0]?.id ?? "");
@@ -48,35 +47,7 @@ export function ModelsSettingsPage({
     }
   };
   const commit = async (field: ConfigSettingField, value: JsonValue) => {
-    const mutation: ConfigMutation = {
-      source_id: field.sourceId,
-      path: field.path,
-      op: "set",
-      value,
-    };
-    if (field.path.endsWith(".provider") && typeof value === "string" && current) {
-      const previousId = current.value.provider;
-      const previous = providers.find((item) => item.id === previousId);
-      const next = providers.find((item) => item.id === value);
-      if (
-        previous?.value.adapter !== next?.value.adapter &&
-        current.value.provider_options !== undefined
-      ) {
-        await apply(
-          [
-            mutation,
-            {
-              source_id: field.sourceId,
-              path: `${collection.root}.${current.id}.provider_options`,
-              op: "delete",
-            },
-          ],
-          "Model adapter changed",
-        );
-        return;
-      }
-    }
-    await apply(mutation, "Model active");
+    await apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Model active");
   };
 
   return (
@@ -88,15 +59,17 @@ export function ModelsSettingsPage({
         selected={selected}
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
-        disabled={!canWrite || objects.length === 0}
+        addDisabled={!canWrite || !collection.allow_create || objects.length === 0}
+        deleteDisabled={!canWrite || !collection.allow_delete}
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           return `${String(item?.value.provider ?? "provider")} · ${String(item?.value.provider_model ?? "model")}`;
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
-          if (!item || !window.confirm(`Delete model '${id}'?`)) return;
-          void apply({ source_id: item.sourceId, path: `${collection.root}.${id}`, op: "delete" }, "Model deleted");
+          if (!item || !collection.allow_delete || !window.confirm(`Delete model '${id}'?`)) return;
+          const mutations = subtreeDeleteMutations(status, `${collection.root}.${id}`);
+          if (mutations.length > 0) void apply(mutations, "Model deleted");
         }}
       >
         {current && (
@@ -111,7 +84,7 @@ export function ModelsSettingsPage({
         )}
       </ObjectSettingsLayout>
       <CreateObjectModal
-        title="Model"
+        collection={collection}
         existing={objects.map((item) => item.id)}
         open={creating}
         onClose={() => setCreating(false)}

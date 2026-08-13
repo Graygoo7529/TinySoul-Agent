@@ -232,3 +232,46 @@ def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -
         key.startswith("infra.external_services.embedding_secondary")
         for key in controller.environment.effective_values()
     )
+
+
+def test_controller_deletes_object_subtree_from_each_project_source(tmp_path: Path) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir(parents=True)
+    (tmp_path / "tinysoul.toml").write_text(
+        '[config]\ninclude = ["configs/base.toml", "configs/overlay.toml"]\n',
+        encoding="utf-8",
+    )
+    base = config_dir / "base.toml"
+    overlay = config_dir / "overlay.toml"
+    base.write_text(
+        "[infra.external_services.embedding_secondary]\nenabled = false\n",
+        encoding="utf-8",
+    )
+    overlay.write_text(
+        "[infra.external_services.embedding_secondary]\nendpoint = \"https://api.example.com/v1\"\n",
+        encoding="utf-8",
+    )
+    environment = ConfigEnvironment.from_project_root(tmp_path, env={})
+    controller = ConfigController(root=tmp_path, environment=environment)
+
+    controller.patch(
+        (
+            ConfigMutation(
+                source_id="project:configs/base.toml",
+                path="infra.external_services.embedding_secondary",
+                op="delete",
+            ),
+            ConfigMutation(
+                source_id="project:configs/overlay.toml",
+                path="infra.external_services.embedding_secondary",
+                op="delete",
+            ),
+        )
+    )
+
+    assert "embedding_secondary" not in base.read_text(encoding="utf-8")
+    assert "embedding_secondary" not in overlay.read_text(encoding="utf-8")
+    assert not any(
+        key.startswith("infra.external_services.embedding_secondary")
+        for key in controller.environment.effective_values()
+    )

@@ -57,6 +57,17 @@ def test_config_catalog_declares_controlled_model_creation_source() -> None:
 
     assert model_collection.create_source == "project:configs/llm/models/custom.toml"
     assert model_collection.root == "llm.models"
+    assert model_collection.identity.title == "Model ID"
+
+
+def test_config_catalog_owns_field_group_presentation() -> None:
+    catalog = load_config_catalog()
+    groups = {item.id: item for item in catalog.field_groups}
+
+    assert groups
+    assert all(item.group in groups for item in catalog.fields)
+    assert all(groups[item.group].surface == item.surface for item in catalog.fields)
+    assert catalog.to_json()["field_groups"]
 
 
 def _choices(catalog, path: str) -> set[str]:

@@ -281,6 +281,7 @@ export interface ConfigReferenceDescriptor {
 export interface ConfigFieldDescriptor {
   path: string;
   surface: string;
+  group: string;
   title: string;
   description: string;
   value_kind: ConfigValueKind;
@@ -296,12 +297,25 @@ export interface ConfigSurfaceDescriptor {
   description: string;
 }
 
+export interface ConfigFieldGroupDescriptor {
+  id: string;
+  surface: string;
+  title: string;
+  description: string;
+}
+
+export interface ConfigCollectionIdentityDescriptor {
+  title: string;
+  description: string;
+}
+
 export interface ConfigCollectionDescriptor {
   id: string;
   surface: string;
   root: string;
   title: string;
   description: string;
+  identity: ConfigCollectionIdentityDescriptor;
   create_source: string;
   create_template: Record<string, JsonValue>;
   allow_create: boolean;
@@ -310,6 +324,7 @@ export interface ConfigCollectionDescriptor {
 
 export interface ConfigCatalog {
   surfaces: ConfigSurfaceDescriptor[];
+  field_groups: ConfigFieldGroupDescriptor[];
   collections: ConfigCollectionDescriptor[];
   fields: ConfigFieldDescriptor[];
 }

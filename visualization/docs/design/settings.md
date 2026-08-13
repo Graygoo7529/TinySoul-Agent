@@ -53,8 +53,9 @@ Provider、Model、Task Chain 不是前端状态实体，只是 catalog collecti
 使用对象列表加详情编辑器，不显示反向引用或全局 current Provider。
 
 - Provider 支持完整 root 创建、字段编辑和删除；列表摘要只展示 enabled、adapter、endpoint。
-- Model 新建必须选择现有 Model 作为模板。provider adapter 相同可保留 options；adapter 变化时
-  在同一次 batch PATCH 删除 provider options。
+- Model 新建必须选择现有 Model 作为模板。模板中的 `provider_options` 作为模型配置事实一并复制；
+  后续切换 Provider 只修改 `provider` 字段，Provider 的 `adapter` 由后端按新 Generation 解释，
+  不由前端隐式删除模型 options。
 - Task Chain 新建至少选择一个 Model；models 禁止重复或为空，支持拖放与上下移动图标，写回
   完整有序数组。未被 default/override 使用时显示 Unbound。
 - Action Routing 顶部编辑 default profile；override 只能选择当前 Action catalog 中
@@ -74,7 +75,7 @@ Unset、Empty 和 Configured。
 
 每次用户提交直接调用 `PATCH /v1/config`。后端在返回前完成候选校验、Generation 构建、文件
 原子提交和 RuntimeHandle 切换；前端没有独立 Apply Runtime 或 revision。单字段通常提交一个
-mutation；Model adapter 切换、Task order 和 Action overrides 使用一次 batch/完整数组 mutation。
+mutation；Task order 和 Action overrides 使用一次 batch/完整数组 mutation。
 
 任意 User Turn、Maintenance Turn、Daily Transition 或 config activation 期间，页面完整可读但
 统一禁用。Backend 错误保留当前编辑器 draft 并显示 owner 提供的 message；成功提示显示 receipt

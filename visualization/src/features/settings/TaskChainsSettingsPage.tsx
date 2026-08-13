@@ -10,7 +10,7 @@ import { useConfigStore } from "../../store/configStore";
 import { CreateObjectModal } from "./CreateObjectModal";
 import { ObjectFieldEditor } from "./ObjectFieldEditor";
 import { ObjectSettingsLayout } from "./ObjectSettingsLayout";
-import { cloneJson, collectionFor, configObjects, type ConfigSettingField } from "./model";
+import { cloneJson, collectionFor, configObjects, subtreeDeleteMutations, type ConfigSettingField } from "./model";
 
 const selectClass =
   "focus-ring h-8 rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent";
@@ -84,7 +84,8 @@ export function TaskChainsSettingsPage({
         selected={selected}
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
-        disabled={!canWrite || models.length === 0}
+        addDisabled={!canWrite || !collection.allow_create || models.length === 0}
+        deleteDisabled={!canWrite || !collection.allow_delete}
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const count = Array.isArray(item?.value.models) ? item.value.models.length : 0;
@@ -95,8 +96,9 @@ export function TaskChainsSettingsPage({
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
-          if (!item || !window.confirm(`Delete task chain '${id}'?`)) return;
-          void apply({ source_id: item.sourceId, path: `${collection.root}.${id}`, op: "delete" }, "Task chain deleted");
+          if (!item || !collection.allow_delete || !window.confirm(`Delete task chain '${id}'?`)) return;
+          const mutations = subtreeDeleteMutations(status, `${collection.root}.${id}`);
+          if (mutations.length > 0) void apply(mutations, "Task chain deleted");
         }}
       >
         {current && (
@@ -161,7 +163,7 @@ export function TaskChainsSettingsPage({
         )}
       </ObjectSettingsLayout>
       <CreateObjectModal
-        title="Task Chain"
+        collection={collection}
         existing={objects.map((item) => item.id)}
         open={creating}
         onClose={() => setCreating(false)}

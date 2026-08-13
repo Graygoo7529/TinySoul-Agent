@@ -61,7 +61,8 @@ Endpoint 提供以下配置协议入口：
 - `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。当前投影由
   Infra `ConfigController` 从 effective fields 按 dotted key 前缀筛选，不引入 owner descriptor
   或第二套业务配置 schema；字段的业务解释和可编辑布局仍由各模块及前端负责。
-- `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、collections 和 fields。它只
+- `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、field groups、collections 和
+  fields。collection 提供对象 identity 文案，field 通过显式 group 归属到同一 surface。它只
   表达展示元数据与受控创建 source，不返回当前值、前端 navigation 或 revision；当前事实仍
   只来自 `GET /v1/config`。
 - `GET /v1/actions/catalog` 在 RuntimeHandle read lease 下读取当前 Generation 的 User Action

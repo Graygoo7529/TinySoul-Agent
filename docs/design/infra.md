@@ -11,8 +11,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 配置加载机制属于 Infra；具体配置项属于使用它的模块。
 
 Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置语义。目录位于
-`tinysoul/infra/config/catalog/*.toml`，集中维护稳定 surface、collection、字段标题、说明、
-输入类型、primary/advanced 层级、静态 choices、正向引用和 credential reference 标记；
+`tinysoul/infra/config/catalog/*.toml`，集中维护稳定 surface、collection identity、field group、
+字段标题、说明、输入类型、primary/advanced 层级、静态 choices、正向引用和 credential reference 标记；
 `ConfigCatalog` 在加载时校验 ID、pattern、引用与 source policy，并通过
 `ConfigController.catalog()` 提供 JSON-safe 投影。业务模块不得复制这些展示说明，前端也不按
 dotted path 猜测标签和归属。

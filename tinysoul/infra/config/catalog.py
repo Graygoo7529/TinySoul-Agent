@@ -59,9 +59,45 @@ class ConfigReferenceDescriptor:
 
 
 @dataclass(frozen=True)
+class ConfigCollectionIdentityDescriptor:
+    title: str
+    description: str
+
+    def __post_init__(self) -> None:
+        _require_text(self.title, "collection.identity.title")
+        _require_text(self.description, "collection.identity.description")
+
+    def to_json(self) -> JsonObject:
+        return {"title": self.title, "description": self.description}
+
+
+@dataclass(frozen=True)
+class ConfigFieldGroupDescriptor:
+    id: str
+    surface: str
+    title: str
+    description: str
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.id, "field_group.id")
+        _require_identifier(self.surface, "field_group.surface")
+        _require_text(self.title, "field_group.title")
+        _require_text(self.description, "field_group.description")
+
+    def to_json(self) -> JsonObject:
+        return {
+            "id": self.id,
+            "surface": self.surface,
+            "title": self.title,
+            "description": self.description,
+        }
+
+
+@dataclass(frozen=True)
 class ConfigFieldDescriptor:
     path: str
     surface: str
+    group: str
     title: str
     description: str
     value_kind: ConfigValueKind
@@ -73,6 +109,7 @@ class ConfigFieldDescriptor:
     def __post_init__(self) -> None:
         _validate_pattern(self.path, "field.path")
         _require_identifier(self.surface, "field.surface")
+        _require_identifier(self.group, "field.group")
         _require_text(self.title, "field.title")
         _require_text(self.description, "field.description")
         if not isinstance(self.value_kind, ConfigValueKind):
@@ -102,6 +139,7 @@ class ConfigFieldDescriptor:
         result: JsonObject = {
             "path": self.path,
             "surface": self.surface,
+            "group": self.group,
             "title": self.title,
             "description": self.description,
             "value_kind": self.value_kind.value,
@@ -137,6 +175,7 @@ class ConfigCollectionDescriptor:
     root: str
     title: str
     description: str
+    identity: ConfigCollectionIdentityDescriptor
     create_source: str
     create_template: JsonObject
     allow_create: bool = True
@@ -152,6 +191,8 @@ class ConfigCollectionDescriptor:
             )
         _require_text(self.title, "collection.title")
         _require_text(self.description, "collection.description")
+        if not isinstance(self.identity, ConfigCollectionIdentityDescriptor):
+            raise ConfigCatalogError("Configuration collection identity is invalid")
         _require_identifier(self.create_source, "collection.create_source")
         if not isinstance(self.allow_create, bool) or not isinstance(self.allow_delete, bool):
             raise ConfigCatalogError("Configuration collection flags must be booleans")
@@ -164,6 +205,7 @@ class ConfigCollectionDescriptor:
             "root": self.root,
             "title": self.title,
             "description": self.description,
+            "identity": self.identity.to_json(),
             "create_source": self.create_source,
             "create_template": dict(self.create_template),
             "allow_create": self.allow_create,
@@ -174,30 +216,45 @@ class ConfigCollectionDescriptor:
 @dataclass(frozen=True)
 class ConfigCatalog:
     surfaces: tuple[ConfigSurfaceDescriptor, ...]
+    field_groups: tuple[ConfigFieldGroupDescriptor, ...]
     collections: tuple[ConfigCollectionDescriptor, ...]
     fields: tuple[ConfigFieldDescriptor, ...]
 
     def __post_init__(self) -> None:
         surfaces = tuple(self.surfaces)
+        field_groups = tuple(self.field_groups)
         collections = tuple(self.collections)
         fields = tuple(self.fields)
         _require_unique((item.id for item in surfaces), "surface")
+        _require_unique((item.id for item in field_groups), "field group")
         _require_unique((item.id for item in collections), "collection")
         _require_unique((item.path for item in fields), "field path")
         surface_ids = {item.id for item in surfaces}
         collection_ids = {item.id for item in collections}
-        for item in (*collections, *fields):
+        group_by_id = {item.id: item for item in field_groups}
+        for item in (*field_groups, *collections, *fields):
             if item.surface not in surface_ids:
                 raise ConfigCatalogError(
                     f"Configuration catalog references unknown surface: {item.surface}"
                 )
         for item in fields:
+            group = group_by_id.get(item.group)
+            if group is None:
+                raise ConfigCatalogError(
+                    f"Configuration field references unknown group: {item.group}"
+                )
+            if group.surface != item.surface:
+                raise ConfigCatalogError(
+                    "Configuration field group belongs to another surface: "
+                    f"{item.path}: {item.group}"
+                )
             if item.reference is not None and item.reference.collection not in collection_ids:
                 raise ConfigCatalogError(
                     "Configuration field references unknown collection: "
                     f"{item.reference.collection}"
                 )
         object.__setattr__(self, "surfaces", surfaces)
+        object.__setattr__(self, "field_groups", field_groups)
         object.__setattr__(self, "collections", collections)
         object.__setattr__(self, "fields", fields)
 
@@ -212,6 +269,7 @@ class ConfigCatalog:
     def to_json(self) -> JsonObject:
         return {
             "surfaces": [item.to_json() for item in self.surfaces],
+            "field_groups": [item.to_json() for item in self.field_groups],
             "collections": [item.to_json() for item in self.collections],
             "fields": [item.to_json() for item in self.fields],
         }
@@ -224,6 +282,7 @@ def load_config_catalog() -> ConfigCatalog:
     if not root.is_dir():
         raise ConfigCatalogError("Configuration catalog directory is missing")
     surfaces: list[ConfigSurfaceDescriptor] = []
+    field_groups: list[ConfigFieldGroupDescriptor] = []
     collections: list[ConfigCollectionDescriptor] = []
     fields_: list[ConfigFieldDescriptor] = []
     resources = sorted(
@@ -234,14 +293,22 @@ def load_config_catalog() -> ConfigCatalog:
         raise ConfigCatalogError("Configuration catalog has no TOML resources")
     for resource in resources:
         document = _load_document(resource)
-        _reject_unknown(document, {"surface", "collection", "field"}, resource.name)
+        _reject_unknown(
+            document,
+            {"surface", "field_group", "collection", "field"},
+            resource.name,
+        )
         surfaces.extend(_parse_surfaces(document.get("surface", []), resource.name))
+        field_groups.extend(
+            _parse_field_groups(document.get("field_group", []), resource.name)
+        )
         collections.extend(
             _parse_collections(document.get("collection", []), resource.name)
         )
         fields_.extend(_parse_fields(document.get("field", []), resource.name))
     return ConfigCatalog(
         surfaces=tuple(surfaces),
+        field_groups=tuple(field_groups),
         collections=tuple(collections),
         fields=tuple(fields_),
     )
@@ -275,11 +342,37 @@ def _parse_surfaces(value: object, source: str) -> list[ConfigSurfaceDescriptor]
     return result
 
 
+def _parse_field_groups(
+    value: object,
+    source: str,
+) -> list[ConfigFieldGroupDescriptor]:
+    result: list[ConfigFieldGroupDescriptor] = []
+    for item in _table_list(value, "field_group", source):
+        _reject_unknown(item, {"id", "surface", "title", "description"}, source)
+        result.append(
+            ConfigFieldGroupDescriptor(
+                id=_string(item, "id", source),
+                surface=_string(item, "surface", source),
+                title=_string(item, "title", source),
+                description=_string(item, "description", source),
+            )
+        )
+    return result
+
+
 def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescriptor]:
     result: list[ConfigCollectionDescriptor] = []
     allowed = {
-        "id", "surface", "root", "title", "description", "create_source",
-        "create_template", "allow_create", "allow_delete",
+        "id",
+        "surface",
+        "root",
+        "title",
+        "description",
+        "identity",
+        "create_source",
+        "create_template",
+        "allow_create",
+        "allow_delete",
     }
     for item in _table_list(value, "collection", source):
         _reject_unknown(item, allowed, source)
@@ -295,6 +388,7 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
                 root=_string(item, "root", source),
                 title=_string(item, "title", source),
                 description=_string(item, "description", source),
+                identity=_parse_collection_identity(item.get("identity"), source),
                 create_source=_string(item, "create_source", source),
                 create_template=cast(JsonObject, to_json_value(template)),
                 allow_create=_boolean(item, "allow_create", True, source),
@@ -304,11 +398,35 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
     return result
 
 
+def _parse_collection_identity(
+    value: object,
+    source: str,
+) -> ConfigCollectionIdentityDescriptor:
+    if not isinstance(value, Mapping):
+        raise ConfigCatalogError(
+            f"Configuration collection identity must be a table: {source}"
+        )
+    table = _string_mapping(cast(Mapping[object, object], value))
+    _reject_unknown(table, {"title", "description"}, source)
+    return ConfigCollectionIdentityDescriptor(
+        title=_string(table, "title", source),
+        description=_string(table, "description", source),
+    )
+
+
 def _parse_fields(value: object, source: str) -> list[ConfigFieldDescriptor]:
     result: list[ConfigFieldDescriptor] = []
     allowed = {
-        "path", "surface", "title", "description", "value_kind", "importance",
-        "choices", "reference", "credential_reference",
+        "path",
+        "surface",
+        "group",
+        "title",
+        "description",
+        "value_kind",
+        "importance",
+        "choices",
+        "reference",
+        "credential_reference",
     }
     for item in _table_list(value, "field", source):
         _reject_unknown(item, allowed, source)
@@ -325,6 +443,7 @@ def _parse_fields(value: object, source: str) -> list[ConfigFieldDescriptor]:
             ConfigFieldDescriptor(
                 path=_string(item, "path", source),
                 surface=_string(item, "surface", source),
+                group=_string(item, "group", source),
                 title=_string(item, "title", source),
                 description=_string(item, "description", source),
                 value_kind=kind,

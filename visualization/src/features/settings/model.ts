@@ -42,14 +42,13 @@ export interface ConfigSettingField {
 export interface ConfigSettingGroup {
   id: string;
   title: string;
+  description: string;
   fields: ConfigSettingField[];
 }
 
 export interface ConfigObject {
   id: string;
   collection: ConfigCollectionDescriptor;
-  sourceId: string;
-  sourcePath: string;
   value: Record<string, JsonValue>;
   fields: ConfigSettingField[];
 }
@@ -114,23 +113,31 @@ export function surfaceFields(
       overridden: Boolean(source && source.id !== effective.source),
     });
   }
-  return result.sort((left, right) => left.path.localeCompare(right.path));
+  const fieldOrder = new Map(catalog.fields.map((field, index) => [field.path, index]));
+  return result.sort(
+    (left, right) =>
+      (fieldOrder.get(left.descriptor.path) ?? Number.MAX_SAFE_INTEGER) -
+      (fieldOrder.get(right.descriptor.path) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
 export function groupSurfaceFields(
   fields: ConfigSettingField[],
-  surface: string,
+  catalog: ConfigCatalog,
 ): ConfigSettingGroup[] {
   const groups = new Map<string, ConfigSettingField[]>();
   for (const field of fields) {
-    const id = groupId(field.path, surface);
+    const id = field.descriptor.group;
     groups.set(id, [...(groups.get(id) ?? []), field]);
   }
-  return [...groups.entries()].map(([id, groupFields]) => ({
-    id,
-    title: formatIdentifier(id),
-    fields: groupFields,
-  }));
+  return catalog.field_groups
+    .filter((group) => groups.has(group.id))
+    .map((group) => ({
+      id: group.id,
+      title: group.title,
+      description: group.description,
+      fields: groups.get(group.id) ?? [],
+    }));
 }
 
 export function collectionFor(
@@ -162,12 +169,9 @@ export function configObjects(
       const fields = surfaceFields(status, catalog, collection.surface).filter(
         (field) => field.path.startsWith(`${objectPrefix}.`),
       );
-      const source = sourceForFields(status.sources, fields);
       return {
         id,
         collection,
-        sourceId: source?.id ?? collection.create_source,
-        sourcePath: source?.path ?? "",
         value: unflattenObject(fields, objectPrefix),
         fields,
       };
@@ -244,16 +248,23 @@ export function validObjectId(value: string): boolean {
   return Boolean(value && value === value.trim() && !value.includes("."));
 }
 
-export function cloneJson<T extends JsonValue>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+export function subtreeDeleteMutations(
+  status: ConfigStatus,
+  root: string,
+): { source_id: string; path: string; op: "delete" }[] {
+  const prefix = `${root}.`;
+  return status.sources
+    .filter((source) => source.kind === "project_toml")
+    .filter((source) =>
+      Object.keys(source.values).some(
+        (path) => path === root || path.startsWith(prefix),
+      ),
+    )
+    .map((source) => ({ source_id: source.id, path: root, op: "delete" as const }));
 }
 
-function sourceForFields(
-  sources: ConfigSourceProjection[],
-  fields: ConfigSettingField[],
-): ConfigSourceProjection | null {
-  const sourceId = fields.find((field) => field.sourceId)?.sourceId;
-  return sources.find((source) => source.id === sourceId) ?? null;
+export function cloneJson<T extends JsonValue>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function unflattenObject(
@@ -294,23 +305,4 @@ function addDeclaration(
   const paths = declarations.get(name) ?? new Set<string>();
   paths.add(path);
   declarations.set(name, paths);
-}
-
-function groupId(path: string, surface: string): string {
-  const parts = path.split(".");
-  if (surface.startsWith("capabilities.")) return parts[2] ?? "general";
-  if (surface === "behavior") return parts[0] ?? "general";
-  if (surface === "maintenance") return parts[1] ?? "general";
-  if (surface === "infrastructure" || surface === "embedding") {
-    return parts[1] ?? "general";
-  }
-  return parts[1] ?? "general";
-}
-
-export function formatIdentifier(value: string): string {
-  return value
-    .split(/[_-]/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }

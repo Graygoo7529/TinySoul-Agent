@@ -209,8 +209,8 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 ## 9. Settings 与配置目录
 
 - `GET /v1/config`：当前 activity、sources、stored/effective fields 与 Generation 状态；
-- `GET /v1/config/catalog`：Infra 集中维护的 surfaces、collections、field title/description、
-  value kind、importance、choices、references 与 credential reference；
+- `GET /v1/config/catalog`：Infra 集中维护的 surfaces、field groups、collections、collection identity、
+  field title/description、value kind、importance、choices、references 与 credential reference；
 - `GET /v1/actions/catalog`：当前 Generation 的有效 User Action ID、domain、description 和
   backend kind；
 - `PATCH /v1/config`：一次 source-aware operations 数组，返回时已完成持久化与当前
@@ -218,7 +218,8 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 
 前端必须把 ConfigStatus 作为唯一配置事实，catalog 只用于组织和解释；不得复制业务默认值或按
 dotted path 猜字段说明。Provider、Model、Task Chain 通过 collection root 动态枚举，创建和删除
-使用完整 root mutation。Task Chain models 与 `action.llm_action.overrides` 写回完整数组；Action
+使用完整 root mutation；删除跨多个 project TOML source 的对象时，前端应为每个贡献该 subtree 的
+source 提交同一 root 的 delete mutation。Task Chain models 与 `action.llm_action.overrides` 写回完整数组；Action
 picker 只展示 `/v1/actions/catalog` 中 `backend_kind=llm_action` 的当前有效 Action。
 
 任意 User/Maintenance Turn 或配置激活期间，三个 GET 仍可读取，所有 TOML/dotenv 控件禁用；

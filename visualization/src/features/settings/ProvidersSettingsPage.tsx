@@ -11,6 +11,7 @@ import {
   cloneJson,
   collectionFor,
   configObjects,
+  subtreeDeleteMutations,
   type ConfigSettingField,
 } from "./model";
 
@@ -58,7 +59,8 @@ export function ProvidersSettingsPage({
         selected={selected}
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
-        disabled={!canWrite}
+        addDisabled={!canWrite || !collection.allow_create}
+        deleteDisabled={!canWrite || !collection.allow_delete}
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const adapter = item?.value.adapter;
@@ -72,8 +74,9 @@ export function ProvidersSettingsPage({
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
-          if (!item || !window.confirm(`Delete provider '${id}'?`)) return;
-          void apply({ source_id: item.sourceId, path: `${collection.root}.${id}`, op: "delete" }, "Provider deleted");
+          if (!item || !collection.allow_delete || !window.confirm(`Delete provider '${id}'?`)) return;
+          const mutations = subtreeDeleteMutations(status, `${collection.root}.${id}`);
+          if (mutations.length > 0) void apply(mutations, "Provider deleted");
         }}
       >
         {current && (
@@ -88,7 +91,7 @@ export function ProvidersSettingsPage({
         )}
       </ObjectSettingsLayout>
       <CreateObjectModal
-        title="Provider"
+        collection={collection}
         existing={objects.map((item) => item.id)}
         open={creating}
         onClose={() => setCreating(false)}

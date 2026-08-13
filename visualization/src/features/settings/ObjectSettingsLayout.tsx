@@ -13,7 +13,8 @@ export function ObjectSettingsLayout({
   onSelect,
   onAdd,
   onDelete,
-  disabled,
+  addDisabled,
+  deleteDisabled,
   summary,
   children,
 }: {
@@ -24,7 +25,8 @@ export function ObjectSettingsLayout({
   onSelect: (id: string) => void;
   onAdd: () => void;
   onDelete: (id: string) => void;
-  disabled: boolean;
+  addDisabled: boolean;
+  deleteDisabled: boolean;
   summary?: (id: string) => ReactNode;
   children: ReactNode;
 }) {
@@ -36,7 +38,7 @@ export function ObjectSettingsLayout({
             <div className="text-[12px] font-semibold text-fg">{title}</div>
             <div className="text-[10px] text-fg-faint">{items.length} configured</div>
           </div>
-          <IconButton label={`Add ${title}`} disabled={disabled} onClick={onAdd}>
+          <IconButton label={`Add ${title}`} disabled={addDisabled} onClick={onAdd}>
             <Plus size={15} />
           </IconButton>
         </div>
@@ -72,7 +74,7 @@ export function ObjectSettingsLayout({
               <Button
                 size="xs"
                 variant="danger"
-                disabled={disabled}
+                disabled={deleteDisabled}
                 onClick={() => onDelete(selected)}
               >
                 <Trash2 size={13} /> Delete

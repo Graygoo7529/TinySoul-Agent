@@ -7,6 +7,7 @@ import {
   descriptorForPath,
   groupSurfaceFields,
   pathMatches,
+  subtreeDeleteMutations,
   surfaceFields,
   validObjectId,
 } from "./model";
@@ -25,7 +26,7 @@ describe("settings catalog projection", () => {
       "Provider",
       "Provider Model ID",
     ]);
-    expect(groupSurfaceFields(fields, "models")[0].fields).toHaveLength(2);
+    expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(2);
   });
 
   it("derives collection objects from the shared status facts", () => {
@@ -53,6 +54,22 @@ describe("settings catalog projection", () => {
     expect(validObjectId("gpt.5")).toBe(false);
     expect(validObjectId(" model ")).toBe(false);
   });
+
+  it("deletes an object subtree from every contributing project source", () => {
+    const current = status();
+    current.sources.push({
+      id: "project:configs/llm/models/overlay.toml",
+      kind: "project_toml",
+      path: "configs/llm/models/overlay.toml",
+      exists: true,
+      writable: true,
+      values: { "llm.models.primary.provider_model": "gpt-5-mini" },
+    });
+    expect(subtreeDeleteMutations(current, "llm.models.primary")).toEqual([
+      { source_id: "project:configs/llm/models/custom.toml", path: "llm.models.primary", op: "delete" },
+      { source_id: "project:configs/llm/models/overlay.toml", path: "llm.models.primary", op: "delete" },
+    ]);
+  });
 });
 
 function catalog(): ConfigCatalog {
@@ -68,6 +85,7 @@ function catalog(): ConfigCatalog {
         root: "llm.models",
         title: "Model",
         description: "A model.",
+        identity: { title: "Model ID", description: "Stable model identifier." },
         create_source: "project:configs/llm/models/custom.toml",
         create_template: {},
         allow_create: true,
@@ -78,6 +96,7 @@ function catalog(): ConfigCatalog {
       {
         path: "llm.models.*.provider",
         surface: "models",
+        group: "models.binding",
         title: "Provider",
         description: "Provider used by this model.",
         value_kind: "reference",
@@ -87,6 +106,7 @@ function catalog(): ConfigCatalog {
       {
         path: "llm.models.*.provider_model",
         surface: "models",
+        group: "models.binding",
         title: "Provider Model ID",
         description: "Provider model identifier.",
         value_kind: "string",
@@ -96,12 +116,17 @@ function catalog(): ConfigCatalog {
       {
         path: "llm.providers.*.api_key_envs",
         surface: "providers",
+        group: "providers.credentials",
         title: "Credential Names",
         description: "Credential references.",
         value_kind: "string_list",
         importance: "primary",
         credential_reference: true,
       },
+    ],
+    field_groups: [
+      { id: "models.binding", surface: "models", title: "Binding", description: "Model binding." },
+      { id: "providers.credentials", surface: "providers", title: "Credentials", description: "Credential references." },
     ],
   };
 }

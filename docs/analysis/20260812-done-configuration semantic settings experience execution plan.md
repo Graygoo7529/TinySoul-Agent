@@ -135,7 +135,8 @@ TOML 文件按前端主要语义域组织所有说明。Catalog 是 package reso
 - `ConfigSurfaceDescriptor`：稳定语义区域、标题和说明。
 - `ConfigCollectionDescriptor`：对象集合 ID、root pattern、identity、create/delete 能力和目标
   source policy。
-- `ConfigFieldDescriptor`：path pattern、标题、说明、value kind、importance 和有限输入提示。
+- `ConfigFieldGroupDescriptor`：同一 surface 内的稳定字段分组、标题和说明。
+- `ConfigFieldDescriptor`：path pattern、group、标题、说明、value kind、importance 和有限输入提示。
 - `ConfigFieldImportance`：`primary` 或 `advanced`。
 - `ConfigValueKind`：boolean、integer、number、string、enum、string_list、reference、
   reference_list、object、object_list 等有限类型。
@@ -266,7 +267,8 @@ RUNTIME
 
 - 列表显示 Model ID、Provider、provider model ID 和 capabilities 摘要。
 - 新建必须先选择现有 Model 模板。
-- 相同 adapter 保留 provider options；不同 adapter 只保留通用字段并清空 options。
+- 模板中的 provider options 与模型一起复制；切换 Provider 只修改 provider 字段，前端不根据
+  Provider adapter 隐式清理 options，最终解释由 LLM parser/adapter 负责。
 - provider options 和 request overrides 放入 Advanced。
 
 ### Task Chains
@@ -426,7 +428,8 @@ Catalog 的 `credential_reference` 字段声明哪些 TOML 值引用 credential 
 - [x] 实现 Web、Resource、Execution 页面。
 - [x] 实现 Home、Session、Memory、Workspace、Context Rules 页面。
 - [x] 实现 Behavior、Maintenance、Infrastructure 页面及 Embedding 局部入口。
-- [x] 删除旧路径推断、自动标签和扁平 ConfigSettingsPage 逻辑。
+- [x] 删除旧路径推断、自动标签和扁平 ConfigSettingsPage 逻辑；通用字段页和对象详情页均消费
+  Infra catalog 的显式 field group 与 collection identity。
 
 ### 六：文档和门禁
 
@@ -447,7 +450,11 @@ Catalog 的 `credential_reference` 字段声明哪些 TOML 值引用 credential 
 - Provider、Model、Task Chain、Action Routing 已使用 source-aware 对象编辑器；创建、删除、克隆、模型链排序和 override 绑定均通过单次 batch PATCH 持久化并重建当前 Generation。
 - 设置页已使用 General、Models & Routing、Capabilities、Context、Runtime 五组信息架构；移动端采用栏目选择器加子页面横向入口，Embedding 位于 Infrastructure 的局部入口。
 - 本轮额外修正移动端对象页的最小列宽和窄屏状态栏溢出；Provider 列表摘要包含 enabled、adapter 和 endpoint。
-- 验证结果：Backend Full `911 passed, 2 skipped, 21 deselected`；`ty` typecheck 通过；visualization Vitest `15 files / 88 tests passed`；`pnpm build` 通过；Playwright 桌面 `1440x900` 与移动 `390x844` 均无横向溢出，Providers/Task Chains 页面截图核验通过。
+- 本轮补充跨 project TOML source 的 subtree 删除 batch；collection identity 与 field group 统一由
+  Infra catalog 提供，移除 Model Provider 切换时的前端隐式 options 删除。
+- 验证结果：Backend Full `913 passed, 2 skipped, 21 deselected`；`ty` typecheck 通过；visualization
+  Vitest `15 files / 89 tests passed`；`pnpm build` 通过；Playwright 桌面 `1440x900` 与移动
+  `390x844` 均无横向溢出，Providers/Task Chains 页面截图核验通过。
 
 ## 测试重点
 
@@ -475,7 +482,7 @@ Catalog 的 `credential_reference` 字段声明哪些 TOML 值引用 credential 
 4. primary 默认可见，advanced/read-only 默认折叠且数量正确。
 5. Turn 活跃时内容完整可读，所有项目配置控件禁用。
 6. Provider/Model 页面不显示反向引用或 current Provider。
-7. Model clone 根据 adapter 一致性保留或清除 options。
+7. Model clone 复制模板事实；切换 Provider 不触发前端隐式 options 清理。
 8. Task Chain 禁止空/重复 models，拖动与图标排序生成同一完整数组 mutation。
 9. 新 Chain 可保持 Unbound；override 建立后关系正确显示。
 10. PATCH loading 期间布局稳定，不重复提交；Backend 错误保留 draft 并定位对象/字段。
