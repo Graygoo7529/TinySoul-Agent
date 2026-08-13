@@ -90,6 +90,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         path.unlink()
     (model_root / "fake.toml").write_text(
         "[llm.models.fake_model]\n"
+        'adapter = "generic"\n'
         'provider = "fake"\n'
         'provider_model = "fake-model"\n'
         "context_window_tokens = 262144\n"

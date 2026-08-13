@@ -143,15 +143,6 @@ def optional_adapter_options(
         )
     options_table = cast(Mapping[str, object], value)
     options = AdapterOptions(options_table)
-    try:
-        options.reasoning_keep()
-    except LLMContractError as exc:
-        raise ConfigError(
-            str(exc),
-            key=f"{key}.adapter_options.reasoning_keep",
-            value=options_table.get("reasoning_keep"),
-            expected="none | content | encrypted",
-        ) from exc
     return options
 
 

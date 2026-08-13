@@ -13,3 +13,9 @@ class AdapterKind(StrEnum):
     GLM = "glm"
     MINIMAX = "minimax"
 
+
+class ProviderApiStyle(StrEnum):
+    """Wire protocol shape required by a provider adapter."""
+
+    OPENAI_CHAT = "openai_chat"
+    OPENAI_RESPONSES = "openai_responses"

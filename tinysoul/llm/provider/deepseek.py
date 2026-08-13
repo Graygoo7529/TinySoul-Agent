@@ -37,7 +37,7 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     ) -> object | None:
         if request.tool_use is ToolUse.DISABLED:
             return None
-        if _deepseek_thinking_enabled(request.adapter_options):
+        if _deepseek_thinking_enabled(request.model.adapter_options.values):
             return "auto"
         return None
 

@@ -37,6 +37,7 @@ export interface ConfigSettingField {
   effectiveSource: string;
   writable: boolean;
   overridden: boolean;
+  persisted: boolean;
 }
 
 export interface ConfigSettingGroup {
@@ -118,6 +119,7 @@ export function surfaceFields(
         source.id === effective.source,
       ),
       overridden: Boolean(source && source.id !== effective.source),
+      persisted: Boolean(source && Object.prototype.hasOwnProperty.call(source.values, path)),
     });
   }
   const fieldOrder = new Map(catalog.fields.map((field, index) => [field.path, index]));
@@ -283,19 +285,45 @@ export function modelOptionFields(fields: ConfigSettingField[], model: ConfigObj
   });
 }
 
-export function missingModelOptionFields(model: ConfigObject, catalog: ConfigCatalog): ConfigSettingField[] {
+export function missingModelOptionFields(model: ConfigObject, catalog: ConfigCatalog, selected = new Set<string>()): ConfigSettingField[] {
   const existing = new Set(model.fields.map((field) => field.path));
-  const protocolRequired = adapterProtocolOptions(catalog, model.value.adapter).length > 0;
-  const descriptors = protocolRequired
-    ? catalog.fields.filter((descriptor) => descriptor.path === "llm.models.*.adapter_options.protocol")
-    : [];
+  const optionValue = model.value.adapter_options;
+  const protocol = optionValue && typeof optionValue === "object" && !Array.isArray(optionValue)
+    ? optionValue.protocol
+    : adapterProtocolOptions(catalog, model.value.adapter)[0]?.value;
+  const allowed = adapterOptionKeys(catalog, model.value.adapter, protocol);
+  const descriptors = catalog.fields.filter((descriptor) => {
+    const isAdapterOption = descriptor.path.startsWith("llm.models.*.adapter_options.");
+    const isRequestOverride = descriptor.path.startsWith("llm.models.*.request_overrides.");
+    if (!isAdapterOption && !isRequestOverride) return false;
+    const key = descriptor.path.split(".").pop() ?? "";
+    if (isRequestOverride) return selected.has(key);
+    return allowed.has(key) && (key === "protocol" ? adapterProtocolOptions(catalog, model.value.adapter).length > 0 : selected.has(key));
+  });
   const fields = modelOptionFields(descriptors.map((descriptor) => ({
     path: descriptor.path.replace("llm.models.*", `llm.models.${model.id}`), descriptor,
     sourceId: model.collection.create_source, sourcePath: model.collection.create_source,
     storedValue: defaultForDescriptor(descriptor), effectiveValue: defaultForDescriptor(descriptor),
-    effectiveSource: model.collection.create_source, writable: true, overridden: false,
+    effectiveSource: model.collection.create_source, writable: true, overridden: false, persisted: false,
   })), model, catalog);
   return fields.filter((field) => !existing.has(field.path));
+}
+
+export function missingModelOptionChoices(model: ConfigObject, catalog: ConfigCatalog, selected = new Set<string>()): ConfigSelectOption[] {
+  const optionValue = model.value.adapter_options;
+  const protocol = optionValue && typeof optionValue === "object" && !Array.isArray(optionValue)
+    ? optionValue.protocol
+    : adapterProtocolOptions(catalog, model.value.adapter)[0]?.value;
+  const allowed = adapterOptionKeys(catalog, model.value.adapter, protocol);
+  const existing = new Set(model.fields.map((field) => field.path.split(".").pop() ?? ""));
+  return catalog.fields.flatMap((descriptor) => {
+    const isAdapterOption = descriptor.path.startsWith("llm.models.*.adapter_options.");
+    const isRequestOverride = descriptor.path.startsWith("llm.models.*.request_overrides.");
+    if (!isAdapterOption && !isRequestOverride) return [];
+    const key = descriptor.path.split(".").pop() ?? "";
+    if (key === "protocol" || (isAdapterOption && !allowed.has(key)) || existing.has(key) || selected.has(key)) return [];
+    return [{ value: key, label: descriptor.title }];
+  });
 }
 
 function defaultForDescriptor(descriptor: ConfigFieldDescriptor): JsonValue {

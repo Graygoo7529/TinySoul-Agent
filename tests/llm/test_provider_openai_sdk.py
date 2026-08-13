@@ -21,7 +21,11 @@ from tinysoul.llm.messages import (
     UserMessage,
 )
 from tinysoul.llm.models import ModelCapability, ModelSpec, AdapterOptions
-from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.provider import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderRequest as ProviderRequestModel,
+)
 from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.provider.glm import GlmProviderAdapter
@@ -42,6 +46,45 @@ from tinysoul.llm.tools import (
     ToolSpec,
     ToolUse,
 )
+
+
+def ProviderRequest(
+    *,
+    model: ModelSpec,
+    messages: MessageStack,
+    answer_format: AnswerFormat,
+    tool_use: ToolUse = ToolUse.DISABLED,
+    tool_scope: ToolScope | None = None,
+    prompt_cache: PromptCache | None = None,
+    temperature: float | None = None,
+    max_output_tokens: int | None = None,
+    adapter_options: Mapping[str, object] | None = None,
+    timeout_seconds: float | None = None,
+) -> ProviderRequestModel:
+    """Build direct adapter fixtures with options owned by ModelSpec."""
+
+    if adapter_options is not None:
+        model = ModelSpec(
+            id=model.id,
+            provider_id=model.provider_id,
+            provider_model=model.provider_model,
+            context_window_tokens=model.context_window_tokens,
+            adapter=model.adapter,
+            capabilities=model.capabilities,
+            adapter_options=AdapterOptions(adapter_options),
+            request_overrides=model.request_overrides,
+        )
+    return ProviderRequestModel(
+        model=model,
+        messages=messages,
+        answer_format=answer_format,
+        tool_use=tool_use,
+        tool_scope=tool_scope or ToolScope(),
+        prompt_cache=prompt_cache,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 @dataclass
@@ -2059,6 +2102,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
                 provider_id="minimax",
                 provider_model="MiniMax-M3",
                 context_window_tokens=262_144,
+                adapter=AdapterKind.MINIMAX,
                 capabilities=frozenset(
                     {
                         ModelCapability.TEXT_INPUT,
@@ -2500,6 +2544,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
                 provider_id="kimi",
                 provider_model="text-model",
                 context_window_tokens=262_144,
+                adapter=AdapterKind.KIMI,
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2548,14 +2593,14 @@ def test_adapter_maps_remote_image_url_part() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="openai", provider_model="gpt-5.5"),
+                model=_model(provider_id="generic", provider_model="gpt-5.5"),
             messages=MessageStack.of(
                 UserMessage.from_parts(
                     ImageUrlPart(url="https://example.test/image.png"),
@@ -2712,6 +2757,7 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
         (
             ProviderSpec(
                 id="kimi",
+                adapter=AdapterKind.KIMI,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://api.moonshot.cn/v1",
                 api_key_envs=("KIMI_API_KEY", "MOONSHOT_API_KEY"),
@@ -2756,6 +2802,7 @@ def test_build_provider_registry_uses_deepseek_adapter() -> None:
         (
             ProviderSpec(
                 id="deepseek",
+                adapter=AdapterKind.DEEPSEEK,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://api.deepseek.com",
                 api_key_envs=("DEEPSEEK_API_KEY",),
@@ -2772,6 +2819,7 @@ def test_build_provider_registry_uses_glm_adapter() -> None:
         (
             ProviderSpec(
                 id="glm",
+                adapter=AdapterKind.GLM,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://open.bigmodel.cn/api/paas/v4",
                 api_key_envs=("GLM_API_KEY",),
@@ -2788,6 +2836,7 @@ def test_build_provider_registry_uses_minimax_adapter() -> None:
         (
             ProviderSpec(
                 id="minimax",
+                adapter=AdapterKind.MINIMAX,
                 api_style=ProviderApiStyle.OPENAI_CHAT,
                 base_url="https://api.minimaxi.com/v1",
                 api_key_envs=("MINIMAX_API_KEY",),
@@ -2802,6 +2851,7 @@ def test_build_provider_registry_uses_minimax_adapter() -> None:
 def test_provider_spec_reports_missing_api_key() -> None:
     provider = ProviderSpec(
         id="openai",
+        adapter=AdapterKind.OPENAI,
         api_style=ProviderApiStyle.OPENAI_RESPONSES,
         base_url="https://api.openai.com/v1",
         api_key_envs=("OPENAI_API_KEY",),

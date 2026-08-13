@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
 from tinysoul.llm.cache import PromptCache
+from tinysoul.llm.adapter_types import AdapterKind
 from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.models import ModelSpec
@@ -47,7 +47,6 @@ class ProviderRequest:
     prompt_cache: PromptCache | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
-    adapter_options: Mapping[str, object] | None = None
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
@@ -92,21 +91,11 @@ class ProviderRequest:
             raise LLMContractError(
                 "ProviderRequest.timeout_seconds must be a positive number or None"
             )
-        if self.adapter_options is not None:
-            options: dict[str, object] = {}
-            for key, value in self.adapter_options.items():
-                if not isinstance(key, str):
-                    raise LLMContractError(
-                        "ProviderRequest.adapter_options keys must be strings"
-                    )
-                options[key] = value
-            object.__setattr__(self, "adapter_options", options)
-
-
 class ProviderAdapter(Protocol):
     """Provider adapter protocol."""
 
     provider_id: str
+    adapter_kind: AdapterKind
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         """Invoke a model through this provider."""

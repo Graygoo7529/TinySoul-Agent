@@ -211,6 +211,10 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 - `GET /v1/config`：当前 activity、sources、stored/effective fields 与 Generation 状态；
 - `GET /v1/config/catalog`：Infra 集中维护的 surfaces、field groups、collections、collection identity、
   field title/description、value kind、importance、choices、references 与 credential reference；
+  `rules.llm.adapters` 是 LLM 提供的机器规则投影，每项包含 `id`、`api_style`、
+  `common_option_keys`、`common_options` 和 `protocols`，protocol 项包含 `id`、
+  `option_keys` 与 option value specs。规则只用于计算 adapter/protocol 可用字段，
+  标题、说明和控件语义仍以 Infra field descriptors 为准；
 - `GET /v1/actions/catalog`：当前 Generation 的有效 User Action ID、domain、description 和
   backend kind；
 - `PATCH /v1/config`：一次 source-aware operations 数组，返回时已完成持久化与当前

@@ -12,7 +12,7 @@ from tinysoul.llm.message_rendering import MessageContentRenderer
 from tinysoul.llm.responses import RawResponse
 from tinysoul.llm.tools import DefaultToolCallIdMapper, ToolCallIdMapper
 
-from ..base import ProviderRequest
+from ..base import ProviderError, ProviderErrorKind, ProviderRequest
 from .behavior import OpenAIAdapterBehavior
 from .clients import OpenAIChatCompletionsClient, OpenAIResponsesClient
 from .common import (
@@ -65,7 +65,8 @@ class OpenAIResponsesAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
-        configured_options = request.adapter_options
+        _validate_adapter_identity(self, request)
+        configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)
@@ -139,7 +140,8 @@ class OpenAICompatibleChatAdapter:
         self._renderer = MessageContentRenderer()
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
-        configured_options = request.adapter_options
+        _validate_adapter_identity(self, request)
+        configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
         self._behavior.validate_tools(request)
@@ -192,3 +194,15 @@ __all__ = [
     "OpenAICompatibleChatAdapter",
     "OpenAIResponsesAdapter",
 ]
+
+
+def _validate_adapter_identity(
+    adapter: OpenAIResponsesAdapter | OpenAICompatibleChatAdapter,
+    request: ProviderRequest,
+) -> None:
+    if request.model.adapter is adapter.adapter_kind:
+        return
+    raise ProviderError(
+        "Model adapter does not match provider adapter",
+        kind=ProviderErrorKind.CONFIG,
+    )

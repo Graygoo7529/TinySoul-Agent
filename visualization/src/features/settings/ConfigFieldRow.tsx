@@ -63,7 +63,7 @@ export function ConfigFieldRow({
           saving={saving}
           onCommit={(value) => onCommit(field, value)}
           />
-        {onDelete && field.writable && (
+        {onDelete && field.writable && field.persisted && (
           <IconButton label="Remove option" onClick={() => void onDelete(field)} disabled={!canWrite || saving}>
             <Trash2 size={14} />
           </IconButton>

@@ -378,7 +378,6 @@ class LLMTaskRunner:
                         prompt_cache=call.prompt_cache,
                         temperature=temperature,
                         max_output_tokens=max_output_tokens,
-                        adapter_options=dict(model.adapter_options.values),
                         timeout_seconds=_remaining_seconds(call),
                     ),
                     call,

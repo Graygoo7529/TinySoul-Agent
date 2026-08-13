@@ -16,6 +16,7 @@ import {
   adapterProtocolOptions,
   adapterOptionKeys,
   missingModelOptionFields,
+  missingModelOptionChoices,
   modelOptionFields,
   objectDeletable,
   subtreeDeleteMutations,
@@ -40,13 +41,18 @@ export function ModelsSettingsPage({
   const [selected, setSelected] = useState<string | null>(objects[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const [template, setTemplate] = useState(objects[0]?.id ?? "");
+  const [addedOptions, setAddedOptions] = useState<Set<string>>(new Set());
   const patch = useConfigStore((state) => state.patch);
   const savingPath = useConfigStore((state) => state.savingPath);
   const pushToast = useAppStore((state) => state.pushToast);
   useEffect(() => {
     if (!objects.some((item) => item.id === selected)) setSelected(objects[0]?.id ?? null);
     if (template && !objects.some((item) => item.id === template)) setTemplate(objects[0]?.id ?? "");
+    if (!objects.some((item) => item.id === selected)) setAddedOptions(new Set());
   }, [objects, selected, template]);
+  useEffect(() => {
+    setAddedOptions(new Set());
+  }, [selected]);
   const current = objects.find((item) => item.id === selected) ?? null;
   const canDelete = objectDeletable(current);
   const canWrite = status.activity.can_write && !savingPath;
@@ -103,8 +109,9 @@ export function ModelsSettingsPage({
     await apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Model active");
   };
   const editorFields = current
-    ? [...modelOptionFields(current.fields, current, catalog), ...missingModelOptionFields(current, catalog)]
+    ? [...modelOptionFields(current.fields, current, catalog), ...missingModelOptionFields(current, catalog, addedOptions)]
     : [];
+  const optionChoices = current ? missingModelOptionChoices(current, catalog, addedOptions) : [];
 
   return (
     <>
@@ -137,6 +144,23 @@ export function ModelsSettingsPage({
         }}
       >
         {current && (
+          <>
+          {optionChoices.length > 0 && (
+            <div className="border-b border-line px-5 py-3">
+              <select
+                aria-label="Add model option"
+                value=""
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  setAddedOptions((previous) => new Set(previous).add(event.target.value));
+                }}
+                className={selectClass}
+              >
+                <option value="">Add model option</option>
+                {optionChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+          )}
           <ObjectFieldEditor
             fields={editorFields}
             status={status}
@@ -154,8 +178,14 @@ export function ModelsSettingsPage({
             onDelete={async (field) => {
               if (!field.path.includes(".adapter_options.") && !field.path.includes(".request_overrides.")) return;
               await apply({ source_id: field.sourceId, path: field.path, op: "delete" }, "Model option removed");
+              setAddedOptions((previous) => {
+                const next = new Set(previous);
+                next.delete(field.path.split(".").pop() ?? "");
+                return next;
+              });
             }}
           />
+          </>
         )}
       </ObjectSettingsLayout>
       <CreateObjectModal

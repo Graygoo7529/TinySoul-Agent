@@ -84,12 +84,12 @@ class ModelSpec:
     provider_id: str
     provider_model: str
     context_window_tokens: int
+    adapter: AdapterKind
     capabilities: frozenset[ModelCapability] = field(
         default_factory=lambda: frozenset({ModelCapability.TEXT_INPUT})
     )
     adapter_options: AdapterOptions = field(default_factory=AdapterOptions)
     request_overrides: RequestOverrides = field(default_factory=RequestOverrides)
-    adapter: AdapterKind = AdapterKind.GENERIC
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:

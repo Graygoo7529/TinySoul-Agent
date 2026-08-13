@@ -23,6 +23,7 @@ from tinysoul.llm.models import (
     ModelSpec,
     RequestOverrides,
 )
+from tinysoul.llm.adapter_types import AdapterKind
 from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import (
@@ -65,6 +66,7 @@ from tinysoul.llm.tools import (
 @dataclass
 class FakeProvider:
     provider_id: str
+    adapter_kind: AdapterKind = AdapterKind.GENERIC
     failures: dict[str, int] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
     requests: list[ProviderRequest] = field(default_factory=list)
@@ -554,6 +556,7 @@ def test_runner_reports_chain_head_capabilities_by_default() -> None:
         provider_id="fake",
         provider_model="vision-model",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -662,6 +665,7 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
         provider_id="fake",
         provider_model="a",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     runner = LLMTaskRunner(
@@ -707,6 +711,7 @@ def test_runner_skips_model_missing_call_capability() -> None:
         provider_id="fake",
         provider_model="text",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     vision_model = ModelSpec(
@@ -714,6 +719,7 @@ def test_runner_skips_model_missing_call_capability() -> None:
         provider_id="fake",
         provider_model="vision",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -785,6 +791,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
         provider_id="fake",
         provider_model="a",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -823,7 +830,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     request = provider.requests[0]
     assert request.temperature == pytest.approx(0.6)
     assert request.max_output_tokens == 1024
-    assert request.adapter_options == {"thinking": "enabled"}
+    assert request.model.adapter_options.values == {"thinking": "enabled"}
 
 
 def test_runner_applies_model_request_overrides_after_call_settings() -> None:
@@ -833,6 +840,7 @@ def test_runner_applies_model_request_overrides_after_call_settings() -> None:
         provider_id="fake",
         provider_model="a",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -907,6 +915,7 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
         provider_id="fake",
         provider_model="tool-model",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -939,6 +948,7 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
         provider_id="fake",
         provider_model="tool-model",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -981,6 +991,7 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
         provider_id="fake",
         provider_model="tool-model",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1044,6 +1055,7 @@ def test_runner_interprets_tool_call_output() -> None:
         provider_id="fake",
         provider_model="tool-model",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1298,6 +1310,7 @@ def test_runner_reports_unknown_provider_as_contract_violation() -> None:
         provider_id="missing",
         provider_model="model-a",
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1337,6 +1350,7 @@ def _models(*ids: str) -> ModelRegistry:
                 provider_id="fake",
                 provider_model=model_id,
                 context_window_tokens=262_144,
+                adapter=AdapterKind.GENERIC,
                 capabilities=capabilities,
             )
             for model_id in ids
@@ -1358,6 +1372,7 @@ def _window_models(*items: tuple[str, int]) -> ModelRegistry:
                 provider_id="fake",
                 provider_model=model_id,
                 context_window_tokens=window,
+                adapter=AdapterKind.GENERIC,
                 capabilities=capabilities,
             )
             for model_id, window in items
@@ -1398,4 +1413,3 @@ def _json_output(result: TaskResult) -> JsonObject:
     if not isinstance(result.answer, JsonAnswer):
         raise AssertionError("Expected JSON answer")
     return result.answer.value
-

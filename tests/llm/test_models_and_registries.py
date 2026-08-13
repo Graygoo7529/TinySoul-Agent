@@ -7,7 +7,7 @@ import pytest
 
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import AdapterKind, ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import MessageStack, UserMessage
 from tinysoul.llm.model_chain import ModelChain, TaskSpec
 from tinysoul.llm.models import (
@@ -59,6 +59,7 @@ def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:
             provider_id="fake",
             provider_model="model",
             context_window_tokens=262_144,
+            adapter=AdapterKind.GENERIC,
         )
 
     with pytest.raises(LLMContractError):
@@ -67,6 +68,7 @@ def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:
             provider_id="fake",
             provider_model="model",
             context_window_tokens=0,
+            adapter=AdapterKind.GENERIC,
         )
 
     with pytest.raises(LLMContractError):
@@ -75,6 +77,7 @@ def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:
             provider_id="fake",
             provider_model="model",
             context_window_tokens=262_144,
+            adapter=AdapterKind.GENERIC,
             capabilities=cast(frozenset[ModelCapability], frozenset({"text_input"})),
         )
 
@@ -83,6 +86,7 @@ def test_provider_spec_rejects_invalid_identity_and_key_envs() -> None:
     with pytest.raises(LLMContractError):
         ProviderSpec(
             id="",
+            adapter=AdapterKind.GENERIC,
             api_style=ProviderApiStyle.OPENAI_CHAT,
             base_url="https://example.test/v1",
             api_key_envs=("API_KEY",),
@@ -91,6 +95,7 @@ def test_provider_spec_rejects_invalid_identity_and_key_envs() -> None:
     with pytest.raises(LLMContractError):
         ProviderSpec(
             id="fake",
+            adapter=AdapterKind.GENERIC,
             api_style=ProviderApiStyle.OPENAI_CHAT,
             base_url="https://example.test/v1",
             api_key_envs=(),
@@ -160,6 +165,7 @@ def test_llm_request_models_validate_direct_construction() -> None:
 @dataclass
 class FakeProvider:
     provider_id: str
+    adapter_kind: AdapterKind = AdapterKind.GENERIC
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         return RawResponse(
@@ -175,4 +181,5 @@ def _model(model_id: str) -> ModelSpec:
         provider_id="fake",
         provider_model=model_id,
         context_window_tokens=262_144,
+        adapter=AdapterKind.GENERIC,
     )

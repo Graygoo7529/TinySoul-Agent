@@ -4,21 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
-
 from tinysoul.infra.config import ConfigError
 
+from .adapter import adapter_spec
 from .errors import LLMContractError
-from .adapter_types import AdapterKind
+from .adapter_types import AdapterKind, ProviderApiStyle
 from .model_chain import TaskSpecTable
 from .models import ModelRegistry
-
-
-class ProviderApiStyle(StrEnum):
-    """Supported provider API styles."""
-
-    OPENAI_CHAT = "openai_chat"
-    OPENAI_RESPONSES = "openai_responses"
 
 
 @dataclass(frozen=True)
@@ -29,7 +21,7 @@ class ProviderSpec:
     api_style: ProviderApiStyle
     base_url: str
     api_key_envs: tuple[str, ...]
-    adapter: AdapterKind = AdapterKind.GENERIC
+    adapter: AdapterKind
     enabled: bool = True
 
     def __post_init__(self) -> None:
@@ -57,18 +49,7 @@ class ProviderSpec:
                     "ProviderSpec.api_key_envs must contain non-empty strings"
                 )
         object.__setattr__(self, "api_key_envs", api_key_envs)
-        expected_style = {
-            AdapterKind.OPENAI: ProviderApiStyle.OPENAI_RESPONSES,
-            AdapterKind.KIMI: ProviderApiStyle.OPENAI_CHAT,
-            AdapterKind.DEEPSEEK: ProviderApiStyle.OPENAI_CHAT,
-            AdapterKind.GLM: ProviderApiStyle.OPENAI_CHAT,
-            AdapterKind.MINIMAX: ProviderApiStyle.OPENAI_CHAT,
-        }.get(self.adapter)
-        if expected_style is not None and self.api_style is not expected_style:
-            raise LLMContractError(
-                f"Provider adapter '{self.adapter.value}' requires "
-                f"API style '{expected_style.value}'"
-            )
+        adapter_spec(self.adapter).validate_api_style(self.api_style)
 
     def resolve_api_key(self, values: Mapping[str, str]) -> str:
         for name in self.api_key_envs:
