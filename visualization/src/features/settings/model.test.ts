@@ -11,6 +11,7 @@ import {
   pathMatches,
   subtreeDeleteMutations,
   surfaceFields,
+  taskChainUsage,
   validObjectId,
 } from "./model";
 
@@ -38,6 +39,52 @@ describe("settings catalog projection", () => {
       "Phase2 Task Chain",
     ]);
     expect(fields.every((field) => field.descriptor.value_kind === "reference")).toBe(true);
+  });
+
+  it("projects combined task-chain usage without inventing unbound state", () => {
+    const current = status();
+    current.fields["loop.cycle.phase1_task_profile"] = {
+      value: "shared",
+      source: "project:configs/loop.toml",
+      writable: true,
+    };
+    current.fields["loop.cycle.phase2_task_profile"] = {
+      value: "framework",
+      source: "project:configs/loop.toml",
+      writable: true,
+    };
+    current.fields["action.llm_action.default_task_profile"] = {
+      value: "shared",
+      source: "project:configs/action.toml",
+      writable: true,
+    };
+    current.fields["action.llm_action.overrides"] = {
+      value: [
+        { action_id: "core.answer", task_profile: "shared" },
+        { action_id: "workspace.edit", task_profile: "editing" },
+      ],
+      source: "project:configs/action.toml",
+      writable: true,
+    };
+
+    expect(taskChainUsage(current)).toEqual(new Map([
+      ["shared", {
+        cyclePhases: ["Phase1"],
+        actionDefault: true,
+        actionOverrides: ["core.answer"],
+      }],
+      ["framework", {
+        cyclePhases: ["Phase2"],
+        actionDefault: false,
+        actionOverrides: [],
+      }],
+      ["editing", {
+        cyclePhases: [],
+        actionDefault: false,
+        actionOverrides: ["workspace.edit"],
+      }],
+    ]));
+    expect(taskChainUsage(current).has("unused")).toBe(false);
   });
 
   it("derives collection objects from the shared status facts", () => {

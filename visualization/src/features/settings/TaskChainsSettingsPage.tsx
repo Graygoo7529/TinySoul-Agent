@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, GripVertical, Plus, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowDown, ArrowUp, GripVertical, Plus, RefreshCw, Route, Workflow, X } from "lucide-react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
-import type { ConfigCatalog, ConfigMutation, ConfigStatus, JsonValue } from "../../types";
+import type { ActionCatalog, ConfigCatalog, ConfigMutation, ConfigStatus, JsonValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
+import { ActionRoutingPanel } from "./ActionRoutingPanel";
+import { ConfigSettingsPage } from "./ConfigSettingsPage";
 import { CreateObjectModal } from "./CreateObjectModal";
 import { ObjectFieldEditor } from "./ObjectFieldEditor";
 import { ObjectSettingsLayout } from "./ObjectSettingsLayout";
@@ -16,13 +19,52 @@ import {
   configObjects,
   objectDeletable,
   subtreeDeleteMutations,
+  taskChainUsage,
   type ConfigSettingField,
+  type TaskChainUsage,
 } from "./model";
 
 const selectClass =
   "focus-ring h-8 rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent";
 
 export function TaskChainsSettingsPage({
+  client,
+  status,
+  catalog,
+  actions,
+}: {
+  client: TinySoulClient;
+  status: ConfigStatus;
+  catalog: ConfigCatalog;
+  actions: ActionCatalog;
+}) {
+  const [section, setSection] = useState<"chains" | "cycle" | "action">("chains");
+
+  return (
+    <div>
+      <div role="tablist" aria-label="Task chain settings" className="flex gap-1 border-b border-line bg-bg-sunken/30 px-4 py-2">
+        <TaskChainTab active={section === "chains"} onSelect={() => setSection("chains")}>
+          <Workflow size={14} /> Chains
+        </TaskChainTab>
+        <TaskChainTab active={section === "cycle"} onSelect={() => setSection("cycle")}>
+          <RefreshCw size={14} /> Cycle Routing
+        </TaskChainTab>
+        <TaskChainTab active={section === "action"} onSelect={() => setSection("action")}>
+          <Route size={14} /> Action Routing
+        </TaskChainTab>
+      </div>
+      {section === "chains" ? (
+        <TaskChainDefinitionsPanel client={client} status={status} catalog={catalog} />
+      ) : section === "cycle" ? (
+        <ConfigSettingsPage client={client} status={status} catalog={catalog} surface="cycle_routing" />
+      ) : (
+        <ActionRoutingPanel client={client} status={status} catalog={catalog} actions={actions} />
+      )}
+    </div>
+  );
+}
+
+function TaskChainDefinitionsPanel({
   client,
   status,
   catalog,
@@ -34,27 +76,7 @@ export function TaskChainsSettingsPage({
   const collection = collectionFor(catalog, "llm.tasks");
   const objects = configObjects(status, catalog, collection.id);
   const models = configObjects(status, catalog, "llm.models");
-  const overrideField = status.fields["action.llm_action.overrides"]?.value;
-  const phaseProfiles = [
-    { label: "Phase1", value: status.fields["loop.cycle.phase1_task_profile"]?.value },
-    { label: "Phase2", value: status.fields["loop.cycle.phase2_task_profile"]?.value },
-  ].flatMap((entry) =>
-    typeof entry.value === "string" ? [{ label: entry.label, value: entry.value }] : [],
-  );
-  const cycleBindings = new Map<string, string[]>();
-  phaseProfiles.forEach(({ label, value }) => {
-    cycleBindings.set(value, [...(cycleBindings.get(value) ?? []), label]);
-  });
-  const boundProfiles = new Set(
-    Array.isArray(overrideField)
-      ? overrideField.flatMap((item) =>
-          item && !Array.isArray(item) && typeof item === "object" && typeof item.task_profile === "string"
-            ? [item.task_profile]
-            : [],
-        )
-      : [],
-  );
-  phaseProfiles.forEach(({ value }) => boundProfiles.add(value));
+  const usage = taskChainUsage(status);
   const [selected, setSelected] = useState<string | null>(objects[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const [initialModel, setInitialModel] = useState(models[0]?.id ?? "");
@@ -109,13 +131,7 @@ export function TaskChainsSettingsPage({
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const count = Array.isArray(item?.value.models) ? item.value.models.length : 0;
-          const bindings = [...(cycleBindings.get(id) ?? [])];
-          if (status.fields["action.llm_action.default_task_profile"]?.value === id && !bindings.includes("Action")) {
-            bindings.push("Action");
-          }
-          if (boundProfiles.has(id) && !bindings.length) bindings.push("Action");
-          const binding = bindings.length > 0 ? bindings.join(" + ") : "Unbound";
-          return `${count} models · ${binding}`;
+          return taskChainSummary(count, usage.get(id));
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
@@ -218,6 +234,43 @@ export function TaskChainsSettingsPage({
       </CreateObjectModal>
     </>
   );
+}
+
+function TaskChainTab({
+  active,
+  onSelect,
+  children,
+}: {
+  active: boolean;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onSelect}
+      className={`flex h-8 items-center gap-2 rounded-md px-3 text-[12px] font-medium ${active ? "bg-active text-accent" : "text-fg-muted hover:bg-hover"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function taskChainSummary(
+  modelCount: number,
+  usage: TaskChainUsage | undefined,
+): string {
+  const parts = [`${modelCount} ${modelCount === 1 ? "model" : "models"}`];
+  if (!usage) return parts[0];
+  parts.push(...usage.cyclePhases);
+  if (usage.actionDefault) parts.push("Action default");
+  if (usage.actionOverrides.length > 0) {
+    const count = usage.actionOverrides.length;
+    parts.push(`${count} Action ${count === 1 ? "override" : "overrides"}`);
+  }
+  return parts.join(" · ");
 }
 
 function ModelOrderRow({

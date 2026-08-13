@@ -14,8 +14,6 @@ export type SettingsPageId =
   | "providers"
   | "models"
   | "task_chains"
-  | "cycle_routing"
-  | "action_routing"
   | "capabilities.web"
   | "capabilities.resource"
   | "capabilities.execution"
@@ -62,6 +60,12 @@ export interface ConfigSelectOption {
   disabled?: boolean;
 }
 
+export interface TaskChainUsage {
+  cyclePhases: Array<"Phase1" | "Phase2">;
+  actionDefault: boolean;
+  actionOverrides: string[];
+}
+
 export interface CredentialSetting {
   name: string;
   value: string;
@@ -74,8 +78,6 @@ export const pageSurface: Partial<Record<SettingsPageId, string>> = {
   providers: "providers",
   models: "models",
   task_chains: "task_chains",
-  cycle_routing: "cycle_routing",
-  action_routing: "action_routing",
   "capabilities.web": "capabilities.web",
   "capabilities.resource": "capabilities.resource",
   "capabilities.execution": "capabilities.execution",
@@ -88,6 +90,41 @@ export const pageSurface: Partial<Record<SettingsPageId, string>> = {
   maintenance: "maintenance",
   infrastructure: "infrastructure",
 };
+
+export function taskChainUsage(status: ConfigStatus): Map<string, TaskChainUsage> {
+  const usage = new Map<string, TaskChainUsage>();
+  const forProfile = (profile: JsonValue | undefined): TaskChainUsage | null => {
+    if (typeof profile !== "string" || profile.length === 0) return null;
+    const current = usage.get(profile) ?? {
+      cyclePhases: [],
+      actionDefault: false,
+      actionOverrides: [],
+    };
+    usage.set(profile, current);
+    return current;
+  };
+
+  const phase1 = forProfile(status.fields["loop.cycle.phase1_task_profile"]?.value);
+  if (phase1) phase1.cyclePhases.push("Phase1");
+  const phase2 = forProfile(status.fields["loop.cycle.phase2_task_profile"]?.value);
+  if (phase2) phase2.cyclePhases.push("Phase2");
+
+  const actionDefault = forProfile(
+    status.fields["action.llm_action.default_task_profile"]?.value,
+  );
+  if (actionDefault) actionDefault.actionDefault = true;
+
+  const overrides = status.fields["action.llm_action.overrides"]?.value;
+  if (Array.isArray(overrides)) {
+    for (const item of overrides) {
+      if (!item || Array.isArray(item) || typeof item !== "object") continue;
+      if (typeof item.action_id !== "string") continue;
+      const route = forProfile(item.task_profile);
+      if (route) route.actionOverrides.push(item.action_id);
+    }
+  }
+  return usage;
+}
 
 export function surfaceFields(
   status: ConfigStatus,

@@ -24,7 +24,7 @@ interface ActionRoute extends Record<string, JsonValue> {
 const selectClass =
   "focus-ring h-8 rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent disabled:opacity-50";
 
-export function ActionRoutingSettingsPage({
+export function ActionRoutingPanel({
   client,
   status,
   catalog,

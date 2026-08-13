@@ -59,7 +59,7 @@ MaintenanceBuilder 现有的 `loop_settings` 参数应实际用于共享 Cycle �
 
 ### Visualization 配置体验
 
-在 Models & Routing 下增加 `Cycle Routing` 页面，展示两个引用选择器：Phase1 Task Chain、Phase2 Task Chain。Task Chains 页面继续编辑 profile 的模型顺序和调用策略，并显示 profile 是否被 Cycle Phase 或 Action route 使用。所有字段标题、分组和说明均来自 Infra catalog，不在 Loop 或前端硬编码描述。
+Task Chains 页面使用 Chains、Cycle Routing、Action Routing 三个局部入口。Cycle Routing 展示两个引用选择器：Phase1 Task Chain、Phase2 Task Chain；Chains 继续编辑 profile 的模型顺序和调用策略，并显示 profile 是否被 Cycle Phase 或 Action route 使用。所有字段标题、分组和说明均来自 Infra catalog，不在 Loop 或前端硬编码描述。
 
 不新增 endpoint：现有配置状态/catalog 查询和 `PATCH /v1/config` 已能完成引用选择、持久化和 generation 激活。
 
@@ -86,7 +86,7 @@ MaintenanceBuilder 现有的 `loop_settings` 参数应实际用于共享 Cycle �
    - 同步 `docs/design/loop.md` 与 `docs/design/llm.md` 的实现语义。
 
 5. **Visualization**
-   - 增加 Cycle Routing 导航和页面映射。
+   - 在 Task Chains 页面内增加 Cycle Routing 局部入口。
    - 在 Task Chains 页面聚合 Cycle/Action 引用状态。
    - 复用通用 reference 控件和运行时只读状态。
 
@@ -102,7 +102,7 @@ MaintenanceBuilder 现有的 `loop_settings` 参数应实际用于共享 Cycle �
 - [x] User Turn 与所有 Maintenance Turn 通过 `build_turn_kernel()` 使用同一组 Cycle 路由。
 - [x] App 在配置计划编译阶段校验 profile 引用，并保留 Loop source provenance 与 RuntimeLoopBridge 映射。
 - [x] Standard/Development `loop.toml`、Infra catalog、Loop/LLM design 文档已同步。
-- [x] Visualization 增加 Cycle Routing 页面入口，并在 Task Chains 页面聚合 Cycle/Action 引用状态。
+- [x] Visualization 在 Task Chains 页面内提供 Cycle/Action Routing 局部入口，并聚合两类引用状态。
 - [x] 后端 Loop/App/Infra 聚焦测试通过，TypeScript 类型检查通过。
 - [x] Visualization Vitest/Vite 完整命令已尝试；当前 `node_modules/.pnpm` 文件访问 `EPERM` 阻断属于本地依赖文件权限，不是本轮源码诊断结果。新增 settings projection 测试和 TypeScript 类型检查已通过。
 

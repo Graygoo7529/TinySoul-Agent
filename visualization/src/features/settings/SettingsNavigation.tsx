@@ -15,7 +15,6 @@ import {
   KeyRound,
   Library,
   Network,
-  Route,
   ServerCog,
   SlidersHorizontal,
   Workflow,
@@ -45,8 +44,6 @@ const groups: { label: string; items: NavigationItem[] }[] = [
       { id: "providers", label: "Providers", icon: Network, requiresConnection: true },
       { id: "models", label: "Models", icon: Bot, requiresConnection: true },
       { id: "task_chains", label: "Task Chains", icon: Workflow, requiresConnection: true },
-      { id: "cycle_routing", label: "Cycle Routing", icon: Route, requiresConnection: true },
-      { id: "action_routing", label: "Action Routing", icon: Route, requiresConnection: true },
     ],
   },
   {

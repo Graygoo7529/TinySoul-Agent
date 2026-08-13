@@ -17,14 +17,15 @@ credential reference 全部来自 `GET /v1/config/catalog`。前端不得按 dot
 
 ```text
 GENERAL             Overview · Application · Credentials
-MODELS & ROUTING    Providers · Models · Task Chains · Action Routing
+MODELS & ROUTING    Providers · Models · Task Chains
 CAPABILITIES        Web · Resource · Execution
 CONTEXT             Home · Session · Memory · Workspace · Context Rules
 RUNTIME             Behavior · Maintenance · Infrastructure
 ```
 
-Infrastructure 页面内部提供 System/Embedding 局部入口。窄屏先选择栏目，再横向选择该栏子页；
-不建立第二列侧栏。Application 未连接时仍可用，其余项目页面禁用。
+Task Chains 页面内部提供 Chains/Cycle Routing/Action Routing 局部入口；Infrastructure 页面内部
+提供 System/Embedding 局部入口。窄屏先选择栏目，再横向选择该栏子页；不建立第二列侧栏。
+Application 未连接时仍可用，其余项目页面禁用。
 
 ## 状态与刷新
 
@@ -58,8 +59,10 @@ Provider、Model、Task Chain 不是前端状态实体，只是 catalog collecti
   `adapter` 由后端按新 Generation 解释，前端不隐式修改或删除这两个对象。若 adapter 不兼容，
   PATCH 失败并保留当前编辑 draft 与已激活配置。
 - Task Chain 新建至少选择一个 Model；models 禁止重复或为空，支持拖放与上下移动图标，写回
-  完整有序数组。未被 default/override 使用时显示 Unbound。
-- Action Routing 顶部编辑 default profile；override 只能选择当前 Action catalog 中
+  完整有序数组。列表摘要分别显示 Cycle Phase、Action default 和 Action override 数量；没有任何
+  路由引用的 chain 只显示模型数量，不把合法闲置定义标记为错误状态。
+- Cycle Routing 编辑 User Turn 与所有 Maintenance Turn 共享的 Phase1/Phase2 task profile 引用。
+- Action Routing 编辑 default profile；override 只能选择当前 Action catalog 中
   `backend_kind=llm_action` 的 Action 和当前 Task Chain。删除 override 自动回退 default。
 
 创建/替换对完整 object root 执行 `set`，删除执行 `delete`。Provider 和 Task Chain 使用 catalog

@@ -5,7 +5,6 @@ import { IconButton } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
-import { ActionRoutingSettingsPage } from "./ActionRoutingSettingsPage";
 import { ApplicationSettingsPage } from "./ApplicationSettingsPage";
 import { ConfigSettingsPage } from "./ConfigSettingsPage";
 import { CredentialsSettingsPage } from "./CredentialsSettingsPage";
@@ -113,9 +112,7 @@ export function SettingsPage({
           ) : page === "models" ? (
             <ModelsSettingsPage client={client} status={status} catalog={catalog} />
           ) : page === "task_chains" ? (
-            <TaskChainsSettingsPage client={client} status={status} catalog={catalog} />
-          ) : page === "action_routing" ? (
-            <ActionRoutingSettingsPage
+            <TaskChainsSettingsPage
               client={client}
               status={status}
               catalog={catalog}
