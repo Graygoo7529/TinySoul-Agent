@@ -6,6 +6,7 @@ import pytest
 
 from tinysoul.app.initializer import ProjectConfigProfile, ProjectInitializer
 from tinysoul.infra.config import ConfigEnvironment, load_config_catalog
+from tinysoul.infra.config.catalog import ConfigCollectionDeletePolicy
 from tinysoul.llm.config_types import ProviderAdapterKind, ProviderApiStyle
 from tinysoul.llm.responses import AnswerFormat
 from tinysoul.llm.tools import ToolUse
@@ -56,8 +57,13 @@ def test_config_catalog_declares_controlled_model_creation_source() -> None:
     )
 
     assert model_collection.create_source == "project:configs/llm/models/custom.toml"
+    assert (
+        model_collection.delete_policy
+        is ConfigCollectionDeletePolicy.CREATE_SOURCE_ONLY
+    )
     assert model_collection.root == "llm.models"
     assert model_collection.identity.title == "Model ID"
+    assert model_collection.to_json()["delete_policy"] == "create_source_only"
 
 
 def test_config_catalog_owns_field_group_presentation() -> None:

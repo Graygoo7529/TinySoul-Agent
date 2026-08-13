@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 
 import type { ConfigFieldDescriptor, JsonValue } from "../../types";
 import { IconButton } from "../../components/ui/Button";
+import type { ConfigSelectOption } from "./model";
 
 const inputClass =
   "focus-ring w-full rounded-lg border border-line bg-bg-elev px-2.5 text-[13px] outline-none transition-colors focus:border-accent disabled:cursor-not-allowed disabled:opacity-50";
@@ -13,14 +14,14 @@ export function ConfigValueControl({
   saving,
   onCommit,
   descriptor,
-  referenceOptions = [],
+  selectOptions = [],
 }: {
   value: JsonValue;
   disabled: boolean;
   saving: boolean;
   onCommit: (value: JsonValue) => Promise<void>;
   descriptor?: ConfigFieldDescriptor;
-  referenceOptions?: string[];
+  selectOptions?: ConfigSelectOption[];
 }) {
   const [draft, setDraft] = useState(() => serializeValue(value));
   const [invalid, setInvalid] = useState(false);
@@ -53,10 +54,10 @@ export function ConfigValueControl({
     );
   }
 
-  const selectOptions = descriptor?.choices?.map((choice) => ({
+  const options: ConfigSelectOption[] = descriptor?.choices?.map((choice) => ({
     value: choice.value,
     label: choice.label,
-  })) ?? referenceOptions.map((item) => ({ value: item, label: item }));
+  })) ?? selectOptions;
   if (
     typeof value === "string" &&
     (descriptor?.value_kind === "enum" || descriptor?.value_kind === "reference")
@@ -70,8 +71,10 @@ export function ConfigValueControl({
         className={`${inputClass} h-8 max-w-[420px]`}
       >
         {descriptor.value_kind === "reference" && !value && <option value="">Select…</option>}
-        {selectOptions.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value} disabled={option.disabled}>
+            {option.label}
+          </option>
         ))}
       </select>
     );

@@ -62,8 +62,8 @@ Endpoint 提供以下配置协议入口：
   Infra `ConfigController` 从 effective fields 按 dotted key 前缀筛选，不引入 owner descriptor
   或第二套业务配置 schema；字段的业务解释和可编辑布局仍由各模块及前端负责。
 - `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、field groups、collections 和
-  fields。collection 提供对象 identity 文案，field 通过显式 group 归属到同一 surface。它只
-  表达展示元数据与受控创建 source，不返回当前值、前端 navigation 或 revision；当前事实仍
+  fields。collection 提供对象 identity、受控创建 source 和设置页删除策略，field 通过显式 group
+  归属到同一 surface。它只表达展示元数据，不返回当前值、前端 navigation 或 revision；当前事实仍
   只来自 `GET /v1/config`。
 - `GET /v1/actions/catalog` 在 RuntimeHandle read lease 下读取当前 Generation 的 User Action
   有限投影，返回 Action ID、domain、description 和 backend kind。Endpoint 不扫描 package
@@ -77,6 +77,11 @@ Provider、Model 和 Task Chain 的创建/替换对 collection object root 使�
 root 使用 `delete`。Action overrides 与 Task Chain 排序提交完整数组，TOML writer 使用 inline
 table 保持结构化 round trip。Backend 不额外提供 config object endpoint，前端用 catalog
 collection descriptor 与 ConfigStatus 动态枚举对象。
+
+Collection 删除策略不是 Endpoint 权限协议。设置页对 Model 使用 `create_source_only`，只为完全定义
+在 `configs/llm/models/custom.toml` 的 Custom Model 显示删除命令；内置或跨 source Model 不显示该
+命令。直接 `PATCH /v1/config` 仍可修改或删除任意可写 project TOML，由可信配置者负责最终配置意图，
+候选 parser 与 Generation 重建只校验修改后的完整配置是否成立。
 
 所有配置修改统一要求 Runtime activity 为 `idle`；User Turn、Maintenance Turn、每日切换或
 已有激活期间返回 `409 config.activation_unavailable`，不提供字段级 currently_writable 或

@@ -2,7 +2,11 @@ import { Badge } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { ConfigFieldRow } from "./ConfigFieldRow";
-import { groupSurfaceFields, type ConfigSettingField } from "./model";
+import {
+  groupSurfaceFields,
+  type ConfigSelectOption,
+  type ConfigSettingField,
+} from "./model";
 
 export function ObjectFieldEditor({
   fields,
@@ -11,6 +15,7 @@ export function ObjectFieldEditor({
   canWrite,
   savingPath,
   onCommit,
+  selectOptions,
 }: {
   fields: ConfigSettingField[];
   status: ConfigStatus;
@@ -18,6 +23,7 @@ export function ObjectFieldEditor({
   canWrite: boolean;
   savingPath: string | null;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
+  selectOptions?: (field: ConfigSettingField) => ConfigSelectOption[] | undefined;
 }) {
   const primary = fields.filter((field) => field.descriptor.importance === "primary" && field.writable);
   const advanced = fields.filter((field) => field.descriptor.importance === "advanced" && field.writable);
@@ -43,6 +49,7 @@ export function ObjectFieldEditor({
                 canWrite={canWrite && writable}
                 saving={savingPath === field.path}
                 onCommit={onCommit}
+                selectOptions={selectOptions?.(field)}
               />
             ))}
           </div>

@@ -11,6 +11,7 @@ import {
   cloneJson,
   collectionFor,
   configObjects,
+  objectDeletable,
   subtreeDeleteMutations,
   type ConfigSettingField,
 } from "./model";
@@ -35,6 +36,7 @@ export function ProvidersSettingsPage({
     if (!objects.some((item) => item.id === selected)) setSelected(objects[0]?.id ?? null);
   }, [objects, selected]);
   const current = objects.find((item) => item.id === selected) ?? null;
+  const canDelete = objectDeletable(current);
   const canWrite = status.activity.can_write && !savingPath;
 
   const apply = async (mutation: Parameters<typeof patch>[1], success: string) => {
@@ -60,7 +62,8 @@ export function ProvidersSettingsPage({
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
         addDisabled={!canWrite || !collection.allow_create}
-        deleteDisabled={!canWrite || !collection.allow_delete}
+        deleteDisabled={!canWrite || !canDelete}
+        showDelete={canDelete}
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const adapter = item?.value.adapter;
@@ -74,7 +77,7 @@ export function ProvidersSettingsPage({
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
-          if (!item || !collection.allow_delete || !window.confirm(`Delete provider '${id}'?`)) return;
+          if (!objectDeletable(item ?? null) || !window.confirm(`Delete provider '${id}'?`)) return;
           const mutations = subtreeDeleteMutations(status, `${collection.root}.${id}`);
           if (mutations.length > 0) void apply(mutations, "Provider deleted");
         }}

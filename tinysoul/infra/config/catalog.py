@@ -20,6 +20,12 @@ class ConfigFieldImportance(StrEnum):
     ADVANCED = "advanced"
 
 
+class ConfigCollectionDeletePolicy(StrEnum):
+    ALL = "all"
+    CREATE_SOURCE_ONLY = "create_source_only"
+    NONE = "none"
+
+
 class ConfigValueKind(StrEnum):
     BOOLEAN = "boolean"
     INTEGER = "integer"
@@ -179,7 +185,7 @@ class ConfigCollectionDescriptor:
     create_source: str
     create_template: JsonObject
     allow_create: bool = True
-    allow_delete: bool = True
+    delete_policy: ConfigCollectionDeletePolicy = ConfigCollectionDeletePolicy.ALL
 
     def __post_init__(self) -> None:
         _require_identifier(self.id, "collection.id")
@@ -194,8 +200,10 @@ class ConfigCollectionDescriptor:
         if not isinstance(self.identity, ConfigCollectionIdentityDescriptor):
             raise ConfigCatalogError("Configuration collection identity is invalid")
         _require_identifier(self.create_source, "collection.create_source")
-        if not isinstance(self.allow_create, bool) or not isinstance(self.allow_delete, bool):
-            raise ConfigCatalogError("Configuration collection flags must be booleans")
+        if not isinstance(self.allow_create, bool):
+            raise ConfigCatalogError("Configuration collection allow_create must be boolean")
+        if not isinstance(self.delete_policy, ConfigCollectionDeletePolicy):
+            raise ConfigCatalogError("Configuration collection delete policy is invalid")
         object.__setattr__(self, "create_template", dict(self.create_template))
 
     def to_json(self) -> JsonObject:
@@ -209,7 +217,7 @@ class ConfigCollectionDescriptor:
             "create_source": self.create_source,
             "create_template": dict(self.create_template),
             "allow_create": self.allow_create,
-            "allow_delete": self.allow_delete,
+            "delete_policy": self.delete_policy.value,
         }
 
 
@@ -372,7 +380,7 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
         "create_source",
         "create_template",
         "allow_create",
-        "allow_delete",
+        "delete_policy",
     }
     for item in _table_list(value, "collection", source):
         _reject_unknown(item, allowed, source)
@@ -381,6 +389,19 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
             raise ConfigCatalogError(
                 f"Configuration collection template must be a table: {source}"
             )
+        try:
+            delete_policy = ConfigCollectionDeletePolicy(
+                _optional_string(
+                    item,
+                    "delete_policy",
+                    ConfigCollectionDeletePolicy.ALL.value,
+                    source,
+                )
+            )
+        except ValueError as exc:
+            raise ConfigCatalogError(
+                f"Configuration collection delete policy is invalid: {source}"
+            ) from exc
         result.append(
             ConfigCollectionDescriptor(
                 id=_string(item, "id", source),
@@ -392,7 +413,7 @@ def _parse_collections(value: object, source: str) -> list[ConfigCollectionDescr
                 create_source=_string(item, "create_source", source),
                 create_template=cast(JsonObject, to_json_value(template)),
                 allow_create=_boolean(item, "allow_create", True, source),
-                allow_delete=_boolean(item, "allow_delete", True, source),
+                delete_policy=delete_policy,
             )
         )
     return result

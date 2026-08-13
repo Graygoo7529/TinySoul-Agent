@@ -99,6 +99,7 @@ description = "A reusable API endpoint and adapter configuration referenced by m
 identity = { title = "Provider ID", description = "Stable provider connection identifier referenced by models; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/providers.toml"
 create_template = { enabled = false, adapter = "generic", api_style = "openai_chat", base_url = "https://api.example.com/v1", api_key_envs = ["PROVIDER_API_KEY"] }
+delete_policy = "all"
 
 [[collection]]
 id = "llm.models"
@@ -109,6 +110,7 @@ description = "A provider model with TinySoul-visible capabilities and request o
 identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/models/custom.toml"
 create_template = { provider = "", provider_model = "", context_window_tokens = 262144, capabilities = ["text_input"] }
+delete_policy = "create_source_only"
 
 [[collection]]
 id = "llm.tasks"
@@ -119,6 +121,7 @@ description = "An ordered model chain and call policy selected by a stable task 
 identity = { title = "Task Chain ID", description = "Stable task profile identifier used by framework tasks and Action routes; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/tasks.toml"
 create_template = { models = [], required_capabilities = ["text_input"], answer_format = "json_object", tool_use = "disabled", temperature = 0.3, max_output_tokens = 2048, max_retries_per_model = 2, retry_wait_seconds = 1.0, switch_wait_seconds = 2.0, max_cycles = 10, prefer_successful_model_seconds = 600.0 }
+delete_policy = "all"
 
 [[field]]
 path = "llm.providers.*.enabled"

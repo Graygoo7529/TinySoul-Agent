@@ -188,7 +188,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 Model 以四项边界清晰的事实参与调用：Provider 引用选择 endpoint、凭据、API style 与 adapter；`provider_model` 表达该 endpoint 的真实模型名；capabilities 表达路由可依赖的能力；`adapter_options` 与 `request_overrides` 是两个同级对象。`AdapterOptions` 只承载由所选 adapter 解释的模型级选项，例如推理协议、缓存和供应商扩展参数。`RequestOverrides` 只承载模型对通用调用参数的固定覆盖，当前包括 `temperature` 与 `max_output_tokens`，由 TaskRunner 在构造 `ProviderRequest` 前覆盖任务和单次调用设置，Provider adapter 不解析该配置容器。
 
-推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 adapter 以何种形态回放；具体供应商参数仍由 adapter 根据该语义和自身协议解释。切换 Model 的 Provider 引用时，前端和配置控制层不自动修改或删除 `adapter_options` 与 `request_overrides`。候选配置由新 Provider 选择的 adapter 完整校验；不兼容时整个 PATCH 失败，持久配置和当前 Runtime Generation 均保持原样。
+推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 adapter 以何种形态回放；具体供应商参数仍由 adapter 根据该语义和自身协议解释。设置页把既有 Model 的 Provider 更换解释为同 adapter endpoint 之间的轻量重绑定：展示全部 Provider 及 adapter，但只允许选择与当前 Provider adapter 名称相同的项，提交时只修改 Provider 引用，不比较、改写或删除 `adapter_options`、`request_overrides`、capabilities 与 `provider_model`。该交互不是后端的新旧配置转换约束；Provider 自身的 adapter 仍可编辑，可信配置者也可直接使用 Endpoint batch PATCH 完成更广泛调整。LLM parser 只校验最终候选配置能否由当前 Provider adapter 解释，失败时整个 PATCH 不持久化且当前 Runtime Generation 保持原样。目标 endpoint 是否实际提供配置的 `provider_model` 无法静态确认，由配置者负责。
 
 配置文件属于动态边界。provider 的 `enabled`、`adapter`、API 形态，模型能力、任务回答格式、工具使用策略、adapter options、request overrides 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
 

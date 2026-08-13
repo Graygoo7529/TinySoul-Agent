@@ -12,7 +12,8 @@ Infra 当前负责配置环境、JSON 动态边界、受控文件系统读写、
 
 Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置语义。目录位于
 `tinysoul/infra/config/catalog/*.toml`，集中维护稳定 surface、collection identity、field group、
-字段标题、说明、输入类型、primary/advanced 层级、静态 choices、正向引用和 credential reference 标记；
+字段标题、说明、输入类型、primary/advanced 层级、静态 choices、正向引用、credential reference
+标记和 collection 的设置页删除策略；
 `ConfigCatalog` 在加载时校验 ID、pattern、引用与 source policy，并通过
 `ConfigController.catalog()` 提供 JSON-safe 投影。业务模块不得复制这些展示说明，前端也不按
 dotted path 猜测标签和归属。
@@ -22,6 +23,12 @@ component 或 secret value。Provider、Model、Task Chain 等对象仍只是 `C
 source/effective 配置事实的 collection view；Infra 不缓存对象投影，也不 import LLM、Action、
 Capabilities 等业务模块。Catalog 资源错误是 Infra package contract failure，项目 TOML 的结构
 与引用错误仍由各业务 parser 形成 `ConfigError`。
+
+Collection 的 `delete_policy` 只表达设置页是否提供删除命令：`all` 允许删除任意对象，
+`create_source_only` 只允许删除全部 project TOML 定义都来自 collection `create_source` 的对象，
+`none` 不提供删除命令。该策略不进入 `ConfigController` 的写入权限判断；Endpoint 仍可对任意可写
+project TOML 执行 source-aware mutation。Custom Model 因此不增加重复配置字段，而由其是否完全归属
+`configs/llm/models/custom.toml` 派生；带其它 source 定义或覆盖的 Model 不由设置页删除。
 
 例如，Infra 可以提供读取配置、合并来源、类型转换、配置树访问和错误报告的机制，但不应把 LLM provider catalog、Action 策略、Loop 语义或 Workspace 规则集中放进 Infra。
 

@@ -15,6 +15,8 @@ export function ObjectSettingsLayout({
   onDelete,
   addDisabled,
   deleteDisabled,
+  showDelete = true,
+  selectedMeta,
   summary,
   children,
 }: {
@@ -27,6 +29,8 @@ export function ObjectSettingsLayout({
   onDelete: (id: string) => void;
   addDisabled: boolean;
   deleteDisabled: boolean;
+  showDelete?: boolean;
+  selectedMeta?: ReactNode;
   summary?: (id: string) => ReactNode;
   children: ReactNode;
 }) {
@@ -68,17 +72,20 @@ export function ObjectSettingsLayout({
                 <div className="flex items-center gap-2">
                   <h2 className="truncate font-mono text-[13px] font-semibold text-fg">{selected}</h2>
                   <Badge>{title.replace(/s$/, "")}</Badge>
+                  {selectedMeta}
                 </div>
                 <p className="mt-0.5 text-[10px] text-fg-faint">{description}</p>
               </div>
-              <Button
-                size="xs"
-                variant="danger"
-                disabled={deleteDisabled}
-                onClick={() => onDelete(selected)}
-              >
-                <Trash2 size={13} /> Delete
-              </Button>
+              {showDelete && (
+                <Button
+                  size="xs"
+                  variant="danger"
+                  disabled={deleteDisabled}
+                  onClick={() => onDelete(selected)}
+                >
+                  <Trash2 size={13} /> Delete
+                </Button>
+              )}
             </div>
             {children}
           </>

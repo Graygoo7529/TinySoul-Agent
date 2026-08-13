@@ -10,7 +10,14 @@ import { useConfigStore } from "../../store/configStore";
 import { CreateObjectModal } from "./CreateObjectModal";
 import { ObjectFieldEditor } from "./ObjectFieldEditor";
 import { ObjectSettingsLayout } from "./ObjectSettingsLayout";
-import { cloneJson, collectionFor, configObjects, subtreeDeleteMutations, type ConfigSettingField } from "./model";
+import {
+  cloneJson,
+  collectionFor,
+  configObjects,
+  objectDeletable,
+  subtreeDeleteMutations,
+  type ConfigSettingField,
+} from "./model";
 
 const selectClass =
   "focus-ring h-8 rounded-md border border-line bg-bg-elev px-2.5 text-[12px] outline-none focus:border-accent";
@@ -48,6 +55,7 @@ export function TaskChainsSettingsPage({
     if (!models.some((item) => item.id === initialModel)) setInitialModel(models[0]?.id ?? "");
   }, [objects, models, selected, initialModel]);
   const current = objects.find((item) => item.id === selected) ?? null;
+  const canDelete = objectDeletable(current);
   const canWrite = status.activity.can_write && !savingPath;
   const modelIds = Array.isArray(current?.value.models)
     ? current.value.models.filter((item): item is string => typeof item === "string")
@@ -85,7 +93,8 @@ export function TaskChainsSettingsPage({
         onSelect={setSelected}
         onAdd={() => setCreating(true)}
         addDisabled={!canWrite || !collection.allow_create || models.length === 0}
-        deleteDisabled={!canWrite || !collection.allow_delete}
+        deleteDisabled={!canWrite || !canDelete}
+        showDelete={canDelete}
         summary={(id) => {
           const item = objects.find((object) => object.id === id);
           const count = Array.isArray(item?.value.models) ? item.value.models.length : 0;
@@ -96,7 +105,7 @@ export function TaskChainsSettingsPage({
         }}
         onDelete={(id) => {
           const item = objects.find((object) => object.id === id);
-          if (!item || !collection.allow_delete || !window.confirm(`Delete task chain '${id}'?`)) return;
+          if (!objectDeletable(item ?? null) || !window.confirm(`Delete task chain '${id}'?`)) return;
           const mutations = subtreeDeleteMutations(status, `${collection.root}.${id}`);
           if (mutations.length > 0) void apply(mutations, "Task chain deleted");
         }}

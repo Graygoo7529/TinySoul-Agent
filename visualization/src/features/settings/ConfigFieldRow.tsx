@@ -1,7 +1,11 @@
 import { Badge } from "../../components/ui/Badge";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { ConfigValueControl } from "./ConfigValueControl";
-import { referenceOptions, type ConfigSettingField } from "./model";
+import {
+  referenceOptions,
+  type ConfigSelectOption,
+  type ConfigSettingField,
+} from "./model";
 
 export function ConfigFieldRow({
   field,
@@ -10,6 +14,7 @@ export function ConfigFieldRow({
   canWrite,
   saving,
   onCommit,
+  selectOptions,
 }: {
   field: ConfigSettingField;
   status: ConfigStatus;
@@ -17,6 +22,7 @@ export function ConfigFieldRow({
   canWrite: boolean;
   saving: boolean;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
+  selectOptions?: ConfigSelectOption[];
 }) {
   return (
     <div className="grid min-h-20 gap-3 px-5 py-3 md:grid-cols-[minmax(240px,1fr)_minmax(260px,420px)] md:items-center">
@@ -46,7 +52,9 @@ export function ConfigFieldRow({
         <ConfigValueControl
           value={field.storedValue}
           descriptor={field.descriptor}
-          referenceOptions={referenceOptions(status, catalog, field.descriptor)}
+          selectOptions={
+            selectOptions ?? referenceOptions(status, catalog, field.descriptor)
+          }
           disabled={!canWrite || !field.writable}
           saving={saving}
           onCommit={(value) => onCommit(field, value)}

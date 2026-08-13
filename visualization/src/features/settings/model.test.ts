@@ -6,6 +6,8 @@ import {
   deriveCredentials,
   descriptorForPath,
   groupSurfaceFields,
+  modelProviderOptions,
+  objectDeletable,
   pathMatches,
   subtreeDeleteMutations,
   surfaceFields,
@@ -34,6 +36,65 @@ describe("settings catalog projection", () => {
     expect(objects).toHaveLength(1);
     expect(objects[0].id).toBe("primary");
     expect(objects[0].value).toEqual({ provider: "openai", provider_model: "gpt-5" });
+    expect(objects[0].sourceIds).toEqual([
+      "project:configs/llm/models/custom.toml",
+    ]);
+    expect(objectDeletable(objects[0])).toBe(true);
+  });
+
+  it("only allows create-source-owned models to be deleted", () => {
+    const current = status();
+    current.sources.push({
+      id: "project:configs/llm/models/overlay.toml",
+      kind: "project_toml",
+      path: "configs/llm/models/overlay.toml",
+      exists: true,
+      writable: true,
+      values: { "llm.models.primary.provider_model": "gpt-5-mini" },
+    });
+
+    expect(objectDeletable(configObjects(current, catalog(), "llm.models")[0])).toBe(false);
+  });
+
+  it("keeps only same-adapter providers selectable for model rebinding", () => {
+    const model = configObjects(status(), catalog(), "llm.models")[0];
+    const providerCollection = {
+      ...catalog().collections[0],
+      id: "llm.providers",
+      root: "llm.providers",
+      surface: "providers",
+      title: "Provider",
+      delete_policy: "all" as const,
+    };
+    const providers = [
+      {
+        id: "openai",
+        collection: providerCollection,
+        value: { adapter: "openai" },
+        fields: [],
+        sourceIds: ["project:configs/llm/providers.toml"],
+      },
+      {
+        id: "openai_proxy",
+        collection: providerCollection,
+        value: { adapter: "openai" },
+        fields: [],
+        sourceIds: ["project:configs/llm/providers.toml"],
+      },
+      {
+        id: "kimi",
+        collection: providerCollection,
+        value: { adapter: "kimi" },
+        fields: [],
+        sourceIds: ["project:configs/llm/providers.toml"],
+      },
+    ];
+
+    expect(modelProviderOptions(model, providers)).toEqual([
+      { value: "openai", label: "openai · openai", disabled: false },
+      { value: "openai_proxy", label: "openai_proxy · openai", disabled: false },
+      { value: "kimi", label: "kimi · kimi", disabled: true },
+    ]);
   });
 
   it("uses credential_reference descriptors instead of suffix conventions", () => {
@@ -89,7 +150,7 @@ function catalog(): ConfigCatalog {
         create_source: "project:configs/llm/models/custom.toml",
         create_template: {},
         allow_create: true,
-        allow_delete: true,
+        delete_policy: "create_source_only",
       },
     ],
     fields: [

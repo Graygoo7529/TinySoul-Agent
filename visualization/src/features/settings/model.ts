@@ -51,6 +51,13 @@ export interface ConfigObject {
   collection: ConfigCollectionDescriptor;
   value: Record<string, JsonValue>;
   fields: ConfigSettingField[];
+  sourceIds: string[];
+}
+
+export interface ConfigSelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
 }
 
 export interface CredentialSetting {
@@ -174,6 +181,7 @@ export function configObjects(
         collection,
         value: unflattenObject(fields, objectPrefix),
         fields,
+        sourceIds: objectProjectSourceIds(status, objectPrefix),
       };
     });
 }
@@ -182,11 +190,39 @@ export function referenceOptions(
   status: ConfigStatus,
   catalog: ConfigCatalog,
   descriptor: ConfigFieldDescriptor,
-): string[] {
+): ConfigSelectOption[] {
   if (!descriptor.reference) return [];
   return configObjects(status, catalog, descriptor.reference.collection).map(
-    (item) => item.id,
+    (item) => ({ value: item.id, label: item.id }),
   );
+}
+
+export function objectDeletable(object: ConfigObject | null): boolean {
+  if (!object) return false;
+  if (object.collection.delete_policy === "none") return false;
+  if (object.collection.delete_policy === "all") return true;
+  return (
+    object.sourceIds.length === 1 &&
+    object.sourceIds[0] === object.collection.create_source
+  );
+}
+
+export function modelProviderOptions(
+  model: ConfigObject,
+  providers: ConfigObject[],
+): ConfigSelectOption[] {
+  const currentProviderId = model.value.provider;
+  const currentProvider = providers.find((provider) => provider.id === currentProviderId);
+  const currentAdapter = currentProvider?.value.adapter;
+  return providers.map((provider) => {
+    const adapter = provider.value.adapter;
+    const adapterLabel = typeof adapter === "string" ? adapter : "unknown adapter";
+    return {
+      value: provider.id,
+      label: `${provider.id} · ${adapterLabel}`,
+      disabled: adapter !== currentAdapter,
+    };
+  });
 }
 
 export function deriveCredentials(
@@ -261,6 +297,18 @@ export function subtreeDeleteMutations(
       ),
     )
     .map((source) => ({ source_id: source.id, path: root, op: "delete" as const }));
+}
+
+function objectProjectSourceIds(status: ConfigStatus, root: string): string[] {
+  const prefix = `${root}.`;
+  return status.sources
+    .filter((source) => source.kind === "project_toml")
+    .filter((source) =>
+      Object.keys(source.values).some(
+        (path) => path === root || path.startsWith(prefix),
+      ),
+    )
+    .map((source) => source.id);
 }
 
 export function cloneJson<T extends JsonValue>(value: T): T {

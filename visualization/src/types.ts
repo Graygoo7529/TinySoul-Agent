@@ -309,6 +309,8 @@ export interface ConfigCollectionIdentityDescriptor {
   description: string;
 }
 
+export type ConfigCollectionDeletePolicy = "all" | "create_source_only" | "none";
+
 export interface ConfigCollectionDescriptor {
   id: string;
   surface: string;
@@ -319,7 +321,7 @@ export interface ConfigCollectionDescriptor {
   create_source: string;
   create_template: Record<string, JsonValue>;
   allow_create: boolean;
-  allow_delete: boolean;
+  delete_policy: ConfigCollectionDeletePolicy;
 }
 
 export interface ConfigCatalog {
