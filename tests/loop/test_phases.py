@@ -129,12 +129,14 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(scope=phase1_scope, cycle_id="cycle_1")
     phase2 = Phase2Unit(
         context=context,
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
         observations=observations,
     ).run(
         selected_domains=phase1.selected_domains,
@@ -308,6 +310,7 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
@@ -317,6 +320,7 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(
         selected_domains=phase1.selected_domains,
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
@@ -568,6 +572,7 @@ def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(scope=scope, cycle_id="cycle_1")
 
     assert outcome.selected_domains == ()
@@ -600,6 +605,7 @@ def test_phase1_returns_provider_failure_for_next_cycle() -> None:
         action=action,
         llm=llm,
         bus=SignalBus(),
+        task_profile="framework",
     ).run(
         scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
@@ -649,6 +655,7 @@ def test_phase1_invalid_selection_returns_local_failure() -> None:
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(scope=scope, cycle_id="cycle_1")
 
     assert outcome.selected_domains == ()
@@ -682,6 +689,7 @@ def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
         action=action,
         llm=llm,
         bus=SignalBus(),
+        task_profile="framework",
     ).run(
         scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
@@ -752,6 +760,7 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     )
 
     outcome_1 = unit.run(
@@ -793,6 +802,7 @@ def test_phase1_maps_loop_scope_failure_to_runtime(
             action=action,
             llm=FakeLLM(()),
             bus=SignalBus(),
+            task_profile="framework",
         ).run(
             scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
             cycle_id="cycle_1",
@@ -826,6 +836,7 @@ def test_phase2_returns_framework_failure_for_next_cycle() -> None:
         action=action,
         llm=llm,
         bus=bus,
+        task_profile="framework",
     ).run(
         selected_domains=("core",),
         scope=scope,

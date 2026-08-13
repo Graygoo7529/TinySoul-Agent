@@ -106,6 +106,8 @@ Task Chains 页面使用 Chains、Cycle Routing、Action Routing 三个局部入
 - [x] 后端 Loop/App/Infra 聚焦测试通过，TypeScript 类型检查通过。
 - [x] Visualization Vitest/Vite 完整命令已尝试；当前 `node_modules/.pnpm` 文件访问 `EPERM` 阻断属于本地依赖文件权限，不是本轮源码诊断结果。新增 settings projection 测试和 TypeScript 类型检查已通过。
 
+收尾核对中进一步移除了 `Phase1Unit`/`Phase2Unit` 构造器的 `"framework"` 默认值；Phase 单元现在必须接收装配层显式注入的 task profile，不再保留独立于 `CycleSettings` 的隐式路由来源。
+
 ## 预期修改范围
 
 - `tinysoul/loop/config.py`
