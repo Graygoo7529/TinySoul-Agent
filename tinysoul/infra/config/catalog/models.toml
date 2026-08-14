@@ -26,8 +26,8 @@ description = "Task-chain selection for the shared Phase1 and Phase2 Cycle proto
 [[field_group]]
 id = "providers.availability"
 surface = "providers"
-title = "Availability"
-description = "Controls whether this provider connection participates in model execution."
+title = "Runtime Availability"
+description = "Controls whether this provider connection is instantiated and whether its models remain eligible in effective task chains."
 
 [[field_group]]
 id = "providers.connection"
@@ -38,7 +38,7 @@ description = "Defines the request behavior, protocol shape, and endpoint used b
 [[field_group]]
 id = "providers.credentials"
 surface = "providers"
-title = "Credentials"
+title = "Provider Credentials"
 description = "Declares the dotenv credential names checked for this provider connection."
 
 [[field_group]]
@@ -139,7 +139,7 @@ path = "llm.providers.*.enabled"
 surface = "providers"
 group = "providers.availability"
 title = "Enabled"
-description = "Allows models that reference this provider to participate in task chains."
+description = "Includes models bound to this provider in effective task chains and builds its runtime adapter."
 value_kind = "boolean"
 
 [[field]]

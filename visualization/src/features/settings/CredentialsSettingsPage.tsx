@@ -9,6 +9,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { deriveCredentials, type CredentialSetting } from "./model";
+import { SettingsGroupSection } from "./SettingsGroupSection";
 
 const inputClass =
   "focus-ring h-8 rounded-lg border border-line bg-bg-elev px-2.5 text-[13px] outline-none transition-colors focus:border-accent disabled:cursor-not-allowed disabled:opacity-50";
@@ -22,7 +23,7 @@ export function CredentialsSettingsPage({
   status: ConfigStatus;
   catalog: ConfigCatalog;
 }) {
-  const { source, credentials } = deriveCredentials(status, catalog);
+  const { source, groups } = deriveCredentials(status, catalog);
   const patch = useConfigStore((state) => state.patch);
   const savingPath = useConfigStore((state) => state.savingPath);
   const pushToast = useAppStore((state) => state.pushToast);
@@ -106,19 +107,30 @@ export function CredentialsSettingsPage({
         </div>
       )}
 
-      {credentials.length === 0 ? (
+      {groups.length === 0 ? (
         <EmptyState title="No credentials declared" />
       ) : (
-        <div className="divide-y divide-line">
-          {credentials.map((credential) => (
-            <CredentialRow
-              key={credential.name}
-              credential={credential}
-              disabled={!writable}
-              saving={savingPath === credential.name}
-              onSave={(nextValue) => mutate(credential.name, nextValue)}
-              onDelete={() => mutate(credential.name)}
-            />
+        <div>
+          {groups.map((group) => (
+            <SettingsGroupSection
+              key={group.id}
+              title={group.title}
+              description={group.description}
+              meta={<Badge>{group.credentials.length}</Badge>}
+            >
+              <div className="divide-y divide-line">
+                {group.credentials.map((credential) => (
+                  <CredentialRow
+                    key={credential.name}
+                    credential={credential}
+                    disabled={!writable}
+                    saving={savingPath === credential.name}
+                    onSave={(nextValue) => mutate(credential.name, nextValue)}
+                    onDelete={() => mutate(credential.name)}
+                  />
+                ))}
+              </div>
+            </SettingsGroupSection>
           ))}
         </div>
       )}

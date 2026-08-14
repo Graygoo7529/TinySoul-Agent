@@ -155,13 +155,131 @@ describe("settings catalog projection", () => {
 
   it("uses credential_reference descriptors instead of suffix conventions", () => {
     const result = deriveCredentials(status(), catalog());
-    expect(result.credentials).toEqual([
+    expect(result.groups).toEqual([{
+      id: "providers.credentials",
+      title: "Provider Credentials",
+      description: "Credential references.",
+      credentials: [
+        {
+          name: "OPENAI_API_KEY",
+          value: "secret",
+          present: true,
+          configured: true,
+          declaredBy: ["llm.providers.openai.api_key_envs"],
+        },
+      ],
+    }]);
+  });
+
+  it("groups credentials by their catalog field groups", () => {
+    const currentCatalog = catalog();
+    currentCatalog.field_groups.push(
       {
-        name: "OPENAI_API_KEY",
-        value: "secret",
-        present: true,
-        configured: true,
-        declaredBy: ["llm.providers.openai.api_key_envs"],
+        id: "capabilities.web.search",
+        surface: "capabilities.web",
+        title: "Kimi Search",
+        description: "Kimi-backed web search.",
+      },
+      {
+        id: "embedding.service",
+        surface: "embedding",
+        title: "Embedding Service",
+        description: "External embedding service.",
+      },
+    );
+    currentCatalog.fields.push(
+      {
+        path: "capabilities.web.search_by_kimi.api_key_env",
+        surface: "capabilities.web",
+        group: "capabilities.web.search",
+        title: "Search Credential Name",
+        description: "Search credential reference.",
+        value_kind: "string",
+        importance: "primary",
+        credential_reference: true,
+      },
+      {
+        path: "infra.embedding.api_key_env",
+        surface: "embedding",
+        group: "embedding.service",
+        title: "Embedding Credential Name",
+        description: "Embedding credential reference.",
+        value_kind: "string",
+        importance: "primary",
+        credential_reference: true,
+      },
+    );
+    const currentStatus = status();
+    currentStatus.fields["capabilities.web.search_by_kimi.api_key_env"] = {
+      value: "KIMI_SEARCH_API_KEY",
+      source: "project:configs/capabilities/web.toml",
+      writable: true,
+    };
+    currentStatus.fields["infra.embedding.api_key_env"] = {
+      value: "GLM_EMBEDDING_API_KEY",
+      source: "project:configs/infra/embedding.toml",
+      writable: true,
+    };
+    const dotenv = currentStatus.sources.find((source) => source.kind === "dotenv");
+    if (!dotenv) throw new Error("Missing dotenv test source");
+    dotenv.values.KIMI_SEARCH_API_KEY = "search-secret";
+    dotenv.values.GLM_EMBEDDING_API_KEY = "embedding-secret";
+    dotenv.values.CUSTOM_TOKEN = "custom-secret";
+
+    expect(
+      deriveCredentials(currentStatus, currentCatalog).groups.map((group) => ({
+        id: group.id,
+        credentials: group.credentials.map((credential) => credential.name),
+      })),
+    ).toEqual([
+      { id: "providers.credentials", credentials: ["OPENAI_API_KEY"] },
+      { id: "capabilities.web.search", credentials: ["KIMI_SEARCH_API_KEY"] },
+      { id: "embedding.service", credentials: ["GLM_EMBEDDING_API_KEY"] },
+      { id: "other", credentials: ["CUSTOM_TOKEN"] },
+    ]);
+  });
+
+  it("keeps shared credentials in one editor group", () => {
+    const currentCatalog = catalog();
+    currentCatalog.field_groups.push({
+      id: "embedding.service",
+      surface: "embedding",
+      title: "Embedding Service",
+      description: "External embedding service.",
+    });
+    currentCatalog.fields.push({
+      path: "infra.embedding.api_key_env",
+      surface: "embedding",
+      group: "embedding.service",
+      title: "Embedding Credential Name",
+      description: "Embedding credential reference.",
+      value_kind: "string",
+      importance: "primary",
+      credential_reference: true,
+    });
+    const currentStatus = status();
+    currentStatus.fields["infra.embedding.api_key_env"] = {
+      value: "OPENAI_API_KEY",
+      source: "project:configs/infra/embedding.toml",
+      writable: true,
+    };
+
+    expect(deriveCredentials(currentStatus, currentCatalog).groups).toEqual([
+      {
+        id: "shared",
+        title: "Shared Credentials",
+        credentials: [
+          {
+            name: "OPENAI_API_KEY",
+            value: "secret",
+            present: true,
+            configured: true,
+            declaredBy: [
+              "infra.embedding.api_key_env",
+              "llm.providers.openai.api_key_envs",
+            ],
+          },
+        ],
       },
     ]);
   });
@@ -265,7 +383,7 @@ function catalog(): ConfigCatalog {
     field_groups: [
       { id: "cycle_routing.phases", surface: "cycle_routing", title: "Cycle Phases", description: "Shared phase routes." },
       { id: "models.binding", surface: "models", title: "Binding", description: "Model binding." },
-      { id: "providers.credentials", surface: "providers", title: "Credentials", description: "Credential references." },
+      { id: "providers.credentials", surface: "providers", title: "Provider Credentials", description: "Credential references." },
     ],
   };
 }

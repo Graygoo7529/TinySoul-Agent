@@ -70,7 +70,7 @@ export function ObjectSettingsLayout({
             <div className="flex min-h-14 items-center gap-3 border-b border-line px-5 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="truncate font-mono text-[13px] font-semibold text-fg">{selected}</h2>
+                  <h2 className="truncate font-mono text-[14px] font-semibold text-fg">{selected}</h2>
                   <Badge>{title.replace(/s$/, "")}</Badge>
                   {selectedMeta}
                 </div>

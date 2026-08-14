@@ -7,9 +7,8 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
-import { ConfigFieldRow } from "./ConfigFieldRow";
+import { ConfigFieldGroups } from "./ConfigFieldGroups";
 import {
-  groupSurfaceFields,
   surfaceFields,
   type ConfigSettingField,
 } from "./model";
@@ -59,9 +58,9 @@ export function ConfigSettingsPage({
           {status.activity.reason || "Configuration is read-only while a turn is active."}
         </div>
       )}
-            <FieldGroups
-              fields={primary}
-              status={status}
+      <ConfigFieldGroups
+        fields={primary}
+        status={status}
         catalog={catalog}
         canWrite={canWrite}
         savingPath={savingPath}
@@ -70,7 +69,7 @@ export function ConfigSettingsPage({
       {advanced.length > 0 && (
         <div className="border-t border-line p-4">
           <Collapsible title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
-            <FieldGroups
+            <ConfigFieldGroups
               fields={advanced}
               status={status}
               catalog={catalog}
@@ -84,7 +83,7 @@ export function ConfigSettingsPage({
       {readOnly.length > 0 && (
         <div className="border-t border-line p-4">
           <Collapsible title="Read-only" meta={<Badge>{readOnly.length}</Badge>}>
-            <FieldGroups
+            <ConfigFieldGroups
               fields={readOnly}
               status={status}
               catalog={catalog}
@@ -96,51 +95,6 @@ export function ConfigSettingsPage({
         </div>
       )}
     </div>
-  );
-}
-
-function FieldGroups({
-  fields,
-  status,
-  catalog,
-  canWrite,
-  savingPath,
-  onCommit,
-}: {
-  fields: ConfigSettingField[];
-  status: ConfigStatus;
-  catalog: ConfigCatalog;
-  canWrite: boolean;
-  savingPath: string | null;
-  onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
-}) {
-  return (
-    <>
-      {groupSurfaceFields(fields, catalog).map((group) => (
-        <section key={group.id} className="border-b border-line last:border-b-0">
-          <div className="flex h-10 items-center justify-between bg-bg-sunken/40 px-5">
-            <h3 className="text-[12px] font-semibold text-fg-muted">{group.title}</h3>
-            <Badge>{group.fields.length}</Badge>
-          </div>
-          <p className="border-b border-line px-5 py-2 text-[11px] text-fg-muted">
-            {group.description}
-          </p>
-          <div className="divide-y divide-line">
-            {group.fields.map((field) => (
-              <ConfigFieldRow
-                key={`${field.sourceId}:${field.path}`}
-                field={field}
-                status={status}
-                catalog={catalog}
-                canWrite={canWrite}
-                saving={savingPath === field.path}
-                onCommit={onCommit}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </>
   );
 }
 

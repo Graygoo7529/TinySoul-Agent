@@ -22,7 +22,7 @@ description = "Shared request, source, output, redirect, and user-agent limits f
 [[field_group]]
 id = "capabilities.web.search"
 surface = "capabilities.web"
-title = "Search"
+title = "Kimi Search"
 description = "Configures Kimi-backed web search and its bounded model interaction."
 
 [[field_group]]

@@ -1,3 +1,6 @@
+import { useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+
 import type { ConfigCatalog, ConfigStatus } from "../../types";
 import { Badge } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
@@ -13,6 +16,7 @@ export function OverviewSettingsPage({
   const unsupported = Object.entries(status.fields).filter(
     ([path]) => !descriptorForPath(catalog, path),
   );
+  const foundSources = status.sources.filter((source) => source.exists).length;
   return (
     <div>
       <OverviewSection title="Runtime">
@@ -27,7 +31,18 @@ export function OverviewSettingsPage({
         </div>
       </OverviewSection>
 
-      <OverviewSection title="Configuration sources">
+      <OverviewSection
+        title="Configuration sources"
+        defaultOpen={false}
+        meta={
+          <div className="flex items-center gap-1.5">
+            <Badge>{status.sources.length} sources</Badge>
+            <Badge tone={foundSources === status.sources.length ? "green" : "yellow"}>
+              {foundSources} found
+            </Badge>
+          </div>
+        }
+      >
         {status.sources.map((source) => (
           <div key={source.id} className="grid gap-1 py-2.5 md:grid-cols-[180px_1fr_auto] md:items-center md:gap-4">
             <span className="text-[12px] font-medium text-fg">{source.kind}</span>
@@ -68,11 +83,41 @@ export function OverviewSettingsPage({
   );
 }
 
-function OverviewSection({ title, children }: { title: string; children: React.ReactNode }) {
+function OverviewSection({
+  title,
+  children,
+  defaultOpen,
+  meta,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  meta?: ReactNode;
+}) {
+  const collapsible = defaultOpen !== undefined;
+  const [open, setOpen] = useState(defaultOpen ?? true);
   return (
-    <section className="border-b border-line px-5 py-4 last:border-b-0">
-      <h3 className="mb-2 text-[12px] font-semibold text-fg-muted">{title}</h3>
-      <div className="divide-y divide-line">{children}</div>
+    <section className="border-b border-line last:border-b-0">
+      {collapsible ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+          className="flex w-full items-center gap-2 px-5 py-4 text-left"
+        >
+          <ChevronRight
+            size={14}
+            className={`shrink-0 text-fg-faint transition-transform ${open ? "rotate-90" : ""}`}
+          />
+          <span className="min-w-0 flex-1 text-[13px] font-semibold text-fg-muted">{title}</span>
+          {meta}
+        </button>
+      ) : (
+        <div className="px-5 pt-4">
+          <h3 className="text-[13px] font-semibold text-fg-muted">{title}</h3>
+        </div>
+      )}
+      {open && <div className="divide-y divide-line px-5 pb-4">{children}</div>}
     </section>
   );
 }

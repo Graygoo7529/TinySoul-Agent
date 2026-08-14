@@ -74,6 +74,13 @@ export interface CredentialSetting {
   declaredBy: string[];
 }
 
+export interface CredentialSettingGroup {
+  id: string;
+  title: string;
+  description?: string;
+  credentials: CredentialSetting[];
+}
+
 export const pageSurface: Partial<Record<SettingsPageId, string>> = {
   providers: "providers",
   models: "models",
@@ -378,16 +385,19 @@ export function deriveCredentials(
   catalog: ConfigCatalog,
 ): {
   source: ConfigSourceProjection | null;
-  credentials: CredentialSetting[];
+  groups: CredentialSettingGroup[];
 } {
   const dotenv = status.sources.find((source) => source.kind === "dotenv") ?? null;
   const declarations = new Map<string, Set<string>>();
+  const declarationGroups = new Map<string, Set<string>>();
   for (const [path, field] of Object.entries(status.fields)) {
     const descriptor = descriptorForPath(catalog, path);
     if (!descriptor?.credential_reference) continue;
     const values = Array.isArray(field.value) ? field.value : [field.value];
     for (const value of values) {
-      if (typeof value === "string" && value) addDeclaration(declarations, value, path);
+      if (typeof value !== "string" || !value) continue;
+      addDeclaration(declarations, value, path);
+      addDeclaration(declarationGroups, value, descriptor.group);
     }
   }
   const names = new Set([...declarations.keys(), ...Object.keys(dotenv?.values ?? {})]);
@@ -407,7 +417,25 @@ export function deriveCredentials(
         declaredBy: [...(declarations.get(name) ?? [])].sort(),
       };
     });
-  return { source: dotenv, credentials };
+  const grouped = new Map<string, CredentialSetting[]>();
+  for (const credential of credentials) {
+    const ids = [...(declarationGroups.get(credential.name) ?? [])];
+    const groupId = ids.length === 1 ? ids[0] : ids.length > 1 ? "shared" : "other";
+    grouped.set(groupId, [...(grouped.get(groupId) ?? []), credential]);
+  }
+  const groups: CredentialSettingGroup[] = catalog.field_groups
+    .filter((group) => grouped.has(group.id))
+    .map((group) => ({
+      id: group.id,
+      title: group.title,
+      description: group.description,
+      credentials: grouped.get(group.id) ?? [],
+    }));
+  const shared = grouped.get("shared");
+  if (shared) groups.push({ id: "shared", title: "Shared Credentials", credentials: shared });
+  const other = grouped.get("other");
+  if (other) groups.push({ id: "other", title: "Other Environment Values", credentials: other });
+  return { source: dotenv, groups };
 }
 
 export function descriptorForPath(
