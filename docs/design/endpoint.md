@@ -55,21 +55,25 @@ Endpoint 也不提供 Context inspect REST、canonical trace REST 或前端审�
 Endpoint 提供以下配置协议入口：
 
 - `GET /v1/config` 返回 activity、generation/activation 状态、全部 effective fields、每个
-  source 的类型、相对路径、值投影和静态 writable；`config.*` 入口及 Endpoint 进程外壳以
+  merged/dotenv/document source 的类型、相对路径、值投影和静态 writable；独立 document source
+  只返回 identity、document set 和空 values，不把完整 schema/Action 文档复制进 ConfigStatus。
+  `config.*` 入口及 Endpoint 进程外壳以
   `writable=false` 返回。App 的 interactive、输入命令、输出路由和 retained outcome
   也属于进程外壳，读取可见但不在当前进程内改写。
 - `GET /v1/config/sections/{section_id}` 返回指定 section 的字段投影。当前投影由
   Infra `ConfigController` 从 effective fields 按 dotted key 前缀筛选，不引入 owner descriptor
   或第二套业务配置 schema；字段的业务解释和可编辑布局仍由各模块及前端负责。
-- `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、field groups、collections 和
-  fields。collection 提供对象 identity、受控创建 source 和设置页删除策略，field 通过显式 group
+- `GET /v1/config/catalog` 返回 Infra package-owned 的 surfaces、field groups、collections、
+  merged fields 和 document fields。collection 提供对象 identity、受控创建 source 和设置页删除策略，field 通过显式 group
   归属到同一 surface。它只表达展示元数据，不返回当前值、前端 navigation 或 revision；当前事实仍
   只来自 `GET /v1/config`。
 - `GET /v1/actions/catalog` 在 RuntimeHandle read lease 下读取当前 Generation 的 User Action
-  有限投影，返回 Action ID、domain、description 和 backend kind。Endpoint 不扫描 package
-  TOML，也不缓存 Action 状态。
+  投影，返回 Domain/Action 语义、effective runtime 与 timeout source、只读 schema/backend/hook、
+  availability 以及 project document source binding。Endpoint 不扫描目录、不解析 TOML，也不缓存
+  Action 状态。
 - `POST /v1/config/validate` 只构建候选 ConfigEnvironment/Plan，不写文件或切换 Generation。
-- `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。Infra 临时编辑 TOML/.env，
+- `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。普通 TOML 使用全局 dotted path，
+  document TOML 使用文件内 local path。Infra 临时编辑 TOML/.env，
   App 构建候选 Generation；文件提交和 handle 切换完成后才返回 `state=active` 与
 `generation_id`。候选解析、事务或激活失败会保留旧文件和旧 Generation。
 

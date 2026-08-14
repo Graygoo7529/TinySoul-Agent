@@ -14,6 +14,7 @@ export type SettingsPageId =
   | "providers"
   | "models"
   | "task_chains"
+  | "action_catalog"
   | "capabilities.web"
   | "capabilities.resource"
   | "capabilities.execution"
@@ -90,6 +91,7 @@ export const pageSurface: Partial<Record<SettingsPageId, string>> = {
   providers: "providers",
   models: "models",
   task_chains: "task_chains",
+  action_catalog: "action_catalog",
   "capabilities.web": "capabilities.web",
   "capabilities.resource": "capabilities.resource",
   "capabilities.execution": "capabilities.execution",

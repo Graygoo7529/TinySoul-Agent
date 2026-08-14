@@ -18,6 +18,11 @@ Infra 同时拥有 package 内的配置展示目录，但不拥有业务配置�
 `ConfigController.catalog()` 提供 JSON-safe 投影。业务模块不得复制这些展示说明，前端也不按
 dotted path 猜测标签和归属。
 
+普通 merged field 使用 `ConfigFieldDescriptor`；owner 管理的独立 TOML 文档使用
+`ConfigDocumentFieldDescriptor(document_set, document_kind, path)`。后者只描述文件内局部字段的
+展示方式，不携带当前值，也不让 Infra import Action 等 owner 类型。当前 Action Catalog 的全部
+设置页说明集中在 `catalog/actions.toml`，Action 模块仍独占其解析和运行语义。
+
 Catalog 不包含当前值、Runtime activity、业务默认值、parser callable、前端 route、React
 component 或 secret value。Provider、Model、Task Chain 等对象仍只是 `ConfigStatus` 中同一
 source/effective 配置事实的 collection view；Infra 不缓存对象投影，也不 import LLM、Action、
@@ -43,6 +48,13 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 图、候选环境、校验回调和两阶段 activation callback，不解析业务 section。dotenv 原始键值
 单独保留在 `runtime_env`，系统环境仍覆盖 dotenv，进程 `os.environ` 不被写回。
 
+`config.document_sets` 声明不参与 effective tree 合并的受管 TOML 集合。`ProjectConfig` 将 glob
+稳定展开为 `ConfigDocumentSet/ConfigDocument`，为每个文件分配项目相对的稳定 source ID，并拒绝
+同一文件同时属于 merged include 或多个 document set。`ConfigEnvironment` 在当前与候选快照中
+携带这些文档；document mutation 的 path 是文件内局部 path。`ConfigController` 先在内存中构造
+完整候选环境并调用 owner validator/Generation activator，成功后才与普通 TOML、dotenv 一起提交，
+任一激活失败则统一回滚。document 内容不进入 `effective_values()` 或普通 section parser。
+
 配置写入由 `ConfigController` 的进程内锁串行化；事务在替换前保存原文，并在候选激活失败时
 回滚已替换文件。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
 提交协议；单次写入的一致性由候选校验、串行化、原子替换和回滚保证。
@@ -59,7 +71,7 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 
 项目配置文件用于可读、可写、可提交的非敏感配置。本地环境文件用于密钥、本机差异和开发环境临时值。系统环境变量用于部署、持续集成和命令行覆盖。显式传入覆盖用于测试或上层调用。
 
-项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。单一业务 owner 的 app/action/context/home/memory/loop/workspace 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding 使用 `[infra.embedding]`，Home parser 不接受旧 `[home.memory]`。include pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内，以防符号链接绕过边界。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取和合并这些文件；Infra 与各业务模块分别在自己的 parser 边界把 section tree 转成 Settings。
+项目配置由 `tinysoul.toml` 作为入口，显式 include `configs/*.toml`、`configs/action/*.toml`、`configs/capabilities/*.toml`、`configs/infra/*.toml`、`configs/llm/*.toml` 与 `configs/llm/models/*.toml`。Action routing 位于 `configs/action/routing.toml`；独立 Action 定义位于 `configs/action/catalog`，由 `action.catalog` document set 管理而不参与 merged include。单一业务 owner 的 app/context/home/memory/loop/workspace 等配置保留在 `configs/` 根部；独立 capability 配置位于 `configs/capabilities/`；Infra-owned 外部基础能力位于 `configs/infra/`；LLM provider/task 与按模型族拆分的 model 配置位于 `configs/llm/`。文件层次只表达维护归属，不改变 TOML section identity。Memory 使用独立 `[memory]`，Embedding 使用 `[infra.embedding]`，Home parser 不接受旧 `[home.memory]`。include/document-set pattern 必须是项目根内的相对路径：绝对路径与含 `..` 的路径在展开前拒绝，每个 glob 命中项在解析真实路径后还必须位于项目根内。glob 展开顺序稳定；主文件和每个 include 作为独立有序 source 保留，后加载文件覆盖前文件时仍可定位最终值来自哪个实际路径。ConfigEnvironment 只负责读取、合并或携带文档快照；各业务模块在自己的 parser/loader 边界解释内容。
 
 `tinysoul init --config-profile` 与 `tinysoul reset --config-profile` 属于 App-owned 的项目模板物化期文件选择，不是新的配置来源。standard/development profile 各自提供一套完整配置，initializer/resetter 只物化其中一套为普通 `configs/` 与 `.env.example`；resetter 只把旧项目的普通 `.env` 作为不解释内容的保留文件复制进新项目。生成项目不保存 profile identity，Infra 也不读取 package profile、执行 profile overlay 或自动同步模板更新。运行时配置优先级仍只有代码默认值、项目文件、本地环境文件、系统环境变量和显式覆盖。
 

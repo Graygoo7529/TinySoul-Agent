@@ -716,7 +716,7 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
         fetch_with_trafilatura=WebFetchSettings(enabled=False),
     )
     engine = register_web_actions(
-        ActionEngineBuilder(catalog_root),
+        ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
         runtime_env={},
         workspace=_workspace(local_tmp),

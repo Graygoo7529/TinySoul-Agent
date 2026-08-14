@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action import builtin_action_catalog_root
+from tinysoul.app import ProjectInitializer
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import (
     ActionSchemaDefinitionError,
@@ -15,7 +16,7 @@ from tinysoul.action.core.result import ActionTraceMode
 from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, ActionToolSpec
 from tinysoul.action.core.errors import ActionInvariantError
 from tinysoul.infra import JsonObject
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigEnvironment, ConfigError
 
 
 def test_load_builtin_catalog() -> None:
@@ -111,6 +112,28 @@ def test_load_builtin_catalog() -> None:
     assert wait_seconds["maximum"] == 60
     assert catalog.get_action("execution.wait").runtime.timeout_seconds == 70.0
     assert catalog.get_action("execution.wait").backend.handler == "supervised_process.wait"
+
+
+def test_load_project_documents_preserves_sources_and_timeout_provenance(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    ProjectInitializer().initialize(root)
+    environment = ConfigEnvironment.from_project_root(root, env={})
+
+    loaded = ActionCatalogLoader(
+        llm_action_timeout_seconds=300.0,
+    ).load_documents(environment.document_set("action.catalog"))
+
+    assert loaded.catalog.has_action("workspace.read")
+    assert loaded.documents.domains["workspace"].source_id == (
+        "project-document:action.catalog:configs/action/catalog/workspace/domain.toml"
+    )
+    assert loaded.documents.actions["workspace.read"].path.endswith(
+        "workspace/actions/read.toml"
+    )
+    assert loaded.documents.timeout_sources["workspace.read"] == "domain"
+    assert loaded.documents.domain_runtimes["workspace"].timeout_seconds == 30.0
 
 
 def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> None:

@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import pytest
 
+from tinysoul.action import ActionCatalogLoader, builtin_action_catalog_root
 from tinysoul.action.config import (
     LLMActionProfileResolver,
     parse_action_settings,
     validate_llm_action_routes,
 )
 from tinysoul.infra.config import ConfigError
+
+
+def _package_catalog():
+    with builtin_action_catalog_root() as root:
+        return ActionCatalogLoader().load(root)
 
 
 def test_llm_action_profile_resolver_uses_override_then_default() -> None:
@@ -92,13 +98,14 @@ def test_llm_action_route_validation_rejects_invalid_cross_module_reference(
     with pytest.raises(ConfigError) as raised:
         validate_llm_action_routes(
             settings.llm_action,
+            catalog=_package_catalog(),
             task_profiles=("llm_action", "workspace_analysis"),
         )
 
     assert raised.value.key == expected_key
 
 
-def test_llm_action_route_validation_accepts_package_llm_action() -> None:
+def test_llm_action_route_validation_accepts_current_catalog_llm_action() -> None:
     settings = parse_action_settings(
         {
             "llm_action": {
@@ -115,5 +122,6 @@ def test_llm_action_route_validation_accepts_package_llm_action() -> None:
 
     validate_llm_action_routes(
         settings.llm_action,
+        catalog=_package_catalog(),
         task_profiles=("llm_action", "workspace_analysis"),
     )

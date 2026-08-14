@@ -2,7 +2,7 @@
 
 from .dotenv import DotenvDocument, DotenvSource, parse_dotenv
 from .environment import ConfigEnvironment
-from .catalog import ConfigCatalog, load_config_catalog
+from .catalog import ConfigCatalog, ConfigDocumentFieldDescriptor, load_config_catalog
 from .errors import ConfigCatalogError, ConfigError
 from .project import ProjectConfig
 from .source import ConfigSource, ConfigSourceKind
@@ -13,12 +13,14 @@ from .transaction import (
     ConfigTransactionReceipt,
 )
 from .controller import ConfigController, ConfigMutation, PreparedConfigActivation
+from .documents import ConfigDocument, ConfigDocumentSet, ConfigDocumentSetSpec
 from .validation import reject_unknown_keys
 
 __all__ = [
     "ConfigEnvironment",
     "ConfigCatalog",
     "ConfigCatalogError",
+    "ConfigDocumentFieldDescriptor",
     "ConfigError",
     "ConfigSource",
     "ConfigSourceKind",
@@ -27,6 +29,9 @@ __all__ = [
     "ConfigFileTransaction",
     "ConfigTransactionReceipt",
     "ConfigController",
+    "ConfigDocument",
+    "ConfigDocumentSet",
+    "ConfigDocumentSetSpec",
     "ConfigMutation",
     "PreparedConfigActivation",
     "DotenvDocument",

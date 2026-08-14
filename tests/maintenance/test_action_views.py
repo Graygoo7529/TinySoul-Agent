@@ -75,7 +75,7 @@ def _build_exact(selected: tuple[str, ...]):
         maintenance_action_catalog_root() as maintenance_root,
     ):
         catalog = ActionCatalogLoader().load_many((core_root, maintenance_root))
-        builder = ActionEngineBuilder(core_root).add_catalog_root(maintenance_root)
+        builder = ActionEngineBuilder(catalog)
         builder.include_actions(*selected)
         handlers = {
             item.backend.handler for item in catalog.actions() if item.name in selected

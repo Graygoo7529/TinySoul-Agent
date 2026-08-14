@@ -59,6 +59,7 @@ include = ["tinysoul*"]
     "project/.gitignore",
     "project/config_profiles/*/.env.example",
     "project/config_profiles/*/configs/*.toml",
+    "project/config_profiles/*/configs/action/*.toml",
     "project/config_profiles/*/configs/capabilities/*.toml",
     "project/config_profiles/*/configs/infra/*.toml",
     "project/config_profiles/*/configs/llm/*.toml",

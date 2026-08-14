@@ -1,9 +1,17 @@
 [config]
 include = [
   "configs/*.toml",
+  "configs/action/*.toml",
   "configs/capabilities/*.toml",
   "configs/infra/*.toml",
   "configs/llm/*.toml",
   "configs/llm/models/*.toml",
 ]
 env_file = ".env"
+
+[[config.document_sets]]
+id = "action.catalog"
+include = [
+  "configs/action/catalog/*/domain.toml",
+  "configs/action/catalog/*/actions/*.toml",
+]

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra import InfraSettings
+from tinysoul.action import LoadedActionCatalog
 from tinysoul.action.config import ActionSettings
 from tinysoul.capabilities import CapabilitiesSettings
 from tinysoul.context import ContextSettings
@@ -31,6 +32,7 @@ class AppConfigPlan:
     infra: InfraSettings
     app: AppSettings
     action: ActionSettings
+    action_catalog: LoadedActionCatalog
     capabilities: CapabilitiesSettings
     context: ContextSettings
     llm: LLMConfig

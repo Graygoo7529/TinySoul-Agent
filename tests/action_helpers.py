@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Self
 
 from tinysoul.action import (
@@ -10,10 +11,16 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionResult,
+    ActionCatalog,
+    ActionCatalogLoader,
 )
 from tinysoul.infra.json import JsonObject, to_json_object
 
 ActionFunction = Callable[[ActionExecution, ActionExecutionContext], JsonObject]
+
+
+def load_action_catalog(root: Path) -> ActionCatalog:
+    return ActionCatalogLoader().load(root)
 
 
 class FunctionActionExecutor:

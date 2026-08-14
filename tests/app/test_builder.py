@@ -153,11 +153,22 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
             json={
                 "operations": [
                     {
-                        "source_id": "project:configs/action.toml",
+                        "source_id": "project:configs/action/routing.toml",
                         "path": "action.llm_action.timeout_seconds",
                         "op": "set",
                         "value": 30.0,
-                    }
+                    },
+                    {
+                        "source_id": (
+                            "project-document:action.catalog:configs/action/catalog/"
+                            "workspace/actions/read.toml"
+                        ),
+                        "path": "tool.description",
+                        "op": "set",
+                        "value": (
+                            "Read one project workspace resource for the current task."
+                        ),
+                    },
                 ]
             },
         )
@@ -182,11 +193,71 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert action_catalog.status_code == 200
     assert any(
         item["id"] == "workspace.analyze"
-        and item["backend_kind"] == "llm_action"
+        and item["backend"]["kind"] == "llm_action"
+        and item["available"] is True
         for item in action_catalog.json()["actions"]
     )
+    assert any(
+        item["id"] == "workspace.read"
+        and item["tool"]["description"]
+        == "Read one project workspace resource for the current task."
+        and item["source"]["document_kind"] == "action"
+        for item in action_catalog.json()["actions"]
+    )
+    assert any(
+        item["id"] == "web.search_by_kimi" and item["available"] is False
+        for item in action_catalog.json()["actions"]
+    )
+    assert any(
+        item["id"] == "workspace"
+        and item["source"]["document_kind"] == "domain"
+        for item in action_catalog.json()["domains"]
+    )
     assert "timeout_seconds = 30.0" in (
-        project_root / "configs" / "action.toml"
+        project_root / "configs" / "action" / "routing.toml"
+    ).read_text(encoding="utf-8")
+    assert "Read one project workspace resource for the current task." in (
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "actions"
+        / "read.toml"
+    ).read_text(encoding="utf-8")
+    invalid = client.patch(
+        "/v1/config",
+        headers={"Authorization": f"Bearer {'x' * 32}"},
+        json={
+            "operations": [
+                {
+                    "source_id": (
+                        "project-document:action.catalog:configs/action/catalog/"
+                        "workspace/actions/read.toml"
+                    ),
+                    "path": "tool.description",
+                    "op": "set",
+                    "value": "",
+                }
+            ]
+        },
+    )
+    assert invalid.status_code == 422
+    invalid_body = invalid.json()
+    assert invalid_body["error"]["details"]["source"].startswith(
+        "project-document:action.catalog:"
+    )
+    current_runtime = endpoint.config_status()["runtime"]
+    assert isinstance(current_runtime, dict)
+    assert current_runtime["generation_id"] == after["generation_id"]
+    assert "Read one project workspace resource for the current task." in (
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "actions"
+        / "read.toml"
     ).read_text(encoding="utf-8")
     activation_events = events.replay(
         after=after_sequence,
@@ -196,6 +267,8 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert [event.name for event in activation_events.events] == [
         "config.activation.started",
         "config.activation.completed",
+        "config.activation.started",
+        "config.activation.failed",
     ]
     assert websocket_events["type"] == "events"
     assert [event["name"] for event in websocket_events["events"]] == [

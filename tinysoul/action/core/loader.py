@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol, TypeVar, cast
 
-from tinysoul.infra.config import ConfigError
+from tinysoul.infra.config import ConfigDocument, ConfigDocumentSet, ConfigError
 from tinysoul.infra.config.toml_file import ConfigFileToml
 from tinysoul.infra.json import JsonObject, to_json_object
 
@@ -30,6 +31,47 @@ from .specs import (
 from .result import ActionTraceMode
 
 E = TypeVar("E", bound=StrEnum)
+
+
+@dataclass(frozen=True)
+class ActionCatalogDocumentRef:
+    """Stable source binding for one project-owned catalog object."""
+
+    source_id: str
+    path: str
+    document_kind: str
+
+
+@dataclass(frozen=True)
+class ActionCatalogDocumentIndex:
+    """Project document bindings and effective runtime provenance."""
+
+    domains: Mapping[str, ActionCatalogDocumentRef]
+    actions: Mapping[str, ActionCatalogDocumentRef]
+    domain_runtimes: Mapping[str, ActionRuntimeSpec]
+    timeout_sources: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "domains", MappingProxyType(dict(self.domains)))
+        object.__setattr__(self, "actions", MappingProxyType(dict(self.actions)))
+        object.__setattr__(
+            self,
+            "domain_runtimes",
+            MappingProxyType(dict(self.domain_runtimes)),
+        )
+        object.__setattr__(
+            self,
+            "timeout_sources",
+            MappingProxyType(dict(self.timeout_sources)),
+        )
+
+
+@dataclass(frozen=True)
+class LoadedActionCatalog:
+    """One validated Action catalog and its project document bindings."""
+
+    catalog: ActionCatalog
+    documents: ActionCatalogDocumentIndex
 
 
 class ActionBackendOptionsValidator(Protocol):
@@ -95,6 +137,141 @@ class ActionCatalogLoader:
             actions.extend(loaded_actions)
         return ActionCatalog(domains=domains, actions=actions)
 
+    def load_documents(self, document_set: ConfigDocumentSet) -> LoadedActionCatalog:
+        """Load one project-owned Action catalog document set."""
+
+        domain_documents: dict[Path, ConfigDocument] = {}
+        action_documents: dict[Path, list[ConfigDocument]] = {}
+        for document in document_set.documents:
+            if document.path.name == "domain.toml":
+                domain_documents[document.path.parent.resolve()] = document
+                continue
+            if document.path.suffix == ".toml" and document.path.parent.name == "actions":
+                domain_path = document.path.parent.parent.resolve()
+                action_documents.setdefault(domain_path, []).append(document)
+                continue
+            raise ConfigError(
+                "Action catalog document has an unsupported location",
+                key=document.source_id,
+                source=document.source_id,
+                expected="<domain>/domain.toml or <domain>/actions/*.toml",
+            )
+
+        orphan_paths = set(action_documents) - set(domain_documents)
+        if orphan_paths:
+            orphan = sorted(orphan_paths, key=str)[0]
+            document = sorted(
+                action_documents[orphan], key=lambda item: item.source_id
+            )[0]
+            raise ConfigError(
+                "Action catalog actions require a domain.toml in the same package",
+                key=document.source_id,
+                source=document.source_id,
+            )
+        if not domain_documents:
+            raise ConfigError(
+                "Action catalog document set contains no domains",
+                key="action.catalog",
+                expected="at least one domain.toml",
+            )
+
+        domains: list[ActionDomainSpec] = []
+        actions: list[ActionSpec] = []
+        domain_refs: dict[str, ActionCatalogDocumentRef] = {}
+        action_refs: dict[str, ActionCatalogDocumentRef] = {}
+        domain_runtimes: dict[str, ActionRuntimeSpec] = {}
+        timeout_sources: dict[str, str] = {}
+        for domain_path, domain_document in sorted(
+            domain_documents.items(), key=lambda item: item[1].source_id
+        ):
+            source = _document_display_path(domain_document)
+            domain_data = domain_document.data
+            try:
+                domain = self._parser.parse_domain(
+                    _as_table(domain_data, key=source),
+                    source=source,
+                )
+                default_runtime = self._parser.parse_runtime(
+                    _optional_table(domain_data, "runtime", key=source),
+                    key=f"{source}.runtime",
+                )
+            except ConfigError as exc:
+                raise _with_document_source(exc, domain_document) from exc
+            if domain.name in domain_refs:
+                raise ConfigError(
+                    "Duplicate Action domain",
+                    key=f"{source}.name",
+                    source=domain_document.source_id,
+                    value=domain.name,
+                )
+            domains.append(domain)
+            domain_refs[domain.name] = _document_ref(domain_document, "domain")
+            domain_runtimes[domain.name] = default_runtime
+
+            for action_document in sorted(
+                action_documents.get(domain_path, ()),
+                key=lambda item: item.source_id,
+            ):
+                action_source = _document_display_path(action_document)
+                try:
+                    action_table = _as_table(action_document.data, key=action_source)
+                    action = self._parser.parse_action(
+                        action_table,
+                        source=action_source,
+                        default_runtime=default_runtime,
+                    )
+                except ConfigError as exc:
+                    raise _with_document_source(exc, action_document) from exc
+                if action.domain != domain.name:
+                    raise ConfigError(
+                        "Action domain must match its catalog package",
+                        key=f"{action_source}.domain",
+                        source=action_document.source_id,
+                        value=action.domain,
+                        expected=domain.name,
+                    )
+                if not action.name.startswith(f"{domain.name}."):
+                    raise ConfigError(
+                        "Action ID must use its domain namespace",
+                        key=f"{action_source}.name",
+                        source=action_document.source_id,
+                        value=action.name,
+                        expected=f"{domain.name}.*",
+                    )
+                try:
+                    action, timeout_source = self._resolve_timeout(
+                        action,
+                        action_table=action_table,
+                        default_runtime=default_runtime,
+                        source=action_source,
+                    )
+                    self._validate_backend_options(
+                        action.backend,
+                        key=f"{action_source}.backend.options",
+                    )
+                except ConfigError as exc:
+                    raise _with_document_source(exc, action_document) from exc
+                if action.name in action_refs:
+                    raise ConfigError(
+                        "Duplicate Action ID",
+                        key=f"{action_source}.name",
+                        source=action_document.source_id,
+                        value=action.name,
+                    )
+                actions.append(action)
+                action_refs[action.name] = _document_ref(action_document, "action")
+                timeout_sources[action.name] = timeout_source
+
+        return LoadedActionCatalog(
+            catalog=ActionCatalog(domains=domains, actions=actions),
+            documents=ActionCatalogDocumentIndex(
+                domains=domain_refs,
+                actions=action_refs,
+                domain_runtimes=domain_runtimes,
+                timeout_sources=timeout_sources,
+            ),
+        )
+
     def _load_root(
         self,
         root_path: Path,
@@ -150,9 +327,10 @@ class ActionCatalogLoader:
                         value=action.domain,
                         expected=domain.name,
                     )
-                action = self._apply_llm_action_timeout(
+                action, _timeout_source = self._resolve_timeout(
                     action,
                     action_table=action_table,
+                    default_runtime=default_runtime,
                     source=str(action_path),
                 )
                 self._validate_backend_options(
@@ -162,33 +340,72 @@ class ActionCatalogLoader:
                 actions.append(action)
         return domains, actions
 
-    def _apply_llm_action_timeout(
+    def _resolve_timeout(
         self,
         action: ActionSpec,
         *,
         action_table: Mapping[str, object],
+        default_runtime: ActionRuntimeSpec,
         source: str,
-    ) -> ActionSpec:
-        if (
-            self._llm_action_timeout_seconds is None
-            or action.backend.kind is not ActionBackendKind.LLM_ACTION
-        ):
-            return action
+    ) -> tuple[ActionSpec, str]:
         runtime_table = _optional_table(action_table, "runtime", key=source)
         if "timeout_seconds" in runtime_table:
-            return action
-        return replace(
-            action,
-            runtime=replace(
-                action.runtime,
-                timeout_seconds=self._llm_action_timeout_seconds,
-            ),
-        )
+            return action, "action"
+        if (
+            self._llm_action_timeout_seconds is not None
+            and action.backend.kind is ActionBackendKind.LLM_ACTION
+        ):
+            return (
+                replace(
+                    action,
+                    runtime=replace(
+                        action.runtime,
+                        timeout_seconds=self._llm_action_timeout_seconds,
+                    ),
+                ),
+                "llm_action",
+            )
+        if default_runtime.timeout_seconds is not None:
+            return action, "domain"
+        return action, "none"
 
     def _validate_backend_options(self, backend: ActionBackendSpec, *, key: str) -> None:
         validator = self._backend_kind_options_validators.get(backend.kind)
         if validator is not None:
             validator.validate(backend, key=key)
+
+
+def _document_display_path(document: ConfigDocument) -> str:
+    prefix = f"project-document:{document.set_id}:"
+    if document.source_id.startswith(prefix):
+        return document.source_id[len(prefix) :]
+    return document.source_id
+
+
+def _document_ref(
+    document: ConfigDocument,
+    document_kind: str,
+) -> ActionCatalogDocumentRef:
+    return ActionCatalogDocumentRef(
+        source_id=document.source_id,
+        path=_document_display_path(document),
+        document_kind=document_kind,
+    )
+
+
+def _with_document_source(
+    error: ConfigError,
+    document: ConfigDocument,
+) -> ConfigError:
+    if error.source:
+        return error
+    return ConfigError(
+        error.message,
+        key=error.key,
+        source=document.source_id,
+        value=error.value,
+        expected=error.expected,
+    )
 
 
 class ActionTomlParser:

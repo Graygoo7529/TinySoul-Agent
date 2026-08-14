@@ -800,7 +800,9 @@ def _shell_engine(
         disabled = tuple(
             action.name for action in catalog.actions() if action.name not in enabled_actions
         )
-        builder = ActionEngineBuilder(catalog_root).disable_actions(*disabled)
+        builder = ActionEngineBuilder(
+            ActionCatalogLoader().load(catalog_root)
+        ).disable_actions(*disabled)
         register_shell_actions(
             builder,
             settings=settings,

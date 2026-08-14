@@ -19,7 +19,7 @@ describe("OverviewSettingsPage", () => {
 });
 
 function catalog(): ConfigCatalog {
-  return { surfaces: [], field_groups: [], collections: [], fields: [] };
+  return { surfaces: [], field_groups: [], collections: [], fields: [], document_fields: [] };
 }
 
 function status(): ConfigStatus {

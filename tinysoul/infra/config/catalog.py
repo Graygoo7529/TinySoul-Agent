@@ -32,6 +32,7 @@ class ConfigValueKind(StrEnum):
     NUMBER = "number"
     STRING = "string"
     ENUM = "enum"
+    ENUM_LIST = "enum_list"
     STRING_LIST = "string_list"
     REFERENCE = "reference"
     REFERENCE_LIST = "reference_list"
@@ -125,7 +126,10 @@ class ConfigFieldDescriptor:
         choices = tuple(self.choices)
         if len({choice.value for choice in choices}) != len(choices):
             raise ConfigCatalogError(f"Configuration field choices are duplicated: {self.path}")
-        if choices and self.value_kind is not ConfigValueKind.ENUM:
+        if choices and self.value_kind not in {
+            ConfigValueKind.ENUM,
+            ConfigValueKind.ENUM_LIST,
+        }:
             raise ConfigCatalogError(
                 f"Configuration choices require enum kind: {self.path}"
             )
@@ -156,6 +160,68 @@ class ConfigFieldDescriptor:
             result["choices"] = [choice.to_json() for choice in self.choices]
         if self.reference is not None:
             result["reference"] = self.reference.to_json()
+        return result
+
+
+@dataclass(frozen=True)
+class ConfigDocumentFieldDescriptor:
+    """Presentation metadata for one owner-managed document-local field."""
+
+    document_set: str
+    document_kind: str
+    path: str
+    surface: str
+    group: str
+    title: str
+    description: str
+    value_kind: ConfigValueKind
+    importance: ConfigFieldImportance = ConfigFieldImportance.PRIMARY
+    choices: tuple[ConfigChoiceDescriptor, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.document_set, "document_field.document_set")
+        _require_identifier(self.document_kind, "document_field.document_kind")
+        _validate_pattern(self.path, "document_field.path")
+        _require_identifier(self.surface, "document_field.surface")
+        _require_identifier(self.group, "document_field.group")
+        _require_text(self.title, "document_field.title")
+        _require_text(self.description, "document_field.description")
+        if not isinstance(self.value_kind, ConfigValueKind):
+            raise ConfigCatalogError("Configuration document field kind is invalid")
+        if not isinstance(self.importance, ConfigFieldImportance):
+            raise ConfigCatalogError(
+                "Configuration document field importance is invalid"
+            )
+        choices = tuple(self.choices)
+        if len({choice.value for choice in choices}) != len(choices):
+            raise ConfigCatalogError(
+                "Configuration document field choices are duplicated: "
+                f"{self.document_set}:{self.document_kind}:{self.path}"
+            )
+        if choices and self.value_kind not in {
+            ConfigValueKind.ENUM,
+            ConfigValueKind.ENUM_LIST,
+        }:
+            raise ConfigCatalogError(
+                "Configuration document choices require enum kind: "
+                f"{self.document_set}:{self.document_kind}:{self.path}"
+            )
+        object.__setattr__(self, "choices", choices)
+
+    def to_json(self) -> JsonObject:
+        result: JsonObject = {
+            "document_set": self.document_set,
+            "document_kind": self.document_kind,
+            "path": self.path,
+            "surface": self.surface,
+            "group": self.group,
+            "title": self.title,
+            "description": self.description,
+            "value_kind": self.value_kind.value,
+            "importance": self.importance.value,
+        }
+        if self.choices:
+            result["choices"] = [choice.to_json() for choice in self.choices]
         return result
 
 
@@ -227,6 +293,9 @@ class ConfigCatalog:
     field_groups: tuple[ConfigFieldGroupDescriptor, ...]
     collections: tuple[ConfigCollectionDescriptor, ...]
     fields: tuple[ConfigFieldDescriptor, ...]
+    document_fields: tuple[ConfigDocumentFieldDescriptor, ...] = field(
+        default_factory=tuple
+    )
     rules: JsonObject = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -234,14 +303,22 @@ class ConfigCatalog:
         field_groups = tuple(self.field_groups)
         collections = tuple(self.collections)
         fields = tuple(self.fields)
+        document_fields = tuple(self.document_fields)
         _require_unique((item.id for item in surfaces), "surface")
         _require_unique((item.id for item in field_groups), "field group")
         _require_unique((item.id for item in collections), "collection")
         _require_unique((item.path for item in fields), "field path")
+        _require_unique(
+            (
+                f"{item.document_set}:{item.document_kind}:{item.path}"
+                for item in document_fields
+            ),
+            "document field",
+        )
         surface_ids = {item.id for item in surfaces}
         collection_ids = {item.id for item in collections}
         group_by_id = {item.id: item for item in field_groups}
-        for item in (*field_groups, *collections, *fields):
+        for item in (*field_groups, *collections, *fields, *document_fields):
             if item.surface not in surface_ids:
                 raise ConfigCatalogError(
                     f"Configuration catalog references unknown surface: {item.surface}"
@@ -262,10 +339,23 @@ class ConfigCatalog:
                     "Configuration field references unknown collection: "
                     f"{item.reference.collection}"
                 )
+        for item in document_fields:
+            group = group_by_id.get(item.group)
+            if group is None:
+                raise ConfigCatalogError(
+                    "Configuration document field references unknown group: "
+                    f"{item.document_set}:{item.document_kind}:{item.path}"
+                )
+            if group.surface != item.surface:
+                raise ConfigCatalogError(
+                    "Configuration document field group belongs to another surface: "
+                    f"{item.document_set}:{item.document_kind}:{item.path}"
+                )
         object.__setattr__(self, "surfaces", surfaces)
         object.__setattr__(self, "field_groups", field_groups)
         object.__setattr__(self, "collections", collections)
         object.__setattr__(self, "fields", fields)
+        object.__setattr__(self, "document_fields", document_fields)
         object.__setattr__(self, "rules", dict(self.rules))
 
     def with_rules(self, rules: Mapping[str, object]) -> "ConfigCatalog":
@@ -276,6 +366,7 @@ class ConfigCatalog:
             field_groups=self.field_groups,
             collections=self.collections,
             fields=self.fields,
+            document_fields=self.document_fields,
             rules=cast(JsonObject, to_json_value(rules)),
         )
 
@@ -293,6 +384,7 @@ class ConfigCatalog:
             "field_groups": [item.to_json() for item in self.field_groups],
             "collections": [item.to_json() for item in self.collections],
             "fields": [item.to_json() for item in self.fields],
+            "document_fields": [item.to_json() for item in self.document_fields],
             "rules": dict(self.rules),
         }
 
@@ -307,6 +399,7 @@ def load_config_catalog() -> ConfigCatalog:
     field_groups: list[ConfigFieldGroupDescriptor] = []
     collections: list[ConfigCollectionDescriptor] = []
     fields_: list[ConfigFieldDescriptor] = []
+    document_fields: list[ConfigDocumentFieldDescriptor] = []
     resources = sorted(
         (item for item in root.iterdir() if item.is_file() and item.name.endswith(".toml")),
         key=lambda item: item.name,
@@ -317,7 +410,7 @@ def load_config_catalog() -> ConfigCatalog:
         document = _load_document(resource)
         _reject_unknown(
             document,
-            {"surface", "field_group", "collection", "field"},
+            {"surface", "field_group", "collection", "field", "document_field"},
             resource.name,
         )
         surfaces.extend(_parse_surfaces(document.get("surface", []), resource.name))
@@ -328,11 +421,18 @@ def load_config_catalog() -> ConfigCatalog:
             _parse_collections(document.get("collection", []), resource.name)
         )
         fields_.extend(_parse_fields(document.get("field", []), resource.name))
+        document_fields.extend(
+            _parse_document_fields(
+                document.get("document_field", []),
+                resource.name,
+            )
+        )
     return ConfigCatalog(
         surfaces=tuple(surfaces),
         field_groups=tuple(field_groups),
         collections=tuple(collections),
         fields=tuple(fields_),
+        document_fields=tuple(document_fields),
     )
 
 
@@ -488,6 +588,56 @@ def _parse_fields(value: object, source: str) -> list[ConfigFieldDescriptor]:
                 credential_reference=_boolean(
                     item, "credential_reference", False, source
                 ),
+            )
+        )
+    return result
+
+
+def _parse_document_fields(
+    value: object,
+    source: str,
+) -> list[ConfigDocumentFieldDescriptor]:
+    result: list[ConfigDocumentFieldDescriptor] = []
+    allowed = {
+        "document_set",
+        "document_kind",
+        "path",
+        "surface",
+        "group",
+        "title",
+        "description",
+        "value_kind",
+        "importance",
+        "choices",
+    }
+    for item in _table_list(value, "document_field", source):
+        _reject_unknown(item, allowed, source)
+        try:
+            kind = ConfigValueKind(_string(item, "value_kind", source))
+            importance = ConfigFieldImportance(
+                _optional_string(
+                    item,
+                    "importance",
+                    ConfigFieldImportance.PRIMARY.value,
+                    source,
+                )
+            )
+        except ValueError as exc:
+            raise ConfigCatalogError(
+                f"Configuration document field enum is invalid: {source}"
+            ) from exc
+        result.append(
+            ConfigDocumentFieldDescriptor(
+                document_set=_string(item, "document_set", source),
+                document_kind=_string(item, "document_kind", source),
+                path=_string(item, "path", source),
+                surface=_string(item, "surface", source),
+                group=_string(item, "group", source),
+                title=_string(item, "title", source),
+                description=_string(item, "description", source),
+                value_kind=kind,
+                importance=importance,
+                choices=_parse_choices(item.get("choices", []), source),
             )
         )
     return result

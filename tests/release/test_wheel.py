@@ -61,6 +61,11 @@ def test_wheel_contains_resources_and_installed_package_initializes_project(
         names = set(archive.namelist())
 
     assert "tinysoul/action/catalog/core/actions/answer.toml" in names
+    assert "tinysoul/infra/config/catalog/actions.toml" in names
+    assert (
+        "tinysoul/assets/project/config_profiles/standard/configs/action/routing.toml"
+        in names
+    )
     assert (
         "tinysoul/action/catalog/workspace/actions/convert_with_markitdown.toml"
         in names
@@ -245,6 +250,10 @@ raise SystemExit(main(["reset", {str(development)!r}]))
     ).is_file()
     assert (initialized / "configs" / "capabilities" / "web.toml").is_file()
     assert (initialized / "configs" / "capabilities" / "script.toml").is_file()
+    assert (
+        initialized / "configs" / "action" / "catalog" / "core" / "domain.toml"
+    ).is_file()
+    assert (initialized / "configs" / "action" / "routing.toml").is_file()
     assert (initialized / "configs" / "capabilities" / "shell.toml").is_file()
     assert (
         initialized

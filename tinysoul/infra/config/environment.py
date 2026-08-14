@@ -11,6 +11,7 @@ from types import NoneType
 from typing import TypeVar, cast, get_args, get_origin, get_type_hints
 
 from .dotenv import DotenvSource, _env_mapping_to_dotted
+from .documents import ConfigDocument, ConfigDocumentSet, config_documents
 from .errors import ConfigError
 from .project import ProjectConfig
 from .source import ConfigSource, ConfigSourceKind
@@ -31,6 +32,7 @@ class ConfigEnvironment:
         process_env: Mapping[str, str] | None = None,
         project_tree: Mapping[str, object] | None = None,
         dotenv_path: Path | None = None,
+        document_sets: Iterable[ConfigDocumentSet] = (),
     ) -> None:
         self._project = project
         self._sources = list(sources)
@@ -40,6 +42,13 @@ class ConfigEnvironment:
             project_tree if project_tree is not None else project.data
         )
         self._dotenv_path = dotenv_path or project.env_file_path()
+        self._document_sets = tuple(document_sets)
+        set_ids = tuple(item.set_id for item in self._document_sets)
+        if len(set_ids) != len(set(set_ids)):
+            raise ConfigError(
+                "Configuration document set ids must be unique",
+                key="config.document_sets",
+            )
 
     @classmethod
     def from_project_root(
@@ -79,6 +88,7 @@ class ConfigEnvironment:
             sources=sources,
             runtime_env={**dotenv_raw, **process_env},
             process_env=process_env,
+            document_sets=project.document_sets,
         )
 
     @property
@@ -106,6 +116,23 @@ class ConfigEnvironment:
     @property
     def dotenv_path(self) -> Path:
         return self._dotenv_path
+
+    @property
+    def document_sets(self) -> tuple[ConfigDocumentSet, ...]:
+        return self._document_sets
+
+    @property
+    def documents(self) -> tuple[ConfigDocument, ...]:
+        return config_documents(self._document_sets)
+
+    def document_set(self, set_id: str) -> ConfigDocumentSet:
+        for item in self._document_sets:
+            if item.set_id == set_id:
+                return item
+        raise ConfigError(
+            "Configuration document set does not exist",
+            key=set_id,
+        )
 
     def effective_values(self) -> dict[str, object]:
         """Return the flattened values after source precedence is applied."""

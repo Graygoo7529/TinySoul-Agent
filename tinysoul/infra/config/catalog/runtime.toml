@@ -263,3 +263,12 @@ title = "Dotenv File"
 description = "Project-relative dotenv file loaded for configured credential names."
 value_kind = "string"
 importance = "advanced"
+
+[[field]]
+path = "config.document_sets"
+surface = "infrastructure"
+group = "infrastructure.sources"
+title = "Managed Document Sets"
+description = "Process-owned declarations for independent project TOML documents managed by configuration transactions."
+value_kind = "object_list"
+importance = "advanced"

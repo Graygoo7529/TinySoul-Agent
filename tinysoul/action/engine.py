@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Self
 
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.tools import ToolCallRecord, ToolScope
 from tinysoul.runtime import (
     CyclePhase,
@@ -15,7 +14,6 @@ from tinysoul.runtime import (
     RunScope,
 )
 
-from .backends.llm_action import LLMActionBackendOptionsValidator
 from .core.call import (
     ActionBatch,
     ActionBatchPreparation,
@@ -35,7 +33,11 @@ from .core.hooks import (
     ActionNormalizeHook,
     ActionNormalizeHookPipeline,
 )
-from .core.loader import ActionCatalogLoader
+from .core.loader import (
+    ActionCatalogDocumentIndex,
+    ActionCatalogDocumentRef,
+    LoadedActionCatalog,
+)
 from .core.result import ActionPhaseResult, ActionResult
 from .core.specs import ActionBackendKind, ActionToolSpec
 from .core.runner import ActionBatchRunner
@@ -74,6 +76,8 @@ class ActionEngine:
         self,
         *,
         catalog: ActionCatalog,
+        configured_catalog: ActionCatalog,
+        catalog_documents: ActionCatalogDocumentIndex | None,
         normalizer: ActionCallNormalizer,
         builder: ActionExecutionBuilder,
         runner: ActionBatchRunner,
@@ -83,6 +87,8 @@ class ActionEngine:
         domain_prompt_renderer: ActionDomainPromptRenderer,
     ) -> None:
         self._catalog = catalog
+        self._configured_catalog = configured_catalog
+        self._catalog_documents = catalog_documents
         self._normalizer = normalizer
         self._builder = builder
         self._runner = runner
@@ -114,6 +120,124 @@ class ActionEngine:
             for action in self._catalog.actions()
         )
 
+    def catalog_json(self) -> JsonObject:
+        """Expose configured User Actions with availability and source bindings."""
+
+        available_actions = {action.name for action in self._catalog.actions()}
+        available_domains = {action.domain for action in self._catalog.actions()}
+        documents = self._catalog_documents
+        domains = []
+        for domain in self._configured_catalog.domains():
+            runtime = (
+                documents.domain_runtimes.get(domain.name)
+                if documents is not None
+                else None
+            )
+            source = documents.domains.get(domain.name) if documents is not None else None
+            domains.append(
+                {
+                    "id": domain.name,
+                    "description": domain.description,
+                    "selection_hint": domain.selection_hint,
+                    "runtime": {
+                        "timeout_seconds": (
+                            runtime.timeout_seconds if runtime is not None else None
+                        ),
+                        "parallel_policy": (
+                            runtime.parallel_policy.value if runtime is not None else "allowed"
+                        ),
+                        "hooks": {
+                            "normalize": (
+                                list(runtime.hooks.normalize_hooks)
+                                if runtime is not None
+                                else []
+                            ),
+                            "execute": (
+                                list(runtime.hooks.execution_hooks)
+                                if runtime is not None
+                                else []
+                            ),
+                        },
+                        "trace_mode": (
+                            runtime.result.trace_mode.value
+                            if runtime is not None
+                            else "standard"
+                        ),
+                    },
+                    "available": domain.name in available_domains,
+                    "action_count": len(
+                        self._configured_catalog.actions_in_domain(domain.name)
+                    ),
+                    "source": (
+                        _source_json(
+                            source,
+                            editable_paths=(
+                                "description",
+                                "selection_hint",
+                                "runtime.timeout_seconds",
+                            ),
+                        )
+                        if source is not None
+                        else None
+                    ),
+                }
+            )
+        actions = []
+        for action in self._configured_catalog.actions():
+            source = documents.actions.get(action.name) if documents is not None else None
+            actions.append(
+                {
+                    "id": action.name,
+                    "domain": action.domain,
+                    "tool": {
+                        "description": action.tool.description,
+                        "schema": action.tool.schema,
+                    },
+                    "semantic": {
+                        "use_when": list(action.semantic.use_when),
+                        "avoid_when": list(action.semantic.avoid_when),
+                        "effects": [effect.value for effect in action.semantic.effects],
+                        "examples": list(action.semantic.examples),
+                    },
+                    "runtime": {
+                        "timeout_seconds": action.runtime.timeout_seconds,
+                        "timeout_source": (
+                            documents.timeout_sources.get(action.name, "none")
+                            if documents is not None
+                            else "none"
+                        ),
+                        "parallel_policy": action.runtime.parallel_policy.value,
+                        "hooks": {
+                            "normalize": list(action.runtime.hooks.normalize_hooks),
+                            "execute": list(action.runtime.hooks.execution_hooks),
+                        },
+                        "trace_mode": action.runtime.result.trace_mode.value,
+                    },
+                    "backend": {
+                        "kind": action.backend.kind.value,
+                        "handler": action.backend.handler,
+                        "options": action.backend.options,
+                    },
+                    "available": action.name in available_actions,
+                    "source": (
+                        _source_json(
+                            source,
+                            editable_paths=(
+                                "tool.description",
+                                "semantic.use_when",
+                                "semantic.avoid_when",
+                                "semantic.effects",
+                                "semantic.examples",
+                                "runtime.timeout_seconds",
+                            ),
+                        )
+                        if source is not None
+                        else None
+                    ),
+                }
+            )
+        return to_json_object({"domains": domains, "actions": actions})
+
     def view(self, action_names: tuple[str, ...]) -> "ActionEngine":
         """Return an immutable catalog view sharing the assembled runtime."""
 
@@ -127,6 +251,8 @@ class ActionEngine:
             raise ActionContractError("ActionEngine view actions must be unique")
         return ActionEngine(
             catalog=self._catalog.with_actions(action_names),
+            configured_catalog=self._configured_catalog.with_actions(action_names),
+            catalog_documents=self._catalog_documents,
             normalizer=self._normalizer,
             builder=self._builder,
             runner=self._runner,
@@ -257,10 +383,19 @@ class ActionEngine:
 
 
 class ActionEngineBuilder:
-    """Assemble an ActionEngine from a catalog root and registered handlers."""
+    """Assemble an ActionEngine from one already validated typed catalog."""
 
-    def __init__(self, catalog_root: Path) -> None:
-        self._catalog_roots = [catalog_root]
+    def __init__(self, catalog: ActionCatalog | LoadedActionCatalog) -> None:
+        if isinstance(catalog, LoadedActionCatalog):
+            self._catalog = catalog.catalog
+            self._catalog_documents: ActionCatalogDocumentIndex | None = catalog.documents
+        elif isinstance(catalog, ActionCatalog):
+            self._catalog = catalog
+            self._catalog_documents = None
+        else:
+            raise ActionContractError(
+                "ActionEngineBuilder requires an ActionCatalog or LoadedActionCatalog"
+            )
         self._executors = ExecutorRegistry()
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
@@ -270,15 +405,6 @@ class ActionEngineBuilder:
         self._disabled_actions: set[str] = set()
         self._included_actions: set[str] | None = None
         self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
-        self._llm_action_timeout_seconds: float | None = None
-
-    def add_catalog_root(self, catalog_root: Path) -> Self:
-        """Add one package-owned catalog fragment to this engine."""
-
-        if catalog_root in self._catalog_roots:
-            raise ActionContractError("Action catalog root is already registered")
-        self._catalog_roots.append(catalog_root)
-        return self
 
     def register_executor(
         self,
@@ -377,27 +503,9 @@ class ActionEngineBuilder:
         self._observations = observations
         return self
 
-    def with_llm_action_timeout_seconds(self, seconds: float) -> Self:
-        """Set the project default timeout for llm_action without a dedicated value."""
-
-        if (
-            isinstance(seconds, bool)
-            or not isinstance(seconds, (int, float))
-            or seconds <= 0
-        ):
-            raise ActionContractError(
-                "llm_action_timeout_seconds must be a positive number"
-            )
-        self._llm_action_timeout_seconds = float(seconds)
-        return self
-
     def build(self) -> ActionEngine:
-        catalog = ActionCatalogLoader(
-            backend_kind_options_validators={
-                ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
-            },
-            llm_action_timeout_seconds=self._llm_action_timeout_seconds,
-        ).load_many(self._catalog_roots)
+        configured_catalog = self._catalog
+        catalog = configured_catalog
         if self._included_actions is not None:
             available = {action.name for action in catalog.actions()}
             unknown_included = self._included_actions - available
@@ -427,6 +535,8 @@ class ActionEngineBuilder:
         execution_pipeline = ActionExecutionHookPipeline(self._hooks)
         return ActionEngine(
             catalog=catalog,
+            configured_catalog=configured_catalog,
+            catalog_documents=self._catalog_documents,
             normalizer=ActionCallNormalizer(normalize_pipeline),
             builder=ActionExecutionBuilder(),
             runner=ActionBatchRunner(
@@ -502,3 +612,16 @@ class ActionEngineBuilder:
                 )
             )
         return ActionCatalog(domains=catalog.domains(), actions=actions)
+
+
+def _source_json(
+    source: ActionCatalogDocumentRef,
+    *,
+    editable_paths: tuple[str, ...],
+) -> JsonObject:
+    return {
+        "source_id": source.source_id,
+        "path": source.path,
+        "document_kind": source.document_kind,
+        "editable_paths": list(editable_paths),
+    }

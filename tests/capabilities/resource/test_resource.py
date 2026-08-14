@@ -360,7 +360,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
         convert_with_pypdf=PdfConversionSettings(enabled=False),
     )
     engine = register_resource_actions(
-        ActionEngineBuilder(catalog_root),
+        ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
         settings=settings,
         workspace=_workspace(local_tmp),
         bus=SignalBus(),

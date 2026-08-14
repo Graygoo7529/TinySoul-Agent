@@ -11,6 +11,7 @@ from typing import cast
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object, to_json_value
 
 from .dotenv import DotenvDocument, DotenvSource, _env_mapping_to_dotted
+from .documents import ConfigDocument, ConfigDocumentSet
 from .catalog import ConfigCatalog, load_config_catalog
 from .environment import ConfigEnvironment
 from .errors import ConfigError
@@ -98,6 +99,8 @@ class ConfigController:
                     exists=source.path is None or source.path.exists(),
                 )
             )
+        for document in self._environment.documents:
+            source_items.append(self._document_json(document))
         dotenv_path = self._environment.dotenv_path
         if not any(source.source_id == "dotenv" for source in self._environment.sources):
             source_items.append(
@@ -226,9 +229,12 @@ class ConfigController:
         mutations: tuple[ConfigMutation, ...],
     ) -> tuple[ConfigEnvironment, list[ConfigDocumentWrite]]:
         documents: dict[Path, ConfigFileToml | DotenvDocument] = {}
-        source_by_id = {
+        source_by_id: dict[str, ConfigSource | ConfigDocument] = {
             source.source_id: source for source in self._environment.sources
         }
+        source_by_id.update(
+            {document.source_id: document for document in self._environment.documents}
+        )
         dotenv_path = self._environment.dotenv_path
         source_by_id.setdefault(
             "dotenv",
@@ -241,7 +247,7 @@ class ConfigController:
                     "Configuration source does not exist",
                     key=mutation.source_id,
                 )
-            if source.kind not in {
+            if isinstance(source, ConfigSource) and source.kind not in {
                 ConfigSourceKind.PROJECT_TOML,
                 ConfigSourceKind.DOTENV,
             }:
@@ -249,7 +255,10 @@ class ConfigController:
                     "Configuration source is read-only",
                     key=mutation.source_id,
                 )
-            if _is_process_owned_mutation(source.kind, mutation.path):
+            if isinstance(source, ConfigSource) and _is_process_owned_mutation(
+                source.kind,
+                mutation.path,
+            ):
                 raise ConfigError(
                     "Process shell configuration is read-only at runtime",
                     key=mutation.path,
@@ -261,7 +270,10 @@ class ConfigController:
                     key=mutation.op,
                     expected="set | delete",
                 )
-            if source.kind is ConfigSourceKind.DOTENV:
+            if (
+                isinstance(source, ConfigSource)
+                and source.kind is ConfigSourceKind.DOTENV
+            ):
                 document = documents.setdefault(
                     dotenv_path,
                     DotenvDocument(dotenv_path),
@@ -323,6 +335,30 @@ class ConfigController:
         if not any(source.source_id == "dotenv" for source in candidate_sources):
             candidate_sources.append(DotenvSource(dotenv_path).load())
 
+        candidate_document_sets: list[ConfigDocumentSet] = []
+        for document_set in self._environment.document_sets:
+            candidate_documents: list[ConfigDocument] = []
+            for source in document_set.documents:
+                document = documents.get(source.path)
+                candidate_documents.append(
+                    ConfigDocument(
+                        set_id=source.set_id,
+                        source_id=source.source_id,
+                        path=source.path,
+                        data=(
+                            document.data
+                            if isinstance(document, ConfigFileToml)
+                            else source.data
+                        ),
+                    )
+                )
+            candidate_document_sets.append(
+                ConfigDocumentSet(
+                    set_id=document_set.set_id,
+                    documents=tuple(candidate_documents),
+                )
+            )
+
         project_tree = _project_tree_from_sources(candidate_sources)
         dotenv_document = next(
             (
@@ -375,6 +411,7 @@ class ConfigController:
             process_env=self._environment.process_env,
             project_tree=project_tree,
             dotenv_path=candidate_dotenv_path,
+            document_sets=candidate_document_sets,
         )
         writes = [
             ConfigDocumentWrite(path=path, text=document.render())
@@ -437,6 +474,21 @@ class ConfigController:
         if source.kind is ConfigSourceKind.DOTENV and source.path is not None:
             values = DotenvDocument(source.path).values
         return {key: to_json_value(value) for key, value in values.items()}
+
+    def _document_json(self, document: ConfigDocument) -> JsonObject:
+        try:
+            relative = document.path.resolve().relative_to(self.root).as_posix()
+        except ValueError:
+            relative = str(document.path)
+        return {
+            "id": document.source_id,
+            "kind": "project_document_toml",
+            "document_set": document.set_id,
+            "path": relative,
+            "exists": document.path.exists(),
+            "writable": True,
+            "values": {},
+        }
 
 
 def _project_tree_from_sources(sources: list[ConfigSource]) -> dict[str, object]:

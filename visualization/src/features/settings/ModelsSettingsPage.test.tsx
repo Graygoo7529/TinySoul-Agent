@@ -199,6 +199,7 @@ function option(
 
 function catalog(): ConfigCatalog {
   return {
+    document_fields: [],
     surfaces: [
       { id: "models", title: "Models", description: "Configured models." },
       { id: "providers", title: "Providers", description: "Configured providers." },

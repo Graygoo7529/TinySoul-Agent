@@ -77,6 +77,27 @@ def test_config_catalog_owns_field_group_presentation() -> None:
     assert catalog.to_json()["field_groups"]
 
 
+def test_config_catalog_describes_action_document_fields_independently() -> None:
+    catalog = load_config_catalog()
+    descriptors = {
+        (item.document_set, item.document_kind, item.path): item
+        for item in catalog.document_fields
+    }
+
+    assert (
+        "action.catalog",
+        "domain",
+        "description",
+    ) in descriptors
+    effects = descriptors[("action.catalog", "action", "semantic.effects")]
+    assert {choice.value for choice in effects.choices} == {
+        "read_only",
+        "additive",
+        "modifying",
+    }
+    assert catalog.to_json()["document_fields"]
+
+
 def _choices(catalog, path: str) -> set[str]:
     descriptor = next(item for item in catalog.fields if item.path == path)
     return {item.value for item in descriptor.choices}

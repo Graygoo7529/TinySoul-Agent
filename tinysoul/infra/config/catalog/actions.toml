@@ -1,0 +1,237 @@
+[[surface]]
+id = "action_catalog"
+title = "Action Catalog"
+description = "Project-owned Action domains, model-visible semantics, and runtime policy."
+
+[[field_group]]
+id = "action_catalog.domain"
+surface = "action_catalog"
+title = "Domain"
+description = "Defines how the domain is identified and presented during domain selection."
+
+[[field_group]]
+id = "action_catalog.semantic"
+surface = "action_catalog"
+title = "Selection Semantics"
+description = "Explains when the model should choose this Action and what it changes."
+
+[[field_group]]
+id = "action_catalog.runtime"
+surface = "action_catalog"
+title = "Runtime"
+description = "Controls effective execution limits and framework behavior."
+
+[[field_group]]
+id = "action_catalog.contract"
+surface = "action_catalog"
+title = "Read-only Contract"
+description = "Shows stable identity, schema, hooks, trace policy, and backend wiring."
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "name"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Domain ID"
+description = "Stable domain identity used by Actions, prompts, and skill mounts."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "description"
+surface = "action_catalog"
+group = "action_catalog.domain"
+title = "Description"
+description = "Model-visible summary of the responsibility shared by Actions in this domain."
+value_kind = "string"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "selection_hint"
+surface = "action_catalog"
+group = "action_catalog.domain"
+title = "Selection Hint"
+description = "Additional Phase1 guidance for deciding when this domain should be selected."
+value_kind = "string"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "runtime.timeout_seconds"
+surface = "action_catalog"
+group = "action_catalog.runtime"
+title = "Default Timeout"
+description = "Default execution timeout inherited by Actions without a more specific timeout."
+value_kind = "number"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "runtime.parallel_policy"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Parallel Policy"
+description = "Default framework scheduling policy inherited by Actions in this domain."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "runtime.hooks"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Hooks"
+description = "Framework hook names applied to Actions in this domain."
+value_kind = "object"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "name"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Action ID"
+description = "Stable namespaced Action identity exposed as the tool name."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "domain"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Domain ID"
+description = "Stable domain that owns this Action."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "tool.description"
+surface = "action_catalog"
+group = "action_catalog.semantic"
+title = "Tool Description"
+description = "Primary model-visible description used when this Action is offered as a tool."
+value_kind = "string"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "semantic.use_when"
+surface = "action_catalog"
+group = "action_catalog.semantic"
+title = "Use When"
+description = "Situations in which selecting this Action is appropriate."
+value_kind = "string_list"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "semantic.avoid_when"
+surface = "action_catalog"
+group = "action_catalog.semantic"
+title = "Avoid When"
+description = "Situations in which the model should prefer another Action or no Action."
+value_kind = "string_list"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "semantic.effects"
+surface = "action_catalog"
+group = "action_catalog.semantic"
+title = "Effects"
+description = "Model-visible summary of how this Action may affect its environment."
+value_kind = "enum_list"
+importance = "advanced"
+choices = [
+  { value = "read_only", label = "Read only" },
+  { value = "additive", label = "Additive" },
+  { value = "modifying", label = "Modifying" },
+]
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "semantic.examples"
+surface = "action_catalog"
+group = "action_catalog.semantic"
+title = "Examples"
+description = "Short examples that clarify intended Action selection."
+value_kind = "string_list"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "runtime.timeout_seconds"
+surface = "action_catalog"
+group = "action_catalog.runtime"
+title = "Action Timeout"
+description = "Action-specific timeout. Remove it to use the LLM Action or domain default."
+value_kind = "number"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "tool.schema"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Tool Schema"
+description = "JSON Schema contract used to validate model tool arguments."
+value_kind = "object"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "runtime.parallel_policy"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Parallel Policy"
+description = "Effective framework scheduling policy for this Action."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "runtime.hooks"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Hooks"
+description = "Effective normalize and execution hooks attached to this Action."
+value_kind = "object"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "runtime.result.trace_mode"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Trace Mode"
+description = "Controls how successful Action results are retained in the execution trace."
+value_kind = "string"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "backend"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Backend"
+description = "Framework backend kind, registered handler, and backend-specific options."
+value_kind = "object"
+importance = "advanced"

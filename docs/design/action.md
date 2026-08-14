@@ -18,7 +18,7 @@ Core domain 通过 `register_memory_actions` 接入 `core.memory.memorize`、`co
 4. 所有 LLM 调用都基于语境模块构造的 `MessageStack`，Action 只追加临时任务提示。
 5. Action 定义使用 TOML 存放，入口动态校验后尽早转换为内部类型。
 6. 去掉旧设计中的冗余字段，保持模型侧可见描述和框架内运行配置分离。
-7. 内置 Action Catalog 随 TinySoul 包版本发布，项目只配置业务运行参数，不以路径替换框架 catalog。
+7. 内置 Action Catalog 随 TinySoul 包版本发布为 init/reset 模板；运行实例只使用项目中物化的 catalog。
 8. ActionResult 的 trace 生命周期由 Catalog 声明，业务 executor 只提供结果内容及必要的 compact projection 数据。
 
 ## 分层模型
@@ -242,7 +242,7 @@ LLM task failure 由共享服务映射为 `ActionLocalFailure`，再由 renderer
 `overrides`。timeout（默认 600）只填充未声明专用超时的 `llm_action`；具体 Action 的 runtime
 值仍可覆盖通用默认。`LLMActionProfileResolver` 先按完整 Action ID 查 override，再回退 default
 profile，并把字符串 profile 交给现有 LLM task runner。候选 AppConfigPlan 构建时，Action
-模块会把 override Action ID 对照 package catalog，要求 backend kind 为 `llm_action`；App 再用
+模块会把 override Action ID 对照当前候选 project catalog，要求 backend kind 为 `llm_action`；App 再用
 LLM `TaskSpecTable.profiles()` 协调 profile 引用。unknown Action、非 LLM Action、unknown
 profile 和重复 override 都在文件提交前形成 Action-owned `ConfigError`，不会推迟到执行期。
 
@@ -258,11 +258,18 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.domain_names()` 与 `action_identifiers()` 提供只读 catalog identity snapshot，供 App 在装配期把 domain/action 逻辑 prompt mount 交给 Agent Home reconciliation。该接口不暴露可变 `ActionCatalog`、tool schema 或 executor registry；Action 不解释 Home 路径，Home 不读取 catalog TOML。
 
-`ActionEngine.catalog_projection()` 进一步提供当前 effective User Action 的有限只读投影，只含
-Action ID、domain、tool description 和 backend kind。`UserTurnEntry` 持有已装配 ActionEngine
-并把该投影交给 Endpoint；投影不包含 executor、prompt、schema 或 package 路径。
+`ActionEngine.catalog_json()` 提供当前 Generation 的完整配置展示投影：Domain/Action 模型可见
+语义、effective runtime、backend contract、availability，以及指向项目 document source/local path
+的编辑绑定。投影以构建前的 configured catalog 为基准，因此被 Capability registrar 暂时裁剪的
+Action 仍可读并标记 unavailable；执行 scope 仍只使用 effective catalog。投影不暴露 executor 或
+prompt，也不重新读取文件。
 
-`ActionEngineBuilder` 负责加载 TOML catalog、注册 executor、注册 normalize/execution hook，并在 build 阶段校验 catalog 中所有 backend handler 都有 executor。Builder 不按 backend kind 自动提供 executor；所有 native、subprocess、supervised_process 与 capability-specific handler 都由其 owner registrar 显式注册。backend kind 可以提供适用于该类所有 handler 的 options validator，例如 `llm_action` 的 generation/artifact limits；validator 在 catalog 加载阶段校验 TOML options，并把动态边界尽早转换为后端明确类型。不为没有实际消费者的单个 handler 保留独立 validator 注册通道。业务模块可以提供 registrar，把一组模块内 executor 统一注册到 builder，避免 AppBuilder 枚举模块内部 action 清单。配置拥有的动态工具边界由 registrar 作为属性级 schema update 交给 builder；builder 在 package Catalog 加载和 effective action 裁剪后合并，并重新构造、校验完整 `ActionToolSpec`，从而让 ToolScope 与 executor 使用同一份有效配置，而不修改只读 package Catalog。
+`ActionCatalogLoader.load_documents()` 负责从 Infra 提供的候选 `ConfigDocumentSet` 解析
+`LoadedActionCatalog`，并复用 package template 测试所用的同一个 `ActionTomlParser`。加载结果同时
+保留 Domain 默认 runtime、Action timeout 来源与稳定 document binding。backend kind validator 在
+这一动态边界校验 options。`ActionEngineBuilder` 只接收已经校验的 `ActionCatalog` 或
+`LoadedActionCatalog`，负责注册 executor/hook、availability 裁剪、动态 schema 更新，并在 build
+阶段校验 effective catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。
 
 ## Action Schema
 
@@ -350,7 +357,12 @@ tinysoul/capabilities/       # 只有存在真实轻量能力时才建立
     service.py
 ```
 
-`tinysoul/action/catalog` 是框架与 User 主线版本化的只读 package resource，由 `builtin_action_catalog_root()` 物化。`ActionCatalogLoader.load_many()` 与 `ActionEngineBuilder.add_catalog_root()` 允许上层 owner 组合多个 package-owned fragment，合并后仍由 `ActionCatalog` 强制 domain/action identity 唯一；这不是任意项目路径插件入口。Maintenance fragment 物理位于 `tinysoul/maintenance/catalog`，只由 `MaintenanceBuilder` 与 core catalog 组合，再通过 `include_actions()` 构造 Home/Memory 精确 surface；User builder只加载 Action 自有 root，因此从不需要识别或排除 Maintenance。构建后的 `ActionEngine` 只持有已校验的内部 catalog，项目模板不复制 catalog，也不提供 `[action].catalog_root`。
+`tinysoul/action/catalog` 是版本化的只读 bootstrap template；`tinysoul init/reset` 将其完整复制到
+`<project>/configs/action/catalog`。运行时没有 package fallback 或 package+project overlay，项目
+catalog 是全部共享内置 Action 的唯一事实。AppConfigPlan 从候选 `action.catalog` document set
+得到 `LoadedActionCatalog`，User builder 直接注入它。Maintenance builder 将同一 project base
+catalog 与只读 `tinysoul/maintenance/catalog` fragment 类型化合并，再通过 `include_actions()` 构造
+Home/Memory 精确 surface；Maintenance 专属定义不进入项目可写页面。
 
 ### TOML catalog
 

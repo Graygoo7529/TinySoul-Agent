@@ -263,3 +263,59 @@ def test_project_config_rejects_env_file_outside_project_root(
 
     assert raised.value.key == "config.env_file"
     assert raised.value.expected == "project-relative path without '..'"
+
+
+def test_project_config_loads_independent_document_set_without_merging(
+    local_tmp: Path,
+) -> None:
+    action_dir = local_tmp / "configs" / "action" / "catalog" / "core"
+    action_dir.mkdir(parents=True)
+    (local_tmp / "tinysoul.toml").write_text(
+        """
+        [config]
+        include = []
+
+        [[config.document_sets]]
+        id = "action.catalog"
+        include = ["configs/action/catalog/*/domain.toml"]
+        """,
+        encoding="utf-8",
+    )
+    domain_path = action_dir / "domain.toml"
+    domain_path.write_text(
+        'name = "core"\ndescription = "Core actions."\n',
+        encoding="utf-8",
+    )
+
+    project = ProjectConfig(local_tmp)
+    document_set = project.document_sets[0]
+
+    assert document_set.set_id == "action.catalog"
+    assert len(document_set.documents) == 1
+    assert document_set.documents[0].source_id == (
+        "project-document:action.catalog:configs/action/catalog/core/domain.toml"
+    )
+    assert document_set.documents[0].data["name"] == "core"
+    assert "name" not in project.to_source().values
+
+
+def test_project_config_rejects_document_owned_by_merged_include(
+    local_tmp: Path,
+) -> None:
+    config_dir = local_tmp / "configs"
+    config_dir.mkdir()
+    (config_dir / "shared.toml").write_text("[app]\ninteractive = false\n", encoding="utf-8")
+    (local_tmp / "tinysoul.toml").write_text(
+        """
+        [config]
+        include = ["configs/shared.toml"]
+
+        [[config.document_sets]]
+        id = "test.documents"
+        include = ["configs/shared.toml"]
+        """,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="already owned"):
+        ProjectConfig(local_tmp)

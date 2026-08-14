@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
+from collections.abc import Mapping
 
 import pytest
 
@@ -19,6 +21,33 @@ def _project(root: Path) -> ConfigEnvironment:
         "[infra.embedding]\nenabled = false\n",
         encoding="utf-8",
     )
+    return ConfigEnvironment.from_project_root(root, env={})
+
+
+def _project_with_document(root: Path) -> ConfigEnvironment:
+    config_dir = root / "configs"
+    document_dir = config_dir / "documents"
+    document_dir.mkdir(parents=True)
+    (root / "tinysoul.toml").write_text(
+        """
+        [config]
+        include = ["configs/infra.toml"]
+
+        [[config.document_sets]]
+        id = "test.documents"
+        include = ["configs/documents/*.toml"]
+        """,
+        encoding="utf-8",
+    )
+    (config_dir / "infra.toml").write_text(
+        "[infra.embedding]\nenabled = false\n",
+        encoding="utf-8",
+    )
+    (document_dir / "item.toml").write_text(
+        'name = "item"\n[settings]\nenabled = false\n',
+        encoding="utf-8",
+    )
+    (root / ".env").write_text("TOKEN=old\n", encoding="utf-8")
     return ConfigEnvironment.from_project_root(root, env={})
 
 
@@ -84,6 +113,109 @@ def test_validate_does_not_write_documents(tmp_path: Path) -> None:
 
     assert result["valid"] is True
     assert target.read_text(encoding="utf-8") == original
+
+
+def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> None:
+    environment = _project_with_document(tmp_path)
+    target = tmp_path / "configs" / "documents" / "item.toml"
+    original = target.read_text(encoding="utf-8")
+    observed: list[bool] = []
+
+    def validate(candidate: ConfigEnvironment) -> None:
+        document = candidate.document_set("test.documents").documents[0]
+        settings = document.data["settings"]
+        assert isinstance(settings, Mapping)
+        observed.append(cast(Mapping[str, object], settings)["enabled"] is True)
+        assert target.read_text(encoding="utf-8") == original
+
+    controller = ConfigController(
+        root=tmp_path,
+        environment=environment,
+        validator=validate,
+    )
+    source_id = environment.document_set("test.documents").documents[0].source_id
+    status = controller.status()
+    sources = status["sources"]
+    fields = status["fields"]
+    assert isinstance(sources, list)
+    assert isinstance(fields, dict)
+    source_status = next(
+        source
+        for source in sources
+        if isinstance(source, dict) and source.get("id") == source_id
+    )
+    assert source_status["kind"] == "project_document_toml"
+    assert source_status["document_set"] == "test.documents"
+    assert source_status["values"] == {}
+    assert "settings.enabled" not in fields
+
+    controller.patch(
+        (
+            ConfigMutation(
+                source_id=source_id,
+                path="settings.enabled",
+                op="set",
+                value=True,
+            ),
+        )
+    )
+
+    assert observed == [True]
+    assert "enabled = true" in target.read_text(encoding="utf-8")
+    assert controller.environment.document_set("test.documents").documents[0].data[
+        "settings"
+    ] == {"enabled": True}
+
+
+def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
+    environment = _project_with_document(tmp_path)
+    merged = tmp_path / "configs" / "infra.toml"
+    document = tmp_path / "configs" / "documents" / "item.toml"
+    dotenv = tmp_path / ".env"
+    originals = (
+        merged.read_text(encoding="utf-8"),
+        document.read_text(encoding="utf-8"),
+        dotenv.read_text(encoding="utf-8"),
+    )
+
+    def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        return PreparedConfigActivation(commit=lambda: (_ for _ in ()).throw(RuntimeError("fail")))
+
+    controller = ConfigController(
+        root=tmp_path,
+        environment=environment,
+        activator=prepare,
+    )
+    source_id = environment.document_set("test.documents").documents[0].source_id
+
+    with pytest.raises(RuntimeError, match="fail"):
+        controller.patch(
+            (
+                ConfigMutation(
+                    source_id="project:configs/infra.toml",
+                    path="infra.embedding.enabled",
+                    op="set",
+                    value=True,
+                ),
+                ConfigMutation(
+                    source_id=source_id,
+                    path="settings.enabled",
+                    op="set",
+                    value=True,
+                ),
+                ConfigMutation(
+                    source_id="dotenv",
+                    path="TOKEN",
+                    op="set",
+                    value="new",
+                ),
+            )
+        )
+
+    assert merged.read_text(encoding="utf-8") == originals[0]
+    assert document.read_text(encoding="utf-8") == originals[1]
+    assert dotenv.read_text(encoding="utf-8") == originals[2]
+    assert controller.environment is environment
 
 
 def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:

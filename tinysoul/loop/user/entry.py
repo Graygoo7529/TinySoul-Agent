@@ -26,11 +26,9 @@ class UserTurnEntry:
         return self._runner.request_active_cancel(kind)
 
     def action_catalog(self) -> JsonObject:
-        """Return the effective User Action catalog for external clients."""
+        """Return configured User Actions with current availability."""
 
-        return {
-            "actions": [item.to_json() for item in self._action.catalog_projection()]
-        }
+        return self._action.catalog_json()
 
     def run(
         self,

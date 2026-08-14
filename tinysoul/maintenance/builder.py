@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from tinysoul.action import ActionEngine
-from tinysoul.action.config import ActionSettings
+from tinysoul.action import ActionEngine, LoadedActionCatalog
 from tinysoul.context import ContextEngine, ContextSettings
 from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.home import AgentHomeEngine
@@ -60,7 +59,7 @@ class MaintenanceBuilder:
         bus: SignalBus,
         observations: ObservationEmitter,
         clock: BusinessClock | None = None,
-        action_settings: ActionSettings | None = None,
+        action_catalog: LoadedActionCatalog,
     ) -> None:
         self._context_settings = context_settings
         self._loop_settings = loop_settings
@@ -73,7 +72,7 @@ class MaintenanceBuilder:
         self._bus = bus
         self._observations = observations
         self._clock = clock
-        self._action_settings = action_settings or ActionSettings()
+        self._action_catalog = action_catalog
 
     def build(self) -> MaintenanceEngine:
         archived_context = ArchivedMemoryMaintenanceContext()
@@ -102,9 +101,7 @@ class MaintenanceBuilder:
             observations=self._observations,
             home_controller=home_controller,
             memory_controller=memory_controller,
-            llm_action_timeout_seconds=(
-                self._action_settings.llm_action.timeout_seconds
-            ),
+            action_catalog=self._action_catalog,
         )
         memory_action = build_maintenance_action(
             kind="memory",
@@ -113,9 +110,7 @@ class MaintenanceBuilder:
             observations=self._observations,
             home_controller=home_controller,
             memory_controller=memory_controller,
-            llm_action_timeout_seconds=(
-                self._action_settings.llm_action.timeout_seconds
-            ),
+            action_catalog=self._action_catalog,
         )
         home_turn = self._build_turn(
             kind="home",

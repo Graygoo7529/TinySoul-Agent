@@ -86,6 +86,7 @@ function buttonStartingWith(text: string): HTMLButtonElement | null {
 
 function catalog(): ConfigCatalog {
   return {
+    document_fields: [],
     surfaces: [
       { id: "task_chains", title: "Task Chains", description: "Configured task chains." },
       { id: "models", title: "Models", description: "Configured models." },
@@ -225,12 +226,23 @@ function status(): ConfigStatus {
 
 function actions(): ActionCatalog {
   return {
+    domains: [],
     actions: [
       {
         id: "core.answer",
         domain: "core",
-        description: "Answer the user.",
-        backend_kind: "llm_action",
+        tool: { description: "Answer the user.", schema: {} },
+        semantic: { use_when: [], avoid_when: [], effects: [], examples: [] },
+        runtime: {
+          timeout_seconds: 600,
+          timeout_source: "llm_action",
+          parallel_policy: "allowed",
+          hooks: { normalize: [], execute: [] },
+          trace_mode: "standard",
+        },
+        backend: { kind: "llm_action", handler: "core.answer", options: {} },
+        available: true,
+        source: null,
       },
     ],
   };

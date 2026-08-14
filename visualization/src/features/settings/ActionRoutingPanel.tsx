@@ -46,7 +46,8 @@ export function ActionRoutingPanel({
   const routes = parseRoutes(overridesField?.storedValue);
   const eligible = actions.actions.filter(
     (action) =>
-      action.backend_kind === "llm_action" &&
+      action.available &&
+      action.backend.kind === "llm_action" &&
       !routes.some((route) => route.action_id === action.id),
   );
   const [actionId, setActionId] = useState(eligible[0]?.id ?? "");
@@ -94,9 +95,9 @@ export function ActionRoutingPanel({
                 <div className="min-w-0">
                   <div className="truncate font-mono text-[12px] font-medium text-fg">{route.action_id}</div>
                   <div className="mt-0.5 truncate text-[10px] text-fg-faint">
-                    {action?.domain ?? "Unavailable"} · {action?.backend_kind ?? "llm_action"}
+                    {action?.domain ?? "Unavailable"} · {action?.backend.kind ?? "llm_action"}
                   </div>
-                  {action?.description && <p className="mt-1 line-clamp-2 text-[10px] text-fg-muted">{action.description}</p>}
+                  {action?.tool.description && <p className="mt-1 line-clamp-2 text-[10px] text-fg-muted">{action.tool.description}</p>}
                 </div>
                 <select
                   aria-label={`Task chain for ${route.action_id}`}

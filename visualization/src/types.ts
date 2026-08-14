@@ -209,6 +209,7 @@ export type JsonValue =
 
 export type ConfigSourceKind =
   | "project_toml"
+  | "project_document_toml"
   | "dotenv"
   | "environment"
   | "override";
@@ -262,6 +263,7 @@ export type ConfigValueKind =
   | "number"
   | "string"
   | "enum"
+  | "enum_list"
   | "string_list"
   | "reference"
   | "reference_list"
@@ -289,6 +291,19 @@ export interface ConfigFieldDescriptor {
   credential_reference: boolean;
   choices?: ConfigChoiceDescriptor[];
   reference?: ConfigReferenceDescriptor;
+}
+
+export interface ConfigDocumentFieldDescriptor {
+  document_set: string;
+  document_kind: string;
+  path: string;
+  surface: string;
+  group: string;
+  title: string;
+  description: string;
+  value_kind: ConfigValueKind;
+  importance: ConfigFieldImportance;
+  choices?: ConfigChoiceDescriptor[];
 }
 
 export interface ConfigSurfaceDescriptor {
@@ -329,17 +344,56 @@ export interface ConfigCatalog {
   field_groups: ConfigFieldGroupDescriptor[];
   collections: ConfigCollectionDescriptor[];
   fields: ConfigFieldDescriptor[];
+  document_fields: ConfigDocumentFieldDescriptor[];
   rules?: Record<string, JsonValue>;
+}
+
+export interface ActionCatalogSource {
+  source_id: string;
+  path: string;
+  document_kind: "domain" | "action";
+  editable_paths: string[];
+}
+
+export interface ActionDomainCatalogEntry {
+  id: string;
+  description: string;
+  selection_hint: string;
+  runtime: {
+    timeout_seconds: number | null;
+    parallel_policy: string;
+    hooks: { normalize: string[]; execute: string[] };
+    trace_mode: string;
+  };
+  available: boolean;
+  action_count: number;
+  source: ActionCatalogSource | null;
 }
 
 export interface ActionCatalogEntry {
   id: string;
   domain: string;
-  description: string;
-  backend_kind: string;
+  tool: { description: string; schema: Record<string, JsonValue> };
+  semantic: {
+    use_when: string[];
+    avoid_when: string[];
+    effects: string[];
+    examples: string[];
+  };
+  runtime: {
+    timeout_seconds: number | null;
+    timeout_source: "action" | "llm_action" | "domain" | "none";
+    parallel_policy: string;
+    hooks: { normalize: string[]; execute: string[] };
+    trace_mode: string;
+  };
+  backend: { kind: string; handler: string; options: Record<string, JsonValue> };
+  available: boolean;
+  source: ActionCatalogSource | null;
 }
 
 export interface ActionCatalog {
+  domains: ActionDomainCatalogEntry[];
   actions: ActionCatalogEntry[];
 }
 

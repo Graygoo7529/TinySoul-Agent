@@ -8,9 +8,8 @@ from typing import cast
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
-from .core.loader import ActionCatalogLoader
+from .core.catalog import ActionCatalog
 from .core.specs import ActionBackendKind
-from .resources import builtin_action_catalog_root
 
 
 @dataclass(frozen=True)
@@ -136,9 +135,10 @@ def parse_action_settings(tree: Mapping[str, object]) -> ActionSettings:
 def validate_llm_action_routes(
     settings: LLMActionSettings,
     *,
+    catalog: ActionCatalog,
     task_profiles: tuple[str, ...],
 ) -> None:
-    """Validate Action routes against package Action and LLM profile identities."""
+    """Validate Action routes against project Action and LLM profile identities."""
 
     profiles = frozenset(task_profiles)
     _require_known_profile(
@@ -146,13 +146,11 @@ def validate_llm_action_routes(
         profiles=profiles,
         key="action.llm_action.default_task_profile",
     )
-    with builtin_action_catalog_root() as catalog_root:
-        catalog = ActionCatalogLoader().load(catalog_root)
     for index, route in enumerate(settings.overrides):
         key = f"action.llm_action.overrides.{index}"
         if not catalog.has_action(route.action_id):
             raise ConfigError(
-                "Action LLM override references an unknown package Action",
+                "Action LLM override references an unknown project Action",
                 key=f"{key}.action_id",
                 value=route.action_id,
             )

@@ -64,7 +64,7 @@ from tinysoul.workspace import (
     WorkspaceSettings,
     register_workspace_actions,
 )
-from tests.action_helpers import FunctionActionEngineBuilder
+from tests.action_helpers import FunctionActionEngineBuilder, load_action_catalog
 
 
 class FakeLLM:
@@ -1027,7 +1027,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         return {"scanned": True}
 
     action = (
-        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        FunctionActionEngineBuilder(load_action_catalog(Path("tinysoul/action/catalog")))
         .register_function("core.answer", lambda execution, context: {"text": "done"})
         .register_function("core.reason", lambda execution, context: {"ok": True})
         .register_function("home.resource.delete", lambda execution, context: {"deleted": True})
@@ -1108,7 +1108,7 @@ def _action_engine(
     workspace_llm: FakeLLM | None = None,
 ) -> ActionEngine:
     builder = (
-        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        FunctionActionEngineBuilder(load_action_catalog(Path("tinysoul/action/catalog")))
         .register_function("core.answer", lambda execution, context: {"text": "done"})
         .register_function("core.reason", lambda execution, context: {"ok": True})
         .register_function("home.resource.delete", lambda execution, context: {"deleted": True})

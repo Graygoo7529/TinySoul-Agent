@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 
-import type { ConfigFieldDescriptor, JsonValue } from "../../types";
+import type {
+  ConfigDocumentFieldDescriptor,
+  ConfigFieldDescriptor,
+  JsonValue,
+} from "../../types";
 import { IconButton } from "../../components/ui/Button";
 import type { ConfigSelectOption } from "./model";
 
@@ -20,7 +24,7 @@ export function ConfigValueControl({
   disabled: boolean;
   saving: boolean;
   onCommit: (value: JsonValue) => Promise<void>;
-  descriptor?: ConfigFieldDescriptor;
+  descriptor?: ConfigFieldDescriptor | ConfigDocumentFieldDescriptor;
   selectOptions?: ConfigSelectOption[];
 }) {
   const [draft, setDraft] = useState(() => serializeValue(value));

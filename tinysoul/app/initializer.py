@@ -267,9 +267,25 @@ def _packaged_project_files(
     template = files("tinysoul.assets").joinpath("project")
     if not template.is_dir():
         raise AppInvariantError("Packaged TinySoul project template is missing")
-    resources = _project_template_files(template, config_profile=config_profile)
+    resources = (
+        *_project_template_files(template, config_profile=config_profile),
+        *_packaged_action_catalog_files(),
+    )
     if not resources:
         raise AppInvariantError("Packaged TinySoul project template is empty")
+    return resources
+
+
+def _packaged_action_catalog_files() -> tuple[tuple[PurePosixPath, Traversable], ...]:
+    catalog = files("tinysoul.action").joinpath("catalog")
+    if not catalog.is_dir():
+        raise AppInvariantError("Packaged Action catalog template is missing")
+    resources = _template_files(
+        catalog,
+        PurePosixPath("configs/action/catalog"),
+    )
+    if not resources:
+        raise AppInvariantError("Packaged Action catalog template is empty")
     return resources
 
 

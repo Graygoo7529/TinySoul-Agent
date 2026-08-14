@@ -18,6 +18,7 @@ import {
   ServerCog,
   SlidersHorizontal,
   Workflow,
+  Wrench,
 } from "lucide-react";
 
 import type { SettingsPageId } from "./model";
@@ -52,6 +53,12 @@ const groups: { label: string; items: NavigationItem[] }[] = [
       { id: "capabilities.web", label: "Web", icon: Globe2, requiresConnection: true },
       { id: "capabilities.resource", label: "Resource", icon: Library, requiresConnection: true },
       { id: "capabilities.execution", label: "Execution", icon: Blocks, requiresConnection: true },
+    ],
+  },
+  {
+    label: "Actions",
+    items: [
+      { id: "action_catalog", label: "Catalog", icon: Wrench, requiresConnection: true },
     ],
   },
   {

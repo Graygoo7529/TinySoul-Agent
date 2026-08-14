@@ -210,13 +210,13 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 
 - `GET /v1/config`：当前 activity、sources、stored/effective fields 与 Generation 状态；
 - `GET /v1/config/catalog`：Infra 集中维护的 surfaces、field groups、collections、collection identity、
-  field title/description、value kind、importance、choices、references 与 credential reference；
+  merged/document field title/description、value kind、importance、choices、references 与 credential reference；
   `rules.llm.adapters` 是 LLM 提供的机器规则投影，每项包含 `id`、`api_style`、
   `common_option_keys`、`common_options` 和 `protocols`，protocol 项包含 `id`、
   `option_keys` 与 option value specs。规则只用于计算 adapter/protocol 可用字段，
   标题、说明和控件语义仍以 Infra field descriptors 为准；
-- `GET /v1/actions/catalog`：当前 Generation 的有效 User Action ID、domain、description 和
-  backend kind；
+- `GET /v1/actions/catalog`：当前 Generation 的 configured User Domain/Action、模型可见语义、
+  effective runtime、availability、只读 contract 和 project document source binding；
 - `PATCH /v1/config`：一次 source-aware operations 数组，返回时已完成持久化与当前
   Generation 激活。
 
@@ -224,7 +224,13 @@ blob 使用 `PUT /v1/workspace/blob`，query 提交 link、overwrite、expected 
 dotted path 猜字段说明。Provider、Model、Task Chain 通过 collection root 动态枚举，创建和删除
 使用完整 root mutation；删除跨多个 project TOML source 的对象时，前端应为每个贡献该 subtree 的
 source 提交同一 root 的 delete mutation。Task Chain models 与 `action.llm_action.overrides` 写回完整数组；Action
-picker 只展示 `/v1/actions/catalog` 中 `backend_kind=llm_action` 的当前有效 Action。
+picker 只展示 `/v1/actions/catalog` 中 `available=true && backend.kind=llm_action` 的 Action。
+
+Action Catalog 页面按 Domain/Action 使用响应中的 `source.source_id` 和 `editable_paths` 建立
+mutation；Domain/Action 字段说明按 `document_set=action.catalog + document_kind + local path` 从
+Infra document descriptors 获取。description、selection hint、semantic 和 timeout 可写；schema、
+parallel policy、hooks、trace mode 与 backend 只读。删除 Action 专用 timeout 表示恢复
+`llm_action default -> domain default -> none` 的继承链。
 
 任意 User/Maintenance Turn 或配置激活期间，三个 GET 仍可读取，所有 TOML/dotenv 控件禁用；
 PATCH 返回 `409 config.activation_unavailable`。进程环境不枚举、不编辑；dotenv credential 值只

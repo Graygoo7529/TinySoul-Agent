@@ -12,6 +12,12 @@ from .core.catalog import ActionCatalog
 from .core.errors import ActionContractError, ActionError, ActionInvariantError
 from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor
 from .core.hooks import HookOutcome
+from .core.loader import (
+    ActionCatalogDocumentIndex,
+    ActionCatalogDocumentRef,
+    ActionCatalogLoader,
+    LoadedActionCatalog,
+)
 from .core.result import (
     ActionFailureDisposition,
     ActionLocalFailure,
@@ -53,6 +59,9 @@ __all__ = [
     "ActionBatchPreparation",
     "ActionCall",
     "ActionCatalogEntry",
+    "ActionCatalogDocumentIndex",
+    "ActionCatalogDocumentRef",
+    "ActionCatalogLoader",
     "ActionCatalog",
     "ActionDomainSpec",
     "ActionDomainPromptRenderer",
@@ -89,5 +98,6 @@ __all__ = [
     "ActionInvariantError",
     "DOMAIN_SELECTION_TOOL",
     "HookOutcome",
+    "LoadedActionCatalog",
     "builtin_action_catalog_root",
 ]

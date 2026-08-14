@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tinysoul.action import ActionEngine
+from tinysoul.action import ActionCatalogLoader, ActionEngine
+from tinysoul.action.backends.llm_action import LLMActionBackendOptionsValidator
+from tinysoul.action.core.specs import ActionBackendKind
 from tinysoul.action.config import (
     ActionSettings,
     parse_action_settings,
@@ -557,6 +559,7 @@ class TinySoulAppBuilder:
             bus=bus,
             observations=observations,
             action_settings=action_settings,
+            action_catalog=plan.action_catalog,
         )
         if self._user_context is not None:
             user_builder.with_context(self._user_context)
@@ -579,7 +582,7 @@ class TinySoulAppBuilder:
             bus=bus,
             observations=observations,
             clock=self._business_clock,
-            action_settings=action_settings,
+            action_catalog=plan.action_catalog,
         ).build()
         return AppRuntimeGeneration(
             config=config,
@@ -633,6 +636,13 @@ class TinySoulAppBuilder:
                 "capabilities",
             }
         )
+        action_settings = config.parse_section("action", parse_action_settings)
+        action_catalog = ActionCatalogLoader(
+            backend_kind_options_validators={
+                ActionBackendKind.LLM_ACTION: LLMActionBackendOptionsValidator(),
+            },
+            llm_action_timeout_seconds=action_settings.llm_action.timeout_seconds,
+        ).load_documents(config.document_set("action.catalog"))
         plan = AppConfigPlan(
             environment=config,
             infra=config.parse_section("infra", parse_infra_settings),
@@ -641,7 +651,8 @@ class TinySoulAppBuilder:
                 if self._app_settings is not None
                 else config.parse_section("app", parse_app_settings)
             ),
-            action=config.parse_section("action", parse_action_settings),
+            action=action_settings,
+            action_catalog=action_catalog,
             capabilities=config.parse_section(
                 "capabilities", parse_capabilities_settings
             ),
@@ -705,6 +716,7 @@ class TinySoulAppBuilder:
             )
             validate_llm_action_routes(
                 plan.action.llm_action,
+                catalog=plan.action_catalog.catalog,
                 task_profiles=plan.llm.tasks.profiles(),
             )
         except ConfigError as exc:
@@ -717,6 +729,8 @@ class TinySoulAppBuilder:
     @staticmethod
     def _map_owned_config_error(error: ConfigError) -> RuntimeException:
         key = error.key.split(".", 1)[0] if error.key else "infra"
+        if error.source.startswith("project-document:action.catalog:"):
+            return RuntimeActionBridge().from_config_error(error)
         if error.key == "capabilities.script" or error.key.startswith(
             "capabilities.script."
         ):

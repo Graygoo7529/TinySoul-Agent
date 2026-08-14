@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from tinysoul.action import (
+    ActionCatalog,
+    ActionCatalogLoader,
     ActionEngine,
     ActionEngineBuilder,
     ActionError,
-    builtin_action_catalog_root,
+    LoadedActionCatalog,
 )
 from tinysoul.context import ContextEngine
 from tinysoul.context.actions import register_context_actions
@@ -46,7 +48,7 @@ def build_maintenance_action(
     observations: ObservationEmitter,
     home_controller: HomeMaintenanceActionController,
     memory_controller: MemoryMaintenanceActionController,
-    llm_action_timeout_seconds: float,
+    action_catalog: LoadedActionCatalog,
 ) -> ActionEngine:
     """Build one exact Home or Memory Maintenance action surface."""
 
@@ -58,13 +60,23 @@ def build_maintenance_action(
         raise MaintenanceContractError(f"Unknown Maintenance task kind: {kind}")
     action_bridge = RuntimeActionBridge()
     try:
-        with (
-            builtin_action_catalog_root() as core_root,
-            maintenance_action_catalog_root() as maintenance_root,
-        ):
-            builder = ActionEngineBuilder(core_root).add_catalog_root(maintenance_root)
+        with maintenance_action_catalog_root() as maintenance_root:
+            maintenance_catalog = ActionCatalogLoader().load(maintenance_root)
+            combined = LoadedActionCatalog(
+                catalog=ActionCatalog(
+                    domains=(
+                        *action_catalog.catalog.domains(),
+                        *maintenance_catalog.domains(),
+                    ),
+                    actions=(
+                        *action_catalog.catalog.actions(),
+                        *maintenance_catalog.actions(),
+                    ),
+                ),
+                documents=action_catalog.documents,
+            )
+            builder = ActionEngineBuilder(combined)
             builder.with_observations(observations)
-            builder.with_llm_action_timeout_seconds(llm_action_timeout_seconds)
             builder.include_actions(*COMMON_MAINTENANCE_READ_ACTIONS, *task_actions)
             register_context_actions(
                 builder,

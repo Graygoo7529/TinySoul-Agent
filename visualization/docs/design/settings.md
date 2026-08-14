@@ -4,8 +4,8 @@
 
 Settings 是主导航中的独立工作页，负责项目 TOML、项目 dotenv credential 和客户端偏好。
 前端不直接访问运行目录，不解释业务 parser，也不持有第二份可写配置 tree。`ConfigStatus` 是
-当前配置事实；Infra catalog 只提供集中维护的展示语义；Action catalog 只提供当前 Generation
-有效 User Action 的有限选择范围。
+当前配置事实；Infra catalog 只提供集中维护的展示语义；Action catalog 提供当前 Generation 的
+configured User Action、effective availability/runtime 与项目 document 编辑绑定。
 
 字段标题、说明、value kind、primary/advanced 层级、static choices、reference target 和
 credential reference 全部来自 `GET /v1/config/catalog`。前端不得按 dotted path 生成标签、猜
@@ -18,6 +18,7 @@ credential reference 全部来自 `GET /v1/config/catalog`。前端不得按 dot
 ```text
 GENERAL             Overview · Application · Credentials
 MODELS & ROUTING    Providers · Models · Task Chains
+Actions             Catalog
 CAPABILITIES        Web · Resource · Execution
 CONTEXT             Home · Session · Memory · Workspace · Context Rules
 RUNTIME             Behavior · Maintenance · Infrastructure
@@ -33,7 +34,7 @@ Application 未连接时仍可用，其余项目页面禁用。
 
 - `GET /v1/config` 的 sources/effective fields/activity/Generation；
 - `GET /v1/config/catalog` 的 package-owned descriptors；
-- `GET /v1/actions/catalog` 的当前有效 User Actions。
+- `GET /v1/actions/catalog` 的 configured User Domains/Actions 与 availability。
 
 实例切换或断开时三者一并清空。并发请求仍使用最后一次请求获胜；PATCH 返回 active 后并发刷新
 ConfigStatus 与 Action catalog，catalog 作为同一 package contract 无需每次 PATCH 重读。事件只
@@ -63,7 +64,19 @@ Provider、Model、Task Chain 不是前端状态实体，只是 catalog collecti
   路由引用的 chain 只显示模型数量，不把合法闲置定义标记为错误状态。
 - Cycle Routing 编辑 User Turn 与所有 Maintenance Turn 共享的 Phase1/Phase2 task profile 引用。
 - Action Routing 编辑 default profile；override 只能选择当前 Action catalog 中
-  `backend_kind=llm_action` 的 Action 和当前 Task Chain。删除 override 自动回退 default。
+  `available=true && backend.kind=llm_action` 的 Action 和当前 Task Chain。删除 override 自动回退 default。
+
+## Action Catalog
+
+`ACTIONS / Catalog` 按 Domain 列表、Domain 设置、当前 Domain 的 Action 列表和 Action 详情组织。
+Domain description/selection hint 是主要字段，Domain timeout 位于 Advanced。Action tool description、
+use/avoid hints 是主要字段；effects、examples 和专用 timeout 位于 Advanced；schema、parallel policy、
+hooks、trace mode 和 backend 位于默认折叠的 Read-only Contract。unavailable 项保持可读可编辑，但
+不提供第二套 enabled 开关。
+
+每个可写字段使用 Action 投影的 document `source_id` 与文件内 local path 提交普通 ConfigMutation。
+字段标题、说明、choices 和层级全部来自 Infra `document_fields`；页面不按 Action ID 或 path 硬编码
+业务说明。Action timeout 删除后恢复继承并显示新的 effective value/source。
 
 创建/替换对完整 object root 执行 `set`，删除执行 `delete`。Provider 和 Task Chain 使用 catalog
 template；Model 写入 catalog 预声明的 `configs/llm/models/custom.toml`。Backend parser 与候选

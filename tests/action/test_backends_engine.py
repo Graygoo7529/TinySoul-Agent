@@ -46,7 +46,11 @@ from tinysoul.action.core.specs import (
 )
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.runtime import HOME_RUNTIME_COPY_REQUIRED, RunScope, RuntimeException
-from tests.action_helpers import FunctionActionEngineBuilder, FunctionActionExecutor
+from tests.action_helpers import (
+    FunctionActionEngineBuilder,
+    FunctionActionExecutor,
+    load_action_catalog,
+)
 
 
 def test_native_cooperative_timeout_does_not_block_later_group() -> None:
@@ -385,7 +389,7 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
 
 def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
-        FunctionActionEngineBuilder(Path("tinysoul/action/catalog"))
+        FunctionActionEngineBuilder(load_action_catalog(Path("tinysoul/action/catalog")))
         .register_function("core.answer", lambda execution, context: {"text": "done"})
         .register_function("core.reason", lambda execution, context: {"ok": True})
         .register_function("home.resource.delete", lambda execution, context: {"deleted": True})
@@ -467,7 +471,7 @@ def test_action_engine_requires_an_explicit_subprocess_handler(tmp_path: Path) -
     )
 
     with pytest.raises(ActionContractError, match="test.process"):
-        ActionEngineBuilder(tmp_path).build()
+        ActionEngineBuilder(load_action_catalog(tmp_path)).build()
 
 
 def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
@@ -478,7 +482,11 @@ def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> Non
         options="",
     )
 
-    engine = ActionEngineBuilder(tmp_path).disable_actions("test.action").build()
+    engine = (
+        ActionEngineBuilder(load_action_catalog(tmp_path))
+        .disable_actions("test.action")
+        .build()
+    )
 
     assert engine.domain_names() == ()
     assert engine.action_identifiers() == ()

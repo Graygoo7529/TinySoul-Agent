@@ -1,4 +1,4 @@
-"""Package-owned Action catalog resources."""
+"""Package-owned Action catalog bootstrap template resources."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .core.errors import ActionInvariantError
 
 @contextmanager
 def builtin_action_catalog_root() -> Iterator[Path]:
-    """Materialize the versioned built-in catalog for one assembly operation."""
+    """Materialize the versioned catalog template for init/reset and tests."""
 
     catalog = files("tinysoul.action").joinpath("catalog")
     if not catalog.is_dir():

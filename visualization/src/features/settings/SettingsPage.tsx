@@ -6,6 +6,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ApplicationSettingsPage } from "./ApplicationSettingsPage";
+import { ActionCatalogSettingsPage } from "./ActionCatalogSettingsPage";
 import { ConfigSettingsPage } from "./ConfigSettingsPage";
 import { CredentialsSettingsPage } from "./CredentialsSettingsPage";
 import { InfrastructureSettingsPage } from "./InfrastructureSettingsPage";
@@ -113,6 +114,13 @@ export function SettingsPage({
             <ModelsSettingsPage client={client} status={status} catalog={catalog} />
           ) : page === "task_chains" ? (
             <TaskChainsSettingsPage
+              client={client}
+              status={status}
+              catalog={catalog}
+              actions={actionCatalog}
+            />
+          ) : page === "action_catalog" ? (
+            <ActionCatalogSettingsPage
               client={client}
               status={status}
               catalog={catalog}

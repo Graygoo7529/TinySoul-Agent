@@ -14,6 +14,7 @@ from tinysoul.app import (
     ProjectResetter,
 )
 from tinysoul.app import cli
+from tinysoul.action import builtin_action_catalog_root
 from tinysoul.infra.config import parse_dotenv
 
 
@@ -27,7 +28,12 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert result == 0
     assert (root / "tinysoul.toml").is_file()
     assert (root / "configs" / "home.toml").is_file()
-    assert (root / "configs" / "action.toml").is_file()
+    assert (root / "configs" / "action" / "routing.toml").is_file()
+    assert (root / "configs" / "action" / "catalog" / "core" / "domain.toml").is_file()
+    with builtin_action_catalog_root() as package_catalog:
+        assert _tree_snapshot(root / "configs" / "action" / "catalog") == (
+            _tree_snapshot(package_catalog)
+        )
     assert (root / "configs" / "infra" / "embedding.toml").is_file()
     assert not (root / "tinysoul" / "action" / "catalog").exists()
     assert (root / ".env.example").is_file()
@@ -249,6 +255,9 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     (root / "configs" / "llm" / "providers.toml").write_text(
         "custom config", encoding="utf-8"
     )
+    action_domain = root / "configs" / "action" / "catalog" / "core" / "domain.toml"
+    original_action_domain = action_domain.read_bytes()
+    action_domain.write_text("custom catalog", encoding="utf-8")
     for relative in (
         "runtime/session/turn.json",
         "archive/old/session.json",
@@ -267,6 +276,7 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     assert ".env preserved" in captured.out
     assert (root / ".env").read_bytes() == env
     assert (root / "home" / "agent" / "AGENT.md").read_bytes() == original_home
+    assert action_domain.read_bytes() == original_action_domain
     assert "# graygoo" in (
         root / "home" / "agent" / "user" / "user.md"
     ).read_text(encoding="utf-8")
