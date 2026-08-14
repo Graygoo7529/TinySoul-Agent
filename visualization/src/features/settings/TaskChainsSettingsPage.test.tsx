@@ -234,6 +234,8 @@ function actions(): ActionCatalog {
         tool: { description: "Answer the user.", schema: {} },
         semantic: { use_when: [], avoid_when: [], effects: [], examples: [] },
         runtime: {
+          enabled: true,
+          enabled_source: "domain",
           timeout_seconds: 600,
           timeout_source: "llm_action",
           parallel_policy: "allowed",
@@ -241,6 +243,7 @@ function actions(): ActionCatalog {
           trace_mode: "standard",
         },
         backend: { kind: "llm_action", handler: "core.answer", options: {} },
+        supported: true,
         available: true,
         source: null,
       },

@@ -3,5 +3,6 @@ description = "Turn-level reasoning, conversation completion, and progressive in
 selection_hint = "Use when the next step is to inspect internal state, preserve useful current memory, reason, or answer."
 
 [runtime]
+enabled = true
 timeout_seconds = 60
 parallel_policy = "allowed"

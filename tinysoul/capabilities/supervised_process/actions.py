@@ -195,7 +195,7 @@ def register_supervised_process_actions(
     """Register the single model-visible lifecycle for Script and Shell jobs."""
 
     if not enabled:
-        builder.disable_actions(*EXECUTION_LIFECYCLE_ACTIONS)
+        builder.mark_actions_unsupported(*EXECUTION_LIFECYCLE_ACTIONS)
         return builder
     for operation in ("wait", "stop", "read_candidate", "apply", "discard"):
         builder.register_executor(

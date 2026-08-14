@@ -102,7 +102,7 @@ export function ActionCatalogSettingsPage({
                 >
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-medium">{item.id}</span>
-                    <AvailabilityDot available={item.available} />
+                    <ActionAvailabilityDot action={item} />
                   </div>
                   <div className="mt-1 flex gap-1.5 text-[10px] text-fg-faint">
                     <span>{item.backend.kind}</span><span>·</span><span>{timeoutLabel(item)}</span>
@@ -140,6 +140,13 @@ function DomainEditor({ client, status, catalog, domain }: {
         <DocumentField client={client} status={status} catalog={catalog} source={domain.source} kind="domain" path="selection_hint" value={domain.selection_hint} />
       </SettingsGroupSection>
       <SettingsDisclosureSection title={groupTitle(catalog, "action_catalog.runtime")}>
+        <DocumentField client={client} status={status} catalog={catalog} source={domain.source} kind="domain" path="runtime.enabled" value={domain.runtime.enabled} />
+        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-2.5 text-[10px] text-fg-faint">
+          <span>Default source: {domain.runtime.enabled_source}</span>
+          {domain.runtime.enabled_source === "domain" && domain.source && (
+            <DeleteFieldButton client={client} status={status} source={domain.source} path="runtime.enabled" label="Use built-in default" success="Built-in Action default active" />
+          )}
+        </div>
         <DocumentField client={client} status={status} catalog={catalog} source={domain.source} kind="domain" path="runtime.timeout_seconds" value={domain.runtime.timeout_seconds} />
         {domain.runtime.timeout_seconds !== null && domain.source && (
           <div className="flex justify-end border-t border-line px-5 py-2.5">
@@ -179,8 +186,18 @@ function ActionEditor({ client, status, catalog, action }: {
     <div className="min-w-0">
       <header className="flex min-h-14 items-center gap-3 border-b border-line px-5 py-2.5">
         <h3 className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold text-fg">{action.id}</h3>
-        <Badge>{action.available ? "Available" : "Unavailable"}</Badge>
+        <ActionAvailabilityBadges action={action} />
       </header>
+      <SettingsGroupSection {...groupProps(catalog, "action_catalog.availability")}>
+        <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="runtime.enabled" value={action.runtime.enabled} />
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-2.5 text-[10px] text-fg-faint">
+          <span>Policy source: {action.runtime.enabled_source}</span>
+          <span>Runtime owner: {action.supported ? "supported" : "unsupported"}</span>
+          {action.runtime.enabled_source === "action" && action.source && (
+            <DeleteFieldButton client={client} status={status} source={action.source} path="runtime.enabled" label="Use domain default" success="Domain Action default active" />
+          )}
+        </div>
+      </SettingsGroupSection>
       <SettingsGroupSection {...groupProps(catalog, "action_catalog.semantic")}>
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="tool.description" value={action.tool.description} />
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="semantic.use_when" value={action.semantic.use_when} />
@@ -337,6 +354,32 @@ function WriteNotice({ status }: { status: ConfigStatus }) {
 
 function AvailabilityDot({ available }: { available: boolean }) {
   return <span title={available ? "Available" : "Unavailable"} className={`h-1.5 w-1.5 shrink-0 rounded-full ${available ? "bg-success" : "bg-fg-faint"}`} />;
+}
+
+function ActionAvailabilityDot({ action }: { action: ActionCatalogEntry }) {
+  if (action.available) {
+    return <span title="Available" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />;
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {!action.runtime.enabled && (
+        <span title="Disabled by Action policy" className="h-1.5 w-1.5 rounded-full bg-fg-faint" />
+      )}
+      {!action.supported && (
+        <span title="Unsupported by runtime owner" className="h-1.5 w-1.5 rounded-full bg-warning" />
+      )}
+    </span>
+  );
+}
+
+function ActionAvailabilityBadges({ action }: { action: ActionCatalogEntry }) {
+  if (action.available) return <Badge tone="green">Available</Badge>;
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {!action.runtime.enabled && <Badge>Disabled</Badge>}
+      {!action.supported && <Badge tone="yellow">Unsupported</Badge>}
+    </div>
+  );
 }
 
 function descriptorFor(catalog: ConfigCatalog, kind: "domain" | "action", path: string) {

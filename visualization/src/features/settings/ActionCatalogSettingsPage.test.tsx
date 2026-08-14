@@ -7,12 +7,14 @@ import { ActionCatalogSettingsPage, isEditablePath } from "./ActionCatalogSettin
 
 describe("ActionCatalogSettingsPage", () => {
   it("renders owner descriptions, availability, and active-turn write locks", () => {
+    const data = actions();
+    data.actions[0].runtime.enabled = false;
     const html = renderToStaticMarkup(
       <ActionCatalogSettingsPage
         client={{} as TinySoulClient}
         status={status()}
         catalog={catalog()}
-        actions={actions()}
+        actions={data}
       />,
     );
 
@@ -20,6 +22,10 @@ describe("ActionCatalogSettingsPage", () => {
     expect(html).toContain("Tool guidance from Infra.");
     expect(html).toContain("Core actions.");
     expect(html).toContain("Unavailable");
+    expect(html).toContain("Disabled");
+    expect(html).toContain("Unsupported");
+    expect(html).toContain("Disabled by Action policy");
+    expect(html).toContain("Unsupported by runtime owner");
     expect(html).toContain("Configuration is read-only while a turn is active.");
     expect(html).toContain("disabled");
     expect(html).toContain('aria-expanded="false"');
@@ -85,6 +91,7 @@ function catalog(): ConfigCatalog {
     surfaces: [{ id: "action_catalog", title: "Action Catalog", description: "Actions." }],
     field_groups: [
       { id: "action_catalog.domain", surface: "action_catalog", title: "Domain", description: "Domain fields." },
+      { id: "action_catalog.availability", surface: "action_catalog", title: "Availability", description: "Availability fields." },
       { id: "action_catalog.semantic", surface: "action_catalog", title: "Selection Semantics", description: "Semantic fields." },
       { id: "action_catalog.runtime", surface: "action_catalog", title: "Runtime", description: "Runtime fields." },
       { id: "action_catalog.wait_policy", surface: "action_catalog", title: "Wait Policy", description: "Wait fields." },
@@ -95,7 +102,9 @@ function catalog(): ConfigCatalog {
     document_fields: [
       field("domain", "description", "Description", "Domain description from Infra.", "string"),
       field("domain", "selection_hint", "Selection Hint", "Domain selection guidance from Infra.", "string"),
+      field("domain", "runtime.enabled", "Default Action Enabled", "Domain default from Infra.", "boolean"),
       field("domain", "runtime.timeout_seconds", "Default Timeout", "Domain timeout from Infra.", "number"),
+      field("action", "runtime.enabled", "Action Enabled", "Action policy from Infra.", "boolean"),
       field("action", "tool.description", "Tool Description", "Tool guidance from Infra.", "string"),
       field("action", "semantic.use_when", "Use When", "Use guidance from Infra.", "string_list"),
       field("action", "semantic.avoid_when", "Avoid When", "Avoid guidance from Infra.", "string_list"),
@@ -119,7 +128,7 @@ function field(
   path: string,
   title: string,
   description: string,
-  value_kind: "string" | "number" | "integer" | "string_list" | "enum_list" | "object",
+  value_kind: "boolean" | "string" | "number" | "integer" | "string_list" | "enum_list" | "object",
 ) {
   return {
     document_set: "action.catalog",
@@ -128,7 +137,11 @@ function field(
     surface: "action_catalog",
     group: path.startsWith("tool.schema.properties.wait_seconds.")
       ? "action_catalog.wait_policy"
-      : kind === "domain" ? "action_catalog.domain" : "action_catalog.semantic",
+      : path === "runtime.enabled" && kind === "action"
+        ? "action_catalog.availability"
+        : path.startsWith("runtime.")
+          ? "action_catalog.runtime"
+          : kind === "domain" ? "action_catalog.domain" : "action_catalog.semantic",
     title,
     description,
     value_kind,
@@ -142,7 +155,7 @@ function actions(): ActionCatalog {
     source_id: "project-document:action.catalog:configs/action/catalog/core/domain.toml",
     path: "configs/action/catalog/core/domain.toml",
     document_kind: "domain" as const,
-    editable_paths: ["description", "selection_hint", "runtime.timeout_seconds"],
+    editable_paths: ["description", "selection_hint", "runtime.enabled", "runtime.timeout_seconds"],
   };
   return {
     domains: [
@@ -150,7 +163,7 @@ function actions(): ActionCatalog {
         id: "core",
         description: "Core actions.",
         selection_hint: "Select core.",
-        runtime: { timeout_seconds: 30, parallel_policy: "serial", hooks: { normalize: [], execute: [] }, trace_mode: "standard" },
+        runtime: { enabled: true, enabled_source: "domain", timeout_seconds: 30, parallel_policy: "serial", hooks: { normalize: [], execute: [] }, trace_mode: "standard" },
         available: false,
         action_count: 1,
         source,
@@ -162,8 +175,9 @@ function actions(): ActionCatalog {
         domain: "core",
         tool: { description: "Answer.", schema: { type: "object" } },
         semantic: { use_when: ["Done"], avoid_when: ["More work"], effects: ["read_only"], examples: [] },
-        runtime: { timeout_seconds: 30, timeout_source: "domain", parallel_policy: "serial", hooks: { normalize: [], execute: [] }, trace_mode: "standard" },
+        runtime: { enabled: true, enabled_source: "domain", timeout_seconds: 30, timeout_source: "domain", parallel_policy: "serial", hooks: { normalize: [], execute: [] }, trace_mode: "standard" },
         backend: { kind: "native", handler: "core.answer", options: {} },
+        supported: false,
         available: false,
         source: {
           ...source,
@@ -175,6 +189,7 @@ function actions(): ActionCatalog {
             "semantic.avoid_when",
             "semantic.effects",
             "semantic.examples",
+            "runtime.enabled",
             "runtime.timeout_seconds",
           ],
         },

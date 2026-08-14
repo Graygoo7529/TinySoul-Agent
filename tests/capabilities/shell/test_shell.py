@@ -795,7 +795,7 @@ def _shell_engine(
         )
         builder = ActionEngineBuilder(
             ActionCatalogLoader().load(catalog_root)
-        ).disable_actions(*disabled)
+        ).mark_actions_unsupported(*disabled)
         register_shell_actions(
             builder,
             settings=settings,

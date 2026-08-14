@@ -133,7 +133,7 @@ def register_shell_actions(
 ) -> ActionEngineBuilder:
     require_shell_dependencies(settings)
     if not settings.enabled:
-        builder.disable_actions(*SHELL_ACTIONS)
+        builder.mark_actions_unsupported(*SHELL_ACTIONS)
         return builder
     adapters = (
         (
@@ -158,7 +158,7 @@ def register_shell_actions(
     policy = ShellPolicy(max_command_chars=settings.max_command_chars)
     for interpreter, action_name, handler, adapter in adapters:
         if not adapter.enabled:
-            builder.disable_actions(action_name)
+            builder.mark_actions_unsupported(action_name)
             continue
         builder.register_executor(
             handler,

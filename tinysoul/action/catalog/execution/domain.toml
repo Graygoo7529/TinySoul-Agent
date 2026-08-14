@@ -3,5 +3,6 @@ description = "Local script authoring and supervised command or code execution a
 selection_hint = "Use when deterministic local code or an immediate command should process Workspace resources or run as a bounded longer task."
 
 [runtime]
+enabled = true
 timeout_seconds = 70
 parallel_policy = "serial"

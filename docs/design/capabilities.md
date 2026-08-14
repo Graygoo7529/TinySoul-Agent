@@ -38,7 +38,12 @@ configs/capabilities/
 
 文件拆分只影响维护位置，不改变 TOML section identity。每个 capability parser 只解释自己的子树并拒绝未知键。Infra 的 ConfigEnvironment 负责 include、合并、来源诊断和环境覆盖，不拥有 capability 业务字段。
 
-Action Catalog 是 wheel 内只读静态定义，不保存项目 `enabled`、格式白名单、依赖版本或资源上限。Capability 配置决定某个真实 action 在当前项目是否启用；禁用 action 在 ActionEngine build 时从 effective Catalog 显式移除，没有有效 action 的 domain 同时移除。App 随后只根据 effective Catalog reconcile Home prompt mounts，因此禁用 action 不向模型暴露，也不保留伪可用 mount。
+项目 Action Catalog 拥有 Action runtime activation，`[runtime].enabled` 只决定是否向 Agent 暴露；
+Capability 配置拥有环境能力是否启用、adapter、格式范围、依赖、凭据和资源上限。Capability registrar
+不读取 Action activation，也不会因为 Action 配置关闭而跳过依赖、凭据、service 或 executor 装配。
+当 Capability 自身关闭或 adapter 不支持某个 Action 时，registrar 将其明确标记为
+`unsupported`。ActionEngine 最终只暴露同时 enabled 与 supported 的 Action，没有有效 Action 的
+Domain 同时从 effective Catalog 移除；configured Catalog 仍保留用于设置展示。
 
 ## 依赖需求与可用性
 
@@ -54,15 +59,18 @@ Infra 提供通用、无业务知识的 DependencyChecker：
 可用性规则固定为：
 
 ```text
-enabled=false
-  -> 不检查、不注册、从 effective Catalog 移除
+capability enabled=false
+  -> 不检查该 capability 的可选依赖、不注册 executor、标记对应 Action unsupported
 
-enabled=true + dependencies available
-  -> 注册 executor 并暴露 action
+capability enabled=true + dependencies available
+  -> 注册 executor，Action 获得 runtime support
 
-enabled=true + dependencies unavailable
+capability enabled=true + dependencies unavailable
   -> App 启动失败，报告 action、requirement、distribution/module/executable 和原因
 ```
+
+这套 support 规则不读取 Action `[runtime].enabled`。Action disabled 只在 Builder 形成 effective
+Catalog 时生效；若 Capability 仍 enabled，其依赖与凭据错误仍必须使候选 Generation 失败。
 
 启动检查不能替代执行期防御。环境在启动后被修改、worker 导入失败或外部二进制不可运行时，单次 action 仍返回局部失败；配置形态错误和 capability 装配不变量失败保留模块边界语义。
 

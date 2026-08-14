@@ -34,6 +34,10 @@ bootstrap template 位于 `tinysoul/action/catalog/`，Maintenance 专用 fragme
 `tinysoul/maintenance/catalog/`。initializer/resetter 将前者完整物化为项目
 `configs/action/catalog`；运行实例不再读取 package User catalog。
 
+项目 Action document 同时保存模型可见语义和 Action-owned runtime activation。配置 PATCH 在空闲时
+先用完整候选项目配置重建 Generation；只有候选 Action Catalog、Capability 装配和全部业务 Engine
+成功后才提交 TOML 并切换 RuntimeHandle，因此 Action 开关与其它业务配置使用同一原子激活流程。
+
 App 的 Runtime bridge 位于 `tinysoul/runtime/bridge/app.py`，用于将 app 装配或输入边界失败映射为 Runtime 可理解的启动失败或控制流失败。
 
 ## 输入模型

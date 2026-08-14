@@ -3,5 +3,6 @@ description = "Workspace resource inspection, conversion, and mutation actions."
 selection_hint = "Use when the task needs to inspect, transform, create, or modify workspace resources."
 
 [runtime]
+enabled = true
 timeout_seconds = 30
 parallel_policy = "allowed"

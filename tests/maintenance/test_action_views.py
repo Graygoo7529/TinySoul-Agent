@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from tinysoul.action import ActionEngineBuilder, builtin_action_catalog_root
+from dataclasses import replace
+
+from tinysoul.action import (
+    ActionCatalog,
+    ActionEngineBuilder,
+    builtin_action_catalog_root,
+)
 from tinysoul.action.core.loader import ActionCatalogLoader
 from tinysoul.maintenance.actions import COMMON_MAINTENANCE_READ_ACTIONS
 from tinysoul.maintenance.home import HOME_MAINTENANCE_ACTIONS
@@ -69,12 +75,46 @@ def test_maintenance_completion_requires_owner_completion_action() -> None:
     }
 
 
-def _build_exact(selected: tuple[str, ...]):
+def test_maintenance_exact_view_honors_shared_project_action_policy() -> None:
+    selected = (*COMMON_MAINTENANCE_READ_ACTIONS, *HOME_MAINTENANCE_ACTIONS)
+
+    home = _build_exact(selected, disabled_actions=("core.context.inspect",))
+
+    assert _names(home) == (
+        set(selected) - {"core.context.inspect"}
+    )
+
+
+def test_maintenance_package_actions_use_enabled_domain_default() -> None:
+    with maintenance_action_catalog_root() as root:
+        catalog = ActionCatalogLoader().load(root)
+
+    assert all(action.runtime.enabled for action in catalog.actions())
+
+
+def _build_exact(
+    selected: tuple[str, ...],
+    *,
+    disabled_actions: tuple[str, ...] = (),
+):
     with (
         builtin_action_catalog_root() as core_root,
         maintenance_action_catalog_root() as maintenance_root,
     ):
         catalog = ActionCatalogLoader().load_many((core_root, maintenance_root))
+        if disabled_actions:
+            catalog = ActionCatalog(
+                domains=catalog.domains(),
+                actions=tuple(
+                    replace(
+                        action,
+                        runtime=replace(action.runtime, enabled=False),
+                    )
+                    if action.name in disabled_actions
+                    else action
+                    for action in catalog.actions()
+                ),
+            )
         builder = ActionEngineBuilder(catalog)
         builder.include_actions(*selected)
         handlers = {

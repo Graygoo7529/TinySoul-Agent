@@ -3,5 +3,6 @@ description = "Autonomous review and consolidation actions for Maintenance Turns
 selection_hint = "Use only inside a framework-created Maintenance Turn to resolve its current Home or Memory task."
 
 [runtime]
+enabled = true
 timeout_seconds = 60
 parallel_policy = "serial"

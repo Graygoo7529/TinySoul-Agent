@@ -78,6 +78,12 @@ Endpoint 提供以下配置协议入口：
   App 构建候选 Generation；文件提交和 handle 切换完成后才返回 `state=active` 与
 `generation_id`。候选解析、事务或激活失败会保留旧文件和旧 Generation。
 
+`GET /v1/actions/catalog` 遍历 configured User Action Catalog。每个 Action 分别投影 effective
+`runtime.enabled`、`enabled_source=action|domain|default`、当前 Generation 的 `supported` 和最终
+`available`；Domain runtime 投影默认 enabled 与 `enabled_source=domain|default`。`available` 是
+activation 与 runtime support 的交集，不替代前两项事实。Domain/Action document source 的
+`editable_paths` 包含 `runtime.enabled`，前端仍通过同一个 `PATCH /v1/config` 完成持久化与激活。
+
 Provider、Model 和 Task Chain 的创建/替换对 collection object root 使用一次 `set`；删除对同一
 root 使用 `delete`。Action overrides 与 Task Chain 排序提交完整数组，TOML writer 使用 inline
 table 保持结构化 round trip。Backend 不额外提供 config object endpoint，前端用 catalog

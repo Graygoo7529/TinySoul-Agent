@@ -59,7 +59,14 @@ from tinysoul.capabilities.web.worker import (
     _read_bounded_json_file,
 )
 from tinysoul.infra.config import ConfigError
-from tinysoul.infra import JsonValue, StagingDirectoryManager, dumps_json, to_json_object
+from tinysoul.infra import (
+    DependencyCheck,
+    DependencyChecker,
+    JsonValue,
+    StagingDirectoryManager,
+    dumps_json,
+    to_json_object,
+)
 from tinysoul.runtime import RunScope, SignalBus
 from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 
@@ -726,6 +733,48 @@ def test_disabled_web_actions_are_absent_from_effective_catalog(
 
     assert "web" not in engine.domain_names()
     assert engine.action_identifiers() == ()
+
+
+def test_action_policy_does_not_skip_capability_credential_validation(
+    local_tmp: Path,
+) -> None:
+    catalog_root = local_tmp / "catalog"
+    with builtin_action_catalog_root() as package_catalog:
+        shutil.copytree(package_catalog / "web", catalog_root / "web")
+    action_path = catalog_root / "web" / "actions" / "search_by_kimi.toml"
+    action_path.write_text(
+        action_path.read_text(encoding="utf-8").replace(
+            "[runtime]\ntimeout_seconds",
+            "[runtime]\nenabled = false\ntimeout_seconds",
+        ),
+        encoding="utf-8",
+    )
+    settings = WebSettings(
+        search_by_kimi=KimiSearchSettings(enabled=True),
+        fetch_with_defuddle=WebFetchSettings(enabled=False),
+        fetch_with_trafilatura=WebFetchSettings(enabled=False),
+    )
+
+    with pytest.raises(ConfigError) as error:
+        register_web_actions(
+            ActionEngineBuilder(ActionCatalogLoader().load(catalog_root)),
+            settings=settings,
+            runtime_env={},
+            workspace=_workspace(local_tmp),
+            bus=SignalBus(),
+            staging=_staging(local_tmp),
+            dependency_checker=_AvailableDependencyChecker(),
+        )
+
+    assert error.value.key == "capabilities.web.search_by_kimi.api_key_env"
+
+
+class _AvailableDependencyChecker(DependencyChecker):
+    def check_all(self, requirements):
+        return tuple(
+            DependencyCheck(requirement_id=requirement.id, available=True)
+            for requirement in requirements
+        )
 
 
 class _SearchRunner(ControlledProcessRunner):

@@ -270,7 +270,7 @@ def register_web_actions(
     runtime_bridge: WebActionRuntimeBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
-    """Register enabled Web executors and remove disabled catalog actions."""
+    """Register enabled Web executors and declare runtime support."""
 
     require_web_dependencies(settings, checker=dependency_checker)
     search_enabled = settings.search_by_kimi.enabled
@@ -278,13 +278,13 @@ def register_web_actions(
     defuddle_enabled = settings.fetch_with_defuddle.enabled
     trafilatura_enabled = settings.fetch_with_trafilatura.enabled
     if not search_enabled:
-        builder.disable_actions(WEB_SEARCH_KIMI_ACTION)
+        builder.mark_actions_unsupported(WEB_SEARCH_KIMI_ACTION)
     if not discovery_enabled:
-        builder.disable_actions(WEB_DISCOVER_PAGES_ACTION)
+        builder.mark_actions_unsupported(WEB_DISCOVER_PAGES_ACTION)
     if not defuddle_enabled:
-        builder.disable_actions(WEB_FETCH_DEFUDDLE_ACTION)
+        builder.mark_actions_unsupported(WEB_FETCH_DEFUDDLE_ACTION)
     if not trafilatura_enabled:
-        builder.disable_actions(WEB_FETCH_TRAFILATURA_ACTION)
+        builder.mark_actions_unsupported(WEB_FETCH_TRAFILATURA_ACTION)
     if (
         not search_enabled
         and not discovery_enabled

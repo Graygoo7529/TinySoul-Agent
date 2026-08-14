@@ -114,6 +114,10 @@ User、Home Maintenance、Memory Maintenance 共用 Context/Loop 构造，但拥
 - Maintenance 不见 `core.answer` 或普通 capability mutation；
 - `maintenance.complete` 是 owner-bound 完成协议，不是用户回答。
 
+精确 Action surface 先从 configured catalog 选择 Turn 所需 identity，再与 Action activation 和 runtime
+support 求交。复用的 `core.context.inspect`、`core.session.inspect` 遵守项目 Action policy；Maintenance
+package 自有 Action 使用 package Domain default，并且不进入 User Action 设置页。
+
 ## 失败与观察
 
 Archive preflight 失败阻止新日 work。可修正 Action 参数和 stale source 返回局部 failure；Home/Memory owner 的已知执行失败形成 typed task outcome；未知异常与 Runtime transfer 保持原语义。Observation 只发布 scope、target、status、count、digest 和 error type，不包含 Home/Memory 正文、Session facts、prompt、API key 或绝对路径。

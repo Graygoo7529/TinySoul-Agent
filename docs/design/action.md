@@ -81,12 +81,33 @@ Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个�
 
 1. 模型侧工具协议，用于构造 Phase2 可见工具。
 2. 模型侧补充语义，用于帮助模型判断何时使用或避免某个 action。
-3. 框架内运行配置，用于控制超时、并发、hook 和结果 trace 生命周期。
+3. 框架内运行配置，用于控制 Agent 暴露、超时、并发、hook 和结果 trace 生命周期。
 4. 后端执行配置，用于描述真实执行落点。
 
 模型侧补充语义不参与执行控制。环境影响语义只描述只读、新增或修改。
 
 后端只负责执行实现，不负责模型侧解释。`llm_action` 只表示动作内部还需要一次受控 LLM 调用，不意味着 action 退化成 prompt 拼接逻辑；公共调用能力由 action 层共享服务提供，业务 executor 仍负责自身 action 语义。
+
+### Activation 与 Runtime Support
+
+Action Catalog 的 `[runtime].enabled` 是 Action-owned Agent exposure policy。Domain runtime 提供
+默认值，Action runtime 可以局部覆盖；Action 未声明本地值时继承 Domain，Domain 也未声明时使用
+内建 `true`。删除 Action-local 值恢复 Domain 继承，删除 Domain 值恢复内建默认。`core.answer`
+与其它 Action 使用相同规则，不建立保护名单或 fallback completion。
+
+配置 activation 与当前 Generation 的 runtime support 是两个独立事实：Capability 或其它业务
+owner 负责依赖、凭据、服务和 executor，并在不支持 Action 时通过
+`mark_actions_unsupported()` 明确声明；Action runtime 关闭不能跳过 owner 的装配校验。最终关系为：
+
+```text
+available = runtime.enabled && supported
+```
+
+Builder 因此保留 configured catalog、exact include view、supported identities 和 effective catalog。
+Phase1/Phase2、执行 identity、executor 完整性校验与 Home prompt mount reconciliation 只消费
+effective catalog；设置与 Endpoint 投影遍历 configured catalog，使关闭或暂不支持的 Action 仍可读。
+Maintenance 精确视图在 configured catalog 上选择 Turn 所需 Action，再与 activation/support 求交；
+复用的项目 Action 遵守同一 policy，Maintenance package Action 使用自己的 package 默认值。
 
 ## 执行语义
 
@@ -260,16 +281,17 @@ Action 顶层包同时暴露业务模块实现 executor 所需的公共 SPI：`A
 
 `ActionEngine.catalog_json()` 提供当前 Generation 的完整配置展示投影：Domain/Action 模型可见
 语义、effective runtime、backend contract、availability，以及指向项目 document source/local path
-的编辑绑定。投影以构建前的 configured catalog 为基准，因此被 Capability registrar 暂时裁剪的
-Action 仍可读并标记 unavailable；执行 scope 仍只使用 effective catalog。投影不暴露 executor 或
-prompt，也不重新读取文件。
+的编辑绑定。投影以 configured catalog 为基准，分别返回 effective `runtime.enabled`、
+`enabled_source`、owner `supported` 和最终 `available`；配置关闭或 owner 暂不支持的 Action 仍可读。
+Domain 同样返回默认 enabled 及其 provenance，`available` 仍表示至少存在一个 effective 子 Action。
+投影不暴露 executor 或 prompt，也不重新读取文件。
 
 `ActionCatalogLoader.load_documents()` 负责从 Infra 提供的候选 `ConfigDocumentSet` 解析
 `LoadedActionCatalog`，并复用 package template 测试所用的同一个 `ActionTomlParser`。加载结果同时
-保留 Domain 默认 runtime、Action timeout 来源与稳定 document binding。backend kind validator 在
+保留 Domain 默认 runtime、Domain/Action enabled 来源、Action timeout 来源与稳定 document binding。backend kind validator 在
 加载边界校验 options。`ActionEngineBuilder` 只接收已经校验的 `ActionCatalog` 或
-`LoadedActionCatalog`，负责注册 executor/hook、availability 裁剪，并在 build 阶段校验 effective
-catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。registrar 不修改 tool
+`LoadedActionCatalog`，负责注册 executor/hook、support 与 activation 求交，并在 build 阶段校验
+effective catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。registrar 不修改 tool
 schema，项目 Action TOML 是模型参数 contract 的唯一事实。
 
 ## Action Schema

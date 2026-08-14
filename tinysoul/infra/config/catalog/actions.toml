@@ -10,6 +10,12 @@ title = "Domain"
 description = "Defines how the domain is identified and presented during domain selection."
 
 [[field_group]]
+id = "action_catalog.availability"
+surface = "action_catalog"
+title = "Availability"
+description = "Controls whether the configured Action is exposed to the Agent while keeping runtime support independent."
+
+[[field_group]]
 id = "action_catalog.semantic"
 surface = "action_catalog"
 title = "Selection Semantics"
@@ -63,6 +69,16 @@ group = "action_catalog.domain"
 title = "Selection Hint"
 description = "Additional Phase1 guidance for deciding when this domain should be selected."
 value_kind = "string"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "runtime.enabled"
+surface = "action_catalog"
+group = "action_catalog.runtime"
+title = "Default Action Enabled"
+description = "Default Agent exposure policy inherited by Actions without a local enabled override."
+value_kind = "boolean"
 
 [[document_field]]
 document_set = "action.catalog"
@@ -186,6 +202,16 @@ title = "Examples"
 description = "Short examples that clarify intended Action selection."
 value_kind = "string_list"
 importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "runtime.enabled"
+surface = "action_catalog"
+group = "action_catalog.availability"
+title = "Action Enabled"
+description = "Controls whether this configured Action is exposed to the Agent when its runtime owner is supported."
+value_kind = "boolean"
 
 [[document_field]]
 document_set = "action.catalog"

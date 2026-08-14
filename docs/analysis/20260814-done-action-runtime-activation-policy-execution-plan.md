@@ -1,6 +1,6 @@
 # Action Runtime Activation Policy 执行计划
 
-状态：`pending`
+状态：`done`
 
 日期：2026-08-14
 
@@ -340,69 +340,88 @@ Action 列表和详情头部区分：
 
 ### 一：Action runtime 类型与继承
 
-- [ ] 为 `ActionRuntimeSpec` 增加 `enabled: bool = True` 和不变量校验。
-- [ ] 在 Action TOML parser 增加 source-aware boolean parsing。
-- [ ] 让 Domain runtime enabled 参与现有 base inheritance，Action local 值覆盖。
-- [ ] 扩展 `ActionCatalogDocumentIndex`，记录 Domain/Action enabled provenance。
-- [ ] 在项目与 Maintenance package Domain 模板显式写入 `enabled = true`。
-- [ ] 增加 loader、非法类型、Domain default、Action override 和删除恢复继承测试。
+- [x] 为 `ActionRuntimeSpec` 增加 `enabled: bool = True` 和不变量校验。
+- [x] 在 Action TOML parser 增加 source-aware boolean parsing。
+- [x] 让 Domain runtime enabled 参与现有 base inheritance，Action local 值覆盖。
+- [x] 扩展 `ActionCatalogDocumentIndex`，记录 Domain/Action enabled provenance。
+- [x] 在项目与 Maintenance package Domain 模板显式写入 `enabled = true`。
+- [x] 增加 loader、非法类型、Domain default、Action override 和删除恢复继承测试。
 
 ### 二：Support 与 effective catalog
 
-- [ ] 将 `disable_actions()` 重命名为 `mark_actions_unsupported()`，不保留 alias。
-- [ ] 同步所有 Capability/owner registrar 与测试调用。
-- [ ] 在 Builder 中明确 configured、included、supported、enabled 和 effective 构建顺序。
-- [ ] ActionEngine 保存不可变 supported identities，并在 view 中正确裁剪。
-- [ ] Phase1/Phase2、domain/action identities 和 executor validation 继续只消费 effective catalog。
-- [ ] 增加 enabled/supported 四种组合、空 Domain、include view、executor 完整性测试。
+- [x] 将 `disable_actions()` 重命名为 `mark_actions_unsupported()`，不保留 alias。
+- [x] 同步所有 Capability/owner registrar 与测试调用。
+- [x] 在 Builder 中明确 configured、included、supported、enabled 和 effective 构建顺序。
+- [x] ActionEngine 保存不可变 supported identities，并在 view 中正确裁剪。
+- [x] Phase1/Phase2、domain/action identities 和 executor validation 继续只消费 effective catalog。
+- [x] 增加 enabled/supported 四种组合、空 Domain、include view、executor 完整性测试。
 
 ### 三：Action catalog Endpoint 投影
 
-- [ ] 为 Domain runtime 投影 effective enabled default 与 enabled_source。
-- [ ] 为 Action runtime 投影 enabled 与 enabled_source。
-- [ ] 为 Action 投影独立 supported，并保持 available 为最终交集。
-- [ ] Domain/Action editable paths 增加 `runtime.enabled`，不特判 `core.answer`。
-- [ ] 更新 Endpoint 与 frontend integration 协议文档。
-- [ ] 增加 disabled、unsupported、双重关闭和 project source binding 测试。
+- [x] 为 Domain runtime 投影 effective enabled default 与 enabled_source。
+- [x] 为 Action runtime 投影 enabled 与 enabled_source。
+- [x] 为 Action 投影独立 supported，并保持 available 为最终交集。
+- [x] Domain/Action editable paths 增加 `runtime.enabled`，不特判 `core.answer`。
+- [x] 更新 Endpoint 与 frontend integration 协议文档。
+- [x] 增加 disabled、unsupported、双重关闭和 project source binding 测试。
 
 ### 四：统一配置事务与 Generation
 
-- [ ] 增加 Domain default enabled PATCH 的持久化和 Generation 重建测试。
-- [ ] 增加 Action local enabled set/delete、provenance 变化和 Generation 重建测试。
-- [ ] 验证 Turn 活跃时保持可读、PATCH 返回既有 409。
-- [ ] 验证非法 enabled 候选返回 422，文件、Generation 和 effective ToolScope 保持原样。
-- [ ] 验证 Action disabled 不跳过已启用 Capability 的依赖/凭据校验。
-- [ ] 验证 LLM Action routing override 在 Action disabled 时保留，重新 enabled 后恢复可选。
+- [x] 增加 Domain default enabled PATCH 的持久化和 Generation 重建测试。
+- [x] 增加 Action local enabled set/delete、provenance 变化和 Generation 重建测试。
+- [x] 验证 Turn 活跃时保持可读、PATCH 返回既有 409。
+- [x] 验证非法 enabled 候选返回 422，文件、Generation 和 effective ToolScope 保持原样。
+- [x] 验证 Action disabled 不跳过已启用 Capability 的依赖/凭据校验。
+- [x] 验证 LLM Action routing override 在 Action disabled 时保留，重新 enabled 后恢复可选。
 
 ### 五：Maintenance 与共享语义
 
-- [ ] 验证复用的项目 Action disabled 后不进入对应 Maintenance exact view。
-- [ ] 验证 Maintenance package Actions 继续按 package Domain default enabled。
-- [ ] 验证关闭 `core.answer` 的候选 Generation 可以成功构建且没有特殊 fallback/protection。
-- [ ] 验证 disabled/unsupported identities 不参与 Agent Home prompt mount reconciliation。
+- [x] 验证复用的项目 Action disabled 后不进入对应 Maintenance exact view。
+- [x] 验证 Maintenance package Actions 继续按 package Domain default enabled。
+- [x] 验证关闭 `core.answer` 的候选 Generation 可以成功构建且没有特殊 fallback/protection。
+- [x] 验证 disabled/unsupported identities 不参与 Agent Home prompt mount reconciliation。
 
 ### 六：Infra catalog 与设置页
 
-- [ ] 在 Infra catalog 增加 Domain Default Action Enabled 与 Action Enabled descriptor。
-- [ ] 增加或调整 Action Availability field group，说明全部由 Infra 维护。
-- [ ] 扩展前端 Action catalog types 和 fixtures。
-- [ ] Domain Runtime 增加默认 enabled switch 与恢复默认操作。
-- [ ] Action 详情增加 enabled switch、enabled provenance 和 Use domain default。
-- [ ] 列表与详情分别表达 Disabled、Unsupported 和 Available，不混淆 support 与 activation。
-- [ ] 保持 unsupported Action 的开关可编辑，并继续遵守全局 activity write lock。
-- [ ] Action Routing picker 继续只消费最终 available LLM Actions。
+- [x] 在 Infra catalog 增加 Domain Default Action Enabled 与 Action Enabled descriptor。
+- [x] 增加或调整 Action Availability field group，说明全部由 Infra 维护。
+- [x] 扩展前端 Action catalog types 和 fixtures。
+- [x] Domain Runtime 增加默认 enabled switch 与恢复默认操作。
+- [x] Action 详情增加 enabled switch、enabled provenance 和 Use domain default。
+- [x] 列表与详情分别表达 Disabled、Unsupported 和 Available，不混淆 support 与 activation。
+- [x] 保持 unsupported Action 的开关可编辑，并继续遵守全局 activity write lock。
+- [x] Action Routing picker 继续只消费最终 available LLM Actions。
 
 ### 七：文档与完整验证
 
-- [ ] 同步 `docs/design/action.md` 的 runtime inheritance、catalog 三层事实和 Builder 语义。
-- [ ] 同步 `docs/design/capabilities.md`，明确 Capability support 不读取 Action activation。
-- [ ] 同步 `docs/design/app.md`、`docs/design/endpoint.md`、frontend integration 和 Settings 设计。
-- [ ] 运行 Action/Capability/App/Endpoint/Visualization 聚焦测试。
-- [ ] 运行 Backend Fast，再运行 Full 与 typecheck。
-- [ ] 运行 Visualization test 与 production build。
-- [ ] 使用真实 Endpoint 数据进行桌面和移动端设置页检查，确认状态、switch、继承操作和布局无溢出。
-- [ ] 运行 wheel 隔离 init/reset 验收与 `git diff --check`。
-- [ ] 核对全部计划条目，将文件状态和文件名更新为 `done`，记录最终实施结果。
+- [x] 同步 `docs/design/action.md` 的 runtime inheritance、catalog 三层事实和 Builder 语义。
+- [x] 同步 `docs/design/capabilities.md`，明确 Capability support 不读取 Action activation。
+- [x] 同步 `docs/design/app.md`、`docs/design/endpoint.md`、frontend integration 和 Settings 设计。
+- [x] 运行 Action/Capability/App/Endpoint/Visualization 聚焦测试。
+- [x] 运行 Backend Fast，再运行 Full 与 typecheck。
+- [x] 运行 Visualization test 与 production build。
+- [x] 使用真实 Endpoint 数据进行桌面和移动端设置页检查，确认状态、switch、继承操作和布局无溢出。
+- [x] 运行 wheel 隔离 init/reset 验收与 `git diff --check`。
+- [x] 核对全部计划条目，将文件状态和文件名更新为 `done`，记录最终实施结果。
+
+## 实施结果
+
+1. Action runtime activation 已在 `ActionRuntimeSpec`、TOML loader、project document provenance、
+   Builder 和 `ActionEngine` 投影中贯通。Domain 默认、Action override、删除恢复继承以及
+   `configured -> supported -> effective` 三层事实使用同一套语义。
+2. Capability/owner registrars 已统一使用 `mark_actions_unsupported()`；Action disabled 不参与
+   Agent scope，但不跳过 Capability 依赖、凭据、service 或 executor 装配。
+3. `GET /v1/actions/catalog` 已返回 enabled provenance、supported、available 与 source-local
+   editable path；`PATCH /v1/config` 已覆盖 Domain/Action set/delete、候选失败回滚和 Generation
+   原子激活。LLM Action routing override 在不可用期间保持持久配置。
+4. Action Catalog 设置页已增加 Domain 默认开关、Action 局部开关、继承恢复和双维状态显示；字段
+   标题与说明继续由 Infra catalog 集中维护。桌面与 390px 移动端使用真实 Endpoint 数据检查，
+   `body.scrollWidth == body.clientWidth`，两个开关均渲染且无状态遮挡。
+5. Maintenance exact view、`core.answer` 普通关闭语义、Home effective identity 和 package 默认值均
+   已按统一 policy 验证；设计文档、Endpoint 协议与 Visualization 文档已同步。
+6. 最终门禁：Backend Fast `946 passed, 2 skipped`；Full（含 wheel 隔离 init/reset）
+   `947 passed, 2 skipped`；`ty` typecheck 通过；Visualization `111 passed`，production build 通过；
+   `git diff --check` 通过。
 
 ## 测试矩阵
 

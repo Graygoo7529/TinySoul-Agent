@@ -136,6 +136,61 @@ def test_load_project_documents_preserves_sources_and_timeout_provenance(
     assert loaded.documents.domain_runtimes["workspace"].timeout_seconds == 30.0
 
 
+def test_project_catalog_enabled_policy_inherits_and_tracks_provenance(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    ProjectInitializer().initialize(root)
+    domain_path = root / "configs" / "action" / "catalog" / "workspace" / "domain.toml"
+    domain_path.write_text(
+        domain_path.read_text(encoding="utf-8").replace(
+            "enabled = true",
+            "enabled = false",
+        ),
+        encoding="utf-8",
+    )
+    action_path = (
+        root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "actions"
+        / "read.toml"
+    )
+    action_path.write_text(
+        action_path.read_text(encoding="utf-8").replace(
+            "[runtime]\nparallel_policy",
+            "[runtime]\nenabled = true\nparallel_policy",
+        ),
+        encoding="utf-8",
+    )
+    environment = ConfigEnvironment.from_project_root(root, env={})
+
+    loaded = ActionCatalogLoader().load_documents(
+        environment.document_set("action.catalog")
+    )
+
+    assert loaded.documents.domain_runtimes["workspace"].enabled is False
+    assert loaded.documents.domain_enabled_sources["workspace"] == "domain"
+    assert loaded.catalog.get_action("workspace.append").runtime.enabled is False
+    assert loaded.documents.enabled_sources["workspace.append"] == "domain"
+    assert loaded.catalog.get_action("workspace.read").runtime.enabled is True
+    assert loaded.documents.enabled_sources["workspace.read"] == "action"
+
+
+@pytest.mark.parametrize("value", (1, "true", None))
+def test_action_runtime_rejects_non_boolean_enabled(value: object) -> None:
+    with pytest.raises(ConfigError) as raised:
+        ActionTomlParser().parse_runtime(
+            {"enabled": value},
+            key="action.runtime",
+        )
+
+    assert raised.value.key == "action.runtime.enabled"
+    assert raised.value.expected == "bool"
+
+
 def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> None:
     with builtin_action_catalog_root() as root:
         catalog = ActionCatalogLoader(

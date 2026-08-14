@@ -169,15 +169,15 @@ def register_resource_actions(
     runtime_bridge: ResourceActionRuntimeBridge | None = None,
     dependency_checker: DependencyChecker | None = None,
 ) -> ActionEngineBuilder:
-    """Register enabled Resource executors and remove disabled catalog actions."""
+    """Register enabled Resource executors and declare runtime support."""
 
     require_resource_dependencies(settings, checker=dependency_checker)
     markitdown = settings.convert_with_markitdown.enabled
     pypdf = settings.convert_with_pypdf.enabled
     if not markitdown:
-        builder.disable_actions(RESOURCE_MARKITDOWN_ACTION)
+        builder.mark_actions_unsupported(RESOURCE_MARKITDOWN_ACTION)
     if not pypdf:
-        builder.disable_actions(RESOURCE_PYPDF_ACTION)
+        builder.mark_actions_unsupported(RESOURCE_PYPDF_ACTION)
     if not markitdown and not pypdf:
         return builder
     service = ResourceConversionService(

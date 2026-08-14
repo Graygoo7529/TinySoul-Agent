@@ -140,12 +140,15 @@ class ActionResultRuntimeSpec:
 class ActionRuntimeSpec:
     """Framework-only action runtime configuration."""
 
+    enabled: bool = True
     timeout_seconds: float | None = None
     parallel_policy: ActionParallelPolicy = ActionParallelPolicy.ALLOWED
     hooks: ActionHookSpec = field(default_factory=ActionHookSpec)
     result: ActionResultRuntimeSpec = field(default_factory=ActionResultRuntimeSpec)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ActionInvariantError("ActionRuntimeSpec.enabled must be boolean")
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ActionInvariantError("ActionRuntimeSpec.timeout_seconds must be positive")
         if not isinstance(self.parallel_policy, ActionParallelPolicy):

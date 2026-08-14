@@ -528,7 +528,7 @@ def register_script_actions(
 
     require_script_dependencies(settings)
     if not settings.enabled:
-        builder.disable_actions(*SCRIPT_ACTIONS)
+        builder.mark_actions_unsupported(*SCRIPT_ACTIONS)
         return builder
     policy = ScriptPolicy(max_source_chars=settings.max_source_chars)
     prompts = ScriptEditPromptBuilder(
@@ -587,7 +587,7 @@ def register_script_actions(
         ),
     ):
         if not enabled:
-            builder.disable_actions(action_name)
+            builder.mark_actions_unsupported(action_name)
             continue
         builder.register_executor(
             handler,

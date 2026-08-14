@@ -50,6 +50,8 @@ class ActionCatalogDocumentIndex:
     domains: Mapping[str, ActionCatalogDocumentRef]
     actions: Mapping[str, ActionCatalogDocumentRef]
     domain_runtimes: Mapping[str, ActionRuntimeSpec]
+    domain_enabled_sources: Mapping[str, str]
+    enabled_sources: Mapping[str, str]
     timeout_sources: Mapping[str, str]
 
     def __post_init__(self) -> None:
@@ -59,6 +61,16 @@ class ActionCatalogDocumentIndex:
             self,
             "domain_runtimes",
             MappingProxyType(dict(self.domain_runtimes)),
+        )
+        object.__setattr__(
+            self,
+            "domain_enabled_sources",
+            MappingProxyType(dict(self.domain_enabled_sources)),
+        )
+        object.__setattr__(
+            self,
+            "enabled_sources",
+            MappingProxyType(dict(self.enabled_sources)),
         )
         object.__setattr__(
             self,
@@ -182,6 +194,8 @@ class ActionCatalogLoader:
         domain_refs: dict[str, ActionCatalogDocumentRef] = {}
         action_refs: dict[str, ActionCatalogDocumentRef] = {}
         domain_runtimes: dict[str, ActionRuntimeSpec] = {}
+        domain_enabled_sources: dict[str, str] = {}
+        enabled_sources: dict[str, str] = {}
         timeout_sources: dict[str, str] = {}
         for domain_path, domain_document in sorted(
             domain_documents.items(), key=lambda item: item[1].source_id
@@ -189,12 +203,17 @@ class ActionCatalogLoader:
             source = _document_display_path(domain_document)
             domain_data = domain_document.data
             try:
+                domain_runtime_table = _optional_table(
+                    domain_data,
+                    "runtime",
+                    key=source,
+                )
                 domain = self._parser.parse_domain(
                     _as_table(domain_data, key=source),
                     source=source,
                 )
                 default_runtime = self._parser.parse_runtime(
-                    _optional_table(domain_data, "runtime", key=source),
+                    domain_runtime_table,
                     key=f"{source}.runtime",
                 )
             except ConfigError as exc:
@@ -209,6 +228,10 @@ class ActionCatalogLoader:
             domains.append(domain)
             domain_refs[domain.name] = _document_ref(domain_document, "domain")
             domain_runtimes[domain.name] = default_runtime
+            domain_enabled_source = (
+                "domain" if "enabled" in domain_runtime_table else "default"
+            )
+            domain_enabled_sources[domain.name] = domain_enabled_source
 
             for action_document in sorted(
                 action_documents.get(domain_path, ()),
@@ -262,6 +285,16 @@ class ActionCatalogLoader:
                     )
                 actions.append(action)
                 action_refs[action.name] = _document_ref(action_document, "action")
+                action_runtime_table = _optional_table(
+                    action_table,
+                    "runtime",
+                    key=action_source,
+                )
+                enabled_sources[action.name] = (
+                    "action"
+                    if "enabled" in action_runtime_table
+                    else domain_enabled_source
+                )
                 timeout_sources[action.name] = timeout_source
 
         return LoadedActionCatalog(
@@ -270,6 +303,8 @@ class ActionCatalogLoader:
                 domains=domain_refs,
                 actions=action_refs,
                 domain_runtimes=domain_runtimes,
+                domain_enabled_sources=domain_enabled_sources,
+                enabled_sources=enabled_sources,
                 timeout_sources=timeout_sources,
             ),
         )
@@ -501,6 +536,7 @@ class ActionTomlParser:
         key: str,
         base: ActionRuntimeSpec | None = None,
     ) -> ActionRuntimeSpec:
+        enabled_default = base.enabled if base is not None else True
         timeout_seconds = (
             base.timeout_seconds
             if base is not None and "timeout_seconds" not in table
@@ -520,6 +556,12 @@ class ActionTomlParser:
         hook_table = _optional_table(table, "hooks", key=key)
         result_table = _optional_table(table, "result", key=key)
         return ActionRuntimeSpec(
+            enabled=_optional_bool(
+                table,
+                "enabled",
+                default=enabled_default,
+                key=key,
+            ),
             timeout_seconds=timeout_seconds,
             parallel_policy=_enum_value(
                 ActionParallelPolicy,
@@ -633,6 +675,24 @@ def _optional_str(
             key=f"{key}.{name}",
             value=value,
             expected="str",
+        )
+    return value
+
+
+def _optional_bool(
+    table: Mapping[str, object],
+    name: str,
+    *,
+    default: bool,
+    key: str,
+) -> bool:
+    value = table.get(name, default)
+    if not isinstance(value, bool):
+        raise ConfigError(
+            "Action configuration value must be boolean",
+            key=f"{key}.{name}",
+            value=value,
+            expected="bool",
         )
     return value
 

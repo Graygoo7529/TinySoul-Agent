@@ -360,6 +360,8 @@ export interface ActionDomainCatalogEntry {
   description: string;
   selection_hint: string;
   runtime: {
+    enabled: boolean;
+    enabled_source: "domain" | "default";
     timeout_seconds: number | null;
     parallel_policy: string;
     hooks: { normalize: string[]; execute: string[] };
@@ -381,6 +383,8 @@ export interface ActionCatalogEntry {
     examples: string[];
   };
   runtime: {
+    enabled: boolean;
+    enabled_source: "action" | "domain" | "default";
     timeout_seconds: number | null;
     timeout_source: "action" | "llm_action" | "domain" | "none";
     parallel_policy: string;
@@ -388,6 +392,7 @@ export interface ActionCatalogEntry {
     trace_mode: string;
   };
   backend: { kind: string; handler: string; options: Record<string, JsonValue> };
+  supported: boolean;
   available: boolean;
   source: ActionCatalogSource | null;
 }

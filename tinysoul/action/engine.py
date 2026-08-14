@@ -77,6 +77,7 @@ class ActionEngine:
         *,
         catalog: ActionCatalog,
         configured_catalog: ActionCatalog,
+        supported_actions: frozenset[str],
         catalog_documents: ActionCatalogDocumentIndex | None,
         normalizer: ActionCallNormalizer,
         builder: ActionExecutionBuilder,
@@ -88,6 +89,7 @@ class ActionEngine:
     ) -> None:
         self._catalog = catalog
         self._configured_catalog = configured_catalog
+        self._supported_actions = supported_actions
         self._catalog_documents = catalog_documents
         self._normalizer = normalizer
         self._builder = builder
@@ -140,6 +142,17 @@ class ActionEngine:
                     "description": domain.description,
                     "selection_hint": domain.selection_hint,
                     "runtime": {
+                        "enabled": (
+                            runtime.enabled if runtime is not None else True
+                        ),
+                        "enabled_source": (
+                            documents.domain_enabled_sources.get(
+                                domain.name,
+                                "default",
+                            )
+                            if documents is not None
+                            else "default"
+                        ),
                         "timeout_seconds": (
                             runtime.timeout_seconds if runtime is not None else None
                         ),
@@ -174,6 +187,7 @@ class ActionEngine:
                             editable_paths=(
                                 "description",
                                 "selection_hint",
+                                "runtime.enabled",
                                 "runtime.timeout_seconds",
                             ),
                         )
@@ -200,6 +214,12 @@ class ActionEngine:
                         "examples": list(action.semantic.examples),
                     },
                     "runtime": {
+                        "enabled": action.runtime.enabled,
+                        "enabled_source": (
+                            documents.enabled_sources.get(action.name, "default")
+                            if documents is not None
+                            else "default"
+                        ),
                         "timeout_seconds": action.runtime.timeout_seconds,
                         "timeout_source": (
                             documents.timeout_sources.get(action.name, "none")
@@ -218,6 +238,7 @@ class ActionEngine:
                         "handler": action.backend.handler,
                         "options": action.backend.options,
                     },
+                    "supported": action.name in self._supported_actions,
                     "available": action.name in available_actions,
                     "source": (
                         _source_json(
@@ -242,9 +263,16 @@ class ActionEngine:
             )
         if len(action_names) != len(set(action_names)):
             raise ActionContractError("ActionEngine view actions must be unique")
+        configured_catalog = self._configured_catalog.with_actions(action_names)
+        effective_action_names = tuple(
+            name for name in action_names if self._catalog.has_action(name)
+        )
         return ActionEngine(
-            catalog=self._catalog.with_actions(action_names),
-            configured_catalog=self._configured_catalog.with_actions(action_names),
+            catalog=self._catalog.with_actions(effective_action_names),
+            configured_catalog=configured_catalog,
+            supported_actions=frozenset(
+                self._supported_actions.intersection(action_names)
+            ),
             catalog_documents=self._catalog_documents,
             normalizer=self._normalizer,
             builder=self._builder,
@@ -395,7 +423,7 @@ class ActionEngineBuilder:
         self._cooperative_cancel_grace_seconds = 0.05
         self._process_cancel_grace_seconds = 1.0
         self._observations: ObservationEmitter = NullObservationEmitter()
-        self._disabled_actions: set[str] = set()
+        self._unsupported_actions: set[str] = set()
         self._included_actions: set[str] | None = None
 
     def register_executor(
@@ -406,13 +434,13 @@ class ActionEngineBuilder:
         self._executors.register(handler, executor)
         return self
 
-    def disable_actions(self, *action_names: str) -> Self:
-        """Remove explicitly disabled package actions from the effective catalog."""
+    def mark_actions_unsupported(self, *action_names: str) -> Self:
+        """Mark actions whose runtime owner is unavailable in this Generation."""
 
         for action_name in action_names:
             if not isinstance(action_name, str) or not action_name:
-                raise ActionContractError("Disabled action name must be non-empty")
-            self._disabled_actions.add(action_name)
+                raise ActionContractError("Unsupported action name must be non-empty")
+            self._unsupported_actions.add(action_name)
         return self
 
     def include_actions(self, *action_names: str) -> Self:
@@ -476,37 +504,42 @@ class ActionEngineBuilder:
         return self
 
     def build(self) -> ActionEngine:
-        configured_catalog = self._catalog
-        catalog = configured_catalog
+        complete_catalog = self._catalog
+        complete_action_names = {action.name for action in complete_catalog.actions()}
+        configured_catalog = complete_catalog
         if self._included_actions is not None:
-            available = {action.name for action in catalog.actions()}
-            unknown_included = self._included_actions - available
+            unknown_included = self._included_actions - complete_action_names
             if unknown_included:
                 raise ActionContractError(
                     "Included actions are absent from the package catalog: "
                     + ", ".join(sorted(unknown_included))
                 )
-            catalog = catalog.with_actions(tuple(sorted(self._included_actions)))
-        unknown_disabled = self._disabled_actions - {
-            action.name for action in catalog.actions()
-        }
-        if unknown_disabled:
+            configured_catalog = complete_catalog.with_actions(
+                tuple(sorted(self._included_actions))
+            )
+        unknown_unsupported = self._unsupported_actions - complete_action_names
+        if unknown_unsupported:
             raise ActionContractError(
-                "Disabled actions are absent from the package catalog: "
-                + ", ".join(sorted(unknown_disabled))
+                "Unsupported actions are absent from the package catalog: "
+                + ", ".join(sorted(unknown_unsupported))
             )
-        if self._disabled_actions:
-            catalog = catalog.with_actions(
-                action.name
-                for action in catalog.actions()
-                if action.name not in self._disabled_actions
-            )
+        supported_actions = frozenset(
+            action.name
+            for action in configured_catalog.actions()
+            if action.name not in self._unsupported_actions
+        )
+        catalog = configured_catalog.with_actions(
+            action.name
+            for action in configured_catalog.actions()
+            if action.runtime.enabled and action.name in supported_actions
+        )
         self._executors.validate_catalog(catalog)
         normalize_pipeline = ActionNormalizeHookPipeline(self._hooks)
         execution_pipeline = ActionExecutionHookPipeline(self._hooks)
         return ActionEngine(
             catalog=catalog,
             configured_catalog=configured_catalog,
+            supported_actions=supported_actions,
             catalog_documents=self._catalog_documents,
             normalizer=ActionCallNormalizer(normalize_pipeline),
             builder=ActionExecutionBuilder(),
@@ -545,6 +578,7 @@ def _action_editable_paths(action_name: str) -> tuple[str, ...]:
         "semantic.avoid_when",
         "semantic.effects",
         "semantic.examples",
+        "runtime.enabled",
         "runtime.timeout_seconds",
     )
     if action_name == "execution.wait":

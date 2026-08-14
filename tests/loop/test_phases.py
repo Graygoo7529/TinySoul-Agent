@@ -1054,7 +1054,7 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
         .register_function("workspace.append", lambda execution, context: {"appended": True})
         .register_function("workspace.create", lambda execution, context: {"created": True})
         .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
-        .disable_actions(
+        .mark_actions_unsupported(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
@@ -1123,7 +1123,7 @@ def _action_engine(
         .register_function("home.prompt_mount.write", lambda execution, context: {"written": True})
         .register_function("context.inspect", lambda execution, context: {})
         .register_function("session.inspect", lambda execution, context: {})
-        .disable_actions(
+        .mark_actions_unsupported(
             *SCRIPT_ACTIONS,
             *SHELL_ACTIONS,
             *EXECUTION_LIFECYCLE_ACTIONS,
@@ -1164,7 +1164,7 @@ def _action_engine(
             .register_function(
                 "workspace.rewrite", lambda execution, context: {"rewritten": True}
             )
-            .disable_actions(
+            .mark_actions_unsupported(
                 "workspace.analyze",
                 "workspace.read",
                 "workspace.search_text",

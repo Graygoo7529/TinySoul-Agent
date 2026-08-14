@@ -228,10 +228,16 @@ picker 只展示 `/v1/actions/catalog` 中 `available=true && backend.kind=llm_a
 
 Action Catalog 页面按 Domain/Action 使用响应中的 `source.source_id` 和 `editable_paths` 建立
 mutation；Domain/Action 字段说明按 `document_set=action.catalog + document_kind + local path` 从
-Infra document descriptors 获取。description、selection hint、semantic 和 timeout 可写；
+Infra document descriptors 获取。description、selection hint、semantic、runtime enabled 和 timeout 可写；
 `execution.wait` 另外暴露 Tool Schema 中 minimum/default/maximum 三个精确 local path。完整 schema、
 parallel policy、hooks、trace mode 与 backend 只读。删除 Action 专用 timeout 表示恢复
 `llm_action default -> domain default -> none` 的继承链。
+
+Domain `runtime.enabled` 是子 Action 的默认 exposure policy；Action `runtime.enabled` 是可删除的
+局部覆盖，删除后恢复 Domain/default。Action 响应同时返回 `runtime.enabled_source`、`supported` 与
+`available=runtime.enabled && supported`。设置页分别展示 Disabled 与 Unsupported；owner 不支持时
+开关仍可编辑。Action Routing picker 继续只消费最终 `available=true` 的 LLM Action，已有 override
+在 Action 暂时 disabled/unsupported 时保留。
 
 任意 User/Maintenance Turn 或配置激活期间，三个 GET 仍可读取，所有 TOML/dotenv 控件禁用；
 PATCH 返回 `409 config.activation_unavailable`。进程环境不枚举、不编辑；dotenv credential 值只

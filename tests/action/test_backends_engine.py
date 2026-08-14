@@ -419,7 +419,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         .register_function("workspace.rewrite", lambda execution, context: {"rewritten": True})
         .register_function("workspace.scan", lambda execution, context: {"scanned": True})
         .register_function("workspace.create", lambda execution, context: {"created": True})
-            .disable_actions(
+            .mark_actions_unsupported(
                 *SCRIPT_ACTIONS,
                 *SHELL_ACTIONS,
                 *EXECUTION_LIFECYCLE_ACTIONS,
@@ -474,7 +474,7 @@ def test_action_engine_requires_an_explicit_subprocess_handler(tmp_path: Path) -
         ActionEngineBuilder(load_action_catalog(tmp_path)).build()
 
 
-def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
+def test_unsupported_action_is_removed_with_its_empty_domain(tmp_path: Path) -> None:
     _write_catalog_action(
         tmp_path,
         backend_kind="native",
@@ -484,12 +484,65 @@ def test_disabled_action_is_removed_with_its_empty_domain(tmp_path: Path) -> Non
 
     engine = (
         ActionEngineBuilder(load_action_catalog(tmp_path))
-        .disable_actions("test.action")
+        .mark_actions_unsupported("test.action")
         .build()
     )
 
     assert engine.domain_names() == ()
     assert engine.action_identifiers() == ()
+
+
+@pytest.mark.parametrize(
+    ("enabled", "supported", "available"),
+    (
+        (True, True, True),
+        (False, True, False),
+        (True, False, False),
+        (False, False, False),
+    ),
+)
+def test_action_availability_combines_policy_and_runtime_support(
+    enabled: bool,
+    supported: bool,
+    available: bool,
+) -> None:
+    catalog = ActionCatalog(
+        domains=(ActionDomainSpec(name="test", description="Test actions."),),
+        actions=(
+            _action(
+                "test.action",
+                runtime=ActionRuntimeSpec(enabled=enabled),
+                backend=ActionBackendSpec(
+                    kind=ActionBackendKind.NATIVE,
+                    handler="test.action",
+                ),
+            ),
+        ),
+    )
+    builder = ActionEngineBuilder(catalog)
+    if supported:
+        builder.register_executor(
+            "test.action",
+            FunctionActionExecutor(lambda execution, context: {"ok": True}),
+        )
+    else:
+        builder.mark_actions_unsupported("test.action")
+
+    engine = builder.build()
+    view = engine.view(("test.action",))
+    actions = view.catalog_json()["actions"]
+    assert isinstance(actions, list)
+    projection = actions[0]
+    assert isinstance(projection, dict)
+    runtime = projection["runtime"]
+    assert isinstance(runtime, dict)
+
+    assert view.action_identifiers() == (
+        (("test", "test.action"),) if available else ()
+    )
+    assert runtime["enabled"] is enabled
+    assert projection["supported"] is supported
+    assert projection["available"] is available
 
 
 class _FakeCapture:

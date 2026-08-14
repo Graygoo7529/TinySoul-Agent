@@ -12,7 +12,7 @@ from tinysoul.app import AppSettings, ProjectInitializer, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
 from tinysoul.endpoint.server import create_endpoint_app
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
-from tinysoul.infra.json import JsonObject
+from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
@@ -163,6 +163,15 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
                             "project-document:action.catalog:configs/action/catalog/"
                             "workspace/actions/read.toml"
                         ),
+                        "path": "runtime.enabled",
+                        "op": "set",
+                        "value": False,
+                    },
+                    {
+                        "source_id": (
+                            "project-document:action.catalog:configs/action/catalog/"
+                            "workspace/actions/read.toml"
+                        ),
                         "path": "tool.description",
                         "op": "set",
                         "value": (
@@ -210,6 +219,11 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         item["id"] == "workspace.read"
         and item["tool"]["description"]
         == "Read one project workspace resource for the current task."
+        and item["runtime"]["enabled"] is False
+        and item["runtime"]["enabled_source"] == "action"
+        and item["supported"] is True
+        and item["available"] is False
+        and "runtime.enabled" in item["source"]["editable_paths"]
         and item["source"]["document_kind"] == "action"
         for item in action_catalog.json()["actions"]
     )
@@ -233,6 +247,15 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         project_root / "configs" / "action" / "routing.toml"
     ).read_text(encoding="utf-8")
     assert "Read one project workspace resource for the current task." in (
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "actions"
+        / "read.toml"
+    ).read_text(encoding="utf-8")
+    assert "enabled = false" in (
         project_root
         / "configs"
         / "action"
@@ -326,6 +349,198 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert [event["name"] for event in websocket_completed["events"]] == [
         "config.activation.completed"
     ]
+
+
+def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    ProjectInitializer().initialize(project_root)
+    app = (
+        TinySoulAppBuilder(root=project_root)
+        .with_config_environment(ConfigEnvironment.from_project_root(project_root))
+        .with_app_settings(AppSettings(interactive=False))
+        .with_llm_runner(FakeLLM(()))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .build()
+    )
+    assert app.endpoint is not None
+    endpoint = app.endpoint
+    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
+    headers = {"Authorization": f"Bearer {'x' * 32}"}
+    domain_source = (
+        "project-document:action.catalog:"
+        "configs/action/catalog/workspace/domain.toml"
+    )
+    action_source = (
+        "project-document:action.catalog:"
+        "configs/action/catalog/workspace/actions/read.toml"
+    )
+    domain_path = (
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "workspace"
+        / "domain.toml"
+    )
+
+    runtime_before = _json_object(endpoint.config_status()["runtime"])
+    generation_before = runtime_before["generation_id"]
+    invalid = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": domain_source,
+                    "path": "runtime.enabled",
+                    "op": "set",
+                    "value": "false",
+                }
+            ]
+        },
+    )
+    assert invalid.status_code == 422
+    runtime_after_invalid = _json_object(endpoint.config_status()["runtime"])
+    assert runtime_after_invalid["generation_id"] == generation_before
+    assert "enabled = true" in domain_path.read_text(encoding="utf-8")
+
+    routed = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": "project:configs/action/routing.toml",
+                    "path": "action.llm_action.overrides",
+                    "op": "set",
+                    "value": [
+                        {
+                            "action_id": "workspace.analyze",
+                            "task_profile": "llm_action",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    assert routed.status_code == 200
+
+    domain_disabled = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": domain_source,
+                    "path": "runtime.enabled",
+                    "op": "set",
+                    "value": False,
+                }
+            ]
+        },
+    )
+    assert domain_disabled.status_code == 200
+    disabled_read = _action_catalog_item(client, headers, "workspace.read")
+    disabled_analysis = _action_catalog_item(client, headers, "workspace.analyze")
+    disabled_runtime = _json_object(disabled_read["runtime"])
+    assert disabled_runtime["enabled"] is False
+    assert disabled_runtime["enabled_source"] == "domain"
+    assert disabled_read["supported"] is True
+    assert disabled_read["available"] is False
+    assert disabled_analysis["available"] is False
+    assert "workspace.analyze" in (
+        project_root / "configs" / "action" / "routing.toml"
+    ).read_text(encoding="utf-8")
+
+    action_enabled = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": action_source,
+                    "path": "runtime.enabled",
+                    "op": "set",
+                    "value": True,
+                }
+            ]
+        },
+    )
+    assert action_enabled.status_code == 200
+    enabled_read = _action_catalog_item(client, headers, "workspace.read")
+    enabled_runtime = _json_object(enabled_read["runtime"])
+    assert enabled_runtime["enabled"] is True
+    assert enabled_runtime["enabled_source"] == "action"
+    assert enabled_read["available"] is True
+
+    action_inherited = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": action_source,
+                    "path": "runtime.enabled",
+                    "op": "delete",
+                }
+            ]
+        },
+    )
+    assert action_inherited.status_code == 200
+    inherited_read = _action_catalog_item(client, headers, "workspace.read")
+    inherited_runtime = _json_object(inherited_read["runtime"])
+    assert inherited_runtime["enabled"] is False
+    assert inherited_runtime["enabled_source"] == "domain"
+    assert inherited_read["available"] is False
+
+    domain_default = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": domain_source,
+                    "path": "runtime.enabled",
+                    "op": "delete",
+                }
+            ]
+        },
+    )
+    assert domain_default.status_code == 200
+    restored_read = _action_catalog_item(client, headers, "workspace.read")
+    restored_analysis = _action_catalog_item(client, headers, "workspace.analyze")
+    restored_runtime = _json_object(restored_read["runtime"])
+    assert restored_runtime["enabled"] is True
+    assert restored_runtime["enabled_source"] == "default"
+    assert restored_read["available"] is True
+    assert restored_analysis["available"] is True
+    assert "enabled =" not in domain_path.read_text(encoding="utf-8")
+
+    answer_disabled = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": (
+                        "project-document:action.catalog:"
+                        "configs/action/catalog/core/actions/answer.toml"
+                    ),
+                    "path": "runtime.enabled",
+                    "op": "set",
+                    "value": False,
+                }
+            ]
+        },
+    )
+    assert answer_disabled.status_code == 200
+    disabled_answer = _action_catalog_item(client, headers, "core.answer")
+    disabled_answer_runtime = _json_object(disabled_answer["runtime"])
+    assert disabled_answer_runtime["enabled"] is False
+    assert disabled_answer["supported"] is True
+    assert disabled_answer["available"] is False
 
 
 def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
@@ -1031,6 +1246,28 @@ def test_app_builder_llm_config_error_is_llm_startup_failure(tmp_path: Path) -> 
     assert exc.reason == RUNTIME_STARTUP_FAILED
     assert exc.payload["module"] == "llm"
     assert exc.payload["key"] == "llm.tasks.framework.models"
+
+
+def _action_catalog_item(
+    client: TestClient,
+    headers: dict[str, str],
+    action_id: str,
+) -> JsonObject:
+    response = client.get("/v1/actions/catalog", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, dict)
+    actions = payload.get("actions")
+    assert isinstance(actions, list)
+    for item in actions:
+        if isinstance(item, dict) and item.get("id") == action_id:
+            return to_json_object(item)
+    raise AssertionError(f"Missing Action catalog entry: {action_id}")
+
+
+def _json_object(value: object) -> JsonObject:
+    assert isinstance(value, dict)
+    return to_json_object(value)
 
 
 def _tool_result(*tool_calls: ToolCallRecord) -> TaskResult:

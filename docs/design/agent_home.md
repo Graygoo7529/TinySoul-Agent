@@ -194,7 +194,15 @@ Action 内部 LLM task 只依赖 `ActionSkillProvider` 协议，不读取 Home �
 
 Domain skill 与 action skill 分别属于 `skills_domain` 与 `skills_action` 的局部自动加载机制：Phase2 自动加载 domain skill；Phase3 中带内部 LLM task 的 action 同时自动加载 domain skill 与 action skill。它们不属于普通渐进式资源加载；模型不需要通过 `home.resource.read` 主动读取这些 skill，Loop 与 Action 也不感知 Agent Home 的目录结构。
 
-逻辑 prompt mount 由框架从 Action Catalog 派生：catalog 中定义的 domain/action 决定合法 `HomePromptMountLink`，不以 provider 暂时不可用或 action 临时 disabled 作为删除依据。对应 actual/runtime 正文都不存在时 provider 返回空 guidance；`home.prompt_mount.write` 可以为合法 mount 物化 runtime 内容，`home.prompt_mount.patch` 修改已有 effective 内容。domain/action 从 catalog 删除时，框架在 runtime 形成对应删除语义，下一次 Home Maintenance 决定 actual 删除；模型不拥有 prompt mount create/delete action。文件存在但编码损坏、不可读或映射不变量失败时，不得伪装成“没有 skill”，而应由 Home provider 通过 Runtime bridge 映射为模块边界失败。副本缺失仍使用专门的 runtime-copy 恢复原因。
+逻辑 prompt mount 由框架从 ActionEngine 的 effective Catalog 派生：只有当前 Generation 同时
+configured enabled 且 runtime supported 的 domain/action 才是合法 `HomePromptMountLink`。Action
+disabled 或 unsupported 时，runtime reconciliation 删除对应逻辑 mount；重新 available 后自动恢复，
+actual Home 文件不被即时删除。对应 actual/runtime 正文都不存在时 provider 返回空 guidance；
+`home.prompt_mount.write` 可以为合法 mount 物化 runtime 内容，`home.prompt_mount.patch` 修改已有
+effective 内容。domain/action 不再有效时，下一次 Home Maintenance 决定 actual 删除；模型不拥有
+prompt mount create/delete action。文件存在但编码损坏、不可读或映射不变量失败时，不得伪装成
+“没有 skill”，而应由 Home provider 通过 Runtime bridge 映射为模块边界失败。副本缺失仍使用
+专门的 runtime-copy 恢复原因。
 
 ## Progressive Resource Actions
 
