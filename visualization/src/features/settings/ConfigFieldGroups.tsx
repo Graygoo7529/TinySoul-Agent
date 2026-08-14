@@ -4,6 +4,7 @@ import { ConfigFieldRow } from "./ConfigFieldRow";
 import { SettingsGroupSection } from "./SettingsGroupSection";
 import {
   groupSurfaceFields,
+  type ConfigFieldEditLock,
   type ConfigSelectOption,
   type ConfigSettingField,
 } from "./model";
@@ -16,7 +17,9 @@ export function ConfigFieldGroups({
   savingPath,
   onCommit,
   onDelete,
+  canDeleteField,
   selectOptions,
+  editLock,
 }: {
   fields: ConfigSettingField[];
   status: ConfigStatus;
@@ -25,7 +28,9 @@ export function ConfigFieldGroups({
   savingPath: string | null;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
   onDelete?: (field: ConfigSettingField) => Promise<void>;
+  canDeleteField?: (field: ConfigSettingField) => boolean;
   selectOptions?: (field: ConfigSettingField) => ConfigSelectOption[] | undefined;
+  editLock?: (field: ConfigSettingField) => ConfigFieldEditLock | undefined;
 }) {
   return (
     <div>
@@ -47,7 +52,9 @@ export function ConfigFieldGroups({
                 saving={savingPath === field.path}
                 onCommit={onCommit}
                 onDelete={onDelete}
+                deletable={canDeleteField?.(field) ?? Boolean(onDelete)}
                 selectOptions={selectOptions?.(field)}
+                editLock={editLock?.(field)}
               />
             ))}
           </div>

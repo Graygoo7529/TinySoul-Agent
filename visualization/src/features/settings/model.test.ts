@@ -147,9 +147,8 @@ describe("settings catalog projection", () => {
     ];
 
     expect(modelProviderOptions(model, providers)).toEqual([
-      { value: "openai", label: "openai · openai", disabled: false },
-      { value: "openai_proxy", label: "openai_proxy · openai", disabled: false },
-      { value: "kimi", label: "kimi · kimi", disabled: true },
+      { value: "openai", label: "openai" },
+      { value: "openai_proxy", label: "openai_proxy" },
     ]);
   });
 

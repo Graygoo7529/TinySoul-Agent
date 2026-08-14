@@ -423,6 +423,7 @@ group = "task_chains.call"
 title = "Answer Format"
 description = "Default answer format requested from models in this task chain."
 value_kind = "enum"
+importance = "advanced"
 choices = [
   { value = "none", label = "No answer payload" },
   { value = "text", label = "Text" },
@@ -436,6 +437,7 @@ group = "task_chains.call"
 title = "Tool Use"
 description = "Default tool-call policy for this task profile."
 value_kind = "enum"
+importance = "advanced"
 choices = [
   { value = "disabled", label = "Disabled" },
   { value = "optional", label = "Optional" },
@@ -449,6 +451,7 @@ group = "task_chains.call"
 title = "Temperature"
 description = "Default sampling temperature for model calls in this chain."
 value_kind = "number"
+importance = "advanced"
 
 [[field]]
 path = "llm.tasks.*.max_output_tokens"
@@ -457,6 +460,7 @@ group = "task_chains.call"
 title = "Maximum Output Tokens"
 description = "Maximum provider generation budget reserved for one model call."
 value_kind = "integer"
+importance = "advanced"
 
 [[field]]
 path = "llm.tasks.*.max_retries_per_model"
@@ -519,6 +523,7 @@ group = "action_routing.routes"
 title = "Default Task Chain"
 description = "Task profile used by every LLM-backed action without an explicit override."
 value_kind = "reference"
+importance = "advanced"
 reference = { collection = "llm.tasks" }
 
 [[field]]

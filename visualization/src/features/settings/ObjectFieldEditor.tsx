@@ -1,9 +1,12 @@
+import type { ReactNode } from "react";
+
 import { Badge } from "../../components/ui/Badge";
 import { Collapsible } from "../../components/ui/Collapsible";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { ConfigFieldGroups } from "./ConfigFieldGroups";
 import {
   type ConfigSelectOption,
+  type ConfigFieldEditLock,
   type ConfigSettingField,
 } from "./model";
 
@@ -15,7 +18,10 @@ export function ObjectFieldEditor({
   savingPath,
   onCommit,
   onDelete,
+  canDeleteField,
   selectOptions,
+  advancedActions,
+  editLock,
 }: {
   fields: ConfigSettingField[];
   status: ConfigStatus;
@@ -24,7 +30,10 @@ export function ObjectFieldEditor({
   savingPath: string | null;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
   onDelete?: (field: ConfigSettingField) => Promise<void>;
+  canDeleteField?: (field: ConfigSettingField) => boolean;
   selectOptions?: (field: ConfigSettingField) => ConfigSelectOption[] | undefined;
+  advancedActions?: ReactNode;
+  editLock?: (field: ConfigSettingField) => ConfigFieldEditLock | undefined;
 }) {
   const primary = fields.filter((field) => field.descriptor.importance === "primary" && field.writable);
   const advanced = fields.filter((field) => field.descriptor.importance === "advanced" && field.writable);
@@ -39,21 +48,31 @@ export function ObjectFieldEditor({
         savingPath={savingPath}
         onCommit={onCommit}
         onDelete={onDelete}
+        canDeleteField={canDeleteField}
         selectOptions={selectOptions}
+        editLock={editLock}
       />
-      {advanced.length > 0 && (
+      {(advanced.length > 0 || advancedActions) && (
         <div className="border-t border-line p-4">
-          <Collapsible title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
-            <ConfigFieldGroups
-              fields={advanced}
-              status={status}
-              catalog={catalog}
-              canWrite={canWrite}
-              savingPath={savingPath}
-              onCommit={onCommit}
-              onDelete={onDelete}
-              selectOptions={selectOptions}
-            />
+          <Collapsible
+            title="Advanced"
+            meta={advanced.length > 0 ? <Badge>{advanced.length}</Badge> : undefined}
+          >
+            {advancedActions}
+            {advanced.length > 0 && (
+              <ConfigFieldGroups
+                fields={advanced}
+                status={status}
+                catalog={catalog}
+                canWrite={canWrite}
+                savingPath={savingPath}
+                onCommit={onCommit}
+                onDelete={onDelete}
+                canDeleteField={canDeleteField}
+                selectOptions={selectOptions}
+                editLock={editLock}
+              />
+            )}
           </Collapsible>
         </div>
       )}
@@ -68,7 +87,9 @@ export function ObjectFieldEditor({
               savingPath={savingPath}
               onCommit={onCommit}
               onDelete={onDelete}
+              canDeleteField={canDeleteField}
               selectOptions={selectOptions}
+              editLock={editLock}
             />
           </Collapsible>
         </div>

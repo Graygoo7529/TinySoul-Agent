@@ -13,7 +13,7 @@ import type {
 } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
-import { ConfigFieldRow } from "./ConfigFieldRow";
+import { ConfigFieldGroups } from "./ConfigFieldGroups";
 import { configObjects, surfaceFields, type ConfigSettingField } from "./model";
 
 interface ActionRoute extends Record<string, JsonValue> {
@@ -39,6 +39,9 @@ export function ActionRoutingPanel({
   const defaultField = fields.find((field) => field.path.endsWith(".default_task_profile"));
   const overridesField = fields.find((field) => field.path.endsWith(".overrides"));
   const timeoutField = fields.find((field) => field.path.endsWith(".timeout_seconds"));
+  const advancedFields = [defaultField, timeoutField].filter(
+    (field): field is ConfigSettingField => Boolean(field),
+  );
   const chains = configObjects(status, catalog, "llm.tasks").map((item) => item.id);
   const routes = parseRoutes(overridesField?.storedValue);
   const eligible = actions.actions.filter(
@@ -71,21 +74,6 @@ export function ActionRoutingPanel({
 
   return (
     <div>
-      {defaultField && (
-        <section className="border-b border-line">
-          <div className="bg-bg-sunken/40 px-5 py-2.5 text-[12px] font-semibold text-fg-muted">
-            {defaultField.descriptor.title}
-          </div>
-          <ConfigFieldRow
-            field={defaultField}
-            status={status}
-            catalog={catalog}
-            canWrite={canWrite}
-            saving={savingPath === defaultField.path}
-            onCommit={commit}
-          />
-        </section>
-      )}
       <section className="border-b border-line">
         <div className="flex items-center justify-between bg-bg-sunken/40 px-5 py-2.5">
           <div>
@@ -186,19 +174,17 @@ export function ActionRoutingPanel({
           </div>
         )}
       </section>
-      {timeoutField && (
+      {advancedFields.length > 0 && (
         <div className="p-4">
-          <Collapsible title="Advanced" meta={<Badge>1</Badge>}>
-            <div className="-mx-3 -my-2.5">
-              <ConfigFieldRow
-                field={timeoutField}
-                status={status}
-                catalog={catalog}
-                canWrite={canWrite}
-                saving={savingPath === timeoutField.path}
-                onCommit={commit}
-              />
-            </div>
+          <Collapsible title="Advanced" meta={<Badge>{advancedFields.length}</Badge>}>
+            <ConfigFieldGroups
+              fields={advancedFields}
+              status={status}
+              catalog={catalog}
+              canWrite={canWrite}
+              savingPath={savingPath}
+              onCommit={commit}
+            />
           </Collapsible>
         </div>
       )}

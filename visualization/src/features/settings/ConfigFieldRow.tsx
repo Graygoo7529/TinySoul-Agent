@@ -5,6 +5,7 @@ import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { ConfigValueControl } from "./ConfigValueControl";
 import {
   referenceOptions,
+  type ConfigFieldEditLock,
   type ConfigSelectOption,
   type ConfigSettingField,
 } from "./model";
@@ -17,7 +18,9 @@ export function ConfigFieldRow({
   saving,
   onCommit,
   onDelete,
+  deletable = false,
   selectOptions,
+  editLock,
 }: {
   field: ConfigSettingField;
   status: ConfigStatus;
@@ -26,7 +29,9 @@ export function ConfigFieldRow({
   saving: boolean;
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
   onDelete?: (field: ConfigSettingField) => Promise<void>;
+  deletable?: boolean;
   selectOptions?: ConfigSelectOption[];
+  editLock?: ConfigFieldEditLock;
 }) {
   return (
     <div className="grid min-h-20 gap-3 px-5 py-3 md:grid-cols-[minmax(240px,1fr)_minmax(260px,420px)] md:items-center">
@@ -34,11 +39,15 @@ export function ConfigFieldRow({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[13px] font-medium text-fg">{field.descriptor.title}</span>
           {!field.writable && <Badge tone="gray">Read only</Badge>}
+          {editLock && <Badge tone="gray">{editLock.label}</Badge>}
           {field.overridden && <Badge tone="yellow">Overridden</Badge>}
         </div>
         <p className="mt-1 max-w-2xl text-[11px] leading-4 text-fg-muted">
           {field.descriptor.description}
         </p>
+        {editLock && (
+          <p className="mt-1 text-[10px] leading-4 text-fg-faint">{editLock.reason}</p>
+        )}
         <details className="mt-1.5 text-[10px] text-fg-faint">
           <summary className="cursor-pointer select-none">Details</summary>
           <div className="mt-1 space-y-0.5 font-mono break-all">
@@ -59,11 +68,11 @@ export function ConfigFieldRow({
           selectOptions={
             selectOptions ?? referenceOptions(status, catalog, field.descriptor)
           }
-          disabled={!canWrite || !field.writable}
+          disabled={!canWrite || !field.writable || Boolean(editLock)}
           saving={saving}
           onCommit={(value) => onCommit(field, value)}
           />
-        {onDelete && field.writable && field.persisted && (
+        {onDelete && deletable && field.writable && field.persisted && (
           <IconButton label="Remove option" onClick={() => void onDelete(field)} disabled={!canWrite || saving}>
             <Trash2 size={14} />
           </IconButton>

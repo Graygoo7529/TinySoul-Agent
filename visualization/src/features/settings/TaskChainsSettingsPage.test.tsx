@@ -41,15 +41,20 @@ describe("TaskChainsSettingsPage", () => {
     );
     expect(container.textContent).not.toContain("Unbound");
     expect(objectButton("unused")?.textContent).toContain("1 model");
+    expect(container.textContent).not.toContain("Answer Format");
+    act(() => buttonStartingWith("Advanced")?.click());
+    expect(container.textContent).toContain("Answer Format");
 
     act(() => tab("Cycle Routing")?.click());
     expect(container.textContent).toContain("Phase1 Task Chain");
     expect(container.textContent).toContain("Phase2 Task Chain");
 
     act(() => tab("Action Routing")?.click());
-    expect(container.textContent).toContain("Default Task Chain");
     expect(container.textContent).toContain("Action Overrides");
     expect(container.textContent).toContain("core.answer");
+    expect(container.textContent).not.toContain("Default Task Chain");
+    act(() => buttonStartingWith("Advanced")?.click());
+    expect(container.textContent).toContain("Default Task Chain");
   });
 });
 
@@ -67,6 +72,12 @@ function objectButton(id: string): HTMLButtonElement | null {
   ) ?? null;
 }
 
+function buttonStartingWith(text: string): HTMLButtonElement | null {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (item) => item.textContent?.trim().startsWith(text),
+  ) ?? null;
+}
+
 function catalog(): ConfigCatalog {
   return {
     surfaces: [
@@ -77,6 +88,7 @@ function catalog(): ConfigCatalog {
     ],
     field_groups: [
       { id: "task_chains.models", surface: "task_chains", title: "Model Chain", description: "Ordered models." },
+      { id: "task_chains.call", surface: "task_chains", title: "Call Policy", description: "Call settings." },
       { id: "models.binding", surface: "models", title: "Binding", description: "Model binding." },
       { id: "cycle_routing.phases", surface: "cycle_routing", title: "Cycle Phases", description: "Shared routes." },
       { id: "action_routing.routes", surface: "action_routing", title: "Routes", description: "Action routes." },
@@ -113,6 +125,10 @@ function catalog(): ConfigCatalog {
         collection: "llm.models",
         multiple: true,
       }),
+      {
+        ...field("llm.tasks.*.answer_format", "task_chains", "task_chains.call", "Answer Format", "string"),
+        importance: "advanced",
+      },
       field("llm.models.*.provider_model", "models", "models.binding", "Provider Model ID", "string"),
       field("loop.cycle.phase1_task_profile", "cycle_routing", "cycle_routing.phases", "Phase1 Task Chain", "reference", {
         collection: "llm.tasks",
@@ -122,10 +138,13 @@ function catalog(): ConfigCatalog {
         collection: "llm.tasks",
         multiple: false,
       }),
-      field("action.llm_action.default_task_profile", "action_routing", "action_routing.routes", "Default Task Chain", "reference", {
-        collection: "llm.tasks",
-        multiple: false,
-      }),
+      {
+        ...field("action.llm_action.default_task_profile", "action_routing", "action_routing.routes", "Default Task Chain", "reference", {
+          collection: "llm.tasks",
+          multiple: false,
+        }),
+        importance: "advanced",
+      },
       field("action.llm_action.overrides", "action_routing", "action_routing.routes", "Action Overrides", "object_list"),
       {
         ...field("action.llm_action.timeout_seconds", "action_routing", "action_routing.execution", "Action Task Timeout", "number"),
@@ -164,6 +183,7 @@ function status(): ConfigStatus {
   const values: Array<[string, JsonValue, string]> = [
     ["llm.tasks.shared.models", ["primary"], taskSource],
     ["llm.tasks.unused.models", ["primary"], taskSource],
+    ["llm.tasks.shared.answer_format", "json_object", taskSource],
     ["llm.models.primary.provider_model", "gpt-5", modelSource],
     ["loop.cycle.phase1_task_profile", "shared", loopSource],
     ["loop.cycle.phase2_task_profile", "shared", loopSource],
