@@ -45,6 +45,13 @@ export interface OpenResource {
 
 export type ThemeMode = "light" | "dark";
 
+type RestorableAppTab = Exclude<AppTab, "settings">;
+
+export function normalizePersistedActiveTab(value: unknown): RestorableAppTab {
+  if (value === "workspace" || value === "monitor") return value;
+  return "chat";
+}
+
 export interface ToastItem {
   id: string;
   kind: "success" | "error" | "info";
@@ -294,8 +301,26 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         projectRoot: state.projectRoot,
         theme: state.theme,
-        activeTab: state.activeTab,
+        activeTab: normalizePersistedActiveTab(state.activeTab),
       }),
+      merge: (persistedState, currentState) => {
+        const persisted =
+          persistedState !== null && typeof persistedState === "object"
+            ? (persistedState as Record<string, unknown>)
+            : {};
+        return {
+          ...currentState,
+          projectRoot:
+            typeof persisted.projectRoot === "string"
+              ? persisted.projectRoot
+              : currentState.projectRoot,
+          theme:
+            persisted.theme === "light" || persisted.theme === "dark"
+              ? persisted.theme
+              : currentState.theme,
+          activeTab: normalizePersistedActiveTab(persisted.activeTab),
+        };
+      },
     },
   ),
 );

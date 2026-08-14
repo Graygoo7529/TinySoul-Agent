@@ -91,7 +91,7 @@ export function SettingsNavigation({
   const visibleMobile = groups.find((group) => group.label === mobileGroup) ?? activeGroup;
 
   return (
-    <aside className="shrink-0 border-b border-line bg-bg-sunken/50 md:w-56 md:border-r md:border-b-0">
+    <aside className="min-h-0 shrink-0 border-b border-line bg-bg-sunken/50 md:w-56 md:overflow-y-auto md:overscroll-contain md:border-r md:border-b-0">
       <div className="border-b border-line p-2 md:hidden">
         <select
           aria-label="Settings category"

@@ -41,9 +41,9 @@ export function AppShell({
   const connected = connection.status === "connected";
 
   return (
-    <div className="flex h-full bg-bg text-fg">
+    <div className="flex h-full min-h-0 overflow-hidden bg-bg text-fg">
       <NavRail />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar />
 
         <main className="min-h-0 flex-1">

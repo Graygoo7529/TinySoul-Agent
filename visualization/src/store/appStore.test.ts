@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { EndpointEvent } from "../types";
-import { selectLatestSequence, selectTopLinks } from "./appStore";
+import {
+  normalizePersistedActiveTab,
+  selectLatestSequence,
+  selectTopLinks,
+} from "./appStore";
 
 function event(
   sequence: number,
@@ -42,5 +46,18 @@ describe("event-derived application state", () => {
 
   it("uses zero for an empty event stream", () => {
     expect(selectLatestSequence([])).toBe(0);
+  });
+});
+
+describe("persisted application state", () => {
+  it.each([
+    ["chat", "chat"],
+    ["workspace", "workspace"],
+    ["monitor", "monitor"],
+    ["settings", "chat"],
+    ["unexpected", "chat"],
+    [undefined, "chat"],
+  ])("normalizes startup tab %s to %s", (persisted, expected) => {
+    expect(normalizePersistedActiveTab(persisted)).toBe(expected);
   });
 });

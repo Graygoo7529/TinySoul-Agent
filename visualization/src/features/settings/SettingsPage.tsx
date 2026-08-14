@@ -58,7 +58,7 @@ export function SettingsPage({
   }, [catalog, page]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-bg">
       <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-bg-elev px-5 py-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-hover text-fg-muted">
           <Settings2 size={17} />
@@ -85,7 +85,7 @@ export function SettingsPage({
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         <SettingsNavigation active={page} connected={connected} onSelect={setPage} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {error && (
