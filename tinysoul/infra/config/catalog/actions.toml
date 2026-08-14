@@ -22,6 +22,12 @@ title = "Runtime"
 description = "Controls effective execution limits and framework behavior."
 
 [[field_group]]
+id = "action_catalog.wait_policy"
+surface = "action_catalog"
+title = "Wait Policy"
+description = "Defines the explicit wait interval accepted by the execution.wait Action."
+
+[[field_group]]
 id = "action_catalog.contract"
 surface = "action_catalog"
 title = "Read-only Contract"
@@ -89,6 +95,17 @@ group = "action_catalog.contract"
 title = "Hooks"
 description = "Framework hook names applied to Actions in this domain."
 value_kind = "object"
+importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "domain"
+path = "runtime.result.trace_mode"
+surface = "action_catalog"
+group = "action_catalog.contract"
+title = "Trace Mode"
+description = "Default result trace policy inherited by Actions in this domain."
+value_kind = "string"
 importance = "advanced"
 
 [[document_field]]
@@ -191,6 +208,36 @@ title = "Tool Schema"
 description = "JSON Schema contract used to validate model tool arguments."
 value_kind = "object"
 importance = "advanced"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "tool.schema.properties.wait_seconds.minimum"
+surface = "action_catalog"
+group = "action_catalog.wait_policy"
+title = "Minimum Wait"
+description = "Smallest wait interval accepted by the execution.wait Action."
+value_kind = "integer"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "tool.schema.properties.wait_seconds.default"
+surface = "action_catalog"
+group = "action_catalog.wait_policy"
+title = "Default Wait"
+description = "Wait interval used when execution.wait omits wait_seconds."
+value_kind = "integer"
+
+[[document_field]]
+document_set = "action.catalog"
+document_kind = "action"
+path = "tool.schema.properties.wait_seconds.maximum"
+surface = "action_catalog"
+group = "action_catalog.wait_policy"
+title = "Maximum Wait"
+description = "Largest wait interval accepted by one execution.wait call."
+value_kind = "integer"
 
 [[document_field]]
 document_set = "action.catalog"

@@ -120,7 +120,7 @@ Scheduler 线程属于稳定外壳，但每次唤醒都会读取当前 Generatio
 TinySoulAppBuilder 负责：
 
 - 加载 ConfigEnvironment；
-- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/capabilities/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action Catalog 直接读取 package resource，不存在项目级 action path 配置；
+- 从统一 ConfigEnvironment 读取各模块 section tree，由 app/capabilities/context/home/memory/loop/session/workspace/llm 各自解析所属 settings；Action 从候选项目 `action.catalog` document set 解析 typed catalog；
 - 构建进程级 LLMTaskRunner、SessionEngine、WorkspaceEngine、AgentHomeEngine、MemoryEngine、SignalBus、Program trap 与外部服务；
 - 调用 `loop.user.UserTurnBuilder` 构造 User Context、ActionEngine、runtime policy 和轻量 `UserTurnEntry`；User builder 内部调用各 owner/capability registrar，App 不知道 executor 或 Phase；
 - 调用 `maintenance.MaintenanceBuilder` 构造 Archive/Home/Memory task、两套 Maintenance Context/Action/trap/Turn entry 和唯一 MaintenanceEngine；测试或嵌入方仍可通过 `with_business_clock` 注入同一窄 `BusinessClock`；
@@ -134,6 +134,8 @@ section sources，并携带独立 document-set 快照；Infra、Context、LLM、
 Workspace、Agent Home、Memory 和 Capabilities 在各自 parser 中解释 section tree。Action 从候选
 `action.catalog` document set 产生 `LoadedActionCatalog`。AppBuilder 不解析 Action 字段，只把同一
 typed catalog 写入 `AppConfigPlan`、协调 LLM route 引用，并注入 User/Maintenance generation。
+supervised-process 负责从 `execution.wait` 的有效 `ActionSpec` 编译 typed wait policy；AppBuilder 只在
+同一 Plan 编译流程中协调调用并携带结果，不解释 schema 字段。
 AppBuilder 在对应 bridge 映射 ConfigError，不把所有装配期配置错误统一归为 app 或 infra 失败。
 
 Action 的 LLM routing 是一个需要跨模块引用检查的配置契约：Action 模块解析 route 结构，并对当前
@@ -147,7 +149,7 @@ Resource capability 在此边界解析 `[capabilities.resource]`，检查 enable
 
 Script capability 在此边界解析 `[capabilities.script]`，装配 Workspace transaction mirror、Home/Workspace source resolver、Turn-scoped job manager 和 Script registrar，并为 Execution Domain 注册脚本 author/run handler。AppBuilder 不解释脚本正文、job state 或 candidate diff；TurnRunner 只接收通用 activity controller，用于在普通 Cycle 预算后申请有限额外 Cycle并在 Turn 边界 cleanup。Python 默认启用，Bash 只有显式启用且 executable 检查通过时才进入 effective Catalog。
 
-AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared Supervised Process manager、Workspace transaction coordinator、共享 lifecycle registrar 和 activity controller，再把同一 manager 注入 Script 与 Shell registrar；不会为两个 capability 各建一个 Turn job或向 Loop 注入两个 controller。Script 继续解析 source/Python/Bash 配置；Shell 独立解析 PowerShell/Cmd/Bash 和 command policy 配置。各 registrar 按有效 adapter 移除具体 Action；只要仍有任一 Script/Shell run Action，共享 `execution.wait/stop/read_candidate/apply/discard` 就保留。Execution Domain 内全部 Action 都被移除后，Home mount reconciliation 才不再观察该 domain。App 不解释脚本源码、Shell command、job state、日志或 candidate diff。
+AppBuilder 解析 `[capabilities.supervised_process]` 并只装配一个 Shared Supervised Process manager、Workspace transaction coordinator、共享 lifecycle registrar 和 activity controller，再把同一 manager 注入 Script 与 Shell registrar；不会为两个 capability 各建一个 Turn job或向 Loop 注入两个 controller。该 capability section 只保存进程生命周期、日志、mirror、candidate 与内部 pacing 策略；模型显式 wait 的 minimum/default/maximum 来自 Plan 中已编译的 Action-owned wait policy。Script 继续解析 source/Python/Bash 配置；Shell 独立解析 PowerShell/Cmd/Bash 和 command policy 配置。各 registrar 按有效 adapter 移除具体 Action；只要仍有任一 Script/Shell run Action，共享 `execution.wait/stop/read_candidate/apply/discard` 就保留。Execution Domain 内全部 Action 都被移除后，Home mount reconciliation 才不再观察该 domain。App 不解释脚本源码、Shell command、job state、日志或 candidate diff。
 
 `core.answer` 由 Action builtins core actions 提供，不属于 app 装配层 native action。Workspace、Agent Home、Memory 和内置 core action 的具体语义由对应模块提供 registrar、executor 或 provider，AppBuilder 只完成跨模块注册，不直接实现 workspace 扫描、链接解析、资源摘要、Background 加载或 skills_domain/skills_action skill。AppBuilder 先建立 Session，再把 Session root 注入 Memory 作为活动 `Memory.md` 位置；可选 `[infra.embedding]` adapter 也只在此装配并注入 Memory，缓存上限则来自 Memory-owned `[memory.semantic_search]`。Workspace 的 prompt reference resolver 与 Agent Home 的 action skill provider 在装配期注入 action 层共享 LLM action backend；Home search 的候选/rerank 和 Memory inspect 的 lexical/reference/semantic 融合仍归各自 owner。ActionEngine 构建后，AppBuilder 读取其只读 domain/action identities 并调用 Home mount reconciliation；App 不解析 catalog 文件，也不决定 mount、Memory 路径或删除语义。
 

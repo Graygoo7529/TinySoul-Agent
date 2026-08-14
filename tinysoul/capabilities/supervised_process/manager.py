@@ -43,6 +43,7 @@ from tinysoul.workspace import (
 )
 
 from .config import SupervisedProcessSettings
+from .policy import SupervisedProcessWaitPolicy
 from .errors import (
     SupervisedProcessContractError,
     SupervisedProcessExecutionError,
@@ -125,6 +126,7 @@ class SupervisedProcessManager:
         self,
         *,
         settings: SupervisedProcessSettings,
+        wait_policy: SupervisedProcessWaitPolicy,
         mirror_service: WorkspaceMirrorService,
         staging: StagingDirectoryManager,
         process_runner: ManagedProcessRunner | None = None,
@@ -132,6 +134,7 @@ class SupervisedProcessManager:
         clock: Callable[[], float] = monotonic,
     ) -> None:
         self._settings = settings
+        self._wait_policy = wait_policy
         self._mirrors = mirror_service
         self._staging = staging
         self._process_runner = process_runner or ManagedProcessRunner()
@@ -144,6 +147,10 @@ class SupervisedProcessManager:
     @property
     def settings(self) -> SupervisedProcessSettings:
         return self._settings
+
+    @property
+    def wait_policy(self) -> SupervisedProcessWaitPolicy:
+        return self._wait_policy
 
     def start(
         self,
@@ -249,9 +256,9 @@ class SupervisedProcessManager:
                 actual_wait_seconds=0.0,
             )
         if not (
-            self._settings.min_wait_seconds
+            self._wait_policy.minimum_seconds
             <= wait_seconds
-            <= self._settings.max_wait_seconds
+            <= self._wait_policy.maximum_seconds
         ):
             raise SupervisedProcessContractError(
                 "wait_seconds is outside the configured process boundaries"

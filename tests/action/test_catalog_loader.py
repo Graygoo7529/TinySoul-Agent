@@ -150,6 +150,29 @@ def test_llm_action_timeout_default_applies_only_without_dedicated_timeout() -> 
     assert catalog.get_action("workspace.read").runtime.timeout_seconds == 30.0
 
 
+@pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
+def test_catalog_loader_rejects_invalid_llm_action_timeout(value: float) -> None:
+    with pytest.raises(ConfigError) as raised:
+        ActionCatalogLoader(llm_action_timeout_seconds=value)
+
+    assert raised.value.key == "action.llm_action.timeout_seconds"
+    assert raised.value.expected == "positive finite number"
+
+
+@pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
+def test_action_runtime_timeout_rejects_non_positive_or_non_finite_values(
+    value: float,
+) -> None:
+    with pytest.raises(ConfigError) as raised:
+        ActionTomlParser().parse_runtime(
+            {"timeout_seconds": value},
+            key="action.toml.runtime",
+        )
+
+    assert raised.value.key == "action.toml.runtime.timeout_seconds"
+    assert raised.value.expected == "positive finite number | null"
+
+
 def test_catalog_view_by_domain() -> None:
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
 

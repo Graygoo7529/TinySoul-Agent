@@ -23,8 +23,10 @@ from tinysoul.capabilities.supervised_process import (
     SupervisedProcessOwner,
     SupervisedProcessSettings,
     SupervisedProcessState,
+    SupervisedProcessWaitPolicy,
 )
 from tinysoul.capabilities.supervised_process.errors import (
+    SupervisedProcessContractError,
     SupervisedProcessExecutionError,
     SupervisedProcessStateError,
 )
@@ -57,7 +59,7 @@ def test_script_settings_parse_language_and_supervision_limits() -> None:
             },
             "supervised_process": {
                 "max_supervision_cycles": 9,
-                "default_wait_seconds": 20,
+                "cycle_wait_seconds": 20,
             },
         }
     )
@@ -66,24 +68,20 @@ def test_script_settings_parse_language_and_supervision_limits() -> None:
     assert settings.script.bash.enabled is True
     assert settings.script.bash.executable == "custom-bash"
     assert settings.supervised_process.max_supervision_cycles == 9
-    assert settings.supervised_process.default_wait_seconds == 20
-    assert settings.supervised_process.cycle_wait_seconds == 15
-    assert settings.supervised_process.min_wait_seconds == 15
+    assert settings.supervised_process.cycle_wait_seconds == 20
 
 
 @pytest.mark.parametrize(
     ("values", "key"),
     (
-        ({"min_wait_seconds": 14}, "min_wait_seconds"),
-        ({"max_wait_seconds": 61}, "max_wait_seconds"),
-        ({"cycle_wait_seconds": 16}, "cycle_wait_seconds"),
+        ({"cycle_wait_seconds": 0}, "cycle_wait_seconds"),
         (
             {"initial_wait_seconds": 11, "max_runtime_seconds": 10},
             "initial_wait_seconds",
         ),
     ),
 )
-def test_supervised_process_wait_configuration_rejects_inconsistent_boundaries(
+def test_supervised_process_configuration_rejects_inconsistent_limits(
     values: dict[str, int],
     key: str,
 ) -> None:
@@ -603,9 +601,6 @@ def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
         settings=SupervisedProcessSettings(
             initial_wait_seconds=1,
             cycle_wait_seconds=15,
-            min_wait_seconds=15,
-            default_wait_seconds=15,
-            max_wait_seconds=60,
             max_runtime_seconds=1_800,
             max_supervision_cycles=3,
         ),
@@ -630,6 +625,15 @@ def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
     assert len(staging_roots) == 1
     assert (staging_roots[0] / "logs" / "stdout.log").is_file()
     assert (staging_roots[0] / "logs" / "stderr.log").is_file()
+
+    with pytest.raises(SupervisedProcessContractError):
+        manager.wait(
+            turn_id="turn_1",
+            execution_id=execution_id,
+            wait_seconds=14,
+            control=ActionExecutionControl(),
+            bus=None,
+        )
 
     manager.wait_before_cycle("turn_1", bus=bus)
     started = monotonic()
@@ -668,9 +672,6 @@ def _process_settings() -> SupervisedProcessSettings:
     return SupervisedProcessSettings(
         initial_wait_seconds=1,
         cycle_wait_seconds=15,
-        min_wait_seconds=15,
-        default_wait_seconds=15,
-        max_wait_seconds=60,
         max_runtime_seconds=30,
         max_supervision_cycles=3,
     )
@@ -703,6 +704,7 @@ def _jobs(
     staging.prepare()
     return SupervisedProcessManager(
         settings=settings or _process_settings(),
+        wait_policy=SupervisedProcessWaitPolicy(15, 15, 60),
         mirror_service=_mirrors(workspace),
         staging=staging,
         runtime_bridge=runtime_bridge,

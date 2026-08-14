@@ -671,33 +671,6 @@ value_kind = "number"
 importance = "advanced"
 
 [[field]]
-path = "capabilities.supervised_process.min_wait_seconds"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Minimum Wait"
-description = "Smallest accepted explicit wait for a supervised process."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
-path = "capabilities.supervised_process.default_wait_seconds"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Default Wait"
-description = "Default explicit wait used when no process wait is requested."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
-path = "capabilities.supervised_process.max_wait_seconds"
-surface = "capabilities.execution"
-group = "capabilities.execution.supervision"
-title = "Maximum Wait"
-description = "Largest accepted explicit wait for one process status request."
-value_kind = "number"
-importance = "advanced"
-
-[[field]]
 path = "capabilities.supervised_process.max_runtime_seconds"
 surface = "capabilities.execution"
 group = "capabilities.execution.supervision"

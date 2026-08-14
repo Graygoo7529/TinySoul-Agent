@@ -74,6 +74,7 @@ export function ActionCatalogSettingsPage({
                 <AvailabilityDot available={item.available} />
               </div>
               <div className="mt-1 truncate text-[10px] text-fg-faint">{item.action_count} Actions</div>
+              <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-fg-muted">{item.description}</p>
             </button>
           ))}
         </div>
@@ -146,6 +147,12 @@ function DomainEditor({ client, status, catalog, domain }: {
           </div>
         )}
       </SettingsDisclosureSection>
+      <SettingsDisclosureSection title={groupTitle(catalog, "action_catalog.contract")}>
+        <ReadOnlyField descriptor={descriptorFor(catalog, "domain", "name")} value={domain.id} />
+        <ReadOnlyField descriptor={descriptorFor(catalog, "domain", "runtime.parallel_policy")} value={domain.runtime.parallel_policy} />
+        <ReadOnlyField descriptor={descriptorFor(catalog, "domain", "runtime.hooks")} value={domain.runtime.hooks} />
+        <ReadOnlyField descriptor={descriptorFor(catalog, "domain", "runtime.result.trace_mode")} value={domain.runtime.trace_mode} />
+      </SettingsDisclosureSection>
     </section>
   );
 }
@@ -157,6 +164,17 @@ function ActionEditor({ client, status, catalog, action }: {
   action: ActionCatalogEntry;
 }) {
   const timeoutDescriptor = descriptorFor(catalog, "action", "runtime.timeout_seconds");
+  const waitPolicyFields = catalog.document_fields
+    .filter(
+      (field) => field.document_set === "action.catalog"
+        && field.document_kind === "action"
+        && field.group === "action_catalog.wait_policy"
+        && isEditablePath(action.source, field.path),
+    )
+    .flatMap((field) => {
+      const value = valueAtPath(action, field.path);
+      return value === undefined ? [] : [{ path: field.path, value }];
+    });
   return (
     <div className="min-w-0">
       <header className="flex min-h-14 items-center gap-3 border-b border-line px-5 py-2.5">
@@ -168,6 +186,13 @@ function ActionEditor({ client, status, catalog, action }: {
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="semantic.use_when" value={action.semantic.use_when} />
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="semantic.avoid_when" value={action.semantic.avoid_when} />
       </SettingsGroupSection>
+      {waitPolicyFields.length > 0 && (
+        <SettingsGroupSection {...groupProps(catalog, "action_catalog.wait_policy")}>
+          {waitPolicyFields.map(({ path, value }) => (
+            <DocumentField key={path} client={client} status={status} catalog={catalog} source={action.source} kind="action" path={path} value={value} />
+          ))}
+        </SettingsGroupSection>
+      )}
       <SettingsDisclosureSection title="Advanced" meta={<Badge>3</Badge>}>
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="semantic.effects" value={action.semantic.effects} />
         <DocumentField client={client} status={status} catalog={catalog} source={action.source} kind="action" path="semantic.examples" value={action.semantic.examples} />
@@ -184,6 +209,8 @@ function ActionEditor({ client, status, catalog, action }: {
         )}
       </SettingsDisclosureSection>
       <SettingsDisclosureSection title={groupTitle(catalog, "action_catalog.contract")}>
+        <ReadOnlyField descriptor={descriptorFor(catalog, "action", "name")} value={action.id} />
+        <ReadOnlyField descriptor={descriptorFor(catalog, "action", "domain")} value={action.domain} />
         <ReadOnlyField descriptor={descriptorFor(catalog, "action", "tool.schema")} value={action.tool.schema} />
         <ReadOnlyField descriptor={descriptorFor(catalog, "action", "runtime.parallel_policy")} value={action.runtime.parallel_policy} />
         <ReadOnlyField descriptor={descriptorFor(catalog, "action", "runtime.hooks")} value={action.runtime.hooks} />
@@ -208,9 +235,10 @@ function DocumentField({ client, status, catalog, source, kind, path, value }: {
   const savingPath = useConfigStore((state) => state.savingPath);
   const pushToast = useAppStore((state) => state.pushToast);
   if (!descriptor) return null;
-  const canWrite = Boolean(source && status.activity.can_write && !savingPath);
+  const editable = isEditablePath(source, path);
+  const canWrite = Boolean(editable && status.activity.can_write && !savingPath);
   const commit = async (next: JsonValue) => {
-    if (!source) return;
+    if (!source || !editable) return;
     try {
       const result = await patch(client, { source_id: source.source_id, path, op: "set", value: next });
       pushToast("success", `Action Catalog active · ${shortId(result.generation_id)}`);
@@ -282,8 +310,9 @@ function DeleteFieldButton({ client, status, source, path, label, success }: {
     <Button
       size="xs"
       variant="outline"
-      disabled={!status.activity.can_write || Boolean(savingPath)}
+      disabled={!isEditablePath(source, path) || !status.activity.can_write || Boolean(savingPath)}
       onClick={async () => {
+        if (!isEditablePath(source, path)) return;
         try {
           const result = await patch(client, { source_id: source.source_id, path, op: "delete" });
           pushToast("success", `${success} · ${shortId(result.generation_id)}`);
@@ -314,6 +343,19 @@ function descriptorFor(catalog: ConfigCatalog, kind: "domain" | "action", path: 
   return catalog.document_fields.find(
     (item) => item.document_set === "action.catalog" && item.document_kind === kind && item.path === path,
   );
+}
+
+export function isEditablePath(source: ActionCatalogSource | null, path: string): boolean {
+  return Boolean(source?.editable_paths.includes(path));
+}
+
+function valueAtPath(root: unknown, path: string): JsonValue | undefined {
+  let current: unknown = root;
+  for (const segment of path.split(".")) {
+    if (typeof current !== "object" || current === null || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current as JsonValue | undefined;
 }
 
 function groupProps(catalog: ConfigCatalog, id: string) {

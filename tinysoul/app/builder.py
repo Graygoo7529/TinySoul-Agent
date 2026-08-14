@@ -14,6 +14,9 @@ from tinysoul.action.config import (
     validate_llm_action_routes,
 )
 from tinysoul.capabilities import CapabilitiesSettings, parse_capabilities_settings
+from tinysoul.capabilities.supervised_process import (
+    compile_supervised_process_wait_policy,
+)
 from tinysoul.context import ContextEngine, ContextSettings, parse_context_settings
 from tinysoul.endpoint import (
     EndpointEngine,
@@ -550,6 +553,7 @@ class TinySoulAppBuilder:
             context_settings=context_settings,
             loop_settings=loop_settings,
             capabilities_settings=capabilities_settings,
+            supervised_process_wait=plan.supervised_process_wait,
             runtime_env=config.runtime_env,
             llm=llm,
             home=home,
@@ -643,6 +647,9 @@ class TinySoulAppBuilder:
             },
             llm_action_timeout_seconds=action_settings.llm_action.timeout_seconds,
         ).load_documents(config.document_set("action.catalog"))
+        supervised_process_wait = compile_supervised_process_wait_policy(
+            action_catalog
+        )
         plan = AppConfigPlan(
             environment=config,
             infra=config.parse_section("infra", parse_infra_settings),
@@ -656,6 +663,7 @@ class TinySoulAppBuilder:
             capabilities=config.parse_section(
                 "capabilities", parse_capabilities_settings
             ),
+            supervised_process_wait=supervised_process_wait,
             context=config.parse_section("context", parse_context_settings),
             llm=config.parse_section(
                 "llm",

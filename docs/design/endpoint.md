@@ -70,7 +70,8 @@ Endpoint 提供以下配置协议入口：
 - `GET /v1/actions/catalog` 在 RuntimeHandle read lease 下读取当前 Generation 的 User Action
   投影，返回 Domain/Action 语义、effective runtime 与 timeout source、只读 schema/backend/hook、
   availability 以及 project document source binding。Endpoint 不扫描目录、不解析 TOML，也不缓存
-  Action 状态。
+  Action 状态。source binding 的 `editable_paths` 是设置页 source-local mutation 的明确绑定；
+  `execution.wait` 仅额外开放其 schema 中 minimum/default/maximum 三个叶子字段，完整 schema 仍只读。
 - `POST /v1/config/validate` 只构建候选 ConfigEnvironment/Plan，不写文件或切换 Generation。
 - `PATCH /v1/config` 接受 source-aware `set`/`delete` operations。普通 TOML 使用全局 dotted path，
   document TOML 使用文件内 local path。Infra 临时编辑 TOML/.env，

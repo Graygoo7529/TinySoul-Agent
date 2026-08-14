@@ -78,7 +78,7 @@ class SupervisedProcessJobExecutor(ActionExecutor):
             if self._operation == "wait":
                 wait = execution.call.params.get(
                     "wait_seconds",
-                    self._jobs.settings.default_wait_seconds,
+                    self._jobs.wait_policy.default_seconds,
                 )
                 if isinstance(wait, bool) or not isinstance(wait, int):
                     return _failed(
@@ -207,15 +207,6 @@ def register_supervised_process_actions(
                 workspace_bridge=workspace_bridge,
             ),
         )
-    builder.update_tool_property_schema(
-        "execution.wait",
-        "wait_seconds",
-        {
-            "minimum": jobs.settings.min_wait_seconds,
-            "default": jobs.settings.default_wait_seconds,
-            "maximum": jobs.settings.max_wait_seconds,
-        },
-    )
     return builder
 
 

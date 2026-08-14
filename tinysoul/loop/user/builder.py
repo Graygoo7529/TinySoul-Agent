@@ -9,7 +9,10 @@ from tinysoul.action.backends.llm_action import LLMActionTaskRunner
 from tinysoul.action.config import ActionSettings, LLMActionProfileResolver
 from tinysoul.capabilities import CapabilitiesSettings
 from tinysoul.capabilities.script import ScriptSourceResolver
-from tinysoul.capabilities.supervised_process import SupervisedProcessManager
+from tinysoul.capabilities.supervised_process import (
+    SupervisedProcessManager,
+    SupervisedProcessWaitPolicy,
+)
 from tinysoul.context import ContextEngine, ContextSettings
 from tinysoul.context.preparation import ContextTurnPreparationHandler
 from tinysoul.home import (
@@ -64,6 +67,7 @@ class UserTurnBuilder:
         context_settings: ContextSettings,
         loop_settings: LoopSettings,
         capabilities_settings: CapabilitiesSettings,
+        supervised_process_wait: SupervisedProcessWaitPolicy,
         runtime_env: dict[str, str],
         llm: LLMRunner,
         home: AgentHomeEngine,
@@ -79,6 +83,7 @@ class UserTurnBuilder:
         self._context_settings = context_settings
         self._loop_settings = loop_settings
         self._capabilities_settings = capabilities_settings
+        self._supervised_process_wait = supervised_process_wait
         self._runtime_env = dict(runtime_env)
         self._action_settings = action_settings or ActionSettings()
         self._action_catalog = action_catalog
@@ -137,6 +142,7 @@ class UserTurnBuilder:
                 ) from exc
             process_jobs = SupervisedProcessManager(
                 settings=self._capabilities_settings.supervised_process,
+                wait_policy=self._supervised_process_wait,
                 mirror_service=WorkspaceMirrorService(
                     self._workspace,
                     max_files=self._capabilities_settings.supervised_process.max_mirror_files,

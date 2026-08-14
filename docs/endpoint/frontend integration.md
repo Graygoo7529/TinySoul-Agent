@@ -228,7 +228,8 @@ picker 只展示 `/v1/actions/catalog` 中 `available=true && backend.kind=llm_a
 
 Action Catalog 页面按 Domain/Action 使用响应中的 `source.source_id` 和 `editable_paths` 建立
 mutation；Domain/Action 字段说明按 `document_set=action.catalog + document_kind + local path` 从
-Infra document descriptors 获取。description、selection hint、semantic 和 timeout 可写；schema、
+Infra document descriptors 获取。description、selection hint、semantic 和 timeout 可写；
+`execution.wait` 另外暴露 Tool Schema 中 minimum/default/maximum 三个精确 local path。完整 schema、
 parallel policy、hooks、trace mode 与 backend 只读。删除 Action 专用 timeout 表示恢复
 `llm_action default -> domain default -> none` 的继承链。
 

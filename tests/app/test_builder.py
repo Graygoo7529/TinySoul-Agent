@@ -169,6 +169,15 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
                             "Read one project workspace resource for the current task."
                         ),
                     },
+                    {
+                        "source_id": (
+                            "project-document:action.catalog:configs/action/catalog/"
+                            "execution/actions/wait.toml"
+                        ),
+                        "path": "tool.schema.properties.wait_seconds.default",
+                        "op": "set",
+                        "value": 20,
+                    },
                 ]
             },
         )
@@ -209,6 +218,13 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         for item in action_catalog.json()["actions"]
     )
     assert any(
+        item["id"] == "execution.wait"
+        and item["tool"]["schema"]["properties"]["wait_seconds"]["default"] == 20
+        and "tool.schema.properties.wait_seconds.default"
+        in item["source"]["editable_paths"]
+        for item in action_catalog.json()["actions"]
+    )
+    assert any(
         item["id"] == "workspace"
         and item["source"]["document_kind"] == "domain"
         for item in action_catalog.json()["domains"]
@@ -224,6 +240,15 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         / "workspace"
         / "actions"
         / "read.toml"
+    ).read_text(encoding="utf-8")
+    assert "default = 20" in (
+        project_root
+        / "configs"
+        / "action"
+        / "catalog"
+        / "execution"
+        / "actions"
+        / "wait.toml"
     ).read_text(encoding="utf-8")
     invalid = client.patch(
         "/v1/config",
@@ -247,6 +272,27 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert invalid_body["error"]["details"]["source"].startswith(
         "project-document:action.catalog:"
     )
+    invalid_timeout = client.patch(
+        "/v1/config",
+        headers={"Authorization": f"Bearer {'x' * 32}"},
+        json={
+            "operations": [
+                {
+                    "source_id": (
+                        "project-document:action.catalog:configs/action/catalog/"
+                        "workspace/actions/read.toml"
+                    ),
+                    "path": "runtime.timeout_seconds",
+                    "op": "set",
+                    "value": -1,
+                }
+            ]
+        },
+    )
+    assert invalid_timeout.status_code == 422
+    assert invalid_timeout.json()["error"]["details"]["key"].endswith(
+        "runtime.timeout_seconds"
+    )
     current_runtime = endpoint.config_status()["runtime"]
     assert isinstance(current_runtime, dict)
     assert current_runtime["generation_id"] == after["generation_id"]
@@ -267,6 +313,8 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert [event.name for event in activation_events.events] == [
         "config.activation.started",
         "config.activation.completed",
+        "config.activation.started",
+        "config.activation.failed",
         "config.activation.started",
         "config.activation.failed",
     ]

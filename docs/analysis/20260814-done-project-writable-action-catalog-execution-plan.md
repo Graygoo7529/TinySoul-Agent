@@ -594,6 +594,24 @@ Action Routing 仍属于 Task Chains 的局部标签页，因为它表达 Task C
 - [x] 运行 wheel 隔离初始化/启动验收与 `git diff --check`。
 - [x] 核对本计划全部条目，将状态标记为 `done` 并记录实施结果。
 
+### 八：完成后审查修复
+
+- [x] 在 Action TOML parser 边界校验 Domain/Action timeout 为正有限数，并保持
+  `ConfigError -> 422 config.invalid` 语义。
+- [x] `execution.wait` 的 `minimum/default/maximum` 由 Action TOML 单一拥有；
+  supervised-process 从有效 `ActionSpec` 编译强类型 wait policy，Manager/Executor 只消费该策略。
+- [x] 删除 `ActionEngineBuilder` 的 runtime schema augmentation 入口；capability 注册只绑定
+  executor 与 availability，不再修改 catalog contract。
+- [x] supervised-process 配置只保留进程管理策略；移除重复的
+  `min_wait_seconds/default_wait_seconds/max_wait_seconds` 及其 Infra 展示定义。
+- [x] 在 Action Catalog 页面为 `execution.wait` 提供由 Infra catalog 描述的 Wait Policy 编辑组，
+  mutation 仍使用通用 source-local config endpoint。
+- [x] Domain 导航显示简短 description，Domain/Action 详情完整展示只读 contract。
+- [x] 前端将 `editable_paths` 作为 source-local mutation binding 消费，不在绑定中的
+  字段保持可读但不提交 PATCH。
+- [x] 增加 timeout 失败边界、wait policy 编译/运行时消费、unavailable Action 和前端绑定回归测试。
+- [x] 同步 Action/Endpoint/Settings 设计文档，通过完整门禁后恢复 `done`。
+
 ## 测试重点
 
 ### Infra
@@ -651,8 +669,14 @@ Action Routing 仍属于 Task Chains 的局部标签页，因为它表达 Task C
 - Settings 已新增 `ACTIONS / Catalog`，支持 Domain/Action 语义与 timeout 编辑、effects choices、
   timeout 恢复继承，以及只读 schema/hooks/parallel/trace/backend；Action Routing 只选择 available
   LLM Actions。
-- 门禁结果：Backend 全量测试通过，`ty check` 通过，wheel 隔离构建/init/reset 通过；Visualization
-  109 项测试与 production build 通过。Playwright 在 1440x900 与 390x844 真实 Endpoint 数据下通过，
+- 完成后审查已将 Action timeout 的非法输入统一收口为 `ConfigError`；`execution.wait` 的
+  minimum/default/maximum 由项目 Action TOML 单一拥有，supervised-process 在 Generation 编译期
+  产生 typed wait policy，`ActionEngineBuilder` 不再支持 registrar 动态改写 schema。
+- supervised-process section 与 Infra catalog 已移除重复 wait 边界；Action Catalog 页面新增
+  Infra 驱动的 Wait Policy 组、Domain 摘要、完整只读 contract，并严格消费 source `editable_paths`。
+- 最终门禁结果：Backend Full `935 passed, 2 skipped, 21 deselected`，`ty check` 通过，wheel
+  隔离构建/init/reset 通过；Visualization 111 项测试与 production build 通过。此前 Playwright 在
+  1440x900 与 390x844 真实 Endpoint 数据下通过，
   两个视口的 document/body `scrollWidth` 均等于 viewport width。
 
 ## 已确认决策

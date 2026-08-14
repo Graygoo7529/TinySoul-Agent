@@ -43,6 +43,7 @@ from tinysoul.capabilities.supervised_process import (
     SupervisedProcessOwner,
     SupervisedProcessSettings,
     SupervisedProcessState,
+    SupervisedProcessWaitPolicy,
     build_supervised_process_environment,
     register_supervised_process_actions,
 )
@@ -345,9 +346,6 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
         settings=SupervisedProcessSettings(
             initial_wait_seconds=1,
             cycle_wait_seconds=15,
-            min_wait_seconds=15,
-            default_wait_seconds=15,
-            max_wait_seconds=60,
             max_runtime_seconds=1,
             max_supervision_cycles=3,
         ),
@@ -438,7 +436,7 @@ def test_failed_shell_candidate_can_be_read_then_discarded(local_tmp: Path) -> N
     assert not (workspace.root / "candidate.txt").exists()
 
 
-def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> None:
+def test_shell_effective_catalog_pruning_preserves_action_contract(local_tmp: Path) -> None:
     enabled = ShellSettings(
         enabled=True,
         powershell=ShellAdapterSettings(True, sys.executable),
@@ -448,9 +446,6 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
     process_settings = SupervisedProcessSettings(
         initial_wait_seconds=1,
         cycle_wait_seconds=15,
-        min_wait_seconds=20,
-        default_wait_seconds=30,
-        max_wait_seconds=45,
         max_runtime_seconds=60,
     )
     engine, _, _, _ = _shell_engine(
@@ -473,9 +468,9 @@ def test_shell_effective_catalog_pruning_drives_home_mounts(local_tmp: Path) -> 
     assert isinstance(properties, dict)
     wait_seconds = properties["wait_seconds"]
     assert isinstance(wait_seconds, dict)
-    assert wait_seconds["minimum"] == 20
-    assert wait_seconds["default"] == 30
-    assert wait_seconds["maximum"] == 45
+    assert wait_seconds["minimum"] == 15
+    assert wait_seconds["default"] == 15
+    assert wait_seconds["maximum"] == 60
 
     home_root = local_tmp / "enabled" / "home" / "skills_domain" / "execution"
     home_root.mkdir(parents=True)
@@ -715,12 +710,10 @@ def _manager(
         or SupervisedProcessSettings(
             initial_wait_seconds=1,
             cycle_wait_seconds=15,
-            min_wait_seconds=15,
-            default_wait_seconds=15,
-            max_wait_seconds=60,
             max_runtime_seconds=30,
             max_supervision_cycles=3,
         ),
+        wait_policy=SupervisedProcessWaitPolicy(15, 15, 60),
         mirror_service=WorkspaceMirrorService(
             workspace,
             max_files=100,

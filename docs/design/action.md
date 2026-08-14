@@ -267,9 +267,10 @@ prompt，也不重新读取文件。
 `ActionCatalogLoader.load_documents()` 负责从 Infra 提供的候选 `ConfigDocumentSet` 解析
 `LoadedActionCatalog`，并复用 package template 测试所用的同一个 `ActionTomlParser`。加载结果同时
 保留 Domain 默认 runtime、Action timeout 来源与稳定 document binding。backend kind validator 在
-这一动态边界校验 options。`ActionEngineBuilder` 只接收已经校验的 `ActionCatalog` 或
-`LoadedActionCatalog`，负责注册 executor/hook、availability 裁剪、动态 schema 更新，并在 build
-阶段校验 effective catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。
+加载边界校验 options。`ActionEngineBuilder` 只接收已经校验的 `ActionCatalog` 或
+`LoadedActionCatalog`，负责注册 executor/hook、availability 裁剪，并在 build 阶段校验 effective
+catalog 中所有 handler 都有 executor；它不再隐式打开 package 或项目路径。registrar 不修改 tool
+schema，项目 Action TOML 是模型参数 contract 的唯一事实。
 
 ## Action Schema
 
@@ -288,7 +289,7 @@ Action tool schema 使用 TinySoul 支持的 JSON Schema 子集。加载 TOML �
 - `maximum`
 - `default`
 
-`minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；它不负责向缺失参数注入值，实际默认行为仍由 action executor 从对应配置取得。
+`minimum` 与 `maximum` 只用于 `integer`/`number`，schema 定义边界和运行时参数都必须满足数值关系。`default` 是模型可见的 JSON Schema 注解，其值必须通过所在 schema；通用参数校验器不负责向缺失参数注入值，需要默认行为的 Action owner 从同一有效 `ActionSpec` 编译 typed policy 并由 executor 消费。例如 `execution.wait` 的 minimum/default/maximum 只定义在该 Action TOML，supervised-process 不再保存第二份边界配置。
 
 当前支持的 type：
 
@@ -392,9 +393,10 @@ TOML 只描述模型侧工具协议、补充语义、运行配置和后端落点
 1. 内置默认值
 2. domain 默认值
 3. action 定义
-4. 运行时覆盖
+4. loader 明确定义的专用继承规则
 
-动态边界必须在加载阶段完成校验，不把宽泛映射留到执行中。
+项目 Action TOML 保存完整参数 contract；需要把 schema 解释为业务策略的 owner 必须在 Generation
+编译阶段转换为窄的内部类型，不把宽泛映射留到执行路径，也不由 registrar 动态改写 catalog。
 
 运行配置中的 hook 使用阶段化配置，分别声明 normalize 阶段和 execution 阶段的 hook 名称。domain 默认 hook 与 action 自身 hook 按阶段合并。
 

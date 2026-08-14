@@ -10,6 +10,7 @@ from tinysoul.infra import InfraSettings
 from tinysoul.action import LoadedActionCatalog
 from tinysoul.action.config import ActionSettings
 from tinysoul.capabilities import CapabilitiesSettings
+from tinysoul.capabilities.supervised_process import SupervisedProcessWaitPolicy
 from tinysoul.context import ContextSettings
 from tinysoul.home import AgentHomeSettings
 from tinysoul.llm.config_types import LLMConfig
@@ -34,6 +35,7 @@ class AppConfigPlan:
     action: ActionSettings
     action_catalog: LoadedActionCatalog
     capabilities: CapabilitiesSettings
+    supervised_process_wait: SupervisedProcessWaitPolicy
     context: ContextSettings
     llm: LLMConfig
     loop: LoopSettings

@@ -15,10 +15,10 @@ description = "Turn-scoped execution id returned by a Script or Shell run action
 
 [tool.schema.properties.wait_seconds]
 type = "integer"
+description = "Wait interval in seconds; bounded by this Action contract."
 minimum = 15
 default = 15
 maximum = 60
-description = "Wait interval in seconds; bounded by the effective project configuration."
 
 [semantic]
 use_when = ["The current Turn has a running Execution job that needs paced supervision"]

@@ -39,7 +39,7 @@ failed、timed_out、stopped 只能 inspect/read/discard。即使进程快速成
 
 普通 Turn Cycle 上限耗尽后，共享 manager 中任一 unresolved Script/Shell job 都可以申请额外监督 Cycle；额外预算与进程最大运行时间分别受限。running job 由此继续监督，ready/failed/timed-out/stopped job 由此获得有界 apply/discard 收尾机会。每个额外 Cycle 仍完整执行 Phase1、Phase2、Phase3，因此新的 job ActionResult 进入 TurnTrace interaction context，Background 仍按每 Cycle 的既有规则重建，job 状态不进入 Background。
 
-模型可选 wait 默认 15 秒，绝对范围为 15 至 60 秒；项目配置可以在该范围内收紧，effective `execution.wait` Tool Schema 投影实际 minimum/default/maximum。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
+模型可选 wait 默认 15 秒，范围为 15 至 60 秒；三项值由项目 `execution.wait` Action TOML 的 Tool Schema 单一拥有，并可在 Action Catalog 设置页修改。Generation 编译时，supervised-process 把有效 `ActionSpec` 转换为强类型 wait policy；Manager 用其校验边界，executor 用其解释缺省参数。运行中 job 在没有显式 wait 时受默认 `cycle_wait_seconds=15` 的防空转间隔约束；该间隔与 Action 参数 contract 分属不同语义。显式 wait 正常到期时本身已经完成 pacing，下一 Cycle 立即开始，不再追加自动间隔。run initial wait 是独立的内部首次观察窗口。进程结束、当前 Turn input/control 可提前进入下一 Cycle。SignalBus 使用 emission cursor 和 predicate 提供 non-consuming wait，唤醒不抢走业务 Signal，同一旧 Signal 也不能反复唤醒。
 
 每次 job observation 还返回 requested/actual wait、剩余运行时间，以及相对上次 observation 的 observed activity：日志字节增量、Workspace diff 是否变化、候选数量变化和距上次观测到活动的时间。这些是 Manager 可以确定的运行事实，不解释日志业务含义或完成百分比；日志活动本身不触发新的模型 Cycle。所有 job observation 只进入 TurnTrace，不成为 Background 状态。
 
@@ -65,7 +65,7 @@ runtime/.staging/supervised-process-job-*/
 - job manager、Workspace transaction 协调、日志/候选观察、Cycle pacing、额外 Cycle 与 cleanup 位于 capability-internal `tinysoul.capabilities.supervised_process`；`tinysoul.workspace` 仍拥有 mirror/diff/CAS/bundle mutation；
 - Catalog 使用 `backend.kind=supervised_process`，Script registrar 仍注册 Script 专用 author/run handler；共享层只注册 `execution.wait/stop/read_candidate/apply/discard` 对应的生命周期 handler，不存在接受任意 inline 参数的通用 run executor；
 - staging identity 为 `runtime/.staging/supervised-process-job-*`；Script job 使用 `source/` 保存经 snapshot digest 复核的冻结入口，Shell job 不需要该目录；
-- `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；wait/runtime/log/mirror/candidate 共用上限位于 `[capabilities.supervised_process]`；
+- `[capabilities.script]` 只保留 Script-owned source、authoring、Python/Bash 与依赖配置；runtime/log/mirror/candidate 及内部 initial/cycle pacing 位于 `[capabilities.supervised_process]`；模型显式 wait 的 minimum/default/maximum 属于 `execution.wait` Action contract；
 - 同一 Turn 的唯一 unresolved job 从“仅 Script”提升为“Script 与 Shell 共用”；启动 action 记录 owner，后续生命周期 action 只提交 execution id，由 Manager 在当前 Turn 内解析实际 owner，模型无需先判断它是 Script 还是 Shell job；
 - `core.answer` admission 由共享 manager 判断任一 owner 的 unresolved job；Loop 仍只依赖一个通用 activity controller。
 

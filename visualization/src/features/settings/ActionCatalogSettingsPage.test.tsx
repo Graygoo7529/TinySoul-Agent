@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TinySoulClient } from "../../api/tinysoul";
 import type { ActionCatalog, ConfigCatalog, ConfigStatus } from "../../types";
-import { ActionCatalogSettingsPage } from "./ActionCatalogSettingsPage";
+import { ActionCatalogSettingsPage, isEditablePath } from "./ActionCatalogSettingsPage";
 
 describe("ActionCatalogSettingsPage", () => {
   it("renders owner descriptions, availability, and active-turn write locks", () => {
@@ -18,10 +18,51 @@ describe("ActionCatalogSettingsPage", () => {
 
     expect(html).toContain("Domain selection guidance from Infra.");
     expect(html).toContain("Tool guidance from Infra.");
+    expect(html).toContain("Core actions.");
     expect(html).toContain("Unavailable");
     expect(html).toContain("Configuration is read-only while a turn is active.");
     expect(html).toContain("disabled");
     expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("uses source-local editable paths as the write binding", () => {
+    const source = actions().actions[0].source;
+
+    expect(isEditablePath(source, "tool.description")).toBe(true);
+    expect(isEditablePath(source, "tool.schema")).toBe(false);
+    expect(isEditablePath(null, "tool.description")).toBe(false);
+  });
+
+  it("renders Action-owned wait policy fields from the Infra group", () => {
+    const data = actions();
+    data.domains[0].id = "execution";
+    data.actions[0].id = "execution.wait";
+    data.actions[0].domain = "execution";
+    data.actions[0].tool.schema = {
+      type: "object",
+      properties: {
+        wait_seconds: { type: "integer", minimum: 15, default: 20, maximum: 60 },
+      },
+    };
+    data.actions[0].source!.editable_paths.push(
+      "tool.schema.properties.wait_seconds.minimum",
+      "tool.schema.properties.wait_seconds.default",
+      "tool.schema.properties.wait_seconds.maximum",
+    );
+
+    const html = renderToStaticMarkup(
+      <ActionCatalogSettingsPage
+        client={{} as TinySoulClient}
+        status={status()}
+        catalog={catalog()}
+        actions={data}
+      />,
+    );
+
+    expect(html).toContain("Wait Policy");
+    expect(html).toContain("Minimum Wait");
+    expect(html).toContain("Default Wait");
+    expect(html).toContain("Maximum Wait");
   });
 });
 
@@ -46,6 +87,7 @@ function catalog(): ConfigCatalog {
       { id: "action_catalog.domain", surface: "action_catalog", title: "Domain", description: "Domain fields." },
       { id: "action_catalog.semantic", surface: "action_catalog", title: "Selection Semantics", description: "Semantic fields." },
       { id: "action_catalog.runtime", surface: "action_catalog", title: "Runtime", description: "Runtime fields." },
+      { id: "action_catalog.wait_policy", surface: "action_catalog", title: "Wait Policy", description: "Wait fields." },
       { id: "action_catalog.contract", surface: "action_catalog", title: "Read-only Contract", description: "Contract fields." },
     ],
     collections: [],
@@ -60,6 +102,9 @@ function catalog(): ConfigCatalog {
       field("action", "semantic.effects", "Effects", "Effects from Infra.", "enum_list"),
       field("action", "semantic.examples", "Examples", "Examples from Infra.", "string_list"),
       field("action", "runtime.timeout_seconds", "Action Timeout", "Timeout from Infra.", "number"),
+      field("action", "tool.schema.properties.wait_seconds.minimum", "Minimum Wait", "Minimum from Infra.", "integer"),
+      field("action", "tool.schema.properties.wait_seconds.default", "Default Wait", "Default from Infra.", "integer"),
+      field("action", "tool.schema.properties.wait_seconds.maximum", "Maximum Wait", "Maximum from Infra.", "integer"),
       field("action", "tool.schema", "Tool Schema", "Schema from Infra.", "object"),
       field("action", "runtime.parallel_policy", "Parallel Policy", "Parallel from Infra.", "string"),
       field("action", "runtime.hooks", "Hooks", "Hooks from Infra.", "object"),
@@ -74,14 +119,16 @@ function field(
   path: string,
   title: string,
   description: string,
-  value_kind: "string" | "number" | "string_list" | "enum_list" | "object",
+  value_kind: "string" | "number" | "integer" | "string_list" | "enum_list" | "object",
 ) {
   return {
     document_set: "action.catalog",
     document_kind: kind,
     path,
     surface: "action_catalog",
-    group: kind === "domain" ? "action_catalog.domain" : "action_catalog.semantic",
+    group: path.startsWith("tool.schema.properties.wait_seconds.")
+      ? "action_catalog.wait_policy"
+      : kind === "domain" ? "action_catalog.domain" : "action_catalog.semantic",
     title,
     description,
     value_kind,
@@ -118,7 +165,19 @@ function actions(): ActionCatalog {
         runtime: { timeout_seconds: 30, timeout_source: "domain", parallel_policy: "serial", hooks: { normalize: [], execute: [] }, trace_mode: "standard" },
         backend: { kind: "native", handler: "core.answer", options: {} },
         available: false,
-        source: { ...source, path: "configs/action/catalog/core/actions/answer.toml", document_kind: "action" },
+        source: {
+          ...source,
+          path: "configs/action/catalog/core/actions/answer.toml",
+          document_kind: "action",
+          editable_paths: [
+            "tool.description",
+            "semantic.use_when",
+            "semantic.avoid_when",
+            "semantic.effects",
+            "semantic.examples",
+            "runtime.timeout_seconds",
+          ],
+        },
       },
     ],
   };

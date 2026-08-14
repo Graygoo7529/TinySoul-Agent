@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
+import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, TypeVar, cast
@@ -98,13 +99,14 @@ class ActionCatalogLoader:
         if llm_action_timeout_seconds is not None and (
             isinstance(llm_action_timeout_seconds, bool)
             or not isinstance(llm_action_timeout_seconds, (int, float))
+            or not math.isfinite(llm_action_timeout_seconds)
             or llm_action_timeout_seconds <= 0
         ):
             raise ConfigError(
-                "llm_action_timeout_seconds must be positive",
+                "llm_action_timeout_seconds must be positive and finite",
                 key="action.llm_action.timeout_seconds",
                 value=llm_action_timeout_seconds,
-                expected="positive number",
+                expected="positive finite number",
             )
         self._parser = parser or ActionTomlParser()
         self._backend_kind_options_validators = dict(
@@ -502,7 +504,11 @@ class ActionTomlParser:
         timeout_seconds = (
             base.timeout_seconds
             if base is not None and "timeout_seconds" not in table
-            else _optional_float_or_none(table, "timeout_seconds", key=key)
+            else _optional_positive_float_or_none(
+                table,
+                "timeout_seconds",
+                key=key,
+            )
         )
         parallel_default = (
             base.parallel_policy.value
@@ -673,7 +679,7 @@ def _optional_str_list(
     return result
 
 
-def _optional_float_or_none(
+def _optional_positive_float_or_none(
     table: Mapping[str, object],
     name: str,
     *,
@@ -682,12 +688,17 @@ def _optional_float_or_none(
     value = table.get(name)
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
         raise ConfigError(
-            "Action configuration value must be a number or null",
+            "Action configuration value must be a positive finite number or null",
             key=f"{key}.{name}",
             value=value,
-            expected="float | null",
+            expected="positive finite number | null",
         )
     return float(value)
 

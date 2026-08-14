@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Self
 
 from tinysoul.infra.json import JsonObject, to_json_object
@@ -39,7 +39,7 @@ from .core.loader import (
     LoadedActionCatalog,
 )
 from .core.result import ActionPhaseResult, ActionResult
-from .core.specs import ActionBackendKind, ActionToolSpec
+from .core.specs import ActionBackendKind
 from .core.runner import ActionBatchRunner
 from .core.scope import (
     DOMAIN_SELECTION_TOOL,
@@ -222,14 +222,7 @@ class ActionEngine:
                     "source": (
                         _source_json(
                             source,
-                            editable_paths=(
-                                "tool.description",
-                                "semantic.use_when",
-                                "semantic.avoid_when",
-                                "semantic.effects",
-                                "semantic.examples",
-                                "runtime.timeout_seconds",
-                            ),
+                            editable_paths=_action_editable_paths(action.name),
                         )
                         if source is not None
                         else None
@@ -404,7 +397,6 @@ class ActionEngineBuilder:
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._disabled_actions: set[str] = set()
         self._included_actions: set[str] | None = None
-        self._tool_property_schema_updates: dict[tuple[str, str], JsonObject] = {}
 
     def register_executor(
         self,
@@ -433,26 +425,6 @@ class ActionEngineBuilder:
         if len(action_names) != len(set(action_names)):
             raise ActionContractError("Included action names must be unique")
         self._included_actions = set(action_names)
-        return self
-
-    def update_tool_property_schema(
-        self,
-        action_name: str,
-        property_name: str,
-        updates: JsonObject,
-    ) -> Self:
-        """Merge validated schema keywords into one effective tool property."""
-
-        if not action_name or not property_name:
-            raise ActionContractError(
-                "Action tool schema update requires non-empty action and property names"
-            )
-        key = (action_name, property_name)
-        if key in self._tool_property_schema_updates:
-            raise ActionContractError(
-                f"Duplicate action tool schema update: {action_name}.{property_name}"
-            )
-        self._tool_property_schema_updates[key] = dict(updates)
         return self
 
     def register_normalize_hook(self, name: str, hook: ActionNormalizeHook) -> Self:
@@ -529,7 +501,6 @@ class ActionEngineBuilder:
                 for action in catalog.actions()
                 if action.name not in self._disabled_actions
             )
-        catalog = self._apply_tool_property_schema_updates(catalog)
         self._executors.validate_catalog(catalog)
         normalize_pipeline = ActionNormalizeHookPipeline(self._hooks)
         execution_pipeline = ActionExecutionHookPipeline(self._hooks)
@@ -553,66 +524,6 @@ class ActionEngineBuilder:
             domain_prompt_renderer=ActionDomainPromptRenderer(),
         )
 
-    def _apply_tool_property_schema_updates(
-        self,
-        catalog: ActionCatalog,
-    ) -> ActionCatalog:
-        if not self._tool_property_schema_updates:
-            return catalog
-        unknown_actions = {
-            action_name
-            for action_name, _ in self._tool_property_schema_updates
-            if not catalog.has_action(action_name)
-        }
-        if unknown_actions:
-            raise ActionContractError(
-                "Tool schema updates reference absent effective actions: "
-                + ", ".join(sorted(unknown_actions))
-            )
-        actions = []
-        for action in catalog.actions():
-            updates = tuple(
-                (property_name, values)
-                for (action_name, property_name), values in (
-                    self._tool_property_schema_updates.items()
-                )
-                if action_name == action.name
-            )
-            if not updates:
-                actions.append(action)
-                continue
-            schema = dict(action.tool.schema)
-            raw_properties = schema.get("properties")
-            if not isinstance(raw_properties, dict):
-                raise ActionContractError(
-                    f"Action tool schema has no properties object: {action.name}"
-                )
-            properties = {
-                name: dict(value) if isinstance(value, dict) else value
-                for name, value in raw_properties.items()
-            }
-            for property_name, values in updates:
-                raw_property = properties.get(property_name)
-                if not isinstance(raw_property, dict):
-                    raise ActionContractError(
-                        "Action tool schema update references an absent property: "
-                        f"{action.name}.{property_name}"
-                    )
-                raw_property.update(values)
-                properties[property_name] = raw_property
-            schema["properties"] = properties
-            actions.append(
-                replace(
-                    action,
-                    tool=ActionToolSpec(
-                        name=action.tool.name,
-                        description=action.tool.description,
-                        schema=schema,
-                    ),
-                )
-            )
-        return ActionCatalog(domains=catalog.domains(), actions=actions)
-
 
 def _source_json(
     source: ActionCatalogDocumentRef,
@@ -625,3 +536,22 @@ def _source_json(
         "document_kind": source.document_kind,
         "editable_paths": list(editable_paths),
     }
+
+
+def _action_editable_paths(action_name: str) -> tuple[str, ...]:
+    paths = (
+        "tool.description",
+        "semantic.use_when",
+        "semantic.avoid_when",
+        "semantic.effects",
+        "semantic.examples",
+        "runtime.timeout_seconds",
+    )
+    if action_name == "execution.wait":
+        return (
+            *paths,
+            "tool.schema.properties.wait_seconds.minimum",
+            "tool.schema.properties.wait_seconds.default",
+            "tool.schema.properties.wait_seconds.maximum",
+        )
+    return paths
