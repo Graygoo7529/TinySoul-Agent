@@ -42,7 +42,10 @@ describe("TaskChainsSettingsPage", () => {
     expect(container.textContent).not.toContain("Unbound");
     expect(objectButton("unused")?.textContent).toContain("1 model");
     expect(container.textContent).not.toContain("Answer Format");
-    act(() => buttonStartingWith("Advanced")?.click());
+    const chainAdvanced = buttonStartingWith("Advanced");
+    expect(chainAdvanced?.parentElement?.tagName).toBe("SECTION");
+    expect(chainAdvanced?.parentElement?.className).not.toContain("rounded");
+    act(() => chainAdvanced?.click());
     expect(container.textContent).toContain("Answer Format");
 
     act(() => tab("Cycle Routing")?.click());
@@ -53,7 +56,10 @@ describe("TaskChainsSettingsPage", () => {
     expect(container.textContent).toContain("Action Overrides");
     expect(container.textContent).toContain("core.answer");
     expect(container.textContent).not.toContain("Default Task Chain");
-    act(() => buttonStartingWith("Advanced")?.click());
+    const routingAdvanced = buttonStartingWith("Advanced");
+    expect(routingAdvanced?.parentElement?.tagName).toBe("SECTION");
+    expect(routingAdvanced?.parentElement?.className).not.toContain("rounded");
+    act(() => routingAdvanced?.click());
     expect(container.textContent).toContain("Default Task Chain");
   });
 });

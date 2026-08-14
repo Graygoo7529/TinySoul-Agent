@@ -114,17 +114,37 @@ describe("ModelsSettingsPage", () => {
     expect(paths.some((path: string) => path.includes("request_overrides"))).toBe(false);
   });
 
-  it("keeps both model option adders inside Advanced", () => {
+  it("renders model option adders in their Advanced groups, including an empty group", () => {
+    const current = status();
+    const requestPath = "llm.models.custom_model.request_overrides.temperature";
+    delete current.fields[requestPath];
+    const customSource = current.sources.find(
+      (source) => source.id === "project:configs/llm/models/custom.toml",
+    );
+    if (!customSource) throw new Error("Missing custom model source");
+    delete customSource.values[requestPath];
     act(() => {
       root.render(
-        <ModelsSettingsPage client={{} as TinySoulClient} status={status()} catalog={catalog()} />,
+        <ModelsSettingsPage client={{} as TinySoulClient} status={current} catalog={catalog()} />,
       );
     });
     act(() => objectButton("custom_model")?.click());
 
     expect(select("Add Adapter Option")).toBeNull();
     expect(select("Add Request Override")).toBeNull();
-    act(() => buttonStartingWith("Advanced")?.click());
+    const advanced = buttonStartingWith("Advanced");
+    expect(advanced?.parentElement?.tagName).toBe("SECTION");
+    expect(advanced?.parentElement?.className).not.toContain("rounded");
+    act(() => advanced?.click());
+
+    const adapterOptions = groupSection("Adapter Options");
+    const requestOverrides = groupSection("Request Overrides");
+    expect(adapterOptions).not.toBeNull();
+    expect(requestOverrides).not.toBeNull();
+    expect(adapterOptions?.querySelector('select[aria-label="Add Adapter Option"]')).not.toBeNull();
+    expect(adapterOptions?.querySelector('select[aria-label="Add Request Override"]')).toBeNull();
+    expect(requestOverrides?.querySelector('select[aria-label="Add Request Override"]')).not.toBeNull();
+    expect(requestOverrides?.querySelector("details")).toBeNull();
     expect(option(select("Add Adapter Option"), "llm.models.*.adapter_options.verbosity")).toBeDefined();
     expect(option(select("Add Request Override"), "llm.models.*.request_overrides.max_output_tokens")).toBeDefined();
   });
@@ -146,6 +166,13 @@ function buttonStartingWith(text: string): HTMLButtonElement | null {
 
 function select(label: string): HTMLSelectElement | null {
   return container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+}
+
+function groupSection(title: string): HTMLElement | null {
+  const heading = [...container.querySelectorAll<HTMLHeadingElement>("h3")].find(
+    (item) => item.textContent?.trim() === title,
+  );
+  return heading?.closest<HTMLElement>("section") ?? null;
 }
 
 function changeSelect(label: string, value: string): void {

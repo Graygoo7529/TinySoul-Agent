@@ -2,12 +2,12 @@ import { AlertCircle } from "lucide-react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
-import { Collapsible } from "../../components/ui/Collapsible";
 import { EmptyState } from "../../components/ui/EmptyState";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ConfigFieldGroups } from "./ConfigFieldGroups";
+import { SettingsDisclosureSection } from "./SettingsDisclosureSection";
 import {
   surfaceFields,
   type ConfigSettingField,
@@ -67,32 +67,28 @@ export function ConfigSettingsPage({
         onCommit={commit}
       />
       {advanced.length > 0 && (
-        <div className="border-t border-line p-4">
-          <Collapsible title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
-            <ConfigFieldGroups
-              fields={advanced}
-              status={status}
-              catalog={catalog}
-              canWrite={canWrite}
-              savingPath={savingPath}
-              onCommit={commit}
-            />
-          </Collapsible>
-        </div>
+        <SettingsDisclosureSection title="Advanced" meta={<Badge>{advanced.length}</Badge>}>
+          <ConfigFieldGroups
+            fields={advanced}
+            status={status}
+            catalog={catalog}
+            canWrite={canWrite}
+            savingPath={savingPath}
+            onCommit={commit}
+          />
+        </SettingsDisclosureSection>
       )}
       {readOnly.length > 0 && (
-        <div className="border-t border-line p-4">
-          <Collapsible title="Read-only" meta={<Badge>{readOnly.length}</Badge>}>
-            <ConfigFieldGroups
-              fields={readOnly}
-              status={status}
-              catalog={catalog}
-              canWrite={false}
-              savingPath={savingPath}
-              onCommit={commit}
-            />
-          </Collapsible>
-        </div>
+        <SettingsDisclosureSection title="Read-only" meta={<Badge>{readOnly.length}</Badge>}>
+          <ConfigFieldGroups
+            fields={readOnly}
+            status={status}
+            catalog={catalog}
+            canWrite={false}
+            savingPath={savingPath}
+            onCommit={commit}
+          />
+        </SettingsDisclosureSection>
       )}
     </div>
   );

@@ -155,6 +155,34 @@ export function ModelsSettingsPage({
     ? adapterOptionNames(current.value.adapter_options)
     : [];
   const adapterField = current?.fields.find((field) => field.path.endsWith(".adapter"));
+  const adapterOptionsGroup = modelOptionGroup(catalog, "adapter_options");
+  const requestOverridesGroup = modelOptionGroup(catalog, "request_overrides");
+  const advancedGroupFooters = {
+    ...(adapterOptionsGroup && adapterOptionChoices.length > 0
+      ? {
+          [adapterOptionsGroup]: (
+            <OptionAdder
+              label="Add Adapter Option"
+              choices={adapterOptionChoices}
+              disabled={!canWrite}
+              onAdd={(path) => setAddedOptions((previous) => new Set(previous).add(path))}
+            />
+          ),
+        }
+      : {}),
+    ...(requestOverridesGroup && requestOverrideChoices.length > 0
+      ? {
+          [requestOverridesGroup]: (
+            <OptionAdder
+              label="Add Request Override"
+              choices={requestOverrideChoices}
+              disabled={!canWrite}
+              onAdd={(path) => setAddedOptions((previous) => new Set(previous).add(path))}
+            />
+          ),
+        }
+      : {}),
+  };
 
   return (
     <>
@@ -211,24 +239,7 @@ export function ModelsSettingsPage({
                   }
                 : undefined
             }
-            advancedActions={
-              adapterOptionChoices.length > 0 || requestOverrideChoices.length > 0 ? (
-                <div className="grid gap-3 border-b border-line pb-3 md:grid-cols-2">
-                  <OptionAdder
-                    label="Add Adapter Option"
-                    choices={adapterOptionChoices}
-                    disabled={!canWrite}
-                    onAdd={(path) => setAddedOptions((previous) => new Set(previous).add(path))}
-                  />
-                  <OptionAdder
-                    label="Add Request Override"
-                    choices={requestOverrideChoices}
-                    disabled={!canWrite}
-                    onAdd={(path) => setAddedOptions((previous) => new Set(previous).add(path))}
-                  />
-                </div>
-              ) : undefined
-            }
+            advancedGroupFooters={advancedGroupFooters}
             canDeleteField={(field) =>
               field.path.includes(".adapter_options.") || field.path.includes(".request_overrides.")
             }
@@ -359,8 +370,8 @@ function OptionAdder({
 }) {
   if (choices.length === 0) return null;
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-medium text-fg-muted">{label}</span>
+    <label className="grid min-h-16 gap-3 border-t border-line bg-bg-sunken/20 px-5 py-3 md:grid-cols-[minmax(240px,1fr)_minmax(260px,420px)] md:items-center">
+      <span className="text-[12px] font-medium text-fg-muted">{label}</span>
       <select
         aria-label={label}
         value=""
@@ -368,13 +379,21 @@ function OptionAdder({
         onChange={(event) => {
           if (event.target.value) onAdd(event.target.value);
         }}
-        className={selectClass}
+        className={`${selectClass} md:justify-self-end`}
       >
         <option value="">Select option</option>
         {choices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
   );
+}
+
+function modelOptionGroup(
+  catalog: ConfigCatalog,
+  scope: "adapter_options" | "request_overrides",
+): string | undefined {
+  const prefix = `llm.models.*.${scope}.`;
+  return catalog.fields.find((field) => field.path.startsWith(prefix))?.group;
 }
 
 function modelAdapterOptions(

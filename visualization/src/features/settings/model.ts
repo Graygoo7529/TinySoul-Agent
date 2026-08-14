@@ -184,6 +184,7 @@ export function surfaceFields(
 export function groupSurfaceFields(
   fields: ConfigSettingField[],
   catalog: ConfigCatalog,
+  includeGroupIds: ReadonlySet<string> = new Set(),
 ): ConfigSettingGroup[] {
   const groups = new Map<string, ConfigSettingField[]>();
   for (const field of fields) {
@@ -191,7 +192,7 @@ export function groupSurfaceFields(
     groups.set(id, [...(groups.get(id) ?? []), field]);
   }
   return catalog.field_groups
-    .filter((group) => groups.has(group.id))
+    .filter((group) => groups.has(group.id) || includeGroupIds.has(group.id))
     .map((group) => ({
       id: group.id,
       title: group.title,

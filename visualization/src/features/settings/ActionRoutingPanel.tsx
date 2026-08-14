@@ -4,7 +4,6 @@ import { Plus, Trash2 } from "lucide-react";
 import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
-import { Collapsible } from "../../components/ui/Collapsible";
 import type {
   ActionCatalog,
   ConfigCatalog,
@@ -14,6 +13,7 @@ import type {
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ConfigFieldGroups } from "./ConfigFieldGroups";
+import { SettingsDisclosureSection } from "./SettingsDisclosureSection";
 import { configObjects, surfaceFields, type ConfigSettingField } from "./model";
 
 interface ActionRoute extends Record<string, JsonValue> {
@@ -175,18 +175,16 @@ export function ActionRoutingPanel({
         )}
       </section>
       {advancedFields.length > 0 && (
-        <div className="p-4">
-          <Collapsible title="Advanced" meta={<Badge>{advancedFields.length}</Badge>}>
-            <ConfigFieldGroups
-              fields={advancedFields}
-              status={status}
-              catalog={catalog}
-              canWrite={canWrite}
-              savingPath={savingPath}
-              onCommit={commit}
-            />
-          </Collapsible>
-        </div>
+        <SettingsDisclosureSection title="Advanced" meta={<Badge>{advancedFields.length}</Badge>}>
+          <ConfigFieldGroups
+            fields={advancedFields}
+            status={status}
+            catalog={catalog}
+            canWrite={canWrite}
+            savingPath={savingPath}
+            onCommit={commit}
+          />
+        </SettingsDisclosureSection>
       )}
     </div>
   );
