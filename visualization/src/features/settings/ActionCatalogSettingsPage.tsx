@@ -17,6 +17,7 @@ import type {
   ConfigStatus,
   JsonValue,
 } from "../../types";
+import { toConfigValue } from "../../types";
 import { ConfigValueControl } from "./ConfigValueControl";
 import { SettingsDisclosureSection } from "./SettingsDisclosureSection";
 import { SettingsGroupSection } from "./SettingsGroupSection";
@@ -257,7 +258,7 @@ function DocumentField({ client, status, catalog, source, kind, path, value }: {
   const commit = async (next: JsonValue) => {
     if (!source || !editable) return;
     try {
-      const result = await patch(client, { source_id: source.source_id, path, op: "set", value: next });
+      const result = await patch(client, { source_id: source.source_id, path, op: "set", value: toConfigValue(next) });
       pushToast("success", `Action Catalog active · ${shortId(result.generation_id)}`);
     } catch (error) {
       pushToast("error", error instanceof Error ? error.message : String(error));

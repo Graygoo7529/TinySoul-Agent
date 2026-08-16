@@ -94,27 +94,6 @@ def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: P
     )
 
 
-def test_validate_does_not_write_documents(tmp_path: Path) -> None:
-    environment = _project(tmp_path)
-    target = tmp_path / "configs" / "infra.toml"
-    original = target.read_text(encoding="utf-8")
-    controller = ConfigController(root=tmp_path, environment=environment)
-
-    result = controller.validate(
-        (
-            ConfigMutation(
-                source_id="project:configs/infra.toml",
-                path="infra.embedding.enabled",
-                op="set",
-                value=True,
-            ),
-        )
-    )
-
-    assert result["valid"] is True
-    assert target.read_text(encoding="utf-8") == original
-
-
 def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> None:
     environment = _project_with_document(tmp_path)
     target = tmp_path / "configs" / "documents" / "item.toml"

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
+import { toConfigValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { CreateObjectModal } from "./CreateObjectModal";
@@ -50,7 +51,7 @@ export function ProvidersSettingsPage({
     }
   };
   const commit = (field: ConfigSettingField, value: JsonValue) =>
-    apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Provider active").then(() => undefined);
+    apply({ source_id: field.sourceId, path: field.path, op: "set", value: toConfigValue(value) }, "Provider active").then(() => undefined);
 
   return (
     <>
@@ -104,7 +105,7 @@ export function ProvidersSettingsPage({
               source_id: collection.create_source,
               path: `${collection.root}.${id}`,
               op: "set",
-              value: cloneJson(collection.create_template),
+              value: toConfigValue(cloneJson(collection.create_template)),
             },
             "Provider created",
           );

@@ -35,12 +35,10 @@ export function CredentialsSettingsPage({
   const mutate = async (key: string, nextValue?: string) => {
     if (!source) return false;
     try {
-      const result = await patch(client, {
-        source_id: source.id,
-        path: key,
-        op: nextValue === undefined ? "delete" : "set",
-        ...(nextValue === undefined ? {} : { value: nextValue }),
-      });
+      const mutation = nextValue === undefined
+        ? { source_id: source.id, path: key, op: "delete" as const }
+        : { source_id: source.id, path: key, op: "set" as const, value: nextValue };
+      const result = await patch(client, mutation);
       pushToast("success", `Credentials active · ${shortId(result.generation_id)}`);
       return true;
     } catch (error) {

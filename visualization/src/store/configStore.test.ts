@@ -18,9 +18,11 @@ describe("configStore", () => {
     });
     const configStatusCall = vi.fn().mockResolvedValue(nextStatus);
     const client = {
-      patchConfig,
-      configStatus: configStatusCall,
-      actionCatalog: vi.fn().mockResolvedValue({ actions: [] }),
+      configuration: {
+        patch: patchConfig,
+        status: configStatusCall,
+        actions: vi.fn().mockResolvedValue({ actions: [] }),
+      },
     } as unknown as TinySoulClient;
 
     const result = await useConfigStore.getState().patch(client, {
@@ -43,8 +45,10 @@ describe("configStore", () => {
     const previous = configStatus();
     useConfigStore.setState({ status: previous });
     const client = {
-      patchConfig: vi.fn().mockRejectedValue(new Error("turn active")),
-      configStatus: vi.fn(),
+      configuration: {
+        patch: vi.fn().mockRejectedValue(new Error("turn active")),
+        status: vi.fn(),
+      },
     } as unknown as TinySoulClient;
 
     await expect(
@@ -63,14 +67,16 @@ describe("configStore", () => {
 
   it("keeps the active receipt successful when the follow-up refresh fails", async () => {
     const client = {
-      patchConfig: vi.fn().mockResolvedValue({
-        state: "active",
-        changed_sources: ["dotenv"],
-        changed_fields: ["OPENAI_API_KEY"],
-        generation_id: "generation-2",
-      }),
-      configStatus: vi.fn().mockRejectedValue(new Error("temporarily unavailable")),
-      actionCatalog: vi.fn().mockResolvedValue({ actions: [] }),
+      configuration: {
+        patch: vi.fn().mockResolvedValue({
+          state: "active",
+          changed_sources: ["dotenv"],
+          changed_fields: ["OPENAI_API_KEY"],
+          generation_id: "generation-2",
+        }),
+        status: vi.fn().mockRejectedValue(new Error("temporarily unavailable")),
+        actions: vi.fn().mockResolvedValue({ actions: [] }),
+      },
     } as unknown as TinySoulClient;
 
     const result = await useConfigStore.getState().patch(client, {
@@ -91,8 +97,10 @@ describe("configStore", () => {
       completePatch = resolve;
     });
     const client = {
-      patchConfig: vi.fn().mockReturnValue(patchResult),
-      configStatus: vi.fn().mockResolvedValue(configStatus()),
+      configuration: {
+        patch: vi.fn().mockReturnValue(patchResult),
+        status: vi.fn().mockResolvedValue(configStatus()),
+      },
     } as unknown as TinySoulClient;
 
     const pending = useConfigStore.getState().patch(client, {
@@ -110,7 +118,7 @@ describe("configStore", () => {
     });
 
     await expect(pending).rejects.toThrow("instance changed");
-    expect(client.configStatus).not.toHaveBeenCalled();
+    expect(client.configuration.status).not.toHaveBeenCalled();
     expect(useConfigStore.getState().status).toBeNull();
     expect(useConfigStore.getState().savingPath).toBeNull();
   });

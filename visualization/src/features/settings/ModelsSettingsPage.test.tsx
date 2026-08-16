@@ -66,9 +66,11 @@ describe("ModelsSettingsPage", () => {
       generation_id: "g2",
     });
     const client = {
-      patchConfig,
-      configStatus: vi.fn().mockResolvedValue(current),
-      actionCatalog: vi.fn().mockResolvedValue({ actions: [] }),
+      configuration: {
+        patch: patchConfig,
+        status: vi.fn().mockResolvedValue(current),
+        actions: vi.fn().mockResolvedValue({ actions: [] }),
+      },
     } as unknown as TinySoulClient;
 
     act(() => {

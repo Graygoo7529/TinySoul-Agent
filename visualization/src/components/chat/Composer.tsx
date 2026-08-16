@@ -30,7 +30,7 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
       // Echo locally first: the accepted event is authoritative but may
       // arrive on the WebSocket a moment later.
       recordLocalInput(commandId, value);
-      const receipt = await client.submitInput({
+      const receipt = await client.runtime.submitInput({
         text: value,
         command_id: commandId,
         metadata: { client_message_id: commandId },
@@ -53,7 +53,7 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
     if (!client || stopPending) return;
     setStopPending(true);
     try {
-      const receipt = await client.submitControl({
+      const receipt = await client.runtime.submitControl({
         kind: "stop_turn",
         command_id: randomId(),
       });

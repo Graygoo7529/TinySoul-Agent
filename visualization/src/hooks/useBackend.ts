@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { TinySoulClient } from "../api/tinysoul";
-import { TinySoulEventStream } from "../api/events";
 import { resolveConnectionInfo } from "../api/connection";
 import {
   hydrateSkeletonEvents,
@@ -70,7 +69,7 @@ export function useBackend() {
           return;
         }
         const nextClient = new TinySoulClient(info);
-        const status = await nextClient.status();
+        const status = await nextClient.runtime.status();
         if (!identityMatches(info, status)) {
           throw new Error(
             "TinySoul instance identity does not match this project",
@@ -126,7 +125,7 @@ export function useBackend() {
         });
         if (useAppStore.getState().client !== nextClient) return;
 
-        const stream = new TinySoulEventStream(info, latest, "model", {
+        const stream = nextClient.events.connect(latest, "model", {
           onMessage: (message) => {
             const current = useAppStore.getState();
             if (current.eventStream !== stream) return;
@@ -187,7 +186,6 @@ export function useBackend() {
         store = useAppStore.getState();
         if (store.client !== nextClient) return;
         store.setEventStream(stream);
-        stream.connect();
       } catch (error) {
         const current = useAppStore.getState();
         const message = error instanceof Error ? error.message : String(error);
@@ -218,7 +216,7 @@ export function useBackend() {
     const tick = async () => {
       let store = useAppStore.getState();
       try {
-        const status = await client.status();
+        const status = await client.runtime.status();
         store = useAppStore.getState();
         if (store.client !== client) return;
         const knownId = store.connection.info?.instance_id;
@@ -291,7 +289,7 @@ export async function recoverEventHistory(
   store.setEventStreamInterrupted(false);
   try {
     const throughSequence =
-      options.throughSequence ?? (await client.status()).latest_event_sequence;
+      options.throughSequence ?? (await client.runtime.status()).latest_event_sequence;
     store = useAppStore.getState();
     if (!isCurrentRecovery()) return selectLatestSequence(store.events);
     store.replaceEvents([]);
@@ -395,7 +393,7 @@ async function reconcileEvents(client: TinySoulClient, latestSequence: number) {
   // Bounded: at most a few pages per poll tick.
   for (let i = 0; i < 3 && cursor < latestSequence; i++) {
     try {
-      const page = await client.replayEvents(cursor, "model", 1000);
+      const page = await client.events.replay(cursor, "model", 1000);
       const current = useAppStore.getState();
       if (current.client !== client) return;
       if (page.gap) {
@@ -473,7 +471,7 @@ async function refreshMaintenance(
   options: { prompt?: boolean } = {},
 ) {
   try {
-    const maintenance = await client.maintenanceStatus();
+    const maintenance = await client.maintenance.status();
     const store = useAppStore.getState();
     if (store.client !== client) return;
     store.setMaintenanceStatus(maintenance);
@@ -491,7 +489,7 @@ async function refreshMaintenance(
 
 async function refreshWorkspace(client: TinySoulClient) {
   try {
-    const manifest = await client.workspaceManifest();
+    const manifest = await client.workspace.manifest();
     const store = useAppStore.getState();
     if (store.client === client) store.setWorkspace(manifest);
   } catch (error) {
@@ -502,9 +500,9 @@ async function refreshWorkspace(client: TinySoulClient) {
 async function recoverAuthoritativeState(client: TinySoulClient) {
   try {
     const [status, workspace, maintenance] = await Promise.all([
-      client.status(),
-      client.workspaceManifest(),
-      client.maintenanceStatus(),
+      client.runtime.status(),
+      client.workspace.manifest(),
+      client.maintenance.status(),
     ]);
     const store = useAppStore.getState();
     if (store.client !== client) return;
@@ -548,7 +546,7 @@ async function handleWorkspaceChanged(
   }
   if (!needsRefresh) return;
   try {
-    const manifest = await client.workspaceManifest();
+    const manifest = await client.workspace.manifest();
     if (useAppStore.getState().client !== client) return;
     store.setWorkspace(manifest);
     const open = store.openResource;

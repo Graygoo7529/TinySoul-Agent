@@ -6,6 +6,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import type { ConfigCatalog, ConfigMutation, ConfigStatus, JsonValue } from "../../types";
+import { toConfigValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { CreateObjectModal } from "./CreateObjectModal";
@@ -99,7 +100,7 @@ export function ModelsSettingsPage({
           source_id: adapterField.sourceId,
           path: `${collection.root}.${current.id}.adapter_options`,
           op: "set",
-          value: adapterOptions,
+          value: toConfigValue(adapterOptions),
         },
       ],
       "Model adapter active",
@@ -137,7 +138,7 @@ export function ModelsSettingsPage({
       await apply(mutations, "Model protocol active");
       return;
     }
-    await apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Model active");
+    await apply({ source_id: field.sourceId, path: field.path, op: "set", value: toConfigValue(value) }, "Model active");
   };
   const editorFields = current
     ? [...modelOptionFields(current.fields, current, catalog), ...missingModelOptionFields(current, catalog, addedOptions)]
@@ -280,7 +281,7 @@ export function ModelsSettingsPage({
               source_id: collection.create_source,
               path: `${collection.root}.${id}`,
               op: "set",
-              value,
+            value: toConfigValue(value),
             },
             "Model created",
           );

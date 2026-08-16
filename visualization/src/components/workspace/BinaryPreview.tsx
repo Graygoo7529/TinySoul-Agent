@@ -18,7 +18,7 @@ export function BinaryPreview({ resource }: { resource: WorkspaceResourceRecord 
     if (!client || !isImage) return;
     let revoked: string | null = null;
     client
-      .readWorkspaceBlob(resource.link)
+      .workspace.readBlob(resource.link)
       .then(({ blob }) => {
         revoked = URL.createObjectURL(blob);
         setObjectUrl(revoked);
@@ -32,7 +32,7 @@ export function BinaryPreview({ resource }: { resource: WorkspaceResourceRecord 
   const download = async () => {
     if (!client) return;
     try {
-      const { blob } = await client.readWorkspaceBlob(resource.link);
+      const { blob } = await client.workspace.readBlob(resource.link);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;

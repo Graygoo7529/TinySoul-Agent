@@ -20,12 +20,17 @@ from .toml_file import ConfigFileToml, flatten_mapping
 from .transaction import ConfigDocumentWrite, ConfigFileTransaction
 
 
+type ConfigValue = (
+    str | int | float | bool | list[ConfigValue] | dict[str, ConfigValue]
+)
+
+
 @dataclass(frozen=True)
 class ConfigMutation:
     source_id: str
     path: str
     op: str
-    value: object = None
+    value: ConfigValue | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_id, str) or not self.source_id.strip():
@@ -41,6 +46,11 @@ class ConfigMutation:
         if self.op == "set" and self.value is None:
             raise ConfigError(
                 "Configuration set operation requires a value",
+                key=self.path,
+            )
+        if self.op == "delete" and self.value is not None:
+            raise ConfigError(
+                "Configuration delete operation cannot carry a value",
                 key=self.path,
             )
 
@@ -123,32 +133,6 @@ class ConfigController:
         """Return the package-owned configuration presentation catalog."""
 
         return self._catalog.to_json()
-
-    def section(self, section_id: str) -> JsonObject:
-        if not isinstance(section_id, str) or not section_id.strip():
-            raise ConfigError("Configuration section must be non-empty", key="section")
-        prefix = f"{section_id}."
-        fields = {
-            key: value
-            for key, value in self._effective_fields().items()
-            if key == section_id or key.startswith(prefix)
-        }
-        if not fields:
-            raise ConfigError(
-                "Configuration section does not exist",
-                key=section_id,
-            )
-        return {"id": section_id, "fields": fields}
-
-    def validate(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
-        candidate, _writes = self._candidate(mutations)
-        if self._validator is not None:
-            self._validator(candidate)
-        return {
-            "valid": True,
-            "activity": self._activity(),
-            "candidate": self._candidate_fields(candidate),
-        }
 
     def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         with self._lock:

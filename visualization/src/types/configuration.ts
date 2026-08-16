@@ -1,211 +1,6 @@
-/**
- * Shared type definitions for the TinySoul desktop frontend.
- *
- * These types mirror the Endpoint contract documented in
- * `docs/endpoint/frontend integration.md` and the Python backend
- * implementation in `tinysoul/endpoint`. They are intentionally
- * provider-neutral and avoid backend internals.
- */
+/** Configuration status, catalog and mutation contracts. */
 
-export type ObservationLevel = "normal" | "verbose" | "model";
-
-export interface ScopeFrame {
-  level: string;
-  name: string;
-}
-
-export interface EndpointEvent {
-  sequence: number;
-  name: string;
-  level: ObservationLevel;
-  source: string;
-  scope: ScopeFrame[];
-  message: string;
-  payload: Record<string, unknown>;
-  created_at: number;
-}
-
-export interface EventJournalStatus {
-  enabled: boolean;
-  degraded: boolean;
-  oldest_sequence: number | null;
-  latest_sequence: number;
-  failure?: {
-    operation: string;
-    kind: string;
-    error_type: string;
-  };
-}
-
-export interface BackendStatus {
-  protocol_version: number;
-  instance_id: string;
-  project_identity: string;
-  ready: boolean;
-  active_day: string;
-  turn_active: boolean;
-  workspace_revision: number;
-  latest_event_sequence: number;
-  event_journal?: EventJournalStatus;
-  runtime?: {
-    generation_id: string;
-    activity: string;
-  };
-}
-
-export interface BackendError {
-  error: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-  };
-}
-
-export interface WorkspaceResourceRecord {
-  link: string;
-  relative_path: string;
-  kind: string;
-  media_type: string;
-  suffix?: string;
-  summary: string;
-  size: number;
-  mtime_ns: number;
-  digest?: string;
-  description?: string;
-  described_digest?: string;
-  retention: "ephemeral" | "turn" | "day" | "persistent";
-  owner_turn_id?: string;
-}
-
-export interface WorkspaceManifest {
-  schema_version: number;
-  day: string;
-  revision: number;
-  resources: WorkspaceResourceRecord[];
-}
-
-export interface WorkspaceTextRead {
-  link: string;
-  text: string;
-  truncated: boolean;
-  size: number;
-  digest: string;
-}
-
-export interface WorkspaceBlobHeaders {
-  link: string;
-  digest: string;
-  size: number;
-}
-
-export interface WorkspaceWriteResponse {
-  record: WorkspaceResourceRecord;
-  manifest: WorkspaceManifest;
-}
-
-export interface TrashItem {
-  ref: string;
-  link: string;
-  relative_path: string;
-  kind: string;
-  media_type: string;
-  size: number;
-  digest?: string;
-  moved_at: number;
-}
-
-export interface ControlRequest {
-  kind: "stop_turn" | "exit_program";
-  metadata?: Record<string, unknown>;
-  command_id?: string;
-}
-
-export interface InputRequest {
-  text: string;
-  metadata?: Record<string, unknown>;
-  command_id?: string;
-}
-
-export interface CommandReceipt {
-  accepted: boolean;
-  command_id: string;
-  kind: string;
-  state: string;
-}
-
-interface MaintenanceRequestBase {
-  metadata?: Record<string, unknown>;
-  command_id?: string;
-}
-
-export type MaintenanceRequest =
-  | (MaintenanceRequestBase & {
-      kind: "daily" | "home";
-      target_day?: never;
-      rebuild_memory?: never;
-    })
-  | (MaintenanceRequestBase & {
-      kind: "memory";
-      target_day: string;
-      rebuild_memory?: boolean;
-    });
-
-export interface MaintenanceStatus {
-  availability: {
-    checked_day: string;
-    home_pending: boolean;
-    home_change_count: number;
-    home_skill_memory_count: number;
-    memory_pending: boolean;
-    memory_days: string[];
-  };
-}
-
-export interface WorkspaceWriteRequest {
-  link: string;
-  text: string;
-  overwrite: boolean;
-  expected_digest: string;
-  expected_revision: number;
-  retention?: WorkspaceResourceRecord["retention"];
-}
-
-export interface WorkspaceTrashRequest {
-  link: string;
-  expected_digest: string;
-  expected_revision: number;
-}
-
-export interface WorkspaceRestoreRequest {
-  trash_ref: string;
-  expected_revision: number;
-}
-
-export interface ConnectionInfo {
-  host: string;
-  port: number;
-  token: string;
-  protocol_version: number;
-  instance_id: string;
-  project_identity: string;
-  project_root: string;
-}
-
-export interface TopLinkEntry {
-  link: string;
-  content: string;
-  source: string;
-  owner: string;
-  evictable: boolean;
-}
-
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import type { ConfigValue, JsonValue } from "./common";
 
 export type ConfigSourceKind =
   | "project_toml"
@@ -402,12 +197,18 @@ export interface ActionCatalog {
   actions: ActionCatalogEntry[];
 }
 
-export interface ConfigMutation {
-  source_id: string;
-  path: string;
-  op: "set" | "delete";
-  value?: JsonValue;
-}
+export type ConfigMutation =
+  | {
+      source_id: string;
+      path: string;
+      op: "set";
+      value: ConfigValue;
+    }
+  | {
+      source_id: string;
+      path: string;
+      op: "delete";
+    };
 
 export interface ConfigPatchRequest {
   operations: ConfigMutation[];
@@ -419,5 +220,3 @@ export interface ConfigPatchResult {
   changed_fields: string[];
   generation_id: string;
 }
-
-export type AppTab = "chat" | "workspace" | "monitor" | "settings";

@@ -25,7 +25,6 @@ export function MaintenanceDialog() {
   const maintenance = useAppStore((s) => s.maintenanceStatus);
   const pushToast = useAppStore((s) => s.pushToast);
   const [targetDay, setTargetDay] = useState("");
-  const [rebuild, setRebuild] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
 
@@ -44,7 +43,7 @@ export function MaintenanceDialog() {
     if (!client) return;
     setBusy(busyKey);
     try {
-      await client.requestMaintenance({
+      await client.maintenance.request({
         ...request,
         command_id: randomId(),
       });
@@ -164,7 +163,6 @@ export function MaintenanceDialog() {
                   {
                     kind: "memory",
                     target_day: targetDay,
-                    rebuild_memory: rebuild,
                   },
                   "memory:manual",
                   `Memory ${targetDay}`,
@@ -177,15 +175,6 @@ export function MaintenanceDialog() {
                       onChange={(e) => setTargetDay(e.target.value)}
                       className="h-6 w-36 rounded-md border border-line bg-bg-elev px-2 font-mono text-[11px] outline-none focus:border-accent"
                     />
-                    <label className="flex items-center gap-1.5 text-[11px] text-fg-muted">
-                      <input
-                        type="checkbox"
-                        checked={rebuild}
-                        onChange={(e) => setRebuild(e.target.checked)}
-                        className="accent-accent"
-                      />
-                      Rebuild existing
-                    </label>
                   </>
                 }
               />

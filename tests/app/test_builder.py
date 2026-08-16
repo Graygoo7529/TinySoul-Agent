@@ -10,7 +10,7 @@ from pypdf import PdfWriter
 
 from tinysoul.app import AppSettings, ProjectInitializer, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
-from tinysoul.endpoint.server import create_endpoint_app
+from tinysoul.endpoint.http import create_endpoint_app
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.requests import TaskCall
@@ -134,7 +134,7 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert app.endpoint is not None
     endpoint = app.endpoint
     events = endpoint.events
-    before = endpoint.config_status()["runtime"]
+    before = endpoint.configuration.status()["runtime"]
     after_sequence = events.latest_sequence
 
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
@@ -196,9 +196,9 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         websocket_events = websocket.receive_json()
         websocket_completed = websocket.receive_json()
 
-    after = endpoint.config_status()["runtime"]
+    after = endpoint.configuration.status()["runtime"]
     action_catalog = client.get(
-        "/v1/actions/catalog",
+        "/v1/config/actions",
         headers={"Authorization": f"Bearer {'x' * 32}"},
     )
     assert isinstance(before, dict)
@@ -316,7 +316,7 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert invalid_timeout.json()["error"]["details"]["key"].endswith(
         "runtime.timeout_seconds"
     )
-    current_runtime = endpoint.config_status()["runtime"]
+    current_runtime = endpoint.configuration.status()["runtime"]
     assert isinstance(current_runtime, dict)
     assert current_runtime["generation_id"] == after["generation_id"]
     assert "Read one project workspace resource for the current task." in (
@@ -385,7 +385,7 @@ def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         / "domain.toml"
     )
 
-    runtime_before = _json_object(endpoint.config_status()["runtime"])
+    runtime_before = _json_object(endpoint.configuration.status()["runtime"])
     generation_before = runtime_before["generation_id"]
     invalid = client.patch(
         "/v1/config",
@@ -402,7 +402,7 @@ def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
         },
     )
     assert invalid.status_code == 422
-    runtime_after_invalid = _json_object(endpoint.config_status()["runtime"])
+    runtime_after_invalid = _json_object(endpoint.configuration.status()["runtime"])
     assert runtime_after_invalid["generation_id"] == generation_before
     assert "enabled = true" in domain_path.read_text(encoding="utf-8")
 
@@ -630,7 +630,7 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
     assert incompatible.status_code == 422
     assert incompatible.json()["error"]["code"] == "config.invalid"
     assert model_path.read_text(encoding="utf-8") == switched_source
-    runtime = endpoint.config_status()["runtime"]
+    runtime = endpoint.configuration.status()["runtime"]
     assert isinstance(runtime, dict)
     assert runtime["generation_id"] == switched_generation
 
@@ -698,7 +698,7 @@ def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     assert outcome.answered is True
     assert note.read_text(encoding="utf-8") == "new text"
     assert app.endpoint is not None
-    page = app.endpoint.replay_events(
+    page = app.endpoint.events.replay(
         after=0,
         mode=ObservationLevel.NORMAL,
         limit=200,
@@ -1253,7 +1253,7 @@ def _action_catalog_item(
     headers: dict[str, str],
     action_id: str,
 ) -> JsonObject:
-    response = client.get("/v1/actions/catalog", headers=headers)
+    response = client.get("/v1/config/actions", headers=headers)
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, dict)

@@ -65,7 +65,7 @@ class EndpointHost:
         if self._server is not None:
             raise EndpointServerError("Endpoint server is already started")
         try:
-            from .server import EndpointASGIServer
+            from .http.server import EndpointASGIServer
 
             server = EndpointASGIServer(
                 engine=self._engine,

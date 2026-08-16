@@ -4,6 +4,7 @@ import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
 import { EmptyState } from "../../components/ui/EmptyState";
 import type { ConfigCatalog, ConfigStatus, JsonValue } from "../../types";
+import { toConfigValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ConfigFieldGroups } from "./ConfigFieldGroups";
@@ -40,7 +41,7 @@ export function ConfigSettingsPage({
         source_id: field.sourceId,
         path: field.path,
         op: "set",
-        value,
+        value: toConfigValue(value),
       });
       pushToast("success", `Configuration active · ${shortId(result.generation_id)}`);
     } catch (error) {

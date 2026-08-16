@@ -34,7 +34,7 @@ Application 未连接时仍可用，其余项目页面禁用。
 
 - `GET /v1/config` 的 sources/effective fields/activity/Generation；
 - `GET /v1/config/catalog` 的 package-owned descriptors；
-- `GET /v1/actions/catalog` 的 configured User Domains/Actions 与 availability。
+- `GET /v1/config/actions` 的 configured User Domains/Actions 与 availability。
 
 实例切换或断开时三者一并清空。并发请求仍使用最后一次请求获胜；PATCH 返回 active 后并发刷新
 ConfigStatus 与 Action catalog，catalog 作为同一 package contract 无需每次 PATCH 重读。事件只

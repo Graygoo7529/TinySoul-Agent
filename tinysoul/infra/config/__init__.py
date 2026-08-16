@@ -12,7 +12,7 @@ from .transaction import (
     ConfigFileTransaction,
     ConfigTransactionReceipt,
 )
-from .controller import ConfigController, ConfigMutation, PreparedConfigActivation
+from .controller import ConfigController, ConfigMutation, ConfigValue, PreparedConfigActivation
 from .documents import ConfigDocument, ConfigDocumentSet, ConfigDocumentSetSpec
 from .validation import reject_unknown_keys
 
@@ -33,6 +33,7 @@ __all__ = [
     "ConfigDocumentSet",
     "ConfigDocumentSetSpec",
     "ConfigMutation",
+    "ConfigValue",
     "PreparedConfigActivation",
     "DotenvDocument",
     "DotenvSource",

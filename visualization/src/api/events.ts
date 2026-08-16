@@ -10,7 +10,13 @@
  * cursor/mode change is applied by reconnecting.
  */
 
-import type { ConnectionInfo, EndpointEvent, ObservationLevel } from "../types";
+import type {
+  ConnectionInfo,
+  EndpointEvent,
+  EventPage,
+  ObservationLevel,
+} from "../types";
+import type { EndpointHttpTransport } from "./transport";
 
 export type EventStreamMessage =
   | {
@@ -32,6 +38,34 @@ export interface EventStreamCallbacks {
 
 const BASE_RECONNECT_MS = 1000;
 const MAX_RECONNECT_MS = 30000;
+
+export class EndpointEventsClient {
+  constructor(
+    private readonly transport: EndpointHttpTransport,
+    private readonly connection: ConnectionInfo,
+  ) {}
+
+  replay(after: number, mode: ObservationLevel, limit = 200): Promise<EventPage> {
+    return this.transport.request<EventPage>("GET", "/v1/events", {
+      query: { after, mode, limit },
+    });
+  }
+
+  connect(
+    after: number,
+    mode: ObservationLevel,
+    callbacks: EventStreamCallbacks,
+  ): TinySoulEventStream {
+    const stream = new TinySoulEventStream(
+      this.connection,
+      after,
+      mode,
+      callbacks,
+    );
+    stream.connect();
+    return stream;
+  }
+}
 
 export class TinySoulEventStream {
   private ws: WebSocket | null = null;

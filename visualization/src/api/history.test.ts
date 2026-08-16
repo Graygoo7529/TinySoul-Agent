@@ -22,15 +22,19 @@ describe("event history replay", () => {
     const throughSequence = 501;
     let calls = 0;
     const client = {
-      status: async () => ({ latest_event_sequence: throughSequence }),
-      replayEvents: async (after: number) => {
-        calls += 1;
-        const next = after + 1;
-        return {
-          events: [event(next)],
-          next_sequence: next,
-          gap: false,
-        };
+      runtime: {
+        status: async () => ({ latest_event_sequence: throughSequence }),
+      },
+      events: {
+        replay: async (after: number) => {
+          calls += 1;
+          const next = after + 1;
+          return {
+            events: [event(next)],
+            next_sequence: next,
+            gap: false,
+          };
+        },
       },
     } as unknown as TinySoulClient;
 
@@ -43,12 +47,14 @@ describe("event history replay", () => {
 
   it("rejects a replay cursor that stalls before the target", async () => {
     const client = {
-      status: async () => ({ latest_event_sequence: 2 }),
-      replayEvents: async () => ({
-        events: [],
-        next_sequence: 0,
-        gap: false,
-      }),
+      runtime: { status: async () => ({ latest_event_sequence: 2 }) },
+      events: {
+        replay: async () => ({
+          events: [],
+          next_sequence: 0,
+          gap: false,
+        }),
+      },
     } as unknown as TinySoulClient;
 
     await expect(replayAllEvents(client)).rejects.toThrow("cursor stalled");

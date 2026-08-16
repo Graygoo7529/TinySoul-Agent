@@ -41,9 +41,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const [status, catalog, actionCatalog] = await Promise.all([
-        client.configStatus(),
-        client.configCatalog(),
-        client.actionCatalog(),
+        client.configuration.status(),
+        client.configuration.catalog(),
+        client.configuration.actions(),
       ]);
       if (generation !== requestGeneration) return null;
       set({ status, catalog, actionCatalog, loading: false });
@@ -67,7 +67,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     set({ savingPath: mutations[0].path, loading: false, error: null });
     let result: ConfigPatchResult;
     try {
-      result = await client.patchConfig({ operations: mutations });
+      result = await client.configuration.patch({ operations: mutations });
     } catch (error) {
       if (ownerClient !== client) throw error;
       set({
@@ -83,8 +83,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const generation = ++requestGeneration;
     try {
       const [status, actionCatalog] = await Promise.all([
-        client.configStatus(),
-        client.actionCatalog(),
+        client.configuration.status(),
+        client.configuration.actions(),
       ]);
       if (generation === requestGeneration) {
         set({ status, actionCatalog, savingPath: null, loading: false });

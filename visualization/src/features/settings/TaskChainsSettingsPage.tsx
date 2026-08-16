@@ -6,6 +6,7 @@ import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
 import { Button, IconButton } from "../../components/ui/Button";
 import type { ActionCatalog, ConfigCatalog, ConfigMutation, ConfigStatus, JsonValue } from "../../types";
+import { toConfigValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ActionRoutingPanel } from "./ActionRoutingPanel";
@@ -108,7 +109,7 @@ function TaskChainDefinitionsPanel({
     }
   };
   const commit = (field: ConfigSettingField, value: JsonValue) =>
-    apply({ source_id: field.sourceId, path: field.path, op: "set", value }, "Task chain active").then(() => undefined);
+    apply({ source_id: field.sourceId, path: field.path, op: "set", value: toConfigValue(value) }, "Task chain active").then(() => undefined);
   const modelsField = current?.fields.find((field) => field.path.endsWith(".models"));
   const setModels = async (next: string[]) => {
     if (!modelsField || next.length === 0 || new Set(next).size !== next.length) return;
@@ -211,7 +212,7 @@ function TaskChainDefinitionsPanel({
           const template = cloneJson(collection.create_template);
           template.models = [initialModel];
           const applied = await apply(
-            { source_id: collection.create_source, path: `${collection.root}.${id}`, op: "set", value: template },
+            { source_id: collection.create_source, path: `${collection.root}.${id}`, op: "set", value: toConfigValue(template) },
             "Task chain created",
           );
           if (applied) {

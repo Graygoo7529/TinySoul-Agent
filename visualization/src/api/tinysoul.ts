@@ -1,259 +1,28 @@
-/**
- * HTTP client for the TinySoul local Endpoint.
- *
- * The frontend never touches the local filesystem directly. Workspace writes
- * use backend CAS checks; configuration writes are persisted and activated by
- * the Endpoint as one operation.
- */
+/** Aggregate client for the TinySoul local Endpoint protocol. */
 
-import type {
-  BackendError,
-  BackendStatus,
-  CommandReceipt,
-  ConnectionInfo,
-  ConfigCatalog,
-  ConfigPatchRequest,
-  ConfigPatchResult,
-  ConfigStatus,
-  ActionCatalog,
-  ControlRequest,
-  EndpointEvent,
-  InputRequest,
-  MaintenanceRequest,
-  MaintenanceStatus,
-  TrashItem,
-  WorkspaceBlobHeaders,
-  WorkspaceManifest,
-  WorkspaceResourceRecord,
-  WorkspaceRestoreRequest,
-  WorkspaceTextRead,
-  WorkspaceTrashRequest,
-  WorkspaceWriteRequest,
-  WorkspaceWriteResponse,
-} from "../types";
-
-export interface EventPage {
-  events: EndpointEvent[];
-  next_sequence: number;
-  gap: boolean;
-}
+import type { ConnectionInfo } from "../types";
+import { EndpointConfigurationClient } from "./configuration";
+import { EndpointEventsClient } from "./events";
+import { EndpointMaintenanceClient } from "./maintenance";
+import { EndpointRuntimeClient } from "./runtime";
+import { EndpointHttpTransport } from "./transport";
+import { EndpointWorkspaceClient } from "./workspace";
 
 export class TinySoulClient {
-  private baseUrl: string;
-  private token: string;
+  readonly runtime: EndpointRuntimeClient;
+  readonly maintenance: EndpointMaintenanceClient;
+  readonly events: EndpointEventsClient;
+  readonly configuration: EndpointConfigurationClient;
+  readonly workspace: EndpointWorkspaceClient;
 
   constructor(info: ConnectionInfo) {
-    this.baseUrl = `http://${info.host}:${info.port}`;
-    this.token = info.token;
-  }
-
-  setConnection(info: ConnectionInfo) {
-    this.baseUrl = `http://${info.host}:${info.port}`;
-    this.token = info.token;
-  }
-
-  private headers(): Record<string, string> {
-    return {
-      Authorization: `Bearer ${this.token}`,
-      "Content-Type": "application/json",
-    };
-  }
-
-  private async request<T>(
-    method: string,
-    path: string,
-    options: {
-      body?: unknown;
-      query?: Record<string, string | number | undefined>;
-      signal?: AbortSignal;
-    } = {},
-  ): Promise<T> {
-    const query = options.query
-      ? "?" +
-        Object.entries(options.query)
-          .filter(([, v]) => v !== undefined)
-          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-          .join("&")
-      : "";
-    const url = `${this.baseUrl}${path}${query}`;
-    const init: RequestInit = {
-      method,
-      headers: this.headers(),
-      signal: options.signal,
-    };
-    if (options.body !== undefined) {
-      init.body = JSON.stringify(options.body);
-    }
-
-    const response = await fetch(url, init);
-    if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as BackendError;
-      throw new TinySoulApiError(
-        response.status,
-        data.error?.code || "endpoint.unknown",
-        data.error?.message || `HTTP ${response.status}`,
-        data.error?.details,
-      );
-    }
-    if (response.status === 204) {
-      return undefined as T;
-    }
-    return (await response.json()) as T;
-  }
-
-  async health(): Promise<{ ok: boolean }> {
-    return fetch(`${this.baseUrl}/v1/health`).then((r) => r.json() as Promise<{ ok: boolean }>);
-  }
-
-  async status(): Promise<BackendStatus> {
-    return this.request<BackendStatus>("GET", "/v1/status");
-  }
-
-  async configStatus(): Promise<ConfigStatus> {
-    return this.request<ConfigStatus>("GET", "/v1/config");
-  }
-
-  async configCatalog(): Promise<ConfigCatalog> {
-    return this.request<ConfigCatalog>("GET", "/v1/config/catalog");
-  }
-
-  async actionCatalog(): Promise<ActionCatalog> {
-    return this.request<ActionCatalog>("GET", "/v1/actions/catalog");
-  }
-
-  async patchConfig(request: ConfigPatchRequest): Promise<ConfigPatchResult> {
-    return this.request<ConfigPatchResult>("PATCH", "/v1/config", {
-      body: request,
-    });
-  }
-
-  async submitInput(request: InputRequest): Promise<CommandReceipt> {
-    return this.request<CommandReceipt>("POST", "/v1/input", { body: request });
-  }
-
-  async submitControl(request: ControlRequest): Promise<CommandReceipt> {
-    return this.request<CommandReceipt>("POST", "/v1/control", {
-      body: request,
-    });
-  }
-
-  async replayEvents(after: number, mode: string, limit = 200): Promise<EventPage> {
-    return this.request<EventPage>("GET", "/v1/events", {
-      query: { after, mode, limit },
-    });
-  }
-
-  async workspaceManifest(): Promise<WorkspaceManifest> {
-    return this.request<WorkspaceManifest>("GET", "/v1/workspace/manifest");
-  }
-
-  async readWorkspaceText(link: string): Promise<WorkspaceTextRead> {
-    return this.request<WorkspaceTextRead>("GET", "/v1/workspace/resource", { query: { link } });
-  }
-
-  async readWorkspaceBlob(link: string): Promise<{ blob: Blob; headers: WorkspaceBlobHeaders }> {
-    const response = await fetch(
-      `${this.baseUrl}/v1/workspace/blob?link=${encodeURIComponent(link)}`,
-      {
-        headers: { Authorization: `Bearer ${this.token}` },
-      },
-    );
-    if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as BackendError;
-      throw new TinySoulApiError(
-        response.status,
-        data.error?.code || "endpoint.unknown",
-        data.error?.message || `HTTP ${response.status}`,
-        data.error?.details,
-      );
-    }
-    return {
-      blob: await response.blob(),
-      headers: {
-        link: response.headers.get("X-TinySoul-Link") || link,
-        digest: response.headers.get("X-TinySoul-Digest") || "",
-        size: parseInt(response.headers.get("X-TinySoul-Size") || "0", 10),
-      },
-    };
-  }
-
-  async writeWorkspaceResource(request: WorkspaceWriteRequest): Promise<WorkspaceWriteResponse> {
-    return this.request<WorkspaceWriteResponse>("PUT", "/v1/workspace/resource", { body: request });
-  }
-
-  async writeWorkspaceBlob(
-    link: string,
-    data: Blob,
-    options: {
-      overwrite?: boolean;
-      expectedDigest?: string;
-      expectedRevision: number;
-      retention?: WorkspaceResourceRecord["retention"];
-    },
-  ): Promise<WorkspaceWriteResponse> {
-    const query: Record<string, string | number | undefined> = {
-      link,
-      expected_revision: options.expectedRevision,
-    };
-    if (options.overwrite) query.overwrite = "true";
-    if (options.expectedDigest) query.expected_digest = options.expectedDigest;
-    if (options.retention) query.retention = options.retention;
-
-    const queryString = Object.entries(query)
-      .filter(([, v]) => v !== undefined)
-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-      .join("&");
-    const response = await fetch(`${this.baseUrl}/v1/workspace/blob?${queryString}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${this.token}` },
-      body: data,
-    });
-    if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as BackendError;
-      throw new TinySoulApiError(
-        response.status,
-        data.error?.code || "endpoint.unknown",
-        data.error?.message || `HTTP ${response.status}`,
-        data.error?.details,
-      );
-    }
-    return (await response.json()) as WorkspaceWriteResponse;
-  }
-
-  async listTrash(): Promise<{ items: TrashItem[] }> {
-    return this.request<{ items: TrashItem[] }>("GET", "/v1/workspace/trash");
-  }
-
-  async trashResource(request: WorkspaceTrashRequest): Promise<{ manifest: WorkspaceManifest }> {
-    return this.request<{ manifest: WorkspaceManifest }>("POST", "/v1/workspace/trash", {
-      body: request,
-    });
-  }
-
-  async restoreResource(request: WorkspaceRestoreRequest): Promise<{ manifest: WorkspaceManifest }> {
-    return this.request<{ manifest: WorkspaceManifest }>("POST", "/v1/workspace/restore", {
-      body: request,
-    });
-  }
-
-  async maintenanceStatus(): Promise<MaintenanceStatus> {
-    return this.request<MaintenanceStatus>("GET", "/v1/maintenance");
-  }
-
-  async requestMaintenance(request: MaintenanceRequest): Promise<CommandReceipt> {
-    return this.request<CommandReceipt>("POST", "/v1/maintenance", { body: request });
-  }
-
-}
-
-export class TinySoulApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public details?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = "TinySoulApiError";
+    const transport = new EndpointHttpTransport(info);
+    this.runtime = new EndpointRuntimeClient(transport);
+    this.maintenance = new EndpointMaintenanceClient(transport);
+    this.events = new EndpointEventsClient(transport, info);
+    this.configuration = new EndpointConfigurationClient(transport);
+    this.workspace = new EndpointWorkspaceClient(transport);
   }
 }
+
+export { TinySoulApiError } from "./transport";

@@ -10,6 +10,7 @@ import type {
   ConfigStatus,
   JsonValue,
 } from "../../types";
+import { toConfigValue } from "../../types";
 import { useAppStore } from "../../store/appStore";
 import { useConfigStore } from "../../store/configStore";
 import { ConfigFieldGroups } from "./ConfigFieldGroups";
@@ -65,7 +66,7 @@ export function ActionRoutingPanel({
         source_id: field.sourceId,
         path: field.path,
         op: "set",
-        value,
+        value: toConfigValue(value),
       });
       pushToast("success", `${message} · ${shortId(result.generation_id)}`);
     } catch (error) {

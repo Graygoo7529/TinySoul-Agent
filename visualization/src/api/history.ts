@@ -35,12 +35,12 @@ export async function replayEventPages(
 ): Promise<ReplayHistorySummary> {
   let cursor = options.after ?? 0;
   const throughSequence =
-    options.throughSequence ?? (await client.status()).latest_event_sequence;
+    options.throughSequence ?? (await client.runtime.status()).latest_event_sequence;
   let gap = false;
   let eventCount = 0;
 
   while (cursor < throughSequence) {
-    const page = await client.replayEvents(cursor, "model", PAGE_LIMIT);
+    const page = await client.events.replay(cursor, "model", PAGE_LIMIT);
     if (page.gap) gap = true;
     if (page.events.length > 0) {
       eventCount += page.events.length;
@@ -88,7 +88,7 @@ export async function hydrateSkeletonEvents(
   const found: EndpointEvent[] = [];
   let cursor = Math.max(0, min - 1);
   while (cursor < max && found.length < wanted.size) {
-    const page = await client.replayEvents(cursor, "model", PAGE_LIMIT);
+    const page = await client.events.replay(cursor, "model", PAGE_LIMIT);
     for (const event of page.events) {
       if (wanted.has(event.sequence) && !isSkeletonPayload(event.payload)) {
         found.push(event);

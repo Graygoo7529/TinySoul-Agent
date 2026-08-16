@@ -27,7 +27,7 @@ export function useWorkspace() {
     if (!client) return;
     store.setWorkspaceLoading(true);
     try {
-      const manifest = await client.workspaceManifest();
+      const manifest = await client.workspace.manifest();
       store.setWorkspace(manifest);
       store.setWorkspaceConflict(false);
     } catch (err) {
@@ -40,7 +40,7 @@ export function useWorkspace() {
     async (link: string): Promise<WorkspaceTextRead | undefined> => {
       if (!client) return;
       try {
-        const read = await client.readWorkspaceText(link);
+        const read = await client.workspace.readText(link);
         store.openWorkspaceResource(read);
         store.setWorkspaceConflict(false);
         return read;
@@ -61,7 +61,7 @@ export function useWorkspace() {
     ) => {
       if (!client || !store.workspace) return;
       try {
-        const response = await client.writeWorkspaceResource({
+        const response = await client.workspace.writeText({
           link,
           text,
           overwrite,
@@ -99,7 +99,7 @@ export function useWorkspace() {
     ) => {
       if (!client || !store.workspace) return;
       try {
-        const response = await client.writeWorkspaceResource({
+        const response = await client.workspace.writeText({
           link,
           text,
           overwrite: false,
@@ -126,7 +126,7 @@ export function useWorkspace() {
     async (link: string, digest: string) => {
       if (!client || !store.workspace) return;
       try {
-        const response = await client.trashResource({
+        const response = await client.workspace.trash({
           link,
           expected_digest: digest,
           expected_revision: store.workspace.revision,
@@ -152,7 +152,7 @@ export function useWorkspace() {
   const listTrash = useCallback(async (): Promise<TrashItem[]> => {
     if (!client) return [];
     try {
-      const { items } = await client.listTrash();
+      const { items } = await client.workspace.listTrash();
       return items;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -165,7 +165,7 @@ export function useWorkspace() {
     async (trashRef: string) => {
       if (!client || !store.workspace) return;
       try {
-        const response = await client.restoreResource({
+        const response = await client.workspace.restore({
           trash_ref: trashRef,
           expected_revision: store.workspace.revision,
         });
@@ -197,7 +197,7 @@ export function useWorkspace() {
 
 async function refreshManifestOnly(client: TinySoulClient, store: AppState) {
   try {
-    const manifest = await client.workspaceManifest();
+    const manifest = await client.workspace.manifest();
     store.setWorkspace(manifest);
   } catch (error) {
     console.error("Workspace manifest refresh failed:", error);
@@ -208,9 +208,9 @@ async function refreshOpenResource(client: TinySoulClient, store: AppState) {
   const draft = store.openResource?.draft;
   try {
     const [manifest, read] = await Promise.all([
-      client.workspaceManifest(),
+      client.workspace.manifest(),
       store.openResource
-        ? client.readWorkspaceText(store.openResource.link)
+        ? client.workspace.readText(store.openResource.link)
         : Promise.resolve(undefined),
     ]);
     store.setWorkspace(manifest);

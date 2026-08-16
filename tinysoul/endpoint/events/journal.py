@@ -14,10 +14,10 @@ from tinysoul.infra.filesystem import atomic_write_text
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.runtime import ObservationLevel
 
-from .errors import EndpointContractError
+from ..errors import EndpointContractError
 
 if TYPE_CHECKING:
-    from .events import EndpointEventEnvelope
+    from .models import EndpointEventEnvelope
 
 
 _MANIFEST_NAME = "manifest.json"
@@ -124,7 +124,7 @@ class EndpointEventJournal:
         mode: ObservationLevel,
         limit: int,
     ) -> JournalReadPage:
-        from .events import _level_rank
+        from .buffer import _level_rank
 
         if after < 0 or limit <= 0:
             raise EndpointContractError("Endpoint journal read bounds are invalid")
@@ -306,7 +306,7 @@ class EndpointEventJournal:
         }
 
     def _read_part(self, part: _PartInfo) -> list[EndpointEventEnvelope]:
-        from .events import EndpointEventEnvelope
+        from .models import EndpointEventEnvelope
 
         path = self._root / part.name
         events: list[EndpointEventEnvelope] = []
@@ -328,7 +328,7 @@ class EndpointEventJournal:
 
 
 def _envelope_from_json(raw: JsonObject) -> EndpointEventEnvelope:
-    from .events import EndpointEventEnvelope
+    from .models import EndpointEventEnvelope
 
     sequence = raw.get("sequence")
     name = raw.get("name")

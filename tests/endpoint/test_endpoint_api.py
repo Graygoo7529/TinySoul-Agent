@@ -20,7 +20,7 @@ from tinysoul.endpoint import (
     EndpointEventBuffer,
     EndpointSettings,
 )
-from tinysoul.endpoint.server import EndpointASGIServer, create_endpoint_app
+from tinysoul.endpoint.http import EndpointASGIServer, create_endpoint_app
 from tinysoul.infra.config import ConfigController, ConfigEnvironment
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
@@ -55,7 +55,7 @@ def test_endpoint_settings_reject_invalid_websocket_heartbeat(
 
 
 def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
-    engine, gateway = _engine(tmp_path)
+    engine, gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     assert client.get("/v1/status").status_code == 401
@@ -81,7 +81,12 @@ def test_endpoint_auth_input_and_status(tmp_path: Path) -> None:
     }
     openapi = client.get("/openapi.json", headers=_auth()).json()
     assert "/v1/events" in openapi["paths"]
+    assert "/v1/config/actions" in openapi["paths"]
+    assert "/v1/actions/catalog" not in openapi["paths"]
+    assert "/v1/config/validate" not in openapi["paths"]
+    assert "/v1/config/sections/{section_id}" not in openapi["paths"]
     assert "/v1/workspace/blob" in openapi["paths"]
+    assert "put" in openapi["paths"]["/v1/workspace/blob"]
     assert "/v1/maintenance/decision" not in openapi["paths"]
     assert all(not path.startswith("/v1/session/") for path in openapi["paths"])
 
@@ -142,12 +147,12 @@ def test_endpoint_hides_unexpected_exception_details(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine, _gateway = _engine(tmp_path)
+    engine, _gateway, _events = _engine(tmp_path)
 
     def fail_status() -> JsonObject:
         raise OSError("B:\\private\\workspace")
 
-    monkeypatch.setattr(engine, "status", fail_status)
+    monkeypatch.setattr(engine.runtime, "status", fail_status)
     client = TestClient(
         create_endpoint_app(engine, engine.settings),
         raise_server_exceptions=False,
@@ -167,7 +172,7 @@ def test_endpoint_hides_unexpected_exception_details(
 
 
 def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
-    engine, gateway = _engine(tmp_path)
+    engine, gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     manifest = client.get("/v1/workspace/manifest", headers=_auth()).json()
@@ -187,7 +192,7 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
     revision = body["manifest"]["revision"]
     assert gateway.synced[-1].revision == revision
     assert gateway.observed[-1].name == "workspace.changed"
-    replayed = engine.replay_events(
+    replayed = engine.events.replay(
         after=0,
         mode=ObservationLevel.NORMAL,
         limit=20,
@@ -240,7 +245,7 @@ def test_endpoint_workspace_cas_trash_and_restore(tmp_path: Path) -> None:
 
 
 def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
-    engine, _gateway = _engine(tmp_path)
+    engine, _gateway, _events = _engine(tmp_path)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     revision = client.get(
         "/v1/workspace/manifest",
@@ -274,7 +279,7 @@ def test_endpoint_workspace_blob_round_trip(tmp_path: Path) -> None:
 def test_workspace_observation_failure_does_not_change_mutation_result(
     tmp_path: Path,
 ) -> None:
-    engine, gateway = _engine(tmp_path, event_max_bytes=1)
+    engine, gateway, events = _engine(tmp_path, event_max_bytes=1)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     revision = client.get(
         "/v1/workspace/manifest",
@@ -294,20 +299,20 @@ def test_workspace_observation_failure_does_not_change_mutation_result(
     assert response.status_code == 200
     assert gateway.synced[-1].revision == response.json()["manifest"]["revision"]
     assert gateway.observed[-1].name == "workspace.changed"
-    assert engine.events.latest_sequence == 0
+    assert events.latest_sequence == 0
 
 
 def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None:
-    engine, _gateway = _engine(tmp_path, websocket_heartbeat_seconds=0.05)
-    after = engine.events.latest_sequence
-    engine.events.write(
+    engine, _gateway, events = _engine(tmp_path, websocket_heartbeat_seconds=0.05)
+    after = events.latest_sequence
+    events.write(
         ObservationEvent(
             name="turn.started",
             level=ObservationLevel.NORMAL,
             source="test",
         )
     )
-    engine.events.write(
+    events.write(
         ObservationEvent(
             name="llm.model.request",
             level=ObservationLevel.MODEL,
@@ -338,7 +343,7 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
 
 
 def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
-    engine, _gateway = _engine(tmp_path)
+    engine, _gateway, _events = _engine(tmp_path)
     server = EndpointASGIServer(engine=engine, settings=engine.settings)
     server.start()
     try:
@@ -352,8 +357,7 @@ def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
         server.stop()
 
 
-def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) -> None:
-    engine, _gateway = _engine(tmp_path)
+def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (tmp_path / "tinysoul.toml").write_text(
@@ -365,10 +369,11 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
         "[action.llm_action]\ntimeout_seconds = 10.0\n",
         encoding="utf-8",
     )
-    engine._config = ConfigController(  # noqa: SLF001
+    controller = ConfigController(
         root=tmp_path,
         environment=ConfigEnvironment.from_project_root(tmp_path, env={}),
     )
+    engine, _gateway, _events = _engine(tmp_path, config=controller)
     client = TestClient(create_endpoint_app(engine, engine.settings))
     body = {
         "operations": [
@@ -392,9 +397,48 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
         for field in catalog.json()["fields"]
     )
 
-    validated = client.post("/v1/config/validate", headers=_auth(), json=body)
-    assert validated.status_code == 200
-    assert "timeout_seconds = 10.0" in target.read_text(encoding="utf-8")
+    invalid_requests = (
+        {
+            "operations": [{
+                "source_id": "project:configs/action.toml",
+                "path": "action.llm_action.timeout_seconds",
+                "op": "set",
+            }]
+        },
+        {
+            "operations": [{
+                "source_id": "project:configs/action.toml",
+                "path": "action.llm_action.timeout_seconds",
+                "op": "set",
+                "value": None,
+            }]
+        },
+        {
+            "operations": [{
+                "source_id": "project:configs/action.toml",
+                "path": "action.llm_action.timeout_seconds",
+                "op": "delete",
+                "value": 1,
+            }]
+        },
+        {
+            "operations": [{
+                "source_id": "project:configs/action.toml",
+                "path": "action.llm_action.timeout_seconds",
+                "op": "other",
+            }]
+        },
+    )
+    for invalid in invalid_requests:
+        response = client.patch("/v1/config", headers=_auth(), json=invalid)
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "request.invalid"
+
+    assert client.get("/v1/config/validate", headers=_auth()).status_code == 404
+    assert client.get(
+        "/v1/config/sections/action",
+        headers=_auth(),
+    ).status_code == 404
 
     patched = client.patch("/v1/config", headers=_auth(), json=body)
     assert patched.status_code == 200
@@ -405,7 +449,6 @@ def test_config_routes_read_validate_and_patch_project_source(tmp_path: Path) ->
 def test_config_activation_failure_uses_config_error_and_keeps_file(
     tmp_path: Path,
 ) -> None:
-    engine, _gateway = _engine(tmp_path)
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (tmp_path / "tinysoul.toml").write_text(
@@ -422,11 +465,12 @@ def test_config_activation_failure_uses_config_error_and_keeps_file(
             message="candidate failed",
         )
 
-    engine._config = ConfigController(  # noqa: SLF001
+    controller = ConfigController(
         root=tmp_path,
         environment=ConfigEnvironment.from_project_root(tmp_path, env={}),
         activator=fail_activation,
     )
+    engine, _gateway, _events = _engine(tmp_path, config=controller)
     client = TestClient(create_endpoint_app(engine, engine.settings))
 
     response = client.patch(
@@ -454,7 +498,8 @@ def _engine(
     *,
     event_max_bytes: int = 1024 * 1024,
     websocket_heartbeat_seconds: float = 15.0,
-) -> tuple[EndpointEngine, _EndpointGateway]:
+    config: ConfigController | None = None,
+) -> tuple[EndpointEngine, _EndpointGateway, EndpointEventBuffer]:
     session = SessionEngine(SessionSettings(root=tmp_path / "session"))
     events = EndpointEventBuffer(capacity=32, max_bytes=event_max_bytes)
     gateway = _EndpointGateway()
@@ -493,8 +538,9 @@ def _engine(
         gateway=gateway,
         workspace=workspace,
         maintenance=_EndpointMaintenance(daily),
+        config=config,
     )
-    return engine, gateway
+    return engine, gateway, events
 
 
 @dataclass
