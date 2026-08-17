@@ -23,7 +23,7 @@ export function useTurnCompletionNotifier(turns: ChatTurn[]) {
   useEffect(() => {
     const { id: prevId, status: prevStatus } = prev.current;
     prev.current = { id: lastTurnId, status: lastStatus };
-    if (!lastTurnId || !lastStatus) return;
+    if (!last || !lastStatus) return;
     if (prevId !== lastTurnId || prevStatus !== "running" || lastStatus === "running") {
       return;
     }
@@ -31,9 +31,9 @@ export function useTurnCompletionNotifier(turns: ChatTurn[]) {
     // completion choreography already plays in place there — no notice.
     const { activeTab, chatPinnedToBottom } = useAppStore.getState();
     if (activeTab === "chat" && chatPinnedToBottom) return;
-    const toast = completionToast(lastStatus);
+    const toast = completionToast(last);
     if (!toast) return;
-    const turnId = lastTurnId;
+    const turnId = last.turnId;
     pushToast(toast.kind, toast.text, {
       label: "查看",
       onClick: () => {
@@ -45,20 +45,25 @@ export function useTurnCompletionNotifier(turns: ChatTurn[]) {
   }, [lastTurnId, lastStatus, pushToast]);
 }
 
-/** Toast for a finished turn. A user-requested stop stays silent — the
-    user already knows. */
+/** Toast for a finished turn. Maintenance turns announce with their task
+    label; a user-requested stop stays silent — the user already knows. */
 function completionToast(
-  status: TurnStatus,
+  turn: ChatTurn,
 ): { kind: ToastItem["kind"]; text: string } | null {
-  switch (status) {
+  const label = turn.maintenance
+    ? turn.maintenance.kind === "home"
+      ? "Home 维护"
+      : "Memory 维护"
+    : null;
+  switch (turn.status) {
     case "answered":
       return { kind: "success", text: "新回答已完成" };
     case "completed":
-      return { kind: "success", text: "轮次已完成" };
+      return { kind: "success", text: label ? `${label}完成` : "轮次已完成" };
     case "failed":
-      return { kind: "error", text: "轮次失败" };
+      return { kind: "error", text: label ? `${label}失败` : "轮次失败" };
     case "exhausted":
-      return { kind: "info", text: "轮次已达上限" };
+      return { kind: "info", text: label ? `${label}已达上限` : "轮次已达上限" };
     default:
       return null;
   }

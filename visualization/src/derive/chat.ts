@@ -80,7 +80,25 @@ export function buildChatTurns(
 ): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
   const dayByTurn = new Map<string, string>();
+  // request_id → maintenance request facts (trigger / memory target day),
+  // correlated into each maintenance turn via turn.started's request_id.
+  const maintenanceByRequest = new Map<
+    string,
+    { trigger?: "manual" | "scheduled"; targetDay?: string }
+  >();
   for (const event of events) {
+    if (event.name === "maintenance.started") {
+      const request = asRecord(event.payload?.request);
+      const requestId = asString(request?.request_id);
+      if (!requestId) continue;
+      const trigger = asString(request?.trigger);
+      const targetDay = asString(request?.target_day);
+      maintenanceByRequest.set(requestId, {
+        ...(trigger === "manual" || trigger === "scheduled" ? { trigger } : {}),
+        ...(targetDay ? { targetDay } : {}),
+      });
+      continue;
+    }
     if (event.name !== "turn.started") continue;
     const turn = event.scope.find((frame) => frame.level === "turn");
     const day = asString(event.payload?.business_day);
@@ -155,6 +173,19 @@ export function buildChatTurns(
       case "turn.started": {
         const requestId = asString(ev.payload?.request_id);
         turn.businessDay = asString(ev.payload?.business_day);
+        // Maintenance turns carry their task identity in input_source; they
+        // never have a user message — the initiation bubble renders from
+        // turn.maintenance instead.
+        const inputSource = asString(ev.payload?.input_source);
+        if (inputSource === "maintenance.home" || inputSource === "maintenance.memory") {
+          const request = requestId ? maintenanceByRequest.get(requestId) : undefined;
+          turn.maintenance = {
+            kind: inputSource === "maintenance.home" ? "home" : "memory",
+            ...(request?.trigger ? { trigger: request.trigger } : {}),
+            ...(request?.targetDay ? { targetDay: request.targetDay } : {}),
+          };
+          break;
+        }
         const text = requestId ? pendingTurnInput.get(requestId) : undefined;
         if (text) pushUnique(turn.userMessages, text);
         break;

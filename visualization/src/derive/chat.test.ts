@@ -186,6 +186,48 @@ describe("buildChatTurns", () => {
     expect(turn.userMessages).toEqual(["durable question"]);
   });
 
+  it("classifies maintenance turns and correlates the request facts", () => {
+    const events = [
+      event("maintenance.started", [], {
+        request: {
+          scope: "memory",
+          trigger: "scheduled",
+          request_id: "mreq-1",
+          target_day: "2026-08-17",
+          source: "scheduler",
+          metadata: {},
+        },
+      }),
+      event("turn.started", turnScope, {
+        turn_id: "turn_1",
+        request_id: "mreq-1",
+        input_source: "maintenance.memory",
+        business_day: "2026-08-18",
+      }),
+      event("turn.completed", turnScope, { status: "completed" }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    expect(turn.maintenance).toEqual({
+      kind: "memory",
+      trigger: "scheduled",
+      targetDay: "2026-08-17",
+    });
+    expect(turn.userMessages).toEqual([]);
+  });
+
+  it("leaves turns without a maintenance input_source as user turns", () => {
+    const events = [
+      event("turn.started", turnScope, {
+        turn_id: "turn_1",
+        request_id: "cmd-1",
+        input_source: "endpoint",
+      }),
+      event("turn.completed", turnScope, { status: "answered" }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    expect(turn.maintenance).toBeUndefined();
+  });
+
   it("marks a turn failed on turn.failed/turn.completed and stops the clock", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),

@@ -5,6 +5,7 @@
 - 主界面是一条连续的聊天历史（背景为 2% 透明度 24px 微网格）：右侧为用户消息（浅 tinted 玻璃气泡：accent 浅底 + 深靛文字 + 细描边 + 背模糊），左侧为 Agent 行（渐变头像 + 内容区）。
 - Agent 行在完成态展示 Markdown 渲染的最终回答。回答卡为微渐变亮面纸感（顶部内高光 + accent 淡彩柔影）；当前会话内完成时，回答在**停顿 → 折叠**之后以固定节奏（约 220 字/秒，7s 封顶）逐字流入，流入期间卡片带 accent 柔光与顶部流光扫掠（`answer-streaming`）；历史恢复的回答直接静态呈现——无打字，也无入场浮现（浮现动画只在 live 完成时播放）。页脚给出状态徽标、耗时、概要（cycles/actions/domains/成败数）、token 用量与 Details 入口。
 - 用户输入通过本地回声即时上屏；非本端输入从首个 message stack 的 `user_input` 段恢复。
+- **Maintenance Turn 与 User Turn 同形呈现**：发起气泡位于右侧同位同形（wrench 图标 + 中性色调，文案为任务 + 目标日 + 手动/自动——由 `turn.started.input_source` 区分轮种，经 `maintenance.started` 的 `request_id` 关联 trigger/target_day）；运行期 LiveStatus、落定折叠条、Details 抽屉零改动复用；维护期间的用户追加输入显示为该轮内的用户气泡（语义见 `docs/demand/20260818-maintenance-turn-user-input.md`）。maintenance 不产生用户回答，无回答卡；停止按钮照常可用（内核级取消不区分轮种）；落定状态行与终态 toast 带任务标签（"维护完成/Memory 维护失败"等）。
 
 ## 运行状态动态披露（LiveStatus 活跃状态）
 

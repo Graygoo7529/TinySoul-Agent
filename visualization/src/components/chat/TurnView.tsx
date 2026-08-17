@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { AlertTriangle, Bot, History, PanelRightOpen } from "lucide-react";
+import { AlertTriangle, Bot, History, PanelRightOpen, Wrench } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import type { ChatTurn } from "../../derive/model";
+import type { ChatTurn, ChatTurnMaintenance } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
 import { EASE_CALM, ANSWER_STREAM_DELAY_MS, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
@@ -30,6 +30,14 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
 
   return (
     <div data-turn-root={turn.turnId} className="animate-fade-in space-y-4">
+      {turn.maintenance && (
+        <div className="flex justify-end">
+          <div className="flex items-center gap-1.5 rounded-2xl rounded-tr-sm border border-line bg-bg-sunken px-3.5 py-2 text-[12px] text-fg-muted">
+            <Wrench size={12} className="shrink-0 text-fg-faint" />
+            <span>{maintenanceInitiation(turn.maintenance)}</span>
+          </div>
+        </div>
+      )}
       {turn.userMessages.map((message, i) => (
         <div key={i} className="flex justify-end">
           <div className="bubble-user max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap break-words">
@@ -151,6 +159,22 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
       </div>
     </div>
   );
+}
+
+/**
+ * Initiation-bubble text for a maintenance turn: task kind, memory target
+ * day when present, and how it was triggered.
+ */
+function maintenanceInitiation(maintenance: ChatTurnMaintenance): string {
+  const base = maintenance.kind === "home" ? "Home 维护" : "Memory 维护";
+  const target = maintenance.targetDay ? ` · ${maintenance.targetDay}` : "";
+  const trigger =
+    maintenance.trigger === "manual"
+      ? " · 手动"
+      : maintenance.trigger === "scheduled"
+        ? " · 自动"
+        : "";
+  return `${base}${target}${trigger}`;
 }
 
 /**

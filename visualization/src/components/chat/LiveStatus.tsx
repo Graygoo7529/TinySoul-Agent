@@ -849,17 +849,30 @@ function settledHeadline(turn: ChatTurn): {
   Icon: typeof CheckCircle2;
   tone: string;
 } {
+  const maintenance = turn.maintenance !== undefined;
   switch (turn.status) {
     case "answered":
       return { text: "回答完成", Icon: CheckCircle2, tone: "text-success" };
     case "completed":
-      return { text: "轮次完成", Icon: CheckCircle2, tone: "text-success" };
+      return {
+        text: maintenance ? "维护完成" : "轮次完成",
+        Icon: CheckCircle2,
+        tone: "text-success",
+      };
     case "failed":
-      return { text: "轮次失败", Icon: XCircle, tone: "text-danger" };
+      return {
+        text: maintenance ? "维护失败" : "轮次失败",
+        Icon: XCircle,
+        tone: "text-danger",
+      };
     case "stopped":
       return { text: "已停止", Icon: AlertTriangle, tone: "text-warning" };
     case "exhausted":
-      return { text: "已达上限", Icon: AlertTriangle, tone: "text-warning" };
+      return {
+        text: maintenance ? "维护已达上限" : "已达上限",
+        Icon: AlertTriangle,
+        tone: "text-warning",
+      };
     default:
       return { text: "已结束", Icon: CheckCircle2, tone: "text-fg-muted" };
   }

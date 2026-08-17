@@ -300,6 +300,15 @@ export interface CurrentActivity {
   detail?: string;
 }
 
+export interface ChatTurnMaintenance {
+  /** Which maintenance task runs this turn (from turn.started input_source). */
+  kind: "home" | "memory";
+  /** Manual vs scheduled, correlated from the maintenance.started request. */
+  trigger?: "manual" | "scheduled";
+  /** Memory maintenance target day, when the request carries one. */
+  targetDay?: string;
+}
+
 export interface ChatTurn {
   turnId: string;
   userMessages: string[];
@@ -317,6 +326,9 @@ export interface ChatTurn {
   usage: TurnUsage;
   actionStats: TurnActionStats;
   modelName?: string;
+  /** Present when this turn is a Maintenance Turn (Home/Memory) rather than
+      a user turn. Maintenance turns produce no user answer. */
+  maintenance?: ChatTurnMaintenance;
   /** True when this turn was rebuilt from Endpoint history after reconnect. */
   recovered: boolean;
   latestSequence: number;

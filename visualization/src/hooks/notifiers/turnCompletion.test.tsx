@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAppStore } from "../../store/appStore";
-import type { ChatTurn, TurnStatus } from "../../derive/model";
+import type { ChatTurn, ChatTurnMaintenance, TurnStatus } from "../../derive/model";
 import { useTurnCompletionNotifier } from "./turnCompletion";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,8 +33,12 @@ function Probe({ turns }: { turns: ChatTurn[] }) {
   return null;
 }
 
-function turn(status: TurnStatus, turnId = "t1"): ChatTurn {
-  return { turnId, status } as ChatTurn;
+function turn(
+  status: TurnStatus,
+  turnId = "t1",
+  maintenance?: ChatTurnMaintenance,
+): ChatTurn {
+  return { turnId, status, ...(maintenance ? { maintenance } : {}) } as ChatTurn;
 }
 
 function render(turns: ChatTurn[]) {
@@ -75,6 +79,18 @@ describe("useTurnCompletionNotifier", () => {
     render([turn("running", "t2")]);
     render([turn("exhausted", "t2")]);
     expect(toasts().map((t) => t.kind)).toEqual(["error", "info"]);
+  });
+
+  it("announces maintenance turns with their task label", () => {
+    useAppStore.setState({ activeTab: "workspace" });
+    render([turn("running", "m1", { kind: "home" })]);
+    render([turn("completed", "m1", { kind: "home" })]);
+    render([turn("running", "m2", { kind: "memory", targetDay: "2026-08-17" })]);
+    render([turn("failed", "m2", { kind: "memory", targetDay: "2026-08-17" })]);
+    expect(toasts().map((t) => [t.kind, t.text])).toEqual([
+      ["success", "Home 维护完成"],
+      ["error", "Memory 维护失败"],
+    ]);
   });
 
   it("stays silent for a user-requested stop", () => {
