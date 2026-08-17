@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import { History, MessageSquareText, RefreshCw } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { useAppStore, type ToastItem } from "../../store/appStore";
-import type { ChatTurn, TurnStatus } from "../../derive/model";
+import { useAppStore } from "../../store/appStore";
+import type { ChatTurn } from "../../derive/model";
 import { loadEarlierEvents } from "../../hooks/useBackend";
 import { EmptyState } from "../ui/EmptyState";
 import { Button } from "../ui/Button";
@@ -14,7 +14,7 @@ import { TurnView } from "./TurnView";
     grows downward beneath it. */
 const TOP_ANCHOR = 20;
 /** Anchor glide: brisk but still a visible, soft-landing travel. Shared by
-    the new-turn anchor and the completion toast's jump back to the turn. */
+    the new-turn anchor and the completion toast's jump back to a turn. */
 const ANCHOR_GLIDE_MS = 700;
 
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
@@ -23,11 +23,11 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const events = useAppStore((s) => s.events);
   const client = useAppStore((s) => s.client);
   const journal = useAppStore((s) => s.status?.event_journal);
-  const pushToast = useAppStore((s) => s.pushToast);
+  const setChatPinned = useAppStore((s) => s.setChatPinnedToBottom);
+  const scrollRequest = useAppStore((s) => s.chatScrollRequest);
   const reduced = useReducedMotion();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const pinnedToBottom = useRef(true);
   /** Target of an in-flight programmatic scroll; its scroll events must not
       be mistaken for the user grabbing the wheel. */
   const programmatic = useRef<number | null>(null);
@@ -71,14 +71,18 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     );
   };
 
-  const anchorTarget = (): number | null => {
+  /** Scroll target parking a given turn element's top edge at TOP_ANCHOR. */
+  const anchorTargetFor = (el: HTMLElement): number | null => {
     const scroll = scrollRef.current;
     if (!scroll) return null;
-    const el = lastTurnEl();
-    if (!el) return null;
     const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     const gap = el.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
     return Math.max(0, Math.min(scroll.scrollTop + (gap - TOP_ANCHOR), maxScroll));
+  };
+
+  const anchorTarget = (): number | null => {
+    const el = lastTurnEl();
+    return el ? anchorTargetFor(el) : null;
   };
 
   // Follow target: while the turn runs, park its top edge at TOP_ANCHOR —
@@ -140,16 +144,17 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     glideFrame.current = requestAnimationFrame(step);
   };
 
-  // Follow the stream while the user stays near the bottom. The
-  // ResizeObserver tracks the content box, so animated height changes
-  // (the rolling trail, the fold, the streaming answer) are followed
-  // frame-by-frame.
+  // Follow the stream while the user stays pinned (store-held so the
+  // notifier layer can read it). The ResizeObserver tracks the content box,
+  // so animated height changes (the rolling trail, the fold, the streaming
+  // answer) are followed frame-by-frame.
   useEffect(() => {
     const scroll = scrollRef.current;
     const content = contentRef.current;
     if (!scroll || !content) return;
     const follow = () => {
-      if (!pinnedToBottom.current || glideFrame.current !== undefined) return;
+      if (!useAppStore.getState().chatPinnedToBottom) return;
+      if (glideFrame.current !== undefined) return;
       const hold = useAppStore.getState().chatFollowHoldUntil;
       if (hold !== null && Date.now() < hold) return;
       const target = followTarget();
@@ -165,13 +170,15 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empty]);
 
-  // First content after a mount: land on the conversation once — a running
-  // turn's anchor, otherwise the content bottom. Afterwards only running or
-  // streaming turns are followed; settled content never repositions.
+  // First content after a mount: land on the conversation once, pinned —
+  // a running turn's anchor, otherwise the content bottom. Afterwards only
+  // running or streaming turns are followed; settled content never
+  // repositions.
   const landed = useRef(false);
   useEffect(() => {
     if (landed.current || turns.length === 0) return;
     landed.current = true;
+    setChatPinned(true);
     const scroll = scrollRef.current;
     if (!scroll) return;
     const last = turnsRef.current[turnsRef.current.length - 1];
@@ -190,7 +197,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     if (prevTurnId.current === lastTurnId) return;
     prevTurnId.current = lastTurnId;
     if (!lastTurnId) return;
-    pinnedToBottom.current = true;
+    setChatPinned(true);
     const scroll = scrollRef.current;
     if (!scroll) return;
     const target = anchorTarget();
@@ -199,33 +206,23 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastTurnId]);
 
-  // The turn just ended: no repositioning — while following, the position
-  // already sits at the anchor and the fold/stream simply play in place.
-  // If the user scrolled away, post a small notification instead; its
-  // action returns to the turn and re-engages follow.
-  const lastStatus = lastTurn?.status ?? null;
-  const prevStatus = useRef(lastStatus);
+  // A completion toast asked to reveal a turn: glide to its anchor. Follow
+  // re-engages only when it is still the latest turn — jumping back to an
+  // older one must not let a newer running turn drag the view away.
   useEffect(() => {
-    const prev = prevStatus.current;
-    prevStatus.current = lastStatus;
-    if (!lastTurnId || !lastStatus) return;
-    if (prev !== "running" || lastStatus === "running") return;
-    if (pinnedToBottom.current) return;
-    const toast = completionToast(lastStatus);
-    if (!toast) return;
-    pushToast(toast.kind, toast.text, {
-      label: "查看",
-      onClick: () => {
-        // Also safe when this view has unmounted (another tab): switching
-        // back re-mounts it and the first-landing effect reaches the turn.
-        useAppStore.getState().setActiveTab("chat");
-        pinnedToBottom.current = true;
-        const target = anchorTarget();
-        if (target !== null) glideTo(target, ANCHOR_GLIDE_MS);
-      },
-    });
+    if (!scrollRequest) return;
+    const content = contentRef.current;
+    const el = content?.querySelector(
+      `[data-turn-root="${CSS.escape(scrollRequest.turnId)}"]`,
+    ) as HTMLElement | null;
+    if (el) {
+      setChatPinned(scrollRequest.turnId === lastTurnId);
+      const target = anchorTargetFor(el);
+      if (target !== null) glideTo(target, ANCHOR_GLIDE_MS);
+    }
+    useAppStore.getState().clearChatScrollRequest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastStatus, lastTurnId, pushToast]);
+  }, [scrollRequest]);
 
   useEffect(() => () => cancelGlide(), []);
 
@@ -250,21 +247,22 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
             return;
           }
           const target = followTarget();
-          pinnedToBottom.current =
+          setChatPinned(
             target === null
               ? el.scrollHeight - el.scrollTop - el.clientHeight < 120
-              : Math.abs(el.scrollTop - target) < 120;
+              : Math.abs(el.scrollTop - target) < 120,
+          );
         }}
         onWheel={(e) => {
           // any user input takes over instantly; scrolling up also unpins
           cancelGlide();
           programmatic.current = null;
-          if (e.deltaY < 0) pinnedToBottom.current = false;
+          if (e.deltaY < 0) setChatPinned(false);
         }}
         onTouchStart={() => {
           cancelGlide();
           programmatic.current = null;
-          pinnedToBottom.current = false;
+          setChatPinned(false);
         }}
       >
         {turns.length === 0 ? (
@@ -303,23 +301,4 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
       <Composer hasRunningTurn={turns.some((t) => t.status === "running")} />
     </div>
   );
-}
-
-/** Toast for a turn that finished while the user was scrolled away. A
-    user-requested stop stays silent — the user already knows. */
-function completionToast(
-  status: TurnStatus,
-): { kind: ToastItem["kind"]; text: string } | null {
-  switch (status) {
-    case "answered":
-      return { kind: "success", text: "新回答已完成" };
-    case "completed":
-      return { kind: "success", text: "轮次已完成" };
-    case "failed":
-      return { kind: "error", text: "轮次失败" };
-    case "exhausted":
-      return { kind: "info", text: "轮次已达上限" };
-    default:
-      return null;
-  }
 }

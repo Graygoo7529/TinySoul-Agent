@@ -81,6 +81,7 @@
 - `src/components/workspace/` — WorkspaceView 工作区视图（目录树、编辑器 + Markdown 预览、二进制预览、回收站）。
 - `src/components/monitor/` — MonitorView 原始观察事件监视器（等级过滤、搜索、payload 展开）。
 - `src/components/shell/` — 应用外壳（NavRail、TopBar、StatusBar、BackgroundDrawer、MaintenanceDialog、DisconnectedScreen）。
+- `src/hooks/notifiers/` — 通知检测层：把派生状态转变转为 toast 的小型 watcher，由 AppShell 经 `useNotifiers(turns)` 单一挂载（任何 tab 下都工作）。约定：只盯派生状态、不碰原始事件流（恢复重放/终态清扫已由 derive 解决）；prev 以当前值初始化，恢复历史不误报；抑制语境（activeTab、`chatPinnedToBottom` 等）在触发时经 `getState()` 非响应式读取；toast 由纯函数构造。首个成员为轮次完成通知（`turnCompletion.ts`）。toast 的展示/队列层是 store `toasts` + `pushToast` + `Toasts` 组件（可选 action 按钮）；动作反馈与连接生命周期提示由各处就地 push，不经过检测层。
 
 ## 连接与恢复
 

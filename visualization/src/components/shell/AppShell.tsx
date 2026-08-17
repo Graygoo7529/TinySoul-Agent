@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
 import { useDerivedChat } from "../../derive/chat";
+import { useNotifiers } from "../../hooks/notifiers";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
@@ -33,6 +34,7 @@ export function AppShell({
   const backendUnreachable = useAppStore((s) => s.backendUnreachable);
 
   const turns = useDerivedChat(events, localInputs);
+  useNotifiers(turns);
   const traceTurn = useMemo(
     () => turns.find((t) => t.turnId === traceTurnId) ?? null,
     [turns, traceTurnId],

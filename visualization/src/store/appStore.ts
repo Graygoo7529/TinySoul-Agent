@@ -96,6 +96,14 @@ export interface AppState {
       user toggles collapsible regions so expansions always unfold
       downward instead of being pushed up by bottom-follow. */
   chatFollowHoldUntil: number | null;
+  /** Whether the chat view is parked at its follow target. Written by the
+      chat view's scroll handlers, read non-reactively (getState) by the
+      follow loop and the completion toast — never subscribed for render. */
+  chatPinnedToBottom: boolean;
+  /** One-shot request asking the chat view to glide to a turn's anchor —
+      raised by a completion toast's action, consumed and cleared by the
+      chat view (on the next render or right after a remount). */
+  chatScrollRequest: { turnId: string } | null;
   /** True while a history page fetch (connect recovery / load earlier) runs. */
   historyLoading: boolean;
   /** Model-event sequences hydrated for detail/export; skip re-skeletonizing. */
@@ -140,6 +148,9 @@ export interface AppState {
   setStopPending: (pending: boolean) => void;
   setAnswerStreaming: (turnId: string | null) => void;
   holdChatFollow: () => void;
+  setChatPinnedToBottom: (pinned: boolean) => void;
+  requestChatScrollTo: (turnId: string) => void;
+  clearChatScrollRequest: () => void;
   setHistoryLoading: (loading: boolean) => void;
   pinFullSequences: (sequences: number[]) => void;
   recordLocalInput: (commandId: string, text: string) => void;
@@ -164,7 +175,7 @@ export interface AppState {
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       connection: { status: "idle" },
       status: null,
       events: [],
@@ -176,6 +187,8 @@ export const useAppStore = create<AppState>()(
       stopPending: false,
       answerStreamingTurnId: null,
       chatFollowHoldUntil: null,
+      chatPinnedToBottom: true,
+      chatScrollRequest: null,
       historyLoading: false,
       pinnedFullSequences: [],
       localInputs: [],
@@ -243,6 +256,12 @@ export const useAppStore = create<AppState>()(
       setStopPending: (stopPending) => set({ stopPending }),
       setAnswerStreaming: (answerStreamingTurnId) => set({ answerStreamingTurnId }),
       holdChatFollow: () => set({ chatFollowHoldUntil: Date.now() + 1100 }),
+      setChatPinnedToBottom: (pinned) => {
+        if (get().chatPinnedToBottom === pinned) return;
+        set({ chatPinnedToBottom: pinned });
+      },
+      requestChatScrollTo: (turnId) => set({ chatScrollRequest: { turnId } }),
+      clearChatScrollRequest: () => set({ chatScrollRequest: null }),
       setHistoryLoading: (historyLoading) => set({ historyLoading }),
       pinFullSequences: (sequences) =>
         set((state) => ({
