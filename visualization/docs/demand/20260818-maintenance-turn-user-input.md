@@ -5,23 +5,28 @@
 ## 背景
 
 前端已将 Maintenance Turn 与 User Turn 同形呈现（发起气泡、LiveStatus、停止按钮、
-终态通知）。maintenance 轮经共享 Turn 内核运行，事件协议与 user 轮一致
-（`turn.started` 带 `input_source: maintenance.home|maintenance.memory`）。
+终态通知）。经前后端代码核实，**追加输入的机制链路对维护轮已经完整可用、无需改动**：
 
-遗留一个输入语义问题：`app/inputs.py` 在 `turn_active` 时把用户自由文本一律路由为
-`APPEND_INPUT`，append 信号发往当前轮 scope；maintenance 轮与 user 轮共用同一个
-`ContextEngine`，会把该文本并入维护轮的 User Inputs——用户的话被吞进维护语境，
-既不是用户意图，也污染维护任务。
+- 路由：`app/inputs.py` 在 `turn_active` 时把自由文本路由为 `APPEND_INPUT`（不区分轮种）；
+- 信号：`build_input_append_signal` 带当前轮 scope 发射；
+- 消费：维护轮与 user 轮共用同一个 `ContextEngine` 类，`SIGNAL_INPUT_APPEND` 照常并入
+  该轮 User Inputs（`context/engine.py`）；
+- 合并：内核在每个 cycle 边界 `merge_pending_inputs()`（`loop/cycle.py`），追加文本进入
+  下一次 MessageStack 构造的 User Inputs 段，对模型可见。
 
-## 需求（建议）
+即：今天在维护轮运行中追加的文本**已经会进入维护轮语境并对模型可见**。
 
-经与维护者确认，期望语义：**maintenance 轮运行期间接受用户追加输入，作为用户指示
-被维护轮显式消费**——与 user 轮的追加输入同构（在 cycle 边界合并进当前轮语境、
-对模型可见），而非静默混入或丢失。维护轮不产生用户回答的语义不变；追加的指示
-只影响维护工作的走向。
+## 需求（建议）：补齐"显式消费"的三层语义
 
-替代方案（次选）：maintenance 期间的用户输入排队为下一个 user turn，在维护轮
-结束后启动。两案都需要后端在输入路由处区分当前轮种。
+1. **提示层语义**：维护轮的身份/任务提示从未告诉模型 User Inputs 里可能出现用户指示、
+   应如何对待（遵循优先级、与维护纪律冲突时的取舍）。需要在维护语境的提示层定义追加
+   输入的角色与处理约定，避免模型把它当作任务文本的一部分而忽略或误读。
+2. **追加与完成判定的交互**：维护轮完成由任务归敛条件决定（`MaintenanceTurnEntry` 检查
+   `completion.task` 匹配）；目前没有任何环节考虑未处理的追加指示——追加到达与轮收尾
+   存在竞态，用户指示可能落空。需要明确：完成判定前追加指示必须已被处理，或显式说明
+   追加不延长维护轮。
+3. **结果可见性（可选）**：维护轮不产生用户回答，用户无法直接确认指示是否被采纳。可在
+   `maintenance.completed` 的 details 或轮摘要中体现"收到并处理了 N 条用户指示"。
 
 ## 可选加固（非阻塞）
 
@@ -32,5 +37,5 @@
 ## 现状
 
 前端侧不阻塞：maintenance 运行中 Composer 保持可发送（停止按钮照常），追加文本
-已能显示为维护轮内的用户气泡（`app.command.accepted` 的 `append_input` 路径）。
-在后端语义落地前，追加文本会被并入维护轮 User Inputs（影响限于维护任务语境）。
+已能显示为维护轮内的用户气泡（`app.command.accepted` 的 `append_input` 路径），
+且机制上已并入维护轮 User Inputs；缺的是上述三层显式语义。
