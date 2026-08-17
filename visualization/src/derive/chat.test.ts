@@ -215,6 +215,39 @@ describe("buildChatTurns", () => {
     expect(turn.userMessages).toEqual([]);
   });
 
+  it("does not recover the maintenance task instruction as a user message", () => {
+    const events = [
+      event("turn.started", turnScope, {
+        turn_id: "turn_1",
+        request_id: "mreq-1",
+        input_source: "maintenance.home",
+        business_day: "2026-08-18",
+      }),
+      event("llm.model.request", phaseScope("phase1"), {
+        task_id: "task-1",
+        profile: "loop.phase1",
+        model_id: "model-x",
+        attempt: 1,
+        messages: [
+          {
+            role: "user",
+            label: "user_input",
+            parts: [
+              {
+                type: "text",
+                text: "Review and resolve every current runtime Home difference.",
+              },
+            ],
+          },
+        ],
+      }),
+      event("turn.completed", turnScope, { status: "completed" }),
+    ];
+    const [turn] = buildChatTurns(events, []);
+    expect(turn.maintenance?.kind).toBe("home");
+    expect(turn.userMessages).toEqual([]);
+  });
+
   it("leaves turns without a maintenance input_source as user turns", () => {
     const events = [
       event("turn.started", turnScope, {

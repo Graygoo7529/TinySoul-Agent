@@ -723,7 +723,9 @@ function applyModelRequest(
   if (!skeleton) {
     // Recover the user input from the first observed message stack when the
     // command echo was not local (e.g. input came from the Terminal).
-    if (turn.userMessages.length === 0) {
+    // Maintenance turns skip this: their user_input section is the internal
+    // task instruction, already represented by the initiation bubble.
+    if (turn.userMessages.length === 0 && !turn.maintenance) {
       const inputText = extractUserInput(task.request.messages);
       if (inputText) turn.userMessages.push(inputText);
     }
