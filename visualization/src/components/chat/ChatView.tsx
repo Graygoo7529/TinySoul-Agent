@@ -63,23 +63,24 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
 
   const spacerHeight = () => spacerEl()?.offsetHeight ?? 0;
 
-  // The tail blank is sized on demand: exactly what the latest turn's top
-  // anchor needs (viewport minus the turn), floored at BOTTOM_GAP. As the
-  // turn grows the blank shrinks in lockstep (and refills when the card
-  // folds), so maxScroll stays pinned to the anchor — the anchor is always
-  // reachable, no transition ever clamps the position, and the blank can
-  // never be scrolled into as a void: a settled conversation bottoms out
-  // with the last bubble parked at the top (a turn taller than the
-  // viewport just gets the BOTTOM_GAP floor).
+  // The tail blank is sized on demand, solved from measured geometry so
+  // maxScroll lands exactly on the latest turn's anchor: scrolling to the
+  // very bottom parks the turn's top edge TOP_ANCHOR below the viewport
+  // top. Paddings and gaps below the turn are accounted by measurement,
+  // never hardcoded. As the turn grows the blank shrinks in lockstep (and
+  // refills when the card folds), so the anchor is always reachable, no
+  // transition ever clamps the position, and the blank can never be
+  // scrolled into as a void. A turn too tall to park just gets the
+  // BOTTOM_GAP floor.
   const updateSpacer = () => {
     const scroll = scrollRef.current;
     const spacer = spacerEl();
     const el = lastTurnEl();
     if (!scroll || !spacer || !el) return;
-    const needed = Math.max(
-      BOTTOM_GAP,
-      scroll.clientHeight - TOP_ANCHOR - el.offsetHeight,
-    );
+    const gap = el.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+    const anchor = scroll.scrollTop + (gap - TOP_ANCHOR);
+    const base = scroll.scrollHeight - spacer.offsetHeight;
+    const needed = Math.max(BOTTOM_GAP, anchor + scroll.clientHeight - base);
     spacer.style.height = `${needed}px`;
   };
 
