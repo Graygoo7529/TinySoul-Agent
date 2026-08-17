@@ -16,6 +16,8 @@ const TOP_ANCHOR = 20;
 /** Anchor glide: brisk but still a visible, soft-landing travel. Shared by
     the new-turn anchor and the completion toast's jump back to a turn. */
 const ANCHOR_GLIDE_MS = 700;
+/** Floor of the tail blank below the conversation — the static bottom gap. */
+const BOTTOM_GAP = 32;
 
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const interrupted = useAppStore((s) => s.eventStreamInterrupted);
@@ -52,16 +54,37 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     return (list[list.length - 1] as HTMLElement | undefined) ?? null;
   };
 
-  // The permanent ~85vh blank below the stream keeps the anchor reachable
-  // in every state — no dynamic fill, no release adjustment.
-  const spacerHeight = () => {
+  const spacerEl = (): HTMLElement | null => {
     const content = contentRef.current;
-    const el = content?.querySelector("[data-chat-spacer]") as HTMLElement | null;
-    return el?.offsetHeight ?? 0;
+    return content
+      ? (content.querySelector("[data-chat-spacer]") as HTMLElement | null)
+      : null;
+  };
+
+  const spacerHeight = () => spacerEl()?.offsetHeight ?? 0;
+
+  // The tail blank is sized on demand: exactly what the latest turn's top
+  // anchor needs (viewport minus the turn), floored at BOTTOM_GAP. As the
+  // turn grows the blank shrinks in lockstep (and refills when the card
+  // folds), so maxScroll stays pinned to the anchor — the anchor is always
+  // reachable, no transition ever clamps the position, and the blank can
+  // never be scrolled into as a void: a settled conversation bottoms out
+  // with the last bubble parked at the top (a turn taller than the
+  // viewport just gets the BOTTOM_GAP floor).
+  const updateSpacer = () => {
+    const scroll = scrollRef.current;
+    const spacer = spacerEl();
+    const el = lastTurnEl();
+    if (!scroll || !spacer || !el) return;
+    const needed = Math.max(
+      BOTTOM_GAP,
+      scroll.clientHeight - TOP_ANCHOR - el.offsetHeight,
+    );
+    spacer.style.height = `${needed}px`;
   };
 
   /** Scroll target putting the conversation's own end at the viewport's
-      bottom — the blank spacer never counts as content. */
+      bottom — the blank tail never counts as content. */
   const contentBottom = (): number => {
     const scroll = scrollRef.current;
     if (!scroll) return 0;
@@ -145,9 +168,10 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   };
 
   // Follow the stream while the user stays pinned (store-held so the
-  // notifier layer can read it). The ResizeObserver tracks the content box,
-  // so animated height changes (the rolling trail, the fold, the streaming
-  // answer) are followed frame-by-frame.
+  // notifier layer can read it). The ResizeObserver tracks the content box
+  // (the rolling trail, the fold, the streaming answer) and the viewport;
+  // every size change re-sizes the tail blank first, then re-parks the
+  // follow.
   useEffect(() => {
     const scroll = scrollRef.current;
     const content = contentRef.current;
@@ -162,11 +186,16 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
       programmatic.current = target;
       scroll.scrollTop = target;
     };
-    follow();
-    const observer = new ResizeObserver(follow);
+    const onResize = () => {
+      updateSpacer();
+      follow();
+    };
+    onResize();
+    const observer = new ResizeObserver(onResize);
     observer.observe(content);
+    observer.observe(scroll);
     return () => observer.disconnect();
-    // followTarget reads only refs, the store and the DOM — no stale closure.
+    // followTarget/updateSpacer read only refs, the store and the DOM.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empty]);
 
@@ -179,6 +208,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     if (landed.current || turns.length === 0) return;
     landed.current = true;
     setChatPinned(true);
+    updateSpacer();
     const scroll = scrollRef.current;
     if (!scroll) return;
     const last = turnsRef.current[turnsRef.current.length - 1];
@@ -190,7 +220,8 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   }, [turns.length]);
 
   // A new turn begins: re-engage following and glide the turn's top toward
-  // the anchor — the permanent blank below makes it always reachable.
+  // the anchor. The tail blank is re-sized synchronously — waiting for the
+  // observer would compute the glide against the old, shrunken tail.
   const lastTurnId = lastTurn?.turnId ?? null;
   const prevTurnId = useRef(lastTurnId);
   useEffect(() => {
@@ -198,6 +229,7 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     prevTurnId.current = lastTurnId;
     if (!lastTurnId) return;
     setChatPinned(true);
+    updateSpacer();
     const scroll = scrollRef.current;
     if (!scroll) return;
     const target = anchorTarget();
@@ -292,8 +324,9 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
             {turns.map((turn, i) => (
               <TurnView key={turn.turnId} turn={turn} isLatest={i === turns.length - 1} />
             ))}
-            {/* permanent blank tail: the latest bubble can always reach the
-                top anchor, and completion needs no layout adjustment */}
+            {/* on-demand tail blank (initial value; updateSpacer sizes it):
+                just enough for the latest turn's top anchor, so scrolling
+                to the very bottom parks the last bubble at the top */}
             <div data-chat-spacer style={{ height: "85vh" }} />
           </div>
         )}
