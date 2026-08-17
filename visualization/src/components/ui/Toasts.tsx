@@ -16,10 +16,22 @@ function Toast({ toast }: { toast: ToastItem }) {
   }, [toast.id, dismissToast]);
 
   const { icon: Icon, className } = kindStyle[toast.kind];
+  const action = toast.action;
   return (
     <div className="animate-fade-in pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line bg-bg-elev px-3.5 py-2.5 shadow-pop">
       <Icon size={16} className={`mt-0.5 shrink-0 ${className}`} />
       <div className="min-w-0 flex-1 text-[13px] leading-5 break-words">{toast.text}</div>
+      {action && (
+        <button
+          onClick={() => {
+            action.onClick();
+            dismissToast(toast.id);
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-[12px] font-medium text-accent transition-colors hover:bg-hover"
+        >
+          {action.label}
+        </button>
+      )}
       <button
         onClick={() => dismissToast(toast.id)}
         className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-hover hover:text-fg"

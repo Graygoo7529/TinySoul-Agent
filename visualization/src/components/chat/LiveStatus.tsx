@@ -125,8 +125,9 @@ export function LiveStatus({
   const trailOpenedOnce = useRef(false);
   const holdChatFollow = useAppStore((s) => s.holdChatFollow);
   const bodyOpen = live || trailOpen;
-  // The completion fold waits for the re-anchor glide to land first; a
-  // user-driven fold/unfold responds immediately.
+  // The completion fold waits out a short settle pause first (the view
+  // itself never moves on completion); a user-driven fold/unfold responds
+  // immediately.
   const foldDelayS = live || reduced || trailOpenedOnce.current ? 0 : FOLD_DELAY_MS / 1000;
   // One atomic beat: the statement layer (headline + thinking) commits here
   // so its swap never strobes; bursts coalesce, the latest always flushes.

@@ -52,10 +52,18 @@ export function normalizePersistedActiveTab(value: unknown): RestorableAppTab {
   return "chat";
 }
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastItem {
   id: string;
   kind: "success" | "error" | "info";
   text: string;
+  /** Optional action button rendered inside the toast; clicking it runs the
+      callback and dismisses the toast. */
+  action?: ToastAction;
 }
 
 export interface AppState {
@@ -150,7 +158,7 @@ export interface AppState {
   closeTurnTrace: () => void;
   setBackgroundOpen: (open: boolean) => void;
   setMaintenanceOpen: (open: boolean) => void;
-  pushToast: (kind: ToastItem["kind"], text: string) => void;
+  pushToast: (kind: ToastItem["kind"], text: string, action?: ToastAction) => void;
   dismissToast: (id: string) => void;
 }
 
@@ -289,9 +297,9 @@ export const useAppStore = create<AppState>()(
       setBackgroundOpen: (backgroundOpen) => set({ backgroundOpen }),
       setMaintenanceOpen: (maintenanceOpen) => set({ maintenanceOpen }),
 
-      pushToast: (kind, text) =>
+      pushToast: (kind, text, action) =>
         set((state) => ({
-          toasts: [...state.toasts.slice(-4), { id: randomId(), kind, text }],
+          toasts: [...state.toasts.slice(-4), { id: randomId(), kind, text, action }],
         })),
       dismissToast: (id) =>
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),

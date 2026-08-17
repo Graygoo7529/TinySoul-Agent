@@ -156,8 +156,8 @@ export function TurnView({ turn, isLatest }: { turn: ChatTurn; isLatest?: boolea
 /**
  * The final answer card. When the turn completes while this view is
  * mounted, the card materializes just as the live status finishes folding
- * away, then the text streams in at a fixed cadence (~330 chars/s, capped
- * at 6s for long answers) under a soft streaming glow. Answers from
+ * away, then the text streams in at a fixed cadence (~220 chars/s, capped
+ * at 7s for long answers) under a soft streaming glow. Answers from
  * restored history render instantly. While streaming, the chat view keeps
  * the turn top-anchored (answerStreamingTurnId).
  */
