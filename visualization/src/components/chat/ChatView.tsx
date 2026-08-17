@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { History, MessageSquareText, RefreshCw } from "lucide-react";
+import { History, Loader2, MessageSquareText, RefreshCw } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { useAppStore } from "../../store/appStore";
 import type { ChatTurn } from "../../derive/model";
@@ -22,6 +22,7 @@ const BOTTOM_GAP = 32;
 export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const interrupted = useAppStore((s) => s.eventStreamInterrupted);
   const historyLoading = useAppStore((s) => s.historyLoading);
+  const recoveredThrough = useAppStore((s) => s.recoveredThroughSequence);
   const events = useAppStore((s) => s.events);
   const client = useAppStore((s) => s.client);
   const journal = useAppStore((s) => s.status?.event_journal);
@@ -37,6 +38,12 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
   const empty = turns.length === 0;
+  // A history recovery (startup / stream-gap resync) pages the day's events
+  // in from the oldest. Turns are not rendered mid-replay — a placeholder
+  // covers the window so no partial state can scroll, glide, or animate;
+  // the conversation is revealed at once and landed instantly. A manual
+  // "load earlier" (recoveredThrough already set) never triggers this.
+  const recovering = historyLoading && recoveredThrough === null;
 
   const lastTurn = empty ? undefined : turns[turns.length - 1];
 
@@ -198,27 +205,30 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
     return () => observer.disconnect();
     // followTarget/updateSpacer read only refs, the store and the DOM.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empty]);
+  }, [empty, recovering]);
 
-  // First content after a mount: land on the conversation once, pinned —
-  // a running turn's anchor, otherwise the content bottom. Afterwards only
-  // running or streaming turns are followed; settled content never
+  // First content after a mount — including the one-shot reveal when a
+  // history recovery completes: land on the conversation once, pinned and
+  // instant (no glide) — a running turn's anchor, otherwise the scroll
+  // bottom (a short last turn parks its bubble at the top). Afterwards
+  // only running or streaming turns are followed; settled content never
   // repositions.
   const landed = useRef(false);
   useEffect(() => {
-    if (landed.current || turns.length === 0) return;
+    if (landed.current || recovering || turns.length === 0) return;
     landed.current = true;
     setChatPinned(true);
     updateSpacer();
     const scroll = scrollRef.current;
     if (!scroll) return;
     const last = turnsRef.current[turnsRef.current.length - 1];
+    const maxScroll = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     const target =
-      last?.status === "running" ? (anchorTarget() ?? contentBottom()) : contentBottom();
+      last?.status === "running" ? (anchorTarget() ?? maxScroll) : maxScroll;
     programmatic.current = target;
     scroll.scrollTop = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns.length]);
+  }, [recovering, turns.length]);
 
   // A new turn begins: re-engage following and glide the turn's top toward
   // the anchor. The tail blank is re-sized synchronously — waiting for the
@@ -298,7 +308,13 @@ export function ChatView({ turns }: { turns: ChatTurn[] }) {
           setChatPinned(false);
         }}
       >
-        {turns.length === 0 ? (
+        {recovering ? (
+          <EmptyState
+            icon={<Loader2 size={28} className="animate-spin-slow" />}
+            title="Restoring today's conversation…"
+            description="Replaying the event journal from the running endpoint; the conversation appears all at once when ready."
+          />
+        ) : turns.length === 0 ? (
           <EmptyState
             icon={<MessageSquareText size={28} />}
             title="Start a conversation"

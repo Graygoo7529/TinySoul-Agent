@@ -184,7 +184,7 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
       className={`answer-card rounded-2xl rounded-tl-sm border px-4 py-3 ${
         typing ? "answer-streaming" : ""
       }`}
-      initial={reduced ? false : { opacity: 0, y: 8, filter: "blur(3px)" }}
+      initial={streaming ? { opacity: 0, y: 8, filter: "blur(3px)" } : false}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       transition={{
         duration: 0.5,
