@@ -409,6 +409,16 @@ body {
   position: absolute;
   inset: 0;
   background:
+    /* corner brackets live on the terminal layer and are etched away
+       with it — no swap at the settle moment */
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 1px 12px,
     /* soft screen glow falling from the top */
     radial-gradient(120% 90% at 50% 0%, rgba(52, 211, 153, 0.032), transparent 62%),
     linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.035) 42%,
@@ -418,7 +428,9 @@ body {
     linear-gradient(rgba(52, 211, 153, 0.042) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(90deg, rgba(52, 211, 153, 0.042) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(180deg, var(--term-bg), var(--term-bg-2));
-  background-repeat: no-repeat, no-repeat, repeat, repeat, repeat, no-repeat;
+  background-repeat:
+    no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat, no-repeat, no-repeat, repeat, repeat, repeat, no-repeat;
   opacity: 0;
   clip-path: inset(100% 0 0 0);
   transition:
@@ -430,8 +442,8 @@ body {
   position: relative;
   z-index: 1;
 }
-/* ::before doubles as the corner brackets (streaming) and the etch head
-   riding the wipe boundary (settling) */
+/* ::before is only the etch head: it fades in as a band at the top, rides
+   the wipe boundary down, and fades out past the bottom edge */
 .answer-card::before {
   content: "";
   position: absolute;
@@ -457,25 +469,15 @@ body {
 }
 @keyframes term-refresh {
   from {
-    background-position: 0 0, 0 -180px, 0 0, 0 0, 0 0, 0 0;
+    background-position: left 8px top 8px, left 8px top 8px, right 8px top 8px,
+      right 8px top 8px, left 8px bottom 8px, left 8px bottom 8px, right 8px bottom 8px,
+      right 8px bottom 8px, 0 0, 0 -180px, 0 0, 0 0, 0 0, 0 0;
   }
   to {
-    background-position: 0 0, 0 calc(100% + 180px), 0 0, 0 0, 0 0, 0 0;
+    background-position: left 8px top 8px, left 8px top 8px, right 8px top 8px,
+      right 8px top 8px, left 8px bottom 8px, left 8px bottom 8px, right 8px bottom 8px,
+      right 8px bottom 8px, 0 0, 0 calc(100% + 180px), 0 0, 0 0, 0 0, 0 0;
   }
-}
-.answer-card.answer-streaming::before {
-  opacity: 1;
-  background:
-    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 12px 1px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 1px 12px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 12px 1px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 1px 12px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 12px 1px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 1px 12px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 12px 1px,
-    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 1px 12px;
-  background-repeat: no-repeat;
-  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
 }
 /* the settle wipe: after a 150ms beat with the etch head held at the top,
    it sweeps down over 1.2s — a soft glowing band straddling the wipe
@@ -490,28 +492,29 @@ body {
     clip-path 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
     opacity 0.25s ease 1.3s;
 }
-/* etch-swap masks the instant brackets→etch-head background swap with a
-   quick opacity dip, so the frame reads as collapsing into the scanline */
+/* the etch head fades in as a pure band (no background swap: the brackets
+   live on the terminal layer and are etched away with it); opacity rides a
+   1.6s in-hold-out curve matching the beat + sweep + exit */
 .answer-card.answer-settling::before {
-  opacity: 1;
   background: linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.09) 62%,
     rgba(34, 211, 238, 0.3) 90%, rgba(190, 255, 226, 0.75) 100%) 0 0 / 100% 36px no-repeat;
   filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.45));
   transform: translateY(calc(100% + 4px));
-  animation: etch-swap 0.28s ease;
-  transition:
-    transform 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
-    opacity 0.2s ease 1.25s;
+  animation: etch-head 1.6s ease forwards;
+  transition: transform 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s;
 }
-@keyframes etch-swap {
+@keyframes etch-head {
   0% {
-    opacity: 1;
-  }
-  40% {
     opacity: 0;
   }
-  100% {
+  10% {
     opacity: 1;
+  }
+  84% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }
 
