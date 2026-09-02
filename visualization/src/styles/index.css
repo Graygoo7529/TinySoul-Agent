@@ -399,13 +399,13 @@ body {
   inset: 0;
   background:
     /* soft screen glow falling from the top */
-    radial-gradient(120% 90% at 50% 0%, rgba(52, 211, 153, 0.055), transparent 62%),
-    linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.05) 42%,
-      rgba(34, 211, 238, 0.11) 50%, rgba(52, 211, 153, 0.05) 58%, transparent 100%)
+    radial-gradient(120% 90% at 50% 0%, rgba(52, 211, 153, 0.032), transparent 62%),
+    linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.035) 42%,
+      rgba(34, 211, 238, 0.07) 50%, rgba(52, 211, 153, 0.035) 58%, transparent 100%)
       0 -180px / 100% 180px,
-    repeating-linear-gradient(180deg, rgba(214, 224, 219, 0.038) 0 1px, transparent 1px 3px),
-    linear-gradient(rgba(52, 211, 153, 0.06) 1px, transparent 1px) 0 0 / 6px 6px,
-    linear-gradient(90deg, rgba(52, 211, 153, 0.06) 1px, transparent 1px) 0 0 / 6px 6px,
+    repeating-linear-gradient(180deg, rgba(214, 224, 219, 0.026) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(52, 211, 153, 0.042) 1px, transparent 1px) 0 0 / 6px 6px,
+    linear-gradient(90deg, rgba(52, 211, 153, 0.042) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(180deg, var(--term-bg), var(--term-bg-2));
   background-repeat: no-repeat, no-repeat, repeat, repeat, repeat, no-repeat;
   opacity: 0;
@@ -428,7 +428,7 @@ body {
   opacity: 0;
   transition:
     opacity 0.4s ease,
-    transform 1.2s cubic-bezier(0.55, 0, 0.35, 1);
+    transform 1.2s cubic-bezier(0.45, 0, 0.25, 1);
   pointer-events: none;
   z-index: 2;
 }
@@ -467,24 +467,24 @@ body {
   filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
 }
 /* the settle wipe: after a 150ms beat with the etch head held at the top,
-   it sweeps down over 1.2s — a bright core with a phosphor afterglow trail
-   straddling the wipe boundary; revealed document above, dark terminal
-   below. The tail fades once the sweep exits */
+   it sweeps down over 1.2s — a soft glowing band straddling the wipe
+   boundary; revealed document above, dark terminal below. The tail fades
+   once the sweep exits */
 .answer-card.answer-settling::after {
   opacity: 1;
   clip-path: inset(100% 0 0 0);
   transition:
-    clip-path 1.2s cubic-bezier(0.55, 0, 0.35, 1) 0.15s,
+    clip-path 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
     opacity 0.25s ease 1.3s;
 }
 .answer-card.answer-settling::before {
   opacity: 1;
-  background: linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.14) 68%,
-    rgba(34, 211, 238, 0.5) 92%, rgba(190, 255, 226, 0.95) 100%) 0 0 / 100% 36px no-repeat;
-  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.8));
+  background: linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.09) 62%,
+    rgba(34, 211, 238, 0.3) 90%, rgba(190, 255, 226, 0.75) 100%) 0 0 / 100% 36px no-repeat;
+  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.45));
   transform: translateY(calc(100% + 4px));
   transition:
-    transform 1.2s cubic-bezier(0.55, 0, 0.35, 1) 0.15s,
+    transform 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
     opacity 0.2s ease 1.25s;
 }
 
