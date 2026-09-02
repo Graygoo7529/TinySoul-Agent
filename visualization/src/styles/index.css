@@ -40,6 +40,14 @@
   --accent-grad: linear-gradient(135deg, #4f46e5, #2563eb);
   /* spectral hue used inside motion gradients (shine text, live border) */
   --hue-violet: #8b5cf6;
+  /* terminal stream palette: the dark "machine window" the answer types
+     into before it settles as a document — deliberately identical in both
+     page themes (it is a screen, not a surface) */
+  --term-bg: #07130e;
+  --term-bg-2: #0b1c15;
+  --term-fg: #ccd9d1;
+  --term-green: #34d399;
+  --term-cyan: #22d3ee;
   /* action-domain hues: one consistent color per backend action domain */
   --domain-core: var(--accent);
   --domain-core-soft: var(--accent-soft);
@@ -255,10 +263,33 @@ body {
     opacity: 0;
   }
 }
-.stream-caret::after {
-  content: "▍";
-  color: var(--accent);
-  animation: caret-blink 1s step-end infinite;
+/* terminal stream caret: a phosphor block on a fresh line under the text,
+   blinking with an occasional brightness flicker */
+.term-caret {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background: var(--term-green);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.55);
+  animation:
+    caret-blink 1.06s step-end infinite,
+    caret-flicker 3.7s linear infinite;
+}
+@keyframes caret-flicker {
+  0%,
+  92%,
+  96%,
+  100% {
+    filter: brightness(1);
+  }
+  93%,
+  95% {
+    filter: brightness(1.7) saturate(1.4);
+  }
 }
 
 @keyframes shimmer {
@@ -315,16 +346,29 @@ body {
     0 0 14px rgba(129, 140, 248, 0.1);
 }
 
-/* ---- agent answer card: a settled answer is recessed into the page — a
-   sunken ground with a shaded top lip and a lit bottom edge, no drop
-   shadow. While the answer streams in, a glossy sheen layer (::after)
-   covers the recess at full opacity and the card carries the raised accent
-   glow, so settling reads as the light fading out and the card sinking
-   back into the page. The hairline light sweep along the top edge (::before)
-   still gives the typing a quiet tech pulse ---- */
+/* ---- agent answer card: two states of matter ----
+   Settled: a document recessed into the page — sunken ground, shaded top
+   lip, lit bottom edge, etched corner marks, no drop shadow.
+   Streaming: a dark terminal "machine window" — a phosphor layer (::after)
+   covers the recess, corner brackets (::before) frame it, and the answer
+   types in mono under a periodic refresh band. When the stream ends
+   (.answer-settling), the terminal layer wipes away top-to-bottom behind a
+   glowing scanline and the recessed document is revealed. */
 .answer-card {
   position: relative;
-  background: linear-gradient(180deg, #e8ebf0 0%, #eef0f3 22%);
+  overflow: hidden;
+  --etch: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  background:
+    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    linear-gradient(180deg, #e8ebf0 0%, #eef0f3 22%);
+  background-repeat: no-repeat;
   border-color: color-mix(in srgb, var(--line-strong) 40%, transparent);
   box-shadow:
     inset 0 1px 2px rgba(15, 23, 42, 0.07),
@@ -334,80 +378,120 @@ body {
     box-shadow 0.6s ease,
     border-color 0.6s ease;
 }
-/* streaming sheen: the raised glossy ground, fading out on settle */
+/* terminal overlay: phosphor ground + scanlines + pixel grid + a refresh
+   band; at rest it is fully wiped (clipped from the top) and invisible */
 .answer-card::after {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.06) 42%,
+      rgba(34, 211, 238, 0.12) 50%, rgba(52, 211, 153, 0.06) 58%, transparent 100%)
+      0 -180px / 100% 180px,
+    repeating-linear-gradient(180deg, rgba(204, 217, 209, 0.035) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
+    linear-gradient(90deg, rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
+    linear-gradient(180deg, var(--term-bg), var(--term-bg-2));
+  background-repeat: no-repeat, repeat, repeat, repeat, no-repeat;
   opacity: 0;
-  transition: opacity 0.6s ease;
+  clip-path: inset(100% 0 0 0);
+  transition:
+    opacity 0.35s ease,
+    clip-path 0.45s cubic-bezier(0.22, 0.9, 0.3, 1);
   pointer-events: none;
 }
 .answer-card > .md-body {
   position: relative;
   z-index: 1;
 }
+/* ::before doubles as the corner brackets (streaming) and the wipe
+   scanline edge (settling) */
 .answer-card::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 10%;
-  right: 10%;
-  height: 1px;
-  border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  background-size: 220% 100%;
+  inset: 0;
   opacity: 0;
-  transition: opacity 0.5s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1);
   pointer-events: none;
   z-index: 2;
 }
 .answer-card.answer-streaming {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-color: color-mix(in srgb, var(--term-green) 38%, transparent);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 1px 2px rgba(30, 41, 59, 0.05),
-    0 12px 28px -14px rgba(79, 70, 229, 0.18),
-    0 0 22px rgba(99, 102, 241, 0.14);
+    inset 0 0 0 1px rgba(52, 211, 153, 0.08),
+    0 0 24px rgba(52, 211, 153, 0.12),
+    0 0 8px rgba(34, 211, 238, 0.1);
 }
 .answer-card.answer-streaming::after {
   opacity: 1;
+  clip-path: inset(0 0 0 0);
+  animation: term-refresh 3.2s linear infinite;
+}
+@keyframes term-refresh {
+  from {
+    background-position: 0 -180px, 0 0, 0 0, 0 0, 0 0;
+  }
+  to {
+    background-position: 0 calc(100% + 180px), 0 0, 0 0, 0 0, 0 0;
+  }
 }
 .answer-card.answer-streaming::before {
   opacity: 1;
-  animation: answer-sweep 1.7s linear infinite;
+  background:
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px top 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px top 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) left 8px bottom 8px / 1px 12px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 12px 1px,
+    linear-gradient(var(--term-cyan), var(--term-cyan)) right 8px bottom 8px / 1px 12px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
 }
-@keyframes answer-sweep {
-  from {
-    background-position: 220% 0;
-  }
-  to {
-    background-position: -220% 0;
-  }
+/* the settle wipe: terminal layer clips away from the top while a glowing
+   scanline rides the boundary; the tail fades once the sweep exits */
+.answer-card.answer-settling::after {
+  opacity: 1;
+  clip-path: inset(100% 0 0 0);
+  transition:
+    clip-path 0.7s cubic-bezier(0.6, 0, 0.3, 1),
+    opacity 0.25s ease 0.62s;
+}
+.answer-card.answer-settling::before {
+  opacity: 1;
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.9) 30%,
+    rgba(34, 211, 238, 0.9) 70%, transparent) 0 0 / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.8));
+  transform: translateY(calc(100% + 4px));
+  transition:
+    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1),
+    opacity 0.15s ease 0.6s;
 }
 
 /* dark theme: the settled answer sinks into a dark well (sunken ground,
-   strong top-lip shade, faint bottom edge light); streaming keeps the
-   accent hairline and soft glow on top of the sheen layer */
+   strong top-lip shade, faint bottom edge light); the terminal overlay is
+   identical in both themes — it is a screen, not a surface */
 .dark .answer-card {
-  background: linear-gradient(180deg, #070a0f 0%, #090c12 24%);
+  --etch: color-mix(in srgb, var(--line-strong) 50%, transparent);
+  background:
+    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    linear-gradient(180deg, #070a0f 0%, #090c12 24%);
+  background-repeat: no-repeat;
   border-color: color-mix(in srgb, var(--line) 80%, transparent);
   box-shadow:
     inset 0 1px 3px rgba(0, 0, 0, 0.5),
     inset 0 3px 10px rgba(0, 0, 0, 0.28),
     inset 0 -1px 0 rgba(255, 255, 255, 0.035);
-}
-.dark .answer-card::after {
-  background: linear-gradient(180deg, #1a2030, #151a23 32%);
-}
-.dark .answer-card.answer-streaming {
-  border-color: rgba(129, 140, 248, 0.34);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 4px 16px rgba(0, 0, 0, 0.35),
-    0 0 26px rgba(129, 140, 248, 0.22);
 }
 
 /* inside the recessed answer card, code chips and table headers sit on the
@@ -420,17 +504,69 @@ body {
   background: var(--bg-elev);
 }
 
-/* ---- chat page background: barely-there 24px grid ---- */
+/* terminal typography while the answer types; the swap back to prose is
+   hidden behind the settle wipe, which reveals the typeset document */
+.answer-streaming .md-body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--term-fg);
+}
+.answer-streaming .md-body strong {
+  color: #eaf6ef;
+}
+.answer-streaming .md-body a {
+  color: var(--term-cyan);
+}
+.answer-streaming .md-body blockquote {
+  border-left-color: rgba(52, 211, 153, 0.35);
+  color: rgba(204, 217, 209, 0.72);
+}
+.answer-streaming .md-body pre {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(52, 211, 153, 0.18);
+}
+.answer-streaming .md-body :not(pre) > code {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--term-green);
+}
+
+/* ---- chat page background: blueprint graph paper, 24px minor / 120px major ---- */
 .chat-grid {
   background-image:
-    linear-gradient(rgba(15, 23, 42, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.02) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(rgba(13, 148, 136, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 148, 136, 0.03) 1px, transparent 1px),
+    linear-gradient(rgba(13, 148, 136, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 148, 136, 0.05) 1px, transparent 1px);
+  background-size:
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
 }
 .dark .chat-grid {
   background-image:
-    linear-gradient(rgba(230, 233, 239, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(230, 233, 239, 0.02) 1px, transparent 1px);
+    linear-gradient(rgba(45, 212, 191, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.025) 1px, transparent 1px),
+    linear-gradient(rgba(45, 212, 191, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.045) 1px, transparent 1px);
+}
+
+/* ---- composer terminal hint: prompt glyph + mono placeholder ---- */
+.composer-prompt {
+  font-family: var(--font-mono);
+  color: var(--fg-faint);
+  transition:
+    color 0.25s ease,
+    text-shadow 0.25s ease;
+}
+.composer-box:focus-within .composer-prompt {
+  color: var(--term-green);
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+}
+.composer-input::placeholder {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 
 /* ---- final answer materializing: rise + de-blur, no hard cut ---- */

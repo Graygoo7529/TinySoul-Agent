@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, History, PanelRightOpen, Wrench } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import type { ChatTurn, ChatTurnMaintenance } from "../../derive/model";
 import { useAppStore } from "../../store/appStore";
 import { formatDuration, formatTokens } from "../../utils/format";
-import { EASE_CALM, ANSWER_STREAM_DELAY_MS, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
+import { EASE_CALM, ANSWER_STREAM_DELAY_MS, FOLD_DELAY_MS, LIVE_FOLD_MS, SETTLE_WIPE_MS } from "../../utils/motion";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { Button } from "../ui/Button";
 import { Markdown } from "../markdown/Markdown";
@@ -179,11 +179,15 @@ function maintenanceInitiation(maintenance: ChatTurnMaintenance): string {
 
 /**
  * The final answer card. When the turn completes while this view is
- * mounted, the card materializes just as the live status finishes folding
- * away, then the text streams in at a fixed cadence (~220 chars/s, capped
- * at 7s for long answers) under a soft streaming glow. Answers from
- * restored history render instantly. While streaming, the chat view keeps
- * the turn top-anchored (answerStreamingTurnId).
+ * mounted, the card materializes as a dark terminal window just as the
+ * live status finishes folding away, then the text types in at a fixed
+ * cadence (~220 chars/s, capped at 7s for long answers) behind terminal
+ * chrome (scanlines, corner brackets, a phosphor block caret). When the
+ * stream ends, the terminal layer wipes away top-to-bottom behind a
+ * scanline edge, revealing the settled document recessed into the page
+ * (see .answer-card in the stylesheet). Answers from restored history
+ * render instantly in the settled state. While streaming, the chat view
+ * keeps the turn top-anchored (answerStreamingTurnId).
  */
 function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; stream: boolean }) {
   const reduced = useReducedMotion();
@@ -196,6 +200,11 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
     startDelayMs: streaming ? ANSWER_STREAM_DELAY_MS : 0,
     active: streaming,
   });
+  // Settle wipe: when typing ends, keep .answer-settling for the wipe
+  // window so the terminal layer sweeps away before the card is fully
+  // static. Restored answers never typed here, so they never settle.
+  const [settling, setSettling] = useState(false);
+  const wasTyping = useRef(false);
 
   useEffect(() => {
     if (!(streaming && typing)) return;
@@ -203,10 +212,22 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
     return () => setAnswerStreaming(null);
   }, [streaming, typing, turnId, setAnswerStreaming]);
 
+  useEffect(() => {
+    if (typing) {
+      wasTyping.current = true;
+      return;
+    }
+    if (!wasTyping.current) return;
+    wasTyping.current = false;
+    setSettling(true);
+    const timer = setTimeout(() => setSettling(false), SETTLE_WIPE_MS);
+    return () => clearTimeout(timer);
+  }, [typing]);
+
   return (
     <motion.div
       className={`answer-card rounded-2xl rounded-tl-sm border px-4 py-3 ${
-        typing ? "answer-streaming" : ""
+        typing ? "answer-streaming" : settling ? "answer-settling" : ""
       }`}
       initial={streaming ? { opacity: 0, y: 8, filter: "blur(3px)" } : false}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -216,7 +237,8 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
         delay: streaming ? (FOLD_DELAY_MS + LIVE_FOLD_MS - 120) / 1000 : 0,
       }}
     >
-      <Markdown>{typing ? `${shown}▍` : shown}</Markdown>
+      <Markdown>{shown}</Markdown>
+      {typing && <span className="term-caret" aria-hidden="true" />}
     </motion.div>
   );
 }

@@ -73,27 +73,32 @@ export function Composer({ hasRunningTurn }: { hasRunningTurn?: boolean }) {
   return (
     <div className="border-t border-line bg-bg px-4 pt-3 pb-4">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-xl border border-line-strong bg-bg-elev shadow-card transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-(--focus-ring)">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void send();
+        <div className="composer-box rounded-xl border border-line-strong bg-bg-elev shadow-card transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-(--focus-ring)">
+          <div className="flex items-start px-3.5 pt-3 pb-1">
+            <span className="composer-prompt mr-2 select-none leading-6" aria-hidden="true">
+              ›
+            </span>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder={
+                connected
+                  ? turnActive
+                    ? "Append to the current turn…"
+                    : "Message TinySoul…"
+                  : "Connect to a running TinySoul backend first"
               }
-            }}
-            placeholder={
-              connected
-                ? turnActive
-                  ? "Append to the current turn…"
-                  : "Message TinySoul…"
-                : "Connect to a running TinySoul backend first"
-            }
-            disabled={!connected}
-            rows={Math.min(8, Math.max(1, text.split("\n").length))}
-            className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm leading-6 outline-none placeholder:text-fg-faint disabled:cursor-not-allowed"
-          />
+              disabled={!connected}
+              rows={Math.min(8, Math.max(1, text.split("\n").length))}
+              className="composer-input block w-full flex-1 resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-fg-faint disabled:cursor-not-allowed"
+            />
+          </div>
           <div className="flex items-center justify-between px-2.5 pb-2">
             <div className="px-1 text-[11px] text-fg-faint">
               Enter to send · Shift+Enter for newline
