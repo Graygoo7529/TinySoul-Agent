@@ -14,6 +14,6 @@ export const FOLD_DELAY_MS = 600;
 /** The answer stream starts once the fold has finished plus a short beat. */
 export const ANSWER_STREAM_DELAY_MS = FOLD_DELAY_MS + LIVE_FOLD_MS + 280;
 /** Settle wipe: once the stream ends, the scanline holds a beat at the top
-    (150ms), sweeps the terminal layer away top-to-bottom (0.7s), then a
-    short fade tail; the .answer-settling class is kept for this window. */
-export const SETTLE_WIPE_MS = 1050;
+    (150ms), the etch head sweeps the terminal layer away top-to-bottom
+    (1.2s), then a short fade tail; .answer-settling is kept for this window. */
+export const SETTLE_WIPE_MS = 1600;

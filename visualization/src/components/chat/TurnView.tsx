@@ -226,7 +226,7 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
 
   return (
     <motion.div
-      className={`answer-card rounded-2xl rounded-tl-sm border px-4 py-3 ${
+      className={`answer-card rounded-sm border px-6 py-5 ${
         typing ? "answer-streaming" : settling ? "answer-settling" : ""
       }`}
       initial={streaming ? { opacity: 0, y: 8, filter: "blur(3px)" } : false}

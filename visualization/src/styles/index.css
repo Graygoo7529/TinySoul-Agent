@@ -348,39 +348,47 @@ body {
 }
 
 /* ---- agent answer card: two states of matter ----
-   Settled: a document recessed into the page — sunken ground, shaded top
-   lip, lit bottom edge, phosphor-etched corner marks and a faint scanline
-   residue, like the terminal burned into paper.
+   Settled: a square document plate recessed into the page — sunken ground,
+   shaded top lip, lit bottom edge, an etched inner frame with L corner
+   marks and a faint scanline residue, like the terminal burned into paper.
    Streaming: a dark terminal "machine window" — a neutral graphite layer
    (::after) covers the recess, with the phosphor green living only in the
    decorations: pixel grid, corner brackets, caret, refresh band. When the
    stream ends (.answer-settling), the scanline holds a beat at the top,
-   then sweeps down; the terminal layer wipes away and the phosphor text
-   cools into ink on the revealed document. */
+   then an etch head sweeps down: the terminal layer wipes away and the
+   phosphor text cools into ink on the revealed document. */
 .answer-card {
   position: relative;
   overflow: hidden;
   --etch: color-mix(in srgb, var(--term-green) 22%, var(--line-strong));
+  --frame: color-mix(in srgb, var(--line-strong) 42%, transparent);
   background:
-    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    /* L corner marks */
+    linear-gradient(var(--etch), var(--etch)) left 7px top 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 7px top 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) right 7px top 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 7px top 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) left 7px bottom 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 7px bottom 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) right 7px bottom 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 7px bottom 7px / 1px 12px,
+    /* inner frame hairlines, broken before the corners */
+    linear-gradient(var(--frame), var(--frame)) left 24px top 4px / calc(100% - 48px) 1px,
+    linear-gradient(var(--frame), var(--frame)) left 24px bottom 4px / calc(100% - 48px) 1px,
+    linear-gradient(var(--frame), var(--frame)) left 4px top 24px / 1px calc(100% - 48px),
+    linear-gradient(var(--frame), var(--frame)) right 4px top 24px / 1px calc(100% - 48px),
+    /* scanline residue */
     repeating-linear-gradient(180deg, rgba(15, 23, 42, 0.014) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #e8ebf0 0%, #eef0f3 22%);
   background-repeat: no-repeat;
-  border-color: color-mix(in srgb, var(--line-strong) 40%, transparent);
+  border-color: color-mix(in srgb, var(--line-strong) 55%, transparent);
   box-shadow:
     inset 0 1px 2px rgba(15, 23, 42, 0.07),
     inset 0 3px 8px rgba(15, 23, 42, 0.045),
     inset 0 -1px 0 rgba(255, 255, 255, 0.65);
   transition:
-    box-shadow 0.6s ease,
-    border-color 0.6s ease;
+    box-shadow 0.9s ease,
+    border-color 0.9s ease;
 }
 /* terminal overlay: graphite ground + scanlines + green pixel grid + a
    refresh band; at rest it is fully wiped (clipped from the top) and
@@ -390,14 +398,16 @@ body {
   position: absolute;
   inset: 0;
   background:
+    /* soft screen glow falling from the top */
+    radial-gradient(120% 90% at 50% 0%, rgba(52, 211, 153, 0.055), transparent 62%),
     linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.05) 42%,
       rgba(34, 211, 238, 0.11) 50%, rgba(52, 211, 153, 0.05) 58%, transparent 100%)
       0 -180px / 100% 180px,
-    repeating-linear-gradient(180deg, rgba(214, 224, 219, 0.03) 0 1px, transparent 1px 3px),
-    linear-gradient(rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
-    linear-gradient(90deg, rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
+    repeating-linear-gradient(180deg, rgba(214, 224, 219, 0.038) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(52, 211, 153, 0.06) 1px, transparent 1px) 0 0 / 6px 6px,
+    linear-gradient(90deg, rgba(52, 211, 153, 0.06) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(180deg, var(--term-bg), var(--term-bg-2));
-  background-repeat: no-repeat, repeat, repeat, repeat, no-repeat;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, repeat, no-repeat;
   opacity: 0;
   clip-path: inset(100% 0 0 0);
   transition:
@@ -409,8 +419,8 @@ body {
   position: relative;
   z-index: 1;
 }
-/* ::before doubles as the corner brackets (streaming) and the wipe
-   scanline edge (settling) */
+/* ::before doubles as the corner brackets (streaming) and the etch head
+   riding the wipe boundary (settling) */
 .answer-card::before {
   content: "";
   position: absolute;
@@ -418,7 +428,7 @@ body {
   opacity: 0;
   transition:
     opacity 0.4s ease,
-    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1);
+    transform 1.2s cubic-bezier(0.55, 0, 0.35, 1);
   pointer-events: none;
   z-index: 2;
 }
@@ -436,10 +446,10 @@ body {
 }
 @keyframes term-refresh {
   from {
-    background-position: 0 -180px, 0 0, 0 0, 0 0, 0 0;
+    background-position: 0 0, 0 -180px, 0 0, 0 0, 0 0, 0 0;
   }
   to {
-    background-position: 0 calc(100% + 180px), 0 0, 0 0, 0 0, 0 0;
+    background-position: 0 0, 0 calc(100% + 180px), 0 0, 0 0, 0 0, 0 0;
   }
 }
 .answer-card.answer-streaming::before {
@@ -456,25 +466,26 @@ body {
   background-repeat: no-repeat;
   filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
 }
-/* the settle wipe: after a 150ms beat with the scanline held at the top,
-   the terminal layer clips away downward-free while the glowing scanline
-   rides the boundary; the tail fades once the sweep exits */
+/* the settle wipe: after a 150ms beat with the etch head held at the top,
+   it sweeps down over 1.2s — a bright core with a phosphor afterglow trail
+   straddling the wipe boundary; revealed document above, dark terminal
+   below. The tail fades once the sweep exits */
 .answer-card.answer-settling::after {
   opacity: 1;
   clip-path: inset(100% 0 0 0);
   transition:
-    clip-path 0.7s cubic-bezier(0.6, 0, 0.3, 1) 0.15s,
-    opacity 0.25s ease 0.8s;
+    clip-path 1.2s cubic-bezier(0.55, 0, 0.35, 1) 0.15s,
+    opacity 0.25s ease 1.3s;
 }
 .answer-card.answer-settling::before {
   opacity: 1;
-  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.9) 30%,
-    rgba(34, 211, 238, 0.9) 70%, transparent) 0 0 / 100% 2px no-repeat;
+  background: linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.14) 68%,
+    rgba(34, 211, 238, 0.5) 92%, rgba(190, 255, 226, 0.95) 100%) 0 0 / 100% 36px no-repeat;
   filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.8));
   transform: translateY(calc(100% + 4px));
   transition:
-    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1) 0.15s,
-    opacity 0.15s ease 0.78s;
+    transform 1.2s cubic-bezier(0.55, 0, 0.35, 1) 0.15s,
+    opacity 0.2s ease 1.25s;
 }
 
 /* dark theme: the settled answer sinks into a dark well (sunken ground,
@@ -482,15 +493,20 @@ body {
    identical in both themes — it is a screen, not a surface */
 .dark .answer-card {
   --etch: color-mix(in srgb, var(--term-green) 18%, var(--line-strong));
+  --frame: color-mix(in srgb, var(--line-strong) 36%, transparent);
   background:
-    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) right 6px top 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
-    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
-    linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    linear-gradient(var(--etch), var(--etch)) left 7px top 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 7px top 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) right 7px top 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 7px top 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) left 7px bottom 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) left 7px bottom 7px / 1px 12px,
+    linear-gradient(var(--etch), var(--etch)) right 7px bottom 7px / 12px 1px,
+    linear-gradient(var(--etch), var(--etch)) right 7px bottom 7px / 1px 12px,
+    linear-gradient(var(--frame), var(--frame)) left 24px top 4px / calc(100% - 48px) 1px,
+    linear-gradient(var(--frame), var(--frame)) left 24px bottom 4px / calc(100% - 48px) 1px,
+    linear-gradient(var(--frame), var(--frame)) left 4px top 24px / 1px calc(100% - 48px),
+    linear-gradient(var(--frame), var(--frame)) right 4px top 24px / 1px calc(100% - 48px),
     repeating-linear-gradient(180deg, rgba(230, 237, 234, 0.013) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #070a0f 0%, #090c12 24%);
   background-repeat: no-repeat;
@@ -513,18 +529,19 @@ body {
 
 /* phosphor-to-ink: the answer keeps the document's prose typography while
    streaming — only the colors wear terminal phosphor. Every tinted element
-   glides back over the settle wipe instead of snapping, so the scanline
-   reads as cooling the text into ink */
+   cools back in step with the etch head (150ms beat, then the sweep), so
+   the scanline reads as setting the text into ink */
 .answer-card .md-body,
 .answer-card .md-body strong,
 .answer-card .md-body a,
 .answer-card .md-body blockquote,
 .answer-card .md-body pre,
+.answer-card .md-body pre code,
 .answer-card .md-body :not(pre) > code {
   transition:
-    color 0.7s ease,
-    background-color 0.7s ease,
-    border-color 0.7s ease;
+    color 0.8s ease 0.15s,
+    background-color 0.8s ease 0.15s,
+    border-color 0.8s ease 0.15s;
 }
 .answer-streaming .md-body {
   color: var(--term-fg);
@@ -542,6 +559,9 @@ body {
 .answer-streaming .md-body pre {
   background: rgba(0, 0, 0, 0.35);
   border-color: rgba(52, 211, 153, 0.18);
+}
+.answer-streaming .md-body pre code {
+  color: var(--term-fg);
 }
 .answer-streaming .md-body :not(pre) > code {
   background: rgba(52, 211, 153, 0.12);
