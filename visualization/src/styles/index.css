@@ -42,10 +42,11 @@
   --hue-violet: #8b5cf6;
   /* terminal stream palette: the dark "machine window" the answer types
      into before it settles as a document — deliberately identical in both
-     page themes (it is a screen, not a surface) */
-  --term-bg: #07130e;
-  --term-bg-2: #0b1c15;
-  --term-fg: #ccd9d1;
+     page themes (it is a screen, not a surface). The ground is neutral
+     graphite; the phosphor green lives only in the decorations */
+  --term-bg: #0d1217;
+  --term-bg-2: #111820;
+  --term-fg: #d0d8d4;
   --term-green: #34d399;
   --term-cyan: #22d3ee;
   /* action-domain hues: one consistent color per backend action domain */
@@ -348,16 +349,18 @@ body {
 
 /* ---- agent answer card: two states of matter ----
    Settled: a document recessed into the page — sunken ground, shaded top
-   lip, lit bottom edge, etched corner marks, no drop shadow.
-   Streaming: a dark terminal "machine window" — a phosphor layer (::after)
-   covers the recess, corner brackets (::before) frame it, and the answer
-   types in mono under a periodic refresh band. When the stream ends
-   (.answer-settling), the terminal layer wipes away top-to-bottom behind a
-   glowing scanline and the recessed document is revealed. */
+   lip, lit bottom edge, phosphor-etched corner marks and a faint scanline
+   residue, like the terminal burned into paper.
+   Streaming: a dark terminal "machine window" — a neutral graphite layer
+   (::after) covers the recess, with the phosphor green living only in the
+   decorations: pixel grid, corner brackets, caret, refresh band. When the
+   stream ends (.answer-settling), the scanline holds a beat at the top,
+   then sweeps down; the terminal layer wipes away and the phosphor text
+   cools into ink on the revealed document. */
 .answer-card {
   position: relative;
   overflow: hidden;
-  --etch: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  --etch: color-mix(in srgb, var(--term-green) 22%, var(--line-strong));
   background:
     linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
     linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
@@ -367,6 +370,7 @@ body {
     linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
     linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
     linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    repeating-linear-gradient(180deg, rgba(15, 23, 42, 0.014) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #e8ebf0 0%, #eef0f3 22%);
   background-repeat: no-repeat;
   border-color: color-mix(in srgb, var(--line-strong) 40%, transparent);
@@ -378,17 +382,18 @@ body {
     box-shadow 0.6s ease,
     border-color 0.6s ease;
 }
-/* terminal overlay: phosphor ground + scanlines + pixel grid + a refresh
-   band; at rest it is fully wiped (clipped from the top) and invisible */
+/* terminal overlay: graphite ground + scanlines + green pixel grid + a
+   refresh band; at rest it is fully wiped (clipped from the top) and
+   invisible */
 .answer-card::after {
   content: "";
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.06) 42%,
-      rgba(34, 211, 238, 0.12) 50%, rgba(52, 211, 153, 0.06) 58%, transparent 100%)
+    linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.05) 42%,
+      rgba(34, 211, 238, 0.11) 50%, rgba(52, 211, 153, 0.05) 58%, transparent 100%)
       0 -180px / 100% 180px,
-    repeating-linear-gradient(180deg, rgba(204, 217, 209, 0.035) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(180deg, rgba(214, 224, 219, 0.03) 0 1px, transparent 1px 3px),
     linear-gradient(rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(90deg, rgba(52, 211, 153, 0.045) 1px, transparent 1px) 0 0 / 6px 6px,
     linear-gradient(180deg, var(--term-bg), var(--term-bg-2));
@@ -451,14 +456,15 @@ body {
   background-repeat: no-repeat;
   filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
 }
-/* the settle wipe: terminal layer clips away from the top while a glowing
-   scanline rides the boundary; the tail fades once the sweep exits */
+/* the settle wipe: after a 150ms beat with the scanline held at the top,
+   the terminal layer clips away downward-free while the glowing scanline
+   rides the boundary; the tail fades once the sweep exits */
 .answer-card.answer-settling::after {
   opacity: 1;
   clip-path: inset(100% 0 0 0);
   transition:
-    clip-path 0.7s cubic-bezier(0.6, 0, 0.3, 1),
-    opacity 0.25s ease 0.62s;
+    clip-path 0.7s cubic-bezier(0.6, 0, 0.3, 1) 0.15s,
+    opacity 0.25s ease 0.8s;
 }
 .answer-card.answer-settling::before {
   opacity: 1;
@@ -467,15 +473,15 @@ body {
   filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.8));
   transform: translateY(calc(100% + 4px));
   transition:
-    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1),
-    opacity 0.15s ease 0.6s;
+    transform 0.7s cubic-bezier(0.6, 0, 0.3, 1) 0.15s,
+    opacity 0.15s ease 0.78s;
 }
 
 /* dark theme: the settled answer sinks into a dark well (sunken ground,
    strong top-lip shade, faint bottom edge light); the terminal overlay is
    identical in both themes — it is a screen, not a surface */
 .dark .answer-card {
-  --etch: color-mix(in srgb, var(--line-strong) 50%, transparent);
+  --etch: color-mix(in srgb, var(--term-green) 18%, var(--line-strong));
   background:
     linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 9px 1px,
     linear-gradient(var(--etch), var(--etch)) left 6px top 6px / 1px 9px,
@@ -485,6 +491,7 @@ body {
     linear-gradient(var(--etch), var(--etch)) left 6px bottom 6px / 1px 9px,
     linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 9px 1px,
     linear-gradient(var(--etch), var(--etch)) right 6px bottom 6px / 1px 9px,
+    repeating-linear-gradient(180deg, rgba(230, 237, 234, 0.013) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, #070a0f 0%, #090c12 24%);
   background-repeat: no-repeat;
   border-color: color-mix(in srgb, var(--line) 80%, transparent);
@@ -504,12 +511,22 @@ body {
   background: var(--bg-elev);
 }
 
-/* terminal typography while the answer types; the swap back to prose is
-   hidden behind the settle wipe, which reveals the typeset document */
+/* phosphor-to-ink: the answer keeps the document's prose typography while
+   streaming — only the colors wear terminal phosphor. Every tinted element
+   glides back over the settle wipe instead of snapping, so the scanline
+   reads as cooling the text into ink */
+.answer-card .md-body,
+.answer-card .md-body strong,
+.answer-card .md-body a,
+.answer-card .md-body blockquote,
+.answer-card .md-body pre,
+.answer-card .md-body :not(pre) > code {
+  transition:
+    color 0.7s ease,
+    background-color 0.7s ease,
+    border-color 0.7s ease;
+}
 .answer-streaming .md-body {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.7;
   color: var(--term-fg);
 }
 .answer-streaming .md-body strong {

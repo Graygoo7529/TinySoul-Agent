@@ -181,7 +181,7 @@ function maintenanceInitiation(maintenance: ChatTurnMaintenance): string {
  * The final answer card. When the turn completes while this view is
  * mounted, the card materializes as a dark terminal window just as the
  * live status finishes folding away, then the text types in at a fixed
- * cadence (~220 chars/s, capped at 7s for long answers) behind terminal
+ * cadence (~150 chars/s, capped at 9s for long answers) behind terminal
  * chrome (scanlines, corner brackets, a phosphor block caret). When the
  * stream ends, the terminal layer wipes away top-to-bottom behind a
  * scanline edge, revealing the settled document recessed into the page
@@ -194,9 +194,9 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
   const setAnswerStreaming = useAppStore((s) => s.setAnswerStreaming);
   const streaming = stream && !reduced;
   const { shown, typing } = useTypewriter(text, {
-    // fixed cadence ≈220 chars/s; very long answers finish within 7s. The
+    // fixed cadence ≈150 chars/s; very long answers finish within 9s. The
     // stream starts only after the fold has finished plus a short beat.
-    durationMs: Math.min(text.length * 4.5, 7000),
+    durationMs: Math.min(text.length * 6.5, 9000),
     startDelayMs: streaming ? ANSWER_STREAM_DELAY_MS : 0,
     active: streaming,
   });
