@@ -292,6 +292,17 @@ body {
     filter: brightness(1.7) saturate(1.4);
   }
 }
+/* settle beat: the caret stays mounted through the wipe and collapses away
+   instead of blinking out */
+.answer-settling .term-caret {
+  animation: caret-out 0.32s ease forwards;
+}
+@keyframes caret-out {
+  to {
+    opacity: 0;
+    transform: scaleY(0.5);
+  }
+}
 
 @keyframes shimmer {
   from {
@@ -468,24 +479,40 @@ body {
 }
 /* the settle wipe: after a 150ms beat with the etch head held at the top,
    it sweeps down over 1.2s — a soft glowing band straddling the wipe
-   boundary; revealed document above, dark terminal below. The tail fades
-   once the sweep exits */
+   boundary; revealed document above, dark terminal below. The refresh band
+   keeps sweeping the still-covered region (no animation snap at the swap),
+   and the tail fades once the sweep exits */
 .answer-card.answer-settling::after {
   opacity: 1;
   clip-path: inset(100% 0 0 0);
+  animation: term-refresh 3.2s linear infinite;
   transition:
     clip-path 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
     opacity 0.25s ease 1.3s;
 }
+/* etch-swap masks the instant brackets→etch-head background swap with a
+   quick opacity dip, so the frame reads as collapsing into the scanline */
 .answer-card.answer-settling::before {
   opacity: 1;
   background: linear-gradient(180deg, transparent 0%, rgba(52, 211, 153, 0.09) 62%,
     rgba(34, 211, 238, 0.3) 90%, rgba(190, 255, 226, 0.75) 100%) 0 0 / 100% 36px no-repeat;
   filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.45));
   transform: translateY(calc(100% + 4px));
+  animation: etch-swap 0.28s ease;
   transition:
     transform 1.2s cubic-bezier(0.45, 0, 0.25, 1) 0.15s,
     opacity 0.2s ease 1.25s;
+}
+@keyframes etch-swap {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* dark theme: the settled answer sinks into a dark well (sunken ground,

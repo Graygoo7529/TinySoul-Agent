@@ -238,7 +238,7 @@ function AnswerCard({ turnId, text, stream }: { turnId: string; text: string; st
       }}
     >
       <Markdown>{shown}</Markdown>
-      {typing && <span className="term-caret" aria-hidden="true" />}
+      {(typing || settling) && <span className="term-caret" aria-hidden="true" />}
     </motion.div>
   );
 }
