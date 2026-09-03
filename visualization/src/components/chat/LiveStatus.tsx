@@ -18,6 +18,7 @@ import { EASE_CALM, FOLD_DELAY_MS, LIVE_FOLD_MS } from "../../utils/motion";
 import { useNow } from "../../hooks/useNow";
 import { useThrottledValue } from "../../hooks/useThrottledValue";
 import { useOverflowing } from "../../hooks/useOverflowing";
+import { useTruncated } from "../../hooks/useTruncated";
 import { useAppStore } from "../../store/appStore";
 import { Markdown } from "../markdown/Markdown";
 import { Crossfade } from "../ui/Crossfade";
@@ -615,7 +616,12 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
       .split("\n")
       .find((l) => l.trim().length > 0)
       ?.trim() ?? item.text;
-  const collapsible = full.trim() !== previewLine;
+  // Expand is offered when the preview does not carry the whole thought:
+  // either the reasoning has more lines, or its single line is itself
+  // truncated in the slate (measured on the rendered element).
+  const hasMoreLines = full.trim() !== previewLine;
+  const [previewTruncated, setPreviewTruncated] = useState(false);
+  const collapsible = hasMoreLines || previewTruncated;
 
   return (
     <div className="mx-4 mb-2.5 rounded-lg bg-accent-soft/40 px-3 py-2">
@@ -642,6 +648,7 @@ function ThinkingStream({ item }: { item: ActivityItem }) {
         preview={previewLine}
         full={full}
         expanded={expanded}
+        onTruncatedChange={setPreviewTruncated}
       />
     </div>
   );
@@ -660,6 +667,7 @@ function ThinkingWriter({
   preview,
   full,
   expanded,
+  onTruncatedChange,
 }: {
   /** Stable identity of the thought item (ActivityItem.seq). */
   itemSeq: number;
@@ -668,12 +676,20 @@ function ThinkingWriter({
   /** Full reasoning markdown shown while expanded. */
   full: string;
   expanded: boolean;
+  /** Reports whether the collapsed preview line is visually truncated —
+      drives the Expand button for single-paragraph thoughts. */
+  onTruncatedChange: (truncated: boolean) => void;
 }) {
   const reduced = useReducedMotion();
   const previewRef = useRef(preview);
   previewRef.current = preview;
   const [exiting, setExiting] = useState<{ id: number; text: string } | null>(null);
   const lastSeq = useRef(itemSeq);
+  const { ref: lineRef, truncated } = useTruncated<HTMLDivElement>(preview);
+
+  useEffect(() => {
+    onTruncatedChange(truncated);
+  }, [truncated, onTruncatedChange]);
 
   // Thought swap: park the outgoing line on the fade layer.
   useEffect(() => {
@@ -707,7 +723,11 @@ function ThinkingWriter({
             delay: reduced ? 0 : THINK_REVEAL_DELAY_MS / 1000,
           }}
         >
-          <Markdown className="truncate">{preview}</Markdown>
+          {/* measured element: md-inline flattens the markdown into inline
+              content, so this block's scrollWidth is the full text width */}
+          <Markdown ref={lineRef} className="truncate">
+            {preview}
+          </Markdown>
         </motion.div>
       )}
       {exiting && !expanded && (

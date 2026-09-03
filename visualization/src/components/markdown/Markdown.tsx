@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -15,12 +16,15 @@ import rehypeKatex from "rehype-katex";
 export function Markdown({
   children,
   className = "",
+  ref,
 }: {
   children: string;
   className?: string;
+  /** Forwarded to the .md-body root (e.g. truncation measurement). */
+  ref?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className={`md-body ${className}`}>
+    <div ref={ref} className={`md-body ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
         {children}
       </ReactMarkdown>
