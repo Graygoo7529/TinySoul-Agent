@@ -51,6 +51,18 @@ export interface BuildChatOptions {
   preserveRunning?: boolean;
 }
 
+interface MaintenanceRequestFacts {
+  executionDay?: string;
+  trigger?: "manual" | "scheduled";
+  targetDay?: string;
+}
+
+interface TurnOriginFacts {
+  businessDay?: string;
+  requestId?: string;
+  maintenanceKind?: "home" | "memory";
+}
+
 export function useDerivedChat(
   events: EndpointEvent[],
   localInputs: LocalInputEcho[] = [],
@@ -79,13 +91,10 @@ export function buildChatTurns(
   options: BuildChatOptions = {},
 ): ChatTurn[] {
   const turns = new Map<string, ChatTurn>();
-  const dayByTurn = new Map<string, string>();
-  // request_id → maintenance request facts (trigger / memory target day),
-  // correlated into each maintenance turn via turn.started's request_id.
-  const maintenanceByRequest = new Map<
-    string,
-    { trigger?: "manual" | "scheduled"; targetDay?: string }
-  >();
+  const turnOrigins = new Map<string, TurnOriginFacts>();
+  // request_id -> Maintenance-owned lifecycle facts. started supplies the
+  // live execution day; completed also restores it for older journal entries.
+  const maintenanceByRequest = new Map<string, MaintenanceRequestFacts>();
   for (const event of events) {
     if (event.name === "maintenance.started") {
       const request = asRecord(event.payload?.request);
@@ -93,16 +102,34 @@ export function buildChatTurns(
       if (!requestId) continue;
       const trigger = asString(request?.trigger);
       const targetDay = asString(request?.target_day);
+      const executionDay = asString(event.payload?.business_day);
       maintenanceByRequest.set(requestId, {
+        ...maintenanceByRequest.get(requestId),
+        ...(executionDay ? { executionDay } : {}),
         ...(trigger === "manual" || trigger === "scheduled" ? { trigger } : {}),
         ...(targetDay ? { targetDay } : {}),
       });
       continue;
     }
+    if (event.name === "maintenance.completed") {
+      const requestId = asString(event.payload?.request_id);
+      const executionDay = asString(event.payload?.business_day);
+      if (requestId && executionDay) {
+        maintenanceByRequest.set(requestId, {
+          ...maintenanceByRequest.get(requestId),
+          executionDay,
+        });
+      }
+      continue;
+    }
     if (event.name !== "turn.started") continue;
     const turn = event.scope.find((frame) => frame.level === "turn");
-    const day = asString(event.payload?.business_day);
-    if (turn && day) dayByTurn.set(turn.name, day);
+    if (!turn) continue;
+    turnOrigins.set(turn.name, {
+      businessDay: asString(event.payload?.business_day),
+      requestId: asString(event.payload?.request_id),
+      maintenanceKind: maintenanceKindOf(asString(event.payload?.input_source)),
+    });
   }
   // command_id → text remains a short-lived fallback for optimistic input;
   // accepted events carry the authoritative text when available.
@@ -130,11 +157,16 @@ export function buildChatTurns(
     const cycleFrame = ev.scope.find((f) => f.level === "cycle");
     const phaseFrame = ev.scope.find((f) => f.level === "phase");
     const turnId = turnFrame?.name ?? null;
+    const origin = turnId ? turnOrigins.get(turnId) : undefined;
+    const conversationDay = origin?.maintenanceKind
+      ? origin.requestId
+        ? maintenanceByRequest.get(origin.requestId)?.executionDay
+        : undefined
+      : origin?.businessDay;
     if (
       options.activeDay &&
-      turnId &&
-      dayByTurn.has(turnId) &&
-      dayByTurn.get(turnId) !== options.activeDay
+      conversationDay &&
+      conversationDay !== options.activeDay
     ) {
       continue;
     }
@@ -176,13 +208,17 @@ export function buildChatTurns(
         // Maintenance turns carry their task identity in input_source; they
         // never have a user message — the initiation bubble renders from
         // turn.maintenance instead.
-        const inputSource = asString(ev.payload?.input_source);
-        if (inputSource === "maintenance.home" || inputSource === "maintenance.memory") {
+        const kind = maintenanceKindOf(asString(ev.payload?.input_source));
+        if (kind) {
           const request = requestId ? maintenanceByRequest.get(requestId) : undefined;
           turn.maintenance = {
-            kind: inputSource === "maintenance.home" ? "home" : "memory",
+            kind,
             ...(request?.trigger ? { trigger: request.trigger } : {}),
-            ...(request?.targetDay ? { targetDay: request.targetDay } : {}),
+            ...(request?.targetDay
+              ? { targetDay: request.targetDay }
+              : kind === "memory" && turn.businessDay
+                ? { targetDay: turn.businessDay }
+                : {}),
           };
           break;
         }
@@ -1278,6 +1314,14 @@ function isPhase(value: string): value is PhaseName {
 
 function isTurnStatus(value: string): value is ChatTurn["status"] {
   return ["answered", "completed", "failed", "stopped", "exhausted", "running"].includes(value);
+}
+
+function maintenanceKindOf(
+  inputSource: string | undefined,
+): "home" | "memory" | undefined {
+  if (inputSource === "maintenance.home") return "home";
+  if (inputSource === "maintenance.memory") return "memory";
+  return undefined;
 }
 
 function phaseFromScope(scope: ScopeFrame[]): PhaseName | null {

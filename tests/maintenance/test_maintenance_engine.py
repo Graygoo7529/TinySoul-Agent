@@ -25,6 +25,7 @@ from tinysoul.maintenance import (
     MaintenanceTaskStatus,
     MaintenanceTrigger,
 )
+from tinysoul.runtime import ObservationEvent, ObservationLevel
 
 
 TODAY = BusinessDay.parse("2026-08-03")
@@ -215,6 +216,42 @@ def test_explicit_memory_maintenance_does_not_require_pending_entry(
     assert store.require().memory_days == ()
 
 
+def test_started_observation_distinguishes_execution_day_from_memory_target(
+    tmp_path: Path,
+) -> None:
+    observations = _RecordingObservations()
+    engine, _store = _engine(
+        tmp_path,
+        archive=_Archive(tmp_path, (DAY_ONE,)),
+        observations=observations,
+    )
+
+    engine.run(
+        MaintenanceRequest(
+            scope=MaintenanceScope.MEMORY,
+            trigger=MaintenanceTrigger.MANUAL,
+            target_day=DAY_ONE,
+            source="endpoint",
+            request_id="maintenance_request",
+        )
+    )
+
+    started = next(
+        event for event in observations.events if event.name == "maintenance.started"
+    )
+    assert started.payload == {
+        "business_day": str(TODAY),
+        "request": {
+            "scope": "memory",
+            "trigger": "manual",
+            "source": "endpoint",
+            "request_id": "maintenance_request",
+            "metadata": {},
+            "target_day": str(DAY_ONE),
+        },
+    }
+
+
 def test_archive_outcome_requires_authoritative_catalog_identity(
     tmp_path: Path,
 ) -> None:
@@ -248,6 +285,7 @@ def _engine(
     archive: "_Archive",
     home: "_Home | None" = None,
     memory: "_Memory | None" = None,
+    observations: "_RecordingObservations | None" = None,
 ) -> tuple[MaintenanceEngine, MaintenanceAvailabilityStore]:
     store = MaintenanceAvailabilityStore(root / "runtime" / "maintenance")
     return (
@@ -257,6 +295,7 @@ def _engine(
             memory=memory or _Memory(),
             availability_store=store,
             clock=_Clock(),
+            observations=observations,
         ),
         store,
     )
@@ -271,6 +310,18 @@ class _Clock:
 
     def today(self) -> BusinessDay:
         return BusinessDay(self.current.date())
+
+
+@dataclass
+class _RecordingObservations:
+    events: list[ObservationEvent] = field(default_factory=list)
+
+    def enabled(self, level: ObservationLevel) -> bool:
+        del level
+        return True
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.events.append(event)
 
 
 class _Archive:

@@ -120,7 +120,14 @@ package 自有 Action 使用 package Domain default，并且不进入 User Actio
 
 ## 失败与观察
 
-Archive preflight 失败阻止新日 work。可修正 Action 参数和 stale source 返回局部 failure；Home/Memory owner 的已知执行失败形成 typed task outcome；未知异常与 Runtime transfer 保持原语义。Observation 只发布 scope、target、status、count、digest 和 error type，不包含 Home/Memory 正文、Session facts、prompt、API key 或绝对路径。
+Archive preflight 失败阻止新日 work。可修正 Action 参数和 stale source 返回局部 failure；Home/Memory owner 的已知执行失败形成 typed task outcome；未知异常与 Runtime transfer 保持原语义。
+
+Maintenance lifecycle Observation 由 Maintenance owner 发布。`maintenance.started` 的顶层
+`business_day` 是当前请求的执行日，`request.target_day` 仅表示 Memory 维护目标；
+`maintenance.completed.business_day` 保留同一个执行日，供历史重放补全归属。Memory Turn
+自身 `turn.started.business_day` 仍是目标归档日的 Context 情景日，不能与执行日互换。Observation
+只发布 scope、执行/目标日期、status、count、digest 和 error type，不包含 Home/Memory 正文、
+Session facts、prompt、API key 或绝对路径。
 
 ## 核心不变量
 

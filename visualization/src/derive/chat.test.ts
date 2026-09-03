@@ -189,12 +189,13 @@ describe("buildChatTurns", () => {
   it("classifies maintenance turns and correlates the request facts", () => {
     const events = [
       event("maintenance.started", [], {
+        business_day: "2026-08-18",
         request: {
           scope: "memory",
-          trigger: "scheduled",
+          trigger: "manual",
           request_id: "mreq-1",
           target_day: "2026-08-17",
-          source: "scheduler",
+          source: "endpoint",
           metadata: {},
         },
       }),
@@ -202,17 +203,111 @@ describe("buildChatTurns", () => {
         turn_id: "turn_1",
         request_id: "mreq-1",
         input_source: "maintenance.memory",
-        business_day: "2026-08-18",
+        business_day: "2026-08-17",
       }),
       event("turn.completed", turnScope, { status: "completed" }),
     ];
-    const [turn] = buildChatTurns(events, []);
+    const [turn] = buildChatTurns(events, [], { activeDay: "2026-08-18" });
+    expect(turn.maintenance).toEqual({
+      kind: "memory",
+      trigger: "manual",
+      targetDay: "2026-08-17",
+    });
+    expect(turn.businessDay).toBe("2026-08-17");
+    expect(turn.userMessages).toEqual([]);
+  });
+
+  it("excludes a maintenance turn executed on another business day", () => {
+    const events = [
+      event("maintenance.started", [], {
+        business_day: "2026-08-17",
+        request: {
+          scope: "memory",
+          trigger: "manual",
+          request_id: "mreq-1",
+          target_day: "2026-08-16",
+        },
+      }),
+      event("turn.started", turnScope, {
+        request_id: "mreq-1",
+        input_source: "maintenance.memory",
+        business_day: "2026-08-16",
+      }),
+      event("turn.completed", turnScope, { status: "completed" }),
+    ];
+
+    expect(buildChatTurns(events, [], { activeDay: "2026-08-18" })).toEqual([]);
+  });
+
+  it("uses the completed outcome execution day when restoring older maintenance events", () => {
+    const events = [
+      event("maintenance.started", [], {
+        request: {
+          scope: "memory",
+          trigger: "scheduled",
+          request_id: "mreq-1",
+          target_day: "2026-08-17",
+        },
+      }),
+      event("turn.started", turnScope, {
+        request_id: "mreq-1",
+        input_source: "maintenance.memory",
+        business_day: "2026-08-17",
+      }),
+      event("turn.completed", turnScope, { status: "completed" }),
+      event("maintenance.completed", [], {
+        request_id: "mreq-1",
+        business_day: "2026-08-18",
+        status: "completed",
+        tasks: [],
+      }),
+    ];
+
+    const [turn] = buildChatTurns(events, [], { activeDay: "2026-08-18" });
     expect(turn.maintenance).toEqual({
       kind: "memory",
       trigger: "scheduled",
       targetDay: "2026-08-17",
     });
-    expect(turn.userMessages).toEqual([]);
+  });
+
+  it("derives the target day of Daily Memory maintenance from its turn context", () => {
+    const events = [
+      event("maintenance.started", [], {
+        business_day: "2026-08-18",
+        request: {
+          scope: "daily",
+          trigger: "scheduled",
+          request_id: "mreq-1",
+        },
+      }),
+      event("turn.started", turnScope, {
+        request_id: "mreq-1",
+        input_source: "maintenance.memory",
+        business_day: "2026-08-17",
+      }),
+      event("turn.completed", turnScope, { status: "completed" }),
+    ];
+
+    const [turn] = buildChatTurns(events, [], { activeDay: "2026-08-18" });
+    expect(turn.maintenance).toEqual({
+      kind: "memory",
+      trigger: "scheduled",
+      targetDay: "2026-08-17",
+    });
+  });
+
+  it("continues to filter user turns by their own business day", () => {
+    const events = [
+      event("turn.started", turnScope, {
+        request_id: "cmd-1",
+        input_source: "endpoint",
+        business_day: "2026-08-17",
+      }),
+      event("turn.completed", turnScope, { status: "answered" }),
+    ];
+
+    expect(buildChatTurns(events, [], { activeDay: "2026-08-18" })).toEqual([]);
   });
 
   it("does not recover the maintenance task instruction as a user message", () => {

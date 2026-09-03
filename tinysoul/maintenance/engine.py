@@ -158,7 +158,10 @@ class MaintenanceEngine:
             self._emit(
                 "maintenance.started",
                 "Maintenance started.",
-                {"request": request.to_json()},
+                {
+                    "business_day": str(business_day),
+                    "request": request.to_json(),
+                },
                 scope=run_scope,
             )
             outcomes: list[MaintenanceTaskOutcome] = []

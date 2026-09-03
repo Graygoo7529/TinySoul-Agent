@@ -7,6 +7,11 @@
 - 用户输入通过本地回声即时上屏；非本端输入从首个 message stack 的 `user_input` 段恢复。
 - **Maintenance Turn 与 User Turn 同形呈现**：发起气泡位于右侧同位同形（wrench 图标 + 中性色调，文案为任务 + 目标日 + 手动/自动——由 `turn.started.input_source` 区分轮种，经 `maintenance.started` 的 `request_id` 关联 trigger/target_day）；运行期 LiveStatus、落定折叠条、Details 抽屉零改动复用；维护期间的用户追加输入显示为该轮内的用户气泡（语义见 `docs/demand/20260818-maintenance-turn-user-input.md`）。maintenance 不产生用户回答，无回答卡；停止按钮照常可用（内核级取消不区分轮种）；落定状态行与终态 toast 带任务标签（"维护完成/Memory 维护失败"等）。
 
+  主对话按当前 `active_day` 过滤事件时，User Turn 使用 `turn.started.business_day`；Home/Memory
+  Maintenance 使用 `maintenance.started.business_day`（历史完成事件可由
+  `maintenance.completed.business_day` 补全）。Memory Turn 的 `turn.started.business_day` 仍
+  是目标归档日，只用于该 Turn 的 Context 情景和目标日标签，不能作为主对话执行日归属。
+
 ## 运行状态动态披露（LiveStatus 活跃状态）
 
 进行中的用户轮在 Agent 行内展示 LiveStatus 实时状态卡（即主对话界面的浮动状态栏），全部从观察事件流派生：
