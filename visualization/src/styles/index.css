@@ -264,21 +264,29 @@ body {
     opacity: 0;
   }
 }
-/* terminal stream caret: a phosphor block on a fresh line under the text,
-   blinking with an occasional brightness flicker */
-.term-caret {
-  position: relative;
-  z-index: 1;
+/* terminal stream caret: an inline phosphor block riding the end of the
+   last line (like a real terminal cursor) — it takes no line of its own,
+   so the typing card and the settled card share the same bottom spacing;
+   during the settle beat it dims out where the text ended */
+.answer-streaming .md-body > :last-child::after,
+.answer-settling .md-body > :last-child::after {
+  content: "";
   display: inline-block;
   width: 8px;
-  height: 15px;
-  margin-top: 6px;
+  height: 0.95em;
+  margin-left: 5px;
   border-radius: 1px;
+  vertical-align: -0.12em;
   background: var(--term-green);
   box-shadow: 0 0 8px rgba(52, 211, 153, 0.55);
+}
+.answer-streaming .md-body > :last-child::after {
   animation:
     caret-blink 1.06s step-end infinite,
     caret-flicker 3.7s linear infinite;
+}
+.answer-settling .md-body > :last-child::after {
+  animation: caret-out 0.32s ease forwards;
 }
 @keyframes caret-flicker {
   0%,
@@ -291,11 +299,6 @@ body {
   95% {
     filter: brightness(1.7) saturate(1.4);
   }
-}
-/* settle beat: the caret stays mounted through the wipe and collapses away
-   instead of blinking out */
-.answer-settling .term-caret {
-  animation: caret-out 0.32s ease forwards;
 }
 @keyframes caret-out {
   to {
