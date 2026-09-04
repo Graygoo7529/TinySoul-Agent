@@ -6,11 +6,13 @@ import pytest
 
 from tinysoul.action.failures import ActionFailureKind
 from tinysoul.app.failures import AppFailureKind
+from tinysoul.endpoint.failures import EndpointFailureKind
 from tinysoul.context.failures import ContextFailureKind
 from tinysoul.home.failures import AgentHomeFailureKind
 from tinysoul.infra.failures import InfraFailureKind
 from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.loop.failures import LoopFailureKind
+from tinysoul.maintenance.failures import MaintenanceFailureKind
 from tinysoul.memory.failures import MemoryFailureKind
 from tinysoul.session.failures import SessionFailureKind
 from tinysoul.capabilities.script.failures import ScriptFailureKind
@@ -27,10 +29,12 @@ from tinysoul.workspace.failures import WorkspaceFailureKind
         ("action", ActionFailureKind),
         ("app", AppFailureKind),
         ("context", ContextFailureKind),
+        ("endpoint", EndpointFailureKind),
         ("home", AgentHomeFailureKind),
         ("infra", InfraFailureKind),
         ("llm", LLMFailureKind),
         ("loop", LoopFailureKind),
+        ("maintenance", MaintenanceFailureKind),
         ("memory", MemoryFailureKind),
         ("session", SessionFailureKind),
         ("script", ScriptFailureKind),

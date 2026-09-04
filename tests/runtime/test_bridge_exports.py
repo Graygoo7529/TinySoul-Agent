@@ -11,6 +11,7 @@ from tinysoul.session.failures import SessionFailureKind
 def test_runtime_bridge_exports_are_lazily_importable() -> None:
     from tinysoul.runtime.bridge import (
         RuntimeContextBridge,
+        RuntimeInfraBridge,
         RuntimeLLMBridge,
         RuntimeLoopBridge,
         RuntimeSessionBridge,
@@ -20,6 +21,7 @@ def test_runtime_bridge_exports_are_lazily_importable() -> None:
     )
 
     assert RuntimeContextBridge.__name__ == "RuntimeContextBridge"
+    assert RuntimeInfraBridge.__name__ == "RuntimeInfraBridge"
     assert RuntimeLLMBridge.__name__ == "RuntimeLLMBridge"
     assert RuntimeLoopBridge.__name__ == "RuntimeLoopBridge"
     assert RuntimeSessionBridge.__name__ == "RuntimeSessionBridge"

@@ -91,3 +91,19 @@ def test_continuation_rejects_tampering() -> None:
     with pytest.raises(ContinuationError) as failure:
         codec.decode("v1.invalid.digest", ref="test:a")
     assert failure.value.reason is ContinuationFailureReason.INVALID
+
+
+@pytest.mark.parametrize(
+    "token",
+    (
+        "v2.invalid.digest",
+        "v1.e30." + "0" * 64,
+    ),
+)
+def test_continuation_decode_wraps_local_parse_failures(token: str) -> None:
+    codec = OpaqueContinuationCodec(owner="test", operation="inspect")
+
+    with pytest.raises(ContinuationError) as failure:
+        codec.decode(token, ref="test:a")
+
+    assert failure.value.reason is ContinuationFailureReason.INVALID

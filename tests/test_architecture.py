@@ -52,3 +52,19 @@ def test_app_builder_does_not_assemble_turn_kernel_details() -> None:
         "MemoryMaintenanceActionController",
     )
     assert [name for name in forbidden if name in source] == []
+
+
+def test_infra_config_does_not_raise_builtin_configuration_errors() -> None:
+    violations: list[str] = []
+    config_root = PROJECT_ROOT / "tinysoul" / "infra" / "config"
+    for path in config_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if isinstance(raised, ast.Name) and raised.id in {"ValueError", "TypeError"}:
+                violations.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}:{raised.id}"
+                )
+    assert violations == []
