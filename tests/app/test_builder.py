@@ -568,8 +568,7 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
         providers.write(
             "\n[llm.providers.openai_proxy]\n"
             "enabled = true\n"
-            'adapter = "openai"\n'
-            'api_style = "openai_responses"\n'
+            'adapters = ["openai"]\n'
             'base_url = "https://proxy.example/v1"\n'
             'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
         )
@@ -611,9 +610,9 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
             "operations": [
                 {
                     "source_id": source_id,
-                    "path": "llm.models.gpt_5_5.provider",
+                    "path": "llm.models.gpt_5_5.providers",
                     "op": "set",
-                    "value": "openai_proxy",
+                    "value": [{"provider": "openai_proxy", "provider_model": "gpt-5.5"}],
                 }
             ]
         },
@@ -634,9 +633,9 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
             "operations": [
                 {
                     "source_id": source_id,
-                    "path": "llm.models.gpt_5_5.provider",
+                    "path": "llm.models.gpt_5_5.providers",
                     "op": "set",
-                    "value": "kimi",
+                    "value": [{"provider": "kimi", "provider_model": "gpt-5.5"}],
                 }
             ]
         },

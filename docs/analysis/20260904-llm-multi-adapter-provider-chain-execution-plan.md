@@ -1,6 +1,6 @@
 # LLM 多 Adapter Provider 与 Provider Chain 执行计划
 
-状态：`pending`
+状态：`done`
 
 日期：2026-09-04
 
@@ -8,21 +8,21 @@
 
 维护者已确认“Adapter 与 API style 一一对应”。这改变了上一版的结论：既然每个 Adapter 都只有一个确定 wire style，`api_style` 不应再作为 Provider 的可配置字段，也不需要用 `ProviderAdapterBinding` 把同一个 Adapter 与多个 style 重新组合。
 
-当前需要确认的是 `generic` 的领域身份，而不是如何保存一个可变 style：
+维护者进一步确认：删除 `generic`，只保留 `openai_compatible_chat` 作为通用兼容 Adapter；Responses 是 `openai` 专用 Adapter 的 API style。决策结果如下：
 
 | 方案 | 语义 | 影响 | 判断 |
 | --- | --- | --- | --- |
 | A. 删除 `generic`，只保留具体供应商 Adapter | 每个 Provider 必须使用 `openai`、`kimi` 等行为 Adapter | 任意 OpenAI-compatible endpoint 没有无供应商行为的 Chat 适配器；会迫使代理伪装成具体供应商 | 不推荐 |
-| B. 删除 `generic`，只保留 `openai_compatible_chat` | 通用兼容能力限定为 Chat Completions；Responses 兼容端点使用 `openai` Adapter | 形状最简单，但明确放弃通用 Responses mapper；当前 generic Responses 测试和运行能力必须删除或改由 OpenAI 行为承担 | 只有在确认项目不支持通用 Responses 时采用 |
-| C. 将 `generic` 拆为两个一一对应的通用 Adapter | `openai_compatible_chat` 与 `openai_compatible_responses` 都是协议固定、无供应商扩展的 Adapter | 保留当前 Chat/Responses 能力，消除 `generic + Provider.api_style` 的隐式组合；Provider 只声明 Adapter 列表 | **推荐** |
+| B. 删除 `generic`，只保留 `openai_compatible_chat` | 通用兼容能力限定为 Chat Completions；Responses 由 `openai` Adapter 提供 | 消除 `generic + Provider.api_style` 的隐式组合，同时保持实际需要的通用兼容能力 | **已确认** |
+| C. 将 `generic` 拆为两个一一对应的通用 Adapter | `openai_compatible_chat` 与 `openai_compatible_responses` 都是协议固定、无供应商扩展的 Adapter | 会把项目不需要的通用 Responses 行为提升为公开 Adapter 身份 | 不采用 |
 
-本计划后续正文按方案 C 编写。这里的“拆分”不是把运行时 mapper 生硬提升为两个临时类型，而是为当前已经存在且被测试消费的两种通用 wire 行为赋予稳定 Adapter 身份。若维护者确认项目只需要 Chat-compatible endpoint，可以把方案 B 作为更小的收敛，但必须明确删除通用 Responses 能力，而不是保留未使用的可选字段。
+本计划后续正文按方案 B 实施。现有通用 Chat mapper 获得稳定的 `openai_compatible_chat` 身份；现有 Responses mapper 继续作为 `openai` Adapter 的基础实现细节，不再作为可独立配置的通用 Adapter 暴露。
 
 需要确认的边界有三项：
 
-1. 是否接受 `openai_compatible_chat` 与 `openai_compatible_responses` 两个通用 Adapter。推荐接受，以保持当前能力并满足一一对应。
-2. 是否接受 Provider 对同一 Adapter 只声明一次。推荐接受；若同一 endpoint 的同一 Adapter 需要两个 base URL、凭据或其它路由身份，它们应是两个 Provider，而不是重复 binding。
-3. 是否接受 `api_style` 只作为 Adapter 的静态类型属性，不出现在 Provider/Model 配置。推荐接受；这避免重复事实，并让 Model 仅按 Adapter 筛选 Provider。
+1. `openai_compatible_chat` 是唯一通用 Adapter；不提供 `openai_compatible_responses`。
+2. Provider 对同一 Adapter 只声明一次；若同一 endpoint 的同一 Adapter 需要两个 base URL、凭据或其它路由身份，它们是两个 Provider，而不是重复 binding。
+3. `api_style` 只作为 Adapter 的静态类型属性，不出现在 Provider/Model 配置。
 
 ## 执行计划可行性审查
 
@@ -35,7 +35,7 @@
 3. 最后在现有 `ModelChainRunner` 调用边界内加入 Provider 重试/切换，并用少量行为测试锁定“重试 -> Provider -> Model -> cycle”顺序。
 4. 前端以新 catalog 为唯一字段事实；复合数组只整值提交，后端候选配置校验失败时不部分应用。
 
-主要风险是失败作用域归类，而不是 Adapter 集合本身。`ProviderError` 应在 LLM 模块内增加明确的 provider/model scope，并由 SDK/HTTP mapper 与本地请求校验分别赋值；不能通过捕获所有异常来猜测是否切换 Provider。Provider Chain 只聚合有限的安全摘要，最终仍由现有 LLM bridge 负责 Runtime 转换。若确认只保留 Chat-compatible Adapter，则删除 Responses-compatible 行为和对应测试必须作为明确的能力变更，不能隐藏在配置迁移中。
+主要风险是失败作用域归类，而不是 Adapter 集合本身。`ProviderError` 应在 LLM 模块内增加明确的 provider/model scope，并由 SDK/HTTP mapper 与本地请求校验分别赋值；不能通过捕获所有异常来猜测是否切换 Provider。Provider Chain 只聚合有限的安全摘要，最终仍由现有 LLM bridge 负责 Runtime 转换。通用 Responses 不作为公开配置能力；供 `openai` Adapter 复用的内部 Responses mapper 和相应 OpenAI 行为测试继续保留。
 
 ## 目标
 
@@ -59,14 +59,13 @@ Provider 与 Model 的成功备用位置都只作为有时限的运行时偏好�
 - `ModelSpec` 同时保存单一 `provider_id` 和单一 `provider_model`，所以模型选择后不能在保持模型契约不变的情况下切换端点。
 - `LLMTaskRunner._try_model` 把 `max_retries_per_model` 实际用作单一 Provider 的最大调用次数；Provider 异常随后直接交给 `ModelChainRunner`，不存在 Provider Chain 层。
 
-现有 `api_style` 语义可以收敛为一一对应的 Adapter 属性。`AdapterSpec.api_style` 是每个 Adapter 唯一的 wire style：`openai` 与 `openai_compatible_responses` 使用 Responses，`openai_compatible_chat`、`kimi`、`deepseek`、`glm` 与 `minimax` 使用 Chat。当前 `ProviderSpec.api_style` 只是 Factory 选择通用 mapper 所需的重复配置事实；一旦 generic 拆成两个 Adapter，就可以删除。
+现有 `api_style` 语义可以收敛为一一对应的 Adapter 属性。`AdapterSpec.api_style` 是每个 Adapter 唯一的 wire style：`openai` 使用 Responses，`openai_compatible_chat`、`kimi`、`deepseek`、`glm` 与 `minimax` 使用 Chat。当前 `ProviderSpec.api_style` 只是 Factory 选择通用 mapper 所需的重复配置事实；以明确 Adapter 身份替代后即可删除。
 
 当前运行时映射可以具体概括为：
 
 | AdapterKind | AdapterSpec.api_style | 当前/目标运行时实现 | style 的实际作用 |
 | --- | --- | --- | --- |
 | `openai_compatible_chat` | `openai_chat` | `OpenAICompatibleChatAdapter` | 通用 Chat payload、response 和 tool mapper，无供应商专属选项 |
-| `openai_compatible_responses` | `openai_responses` | `OpenAIResponsesAdapter` | 通用 Responses payload、response 和 tool mapper，无 OpenAI 专属选项 |
 | `openai` | `openai_responses` | `OpenAIProviderAdapter` | Responses mapper 加 OpenAI reasoning/cache 等行为 |
 | `kimi` / `deepseek` / `glm` / `minimax` | `openai_chat` | 各自供应商 Adapter | Chat mapper 加各自 option、工具和 reasoning 约束 |
 
@@ -85,7 +84,7 @@ class AdapterSpec:
     api_style: ProviderApiStyle
 ```
 
-`AdapterKind.GENERIC` 删除，不保留旧的模糊身份。当前通用协议能力拆成两个稳定 Adapter：`openai_compatible_chat` 和 `openai_compatible_responses`，分别对应 `openai_chat` 与 `openai_responses`。这样既保留现有 generic Chat/Responses 的真实能力，也不需要用一个可变字段表达两种协议。`openai` 仍表示带 OpenAI 专属行为的 Responses Adapter，不能与无供应商扩展的 compatible Responses Adapter 混为一谈。
+`AdapterKind.GENERIC` 删除，不保留旧的模糊身份。通用协议能力收敛为 `openai_compatible_chat`，固定对应 `openai_chat`。`openai` 表示使用 Responses wire style 并带 OpenAI 专属行为的 Adapter；底层可继续复用 Responses mapper，但不向配置层暴露独立的 compatible Responses Adapter。
 
 `ProviderApiStyle` 继续作为 `StrEnum` 保留在 `llm/adapter_types.py`，供 `AdapterSpec`、catalog 和观察数据使用。`AdapterSpec.api_style` 为非空单值并在构造时校验；`validate_api_style`、`api_styles` 这类多 style 组合 API 删除。运行时 Adapter 如需构造 payload，只从自身固定的 AdapterSpec 读取只读 style，不复制配置状态。
 
@@ -161,7 +160,7 @@ context_window_tokens = 400000
 capabilities = ["text_input", "image_input", "tool_calling"]
 ```
 
-配置直接迁移到复数字段，不保留 Model 的单数 `provider`/`provider_model` 或 Provider 的单数 `adapter`/`api_style` 兼容读取路径。Provider 使用 `adapters`；Model 的单数 `adapter` 保留，因为它定义整个模型所需的统一行为。旧 `generic` 值直接迁移为 `openai_compatible_chat` 或 `openai_compatible_responses`，不保留兼容别名。
+配置直接迁移到复数字段，不保留 Model 的单数 `provider`/`provider_model` 或 Provider 的单数 `adapter`/`api_style` 兼容读取路径。Provider 使用 `adapters`；Model 的单数 `adapter` 保留，因为它定义整个模型所需的统一行为。旧 `generic` 值迁移为 `openai_compatible_chat`，不保留兼容别名。
 
 ## 调用与路由流程
 
@@ -296,49 +295,49 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 
 ### 1. 设计与配置协议
 
-- [ ] 将本方案确认后的稳定语义同步到 `docs/design/llm.md`。
-- [ ] 更新 Provider、Model 与 Task recovery 的标准/开发配置模板。
-- [ ] 更新 config catalog 的 collection template、字段描述符和 LLM machine rules。
-- [ ] 更新 `docs/endpoint/configuration.md` 与前端 settings 设计文档。
+- [x] 将本方案确认后的稳定语义同步到 `docs/design/llm.md`。
+- [x] 更新 Provider、Model 与 Task recovery 的标准/开发配置模板。
+- [x] 更新 config catalog 的 collection template、字段描述符和 LLM machine rules。
+- [x] 更新 `docs/endpoint/configuration.md` 与前端 settings 设计文档。
 
 ### 2. Adapter 与 Provider 装配
 
-- [ ] 删除 `generic`，增加 `openai_compatible_chat` 与 `openai_compatible_responses` 两个固定 style 的 AdapterSpec，并让 `AdapterSpec.api_style` 成为非空单值。
-- [ ] 把 `ProviderSpec.adapter/api_style` 改为 `ProviderSpec.adapters`，禁止同一 Provider 重复 Adapter；不引入 `ProviderAdapterBinding`。
-- [ ] 让 Provider Factory 对一个 Provider 构建多个 Adapter 实例。
-- [ ] 把 ProviderRegistry 改为 `(provider_id, adapter_kind)` 复合身份并维持重复注册不变量。
+- [x] 删除 `generic`，增加固定为 Chat style 的 `openai_compatible_chat` AdapterSpec，并让 `AdapterSpec.api_style` 成为非空单值。
+- [x] 把 `ProviderSpec.adapter/api_style` 改为 `ProviderSpec.adapters`，禁止同一 Provider 重复 Adapter；不引入 `ProviderAdapterBinding`。
+- [x] 让 Provider Factory 对一个 Provider 构建多个 Adapter 实例。
+- [x] 把 ProviderRegistry 改为 `(provider_id, adapter_kind)` 复合身份并维持重复注册不变量。
 
 ### 3. Model Provider Binding
 
-- [ ] 增加 frozen `ModelProviderBinding`，把 `ModelSpec` 的单一 Provider 字段替换为有序 Binding 元组。
-- [ ] 在配置入口校验 Provider 引用、Adapter 兼容、绑定唯一性和可用 Model。
-- [ ] 让 `ProviderRequest` 显式携带当前 Binding，Adapter 不再从 Model 读取单一 Provider。
-- [ ] 更新模型注册表、当前能力视图、真实 Provider 验证入口和应用装配。
+- [x] 增加 frozen `ModelProviderBinding`，把 `ModelSpec` 的单一 Provider 字段替换为有序 Binding 元组。
+- [x] 在配置入口校验 Provider 引用、Adapter 兼容、绑定唯一性和可用 Model。
+- [x] 让 `ProviderRequest` 显式携带当前 Binding，Adapter 不再从 Model 读取单一 Provider。
+- [x] 更新模型注册表、当前能力视图、真实 Provider 验证入口和应用装配。
 
 ### 4. 重试、切换与失败语义
 
-- [ ] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置。
-- [ ] 将 ModelChainState 收敛为 LLMRouteState，并用成功项 id 管理 Model/Provider 两类有时限偏好。
-- [ ] 在现有 model-chain 调用内部加入 Provider Chain 执行器，严格实现“重试 Provider -> 换 Provider -> 换 Model -> 下一 cycle”。
-- [ ] 增加 ProviderFailureScope 并清理 Adapter 本地校验与 SDK/HTTP 错误的作用域归类。
-- [ ] 保持 context pressure、局部 TaskFailure、模型链耗尽和 Runtime bridge 的现有三层边界。
-- [ ] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常。
+- [x] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置。
+- [x] 将 ModelChainState 收敛为 LLMRouteState，并用成功项 id 管理 Model/Provider 两类有时限偏好。
+- [x] 在现有 model-chain 调用内部加入 Provider Chain 执行器，严格实现“重试 Provider -> 换 Provider -> 换 Model -> 下一 cycle”。
+- [x] 增加 ProviderFailureScope 并清理 Adapter 本地校验与 SDK/HTTP 错误的作用域归类。
+- [x] 保持 context pressure、局部 TaskFailure、模型链耗尽和 Runtime bridge 的现有三层边界。
+- [x] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常。
 
 ### 5. 前端配置体验
 
-- [ ] Providers 页面实现 catalog 驱动的 Adapter 集合编辑、静态 API style 展示与摘要。
-- [ ] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交。
-- [ ] Adapter 变更以单次 mutation 协调 Provider Chain 与 Adapter options。
-- [ ] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback。
+- [x] Providers 页面实现 catalog 驱动的 Adapter 集合编辑、静态 API style 展示与摘要。
+- [x] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交。
+- [x] Adapter 变更以单次 mutation 协调 Provider Chain 与 Adapter options。
+- [x] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback。
 
 ### 6. 聚焦验证
 
-- [ ] LLM 配置测试覆盖多 Adapter Provider、Adapter 唯一性、未知/不兼容引用和禁用 Provider 过滤。
-- [ ] Registry/Factory 测试覆盖一个 Provider 的多个 Adapter 实例与复合键重复保护。
-- [ ] Task runner 使用少量行为测试覆盖 transient 重试后换 Provider、Provider 耗尽后换 Model、下一 cycle 回到链首、备用 Provider 成功偏好及到期回首。
-- [ ] 保留取消、context pressure 和局部 TaskFailure 的代表性回归测试，不为每个错误 kind 建立组合穷举测试。
-- [ ] 前端测试覆盖 Adapter Binding 增删、style 联动、兼容 Provider Chain 的增删排序/远端模型名编辑、Adapter 切换原子 mutation 和 catalog 派生。
-- [ ] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。
+- [x] LLM 配置测试覆盖多 Adapter Provider、Adapter 唯一性、未知/不兼容引用和禁用 Provider 过滤。
+- [x] Registry/Factory 测试覆盖一个 Provider 的多个 Adapter 实例与复合键重复保护。
+- [x] Task runner 使用少量行为测试覆盖 transient 重试后换 Provider、Provider 耗尽后换 Model、下一 cycle 回到链首、备用 Provider 成功偏好及到期回首。
+- [x] 保留取消、context pressure 和局部 TaskFailure 的代表性回归测试，不为每个错误 kind 建立组合穷举测试。
+- [x] 前端测试覆盖 Provider Adapter 集合、兼容 Provider Chain 的展示/编辑、Adapter 切换原子 mutation 和 catalog 派生。
+- [x] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。
 
 ## 预计改动范围
 
@@ -375,3 +374,11 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 - 配置错误停在 LLM/Infra 配置边界，Provider 与 Model Chain 耗尽继续经既有 LLM bridge 进入 Runtime，不新增含糊异常路径。
 - 前端只能创建后端可接受的 Adapter/Provider 组合，并以一次原子 mutation 保存每个复合变更。
 - 设计文档、Endpoint 文档、catalog、默认项目配置、后端实现、前端页面和测试描述同一事实。
+
+## 最终核对
+
+- 后端 Full 门禁：`scripts/test.ps1 -Suite Full` 通过，960 passed、2 skipped、21 deselected；仅有既存的 Starlette/httpx 弃用警告。
+- 类型检查：`scripts/typecheck.ps1` 通过，`ty` 无诊断。
+- 前端验证：`pnpm test -- --run` 通过，21 个测试文件、127 项测试；`pnpm build` 通过。Vite 仅提示现有 bundle 超过 500 kB 的拆包建议。
+- 差异检查：`git diff --check` 通过；工作树中的换行提示是 Git 的 CRLF/LF 属性提示，不是空白错误。
+- 旧协议核对：运行时代码、默认配置、catalog、Endpoint 文档和设置页不再读取 `generic`、Provider 单数 `adapter/api_style`、Model 单数 `provider/provider_model` 或 `max_retries_per_model`；历史分析记录保留原始方案说明。

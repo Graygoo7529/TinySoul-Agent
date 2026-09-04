@@ -1,6 +1,12 @@
 """LLM provider adapters."""
 
-from .base import ProviderAdapter, ProviderError, ProviderErrorKind, ProviderRequest
+from .base import (
+    ProviderAdapter,
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRequest,
+)
 from .deepseek import DeepSeekProviderAdapter
 from .factory import build_provider_registry
 from .glm import GlmProviderAdapter
@@ -23,9 +29,9 @@ __all__ = [
     "ProviderAdapter",
     "ProviderError",
     "ProviderErrorKind",
+    "ProviderFailureScope",
     "ProviderRegistry",
     "ProviderRequest",
     "build_provider_registry",
     "DeepSeekProviderAdapter",
 ]
-

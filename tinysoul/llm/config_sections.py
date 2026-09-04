@@ -25,10 +25,10 @@ from .config_helpers import (
 )
 from .adapter import adapter_spec
 from .adapter_types import AdapterKind
-from .config_types import ProviderApiStyle, ProviderSpec
+from .config_types import ProviderSpec
 from .errors import LLMContractError
 from .model_chain import ModelChain, RetryPolicy, TaskSpec, TaskSpecTable
-from .models import ModelCapability, ModelRegistry, ModelSpec
+from .models import ModelCapability, ModelProviderBinding, ModelRegistry, ModelSpec
 from .requests import CallSettings
 from .responses import AnswerFormat
 from .tools import ToolUse
@@ -54,7 +54,7 @@ class ProviderConfigParser:
             provider_table = as_table(value, key=f"llm.providers.{provider_id}")
             reject_unknown_keys(
                 provider_table,
-                {"enabled", "adapter", "api_style", "base_url", "api_key_envs"},
+                {"enabled", "adapters", "base_url", "api_key_envs"},
                 key=f"llm.providers.{provider_id}",
             )
             try:
@@ -66,23 +66,18 @@ class ProviderConfigParser:
                             "enabled",
                             key=f"llm.providers.{provider_id}",
                         ),
-                        adapter=enum_value(
-                            AdapterKind,
-                            required_str(
+                        adapters=tuple(
+                            enum_value(
+                                AdapterKind,
+                                adapter,
+                                key=f"llm.providers.{provider_id}.adapters",
+                            )
+                            for adapter in required_str_list(
                                 provider_table,
-                                "adapter",
+                                "adapters",
                                 key=f"llm.providers.{provider_id}",
-                            ),
-                            key=f"llm.providers.{provider_id}.adapter",
-                        ),
-                        api_style=enum_value(
-                            ProviderApiStyle,
-                            required_str(
-                                provider_table,
-                                "api_style",
-                                key=f"llm.providers.{provider_id}",
-                            ),
-                            key=f"llm.providers.{provider_id}.api_style",
+                                non_empty=True,
+                            )
                         ),
                         base_url=required_str(
                             provider_table,
@@ -124,8 +119,7 @@ class ModelConfigParser:
                 model_table,
                 {
                     "adapter",
-                    "provider",
-                    "provider_model",
+                    "providers",
                     "context_window_tokens",
                     "capabilities",
                     "adapter_options",
@@ -133,17 +127,6 @@ class ModelConfigParser:
                 },
                 key=f"llm.models.{model_id}",
             )
-            provider_id = required_str(
-                model_table,
-                "provider",
-                key=f"llm.models.{model_id}",
-            )
-            if provider_id not in providers:
-                raise ConfigError(
-                    "Model references unknown provider",
-                    key=f"llm.models.{model_id}.provider",
-                    value=provider_id,
-                )
             adapter = enum_value(
                 AdapterKind,
                 required_str(
@@ -153,18 +136,11 @@ class ModelConfigParser:
                 ),
                 key=f"llm.models.{model_id}.adapter",
             )
-            provider = providers[provider_id]
-            if adapter is not provider.adapter:
-                raise ConfigError(
-                    "Model adapter must match its provider adapter",
-                    key=f"llm.models.{model_id}.adapter",
-                    value=adapter.value,
-                    expected=provider.adapter.value,
-                )
-            provider_model = required_str(
+            provider_bindings = self._parse_provider_bindings(
                 model_table,
-                "provider_model",
-                key=f"llm.models.{model_id}",
+                model_id=model_id,
+                providers=providers,
+                adapter=adapter,
             )
             try:
                 adapter_options = optional_adapter_options(
@@ -183,8 +159,7 @@ class ModelConfigParser:
                     ModelSpec(
                         id=model_id,
                         adapter=adapter,
-                        provider_id=provider_id,
-                        provider_model=provider_model,
+                        providers=provider_bindings,
                         context_window_tokens=required_int(
                             model_table,
                             "context_window_tokens",
@@ -202,6 +177,58 @@ class ModelConfigParser:
             except LLMContractError as exc:
                 raise ConfigError(str(exc), key=f"llm.models.{model_id}") from exc
         return registry
+
+    def _parse_provider_bindings(
+        self,
+        table: Mapping[str, object],
+        *,
+        model_id: str,
+        providers: Mapping[str, ProviderSpec],
+        adapter: AdapterKind,
+    ) -> tuple[ModelProviderBinding, ...]:
+        value = table.get("providers")
+        if not isinstance(value, list) or not value:
+            raise ConfigError(
+                "Model providers must be a non-empty list",
+                key=f"llm.models.{model_id}.providers",
+                value=value,
+                expected="non-empty list[table]",
+            )
+        bindings: list[ModelProviderBinding] = []
+        for index, item in enumerate(value):
+            key = f"llm.models.{model_id}.providers.{index}"
+            binding_table = as_table(item, key=key)
+            reject_unknown_keys(binding_table, {"provider", "provider_model"}, key=key)
+            provider_id = required_str(binding_table, "provider", key=key)
+            provider = providers.get(provider_id)
+            if provider is None:
+                raise ConfigError(
+                    "Model references unknown provider",
+                    key=f"{key}.provider",
+                    value=provider_id,
+                )
+            if adapter not in provider.adapters:
+                raise ConfigError(
+                    "Model adapter is not declared by provider",
+                    key=f"llm.models.{model_id}.adapter",
+                    value=adapter.value,
+                    expected=f"provider {provider_id} adapters",
+                )
+            try:
+                bindings.append(
+                    ModelProviderBinding(
+                        provider_id=provider_id,
+                        provider_model=required_str(binding_table, "provider_model", key=key),
+                    )
+                )
+            except LLMContractError as exc:
+                raise ConfigError(str(exc), key=key) from exc
+        if len({binding.provider_id for binding in bindings}) != len(bindings):
+            raise ConfigError(
+                "Model providers must be unique",
+                key=f"llm.models.{model_id}.providers",
+            )
+        return tuple(bindings)
 
 
 class TaskConfigParser:
@@ -227,10 +254,12 @@ class TaskConfigParser:
                     "tool_use",
                     "temperature",
                     "max_output_tokens",
-                    "max_retries_per_model",
+                    "max_retries_per_provider",
                     "retry_wait_seconds",
-                    "switch_wait_seconds",
+                    "provider_switch_wait_seconds",
+                    "model_switch_wait_seconds",
                     "max_cycles",
+                    "prefer_successful_provider_seconds",
                     "prefer_successful_model_seconds",
                 },
                 key=f"llm.tasks.{profile}",
@@ -254,7 +283,10 @@ class TaskConfigParser:
                 model_ids = tuple(
                     model_id
                     for model_id in model_ids
-                    if models.get(model_id).provider_id in enabled_provider_ids
+                    if any(
+                        binding.provider_id in enabled_provider_ids
+                        for binding in models.get(model_id).providers
+                    )
                 )
                 if not model_ids:
                     raise ConfigError(
@@ -332,10 +364,10 @@ class TaskConfigParser:
         try:
             defaults = RetryPolicy()
             return RetryPolicy(
-                max_retries_per_model=optional_int(
+                max_retries_per_provider=optional_int(
                     table,
-                    "max_retries_per_model",
-                    default=defaults.max_retries_per_model,
+                    "max_retries_per_provider",
+                    default=defaults.max_retries_per_provider,
                     key=key,
                 ),
                 retry_wait_seconds=optional_float(
@@ -344,10 +376,16 @@ class TaskConfigParser:
                     default=defaults.retry_wait_seconds,
                     key=key,
                 ),
-                switch_wait_seconds=optional_float(
+                provider_switch_wait_seconds=optional_float(
                     table,
-                    "switch_wait_seconds",
-                    default=defaults.switch_wait_seconds,
+                    "provider_switch_wait_seconds",
+                    default=defaults.provider_switch_wait_seconds,
+                    key=key,
+                ),
+                model_switch_wait_seconds=optional_float(
+                    table,
+                    "model_switch_wait_seconds",
+                    default=defaults.model_switch_wait_seconds,
                     key=key,
                 ),
                 max_cycles=optional_int_or_none(
@@ -356,7 +394,13 @@ class TaskConfigParser:
                     default=defaults.max_cycles,
                     key=key,
                 ),
-                prefer_successful_model_seconds=optional_float_or_none(
+                prefer_successful_provider_seconds=optional_float(
+                    table,
+                    "prefer_successful_provider_seconds",
+                    default=defaults.prefer_successful_provider_seconds,
+                    key=key,
+                ),
+                prefer_successful_model_seconds=optional_float(
                     table,
                     "prefer_successful_model_seconds",
                     default=defaults.prefer_successful_model_seconds,

@@ -8,7 +8,6 @@ from tinysoul.app.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, load_config_catalog
 from tinysoul.infra.config.catalog import ConfigCollectionDeletePolicy
 from tinysoul.llm.adapter_types import AdapterKind
-from tinysoul.llm.config_types import ProviderApiStyle
 from tinysoul.llm.responses import AnswerFormat
 from tinysoul.llm.tools import ToolUse
 from tests.support.project import copy_initialized_project
@@ -38,11 +37,8 @@ def test_config_catalog_covers_every_packaged_project_toml_leaf(
 def test_config_catalog_static_choices_match_business_enums() -> None:
     catalog = load_config_catalog()
 
-    assert _choices(catalog, "llm.providers.*.adapter") == {
+    assert _choices(catalog, "llm.providers.*.adapters") == {
         item.value for item in AdapterKind
-    }
-    assert _choices(catalog, "llm.providers.*.api_style") == {
-        item.value for item in ProviderApiStyle
     }
     assert _choices(catalog, "llm.tasks.*.answer_format") == {
         item.value for item in AnswerFormat

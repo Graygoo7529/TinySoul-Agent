@@ -43,7 +43,7 @@ describe("ModelsSettingsPage", () => {
     expect(button("Delete")).toBeNull();
     expect(select("Adapter")?.disabled).toBe(true);
     const provider = container.querySelector<HTMLSelectElement>(
-      'select[aria-label="Provider"]',
+      'select[aria-label="Provider 1"]',
     );
     expect(provider).not.toBeNull();
     expect(option(provider, "openai")?.textContent).toBe("openai");
@@ -98,9 +98,9 @@ describe("ModelsSettingsPage", () => {
         },
         {
           source_id: "project:configs/llm/models/custom.toml",
-          path: "llm.models.custom_model.provider",
+          path: "llm.models.custom_model.providers",
           op: "set",
-          value: "kimi_proxy",
+          value: [{ provider: "kimi_proxy", provider_model: "model" }],
         },
         {
           source_id: "project:configs/llm/models/custom.toml",
@@ -249,13 +249,13 @@ function catalog(): ConfigCatalog {
         importance: "primary",
         credential_reference: false,
         choices: [
-          { value: "generic", label: "Generic" },
+          { value: "openai_compatible_chat", label: "OpenAI-compatible Chat" },
           { value: "openai", label: "OpenAI" },
           { value: "kimi", label: "Kimi" },
         ],
       },
       {
-        path: "llm.models.*.provider",
+        path: "llm.models.*.providers.*.provider",
         surface: "models",
         group: "models.binding",
         title: "Provider",
@@ -266,7 +266,7 @@ function catalog(): ConfigCatalog {
         reference: { collection: "llm.providers", multiple: false },
       },
       {
-        path: "llm.models.*.provider_model",
+        path: "llm.models.*.providers.*.provider_model",
         surface: "models",
         group: "models.binding",
         title: "Provider Model ID",
@@ -327,12 +327,12 @@ function catalog(): ConfigCatalog {
         credential_reference: false,
       },
       {
-        path: "llm.providers.*.adapter",
+        path: "llm.providers.*.adapters",
         surface: "providers",
         group: "providers.connection",
         title: "Adapter",
         description: "Provider adapter.",
-        value_kind: "enum",
+        value_kind: "enum_list",
         importance: "primary",
         credential_reference: false,
         choices: [],
@@ -341,7 +341,7 @@ function catalog(): ConfigCatalog {
     rules: {
       llm: {
         adapters: [
-          { id: "generic", common_option_keys: [], protocols: [] },
+          { id: "openai_compatible_chat", common_option_keys: [], protocols: [] },
           { id: "openai", common_option_keys: ["reasoning_keep", "verbosity"], protocols: [] },
           {
             id: "kimi",
@@ -369,8 +369,8 @@ function status(): ConfigStatus {
         writable: true,
         values: {
           "llm.models.built_in.adapter": "openai",
-          "llm.models.built_in.provider": "openai",
-          "llm.models.built_in.provider_model": "gpt-5",
+          "llm.models.built_in.providers.0.provider": "openai",
+          "llm.models.built_in.providers.0.provider_model": "gpt-5",
         },
       },
       {
@@ -381,8 +381,8 @@ function status(): ConfigStatus {
         writable: true,
         values: {
           "llm.models.custom_model.adapter": "openai",
-          "llm.models.custom_model.provider": "openai",
-          "llm.models.custom_model.provider_model": "gpt-custom",
+          "llm.models.custom_model.providers.0.provider": "openai",
+          "llm.models.custom_model.providers.0.provider_model": "gpt-custom",
           "llm.models.custom_model.adapter_options.reasoning_keep": "encrypted",
           "llm.models.custom_model.request_overrides.temperature": 0.2,
         },
@@ -394,26 +394,26 @@ function status(): ConfigStatus {
         exists: true,
         writable: true,
         values: {
-          "llm.providers.openai.adapter": "openai",
-          "llm.providers.openai_proxy.adapter": "openai",
-          "llm.providers.kimi.adapter": "kimi",
-          "llm.providers.kimi_proxy.adapter": "kimi",
+          "llm.providers.openai.adapters": ["openai"],
+          "llm.providers.openai_proxy.adapters": ["openai"],
+          "llm.providers.kimi.adapters": ["kimi"],
+          "llm.providers.kimi_proxy.adapters": ["kimi"],
         },
       },
     ],
     fields: {
       "llm.models.built_in.adapter": { value: "openai", source: builtInSource, writable: true },
-      "llm.models.built_in.provider": { value: "openai", source: builtInSource, writable: true },
-      "llm.models.built_in.provider_model": { value: "gpt-5", source: builtInSource, writable: true },
+      "llm.models.built_in.providers.0.provider": { value: "openai", source: builtInSource, writable: true },
+      "llm.models.built_in.providers.0.provider_model": { value: "gpt-5", source: builtInSource, writable: true },
       "llm.models.custom_model.adapter": { value: "openai", source: customSource, writable: true },
-      "llm.models.custom_model.provider": { value: "openai", source: customSource, writable: true },
-      "llm.models.custom_model.provider_model": { value: "gpt-custom", source: customSource, writable: true },
+      "llm.models.custom_model.providers.0.provider": { value: "openai", source: customSource, writable: true },
+      "llm.models.custom_model.providers.0.provider_model": { value: "gpt-custom", source: customSource, writable: true },
       "llm.models.custom_model.adapter_options.reasoning_keep": { value: "encrypted", source: customSource, writable: true },
       "llm.models.custom_model.request_overrides.temperature": { value: 0.2, source: customSource, writable: true },
-      "llm.providers.openai.adapter": { value: "openai", source: providerSource, writable: true },
-      "llm.providers.openai_proxy.adapter": { value: "openai", source: providerSource, writable: true },
-      "llm.providers.kimi.adapter": { value: "kimi", source: providerSource, writable: true },
-      "llm.providers.kimi_proxy.adapter": { value: "kimi", source: providerSource, writable: true },
+      "llm.providers.openai.adapters": { value: ["openai"], source: providerSource, writable: true },
+      "llm.providers.openai_proxy.adapters": { value: ["openai"], source: providerSource, writable: true },
+      "llm.providers.kimi.adapters": { value: ["kimi"], source: providerSource, writable: true },
+      "llm.providers.kimi_proxy.adapters": { value: ["kimi"], source: providerSource, writable: true },
     },
     runtime: { generation_id: "g1", activity: "idle", activation: "stable" },
     process_shell: {

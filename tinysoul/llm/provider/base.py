@@ -7,10 +7,11 @@ from enum import StrEnum
 from typing import Protocol
 
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
 from tinysoul.llm.errors import LLMContractError
 from tinysoul.llm.messages import MessageStack
 from tinysoul.llm.models import ModelSpec
+from tinysoul.llm.models import ModelProviderBinding
 from tinysoul.llm.responses import AnswerFormat, RawResponse
 from tinysoul.llm.tools import ToolScope, ToolUse
 
@@ -27,12 +28,30 @@ class ProviderErrorKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ProviderFailureScope(StrEnum):
+    """Scope that can potentially recover from a provider failure."""
+
+    PROVIDER = "provider"
+    MODEL = "model"
+
+
 class ProviderError(Exception):
     """Error raised by provider adapters."""
 
-    def __init__(self, message: str, *, kind: ProviderErrorKind) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ProviderErrorKind,
+        scope: ProviderFailureScope | None = None,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
+        self.scope = scope or (
+            ProviderFailureScope.MODEL
+            if kind in {ProviderErrorKind.CONFIG, ProviderErrorKind.CAPABILITY}
+            else ProviderFailureScope.PROVIDER
+        )
 
 
 @dataclass(frozen=True)
@@ -40,6 +59,7 @@ class ProviderRequest:
     """A provider-neutral request ready for adapter mapping."""
 
     model: ModelSpec
+    binding: ModelProviderBinding
     messages: MessageStack
     answer_format: AnswerFormat
     tool_use: ToolUse = ToolUse.DISABLED
@@ -52,6 +72,14 @@ class ProviderRequest:
     def __post_init__(self) -> None:
         if not isinstance(self.model, ModelSpec):
             raise LLMContractError("ProviderRequest.model must be a ModelSpec")
+        if not isinstance(self.binding, ModelProviderBinding):
+            raise LLMContractError(
+                "ProviderRequest.binding must be a ModelProviderBinding"
+            )
+        if self.binding not in self.model.providers:
+            raise LLMContractError(
+                "ProviderRequest.binding must belong to ProviderRequest.model"
+            )
         if not isinstance(self.messages, MessageStack):
             raise LLMContractError("ProviderRequest.messages must be a MessageStack")
         if not isinstance(self.answer_format, AnswerFormat):
@@ -96,6 +124,11 @@ class ProviderAdapter(Protocol):
 
     provider_id: str
     adapter_kind: AdapterKind
+
+    @property
+    def api_style(self) -> ProviderApiStyle:
+        """Wire style fixed by the adapter kind."""
+        ...
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         """Invoke a model through this provider."""

@@ -1,34 +1,29 @@
 [llm.providers.openai]
 enabled = false
-adapter = "openai"
-api_style = "openai_responses"
+adapters = ["openai"]
 base_url = "https://api.openai.com/v1"
 api_key_envs = ["OPENAI_API_KEY"]
 
 [llm.providers.deepseek]
 enabled = false
-adapter = "deepseek"
-api_style = "openai_chat"
+adapters = ["deepseek"]
 base_url = "https://api.deepseek.com"
 api_key_envs = ["DEEPSEEK_API_KEY"]
 
 [llm.providers.kimi]
 enabled = false
-adapter = "kimi"
-api_style = "openai_chat"
+adapters = ["kimi"]
 base_url = "https://api.moonshot.cn/v1"
 api_key_envs = ["MOONSHOT_API_KEY"]
 
 [llm.providers.glm]
 enabled = false
-adapter = "glm"
-api_style = "openai_chat"
+adapters = ["glm"]
 base_url = "https://open.bigmodel.cn/api/paas/v4"
 api_key_envs = ["GLM_API_KEY"]
 
 [llm.providers.minimax]
 enabled = false
-adapter = "minimax"
-api_style = "openai_chat"
+adapters = ["minimax"]
 base_url = "https://api.minimaxi.com/v1"
 api_key_envs = ["MINIMAX_API_KEY"]

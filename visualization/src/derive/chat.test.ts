@@ -847,7 +847,7 @@ describe("semantic activity details", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
       event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
-      event("llm.model.retry", phaseScope("phase1"), {
+      event("llm.provider.retry", phaseScope("phase1"), {
         profile: "loop.phase1",
         model_id: "model-x",
         provider_id: "provider-a",
@@ -856,7 +856,7 @@ describe("semantic activity details", () => {
     ];
     const [turn] = buildChatTurns(events, []);
     const retry = turn.activity.find((a) => a.kind === "retry");
-    expect(retry?.text).toBe("Provider hiccup — retrying (attempt 2)");
+    expect(retry?.text).toBe("provider-a hiccup — retrying (attempt 2)");
   });
 
   it("stops unresolved plan entries when the turn ends, but not executed ones", () => {

@@ -6,7 +6,7 @@ from enum import StrEnum
 class AdapterKind(StrEnum):
     """Provider/model behavior implementation independent of endpoint identity."""
 
-    GENERIC = "generic"
+    OPENAI_COMPATIBLE_CHAT = "openai_compatible_chat"
     OPENAI = "openai"
     KIMI = "kimi"
     DEEPSEEK = "deepseek"

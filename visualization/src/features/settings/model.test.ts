@@ -17,19 +17,20 @@ import {
 
 describe("settings catalog projection", () => {
   it("matches wildcard descriptors without guessing page ownership", () => {
-    expect(pathMatches("llm.models.*.provider", "llm.models.primary.provider")).toBe(true);
-    expect(pathMatches("llm.models.*.provider", "llm.models.primary.provider.id")).toBe(false);
-    expect(descriptorForPath(catalog(), "llm.models.primary.provider")?.surface).toBe("models");
+    expect(pathMatches("llm.models.*.providers.*.provider", "llm.models.primary.providers.0.provider")).toBe(true);
+    expect(pathMatches("llm.models.*.providers.*.provider", "llm.models.primary.providers.0.provider.id")).toBe(false);
+    expect(descriptorForPath(catalog(), "llm.models.primary.providers.0.provider")?.surface).toBe("models");
   });
 
   it("uses catalog titles and importance for effective fields", () => {
     const fields = surfaceFields(status(), catalog(), "models");
-    expect(fields).toHaveLength(2);
+    expect(fields).toHaveLength(3);
     expect(fields.map((field) => field.descriptor.title)).toEqual([
+      "Adapter",
       "Provider",
       "Provider Model ID",
     ]);
-    expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(2);
+    expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(3);
   });
 
   it("projects shared Cycle phase task-profile references", () => {
@@ -91,7 +92,7 @@ describe("settings catalog projection", () => {
     const objects = configObjects(status(), catalog(), "llm.models");
     expect(objects).toHaveLength(1);
     expect(objects[0].id).toBe("primary");
-    expect(objects[0].value).toEqual({ provider: "openai", provider_model: "gpt-5" });
+    expect(objects[0].value).toEqual({ adapter: "openai", providers: [{ provider: "openai", provider_model: "gpt-5" }] });
     expect(objects[0].sourceIds).toEqual([
       "project:configs/llm/models/custom.toml",
     ]);
@@ -126,21 +127,21 @@ describe("settings catalog projection", () => {
       {
         id: "openai",
         collection: providerCollection,
-        value: { adapter: "openai" },
+        value: { adapters: ["openai"] },
         fields: [],
         sourceIds: ["project:configs/llm/providers.toml"],
       },
       {
         id: "openai_proxy",
         collection: providerCollection,
-        value: { adapter: "openai" },
+        value: { adapters: ["openai", "openai_compatible_chat"] },
         fields: [],
         sourceIds: ["project:configs/llm/providers.toml"],
       },
       {
         id: "kimi",
         collection: providerCollection,
-        value: { adapter: "kimi" },
+        value: { adapters: ["kimi"] },
         fields: [],
         sourceIds: ["project:configs/llm/providers.toml"],
       },
@@ -350,7 +351,18 @@ function catalog(): ConfigCatalog {
         credential_reference: false,
       },
       {
-        path: "llm.models.*.provider",
+        path: "llm.models.*.adapter",
+        surface: "models",
+        group: "models.binding",
+        title: "Adapter",
+        description: "Model adapter.",
+        value_kind: "enum",
+        importance: "primary",
+        credential_reference: false,
+        choices: [{ value: "openai", label: "OpenAI" }],
+      },
+      {
+        path: "llm.models.*.providers.*.provider",
         surface: "models",
         group: "models.binding",
         title: "Provider",
@@ -360,7 +372,7 @@ function catalog(): ConfigCatalog {
         credential_reference: false,
       },
       {
-        path: "llm.models.*.provider_model",
+        path: "llm.models.*.providers.*.provider_model",
         surface: "models",
         group: "models.binding",
         title: "Provider Model ID",
@@ -399,8 +411,9 @@ function status(): ConfigStatus {
         exists: true,
         writable: true,
         values: {
-          "llm.models.primary.provider": "openai",
-          "llm.models.primary.provider_model": "gpt-5",
+          "llm.models.primary.adapter": "openai",
+          "llm.models.primary.providers.0.provider": "openai",
+          "llm.models.primary.providers.0.provider_model": "gpt-5",
           "llm.providers.openai.api_key_envs": ["OPENAI_API_KEY"],
         },
       },
@@ -414,6 +427,11 @@ function status(): ConfigStatus {
       },
     ],
     fields: {
+      "llm.models.primary.adapter": {
+        value: "openai",
+        source: "project:configs/llm/models/custom.toml",
+        writable: true,
+      },
       "loop.cycle.phase1_task_profile": {
         value: "framework",
         source: "project:configs/loop.toml",
@@ -424,12 +442,12 @@ function status(): ConfigStatus {
         source: "project:configs/loop.toml",
         writable: true,
       },
-      "llm.models.primary.provider": {
+      "llm.models.primary.providers.0.provider": {
         value: "openai",
         source: "project:configs/llm/models/custom.toml",
         writable: true,
       },
-      "llm.models.primary.provider_model": {
+      "llm.models.primary.providers.0.provider_model": {
         value: "gpt-5",
         source: "project:configs/llm/models/custom.toml",
         writable: true,

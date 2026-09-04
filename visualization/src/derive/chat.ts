@@ -291,12 +291,13 @@ export function buildChatTurns(
         applyTaskLifecycle(turn, ev, currentCycleId, currentPhase);
         break;
       }
-      case "llm.model.retry": {
+      case "llm.provider.retry": {
         const attempt = asNumber(ev.payload?.attempt);
+        const provider = asString(ev.payload?.provider_id);
         addActivity(
           turn,
           "retry",
-          `Provider hiccup — retrying${attempt ? ` (attempt ${attempt})` : ""}`,
+          `${provider ? `${provider} ` : ""}hiccup — retrying${attempt ? ` (attempt ${attempt})` : ""}`,
           undefined,
           { cycleIndex: turn.cycles.length || undefined },
           ev.created_at,

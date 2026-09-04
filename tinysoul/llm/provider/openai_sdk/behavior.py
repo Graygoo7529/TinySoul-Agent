@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.config import ProviderApiStyle
+from tinysoul.llm.adapter_types import ProviderApiStyle
 from tinysoul.llm.messages import Message
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 from tinysoul.llm.tools import ToolSpec

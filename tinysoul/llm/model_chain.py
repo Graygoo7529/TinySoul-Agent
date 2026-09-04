@@ -25,28 +25,29 @@ class ChainErrorDisposition(StrEnum):
 class RetryPolicy:
     """Retry and wait policy for a model chain."""
 
-    max_retries_per_model: int = 1
+    max_retries_per_provider: int = 1
     retry_wait_seconds: float = 0.0
-    switch_wait_seconds: float = 0.0
+    provider_switch_wait_seconds: float = 0.0
+    model_switch_wait_seconds: float = 0.0
     max_cycles: int | None = 10
-    prefer_successful_model_seconds: float | None = None
+    prefer_successful_provider_seconds: float = 600.0
+    prefer_successful_model_seconds: float = 600.0
 
     def __post_init__(self) -> None:
-        if self.max_retries_per_model < 1:
-            raise LLMContractError("max_retries_per_model must be at least 1")
+        if self.max_retries_per_provider < 0:
+            raise LLMContractError("max_retries_per_provider cannot be negative")
         if self.retry_wait_seconds < 0:
             raise LLMContractError("retry_wait_seconds cannot be negative")
-        if self.switch_wait_seconds < 0:
-            raise LLMContractError("switch_wait_seconds cannot be negative")
+        if self.provider_switch_wait_seconds < 0:
+            raise LLMContractError("provider_switch_wait_seconds cannot be negative")
+        if self.model_switch_wait_seconds < 0:
+            raise LLMContractError("model_switch_wait_seconds cannot be negative")
         if self.max_cycles is not None and self.max_cycles < 1:
             raise LLMContractError("max_cycles must be None or at least 1")
-        if (
-            self.prefer_successful_model_seconds is not None
-            and self.prefer_successful_model_seconds < 0
-        ):
-            raise LLMContractError(
-                "prefer_successful_model_seconds cannot be negative"
-            )
+        if self.prefer_successful_provider_seconds < 0:
+            raise LLMContractError("prefer_successful_provider_seconds cannot be negative")
+        if self.prefer_successful_model_seconds < 0:
+            raise LLMContractError("prefer_successful_model_seconds cannot be negative")
 
 
 @dataclass(frozen=True)
@@ -124,12 +125,13 @@ class TaskSpecTable:
         return profile_name in self._specs
 
 
-class ModelChainState:
-    """Mutable current-position state for model chains."""
+class LLMRouteState:
+    """Mutable model and provider success preferences for LLM routing."""
 
     def __init__(self) -> None:
         self._indices: dict[str, int] = {}
         self._success_times: dict[str, float] = {}
+        self._provider_success: dict[tuple[str, str], tuple[str, float]] = {}
 
     def current_index(self, chain: ModelChain, *, now: float) -> int:
         if self._should_return_to_head(chain, now=now):
@@ -153,15 +155,17 @@ class ModelChainState:
         if profile is None:
             self._indices.clear()
             self._success_times.clear()
+            self._provider_success.clear()
             return
         profile_name = profile.value if isinstance(profile, TaskProfile) else profile
         self._indices.pop(profile_name, None)
         self._success_times.pop(profile_name, None)
+        for key in tuple(self._provider_success):
+            if key[0] == profile_name:
+                self._provider_success.pop(key, None)
 
     def _should_return_to_head(self, chain: ModelChain, *, now: float) -> bool:
         seconds = chain.retry_policy.prefer_successful_model_seconds
-        if seconds is None:
-            return False
         index = self._indices.get(chain.profile, 0)
         if index == 0:
             return False
@@ -169,6 +173,46 @@ class ModelChainState:
         if success_time is None:
             return False
         return now - success_time >= seconds
+
+    def provider_order(
+        self,
+        profile: str,
+        model_id: str,
+        provider_ids: tuple[str, ...],
+        *,
+        now: float,
+        prefer_seconds: float,
+    ) -> tuple[str, ...]:
+        if not provider_ids:
+            return ()
+        key = (profile, model_id)
+        preferred = self._provider_success.get(key)
+        if preferred is None or now - preferred[1] >= prefer_seconds:
+            self._provider_success.pop(key, None)
+            return provider_ids
+        provider_id = preferred[0]
+        if provider_id not in provider_ids:
+            self._provider_success.pop(key, None)
+            return provider_ids
+        return (provider_id, *(item for item in provider_ids if item != provider_id))
+
+    def mark_provider_success(
+        self,
+        profile: str,
+        model_id: str,
+        provider_id: str,
+        provider_ids: tuple[str, ...],
+        *,
+        now: float,
+    ) -> None:
+        index = provider_ids.index(provider_id)
+        key = (profile, model_id)
+        if index == 0:
+            self._provider_success.pop(key, None)
+            return
+        previous = self._provider_success.get(key)
+        if previous is None or previous[0] != provider_id:
+            self._provider_success[key] = (provider_id, now)
 
 
 class ModelChainPlanner:
@@ -201,15 +245,19 @@ class ModelChainRunner:
     def __init__(
         self,
         *,
-        state: ModelChainState | None = None,
+        state: LLMRouteState | None = None,
         planner: ModelChainPlanner | None = None,
         sleeper: Sleeper | None = None,
         clock: Clock | None = None,
     ) -> None:
-        self._state = state or ModelChainState()
+        self._state = state or LLMRouteState()
         self._planner = planner or ModelChainPlanner()
         self._sleeper = sleeper or Sleeper()
         self._clock = clock or Clock()
+
+    @property
+    def state(self) -> LLMRouteState:
+        return self._state
 
     def run(
         self,
@@ -243,7 +291,7 @@ class ModelChainRunner:
                         blocked_models.add(model_id)
                     else:
                         retry_next_cycle = True
-                    self._sleeper.sleep(chain.retry_policy.switch_wait_seconds)
+                    self._sleeper.sleep(chain.retry_policy.model_switch_wait_seconds)
                     continue
 
                 self._state.mark_success(chain, model_id, now=self._clock.now())
@@ -268,6 +316,9 @@ class ModelChainRunner:
     def current_model_id(self, chain: ModelChain) -> str:
         index = self._state.current_index(chain, now=self._clock.now())
         return chain.model_ids[index]
+
+    def now(self) -> float:
+        return self._clock.now()
 
 
 class ModelChainExhaustedError(Exception):

@@ -54,11 +54,17 @@ class AdapterSpec:
     """Machine-readable rules for one provider adapter."""
 
     kind: AdapterKind
-    api_style: ProviderApiStyle | None
+    api_style: ProviderApiStyle
     common_options: tuple[AdapterOptionSpec, ...]
     protocols: tuple[AdapterProtocolSpec, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, AdapterKind):
+            raise LLMContractError("AdapterSpec.kind must be an AdapterKind")
+        if not isinstance(self.api_style, ProviderApiStyle):
+            raise LLMContractError(
+                "AdapterSpec.api_style must be a ProviderApiStyle"
+            )
         if len({protocol.id for protocol in self.protocols}) != len(self.protocols):
             raise LLMContractError(f"Duplicate adapter protocol: {self.kind.value}")
         if "protocol" in {option.id for option in self.common_options}:
@@ -121,12 +127,6 @@ class AdapterSpec:
         reject_unknown_keys(options, allowed, key=key)
         return protocol.id if protocol is not None else None
 
-    def validate_api_style(self, api_style: ProviderApiStyle) -> None:
-        if self.api_style is not None and api_style is not self.api_style:
-            raise LLMContractError(
-                f"Adapter '{self.kind.value}' requires API style '{self.api_style.value}'"
-            )
-
     def validate_options(self, options: Mapping[str, object], *, key: str) -> None:
         protocol = self.validate_option_keys(options, key=key)
         specs = {option.id: option for option in self.common_options}
@@ -141,7 +141,7 @@ class AdapterSpec:
     def to_json(self) -> JsonObject:
         result: JsonObject = {
             "id": self.kind.value,
-            "api_style": self.api_style.value if self.api_style is not None else None,
+            "api_style": self.api_style.value,
             "common_option_keys": list(sorted(option.id for option in self.common_options)),
             "common_options": [option.to_json() for option in self.common_options],
             "protocols": [protocol.to_json() for protocol in self.protocols],
@@ -151,8 +151,8 @@ class AdapterSpec:
 
 _ADAPTER_SPECS: tuple[AdapterSpec, ...] = (
     AdapterSpec(
-        kind=AdapterKind.GENERIC,
-        api_style=None,
+        kind=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        api_style=ProviderApiStyle.OPENAI_CHAT,
         common_options=(),
     ),
     AdapterSpec(

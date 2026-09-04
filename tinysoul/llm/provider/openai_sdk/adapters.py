@@ -7,12 +7,14 @@ from typing import cast
 from openai import OpenAI
 
 from tinysoul.infra.json import to_json_object
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.adapter import adapter_spec
+from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
+from tinysoul.llm.config import ProviderSpec
 from tinysoul.llm.message_rendering import MessageContentRenderer
 from tinysoul.llm.responses import RawResponse
 from tinysoul.llm.tools import DefaultToolCallIdMapper, ToolCallIdMapper
 
-from ..base import ProviderError, ProviderErrorKind, ProviderRequest
+from ..base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from .behavior import OpenAIAdapterBehavior
 from .clients import OpenAIChatCompletionsClient, OpenAIResponsesClient
 from .common import (
@@ -44,12 +46,14 @@ class OpenAIResponsesAdapter:
         *,
         provider: ProviderSpec,
         api_key: str,
+        adapter_kind: AdapterKind = AdapterKind.OPENAI,
         responses: OpenAIResponsesClient | None = None,
         behavior: OpenAIAdapterBehavior | None = None,
         id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
-        self.adapter_kind = provider.adapter
+        self.adapter_kind = adapter_kind
+        self._api_style = adapter_spec(adapter_kind).api_style
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if responses is None:
@@ -63,6 +67,10 @@ class OpenAIResponsesAdapter:
         else:
             self._client = responses
         self._renderer = MessageContentRenderer()
+
+    @property
+    def api_style(self) -> ProviderApiStyle:
+        return self._api_style
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
@@ -81,7 +89,7 @@ class OpenAIResponsesAdapter:
         apply_tools_kwargs(
             kwargs,
             request,
-            api_style=ProviderApiStyle.OPENAI_RESPONSES,
+            api_style=self.api_style,
             behavior=self._behavior,
             name_map=name_map,
         )
@@ -119,12 +127,14 @@ class OpenAICompatibleChatAdapter:
         *,
         provider: ProviderSpec,
         api_key: str,
+        adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT,
         completions: OpenAIChatCompletionsClient | None = None,
         behavior: OpenAIAdapterBehavior | None = None,
         id_mapper: ToolCallIdMapper | None = None,
     ) -> None:
         self.provider_id = provider.id
-        self.adapter_kind = provider.adapter
+        self.adapter_kind = adapter_kind
+        self._api_style = adapter_spec(adapter_kind).api_style
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
         if completions is None:
@@ -138,6 +148,10 @@ class OpenAICompatibleChatAdapter:
         else:
             self._client = completions
         self._renderer = MessageContentRenderer()
+
+    @property
+    def api_style(self) -> ProviderApiStyle:
+        return self._api_style
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
@@ -156,7 +170,7 @@ class OpenAICompatibleChatAdapter:
         apply_tools_kwargs(
             kwargs,
             request,
-            api_style=ProviderApiStyle.OPENAI_CHAT,
+            api_style=self.api_style,
             behavior=self._behavior,
             name_map=name_map,
         )
@@ -200,9 +214,15 @@ def _validate_adapter_identity(
     adapter: OpenAIResponsesAdapter | OpenAICompatibleChatAdapter,
     request: ProviderRequest,
 ) -> None:
-    if request.model.adapter is adapter.adapter_kind:
-        return
-    raise ProviderError(
-        "Model adapter does not match provider adapter",
-        kind=ProviderErrorKind.CONFIG,
-    )
+    if request.binding.provider_id != adapter.provider_id:
+        raise ProviderError(
+            "Model provider binding does not match provider adapter",
+            kind=ProviderErrorKind.CONFIG,
+            scope=ProviderFailureScope.MODEL,
+        )
+    if request.model.adapter is not adapter.adapter_kind:
+        raise ProviderError(
+            "Model adapter does not match provider adapter",
+            kind=ProviderErrorKind.CONFIG,
+            scope=ProviderFailureScope.MODEL,
+        )

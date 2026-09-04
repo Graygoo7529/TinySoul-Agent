@@ -24,6 +24,7 @@ from .models import (
     AdapterOptions,
     ModelCapability,
     ModelRegistry,
+    ModelProviderBinding,
     ModelSpec,
     RequestOverrides,
 )
@@ -105,6 +106,7 @@ __all__ = [
     "ModelCapability",
     "ModelCapabilityError",
     "ModelRegistry",
+    "ModelProviderBinding",
     "ModelSpec",
     "PromptCache",
     "RequestOverrides",

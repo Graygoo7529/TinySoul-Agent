@@ -9,7 +9,7 @@ import json
 from typing import Protocol
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.config import ProviderApiStyle
+from tinysoul.llm.adapter_types import ProviderApiStyle
 from tinysoul.llm.message_rendering import (
     MessageContentRenderer,
     RenderedContentPart,

@@ -80,8 +80,7 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
     (root / "configs" / "llm" / "providers.toml").write_text(
         "[llm.providers.fake]\n"
         "enabled = true\n"
-        'adapter = "generic"\n'
-        'api_style = "openai_chat"\n'
+        'adapters = ["openai_compatible_chat"]\n'
         f'base_url = "http://127.0.0.1:{port}/v1"\n'
         'api_key_envs = ["FAKE_API_KEY"]\n',
         encoding="utf-8",
@@ -91,9 +90,8 @@ def _configure_fake_provider(root: Path, *, port: int) -> None:
         path.unlink()
     (model_root / "fake.toml").write_text(
         "[llm.models.fake_model]\n"
-        'adapter = "generic"\n'
-        'provider = "fake"\n'
-        'provider_model = "fake-model"\n'
+        'adapter = "openai_compatible_chat"\n'
+        'providers = [{ provider = "fake", provider_model = "fake-model" }]\n'
         "context_window_tokens = 262144\n"
         "capabilities = [\n"
         '  "text_input",\n'
@@ -117,9 +115,10 @@ def _task_config(profile: str) -> str:
         'tool_use = "disabled"\n'
         "temperature = 0.0\n"
         "max_output_tokens = 1024\n"
-        "max_retries_per_model = 1\n"
+        "max_retries_per_provider = 1\n"
         "retry_wait_seconds = 0.0\n"
-        "switch_wait_seconds = 0.0\n"
+        "provider_switch_wait_seconds = 0.0\n"
+        "model_switch_wait_seconds = 0.0\n"
         "max_cycles = 1\n"
         "prefer_successful_model_seconds = 0\n"
     )

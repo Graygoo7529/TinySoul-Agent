@@ -315,23 +315,57 @@ def _set_dotted_value(
     full_key: str = "",
 ) -> None:
     parts = dotted_key.split(".")
-    current = tree
-    for part in parts[:-1]:
-        existing = current.get(part)
+    current: dict[str, object] | list[object] = tree
+    for index, part in enumerate(parts):
+        last = index == len(parts) - 1
+        next_is_index = bool(parts[index + 1 :]) and parts[index + 1].isdigit()
+        if isinstance(current, dict):
+            if last:
+                current[part] = value
+                return
+            existing = current.get(part)
+            if existing is None:
+                nested: dict[str, object] | list[object] = [] if next_is_index else {}
+                current[part] = nested
+                current = nested
+                continue
+            if not isinstance(existing, (dict, list)):
+                raise ConfigError(
+                    "Cannot set nested configuration key below scalar value",
+                    key=full_key or dotted_key,
+                    source=source,
+                    value=value,
+                )
+            current = cast(dict[str, object] | list[object], existing)
+            continue
+
+        if not part.isdigit():
+            raise ConfigError(
+                "Configuration list path must use a numeric index",
+                key=full_key or dotted_key,
+                source=source,
+                value=value,
+            )
+        item_index = int(part)
+        while len(current) <= item_index:
+            current.append(None)
+        if last:
+            current[item_index] = value
+            return
+        existing = current[item_index]
         if existing is None:
-            nested: dict[str, object] = {}
-            current[part] = nested
+            nested = [] if next_is_index else {}
+            current[item_index] = nested
             current = nested
             continue
-        if not isinstance(existing, dict):
+        if not isinstance(existing, (dict, list)):
             raise ConfigError(
                 "Cannot set nested configuration key below scalar value",
                 key=full_key or dotted_key,
                 source=source,
                 value=value,
             )
-        current = cast(dict[str, object], existing)
-    current[parts[-1]] = value
+        current = cast(dict[str, object] | list[object], existing)
 
 
 def _convert_value(value: object, target_type: object, *, key: str, source: str) -> object:

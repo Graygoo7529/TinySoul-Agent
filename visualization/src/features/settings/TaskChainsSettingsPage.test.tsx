@@ -136,7 +136,7 @@ function catalog(): ConfigCatalog {
         ...field("llm.tasks.*.answer_format", "task_chains", "task_chains.call", "Answer Format", "string"),
         importance: "advanced",
       },
-      field("llm.models.*.provider_model", "models", "models.binding", "Provider Model ID", "string"),
+      field("llm.models.*.providers.*.provider_model", "models", "models.binding", "Provider Model ID", "string"),
       field("loop.cycle.phase1_task_profile", "cycle_routing", "cycle_routing.phases", "Phase1 Task Chain", "reference", {
         collection: "llm.tasks",
         multiple: false,
@@ -191,7 +191,7 @@ function status(): ConfigStatus {
     ["llm.tasks.shared.models", ["primary"], taskSource],
     ["llm.tasks.unused.models", ["primary"], taskSource],
     ["llm.tasks.shared.answer_format", "json_object", taskSource],
-    ["llm.models.primary.provider_model", "gpt-5", modelSource],
+    ["llm.models.primary.providers.0.provider_model", "gpt-5", modelSource],
     ["loop.cycle.phase1_task_profile", "shared", loopSource],
     ["loop.cycle.phase2_task_profile", "shared", loopSource],
     ["action.llm_action.default_task_profile", "shared", actionSource],

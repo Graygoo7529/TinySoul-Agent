@@ -81,18 +81,16 @@ def test_cli_init_copies_editable_project_without_provider_selection(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert models["kimi_k2_7"]["provider"] == "kimi"
-    assert models["kimi_k2_7"]["provider_model"] == "kimi-k2.7-code-highspeed"
-    assert models["kimi_k3"]["provider"] == "kimi"
-    assert models["kimi_k3"]["provider_model"] == "kimi-k3"
+    assert models["kimi_k2_7"]["providers"] == [{"provider": "kimi", "provider_model": "kimi-k2.7-code-highspeed"}]
+    assert models["kimi_k3"]["providers"] == [{"provider": "kimi", "provider_model": "kimi-k3"}]
     openai_models = tomllib.loads(
         (root / "configs" / "llm" / "models" / "openai.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert openai_models["gpt_5_6_sol"]["provider"] == "openai"
-    assert openai_models["gpt_5_6_terra"]["provider"] == "openai"
-    assert openai_models["gpt_5_6_luna"]["provider"] == "openai"
+    assert openai_models["gpt_5_6_sol"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_sol"]["providers"][0]["provider_model"]}]
+    assert openai_models["gpt_5_6_terra"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_terra"]["providers"][0]["provider_model"]}]
+    assert openai_models["gpt_5_6_luna"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_luna"]["providers"][0]["provider_model"]}]
     web = tomllib.loads(
         (root / "configs" / "capabilities" / "web.toml").read_text(
             encoding="utf-8"
@@ -145,8 +143,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     )["llm"]["providers"]
     assert providers["sublyx_proxy"] == {
         "enabled": True,
-        "adapter": "openai",
-        "api_style": "openai_responses",
+        "adapters": ["openai"],
         "base_url": "https://api.sublyx.org/v1",
         "api_key_envs": ["SUBLYX_API_KEY"],
     }
@@ -156,9 +153,9 @@ def test_cli_init_development_profile_copies_enabled_development_config(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert openai_models["gpt_5_6_sol"]["provider"] == "sublyx_proxy"
-    assert openai_models["gpt_5_6_terra"]["provider"] == "sublyx_proxy"
-    assert openai_models["gpt_5_6_luna"]["provider"] == "sublyx_proxy"
+    assert openai_models["gpt_5_6_sol"]["providers"][0]["provider"] == "sublyx_proxy"
+    assert openai_models["gpt_5_6_terra"]["providers"][0]["provider"] == "sublyx_proxy"
+    assert openai_models["gpt_5_6_luna"]["providers"][0]["provider"] == "sublyx_proxy"
     shell = tomllib.loads(
         (root / "configs" / "capabilities" / "shell.toml").read_text(
             encoding="utf-8"

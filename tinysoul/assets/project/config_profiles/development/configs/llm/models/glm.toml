@@ -1,7 +1,6 @@
 [llm.models.glm_5_1]
 adapter = "glm"
-provider = "glm"
-provider_model = "glm-5.1"
+providers = [{ provider = "glm", provider_model = "glm-5.1" }]
 context_window_tokens = 262144
 capabilities = [
   "text_input",

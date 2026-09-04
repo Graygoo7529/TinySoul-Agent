@@ -1,7 +1,6 @@
 [llm.models.deepseek_v4]
 adapter = "deepseek"
-provider = "deepseek"
-provider_model = "deepseek-v4-pro"
+providers = [{ provider = "deepseek", provider_model = "deepseek-v4-pro" }]
 context_window_tokens = 262144
 capabilities = [
   "text_input",

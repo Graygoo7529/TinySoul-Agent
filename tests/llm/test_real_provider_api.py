@@ -9,6 +9,7 @@ import pytest
 
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.cache import PromptCache
+from tinysoul.llm.adapter import adapter_spec
 from tinysoul.llm.config import LLMConfigParser, ProviderSpec
 from tinysoul.llm.messages import (
     AssistantMessage,
@@ -92,6 +93,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         adapter,
         ProviderRequest(
             model=model,
+            binding=model.providers[0],
             messages=messages,
             answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=prompt_cache,
@@ -139,6 +141,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         adapter,
         ProviderRequest(
             model=model,
+            binding=model.providers[0],
             messages=messages,
             answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=prompt_cache,
@@ -187,6 +190,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         adapter,
         ProviderRequest(
             model=model,
+            binding=model.providers[0],
             messages=messages,
             answer_format=AnswerFormat.NONE,
             tool_use=ToolUse.REQUIRED,
@@ -251,6 +255,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         adapter,
         ProviderRequest(
             model=model,
+            binding=model.providers[0],
             messages=messages,
             answer_format=AnswerFormat.NONE,
             tool_use=ToolUse.REQUIRED,
@@ -291,12 +296,13 @@ def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, Provide
     )
     config = LLMConfigParser().parse(environment.section_tree("llm"))
     model = config.models.get(model_id)
-    provider = config.provider(model.provider_id)
+    binding = model.providers[0]
+    provider = config.provider(binding.provider_id)
     try:
         registry = build_provider_registry((provider,), env=environment.runtime_env)
     except ConfigError as exc:
         pytest.skip(f"{provider.id} API key is not configured: {exc}")
-    return model, provider, registry.get(provider.id)
+    return model, provider, registry.get(provider.id, model.adapter)
 
 
 def _invoke_real_provider(
@@ -342,9 +348,10 @@ def _first_user_message(model: ModelSpec) -> Message:
 
 
 def _test_max_output_tokens(model: ModelSpec) -> int:
-    if model.provider_id == "glm":
+    provider_id = model.providers[0].provider_id
+    if provider_id == "glm":
         return 4096
-    if model.provider_id in {"deepseek", "minimax"}:
+    if provider_id in {"deepseek", "minimax"}:
         return 2048
     return 512
 
@@ -457,8 +464,9 @@ def _print_run_header(model: ModelSpec, provider: ProviderSpec) -> None:
     capabilities = ", ".join(sorted(capability.value for capability in model.capabilities))
     print(
         "\n"
-        f"[real-llm] provider={provider.id} api_style={provider.api_style.value} "
-        f"model_id={model.id} provider_model={model.provider_model}"
+        f"[real-llm] provider={provider.id} "
+        f"api_style={adapter_spec(model.adapter).api_style.value} "
+        f"model_id={model.id} provider_model={model.providers[0].provider_model}"
     )
     print(f"[real-llm] capabilities={capabilities}")
     print(f"[real-llm] adapter_options={dict(model.adapter_options.values)}")

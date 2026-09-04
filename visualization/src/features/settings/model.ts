@@ -273,12 +273,16 @@ export function modelProviderOptions(
   providers: ConfigObject[],
   adapterOverride?: JsonValue,
 ): ConfigSelectOption[] {
-  const currentProviderId = model.value.provider;
-  const currentProvider = providers.find((provider) => provider.id === currentProviderId);
-  const currentAdapter = adapterOverride ?? model.value.adapter ?? currentProvider?.value.adapter;
+  const currentAdapter = adapterOverride ?? model.value.adapter;
+  if (typeof currentAdapter !== "string") return [];
   return providers
-    .filter((provider) => provider.value.adapter === currentAdapter)
+    .filter((provider) => providerSupportsAdapter(provider, currentAdapter))
     .map((provider) => ({ value: provider.id, label: provider.id }));
+}
+
+export function providerSupportsAdapter(provider: ConfigObject, adapter: string): boolean {
+  const adapters = provider.value.adapters;
+  return Array.isArray(adapters) && adapters.includes(adapter);
 }
 
 export function adapterProtocolOptions(
@@ -525,17 +529,38 @@ function setNested(
   parts: string[],
   value: JsonValue,
 ) {
-  let current = target;
+  let current: Record<string, JsonValue> | JsonValue[] = target;
   parts.forEach((part, index) => {
-    if (index === parts.length - 1) {
+    const last = index === parts.length - 1;
+    const nextIsIndex = /^\d+$/.test(parts[index + 1] ?? "");
+    if (Array.isArray(current)) {
+      const arrayIndex = Number(part);
+      if (last) {
+        current[arrayIndex] = cloneJson(value);
+        return;
+      }
+      const existing = current[arrayIndex];
+      if (!existing || typeof existing !== "object") {
+        current[arrayIndex] = nextIsIndex ? [] : {};
+      }
+      const nested = current[arrayIndex];
+      if (nested && typeof nested === "object") {
+        current = nested as Record<string, JsonValue> | JsonValue[];
+      }
+      return;
+    }
+    if (last) {
       current[part] = cloneJson(value);
       return;
     }
     const existing = current[part];
-    if (!existing || Array.isArray(existing) || typeof existing !== "object") {
-      current[part] = {};
+    if (!existing || typeof existing !== "object") {
+      current[part] = nextIsIndex ? [] : {};
     }
-    current = current[part] as Record<string, JsonValue>;
+    const nested = current[part];
+    if (nested && typeof nested === "object") {
+      current = nested as Record<string, JsonValue> | JsonValue[];
+    }
   });
 }
 

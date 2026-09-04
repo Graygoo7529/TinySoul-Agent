@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.infra.json import JsonObject
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import ProviderSpec
+from tinysoul.llm.adapter_types import AdapterKind
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.reasoning import ReasoningKeep
 
-from .base import ProviderError, ProviderErrorKind, ProviderRequest
+from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIResponsesAdapter,
@@ -120,13 +121,15 @@ class OpenAIProviderAdapter(OpenAIResponsesAdapter):
         api_key: str,
         responses: OpenAIResponsesClient | None = None,
     ) -> None:
-        if provider.api_style is not ProviderApiStyle.OPENAI_RESPONSES:
+        if AdapterKind.OPENAI not in provider.adapters:
             raise ProviderError(
-                "OpenAI provider requires openai_responses API style",
+                "OpenAI provider does not declare the openai adapter",
                 kind=ProviderErrorKind.CONFIG,
+                scope=ProviderFailureScope.MODEL,
             )
         super().__init__(
             provider=provider,
+            adapter_kind=AdapterKind.OPENAI,
             api_key=api_key,
             responses=responses,
             behavior=OpenAIProviderBehavior(),

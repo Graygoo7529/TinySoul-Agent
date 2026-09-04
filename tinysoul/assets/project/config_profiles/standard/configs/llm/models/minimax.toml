@@ -1,7 +1,6 @@
 [llm.models.minimax_m3]
 adapter = "minimax"
-provider = "minimax"
-provider_model = "MiniMax-M3"
+providers = [{ provider = "minimax", provider_model = "MiniMax-M3" }]
 context_window_tokens = 262144
 capabilities = [
   "text_input",

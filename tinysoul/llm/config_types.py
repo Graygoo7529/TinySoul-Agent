@@ -6,9 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from tinysoul.infra.config import ConfigError
 
-from .adapter import adapter_spec
 from .errors import LLMContractError
-from .adapter_types import AdapterKind, ProviderApiStyle
+from .adapter_types import AdapterKind
 from .model_chain import TaskSpecTable
 from .models import ModelRegistry
 
@@ -18,19 +17,29 @@ class ProviderSpec:
     """Configured provider API endpoint."""
 
     id: str
-    api_style: ProviderApiStyle
+    adapters: tuple[AdapterKind, ...]
     base_url: str
     api_key_envs: tuple[str, ...]
-    adapter: AdapterKind
     enabled: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ProviderSpec.id must be non-empty")
-        if not isinstance(self.api_style, ProviderApiStyle):
-            raise LLMContractError("ProviderSpec.api_style must be a ProviderApiStyle")
-        if not isinstance(self.adapter, AdapterKind):
-            raise LLMContractError("ProviderSpec.adapter must be an AdapterKind")
+        try:
+            adapters = tuple(self.adapters)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ProviderSpec.adapters must be an iterable of AdapterKind values"
+            ) from exc
+        if not adapters:
+            raise LLMContractError("ProviderSpec.adapters must be non-empty")
+        if any(not isinstance(adapter, AdapterKind) for adapter in adapters):
+            raise LLMContractError(
+                "ProviderSpec.adapters must contain AdapterKind values"
+            )
+        if len(set(adapters)) != len(adapters):
+            raise LLMContractError("ProviderSpec.adapters must be unique")
+        object.__setattr__(self, "adapters", adapters)
         if not isinstance(self.enabled, bool):
             raise LLMContractError("ProviderSpec.enabled must be a boolean")
         if not isinstance(self.base_url, str) or not self.base_url:
@@ -49,7 +58,6 @@ class ProviderSpec:
                     "ProviderSpec.api_key_envs must contain non-empty strings"
                 )
         object.__setattr__(self, "api_key_envs", api_key_envs)
-        adapter_spec(self.adapter).validate_api_style(self.api_style)
 
     def resolve_api_key(self, values: Mapping[str, str]) -> str:
         for name in self.api_key_envs:

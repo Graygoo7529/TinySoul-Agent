@@ -109,7 +109,7 @@ title = "Provider"
 description = "A reusable API endpoint and adapter configuration referenced by models."
 identity = { title = "Provider ID", description = "Stable provider connection identifier referenced by models; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/providers.toml"
-create_template = { enabled = false, adapter = "generic", api_style = "openai_chat", base_url = "https://api.example.com/v1", api_key_envs = ["PROVIDER_API_KEY"] }
+create_template = { enabled = false, adapters = ["openai_compatible_chat"], base_url = "https://api.example.com/v1", api_key_envs = ["PROVIDER_API_KEY"] }
 delete_policy = "all"
 
 [[collection]]
@@ -120,7 +120,7 @@ title = "Model"
 description = "A provider model with TinySoul-visible capabilities and request options."
 identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/models/custom.toml"
-create_template = { adapter = "generic", provider = "", provider_model = "", context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {} }
+create_template = { adapter = "openai_compatible_chat", providers = [{ provider = "", provider_model = "" }], context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {} }
 delete_policy = "create_source_only"
 
 [[collection]]
@@ -131,7 +131,7 @@ title = "Task Chain"
 description = "An ordered model chain and call policy selected by a stable task profile."
 identity = { title = "Task Chain ID", description = "Stable task profile identifier used by framework tasks and Action routes; dots and outer whitespace are not allowed." }
 create_source = "project:configs/llm/tasks.toml"
-create_template = { models = [], required_capabilities = ["text_input"], answer_format = "json_object", tool_use = "disabled", temperature = 0.3, max_output_tokens = 2048, max_retries_per_model = 2, retry_wait_seconds = 1.0, switch_wait_seconds = 2.0, max_cycles = 10, prefer_successful_model_seconds = 600.0 }
+create_template = { models = [], required_capabilities = ["text_input"], answer_format = "json_object", tool_use = "disabled", temperature = 0.3, max_output_tokens = 2048, max_retries_per_provider = 1, retry_wait_seconds = 1.0, provider_switch_wait_seconds = 0.0, model_switch_wait_seconds = 2.0, max_cycles = 10, prefer_successful_provider_seconds = 600.0, prefer_successful_model_seconds = 600.0 }
 delete_policy = "all"
 
 [[field]]
@@ -143,31 +143,19 @@ description = "Includes models bound to this provider in effective task chains a
 value_kind = "boolean"
 
 [[field]]
-path = "llm.providers.*.adapter"
+path = "llm.providers.*.adapters"
 surface = "providers"
 group = "providers.connection"
 title = "Adapter"
 description = "Selects the provider request and response behavior used by this endpoint."
-value_kind = "enum"
+value_kind = "enum_list"
 choices = [
-  { value = "generic", label = "Generic OpenAI-compatible" },
+  { value = "openai_compatible_chat", label = "OpenAI-compatible Chat" },
   { value = "openai", label = "OpenAI" },
   { value = "kimi", label = "Kimi" },
   { value = "deepseek", label = "DeepSeek" },
   { value = "glm", label = "GLM" },
   { value = "minimax", label = "MiniMax" },
-]
-
-[[field]]
-path = "llm.providers.*.api_style"
-surface = "providers"
-group = "providers.connection"
-title = "API Style"
-description = "Protocol shape used for provider requests. The selected adapter may require a specific style."
-value_kind = "enum"
-choices = [
-  { value = "openai_chat", label = "OpenAI Chat Completions" },
-  { value = "openai_responses", label = "OpenAI Responses" },
 ]
 
 [[field]]
@@ -195,7 +183,7 @@ title = "Adapter"
 description = "Behavior implementation required by this model and its provider connection."
 value_kind = "enum"
 choices = [
-  { value = "generic", label = "Generic OpenAI-compatible" },
+  { value = "openai_compatible_chat", label = "OpenAI-compatible Chat" },
   { value = "openai", label = "OpenAI" },
   { value = "kimi", label = "Kimi" },
   { value = "deepseek", label = "DeepSeek" },
@@ -204,16 +192,24 @@ choices = [
 ]
 
 [[field]]
-path = "llm.models.*.provider"
+path = "llm.models.*.providers"
 surface = "models"
 group = "models.binding"
 title = "Provider"
-description = "Provider connection used to call this model."
+description = "Ordered provider connections used to call this model."
+value_kind = "object_list"
+
+[[field]]
+path = "llm.models.*.providers.*.provider"
+surface = "models"
+group = "models.binding"
+title = "Provider"
+description = "Provider connection used for this position in the model chain."
 value_kind = "reference"
 reference = { collection = "llm.providers" }
 
 [[field]]
-path = "llm.models.*.provider_model"
+path = "llm.models.*.providers.*.provider_model"
 surface = "models"
 group = "models.binding"
 title = "Provider Model ID"
@@ -463,11 +459,11 @@ value_kind = "integer"
 importance = "advanced"
 
 [[field]]
-path = "llm.tasks.*.max_retries_per_model"
+path = "llm.tasks.*.max_retries_per_provider"
 surface = "task_chains"
 group = "task_chains.recovery"
-title = "Retries Per Model"
-description = "Maximum attempts made with one model before the chain switches."
+title = "Retries Per Provider"
+description = "Additional attempts made with one provider before this model tries its next provider."
 value_kind = "integer"
 importance = "advanced"
 
@@ -481,11 +477,20 @@ value_kind = "number"
 importance = "advanced"
 
 [[field]]
-path = "llm.tasks.*.switch_wait_seconds"
+path = "llm.tasks.*.provider_switch_wait_seconds"
 surface = "task_chains"
 group = "task_chains.recovery"
-title = "Switch Wait"
-description = "Delay before moving to the next model in the chain."
+title = "Provider Switch Wait"
+description = "Delay before moving to the next provider for the current model."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.model_switch_wait_seconds"
+surface = "task_chains"
+group = "task_chains.recovery"
+title = "Model Switch Wait"
+description = "Delay before moving to the next model in the task chain."
 value_kind = "number"
 importance = "advanced"
 
@@ -504,6 +509,15 @@ surface = "task_chains"
 group = "task_chains.recovery"
 title = "Successful Model Preference"
 description = "How long a recently successful model remains preferred within this chain."
+value_kind = "number"
+importance = "advanced"
+
+[[field]]
+path = "llm.tasks.*.prefer_successful_provider_seconds"
+surface = "task_chains"
+group = "task_chains.recovery"
+title = "Successful Provider Preference"
+description = "How long a recently successful backup provider remains preferred for a model."
 value_kind = "number"
 importance = "advanced"
 

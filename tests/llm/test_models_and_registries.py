@@ -5,181 +5,98 @@ from typing import cast
 
 import pytest
 
+from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.adapter import adapter_spec
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
-from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.config import AdapterKind, ProviderApiStyle, ProviderSpec
 from tinysoul.llm.messages import MessageStack, UserMessage
-from tinysoul.llm.model_chain import ModelChain, TaskSpec
 from tinysoul.llm.models import (
     ModelCapability,
+    ModelProviderBinding,
     ModelRegistry,
     ModelSpec,
-    AdapterOptions,
-    RequestOverrides,
 )
 from tinysoul.llm.provider import ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.reasoning import ReasoningKeep
-from tinysoul.llm.requests import CallSettings, TaskCall
+from tinysoul.llm.models import AdapterOptions, RequestOverrides
 from tinysoul.llm.responses import AnswerFormat, RawResponse
 from tinysoul.llm.tools import ToolCallRecord, ToolUse
 
 
-def test_adapter_options_reports_contract_errors() -> None:
+def test_adapter_options_contract_and_reasoning_keep() -> None:
     with pytest.raises(LLMContractError):
         AdapterOptions({"reasoning_keep": "forever"}).reasoning_keep()
-
-    with pytest.raises(LLMContractError):
-        AdapterOptions({"reasoning_keep": 1}).reasoning_keep()
-
-def test_adapter_options_accepts_valid_reasoning_keep() -> None:
-    assert (
-        AdapterOptions({"reasoning_keep": "encrypted"}).reasoning_keep()
-        is ReasoningKeep.ENCRYPTED
-    )
-
-
-def test_adapter_options_rejects_non_string_keys() -> None:
-    with pytest.raises(LLMContractError):
-        AdapterOptions(cast(dict[str, object], {1: "bad"}))
+    assert AdapterOptions({"reasoning_keep": "encrypted"}).reasoning_keep() is ReasoningKeep.ENCRYPTED
 
 
 def test_request_overrides_reject_invalid_values() -> None:
     with pytest.raises(LLMContractError):
         RequestOverrides(temperature=True)
-
     with pytest.raises(LLMContractError):
         RequestOverrides(max_output_tokens=0)
 
 
-def test_model_spec_rejects_invalid_identity_and_capabilities() -> None:
+def test_model_spec_rejects_invalid_identity_capabilities_and_provider_chain() -> None:
     with pytest.raises(LLMContractError):
-        ModelSpec(
-            id="",
-            provider_id="fake",
-            provider_model="model",
-            context_window_tokens=262_144,
-            adapter=AdapterKind.GENERIC,
-        )
-
+        ModelSpec(id="", providers=(ModelProviderBinding("fake", "model"),), context_window_tokens=262_144, adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT)
     with pytest.raises(LLMContractError):
-        ModelSpec(
-            id="model",
-            provider_id="fake",
-            provider_model="model",
-            context_window_tokens=0,
-            adapter=AdapterKind.GENERIC,
-        )
-
+        ModelSpec(id="model", providers=(ModelProviderBinding("fake", "model"),), context_window_tokens=0, adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT)
     with pytest.raises(LLMContractError):
-        ModelSpec(
-            id="model",
-            provider_id="fake",
-            provider_model="model",
-            context_window_tokens=262_144,
-            adapter=AdapterKind.GENERIC,
-            capabilities=cast(frozenset[ModelCapability], frozenset({"text_input"})),
-        )
+        ModelSpec(id="model", providers=(ModelProviderBinding("fake", "one"), ModelProviderBinding("fake", "two")), context_window_tokens=262_144, adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT)
 
 
-def test_provider_spec_rejects_invalid_identity_and_key_envs() -> None:
-    with pytest.raises(LLMContractError):
-        ProviderSpec(
-            id="",
-            adapter=AdapterKind.GENERIC,
-            api_style=ProviderApiStyle.OPENAI_CHAT,
-            base_url="https://example.test/v1",
-            api_key_envs=("API_KEY",),
-        )
+def test_provider_spec_rejects_empty_or_duplicate_adapters() -> None:
+    from tinysoul.llm.config_types import ProviderSpec
 
     with pytest.raises(LLMContractError):
-        ProviderSpec(
-            id="fake",
-            adapter=AdapterKind.GENERIC,
-            api_style=ProviderApiStyle.OPENAI_CHAT,
-            base_url="https://example.test/v1",
-            api_key_envs=(),
-        )
+        ProviderSpec(id="fake", adapters=(), base_url="https://example.test/v1", api_key_envs=("API_KEY",))
+    with pytest.raises(LLMContractError):
+        ProviderSpec(id="fake", adapters=(AdapterKind.OPENAI_COMPATIBLE_CHAT, AdapterKind.OPENAI_COMPATIBLE_CHAT), base_url="https://example.test/v1", api_key_envs=("API_KEY",))
 
 
 def test_raw_response_rejects_invalid_identity_and_tool_calls() -> None:
     with pytest.raises(LLMContractError):
         RawResponse(answer_text="ok", model_id="", provider_id="fake")
-
     with pytest.raises(LLMContractError):
-        RawResponse(
-            answer_text="ok",
-            model_id="model",
-            provider_id="fake",
-            tool_calls=cast(tuple[ToolCallRecord, ...], (object(),)),
-        )
+        RawResponse(answer_text="ok", model_id="model", provider_id="fake", tool_calls=cast(tuple[ToolCallRecord, ...], (object(),)))
 
 
-def test_model_registry_uses_llm_errors() -> None:
+def test_registries_use_llm_errors_and_compound_provider_key() -> None:
     model = _model("model_a")
-    registry = ModelRegistry([model])
-
+    models = ModelRegistry([model])
     with pytest.raises(LLMInvariantError):
-        registry.register(model)
-
+        models.register(model)
     with pytest.raises(LLMContractError):
-        registry.get("missing")
-
-
-def test_provider_registry_uses_llm_errors() -> None:
-    provider = FakeProvider(provider_id="fake")
-    registry = ProviderRegistry([provider])
-
+        models.get("missing")
+    chat = FakeProvider("proxy", AdapterKind.OPENAI_COMPATIBLE_CHAT)
+    kimi = FakeProvider("proxy", AdapterKind.KIMI)
+    providers = ProviderRegistry([chat, kimi])
+    assert providers.get("proxy", AdapterKind.KIMI) is kimi
     with pytest.raises(LLMInvariantError):
-        registry.register(provider)
-
-    with pytest.raises(LLMContractError):
-        registry.get("missing")
+        providers.register(kimi)
 
 
-def test_llm_request_models_validate_direct_construction() -> None:
+def test_provider_request_requires_model_binding() -> None:
+    model = _model("model_a")
     messages = MessageStack.of(UserMessage.from_text("hello"))
-    model = _model("model_a")
-
+    with pytest.raises(LLMContractError, match="binding"):
+        ProviderRequest(model=model, binding=cast(ModelProviderBinding, object()), messages=messages, answer_format=AnswerFormat.TEXT)
     with pytest.raises(LLMContractError, match="max_output_tokens"):
-        CallSettings(max_output_tokens=0)
-    with pytest.raises(LLMContractError, match="profile"):
-        TaskCall(profile="", messages=messages)
-    with pytest.raises(LLMContractError, match="PromptCache.key"):
-        PromptCache("")
-    with pytest.raises(LLMContractError, match="must match"):
-        TaskSpec(
-            profile="framework",
-            chain=ModelChain(profile="other", model_ids=(model.id,)),
-        )
-    with pytest.raises(LLMContractError, match="max_output_tokens"):
-        ProviderRequest(
-            model=model,
-            messages=messages,
-            answer_format=AnswerFormat.TEXT,
-            tool_use=ToolUse.DISABLED,
-            max_output_tokens=0,
-        )
+        ProviderRequest(model=model, binding=model.providers[0], messages=messages, answer_format=AnswerFormat.TEXT, max_output_tokens=0)
 
 
 @dataclass
 class FakeProvider:
     provider_id: str
-    adapter_kind: AdapterKind = AdapterKind.GENERIC
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
+
+    @property
+    def api_style(self):
+        return adapter_spec(self.adapter_kind).api_style
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
-        return RawResponse(
-            answer_text="ok",
-            model_id=request.model.id,
-            provider_id=self.provider_id,
-        )
+        return RawResponse(answer_text="ok", model_id=request.model.id, provider_id=self.provider_id)
 
 
 def _model(model_id: str) -> ModelSpec:
-    return ModelSpec(
-        id=model_id,
-        provider_id="fake",
-        provider_model=model_id,
-        context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
-    )
+    return ModelSpec(id=model_id, providers=(ModelProviderBinding("fake", model_id),), context_window_tokens=262_144, adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT)

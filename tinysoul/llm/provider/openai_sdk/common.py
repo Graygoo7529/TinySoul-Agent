@@ -10,12 +10,12 @@ from openai import APIConnectionError, APIError, APIStatusError
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.responses import AnswerFormat
 
-from ..base import ProviderError, ProviderErrorKind, ProviderRequest
+from ..base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from .clients import ModelDumpable
 
 
 def common_create_kwargs(request: ProviderRequest) -> dict[str, object]:
-    kwargs: dict[str, object] = {"model": request.model.provider_model}
+    kwargs: dict[str, object] = {"model": request.binding.provider_model}
     if request.temperature is not None:
         kwargs["temperature"] = request.temperature
     if request.max_output_tokens is not None:
@@ -36,20 +36,21 @@ def provider_error(error: Exception) -> ProviderError:
         return error
     if isinstance(error, APIStatusError):
         if error.status_code in {401, 403}:
-            return ProviderError(str(error), kind=ProviderErrorKind.AUTH)
+            return ProviderError(str(error), kind=ProviderErrorKind.AUTH, scope=ProviderFailureScope.PROVIDER)
         if error.status_code in {408, 409, 429, 500, 502, 503, 504}:
-            return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT)
+            return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT, scope=ProviderFailureScope.PROVIDER)
         if error.status_code == 400:
             if _is_context_limit_error(error):
                 return ProviderError(
                     str(error),
                     kind=ProviderErrorKind.CONTEXT_LIMIT,
+                    scope=ProviderFailureScope.PROVIDER,
                 )
-            return ProviderError(str(error), kind=ProviderErrorKind.CONFIG)
-        return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN)
+            return ProviderError(str(error), kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
+        return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN, scope=ProviderFailureScope.PROVIDER)
     if isinstance(error, (APIConnectionError, APIError, TimeoutError)):
-        return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT)
-    return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN)
+        return ProviderError(str(error), kind=ProviderErrorKind.TRANSIENT, scope=ProviderFailureScope.PROVIDER)
+    return ProviderError(str(error), kind=ProviderErrorKind.UNKNOWN, scope=ProviderFailureScope.PROVIDER)
 
 
 def _is_context_limit_error(error: APIStatusError) -> bool:

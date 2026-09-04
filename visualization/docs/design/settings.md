@@ -54,11 +54,12 @@ JSON editor。reference options 从 catalog collection 与当前 ConfigStatus �
 Provider、Model、Task Chain 不是前端状态实体，只是 catalog collection root 下的动态视图。页面
 使用对象列表加详情编辑器，不显示反向引用或全局 current Provider。
 
-- Provider 支持完整 root 创建、字段编辑和删除；列表摘要只展示 enabled、adapter、endpoint。
+- Provider 支持完整 root 创建、字段编辑和删除；`adapters` 使用整值列表编辑，列表摘要展示 enabled、Adapter 集合和 endpoint。
 - Model 新建必须选择现有 Model 作为模板。模板中的 `adapter_options` 与 `request_overrides` 作为
-  两项独立的模型配置事实一并复制；后续切换 Provider 只修改 `provider` 字段，Provider 的
-  `adapter` 由后端按新 Generation 解释，前端不隐式修改或删除这两个对象。若 adapter 不兼容，
-  PATCH 失败并保留当前编辑 draft 与已激活配置。
+  两项独立的模型配置事实一并复制；Provider Chain 编辑器按顺序展示 Provider 与
+  `provider_model`，支持增删排序并以完整数组写回。切换 Model Adapter 会同时选择兼容的
+  Provider Chain，清理不适用的 Adapter options；若 adapter 不兼容，PATCH 失败并保留当前编辑
+  draft 与已激活配置。
 - Task Chain 新建至少选择一个 Model；models 禁止重复或为空，支持拖放与上下移动图标，写回
   完整有序数组。列表摘要分别显示 Cycle Phase、Action default 和 Action override 数量；没有任何
   路由引用的 chain 只显示模型数量，不把合法闲置定义标记为错误状态。

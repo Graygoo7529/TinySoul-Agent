@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import ProviderSpec
+from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import ReasoningKeep
 from tinysoul.llm.tools import ToolUse
 
-from .base import ProviderError, ProviderErrorKind, ProviderRequest
+from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from .openai_sdk import (
     OpenAIAdapterBehavior,
     OpenAIChatCompletionsClient,
@@ -109,13 +110,15 @@ class DeepSeekProviderAdapter(OpenAICompatibleChatAdapter):
         api_key: str,
         completions: OpenAIChatCompletionsClient | None = None,
     ) -> None:
-        if provider.api_style is not ProviderApiStyle.OPENAI_CHAT:
+        if AdapterKind.DEEPSEEK not in provider.adapters:
             raise ProviderError(
-                "DeepSeek provider requires openai_chat API style",
+                "DeepSeek provider does not declare the deepseek adapter",
                 kind=ProviderErrorKind.CONFIG,
+                scope=ProviderFailureScope.MODEL,
             )
         super().__init__(
             provider=provider,
+            adapter_kind=AdapterKind.DEEPSEEK,
             api_key=api_key,
             completions=completions,
             behavior=DeepSeekProviderBehavior(),

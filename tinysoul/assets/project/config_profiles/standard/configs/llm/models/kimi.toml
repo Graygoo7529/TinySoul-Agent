@@ -1,7 +1,6 @@
 [llm.models.kimi_k2_7]
 adapter = "kimi"
-provider = "kimi"
-provider_model = "kimi-k2.7-code-highspeed"
+providers = [{ provider = "kimi", provider_model = "kimi-k2.7-code-highspeed" }]
 context_window_tokens = 262144
 capabilities = [
   "text_input",
@@ -22,8 +21,7 @@ temperature = 1.0
 
 [llm.models.kimi_k3]
 adapter = "kimi"
-provider = "kimi"
-provider_model = "kimi-k3"
+providers = [{ provider = "kimi", provider_model = "kimi-k3" }]
 context_window_tokens = 1048576
 capabilities = [
   "text_input",

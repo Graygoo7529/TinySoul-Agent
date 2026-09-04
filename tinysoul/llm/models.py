@@ -77,12 +77,29 @@ class AdapterOptions:
         raise LLMContractError("reasoning_keep must be a string")
 
 @dataclass(frozen=True)
+class ModelProviderBinding:
+    """Provider route and provider-side model identifier for a model."""
+
+    provider_id: str
+    provider_model: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.provider_id, str) or not self.provider_id:
+            raise LLMContractError(
+                "ModelProviderBinding.provider_id must be non-empty"
+            )
+        if not isinstance(self.provider_model, str) or not self.provider_model:
+            raise LLMContractError(
+                "ModelProviderBinding.provider_model must be non-empty"
+            )
+
+
+@dataclass(frozen=True)
 class ModelSpec:
     """A registered model and its TinySoul-visible capabilities."""
 
     id: str
-    provider_id: str
-    provider_model: str
+    providers: tuple[ModelProviderBinding, ...]
     context_window_tokens: int
     adapter: AdapterKind
     capabilities: frozenset[ModelCapability] = field(
@@ -94,12 +111,25 @@ class ModelSpec:
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
             raise LLMContractError("ModelSpec.id must be non-empty")
-        if not isinstance(self.provider_id, str) or not self.provider_id:
-            raise LLMContractError("ModelSpec.provider_id must be non-empty")
+        try:
+            providers = tuple(self.providers)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ModelSpec.providers must be an iterable of ModelProviderBinding values"
+            ) from exc
+        if not providers:
+            raise LLMContractError("ModelSpec.providers must be non-empty")
+        if any(
+            not isinstance(provider, ModelProviderBinding) for provider in providers
+        ):
+            raise LLMContractError(
+                "ModelSpec.providers must contain ModelProviderBinding values"
+            )
+        if len({provider.provider_id for provider in providers}) != len(providers):
+            raise LLMContractError("ModelSpec.providers must use unique providers")
+        object.__setattr__(self, "providers", providers)
         if not isinstance(self.adapter, AdapterKind):
             raise LLMContractError("ModelSpec.adapter must be an AdapterKind")
-        if not isinstance(self.provider_model, str) or not self.provider_model:
-            raise LLMContractError("ModelSpec.provider_model must be non-empty")
         if (
             isinstance(self.context_window_tokens, bool)
             or not isinstance(self.context_window_tokens, int)
@@ -156,3 +186,6 @@ class ModelRegistry:
 
     def has(self, model_id: str) -> bool:
         return model_id in self._models
+
+    def ids(self) -> tuple[str, ...]:
+        return tuple(self._models)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.llm.adapter_types import AdapterKind
-from tinysoul.llm.config import ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import ProviderSpec
 
 from .base import ProviderAdapter, ProviderError, ProviderErrorKind
 from .deepseek import DeepSeekProviderAdapter
@@ -13,7 +13,7 @@ from .glm import GlmProviderAdapter
 from .kimi import KimiProviderAdapter
 from .minimax import MiniMaxProviderAdapter
 from .open_ai import OpenAIProviderAdapter
-from .openai_sdk import OpenAICompatibleChatAdapter, OpenAIResponsesAdapter
+from .openai_sdk import OpenAICompatibleChatAdapter
 from .registry import ProviderRegistry
 
 
@@ -27,64 +27,40 @@ def build_provider_registry(
         if not provider.enabled:
             continue
         api_key = provider.resolve_api_key(env)
-        if provider.adapter is AdapterKind.OPENAI:
+        for adapter_kind in provider.adapters:
             adapters.append(
-                OpenAIProviderAdapter(
-                    provider=provider,
+                _build_provider_adapter(
+                    provider,
+                    adapter_kind=adapter_kind,
                     api_key=api_key,
                 )
             )
-            continue
-        if provider.adapter is AdapterKind.KIMI:
-            adapters.append(
-                KimiProviderAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.adapter is AdapterKind.DEEPSEEK:
-            adapters.append(
-                DeepSeekProviderAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.adapter is AdapterKind.GLM:
-            adapters.append(
-                GlmProviderAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.adapter is AdapterKind.MINIMAX:
-            adapters.append(
-                MiniMaxProviderAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.api_style is ProviderApiStyle.OPENAI_RESPONSES:
-            adapters.append(
-                OpenAIResponsesAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        if provider.api_style is ProviderApiStyle.OPENAI_CHAT:
-            adapters.append(
-                OpenAICompatibleChatAdapter(
-                    provider=provider,
-                    api_key=api_key,
-                )
-            )
-            continue
-        raise ProviderError(
-            f"Unsupported provider API style: {provider.api_style}",
-            kind=ProviderErrorKind.CONFIG,
-        )
     return ProviderRegistry(adapters)
+
+
+def _build_provider_adapter(
+    provider: ProviderSpec,
+    *,
+    adapter_kind: AdapterKind,
+    api_key: str,
+) -> ProviderAdapter:
+    if adapter_kind is AdapterKind.OPENAI:
+        return OpenAIProviderAdapter(provider=provider, api_key=api_key)
+    if adapter_kind is AdapterKind.KIMI:
+        return KimiProviderAdapter(provider=provider, api_key=api_key)
+    if adapter_kind is AdapterKind.DEEPSEEK:
+        return DeepSeekProviderAdapter(provider=provider, api_key=api_key)
+    if adapter_kind is AdapterKind.GLM:
+        return GlmProviderAdapter(provider=provider, api_key=api_key)
+    if adapter_kind is AdapterKind.MINIMAX:
+        return MiniMaxProviderAdapter(provider=provider, api_key=api_key)
+    if adapter_kind is AdapterKind.OPENAI_COMPATIBLE_CHAT:
+        return OpenAICompatibleChatAdapter(
+            provider=provider,
+            adapter_kind=adapter_kind,
+            api_key=api_key,
+        )
+    raise ProviderError(
+        f"Unsupported provider adapter: {adapter_kind.value}",
+        kind=ProviderErrorKind.CONFIG,
+    )

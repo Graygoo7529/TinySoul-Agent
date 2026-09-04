@@ -31,14 +31,20 @@ from .model_chain import (
     ModelChainExhaustedError,
     ModelChainPlanner,
     ModelChainRunner,
-    ModelChainState,
+    LLMRouteState,
     Sleeper,
     TaskSpec,
     TaskSpecTable,
 )
-from .models import ModelCapability, ModelRegistry, ModelSpec
+from .models import ModelCapability, ModelProviderBinding, ModelRegistry, ModelSpec
 from .observation_payloads import task_request_observation, task_response_observation
-from .provider import ProviderError, ProviderErrorKind, ProviderRegistry, ProviderRequest
+from .provider import (
+    ProviderError,
+    ProviderErrorKind,
+    ProviderFailureScope,
+    ProviderRegistry,
+    ProviderRequest,
+)
 from .provider.base import ProviderAdapter
 from .requests import (
     CallSettings,
@@ -77,6 +83,20 @@ class ModelCapabilityError(LLMTaskError):
         super().__init__(f"Model '{model_id}' lacks required capabilities: {names}")
         self.model_id = model_id
         self.missing = missing
+
+
+class _ProviderChainExhaustedError(LLMError):
+    """Aggregate provider-scoped failures for one model attempt."""
+
+    def __init__(
+        self,
+        *,
+        last_error: ProviderError,
+        had_transient_failure: bool,
+    ) -> None:
+        super().__init__("Provider chain exhausted")
+        self.last_error = last_error
+        self.had_transient_failure = had_transient_failure
 
 
 @dataclass(frozen=True)
@@ -161,7 +181,7 @@ class LLMTaskRunner:
         providers: ProviderRegistry,
         tasks: TaskSpecTable,
         interpreter: ResponseInterpreter | None = None,
-        chain_state: ModelChainState | None = None,
+        route_state: LLMRouteState | None = None,
         chain_planner: ModelChainPlanner | None = None,
         sleeper: Sleeper | None = None,
         clock: Clock | None = None,
@@ -173,6 +193,8 @@ class LLMTaskRunner:
         context_trigger_ratio: float = 0.80,
         token_estimator: RequestTokenEstimator | None = None,
     ) -> None:
+        if chain_runner is not None and route_state is not None:
+            raise LLMTaskError("route_state cannot be combined with chain_runner")
         self._models = models
         self._providers = providers
         self._tasks = tasks
@@ -187,11 +209,12 @@ class LLMTaskRunner:
             estimator=token_estimator,
         )
         self._chain_runner = chain_runner or ModelChainRunner(
-            state=chain_state,
+            state=route_state,
             planner=chain_planner,
             sleeper=self._sleeper,
             clock=clock,
         )
+        self._route_state = self._chain_runner.state
 
     def run(self, call: TaskCall) -> TaskResult:
         self._emit(
@@ -231,9 +254,21 @@ class LLMTaskRunner:
         try:
             _check_cancellation(call)
             task = self._tasks.get(call.profile)
+            attempted_models: set[str] = set()
+
+            def run_model(model_id: str) -> TaskResult:
+                use_provider_preference = model_id not in attempted_models
+                attempted_models.add(model_id)
+                return self._run_model(
+                    call,
+                    task,
+                    model_id,
+                    use_provider_preference=use_provider_preference,
+                )
+
             return self._chain_runner.run(
                 task.chain,
-                lambda model_id: self._run_model(call, task, model_id),
+                run_model,
                 classify_error=self._classify_chain_error,
             )
         except ModelContextPressureError as exc:
@@ -289,16 +324,35 @@ class LLMTaskRunner:
         task = self._tasks.get(profile)
         model_id = self._chain_runner.current_model_id(task.chain)
         model = self._models.get(model_id)
+        bindings = self._available_bindings(model)
+        provider_ids = tuple(binding.provider_id for binding in bindings)
+        provider_id = self._route_state.provider_order(
+            task.profile,
+            model.id,
+            provider_ids,
+            now=self._chain_runner.now(),
+            prefer_seconds=task.chain.retry_policy.prefer_successful_provider_seconds,
+        )[0]
+        binding = next(
+            item for item in bindings if item.provider_id == provider_id
+        )
         return CurrentModelCapabilities(
             profile=task.profile,
             model_id=model.id,
-            provider_id=model.provider_id,
-            provider_model=model.provider_model,
+            provider_id=binding.provider_id,
+            provider_model=binding.provider_model,
             context_window_tokens=model.context_window_tokens,
             capabilities=model.capabilities,
         )
 
-    def _try_model(self, call: TaskCall, task: TaskSpec, model_id: str) -> TaskResult:
+    def _try_model(
+        self,
+        call: TaskCall,
+        task: TaskSpec,
+        model_id: str,
+        *,
+        use_provider_preference: bool,
+    ) -> TaskResult:
         _check_cancellation(call)
         model = self._models.get(model_id)
         settings = self._resolve_settings(call, task)
@@ -324,21 +378,104 @@ class LLMTaskRunner:
         )
         if context_usage.over_trigger:
             raise ModelContextPressureError(context_usage)
-        provider = self._providers.get(model.provider_id)
+        active_bindings = self._available_bindings(model)
+        provider_ids = tuple(binding.provider_id for binding in active_bindings)
+        provider_order = provider_ids
+        if use_provider_preference:
+            provider_order = self._route_state.provider_order(
+                task.profile,
+                model.id,
+                provider_ids,
+                now=self._chain_runner.now(),
+                prefer_seconds=task.chain.retry_policy.prefer_successful_provider_seconds,
+            )
+        bindings = {binding.provider_id: binding for binding in active_bindings}
         last_error: ProviderError | None = None
+        context_limit_count = 0
+        had_transient_failure = False
 
-        for attempt in range(task.chain.retry_policy.max_retries_per_model):
+        for provider_index, provider_id in enumerate(provider_order):
+            if provider_index > 0:
+                self._sleeper.sleep(
+                    task.chain.retry_policy.provider_switch_wait_seconds
+                )
+                _check_cancellation(call)
+            binding = bindings[provider_id]
+            provider = self._providers.get(provider_id, model.adapter)
+            try:
+                result = self._try_provider(
+                    call,
+                    task,
+                    model,
+                    binding,
+                    provider,
+                    answer_format=answer_format,
+                    tool_use=tool_use,
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
+                )
+            except ProviderError as exc:
+                last_error = exc
+                if exc.scope is ProviderFailureScope.MODEL:
+                    raise
+                if exc.kind is ProviderErrorKind.TRANSIENT:
+                    had_transient_failure = True
+                if exc.kind is ProviderErrorKind.CONTEXT_LIMIT:
+                    context_limit_count += 1
+                continue
+            self._route_state.mark_provider_success(
+                task.profile,
+                model.id,
+                binding.provider_id,
+                provider_ids,
+                now=self._chain_runner.now(),
+            )
+            return result
+
+        if last_error is None:
+            raise LLMTaskError("Provider chain failed without a provider error")
+        if context_limit_count == len(provider_order):
+            raise ModelContextPressureError(
+                self._context_policy.usage(
+                    model=model,
+                    messages=call.messages,
+                    tool_scope=call.tool_scope,
+                    reserved_output_tokens=reserved_output_tokens,
+                    provider_reported_limit=True,
+                )
+            ) from last_error
+        raise _ProviderChainExhaustedError(
+            last_error=last_error,
+            had_transient_failure=had_transient_failure,
+        ) from last_error
+
+    def _try_provider(
+        self,
+        call: TaskCall,
+        task: TaskSpec,
+        model: ModelSpec,
+        binding: ModelProviderBinding,
+        provider: ProviderAdapter,
+        *,
+        answer_format: AnswerFormat,
+        tool_use: ToolUse,
+        temperature: float | None,
+        max_output_tokens: int | None,
+    ) -> TaskResult:
+        for attempt in range(task.chain.retry_policy.max_retries_per_provider + 1):
             _check_cancellation(call)
             if attempt > 0:
                 self._emit(
                     call,
-                    "llm.model.retry",
+                    "llm.provider.retry",
                     ObservationLevel.VERBOSE,
                     "Retrying transient provider failure.",
                     {
                         "profile": task.profile,
                         "model_id": model.id,
-                        "provider_id": model.provider_id,
+                        "provider_id": binding.provider_id,
+                        "provider_model": binding.provider_model,
+                        "adapter": model.adapter.value,
                         "attempt": attempt + 1,
                     },
                 )
@@ -353,8 +490,9 @@ class LLMTaskRunner:
                     {
                         "profile": task.profile,
                         "model_id": model.id,
-                        "provider_id": model.provider_id,
-                        "provider_model": model.provider_model,
+                        "provider_id": binding.provider_id,
+                        "provider_model": binding.provider_model,
+                        "adapter": model.adapter.value,
                         "attempt": attempt + 1,
                     }
                 )
@@ -365,12 +503,27 @@ class LLMTaskRunner:
                     "Provider-neutral model request.",
                     request_payload,
                 )
+            self._emit(
+                call,
+                "llm.provider.started",
+                ObservationLevel.VERBOSE,
+                "Starting provider attempt.",
+                {
+                    "profile": task.profile,
+                    "model_id": model.id,
+                    "provider_id": binding.provider_id,
+                    "provider_model": binding.provider_model,
+                    "adapter": model.adapter.value,
+                    "attempt": attempt + 1,
+                },
+            )
             try:
                 _check_cancellation(call)
                 response = _invoke_provider(
                     provider,
                     ProviderRequest(
                         model=model,
+                        binding=binding,
                         messages=call.messages,
                         answer_format=answer_format,
                         tool_use=tool_use,
@@ -383,27 +536,61 @@ class LLMTaskRunner:
                     call,
                 )
             except ProviderError as exc:
-                if exc.kind is ProviderErrorKind.CONTEXT_LIMIT:
-                    raise ModelContextPressureError(
-                        self._context_policy.usage(
-                            model=model,
-                            messages=call.messages,
-                            tool_scope=call.tool_scope,
-                            reserved_output_tokens=reserved_output_tokens,
-                            provider_reported_limit=True,
-                        )
-                    ) from exc
-                if exc.kind is not ProviderErrorKind.TRANSIENT:
+                self._emit(
+                    call,
+                    "llm.provider.failed",
+                    ObservationLevel.VERBOSE,
+                    "Provider attempt failed.",
+                    {
+                        "profile": task.profile,
+                        "model_id": model.id,
+                        "provider_id": binding.provider_id,
+                        "provider_model": binding.provider_model,
+                        "adapter": model.adapter.value,
+                        "attempt": attempt + 1,
+                        "provider_error_kind": exc.kind.value,
+                        "provider_failure_scope": exc.scope.value,
+                    },
+                )
+                if (
+                    exc.kind is not ProviderErrorKind.TRANSIENT
+                    or exc.scope is not ProviderFailureScope.PROVIDER
+                ):
                     raise
                 last_error = exc
                 continue
+            self._emit(
+                call,
+                "llm.provider.completed",
+                ObservationLevel.VERBOSE,
+                "Provider attempt completed.",
+                {
+                    "profile": task.profile,
+                    "model_id": model.id,
+                    "provider_id": binding.provider_id,
+                    "provider_model": binding.provider_model,
+                    "adapter": model.adapter.value,
+                    "attempt": attempt + 1,
+                },
+            )
             if observation_enabled(self._observations, ObservationLevel.MODEL):
+                response_payload = task_response_observation(response)
+                response_payload.update(
+                    {
+                        "profile": task.profile,
+                        "model_id": model.id,
+                        "provider_id": binding.provider_id,
+                        "provider_model": binding.provider_model,
+                        "adapter": model.adapter.value,
+                        "attempt": attempt + 1,
+                    }
+                )
                 self._emit(
                     call,
                     "llm.model.response",
                     ObservationLevel.MODEL,
                     "Provider-neutral model response.",
-                    task_response_observation(response),
+                    response_payload,
                 )
             completion_failure = _completion_failure(
                 response,
@@ -431,13 +618,13 @@ class LLMTaskRunner:
                         frame_data={
                             "task_profile": task.profile,
                             "model_id": model.id,
-                            "provider_id": model.provider_id,
+                            "provider_id": binding.provider_id,
                         },
                     ),
                 )
 
         if last_error is None:
-            raise LLMTaskError("Model retry failed without a provider error")
+            raise LLMTaskError("Provider retry failed without a provider error")
         raise last_error
 
     def _run_model(
@@ -445,12 +632,13 @@ class LLMTaskRunner:
         call: TaskCall,
         task: TaskSpec,
         model_id: str,
+        *,
+        use_provider_preference: bool,
     ) -> TaskResult:
         model = self._models.get(model_id)
         payload: JsonObject = {
             "profile": task.profile,
             "model_id": model.id,
-            "provider_id": model.provider_id,
         }
         self._emit(
             call,
@@ -460,11 +648,18 @@ class LLMTaskRunner:
             payload,
         )
         try:
-            result = self._try_model(call, task, model_id)
+            result = self._try_model(
+                call,
+                task,
+                model_id,
+                use_provider_preference=use_provider_preference,
+            )
         except Exception as exc:
             failure_payload = {**payload, "error_type": type(exc).__name__}
-            if isinstance(exc, ProviderError):
-                failure_payload["provider_error_kind"] = exc.kind.value
+            provider_error = _provider_error_from(exc)
+            if provider_error is not None:
+                failure_payload["provider_error_kind"] = provider_error.kind.value
+                failure_payload["provider_failure_scope"] = provider_error.scope.value
             self._emit(
                 call,
                 "llm.model.failed",
@@ -513,8 +708,15 @@ class LLMTaskRunner:
             return ChainErrorDisposition.ABORT
         if isinstance(error, ModelCapabilityError):
             return ChainErrorDisposition.SWITCH
+        if isinstance(error, _ProviderChainExhaustedError):
+            if error.had_transient_failure:
+                return ChainErrorDisposition.RETRY_NEXT_CYCLE
+            return ChainErrorDisposition.SWITCH
         if isinstance(error, ProviderError):
-            if error.kind is ProviderErrorKind.TRANSIENT:
+            if (
+                error.scope is ProviderFailureScope.PROVIDER
+                and error.kind is ProviderErrorKind.TRANSIENT
+            ):
                 return ChainErrorDisposition.RETRY_NEXT_CYCLE
             return ChainErrorDisposition.SWITCH
         return ChainErrorDisposition.ABORT
@@ -528,9 +730,19 @@ class LLMTaskRunner:
         last_error = error.last_error
         if last_error is None:
             return payload
-        payload["last_error_type"] = type(last_error).__name__
-        if isinstance(last_error, ProviderError):
-            payload["provider_error_kind"] = last_error.kind.value
+        provider_error = _provider_error_from(last_error)
+        payload["last_error_type"] = (
+            type(provider_error).__name__
+            if provider_error is not None
+            else type(last_error).__name__
+        )
+        if provider_error is not None:
+            payload["provider_error_kind"] = provider_error.kind.value
+            payload["provider_failure_scope"] = provider_error.scope.value
+        if isinstance(last_error, _ProviderChainExhaustedError):
+            payload["provider_chain_had_transient_failure"] = (
+                last_error.had_transient_failure
+            )
         if isinstance(last_error, ModelCapabilityError):
             payload["model_id"] = last_error.model_id
             payload["missing_capabilities"] = [
@@ -544,6 +756,30 @@ class LLMTaskRunner:
         task: TaskSpec,
     ) -> CallSettings:
         return task.settings.override_with(call.settings)
+
+    def _available_bindings(
+        self,
+        model: ModelSpec,
+    ) -> tuple[ModelProviderBinding, ...]:
+        bindings = tuple(
+            binding
+            for binding in model.providers
+            if self._providers.has(binding.provider_id, model.adapter)
+        )
+        if not bindings:
+            raise LLMTaskError(
+                f"Model '{model.id}' has no enabled provider for adapter "
+                f"'{model.adapter.value}'"
+            )
+        return bindings
+
+
+def _provider_error_from(error: Exception) -> ProviderError | None:
+    if isinstance(error, ProviderError):
+        return error
+    if isinstance(error, _ProviderChainExhaustedError):
+        return error.last_error
+    return None
 
 
 def _completion_failure(

@@ -204,15 +204,15 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
     (local_tmp / "tinysoul.toml").write_text(
         """
         [llm.models.kimi_k2_7]
-        provider = "kimi"
-        provider_model = "kimi-k2.7-code"
+        adapter = "kimi"
+        providers = [{ provider = "kimi", provider_model = "kimi-k2.7-code" }]
         """,
         encoding="utf-8",
     )
 
     environment = ConfigEnvironment.from_project_root(
         local_tmp,
-        overrides={"llm.models.kimi_k2_7.provider_model": "kimi-k2.7"},
+        overrides={"llm.models.kimi_k2_7.providers.0.provider_model": "kimi-k2.7"},
     )
 
     tree = environment.section_tree("llm")
@@ -223,8 +223,10 @@ def test_environment_section_tree_uses_all_sources(local_tmp: Path) -> None:
     assert isinstance(kimi, dict)
     typed_kimi = cast(dict[str, object], kimi)
 
-    assert typed_kimi["provider"] == "kimi"
-    assert typed_kimi["provider_model"] == "kimi-k2.7"
+    assert typed_kimi["adapter"] == "kimi"
+    assert typed_kimi["providers"] == [
+        {"provider": "kimi", "provider_model": "kimi-k2.7"}
+    ]
 
 
 def test_environment_enriches_module_error_with_include_source(

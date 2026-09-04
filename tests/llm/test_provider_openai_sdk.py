@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -20,7 +20,7 @@ from tinysoul.llm.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from tinysoul.llm.models import ModelCapability, ModelSpec, AdapterOptions
+from tinysoul.llm.models import ModelCapability, ModelProviderBinding, ModelSpec, AdapterOptions
 from tinysoul.llm.provider import (
     ProviderError,
     ProviderErrorKind,
@@ -66,8 +66,7 @@ def ProviderRequest(
     if adapter_options is not None:
         model = ModelSpec(
             id=model.id,
-            provider_id=model.provider_id,
-            provider_model=model.provider_model,
+            providers=model.providers,
             context_window_tokens=model.context_window_tokens,
             adapter=model.adapter,
             capabilities=model.capabilities,
@@ -76,6 +75,7 @@ def ProviderRequest(
         )
     return ProviderRequestModel(
         model=model,
+        binding=model.providers[0],
         messages=messages,
         answer_format=answer_format,
         tool_use=tool_use,
@@ -112,7 +112,7 @@ def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
         ),
     )
     chat = OpenAICompatibleChatAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=FakeCreateClient(
             response=SimpleNamespace(
@@ -134,7 +134,7 @@ def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
 
     assert responses.invoke(request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
     chat_request = ProviderRequest(
-        model=_model(provider_id="kimi", provider_model="test"),
+        model=_model(provider_id="generic", provider_model="test"),
         messages=request.messages,
         answer_format=AnswerFormat.TEXT,
     )
@@ -2099,8 +2099,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
         ProviderRequest(
             model=ModelSpec(
                 id="minimax_m3",
-                provider_id="minimax",
-                provider_model="MiniMax-M3",
+                providers=(ModelProviderBinding("minimax", "MiniMax-M3"),),
                 context_window_tokens=262_144,
                 adapter=AdapterKind.MINIMAX,
                 capabilities=frozenset(
@@ -2532,7 +2531,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
         api_key="key",
         completions=client,
     )
@@ -2541,10 +2540,9 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
         ProviderRequest(
             model=ModelSpec(
                 id="text_model",
-                provider_id="kimi",
-                provider_model="text-model",
+                providers=(ModelProviderBinding("generic", "text-model"),),
                 context_window_tokens=262_144,
-                adapter=AdapterKind.KIMI,
+                adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
             ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2757,8 +2755,7 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
         (
             ProviderSpec(
                 id="kimi",
-                adapter=AdapterKind.KIMI,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.KIMI,),
                 base_url="https://api.moonshot.cn/v1",
                 api_key_envs=("KIMI_API_KEY", "MOONSHOT_API_KEY"),
             ),
@@ -2766,7 +2763,27 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
         env={"MOONSHOT_API_KEY": "moonshot"},
     )
 
-    assert registry.get("kimi").provider_id == "kimi"
+    assert registry.get("kimi", AdapterKind.KIMI).provider_id == "kimi"
+
+
+def test_build_provider_registry_supports_multiple_adapters_per_endpoint() -> None:
+    registry = build_provider_registry(
+        (
+            ProviderSpec(
+                id="proxy",
+                adapters=(
+                    AdapterKind.OPENAI_COMPATIBLE_CHAT,
+                    AdapterKind.OPENAI,
+                ),
+                base_url="https://proxy.example/v1",
+                api_key_envs=("PROXY_API_KEY",),
+            ),
+        ),
+        env={"PROXY_API_KEY": "proxy"},
+    )
+
+    assert registry.get("proxy", AdapterKind.OPENAI_COMPATIBLE_CHAT).provider_id == "proxy"
+    assert registry.get("proxy", AdapterKind.OPENAI).provider_id == "proxy"
 
 
 def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
@@ -2774,15 +2791,13 @@ def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
         (
             ProviderSpec(
                 id="kimi",
-                adapter=AdapterKind.KIMI,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.KIMI,),
                 base_url="https://api.moonshot.cn/v1",
                 api_key_envs=("MOONSHOT_API_KEY",),
             ),
             ProviderSpec(
                 id="kimi_coding",
-                adapter=AdapterKind.KIMI,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.KIMI,),
                 base_url="https://api.kimi.com/coding/v1",
                 api_key_envs=("KIMI_CODING_API_KEY",),
             ),
@@ -2793,8 +2808,8 @@ def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
         },
     )
 
-    assert registry.get("kimi").provider_id == "kimi"
-    assert registry.get("kimi_coding").provider_id == "kimi_coding"
+    assert registry.get("kimi", AdapterKind.KIMI).provider_id == "kimi"
+    assert registry.get("kimi_coding", AdapterKind.KIMI).provider_id == "kimi_coding"
 
 
 def test_build_provider_registry_uses_deepseek_adapter() -> None:
@@ -2802,8 +2817,7 @@ def test_build_provider_registry_uses_deepseek_adapter() -> None:
         (
             ProviderSpec(
                 id="deepseek",
-                adapter=AdapterKind.DEEPSEEK,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.DEEPSEEK,),
                 base_url="https://api.deepseek.com",
                 api_key_envs=("DEEPSEEK_API_KEY",),
             ),
@@ -2811,7 +2825,7 @@ def test_build_provider_registry_uses_deepseek_adapter() -> None:
         env={"DEEPSEEK_API_KEY": "deepseek"},
     )
 
-    assert registry.get("deepseek").provider_id == "deepseek"
+    assert registry.get("deepseek", AdapterKind.DEEPSEEK).provider_id == "deepseek"
 
 
 def test_build_provider_registry_uses_glm_adapter() -> None:
@@ -2819,8 +2833,7 @@ def test_build_provider_registry_uses_glm_adapter() -> None:
         (
             ProviderSpec(
                 id="glm",
-                adapter=AdapterKind.GLM,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.GLM,),
                 base_url="https://open.bigmodel.cn/api/paas/v4",
                 api_key_envs=("GLM_API_KEY",),
             ),
@@ -2828,7 +2841,7 @@ def test_build_provider_registry_uses_glm_adapter() -> None:
         env={"GLM_API_KEY": "glm"},
     )
 
-    assert registry.get("glm").provider_id == "glm"
+    assert registry.get("glm", AdapterKind.GLM).provider_id == "glm"
 
 
 def test_build_provider_registry_uses_minimax_adapter() -> None:
@@ -2836,8 +2849,7 @@ def test_build_provider_registry_uses_minimax_adapter() -> None:
         (
             ProviderSpec(
                 id="minimax",
-                adapter=AdapterKind.MINIMAX,
-                api_style=ProviderApiStyle.OPENAI_CHAT,
+                adapters=(AdapterKind.MINIMAX,),
                 base_url="https://api.minimaxi.com/v1",
                 api_key_envs=("MINIMAX_API_KEY",),
             ),
@@ -2845,14 +2857,13 @@ def test_build_provider_registry_uses_minimax_adapter() -> None:
         env={"MINIMAX_API_KEY": "minimax"},
     )
 
-    assert registry.get("minimax").provider_id == "minimax"
+    assert registry.get("minimax", AdapterKind.MINIMAX).provider_id == "minimax"
 
 
 def test_provider_spec_reports_missing_api_key() -> None:
     provider = ProviderSpec(
         id="openai",
-        adapter=AdapterKind.OPENAI,
-        api_style=ProviderApiStyle.OPENAI_RESPONSES,
+        adapters=(AdapterKind.OPENAI,),
         base_url="https://api.openai.com/v1",
         api_key_envs=("OPENAI_API_KEY",),
     )
@@ -2868,14 +2879,13 @@ def _provider(provider_id: str, api_style: ProviderApiStyle) -> ProviderSpec:
         "deepseek": AdapterKind.DEEPSEEK,
         "glm": AdapterKind.GLM,
         "minimax": AdapterKind.MINIMAX,
-        "openai": AdapterKind.OPENAI if api_style is ProviderApiStyle.OPENAI_RESPONSES else AdapterKind.GENERIC,
-    }.get(provider_id, AdapterKind.GENERIC)
+        "openai": AdapterKind.OPENAI,
+    }.get(provider_id, AdapterKind.OPENAI_COMPATIBLE_CHAT)
     return ProviderSpec(
         id=provider_id,
-        api_style=api_style,
+        adapters=(adapter,),
         base_url="https://example.test/v1",
         api_key_envs=("API_KEY",),
-        adapter=adapter,
     )
 
 
@@ -2892,11 +2902,10 @@ def _model(
         "glm": AdapterKind.GLM,
         "minimax": AdapterKind.MINIMAX,
         "openai": AdapterKind.OPENAI,
-    }.get(provider_id, AdapterKind.GENERIC)
+    }.get(provider_id, AdapterKind.OPENAI_COMPATIBLE_CHAT)
     return ModelSpec(
         id=provider_model.replace(".", "_"),
-        provider_id=provider_id,
-        provider_model=provider_model,
+        providers=(ModelProviderBinding(provider_id, provider_model),),
         context_window_tokens=262_144,
         capabilities=frozenset(
             {

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -11,20 +11,21 @@ from tinysoul.llm.messages import ImagePart, ImageUrlPart, MessageStack, UserMes
 from tinysoul.llm.model_chain import (
     Clock,
     ModelChain,
-    ModelChainState,
+    LLMRouteState,
     RetryPolicy,
     TaskSpec,
     TaskSpecTable,
 )
 from tinysoul.llm.models import (
     AdapterOptions,
-    ModelCapability,
+    ModelCapability, ModelProviderBinding,
     ModelRegistry,
     ModelSpec,
     RequestOverrides,
 )
 from tinysoul.llm.adapter_types import AdapterKind
-from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderRequest
+from tinysoul.llm.adapter import adapter_spec
+from tinysoul.llm.provider import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from tinysoul.llm.provider.registry import ProviderRegistry
 from tinysoul.llm.requests import (
     CallSettings,
@@ -66,10 +67,14 @@ from tinysoul.llm.tools import (
 @dataclass
 class FakeProvider:
     provider_id: str
-    adapter_kind: AdapterKind = AdapterKind.GENERIC
+    adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
     failures: dict[str, int] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
     requests: list[ProviderRequest] = field(default_factory=list)
+
+    @property
+    def api_style(self):
+        return adapter_spec(self.adapter_kind).api_style
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         model_id = request.model.id
@@ -132,6 +137,88 @@ def test_runner_observations_share_stable_task_id() -> None:
     )
 
 
+def test_runner_retries_provider_before_switching_to_next_provider() -> None:
+    primary = FakeProvider(provider_id="primary", failures={"shared": 2})
+    backup = FakeProvider(provider_id="backup")
+    model = ModelSpec(
+        id="shared",
+        providers=(
+            ModelProviderBinding("primary", "primary-model"),
+            ModelProviderBinding("backup", "backup-model"),
+        ),
+        context_window_tokens=262_144,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        capabilities=frozenset({ModelCapability.TEXT_INPUT}),
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([primary, backup]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("shared",),
+                retry_policy=RetryPolicy(max_retries_per_provider=1, max_cycles=1),
+            )
+        ),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+        )
+    )
+
+    assert _json_output(result) == {"model": "shared"}
+    assert primary.calls == ["shared", "shared"]
+    assert backup.calls == ["shared"]
+    assert backup.requests[0].binding.provider_model == "backup-model"
+
+
+def test_backup_provider_preference_expires_back_to_chain_head() -> None:
+    primary = FakeProvider(provider_id="primary", failures={"shared": 1})
+    backup = FakeProvider(provider_id="backup")
+    model = ModelSpec(
+        id="shared",
+        providers=(
+            ModelProviderBinding("primary", "primary-model"),
+            ModelProviderBinding("backup", "backup-model"),
+        ),
+        context_window_tokens=262_144,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        capabilities=frozenset({ModelCapability.TEXT_INPUT}),
+    )
+    clock = FakeClock()
+    state = LLMRouteState()
+    policy = RetryPolicy(
+        max_retries_per_provider=0,
+        max_cycles=1,
+        prefer_successful_provider_seconds=10,
+    )
+    runner = LLMTaskRunner(
+        models=ModelRegistry([model]),
+        providers=ProviderRegistry([primary, backup]),
+        tasks=_tasks(ModelChain(profile="framework", model_ids=("shared",), retry_policy=policy)),
+        route_state=state,
+        clock=clock,
+    )
+    call = TaskCall(
+        profile="framework",
+        messages=MessageStack.of(UserMessage.from_text("hello")),
+    )
+
+    runner.run(call)
+    assert [request.binding.provider_id for request in backup.requests] == ["backup"]
+
+    clock.current = 1
+    runner.run(call)
+    assert [request.binding.provider_id for request in backup.requests] == ["backup", "backup"]
+
+    clock.current = 11
+    runner.run(call)
+    assert primary.requests[-1].binding.provider_id == "primary"
+
+
 def test_runner_passes_action_remaining_timeout_to_provider_request() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
@@ -173,7 +260,7 @@ def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
                 profile="framework",
                 model_ids=("a", "b"),
                 retry_policy=RetryPolicy(
-                    max_retries_per_model=2,
+                    max_retries_per_provider=2,
                     max_cycles=10,
                 ),
             )
@@ -308,7 +395,7 @@ def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> N
         def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             if request.model.id == "large":
-                raise ProviderError("unavailable", kind=ProviderErrorKind.CONFIG)
+                raise ProviderError("unavailable", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
             return RawResponse(
                 answer_text='{"model": "small"}',
                 model_id=request.model.id,
@@ -391,17 +478,18 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
         profile="framework",
         model_ids=("a", "b", "c"),
         retry_policy=RetryPolicy(
-            max_retries_per_model=1,
+            max_retries_per_provider=0,
             max_cycles=1,
+            prefer_successful_model_seconds=10**20,
         ),
     )
-    chain_state = ModelChainState()
+    chain_state = LLMRouteState()
     chain_state.mark_success(chain, "b", now=0.0)
     runner = LLMTaskRunner(
         models=_models("a", "b", "c"),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(chain),
-        chain_state=chain_state,
+        route_state=chain_state,
     )
     call = TaskCall(
         profile="framework",
@@ -417,7 +505,7 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
 def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     provider = FakeProvider(
         provider_id="fake",
-        failures={"a": 2, "b": 2, "c": 2},
+        failures={"a": 99, "b": 99, "c": 99},
     )
     runner = LLMTaskRunner(
         models=_models("a", "b", "c"),
@@ -427,7 +515,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
                 profile="framework",
                 model_ids=("a", "b", "c"),
                 retry_policy=RetryPolicy(
-                    max_retries_per_model=1,
+                    max_retries_per_provider=1,
                     max_cycles=2,
                 ),
             )
@@ -446,7 +534,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
     assert exc_info.value.payload["last_error_type"] == "ProviderError"
     assert exc_info.value.payload["provider_error_kind"] == "transient"
-    assert provider.calls == ["a", "b", "c", "a", "b", "c"]
+    assert provider.calls == ["a", "a", "b", "b", "c", "c", "a", "a", "b", "b", "c", "c"]
 
 
 def test_runner_returns_to_chain_head_after_success_preference_expires() -> None:
@@ -456,7 +544,7 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
         profile="framework",
         model_ids=("a", "b", "c"),
         retry_policy=RetryPolicy(
-            max_retries_per_model=1,
+            max_retries_per_provider=0,
             max_cycles=1,
             prefer_successful_model_seconds=5.0,
         ),
@@ -493,7 +581,7 @@ def test_runner_retries_transient_error_on_same_model() -> None:
             ModelChain(
                 profile="framework",
                 model_ids=("a",),
-                retry_policy=RetryPolicy(max_retries_per_model=2, max_cycles=1),
+                retry_policy=RetryPolicy(max_retries_per_provider=2, max_cycles=1),
             )
         ),
     )
@@ -515,7 +603,7 @@ def test_runner_switches_model_without_retry_for_non_transient_provider_error() 
         def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             if request.model.id == "a":
-                raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG)
+                raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
             return RawResponse(
                 answer_text='{"model": "' + request.model.id + '"}',
                 model_id=request.model.id,
@@ -530,7 +618,7 @@ def test_runner_switches_model_without_retry_for_non_transient_provider_error() 
             ModelChain(
                 profile="framework",
                 model_ids=("a", "b"),
-                retry_policy=RetryPolicy(max_retries_per_model=3, max_cycles=1),
+                retry_policy=RetryPolicy(max_retries_per_provider=3, max_cycles=1),
             )
         ),
     )
@@ -553,10 +641,9 @@ def test_retry_policy_defaults_to_ten_cycles() -> None:
 def test_runner_reports_chain_head_capabilities_by_default() -> None:
     model = ModelSpec(
         id="vision",
-        provider_id="fake",
-        provider_model="vision-model",
+        providers=(ModelProviderBinding("fake", "vision-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -587,7 +674,7 @@ def test_runner_reports_successful_fallback_model_during_preference_window() -> 
         profile="framework",
         model_ids=("a", "b"),
         retry_policy=RetryPolicy(
-            max_retries_per_model=1,
+            max_retries_per_provider=0,
             max_cycles=1,
             prefer_successful_model_seconds=5.0,
         ),
@@ -616,7 +703,7 @@ def test_runner_capability_query_returns_to_head_after_preference_expires() -> N
         profile="framework",
         model_ids=("a", "b"),
         retry_policy=RetryPolicy(
-            max_retries_per_model=1,
+            max_retries_per_provider=1,
             max_cycles=1,
             prefer_successful_model_seconds=5.0,
         ),
@@ -662,10 +749,9 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
-        provider_id="fake",
-        provider_model="a",
+        providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     runner = LLMTaskRunner(
@@ -708,18 +794,16 @@ def test_runner_skips_model_missing_call_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     text_model = ModelSpec(
         id="text",
-        provider_id="fake",
-        provider_model="text",
+        providers=(ModelProviderBinding("fake", "text"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset({ModelCapability.TEXT_INPUT}),
     )
     vision_model = ModelSpec(
         id="vision",
-        provider_id="fake",
-        provider_model="vision",
+        providers=(ModelProviderBinding("fake", "vision"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -788,10 +872,9 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
-        provider_id="fake",
-        provider_model="a",
+        providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -837,10 +920,9 @@ def test_runner_applies_model_request_overrides_after_call_settings() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
-        provider_id="fake",
-        provider_model="a",
+        providers=(ModelProviderBinding("fake", "a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -912,10 +994,9 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
-        provider_id="fake",
-        provider_model="tool-model",
+        providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -945,10 +1026,9 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
-        provider_id="fake",
-        provider_model="tool-model",
+        providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -988,10 +1068,9 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
-        provider_id="fake",
-        provider_model="tool-model",
+        providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1052,10 +1131,9 @@ def test_runner_interprets_tool_call_output() -> None:
 
     model = ModelSpec(
         id="tool_model",
-        provider_id="fake",
-        provider_model="tool-model",
+        providers=(ModelProviderBinding("fake", "tool-model"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1173,7 +1251,7 @@ def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
                 profile="framework",
                 model_ids=("a", "b"),
                 retry_policy=RetryPolicy(
-                    max_retries_per_model=1,
+                    max_retries_per_provider=1,
                     max_cycles=1,
                 ),
             )
@@ -1199,7 +1277,7 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
     class ConfigFailingProvider(FakeProvider):
         def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
-            raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG)
+            raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
 
     provider = ConfigFailingProvider(provider_id="fake")
     runner = LLMTaskRunner(
@@ -1210,7 +1288,7 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
                 profile="framework",
                 model_ids=("a", "b"),
                 retry_policy=RetryPolicy(
-                    max_retries_per_model=3,
+                    max_retries_per_provider=3,
                     max_cycles=10,
                 ),
             )
@@ -1247,7 +1325,7 @@ def test_programming_error_aborts_chain_without_switching_models() -> None:
             ModelChain(
                 profile="framework",
                 model_ids=("a", "b"),
-                retry_policy=RetryPolicy(max_retries_per_model=3, max_cycles=10),
+                retry_policy=RetryPolicy(max_retries_per_provider=3, max_cycles=10),
             )
         ),
     )
@@ -1307,10 +1385,9 @@ def test_runner_reports_unknown_model_as_contract_violation() -> None:
 def test_runner_reports_unknown_provider_as_contract_violation() -> None:
     model = ModelSpec(
         id="model_a",
-        provider_id="missing",
-        provider_model="model-a",
+        providers=(ModelProviderBinding("missing", "model-a"),),
         context_window_tokens=262_144,
-        adapter=AdapterKind.GENERIC,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
         capabilities=frozenset(
             {
                 ModelCapability.TEXT_INPUT,
@@ -1347,10 +1424,9 @@ def _models(*ids: str) -> ModelRegistry:
         [
             ModelSpec(
                 id=model_id,
-                provider_id="fake",
-                provider_model=model_id,
+                providers=(ModelProviderBinding("fake", model_id),),
                 context_window_tokens=262_144,
-                adapter=AdapterKind.GENERIC,
+                adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
                 capabilities=capabilities,
             )
             for model_id in ids
@@ -1369,10 +1445,9 @@ def _window_models(*items: tuple[str, int]) -> ModelRegistry:
         [
             ModelSpec(
                 id=model_id,
-                provider_id="fake",
-                provider_model=model_id,
+                providers=(ModelProviderBinding("fake", model_id),),
                 context_window_tokens=window,
-                adapter=AdapterKind.GENERIC,
+                adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
                 capabilities=capabilities,
             )
             for model_id, window in items
