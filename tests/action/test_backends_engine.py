@@ -51,6 +51,7 @@ from tests.action_helpers import (
     FunctionActionExecutor,
     load_action_catalog,
 )
+from tests.support.process import PYTHON_WAIT_FOREVER
 
 
 def test_native_cooperative_timeout_does_not_block_later_group() -> None:
@@ -268,7 +269,7 @@ def test_managed_process_terminate_uses_configured_wait(
 def test_managed_process_falls_back_when_taskkill_is_denied(monkeypatch) -> None:
     process = ManagedProcessRunner().start(
         ManagedProcessRequest(
-            argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+            argv=(sys.executable, "-c", PYTHON_WAIT_FOREVER),
         )
     )
     monkeypatch.setattr(
@@ -313,7 +314,7 @@ def test_controlled_process_runner_kills_timed_out_process() -> None:
     control = ActionExecutionControl(deadline=monotonic() + 0.05)
     outcome = ControlledProcessRunner().run(
         ProcessRequest(
-            argv=(sys.executable, "-c", "import time; time.sleep(1)"),
+            argv=(sys.executable, "-c", PYTHON_WAIT_FOREVER),
         ),
         control,
     )
@@ -588,9 +589,9 @@ def _run_controlled_process(
                 sys.executable,
                 "-c",
                 (
-                    "from pathlib import Path; import sys,time; "
+                    "from pathlib import Path; import sys,threading; "
                     "Path(sys.argv[1]).write_text('started'); "
-                    "time.sleep(10)"
+                    "threading.Event().wait()"
                 ),
                 str(marker),
             ),

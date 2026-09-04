@@ -81,6 +81,7 @@ addopts = "-q --strict-markers"
 cache_dir = ".local-test/pytest-cache"
 markers = [
     "external: requires a real provider or network service",
+    "generation: exercises package-owned project or resource generation",
     "release: builds and validates an installable wheel",
 ]
 

@@ -11,7 +11,6 @@ from tinysoul.app import (
     AppSettings,
     InputEvent,
     InputSink,
-    ProjectInitializer,
     TinySoulAppBuilder,
 )
 from tinysoul.infra.config import ConfigEnvironment
@@ -19,6 +18,7 @@ from tinysoul.llm.requests import TaskCall
 from tinysoul.llm.responses import TaskResult
 from tinysoul.loop import LoopSettings, TurnSettings
 from tinysoul.runtime import RuntimeTransferAction, RunLevel
+from tests.support.project import copy_initialized_project
 
 
 class FakeLLM:
@@ -220,7 +220,7 @@ def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
 
 def _test_config(tmp_path: Path) -> ConfigEnvironment:
     project_root = tmp_path / ".config-project"
-    ProjectInitializer().initialize(project_root)
+    copy_initialized_project(project_root)
     home_root = tmp_path / "home"
     agent_path = home_root / "agent" / "AGENT.md"
     agent_path.parent.mkdir(parents=True, exist_ok=True)

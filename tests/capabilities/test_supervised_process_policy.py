@@ -6,12 +6,12 @@ import pytest
 
 from tinysoul.action import ActionToolSpec, builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.app import ProjectInitializer
 from tinysoul.capabilities.supervised_process import (
     compile_supervised_process_wait_policy,
     parse_supervised_process_wait_policy,
 )
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tests.support.project import copy_initialized_project
 
 
 def test_wait_policy_compiles_from_action_schema() -> None:
@@ -57,7 +57,7 @@ def test_wait_policy_requires_action_owned_boundaries() -> None:
 
 def test_loaded_catalog_compiler_preserves_document_source(tmp_path) -> None:
     root = tmp_path / "project"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     wait_path = (
         root
         / "configs"

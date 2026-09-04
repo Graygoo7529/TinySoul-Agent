@@ -4,13 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from tinysoul.app.initializer import ProjectConfigProfile, ProjectInitializer
+from tinysoul.app.initializer import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, load_config_catalog
 from tinysoul.infra.config.catalog import ConfigCollectionDeletePolicy
 from tinysoul.llm.adapter_types import AdapterKind
 from tinysoul.llm.config_types import ProviderApiStyle
 from tinysoul.llm.responses import AnswerFormat
 from tinysoul.llm.tools import ToolUse
+from tests.support.project import copy_initialized_project
 
 
 @pytest.mark.parametrize("profile", tuple(ProjectConfigProfile))
@@ -19,7 +20,7 @@ def test_config_catalog_covers_every_packaged_project_toml_leaf(
     profile: ProjectConfigProfile,
 ) -> None:
     root = tmp_path / profile.value
-    ProjectInitializer().initialize(root, config_profile=profile)
+    copy_initialized_project(root, config_profile=profile)
     environment = ConfigEnvironment.from_project_root(root, env={})
     catalog = load_config_catalog()
 

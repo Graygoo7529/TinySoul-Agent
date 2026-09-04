@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from hashlib import sha256
-from threading import Thread
-from time import monotonic, sleep
+from threading import Event, Thread
+from time import monotonic
 from types import SimpleNamespace
 from typing import NoReturn, cast
 
@@ -49,6 +49,7 @@ from tinysoul.workspace import (
     WorkspaceMirrorService,
     WorkspaceSettings,
 )
+from tests.support.process import PYTHON_WAIT_FOREVER, wait_until
 
 
 def test_script_settings_parse_language_and_supervision_limits() -> None:
@@ -232,7 +233,7 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
 
     stopped_record = workspace.write_text(
         "workspace:scripts/wait.py",
-        "import time\ntime.sleep(30)\n",
+        PYTHON_WAIT_FOREVER,
         owner_turn_id="turn_stop",
     )
     running = _start(
@@ -240,7 +241,7 @@ def test_failed_and_stopped_jobs_cannot_apply(local_tmp: Path) -> None:
         turn_id="turn_stop",
         source=ScriptSource(
             stopped_record.link,
-            "import time\ntime.sleep(30)\n",
+            PYTHON_WAIT_FOREVER,
             stopped_record.digest,
             ScriptLanguage.PYTHON,
         ),
@@ -430,7 +431,7 @@ def test_additional_cycle_failure_uses_supervised_process_runtime_bridge(
     workspace = _workspace(local_tmp)
     record = workspace.write_text(
         "workspace:scripts/wait.py",
-        "import time\ntime.sleep(30)\n",
+        PYTHON_WAIT_FOREVER,
         owner_turn_id="turn_1",
     )
     manager = _jobs(
@@ -511,7 +512,7 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
     workspace = _workspace(local_tmp)
     record = workspace.write_text(
         "workspace:scripts/wait.py",
-        "import time\ntime.sleep(30)\n",
+        PYTHON_WAIT_FOREVER,
         owner_turn_id="turn_1",
     )
     manager = _jobs(local_tmp, workspace)
@@ -529,8 +530,11 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
     )
     execution_id = str(running.payload["execution_id"])
     observations: list[object] = []
-    thread = Thread(
-        target=lambda: observations.append(
+    wait_started = Event()
+
+    def wait_for_job() -> None:
+        wait_started.set()
+        observations.append(
             manager.wait(
                 turn_id="turn_1",
                 execution_id=execution_id,
@@ -539,9 +543,10 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
                 bus=bus,
             )
         )
-    )
+
+    thread = Thread(target=wait_for_job)
     thread.start()
-    sleep(0.1)
+    assert wait_started.wait(1.0)
     bus.emit(
         Signal(
             name="workspace.sync",
@@ -557,7 +562,6 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
             source="test",
         )
     )
-    sleep(0.2)
     assert thread.is_alive()
     bus.emit(
         build_input_append_signal(
@@ -566,7 +570,8 @@ def test_job_wait_ignores_unrelated_signals_and_accepts_current_turn_input(
             source="test",
         )
     )
-    thread.join(timeout=1.0)
+    wait_until(lambda: not thread.is_alive(), timeout=1.0)
+    thread.join()
 
     assert not thread.is_alive()
     assert len(observations) == 1
@@ -591,7 +596,7 @@ def test_running_job_paces_automatic_cycles_but_not_after_explicit_wait(
     workspace = _workspace(local_tmp)
     record = workspace.write_text(
         "workspace:scripts/wait.py",
-        "import time\nprint('started', flush=True)\ntime.sleep(30)\n",
+        "import threading\nprint('started', flush=True)\nthreading.Event().wait()\n",
         owner_turn_id="turn_1",
     )
     clock = _AdvancingClock(step=5.0)

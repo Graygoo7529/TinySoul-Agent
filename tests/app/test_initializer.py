@@ -16,8 +16,10 @@ from tinysoul.app import (
 from tinysoul.app import cli
 from tinysoul.action import builtin_action_catalog_root
 from tinysoul.infra.config import parse_dotenv
+from tests.support.project import copy_initialized_project
 
 
+@pytest.mark.generation
 def test_cli_init_copies_editable_project_without_provider_selection(
     tmp_path: Path,
 ) -> None:
@@ -125,6 +127,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert session["inspect_max_chars"] == 8000
 
 
+@pytest.mark.generation
 def test_cli_init_development_profile_copies_enabled_development_config(
     tmp_path: Path,
 ) -> None:
@@ -183,6 +186,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     assert not (root / "config_profiles").exists()
 
 
+@pytest.mark.generation
 def test_project_config_profiles_share_core_home_and_customize_user_profile(
     tmp_path: Path,
 ) -> None:
@@ -220,6 +224,7 @@ def test_project_config_profiles_share_core_home_and_customize_user_profile(
         assert set(example) == _config_environment_references(root / "configs")
 
 
+@pytest.mark.generation
 def test_project_initializer_accepts_empty_directory_and_rejects_nonempty(
     tmp_path: Path,
 ) -> None:
@@ -245,7 +250,7 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
 ) -> None:
     root = tmp_path / "agent"
     monkeypatch.setenv("TINYSOUL_INSTANCE_DIR", str(tmp_path / "instances"))
-    assert cli.main(["init", str(root)]) == 0
+    copy_initialized_project(root)
     original_home = (root / "home" / "agent" / "AGENT.md").read_bytes()
     env = b"SUBLYX_API_KEY=secret\r\nMOONSHOT_API_KEY=other\r\n"
     (root / ".env").write_bytes(env)
@@ -307,7 +312,7 @@ def test_project_resetter_rejects_nonproject_and_invalid_env(
     assert marker.read_text(encoding="utf-8") == "keep"
 
     root = tmp_path / "agent"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     (root / ".env").mkdir()
     with pytest.raises(AppContractError, match="env path must be a file"):
         ProjectResetter().reset(root)
@@ -319,7 +324,7 @@ def test_project_resetter_restores_previous_project_when_install_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "agent"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     marker = root / "previous-data.txt"
     marker.write_text("keep", encoding="utf-8")
     original_replace = Path.replace
@@ -342,7 +347,7 @@ def test_project_resetter_retains_previous_project_when_rollback_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = tmp_path / "agent"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     marker = root / "previous-data.txt"
     marker.write_text("keep", encoding="utf-8")
     original_replace = Path.replace
@@ -368,7 +373,7 @@ def test_cli_reset_rejects_project_held_by_running_instance(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "agent"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     marker = root / "runtime" / "session" / "active.json"
     marker.parent.mkdir(parents=True)
     marker.write_text("active", encoding="utf-8")
@@ -389,7 +394,7 @@ def test_initialized_project_reports_clear_unconfigured_provider_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "agent"
-    assert cli.main(["init", str(root)]) == 0
+    copy_initialized_project(root)
 
     result = cli.main(["start", "--root", str(root), "--once", "hello"])
 

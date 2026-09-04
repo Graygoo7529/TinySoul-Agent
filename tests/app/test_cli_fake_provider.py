@@ -11,6 +11,7 @@ from typing import cast
 import pytest
 
 from tinysoul.app import cli
+from tests.support.project import copy_initialized_project
 
 
 class _FakeProviderServer(ThreadingHTTPServer):
@@ -47,7 +48,7 @@ def test_initialized_project_runs_cli_through_fake_openai_provider(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = tmp_path / "agent"
-    assert cli.main(["init", str(root)]) == 0
+    copy_initialized_project(root)
 
     with _fake_provider() as server:
         _configure_fake_provider(root, port=server.server_port)

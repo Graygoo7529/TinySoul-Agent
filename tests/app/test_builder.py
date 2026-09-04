@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 from pypdf import PdfWriter
 
-from tinysoul.app import AppSettings, ProjectInitializer, TinySoulAppBuilder
+from tinysoul.app import AppSettings, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
 from tinysoul.endpoint.http import create_endpoint_app
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
@@ -31,6 +31,7 @@ from tinysoul.runtime import (
     RuntimeTransferAction,
     SignalBus,
 )
+from tests.support.project import copy_initialized_project
 
 
 class FakeLLM:
@@ -122,13 +123,18 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
-    ProjectInitializer().initialize(project_root)
+    copy_initialized_project(project_root)
     app = (
         TinySoulAppBuilder(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
-        .with_endpoint(EndpointSettings(token="x" * 32))
+        .with_endpoint(
+            EndpointSettings(
+                token="x" * 32,
+                websocket_heartbeat_seconds=0.05,
+            )
+        )
         .build()
     )
     assert app.endpoint is not None
@@ -139,6 +145,21 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
 
     client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
     with client.websocket_connect("/v1/events/ws") as websocket:
+        def receive_event_names() -> tuple[str, ...]:
+            for _ in range(20):
+                message = to_json_object(websocket.receive_json())
+                if message.get("type") == "events":
+                    raw_events = message.get("events")
+                    assert isinstance(raw_events, list)
+                    names: list[str] = []
+                    for raw_event in raw_events:
+                        event = to_json_object(raw_event)
+                        name = event.get("name")
+                        assert isinstance(name, str)
+                        names.append(name)
+                    return tuple(names)
+            raise AssertionError("WebSocket did not publish an event page")
+
         websocket.send_json(
             {
                 "token": "x" * 32,
@@ -193,8 +214,8 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         assert response.status_code == 200
         result = response.json()
         assert isinstance(result, dict)
-        websocket_events = websocket.receive_json()
-        websocket_completed = websocket.receive_json()
+        websocket_event_names = receive_event_names()
+        websocket_completed_names = receive_event_names()
 
     after = endpoint.configuration.status()["runtime"]
     action_catalog = client.get(
@@ -341,21 +362,15 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
         "config.activation.started",
         "config.activation.failed",
     ]
-    assert websocket_events["type"] == "events"
-    assert [event["name"] for event in websocket_events["events"]] == [
-        "config.activation.started"
-    ]
-    assert websocket_completed["type"] == "events"
-    assert [event["name"] for event in websocket_completed["events"]] == [
-        "config.activation.completed"
-    ]
+    assert websocket_event_names == ("config.activation.started",)
+    assert websocket_completed_names == ("config.activation.completed",)
 
 
 def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
-    ProjectInitializer().initialize(project_root)
+    copy_initialized_project(project_root)
     app = (
         TinySoulAppBuilder(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
@@ -547,7 +562,7 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
-    ProjectInitializer().initialize(project_root)
+    copy_initialized_project(project_root)
     providers_path = project_root / "configs" / "llm" / "providers.toml"
     with providers_path.open("a", encoding="utf-8") as providers:
         providers.write(
@@ -964,28 +979,91 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
     assert exc.payload["module"] == "home"
 
 
-def test_app_builder_home_config_error_is_home_startup_failure(tmp_path: Path) -> None:
-    config = _test_config(tmp_path, {"home.max_read_chars": 0})
-
-    with pytest.raises(RuntimeException) as raised:
+@pytest.mark.parametrize(
+    ("overrides", "module", "key", "kind"),
+    (
+        ({"home.max_read_chars": 0}, "home", "home.max_read_chars", None),
         (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "home"
-    assert exc.payload["key"] == "home.max_read_chars"
-
-
-def test_app_builder_infra_embedding_config_error_is_infra_startup_failure(
+            {"infra.embedding.batch_size": 0},
+            "infra",
+            "infra.embedding.batch_size",
+            "infra.configuration_failed",
+        ),
+        (
+            {"workspace.max_files": 0},
+            "workspace",
+            "workspace.max_files",
+            None,
+        ),
+        (
+            {"capabilities.script.max_source_chars": 0},
+            "script",
+            "capabilities.script.max_source_chars",
+            "script.configuration_failed",
+        ),
+        (
+            {
+                "capabilities.script.enabled": True,
+                "capabilities.script.bash.enabled": True,
+                "capabilities.script.bash.executable": (
+                    "tinysoul-missing-bash-for-test"
+                ),
+            },
+            "script",
+            "capabilities.dependencies.script.bash",
+            "script.configuration_failed",
+        ),
+        (
+            {"capabilities.supervised_process.max_runtime_seconds": 0},
+            "supervised_process",
+            "capabilities.supervised_process.max_runtime_seconds",
+            "supervised_process.configuration_failed",
+        ),
+        (
+            {
+                "capabilities.shell.enabled": True,
+                "capabilities.shell.powershell.enabled": False,
+                "capabilities.shell.cmd.enabled": True,
+                "capabilities.shell.cmd.executable": "tinysoul-missing-cmd-for-test",
+                "capabilities.shell.bash.enabled": False,
+            },
+            "shell",
+            "capabilities.dependencies.shell.cmd",
+            "shell.configuration_failed",
+        ),
+        (
+            {"loop.max_cycles_per_turn": 0},
+            "loop",
+            "loop.max_cycles_per_turn",
+            None,
+        ),
+        (
+            {"loop.cycle.phase1_task_profile": "missing_profile"},
+            "loop",
+            "loop.cycle.phase1_task_profile",
+            None,
+        ),
+    ),
+    ids=(
+        "home-config",
+        "infra-config",
+        "workspace-config",
+        "script-config",
+        "script-dependency",
+        "supervised-process-config",
+        "shell-dependency",
+        "loop-config",
+        "loop-task-profile",
+    ),
+)
+def test_app_builder_maps_owned_startup_failure(
     tmp_path: Path,
+    overrides: dict[str, object],
+    module: str,
+    key: str,
+    kind: str | None,
 ) -> None:
-    config = _test_config(tmp_path, {"infra.embedding.batch_size": 0})
+    config = _test_config(tmp_path, overrides)
 
     with pytest.raises(RuntimeException) as raised:
         (
@@ -998,132 +1076,10 @@ def test_app_builder_infra_embedding_config_error_is_infra_startup_failure(
 
     exc = raised.value
     assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "infra"
-    assert exc.payload["kind"] == "infra.configuration_failed"
-    assert exc.payload["key"] == "infra.embedding.batch_size"
-
-
-def test_app_builder_workspace_config_error_is_workspace_startup_failure(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(tmp_path, {"workspace.max_files": 0})
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "workspace"
-    assert exc.payload["key"] == "workspace.max_files"
-
-
-def test_app_builder_script_config_error_is_script_startup_failure(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(tmp_path, {"capabilities.script.max_source_chars": 0})
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "script"
-    assert exc.payload["kind"] == "script.configuration_failed"
-    assert exc.payload["key"] == "capabilities.script.max_source_chars"
-
-
-def test_app_builder_script_dependency_error_is_script_startup_failure(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(
-        tmp_path,
-        {
-            "capabilities.script.enabled": True,
-            "capabilities.script.bash.enabled": True,
-            "capabilities.script.bash.executable": "tinysoul-missing-bash-for-test",
-        },
-    )
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "script"
-    assert exc.payload["kind"] == "script.configuration_failed"
-    assert exc.payload["key"] == "capabilities.dependencies.script.bash"
-
-
-def test_app_builder_supervised_process_config_error_keeps_shared_owner(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(
-        tmp_path,
-        {"capabilities.supervised_process.max_runtime_seconds": 0},
-    )
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "supervised_process"
-    assert exc.payload["kind"] == "supervised_process.configuration_failed"
-    assert exc.payload["key"] == "capabilities.supervised_process.max_runtime_seconds"
-
-
-def test_app_builder_shell_dependency_error_is_shell_startup_failure(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(
-        tmp_path,
-        {
-            "capabilities.shell.enabled": True,
-            "capabilities.shell.powershell.enabled": False,
-            "capabilities.shell.cmd.enabled": True,
-            "capabilities.shell.cmd.executable": "tinysoul-missing-cmd-for-test",
-            "capabilities.shell.bash.enabled": False,
-        },
-    )
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "shell"
-    assert exc.payload["kind"] == "shell.configuration_failed"
-    assert exc.payload["key"] == "capabilities.dependencies.shell.cmd"
+    assert exc.payload["module"] == module
+    assert exc.payload["key"] == key
+    if kind is not None:
+        assert exc.payload["kind"] == kind
 
 
 def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
@@ -1169,47 +1125,6 @@ def test_app_builder_does_not_map_programming_errors_to_startup_failure(
 
     with pytest.raises(RuntimeError, match="programming error"):
         builder.build()
-
-
-def test_app_builder_loop_config_error_is_loop_startup_failure(tmp_path: Path) -> None:
-    config = _test_config(tmp_path, {"loop.max_cycles_per_turn": 0})
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "loop"
-    assert exc.payload["key"] == "loop.max_cycles_per_turn"
-
-
-def test_app_builder_unknown_cycle_task_profile_is_loop_startup_failure(
-    tmp_path: Path,
-) -> None:
-    config = _test_config(
-        tmp_path,
-        {"loop.cycle.phase1_task_profile": "missing_profile"},
-    )
-
-    with pytest.raises(RuntimeException) as raised:
-        (
-            TinySoulAppBuilder(root=tmp_path)
-            .with_config_environment(config)
-            .with_app_settings(AppSettings(interactive=False))
-            .with_llm_runner(FakeLLM(()))
-            .build()
-        )
-
-    exc = raised.value
-    assert exc.reason == RUNTIME_STARTUP_FAILED
-    assert exc.payload["module"] == "loop"
-    assert exc.payload["key"] == "loop.cycle.phase1_task_profile"
 
 
 def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> None:
@@ -1300,7 +1215,7 @@ def _test_config(
     overrides: dict[str, object] | None = None,
 ) -> ConfigEnvironment:
     project_root = tmp_path / ".config-project"
-    ProjectInitializer().initialize(project_root)
+    copy_initialized_project(project_root)
     home_root = tmp_path / "home"
     agent_path = home_root / "agent" / "AGENT.md"
     agent_path.parent.mkdir(parents=True, exist_ok=True)

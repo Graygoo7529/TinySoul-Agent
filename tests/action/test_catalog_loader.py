@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from tinysoul.action import builtin_action_catalog_root
-from tinysoul.app import ProjectInitializer
 from tinysoul.action.core.loader import ActionCatalogLoader, ActionTomlParser
 from tinysoul.action.core.schema import (
     ActionSchemaDefinitionError,
@@ -17,6 +16,7 @@ from tinysoul.action.core.specs import ActionBackendKind, ActionParallelPolicy, 
 from tinysoul.action.core.errors import ActionInvariantError
 from tinysoul.infra import JsonObject
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
+from tests.support.project import copy_initialized_project
 
 
 def test_load_builtin_catalog() -> None:
@@ -118,7 +118,7 @@ def test_load_project_documents_preserves_sources_and_timeout_provenance(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "project"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     environment = ConfigEnvironment.from_project_root(root, env={})
 
     loaded = ActionCatalogLoader(
@@ -140,7 +140,7 @@ def test_project_catalog_enabled_policy_inherits_and_tracks_provenance(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "project"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     domain_path = root / "configs" / "action" / "catalog" / "workspace" / "domain.toml"
     domain_path.write_text(
         domain_path.read_text(encoding="utf-8").replace(

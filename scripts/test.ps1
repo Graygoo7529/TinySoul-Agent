@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Fast", "Full", "External")]
+    [ValidateSet("Fast", "Full", "Generation", "External")]
     [string]$Suite = "Fast",
     [Alias("Path")]
     [string[]]$TestPath = @("tests"),
@@ -76,8 +76,9 @@ try {
     Push-Location $repositoryRoot
     $locationPushed = $true
     switch ($Suite) {
-        "Fast" { $markerExpression = "not release and not external" }
+        "Fast" { $markerExpression = "not release and not generation and not external" }
         "Full" { $markerExpression = "not external" }
+        "Generation" { $markerExpression = "generation or release" }
         "External" { $markerExpression = "external" }
     }
     $pytestArguments = @(

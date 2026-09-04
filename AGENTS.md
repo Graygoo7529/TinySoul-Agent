@@ -219,13 +219,14 @@ conda activate TinySoul
 .\scripts\typecheck.ps1
 ```
 
-`scripts/test.ps1` 默认运行 Fast 本地 pytest suite，排除 wheel 发布验收和真实 provider/network 测试；`-Suite Full` 加入 wheel 验收，`-Suite External` 只选择真实 provider/network 测试，后者仍需显式环境开关和凭据。每次运行使用 `.local-test/runs/<uuid>` 隔离 pytest、临时文件、实例锁和 cache，失败时保留工件。若当前 PowerShell 禁止脚本执行，使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`，不要把执行策略错误当作 pytest 失败。
+`scripts/test.ps1` 默认运行 Fast 本地业务逻辑 pytest suite，排除项目/资源生成、wheel 发布验收和真实 provider/network 测试；`-Suite Generation` 只运行项目/资源生成契约与 wheel 验收，`-Suite Full` 运行全部非 external 本地测试，`-Suite External` 只选择真实 provider/network 测试，后者仍需显式环境开关和凭据。每次运行使用 `.local-test/runs/<uuid>` 隔离 pytest、临时文件、实例锁和 cache，失败时保留工件。若当前 PowerShell 禁止脚本执行，使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1`，不要把执行策略错误当作 pytest 失败。
 
 标准工作流为：先按修改模块运行聚焦路径，再运行默认 Fast；完成前运行 `-Suite Full` 和 typecheck。日常开发环境通过 `conda activate TinySoul` 或设置 `TINYSOUL_PYTHON` 选择包含 pytest/ty 的 Python，随后通过 `python -m pip install -e ".[dev]"` 安装依赖。直接 `python -m pytest` 仍有 `tests/conftest.py` 兜底，会创建唯一 `.local-test` 临时目录，但标准入口优先，因为它还负责 cache 生命周期和 suite 语义。
 
 - 测试约定：
   - 测试按 `tests/<module>/test_<切面>.py` 组织，镜像模块结构；
   - 触网或调用真实供应商的测试默认 skip，需显式开启。
+  - `generation` marker 表示 package-owned 项目或资源生成契约；默认 Fast 不重复运行生产生成器。
   - `release` marker 表示 wheel 构建和隔离安装验收；`external` marker 表示真实 provider 或网络服务，默认不进入 Fast/Full。
 
 - 用户对接：每次产生修改后阐述本轮改动了哪些文件，以及提供用于 commit 的文本内容

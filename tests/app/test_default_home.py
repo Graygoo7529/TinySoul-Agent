@@ -6,7 +6,6 @@ import re
 
 from tinysoul.action import builtin_action_catalog_root
 from tinysoul.action.core.loader import ActionCatalogLoader
-from tinysoul.app import ProjectInitializer
 from tinysoul.context import (
     CONTROL_EVICT_BACKGROUND,
     SIGNAL_BACKGROUND_PATCH,
@@ -25,6 +24,7 @@ from tinysoul.home import (
     HomeTopLink,
 )
 from tinysoul.runtime import RunLevel, RunScope, Signal, SignalBus
+from tests.support.project import copy_initialized_project
 
 
 _HOME_REFERENCE = re.compile(r"<(home:[^>\s]+)>")
@@ -202,7 +202,7 @@ def test_packaged_default_home_provides_stage4_behavior_guidance(
 
 def _initialized_home(tmp_path: Path) -> tuple[Path, AgentHomeEngine]:
     root = tmp_path / "project"
-    ProjectInitializer().initialize(root)
+    copy_initialized_project(root)
     home = AgentHomeEngineBuilder(
         AgentHomeSettings(
             original_root=root / "home",

@@ -8,7 +8,7 @@ import tomllib
 
 import pytest
 
-from tinysoul.app import ProjectConfigProfile, ProjectInitializer
+from tinysoul.app import ProjectConfigProfile
 from tinysoul.action import (
     ActionEngine,
     ActionEngineBuilder,
@@ -69,6 +69,8 @@ from tinysoul.workspace import (
     WorkspaceMirrorService,
     WorkspaceSettings,
 )
+from tests.support.process import PYTHON_WAIT_FOREVER
+from tests.support.project import copy_initialized_project
 
 
 def test_shell_settings_parse_independent_adapters() -> None:
@@ -103,8 +105,8 @@ def test_shell_settings_reject_unknown_keys_and_project_profiles_are_explicit(
 
     standard_root = tmp_path / "standard"
     development_root = tmp_path / "development"
-    ProjectInitializer().initialize(standard_root)
-    ProjectInitializer().initialize(
+    copy_initialized_project(standard_root)
+    copy_initialized_project(
         development_root,
         config_profile=ProjectConfigProfile.DEVELOPMENT,
     )
@@ -354,7 +356,7 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
         turn_id="turn_timeout",
         owner=SupervisedProcessOwner.SHELL,
         identity={"command_digest": "timeout"},
-        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
         bus=None,
         auto_complete_without_changes=True,
@@ -379,7 +381,7 @@ def test_shell_timeout_and_stop_remain_owned_until_discard(local_tmp: Path) -> N
         turn_id="turn_stop",
         owner=SupervisedProcessOwner.SHELL,
         identity={"command_digest": "stop"},
-        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
         bus=None,
         auto_complete_without_changes=True,
@@ -570,7 +572,7 @@ def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) -> Non
         turn_id=turn_id,
         owner=SupervisedProcessOwner.SHELL,
         identity={"command_digest": "shared-lifecycle"},
-        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
         bus=None,
         auto_complete_without_changes=True,
@@ -618,7 +620,7 @@ def test_script_and_shell_share_one_job_resolved_by_execution_id(
         turn_id="turn_1",
         interpreter=ShellInterpreter.POWERSHELL,
         executable=shutil.which("powershell") or "powershell",
-        command="Start-Sleep -Seconds 30",
+        command="Wait-Event",
     )
     execution_id = str(running.payload["execution_id"])
 
@@ -650,7 +652,7 @@ def test_shared_answer_guard_rejects_shell_owned_unresolved_job(
         turn_id="turn_1",
         owner=SupervisedProcessOwner.SHELL,
         identity={"command_digest": "test-digest"},
-        prepare=_PythonProcessPreparer("import time; time.sleep(30)"),
+        prepare=_PythonProcessPreparer(PYTHON_WAIT_FOREVER),
         control=ActionExecutionControl(),
         bus=None,
         auto_complete_without_changes=True,
