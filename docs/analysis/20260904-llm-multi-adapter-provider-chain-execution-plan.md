@@ -1,6 +1,6 @@
 # LLM 多 Adapter Provider 与 Provider Chain 执行计划
 
-状态：`in_progress`
+状态：`done`
 
 日期：2026-09-04
 
@@ -8,14 +8,14 @@
 
 ## 已提交实现复核与修复结论
 
-2026-09-07 对提交 `e6e736e` 按 `AGENTS.md`、现有配置投影、LLM 路由、Observation 和前端设置流程重新核对。多 Adapter Provider、Model Provider Binding、Provider retry/fallback、Model Chain cycle、Adapter-owned API style 和三层失败边界已经落地；执行计划尚不能标记为完成，以下四项仍需修正：
+2026-09-07 对提交 `e6e736e` 按 `AGENTS.md`、现有配置投影、LLM 路由、Observation 和前端设置流程重新核对。多 Adapter Provider、Model Provider Binding、Provider retry/fallback、Model Chain cycle、Adapter-owned API style 和三层失败边界已经落地；复核识别出的以下四项已按本计划修正：
 
-| 项目 | 状态 | 复核结论 |
+| 项目 | 状态 | 解决位置 |
 | --- | --- | --- |
-| 内置 Model Provider Chain 编辑 | `in_progress` | 编辑器把 `objectOwnedByCreateSource` 错当成写权限，导致标准内置 Model 的可写 Provider Chain 被禁用 |
-| Provider 尝试轨迹 | `in_progress` | 后端已发布 provider lifecycle Observation，前端只消费 retry，并用单一 request 覆盖先前尝试，无法解释 fallback 顺序 |
-| RetryPolicy 有限时长不变量 | `in_progress` | `prefer_successful_*_seconds` 接受 `inf`/`nan`，可能永久停留备用项，与已确认语义冲突 |
-| 测试协议一致性 | `in_progress` | 前端 fixture 把对象数组虚构为索引字段，Provider 页面缺少核心编辑测试；SDK 测试仍保留未消费的 provider api_style 参数 |
+| 内置 Model Provider Chain 编辑 | `done` | `ModelsSettingsPage.tsx` 直接使用 `providers` 根字段的 source/path/writable；对应页面测试验证内置 Model 的完整数组提交 |
+| Provider 尝试轨迹 | `done` | `derive/model.ts`、`derive/chat.ts`、`derive/export.ts` 与 `LlmTaskDrawer.tsx` 投影、展示并导出轻量 attempts |
+| RetryPolicy 有限时长不变量 | `done` | `tinysoul/llm/model_chain.py` 在领域对象边界校验整数和有限非负时长，配置测试验证 `ConfigError` 收敛 |
+| 测试协议一致性 | `done` | Settings fixtures 使用真实根数组；增加 Providers 页面测试；SDK helper 删除未消费的 API style 参数和旧 generic 命名 |
 
 本轮修复不改变已经确认的 Adapter/Provider/Model 所有权，不增加兼容读取，不改变 Provider/Model fallback 决策，不增加 Runtime reason。需要修复的是现有协议的完整表达和入口不变量，而不是重新设计路由。
 
@@ -155,7 +155,7 @@ interface ModelTask {
 }
 ```
 
-预计实现文件：
+实际修复文件：
 
 - `tinysoul/llm/model_chain.py`
 - `tests/llm/test_config.py`
@@ -166,10 +166,12 @@ interface ModelTask {
 - `visualization/src/features/settings/model.test.ts`
 - `visualization/src/features/settings/ModelsSettingsPage.test.tsx`
 - `visualization/src/features/settings/ProvidersSettingsPage.test.tsx`
+- `visualization/src/features/settings/TaskChainsSettingsPage.test.tsx`
 - `visualization/src/derive/model.ts`
 - `visualization/src/derive/chat.ts`
 - `visualization/src/derive/chat.test.ts`
 - `visualization/src/derive/export.ts`
+- `visualization/src/derive/export.test.ts`
 - `visualization/src/components/trace/LlmTaskDrawer.tsx`
 
 实现完成后同步更新 `docs/design/llm.md`、`visualization/docs/design/settings.md` 和 `visualization/docs/design/chat.md`。不新增 Endpoint 路由或事件字段，因此 `docs/endpoint/` 无协议改动。
@@ -494,19 +496,19 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 
 ### 4. 重试、切换与失败语义
 
-- [ ] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置。（`in_progress`：字段与执行语义已完成，数字类型及有限性不变量待补齐。）
+- [x] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置；数字类型及有限性不变量由 `RetryPolicy` 统一维护。
 - [x] 将 ModelChainState 收敛为 LLMRouteState，并用成功项 id 管理 Model/Provider 两类有时限偏好。
 - [x] 在现有 model-chain 调用内部加入 Provider Chain 执行器，严格实现“重试 Provider -> 换 Provider -> 换 Model -> 下一 cycle”。
 - [x] 增加 ProviderFailureScope 并清理 Adapter 本地校验与 SDK/HTTP 错误的作用域归类。
 - [x] 保持 context pressure、局部 TaskFailure、模型链耗尽和 Runtime bridge 的现有三层边界。
-- [ ] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常。（`in_progress`：后端 lifecycle payload 已完成，前端 attempt 投影待补齐。）
+- [x] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常；前端从既有 lifecycle 事件派生 attempts 和切换，不新增重复事件。
 
 ### 5. 前端配置体验
 
 - [x] Providers 页面实现 catalog 驱动的 Adapter 集合编辑、静态 API style 展示与摘要。
-- [ ] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交。（`in_progress`：编辑和提交已完成，内置 Model 的根字段写权限待修正。）
+- [x] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交；内置 Model 同样服从 `providers` 根字段的实际写权限。
 - [x] Adapter 变更以单次 mutation 协调 Provider Chain 与 Adapter options。
-- [ ] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback。（`in_progress`：recovery 和 retry 已完成，fallback attempt 展示待补齐。）
+- [x] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback，并在 Task drawer 与导出中保留 attempts。
 
 ### 6. 聚焦验证
 
@@ -514,8 +516,8 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 - [x] Registry/Factory 测试覆盖一个 Provider 的多个 Adapter 实例与复合键重复保护。
 - [x] Task runner 使用少量行为测试覆盖 transient 重试后换 Provider、Provider 耗尽后换 Model、下一 cycle 回到链首、备用 Provider 成功偏好及到期回首。
 - [x] 保留取消、context pressure 和局部 TaskFailure 的代表性回归测试，不为每个错误 kind 建立组合穷举测试。
-- [ ] 前端测试覆盖 Provider Adapter 集合、兼容 Provider Chain 的展示/编辑、Adapter 切换原子 mutation 和 catalog 派生。（`in_progress`：补齐真实数组 fixture、内置 Model 编辑和 Provider 页面代表性测试。）
-- [ ] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。（修复完成后重新执行。）
+- [x] 前端测试覆盖 Provider Adapter 集合、兼容 Provider Chain 的展示/编辑、Adapter 切换原子 mutation 和 catalog 派生；fixtures 使用真实复合根字段。
+- [x] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。
 
 ## 预计改动范围
 
@@ -555,10 +557,20 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 
 ## 2026-09-07 复核基线
 
-以下结果只说明提交 `e6e736e` 在既有门禁下通过，不足以证明上述新识别的协议缺口已经关闭；修复完成后必须重新执行并更新为最终核对：
+以下结果只说明提交 `e6e736e` 在既有门禁下通过，是识别上述协议缺口时的复核基线：
 
 - 后端 Full 门禁：`scripts/test.ps1 -Suite Full` 通过，960 passed、2 skipped、21 deselected；仅有既存的 Starlette/httpx 弃用警告。
 - 类型检查：`scripts/typecheck.ps1` 通过，`ty` 无诊断。
 - 前端验证：`pnpm test -- --run` 通过，21 个测试文件、127 项测试；`pnpm build` 通过。Vite 仅提示现有 bundle 超过 500 kB 的拆包建议。
 - 差异检查：`git diff --check` 通过；工作树中的换行提示是 Git 的 CRLF/LF 属性提示，不是空白错误。
 - 旧协议核对：运行时代码、默认配置、catalog、Endpoint 文档和设置页不再读取 `generic`、Provider 单数 `adapter/api_style`、Model 单数 `provider/provider_model` 或 `max_retries_per_model`；历史分析记录保留原始方案说明。
+
+## 2026-09-07 修复完成核对
+
+- 聚焦后端测试：`tests/llm/test_config.py tests/llm/test_task_runner.py tests/llm/test_provider_openai_sdk.py` 通过，131 passed。
+- Fast 门禁：`scripts/test.ps1` 通过，957 passed、2 skipped、26 deselected。
+- Full 门禁：`scripts/test.ps1 -Suite Full` 通过，962 passed、2 skipped、21 deselected；仅有既存 Starlette/httpx 弃用警告。
+- 类型检查：`scripts/typecheck.ps1` 通过，`ty` 无诊断。
+- 前端验证：`pnpm test` 通过，22 个测试文件、130 项测试；`pnpm build` 通过，仅保留既存 bundle size 建议。
+- 静态协议核对：Settings 测试数据使用 `llm.models.<id>.providers` 根数组；嵌套 `providers.*` 只作为 catalog descriptor；SDK helper 不再接收 API style，也不保留 generic Adapter 语义。
+- 差异检查：`git diff --check` 通过。未新增 Endpoint 路由、Observation 字段或 Runtime reason，`docs/endpoint/` 无需修改。

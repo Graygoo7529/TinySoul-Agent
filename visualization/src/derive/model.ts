@@ -85,10 +85,25 @@ export interface ModelResponse {
   reasoning?: { summary?: string };
 }
 
+export interface ProviderAttempt {
+  sequence: number;
+  modelId: string;
+  providerId: string;
+  providerModel?: string;
+  adapter?: string;
+  attempt: number;
+  status: "running" | "failed" | "completed" | "stopped";
+  failureKind?: string;
+  failureScope?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
 export interface ModelTask {
   taskId: string;
   profile?: string;
   status: "running" | "completed" | "failed";
+  providerAttempts: ProviderAttempt[];
   request?: ModelRequest;
   response?: ModelResponse;
   errorType?: string;

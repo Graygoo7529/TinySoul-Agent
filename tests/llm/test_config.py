@@ -203,6 +203,23 @@ def test_retry_policy_rejects_old_or_negative_values() -> None:
         LLMConfigParser().parse(tree)
 
 
+def test_retry_policy_rejects_non_finite_preference_window() -> None:
+    tree = _tree(
+        providers={"fake": _provider()},
+        model={
+            "adapter": "openai_compatible_chat",
+            "providers": [{"provider": "fake", "provider_model": "model"}],
+        },
+    )
+    tasks = cast(dict[str, dict[str, object]], tree["tasks"])
+    tasks["framework"]["prefer_successful_provider_seconds"] = float("inf")
+
+    with pytest.raises(ConfigError, match="finite non-negative number") as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key == "llm.tasks.framework"
+
+
 def test_disabled_provider_is_filtered_without_resolving_credential() -> None:
     tree = {
         "providers": {

@@ -153,6 +153,7 @@ function ProviderAdapterEditor({
   onCommit: (field: ConfigSettingField, value: JsonValue) => Promise<void>;
 }) {
   if (!field) return null;
+  const writable = canWrite && field.writable;
   const selected = Array.isArray(field.storedValue)
     ? field.storedValue.filter((value): value is string => typeof value === "string")
     : [];
@@ -174,7 +175,7 @@ function ProviderAdapterEditor({
             <select
               aria-label={`Adapter ${index + 1}`}
               value={adapter}
-              disabled={!canWrite || saving}
+              disabled={!writable || saving}
               onChange={(event) => {
                 const next = selected.map((item, itemIndex) =>
                   itemIndex === index ? event.target.value : item,
@@ -199,7 +200,7 @@ function ProviderAdapterEditor({
               size="xs"
               variant="ghost"
               aria-label="Remove adapter"
-              disabled={!canWrite || saving || selected.length <= 1}
+              disabled={!writable || saving || selected.length <= 1}
               onClick={() => commit(selected.filter((_, itemIndex) => itemIndex !== index))}
             >
               <Trash2 size={13} />
@@ -211,7 +212,7 @@ function ProviderAdapterEditor({
         <Button
           size="xs"
           variant="outline"
-          disabled={!canWrite || saving || selected.length >= choices.length}
+          disabled={!writable || saving || selected.length >= choices.length}
           onClick={add}
         >
           <Plus size={13} /> Add adapter

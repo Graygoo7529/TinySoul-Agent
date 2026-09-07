@@ -59,6 +59,19 @@ function serializeTask(task: ModelTask) {
     profile: task.profile ?? null,
     status: task.status,
     error_type: task.errorType ?? null,
+    provider_attempts: task.providerAttempts.map((attempt) => ({
+      sequence: attempt.sequence,
+      model_id: attempt.modelId,
+      provider_id: attempt.providerId,
+      provider_model: attempt.providerModel ?? null,
+      adapter: attempt.adapter ?? null,
+      attempt: attempt.attempt,
+      status: attempt.status,
+      failure_kind: attempt.failureKind ?? null,
+      failure_scope: attempt.failureScope ?? null,
+      started_at: iso(attempt.startedAt),
+      completed_at: attempt.completedAt ? iso(attempt.completedAt) : null,
+    })),
     request: task.request
       ? {
           model_id: task.request.model_id,
@@ -215,6 +228,24 @@ function writeTask(out: string[], task: ModelTask, index: number) {
   out.push("");
   out.push(`- **Task**: \`${task.taskId}\` · **Status**: ${task.status}${task.errorType ? ` (${task.errorType})` : ""}`);
   out.push("");
+
+  if (task.providerAttempts.length > 0) {
+    out.push(`**Provider attempts (${task.providerAttempts.length})**`);
+    out.push("");
+    for (const attempt of task.providerAttempts) {
+      const route = attempt.providerModel
+        ? `${attempt.providerId}/${attempt.providerModel}`
+        : attempt.providerId;
+      const adapter = attempt.adapter ? ` via ${attempt.adapter}` : "";
+      const failure = attempt.failureKind
+        ? ` · ${attempt.failureKind}${attempt.failureScope ? `/${attempt.failureScope}` : ""}`
+        : "";
+      out.push(
+        `- \`${route}\`${adapter} · attempt ${attempt.attempt} · ${attempt.status}${failure}`,
+      );
+    }
+    out.push("");
+  }
 
   if (task.request) {
     out.push(`**Message stack (${task.request.messages.length} messages)**`);

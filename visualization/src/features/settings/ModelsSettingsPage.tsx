@@ -164,6 +164,9 @@ export function ModelsSettingsPage({
     ? adapterOptionNames(current.value.adapter_options)
     : [];
   const adapterField = current?.fields.find((field) => field.path.endsWith(".adapter"));
+  const providerChainField = current?.fields.find(
+    (field) => field.path === `${collection.root}.${current.id}.providers`,
+  );
   const adapterOptionsGroup = modelOptionGroup(catalog, "adapter_options");
   const requestOverridesGroup = modelOptionGroup(catalog, "request_overrides");
   const advancedGroupFooters = {
@@ -232,14 +235,24 @@ export function ModelsSettingsPage({
       >
         {current && (
           <>
-          <ProviderChainEditor
-            model={current}
-            providers={providers}
-            adapter={current.value.adapter}
-            canWrite={canWrite && isCustom}
-            saving={Boolean(savingPath)}
-            onCommit={(value) => apply({ source_id: current.fields.find((field) => field.path.endsWith(".adapter"))?.sourceId ?? collection.create_source, path: `${collection.root}.${current.id}.providers`, op: "set", value: toConfigValue(value) }, "Model provider chain active").then(() => undefined)}
-          />
+          {providerChainField && (
+            <ProviderChainEditor
+              field={providerChainField}
+              providers={providers}
+              adapter={current.value.adapter}
+              canWrite={canWrite && providerChainField.writable}
+              saving={Boolean(savingPath)}
+              onCommit={(value) => apply(
+                {
+                  source_id: providerChainField.sourceId,
+                  path: providerChainField.path,
+                  op: "set",
+                  value: toConfigValue(value),
+                },
+                "Model provider chain active",
+              ).then(() => undefined)}
+            />
+          )}
           <ObjectFieldEditor
             fields={editorFields}
             status={status}
@@ -389,21 +402,21 @@ interface ProviderBindingValue {
 }
 
 function ProviderChainEditor({
-  model,
+  field,
   providers,
   adapter,
   canWrite,
   saving,
   onCommit,
 }: {
-  model: ReturnType<typeof configObjects>[number];
+  field: ConfigSettingField;
   providers: ReturnType<typeof configObjects>;
   adapter: JsonValue;
   canWrite: boolean;
   saving: boolean;
   onCommit: (value: ProviderBindingValue[]) => Promise<void>;
 }) {
-  const rows = providerBindingValues(model.value.providers);
+  const rows = providerBindingValues(field.storedValue);
   const adapterName = typeof adapter === "string" ? adapter : "";
   const available = providers.filter((provider) => providerSupportsAdapter(provider, adapterName));
   const commitRows = (next: ProviderBindingValue[]) => void onCommit(next);

@@ -23,6 +23,7 @@ import type {
   ModelMessage,
   ModelRequest,
   ModelResponse,
+  ModelTask,
   PhaseName,
   PhaseStep,
   ToolCallView,
@@ -302,6 +303,12 @@ export function buildChatTurns(
           { cycleIndex: turn.cycles.length || undefined },
           ev.created_at,
         );
+        break;
+      }
+      case "llm.provider.started":
+      case "llm.provider.failed":
+      case "llm.provider.completed": {
+        applyProviderLifecycle(turn, ev, currentCycleId, currentPhase);
         break;
       }
       case "llm.model.failed": {
@@ -698,25 +705,123 @@ function applyTaskLifecycle(
   cycleId: string | null,
   phaseHint: PhaseName | null,
 ) {
-  const taskId = asString(ev.payload?.task_id);
-  if (!taskId) return;
-  const cycle = getCycle(turn, cycleId, ev.created_at);
-  if (!cycle) return;
-  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
-  const phase = getPhase(cycle, phaseName);
-  let task = phase.tasks.find((t) => t.taskId === taskId);
-  if (!task) {
-    task = { taskId, status: "running", startedAt: ev.created_at };
-    phase.tasks.push(task);
-  }
+  const task = taskForEvent(turn, ev, cycleId, phaseHint);
+  if (!task) return;
   task.profile = asString(ev.payload?.profile) || task.profile;
   if (ev.name === "llm.task.completed") {
     task.status = "completed";
     task.completedAt = ev.created_at;
+    stopRunningProviderAttempts(task, ev.created_at);
   } else if (ev.name === "llm.task.failed") {
     task.status = "failed";
     task.errorType = asString(ev.payload?.error_type);
     task.completedAt = ev.created_at;
+    stopRunningProviderAttempts(task, ev.created_at);
+  }
+}
+
+function applyProviderLifecycle(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+) {
+  const task = taskForEvent(turn, ev, cycleId, phaseHint);
+  if (!task) return;
+  const modelId = asString(ev.payload?.model_id);
+  const providerId = asString(ev.payload?.provider_id);
+  const attempt = asNumber(ev.payload?.attempt);
+  if (!modelId || !providerId || !attempt) return;
+
+  if (ev.name === "llm.provider.started") {
+    const previous = task.providerAttempts[task.providerAttempts.length - 1];
+    if (
+      previous?.status === "failed" &&
+      previous.modelId === modelId &&
+      previous.providerId !== providerId
+    ) {
+      addActivity(
+        turn,
+        "retry",
+        `Switching provider ${previous.providerId} → ${providerId}`,
+        modelId,
+        { cycleIndex: turn.cycles.length || undefined },
+        ev.created_at,
+      );
+    }
+    task.providerAttempts.push({
+      sequence: ev.sequence,
+      modelId,
+      providerId,
+      providerModel: asString(ev.payload?.provider_model),
+      adapter: asString(ev.payload?.adapter),
+      attempt,
+      status: "running",
+      startedAt: ev.created_at,
+    });
+    return;
+  }
+
+  const current = findRunningProviderAttempt(task, modelId, providerId, attempt);
+  if (!current) return;
+  current.status = ev.name === "llm.provider.failed" ? "failed" : "completed";
+  current.completedAt = ev.created_at;
+  if (ev.name === "llm.provider.failed") {
+    current.failureKind = asString(ev.payload?.provider_error_kind);
+    current.failureScope = asString(ev.payload?.provider_failure_scope);
+  }
+}
+
+function taskForEvent(
+  turn: ChatTurn,
+  ev: EndpointEvent,
+  cycleId: string | null,
+  phaseHint: PhaseName | null,
+): ModelTask | null {
+  const taskId = asString(ev.payload?.task_id);
+  if (!taskId) return null;
+  const cycle = getCycle(turn, cycleId, ev.created_at);
+  if (!cycle) return null;
+  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
+  const phase = getPhase(cycle, phaseName);
+  let task = phase.tasks.find((item) => item.taskId === taskId);
+  if (!task) {
+    task = {
+      taskId,
+      status: "running",
+      providerAttempts: [],
+      startedAt: ev.created_at,
+    };
+    phase.tasks.push(task);
+  }
+  return task;
+}
+
+function findRunningProviderAttempt(
+  task: ModelTask,
+  modelId: string,
+  providerId: string,
+  attempt: number,
+) {
+  for (let index = task.providerAttempts.length - 1; index >= 0; index -= 1) {
+    const item = task.providerAttempts[index];
+    if (
+      item.status === "running" &&
+      item.modelId === modelId &&
+      item.providerId === providerId &&
+      item.attempt === attempt
+    ) {
+      return item;
+    }
+  }
+  return undefined;
+}
+
+function stopRunningProviderAttempts(task: ModelTask, completedAt: number) {
+  for (const attempt of task.providerAttempts) {
+    if (attempt.status !== "running") continue;
+    attempt.status = "stopped";
+    attempt.completedAt = completedAt;
   }
 }
 
@@ -726,17 +831,8 @@ function applyModelRequest(
   cycleId: string | null,
   phaseHint: PhaseName | null,
 ) {
-  const taskId = asString(ev.payload?.task_id);
-  if (!taskId) return;
-  const cycle = getCycle(turn, cycleId, ev.created_at);
-  if (!cycle) return;
-  const phaseName = phaseFromScope(ev.scope) ?? phaseHint ?? "phase1";
-  const phase = getPhase(cycle, phaseName);
-  let task = phase.tasks.find((t) => t.taskId === taskId);
-  if (!task) {
-    task = { taskId, status: "running", startedAt: ev.created_at };
-    phase.tasks.push(task);
-  }
+  const task = taskForEvent(turn, ev, cycleId, phaseHint);
+  if (!task) return;
   const p = ev.payload;
   const skeleton = isSkeletonPayload(p);
   task.request = {
@@ -1094,6 +1190,13 @@ function finalizeTurn(turn: ChatTurn) {
     }
     for (const todo of turn.working.todos) {
       if (todo.status === "in_progress") todo.status = "cancelled";
+    }
+    for (const cycle of turn.cycles) {
+      for (const phase of cycle.phases) {
+        for (const task of phase.tasks) {
+          stopRunningProviderAttempts(task, turn.endedAt ?? turn.latestEventAt ?? turn.startedAt);
+        }
+      }
     }
   }
   turn.actionStats = computeActionStats(turn);

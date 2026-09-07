@@ -24,13 +24,12 @@ describe("settings catalog projection", () => {
 
   it("uses catalog titles and importance for effective fields", () => {
     const fields = surfaceFields(status(), catalog(), "models");
-    expect(fields).toHaveLength(3);
+    expect(fields).toHaveLength(2);
     expect(fields.map((field) => field.descriptor.title)).toEqual([
       "Adapter",
       "Provider",
-      "Provider Model ID",
     ]);
-    expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(3);
+    expect(groupSurfaceFields(fields, catalog())[0].fields).toHaveLength(2);
   });
 
   it("projects shared Cycle phase task-profile references", () => {
@@ -362,6 +361,16 @@ function catalog(): ConfigCatalog {
         choices: [{ value: "openai", label: "OpenAI" }],
       },
       {
+        path: "llm.models.*.providers",
+        surface: "models",
+        group: "models.binding",
+        title: "Provider",
+        description: "Ordered provider connections.",
+        value_kind: "object_list",
+        importance: "primary",
+        credential_reference: false,
+      },
+      {
         path: "llm.models.*.providers.*.provider",
         surface: "models",
         group: "models.binding",
@@ -412,8 +421,7 @@ function status(): ConfigStatus {
         writable: true,
         values: {
           "llm.models.primary.adapter": "openai",
-          "llm.models.primary.providers.0.provider": "openai",
-          "llm.models.primary.providers.0.provider_model": "gpt-5",
+          "llm.models.primary.providers": [{ provider: "openai", provider_model: "gpt-5" }],
           "llm.providers.openai.api_key_envs": ["OPENAI_API_KEY"],
         },
       },
@@ -442,13 +450,8 @@ function status(): ConfigStatus {
         source: "project:configs/loop.toml",
         writable: true,
       },
-      "llm.models.primary.providers.0.provider": {
-        value: "openai",
-        source: "project:configs/llm/models/custom.toml",
-        writable: true,
-      },
-      "llm.models.primary.providers.0.provider_model": {
-        value: "gpt-5",
+      "llm.models.primary.providers": {
+        value: [{ provider: "openai", provider_model: "gpt-5" }],
         source: "project:configs/llm/models/custom.toml",
         writable: true,
       },

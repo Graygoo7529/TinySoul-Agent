@@ -41,20 +41,72 @@ function turnEvents(): EndpointEvent[] {
       request_id: "x",
     }),
     event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+    event("llm.task.started", phaseScope("phase1"), {
+      task_id: "t1",
+      profile: "framework",
+    }),
     event("llm.model.request", phaseScope("phase1"), {
       task_id: "t1",
       profile: "framework",
       model_id: "m",
-      provider_id: "p",
+      provider_id: "p1",
+      provider_model: "remote-1",
+      adapter: "openai_compatible_chat",
       attempt: 1,
       messages: [
         { role: "user", label: "user_input", parts: [{ type: "text", text: "hi" }] },
       ],
     }),
+    event("llm.provider.started", phaseScope("phase1"), {
+      task_id: "t1",
+      model_id: "m",
+      provider_id: "p1",
+      provider_model: "remote-1",
+      adapter: "openai_compatible_chat",
+      attempt: 1,
+    }),
+    event("llm.provider.failed", phaseScope("phase1"), {
+      task_id: "t1",
+      model_id: "m",
+      provider_id: "p1",
+      provider_model: "remote-1",
+      adapter: "openai_compatible_chat",
+      attempt: 1,
+      provider_error_kind: "transient",
+      provider_failure_scope: "provider",
+    }),
+    event("llm.model.request", phaseScope("phase1"), {
+      task_id: "t1",
+      profile: "framework",
+      model_id: "m",
+      provider_id: "p2",
+      provider_model: "remote-2",
+      adapter: "openai_compatible_chat",
+      attempt: 1,
+      messages: [
+        { role: "user", label: "user_input", parts: [{ type: "text", text: "hi" }] },
+      ],
+    }),
+    event("llm.provider.started", phaseScope("phase1"), {
+      task_id: "t1",
+      model_id: "m",
+      provider_id: "p2",
+      provider_model: "remote-2",
+      adapter: "openai_compatible_chat",
+      attempt: 1,
+    }),
+    event("llm.provider.completed", phaseScope("phase1"), {
+      task_id: "t1",
+      model_id: "m",
+      provider_id: "p2",
+      provider_model: "remote-2",
+      adapter: "openai_compatible_chat",
+      attempt: 1,
+    }),
     event("llm.model.response", phaseScope("phase1"), {
       task_id: "t1",
       model_id: "m",
-      provider_id: "p",
+      provider_id: "p2",
       tool_calls: [
         {
           id: "c1",
@@ -63,6 +115,10 @@ function turnEvents(): EndpointEvent[] {
         },
       ],
       usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+    event("llm.task.completed", phaseScope("phase1"), {
+      task_id: "t1",
+      profile: "framework",
     }),
     event("loop.phase.completed", phaseScope("phase1"), { phase: "phase1" }),
     event("action.call", phaseScope("phase2"), {
@@ -123,5 +179,13 @@ describe("folder export bundle", () => {
     expect(call.phase).toBe("phase1");
     expect(call.request.messages).toHaveLength(1);
     expect(call.response.tool_calls[0].name).toBe("select_action_domains");
+    expect(call.provider_attempts).toMatchObject([
+      { provider_id: "p1", status: "failed", failure_kind: "transient" },
+      { provider_id: "p2", status: "completed" },
+    ]);
+    const markdown = bundle.files.find((file) => file.path === "trace.md")!.contents;
+    expect(markdown).toContain("Provider attempts (2)");
+    expect(markdown).toContain("`p1/remote-1`");
+    expect(markdown).toContain("`p2/remote-2`");
   });
 });

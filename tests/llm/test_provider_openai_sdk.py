@@ -8,7 +8,7 @@ import pytest
 
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm.cache import PromptCache
-from tinysoul.llm.config import AdapterKind, ProviderApiStyle, ProviderSpec
+from tinysoul.llm.config import AdapterKind, ProviderSpec
 from tinysoul.llm.messages import (
     AssistantMessage,
     ImagePart,
@@ -99,7 +99,7 @@ class FakeCreateClient:
 
 def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
     responses = OpenAIResponsesAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=FakeCreateClient(
             response=SimpleNamespace(
@@ -112,7 +112,7 @@ def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
         ),
     )
     chat = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=FakeCreateClient(
             response=SimpleNamespace(
@@ -134,7 +134,7 @@ def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
 
     assert responses.invoke(request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
     chat_request = ProviderRequest(
-        model=_model(provider_id="generic", provider_model="test"),
+        model=_model(provider_id="compatible", provider_model="test"),
         messages=request.messages,
         answer_format=AnswerFormat.TEXT,
     )
@@ -153,7 +153,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -211,7 +211,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
 
 def test_openai_provider_rejects_raw_reasoning_table() -> None:
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=FakeCreateClient(response=object()),
     )
@@ -234,7 +234,7 @@ def test_openai_responses_adapter_applies_resolved_request_settings() -> None:
         response=SimpleNamespace(output_text="ok", output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -269,7 +269,7 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -310,7 +310,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -344,7 +344,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -390,7 +390,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -429,7 +429,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -463,7 +463,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
 
 def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=FakeCreateClient(response=object()),
     )
@@ -483,7 +483,7 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
 
 def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=FakeCreateClient(response=object()),
     )
@@ -510,7 +510,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -560,7 +560,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -622,7 +622,7 @@ def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -659,7 +659,7 @@ def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> No
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -697,7 +697,7 @@ def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> N
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -758,7 +758,7 @@ def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() ->
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -797,7 +797,7 @@ def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -856,7 +856,7 @@ def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -919,7 +919,7 @@ def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -943,7 +943,7 @@ def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
         response=SimpleNamespace(output_text="", output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -975,7 +975,7 @@ def test_openai_responses_adapter_maps_only_visible_tools() -> None:
         response=SimpleNamespace(output_text="", output=[], usage={})
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -1007,7 +1007,7 @@ def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
         )
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1069,7 +1069,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
         )
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1127,7 +1127,7 @@ def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1149,7 +1149,7 @@ def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
 
 def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -1188,7 +1188,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
@@ -1200,7 +1200,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
 
     response = adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="generic", provider_model="generic-model"),
+            model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
                 AssistantMessage.from_tool_calls(tool_call),
                 ToolResultMessage.from_json(
@@ -1251,7 +1251,7 @@ def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
@@ -1259,7 +1259,7 @@ def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
     with pytest.raises(ProviderError) as exc:
         adapter.invoke(
             ProviderRequest(
-                model=_model(provider_id="generic", provider_model="generic-model"),
+                model=_model(provider_id="compatible", provider_model="compatible-model"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.NONE,
                 tool_scope=ToolScope(tools=(_tool(),)),
@@ -1276,7 +1276,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1363,7 +1363,7 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1411,7 +1411,7 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1474,7 +1474,7 @@ def test_chat_adapters_replay_multiple_complete_tool_turns(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = adapter_type(
-        provider=_provider(provider_id, ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider(provider_id),
         api_key="key",
         completions=client,
     )
@@ -1582,7 +1582,7 @@ def test_chat_adapters_project_disabled_tool_history(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = adapter_type(
-        provider=_provider(provider_id, ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider(provider_id),
         api_key="key",
         completions=client,
     )
@@ -1622,14 +1622,14 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="generic", provider_model="generic-model"),
+            model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.NONE,
             tool_scope=ToolScope(
@@ -1665,7 +1665,7 @@ def test_kimi_adapter_maps_model_specific_required_tool_choice(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi_coding", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi_coding"),
         api_key="key",
         completions=client,
     )
@@ -1708,7 +1708,7 @@ def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=client,
     )
@@ -1744,7 +1744,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
         )
     )
     adapter = DeepSeekProviderAdapter(
-        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("deepseek"),
         api_key="key",
         completions=client,
     )
@@ -1798,7 +1798,7 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
         )
     )
     adapter = DeepSeekProviderAdapter(
-        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("deepseek"),
         api_key="key",
         completions=client,
     )
@@ -1836,7 +1836,7 @@ def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> N
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = DeepSeekProviderAdapter(
-        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("deepseek"),
         api_key="key",
         completions=client,
     )
@@ -1876,7 +1876,7 @@ def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = GlmProviderAdapter(
-        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("glm"),
         api_key="key",
         completions=client,
     )
@@ -1911,7 +1911,7 @@ def test_glm_adapter_rejects_strict_tool_calling() -> None:
         strict=True,
     )
     adapter = GlmProviderAdapter(
-        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("glm"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -1942,7 +1942,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
         )
     )
     adapter = GlmProviderAdapter(
-        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("glm"),
         api_key="key",
         completions=client,
     )
@@ -1991,7 +1991,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         )
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=client,
     )
@@ -2024,7 +2024,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         )
     )
     adapter = GlmProviderAdapter(
-        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("glm"),
         api_key="key",
         completions=client,
     )
@@ -2059,7 +2059,7 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
         )
     )
     adapter = GlmProviderAdapter(
-        provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("glm"),
         api_key="key",
         completions=client,
     )
@@ -2090,7 +2090,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
         )
     )
     adapter = MiniMaxProviderAdapter(
-        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("minimax"),
         api_key="key",
         completions=client,
     )
@@ -2164,7 +2164,7 @@ def test_minimax_adapter_removes_required_tool_choice() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = MiniMaxProviderAdapter(
-        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("minimax"),
         api_key="key",
         completions=client,
     )
@@ -2203,7 +2203,7 @@ def test_minimax_adapter_rejects_strict_tool_calling() -> None:
         strict=True,
     )
     adapter = MiniMaxProviderAdapter(
-        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("minimax"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -2238,7 +2238,7 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
         )
     )
     adapter = MiniMaxProviderAdapter(
-        provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("minimax"),
         api_key="key",
         completions=client,
     )
@@ -2264,7 +2264,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
     for adapter, provider_id, provider_model in (
         (
             KimiProviderAdapter(
-                provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+                provider=_provider("kimi"),
                 api_key="key",
                 completions=FakeCreateClient(response=object()),
             ),
@@ -2273,7 +2273,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
         ),
         (
             DeepSeekProviderAdapter(
-                provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+                provider=_provider("deepseek"),
                 api_key="key",
                 completions=FakeCreateClient(response=object()),
             ),
@@ -2282,7 +2282,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
         ),
         (
             GlmProviderAdapter(
-                provider=_provider("glm", ProviderApiStyle.OPENAI_CHAT),
+                provider=_provider("glm"),
                 api_key="key",
                 completions=FakeCreateClient(response=object()),
             ),
@@ -2291,7 +2291,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
         ),
         (
             MiniMaxProviderAdapter(
-                provider=_provider("minimax", ProviderApiStyle.OPENAI_CHAT),
+                provider=_provider("minimax"),
                 api_key="key",
                 completions=FakeCreateClient(response=object()),
             ),
@@ -2321,7 +2321,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
 
 def test_kimi_adapter_rejects_partial_provider_option() -> None:
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -2354,7 +2354,7 @@ def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=client,
     )
@@ -2393,7 +2393,7 @@ def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
 
 def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -2427,7 +2427,7 @@ def test_kimi_adapter_validates_only_visible_tools() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = KimiProviderAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=client,
     )
@@ -2458,7 +2458,7 @@ def test_kimi_adapter_validates_only_visible_tools() -> None:
 
 def test_deepseek_adapter_rejects_strict_tools() -> None:
     adapter = DeepSeekProviderAdapter(
-        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("deepseek"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -2492,7 +2492,7 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
     )
     adapter = DeepSeekProviderAdapter(
-        provider=_provider("deepseek", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("deepseek"),
         api_key="key",
         completions=client,
     )
@@ -2531,7 +2531,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
@@ -2540,7 +2540,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
         ProviderRequest(
             model=ModelSpec(
                 id="text_model",
-                providers=(ModelProviderBinding("generic", "text-model"),),
+                providers=(ModelProviderBinding("compatible", "text-model"),),
                 context_window_tokens=262_144,
                 adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
                 capabilities=frozenset({ModelCapability.TEXT_INPUT}),
@@ -2556,7 +2556,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
     assert "prompt_cache_key" not in call
 
 
-def test_generic_chat_adapter_does_not_map_prompt_cache_key() -> None:
+def test_compatible_chat_adapter_does_not_map_prompt_cache_key() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2565,14 +2565,14 @@ def test_generic_chat_adapter_does_not_map_prompt_cache_key() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="generic", provider_model="generic-model"),
+            model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             prompt_cache=PromptCache("stable-prefix"),
@@ -2591,14 +2591,14 @@ def test_adapter_maps_remote_image_url_part() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-                model=_model(provider_id="generic", provider_model="gpt-5.5"),
+                model=_model(provider_id="compatible", provider_model="gpt-5.5"),
             messages=MessageStack.of(
                 UserMessage.from_parts(
                     ImageUrlPart(url="https://example.test/image.png"),
@@ -2630,14 +2630,14 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="generic", provider_model="generic-model"),
+            model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
                 UserMessage.from_parts(
                     TextPart("工具返回如下："),
@@ -2664,7 +2664,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
     ]
 
 
-def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
+def test_compatible_chat_adapter_does_not_map_message_reasoning() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2673,14 +2673,14 @@ def test_generic_chat_adapter_does_not_map_message_reasoning() -> None:
         )
     )
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("generic", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("compatible"),
         api_key="key",
         completions=client,
     )
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="generic", provider_model="generic-model"),
+            model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
                 AssistantMessage.from_text("previous answer",
                     reasoning="local reasoning",
@@ -2704,7 +2704,7 @@ def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
         )
     )
     adapter = OpenAIProviderAdapter(
-        provider=_provider("openai", ProviderApiStyle.OPENAI_RESPONSES),
+        provider=_provider("openai"),
         api_key="key",
         responses=client,
     )
@@ -2732,7 +2732,7 @@ def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
 
 def test_provider_option_rejects_unknown_key() -> None:
     adapter = OpenAICompatibleChatAdapter(
-        provider=_provider("kimi", ProviderApiStyle.OPENAI_CHAT),
+        provider=_provider("kimi"),
         api_key="key",
         completions=FakeCreateClient(response=object()),
     )
@@ -2872,7 +2872,7 @@ def test_provider_spec_reports_missing_api_key() -> None:
         provider.resolve_api_key({})
 
 
-def _provider(provider_id: str, api_style: ProviderApiStyle) -> ProviderSpec:
+def _provider(provider_id: str) -> ProviderSpec:
     adapter = {
         "kimi": AdapterKind.KIMI,
         "kimi_coding": AdapterKind.KIMI,

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-import time
 from typing import Callable, TypeVar
 
 from .errors import LLMContractError, LLMInvariantError
@@ -34,20 +35,55 @@ class RetryPolicy:
     prefer_successful_model_seconds: float = 600.0
 
     def __post_init__(self) -> None:
-        if self.max_retries_per_provider < 0:
-            raise LLMContractError("max_retries_per_provider cannot be negative")
-        if self.retry_wait_seconds < 0:
-            raise LLMContractError("retry_wait_seconds cannot be negative")
-        if self.provider_switch_wait_seconds < 0:
-            raise LLMContractError("provider_switch_wait_seconds cannot be negative")
-        if self.model_switch_wait_seconds < 0:
-            raise LLMContractError("model_switch_wait_seconds cannot be negative")
-        if self.max_cycles is not None and self.max_cycles < 1:
-            raise LLMContractError("max_cycles must be None or at least 1")
-        if self.prefer_successful_provider_seconds < 0:
-            raise LLMContractError("prefer_successful_provider_seconds cannot be negative")
-        if self.prefer_successful_model_seconds < 0:
-            raise LLMContractError("prefer_successful_model_seconds cannot be negative")
+        _require_non_negative_int(
+            self.max_retries_per_provider,
+            name="max_retries_per_provider",
+        )
+        _require_optional_positive_int(self.max_cycles, name="max_cycles")
+        for name, value in (
+            ("retry_wait_seconds", self.retry_wait_seconds),
+            ("provider_switch_wait_seconds", self.provider_switch_wait_seconds),
+            ("model_switch_wait_seconds", self.model_switch_wait_seconds),
+            (
+                "prefer_successful_provider_seconds",
+                self.prefer_successful_provider_seconds,
+            ),
+            (
+                "prefer_successful_model_seconds",
+                self.prefer_successful_model_seconds,
+            ),
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _require_finite_non_negative_number(value, name=name),
+            )
+
+
+def _require_non_negative_int(value: object, *, name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise LLMContractError(f"{name} must be a non-negative integer")
+
+
+def _require_optional_positive_int(value: object, *, name: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise LLMContractError(f"{name} must be None or a positive integer")
+
+
+def _require_finite_non_negative_number(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise LLMContractError(f"{name} must be a finite non-negative number")
+    try:
+        normalized = float(value)
+    except OverflowError as exc:
+        raise LLMContractError(
+            f"{name} must be a finite non-negative number"
+        ) from exc
+    if not math.isfinite(normalized) or normalized < 0:
+        raise LLMContractError(f"{name} must be a finite non-negative number")
+    return normalized
 
 
 @dataclass(frozen=True)

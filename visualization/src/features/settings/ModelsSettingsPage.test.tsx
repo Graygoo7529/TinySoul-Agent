@@ -116,6 +116,45 @@ describe("ModelsSettingsPage", () => {
     expect(paths.some((path: string) => path.includes("request_overrides"))).toBe(false);
   });
 
+  it("edits a built-in model provider chain through its writable root field", async () => {
+    const current = status();
+    const patchConfig = vi.fn().mockResolvedValue({
+      state: "active",
+      changed_sources: ["project:configs/llm/models/openai.toml"],
+      changed_fields: ["llm.models.built_in.providers"],
+      generation_id: "g2",
+    });
+    const client = {
+      configuration: {
+        patch: patchConfig,
+        status: vi.fn().mockResolvedValue(current),
+        actions: vi.fn().mockResolvedValue({ actions: [] }),
+      },
+    } as unknown as TinySoulClient;
+
+    act(() => {
+      root.render(<ModelsSettingsPage client={client} status={current} catalog={catalog()} />);
+    });
+    expect(button("Add provider")?.disabled).toBe(false);
+    await act(async () => {
+      button("Add provider")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(patchConfig).toHaveBeenCalledWith({
+      operations: [{
+        source_id: "project:configs/llm/models/openai.toml",
+        path: "llm.models.built_in.providers",
+        op: "set",
+        value: [
+          { provider: "openai", provider_model: "gpt-5" },
+          { provider: "openai_proxy", provider_model: "model" },
+        ],
+      }],
+    });
+  });
+
   it("renders model option adders in their Advanced groups, including an empty group", () => {
     const current = status();
     const requestPath = "llm.models.custom_model.request_overrides.temperature";
@@ -255,6 +294,16 @@ function catalog(): ConfigCatalog {
         ],
       },
       {
+        path: "llm.models.*.providers",
+        surface: "models",
+        group: "models.binding",
+        title: "Provider",
+        description: "Ordered provider connections used to call this model.",
+        value_kind: "object_list",
+        importance: "primary",
+        credential_reference: false,
+      },
+      {
         path: "llm.models.*.providers.*.provider",
         surface: "models",
         group: "models.binding",
@@ -369,8 +418,7 @@ function status(): ConfigStatus {
         writable: true,
         values: {
           "llm.models.built_in.adapter": "openai",
-          "llm.models.built_in.providers.0.provider": "openai",
-          "llm.models.built_in.providers.0.provider_model": "gpt-5",
+          "llm.models.built_in.providers": [{ provider: "openai", provider_model: "gpt-5" }],
         },
       },
       {
@@ -381,8 +429,7 @@ function status(): ConfigStatus {
         writable: true,
         values: {
           "llm.models.custom_model.adapter": "openai",
-          "llm.models.custom_model.providers.0.provider": "openai",
-          "llm.models.custom_model.providers.0.provider_model": "gpt-custom",
+          "llm.models.custom_model.providers": [{ provider: "openai", provider_model: "gpt-custom" }],
           "llm.models.custom_model.adapter_options.reasoning_keep": "encrypted",
           "llm.models.custom_model.request_overrides.temperature": 0.2,
         },
@@ -403,11 +450,9 @@ function status(): ConfigStatus {
     ],
     fields: {
       "llm.models.built_in.adapter": { value: "openai", source: builtInSource, writable: true },
-      "llm.models.built_in.providers.0.provider": { value: "openai", source: builtInSource, writable: true },
-      "llm.models.built_in.providers.0.provider_model": { value: "gpt-5", source: builtInSource, writable: true },
+      "llm.models.built_in.providers": { value: [{ provider: "openai", provider_model: "gpt-5" }], source: builtInSource, writable: true },
       "llm.models.custom_model.adapter": { value: "openai", source: customSource, writable: true },
-      "llm.models.custom_model.providers.0.provider": { value: "openai", source: customSource, writable: true },
-      "llm.models.custom_model.providers.0.provider_model": { value: "gpt-custom", source: customSource, writable: true },
+      "llm.models.custom_model.providers": { value: [{ provider: "openai", provider_model: "gpt-custom" }], source: customSource, writable: true },
       "llm.models.custom_model.adapter_options.reasoning_keep": { value: "encrypted", source: customSource, writable: true },
       "llm.models.custom_model.request_overrides.temperature": { value: 0.2, source: customSource, writable: true },
       "llm.providers.openai.adapters": { value: ["openai"], source: providerSource, writable: true },

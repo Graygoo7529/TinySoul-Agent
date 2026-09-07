@@ -44,7 +44,7 @@ from tinysoul.llm.responses import (
     TaskResult,
 )
 from tinysoul.llm.failures import LLMFailureKind
-from tinysoul.llm.errors import TaskCancelled
+from tinysoul.llm.errors import LLMContractError, TaskCancelled
 from tinysoul.llm.task import (
     LLMTaskRunner,
 )
@@ -636,6 +636,11 @@ def test_runner_switches_model_without_retry_for_non_transient_provider_error() 
 
 def test_retry_policy_defaults_to_ten_cycles() -> None:
     assert RetryPolicy().max_cycles == 10
+
+
+def test_retry_policy_rejects_boolean_retry_count() -> None:
+    with pytest.raises(LLMContractError, match="non-negative integer"):
+        RetryPolicy(max_retries_per_provider=True)
 
 
 def test_runner_reports_chain_head_capabilities_by_default() -> None:

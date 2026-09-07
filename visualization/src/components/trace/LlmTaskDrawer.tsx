@@ -96,6 +96,49 @@ export function LlmTaskDrawer({
           </div>
         )}
 
+        {task.providerAttempts.length > 0 && (
+          <DrawerSection
+            title={`Provider attempts (${task.providerAttempts.length})`}
+            defaultOpen
+          >
+            <div className="divide-y divide-line border-y border-line">
+              {task.providerAttempts.map((attempt) => (
+                <div key={attempt.sequence} className="space-y-1 px-1 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">
+                      {attempt.providerId}
+                      {attempt.providerModel ? ` · ${attempt.providerModel}` : ""}
+                    </span>
+                    <Badge
+                      tone={
+                        attempt.status === "completed"
+                          ? "green"
+                          : attempt.status === "failed"
+                            ? "red"
+                            : "gray"
+                      }
+                    >
+                      {attempt.status}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-fg-faint">
+                    <span>{attempt.modelId}</span>
+                    {attempt.adapter && <span>{attempt.adapter}</span>}
+                    <span>attempt {attempt.attempt}</span>
+                    <span>{formatDuration(attempt.startedAt, attempt.completedAt)}</span>
+                  </div>
+                  {attempt.failureKind && (
+                    <div className="font-mono text-[10px] text-danger">
+                      {attempt.failureKind}
+                      {attempt.failureScope ? ` · ${attempt.failureScope}` : ""}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </DrawerSection>
+        )}
+
         {request?.tools && request.tools.length > 0 && (
           <DrawerSection title={`Tools offered (${request.tools.length})`}>
             <ToolsOffered tools={request.tools} />

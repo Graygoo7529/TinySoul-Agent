@@ -859,6 +859,81 @@ describe("semantic activity details", () => {
     expect(retry?.text).toBe("provider-a hiccup — retrying (attempt 2)");
   });
 
+  it("derives ordered provider attempts and a fallback activity", () => {
+    const events = [
+      event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),
+      event("loop.phase.started", phaseScope("phase1"), { phase: "phase1" }),
+      event("llm.task.started", phaseScope("phase1"), {
+        task_id: "task-1",
+        profile: "loop.phase1",
+      }),
+      event("llm.provider.started", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        provider_model: "remote-a",
+        adapter: "openai_compatible_chat",
+        attempt: 1,
+      }),
+      event("llm.provider.failed", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-a",
+        provider_model: "remote-a",
+        adapter: "openai_compatible_chat",
+        attempt: 1,
+        provider_error_kind: "auth",
+        provider_failure_scope: "provider",
+      }),
+      event("llm.provider.started", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-b",
+        provider_model: "remote-b",
+        adapter: "openai_compatible_chat",
+        attempt: 1,
+      }),
+      event("llm.provider.completed", phaseScope("phase1"), {
+        task_id: "task-1",
+        model_id: "model-x",
+        provider_id: "provider-b",
+        provider_model: "remote-b",
+        adapter: "openai_compatible_chat",
+        attempt: 1,
+      }),
+      event("llm.task.completed", phaseScope("phase1"), {
+        task_id: "task-1",
+        profile: "loop.phase1",
+      }),
+    ];
+
+    const [turn] = buildChatTurns(events, []);
+    const task = turn.cycles[0].phases[0].tasks[0];
+    expect(task.providerAttempts).toMatchObject([
+      {
+        modelId: "model-x",
+        providerId: "provider-a",
+        providerModel: "remote-a",
+        attempt: 1,
+        status: "failed",
+        failureKind: "auth",
+        failureScope: "provider",
+      },
+      {
+        modelId: "model-x",
+        providerId: "provider-b",
+        providerModel: "remote-b",
+        attempt: 1,
+        status: "completed",
+      },
+    ]);
+    expect(turn.activity.find((item) => item.text.includes("Switching provider"))).toMatchObject({
+      kind: "retry",
+      text: "Switching provider provider-a → provider-b",
+      detail: "model-x",
+    });
+  });
+
   it("stops unresolved plan entries when the turn ends, but not executed ones", () => {
     const events = [
       event("turn.started", turnScope, { turn_id: "turn_1", request_id: "cmd-1" }),

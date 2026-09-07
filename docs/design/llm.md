@@ -148,7 +148,7 @@ Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史
 
 `ModelContextOverflowPolicy` 区分两类调用恢复契约：Framework 和 `llm_action` 使用 `RECOMPOSE_CONTEXT`，把硬水位压力映射为当前 Turn Context 压缩；User policy 可以继续清理 active Workspace，Maintenance policy 只回收自己的 Context。Home Search 与 Memory owner 的 daily composition 使用 `END_TURN`，不以模块内部 MessageStack 的容量问题清理 active User Context；Memory inspect 本身是确定性目录检索，不创建独立 LLM task。
 
-个人项目场景下，模型链默认进行有限但较充分的循环尝试，以容忍暂时网络故障，同时避免错误配置导致调用永久卡住。需要持续等待暂时性故障时，可以显式把 `max_cycles` 配置为无限；永久错误仍只尝试每个 Provider 和 Model 一次。每次 Provider 重试、Provider/Model 切换和失败通过 ObservationEvent 暴露，并遵守配置的等待间隔。
+个人项目场景下，模型链默认进行有限但较充分的循环尝试，以容忍暂时网络故障，同时避免错误配置导致调用永久卡住。需要持续等待暂时性故障时，可以显式把 `max_cycles` 配置为无限；永久错误仍只尝试每个 Provider 和 Model 一次。`RetryPolicy` 在 LLM 领域边界保证 Provider 重试次数是非负整数、`max_cycles` 是正整数或无限，并保证等待与成功偏好时长都是有限非负数；配置解析失败统一收敛为 `ConfigError`，不作为一次调用失败进入 fallback。每次 Provider 重试、Provider/Model 切换和失败通过 ObservationEvent 暴露，并遵守配置的等待间隔。
 
 应提供重置链路状态的能力，使用户或上层流程可以让模型链回到初始尝试顺序。
 
@@ -216,7 +216,7 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 ## 设计范围
 
-每个 `TaskCall` 具有稳定 task identity。LLMTaskRunner 在 verbose 层发布 task started/completed/failed，并把同一 identity 写入模型尝试和 model request/response Observation；MODEL request 使用 provider-neutral 完整 MessageStack 与 ToolScope 投影，供桌面调试界面关联一次任务的上下文构造，不暴露 provider 原始 payload。
+每个 `TaskCall` 具有稳定 task identity。LLMTaskRunner 在 verbose 层发布 task started/completed/failed，并把同一 identity 写入模型尝试、Provider lifecycle 和 model request/response Observation；MODEL request 使用 provider-neutral 完整 MessageStack 与 ToolScope 投影，供桌面调试界面关联一次任务的上下文构造，不暴露 provider 原始 payload。Provider lifecycle 只携带安全的路由身份、attempt 与稳定失败 kind/scope；观察方可以由相邻 started/failed/completed 事实投影 Provider 切换，不需要重复的 switched 事件。
 
 LLM 模块聚焦文本输入、图像输入、JSON 对象输出、模型侧工具语义、推理输出保留、提示缓存意图、模型链重试切换。
 

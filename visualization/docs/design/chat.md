@@ -37,9 +37,9 @@
   - Phase1：折叠直接展示选中的 domain 胶囊，文案为 "Selected N domains" / 运行中 "Maintaining context and selecting domains…"。
   - Phase2/3：折叠直接展示动作名胶囊（planned 灰 / 成功绿 / 失败红 / 执行中 accent）；Phase2 文案为 "Planned N actions"（折叠行宽度有限，动作语义由胶囊与展开卡片承担），Phase3 运行中为 "Editing workspace:x.md (1/2)"、完成为 "2 actions executed · 1 failed"。折叠行副标题的 intent/reasoning 预览经纯文本化（`plainExcerpt` 剥除 markdown 记号）。
   - 展开后呈现完整语义：意图与推理思考以引述式块呈现（accent 左边线 + 浅底，避免大面积色块并置突兀；`md-calm` 柔化加粗），control operations（domain 选择与 intent、todo/milestone 设置/移除、背景加载/逐出）、ActionCard 输入输出、工作区变更。
-- **LlmTaskDrawer 子抽屉**：Phase 折叠行右侧的 accent 胶囊按钮（Brain 图标 + "context"/"N calls"）是唯一入口，不展开 Phase 即可直接唤出最近一次任务；子抽屉从主抽屉**左侧**弹出（简约 slide+settle 动效，点击面板外收回），头部两行布局（标题行 + 模型/用量元信息行，窄窗口不重叠），展示该次任务的 Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区可折叠，内部 JSON 字段默认展开）、Tools offered（胶囊标签，点击展开 description、kind/strict 徽标与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。
+- **LlmTaskDrawer 子抽屉**：Phase 折叠行右侧的 accent 胶囊按钮（Brain 图标 + "context"/"N calls"）是唯一入口，不展开 Phase 即可直接唤出最近一次任务；子抽屉从主抽屉**左侧**弹出（简约 slide+settle 动效，点击面板外收回），头部两行布局（标题行 + 模型/用量元信息行，窄窗口不重叠），展示该次任务的有序 Provider attempts、Request message stack（Identity / User Inputs / Background / Turn Trace / Working Context / Task Prompt 分区，分区可折叠，内部 JSON 字段默认展开）、Tools offered（胶囊标签，点击展开 description、kind/strict 徽标与 parameters schema）与 Response（reasoning / answer / tool calls / usage）。Provider attempt 只包含路由身份、状态、稳定失败摘要和时间，不复制 MessageStack。
 - **ActivityTimeline**：全量语义活动时间线（kind 过滤、时钟时间、点击锚定 ActionCard 并闪烁高亮）。
-- **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 任务（Request+Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
+- **Trace 导出**：选择目录后由 Rust 侧写入文件夹——`tinysoul-turn-<id>-<时间戳>/` 下 `turn.json`（完整结构投影）、`trace.md`（可读文档），以及 `cycle-N/phaseM-llm-K-<profile>.json` 每次 LLM 任务（Provider attempts + 单份 Request/Response）的独立文件。浏览器 dev 模式回退为单 JSON 下载。
 
 ## Action 呈现架构（registry + 家族渲染器）
 
@@ -57,5 +57,5 @@
 - `Cycle[]` / `PhaseStep[]`：按 `cycle`/`phase` scope 帧归组。
 - `ControlOp[]`：从 Phase1 模型响应的 control tool calls 解析（`select_action_domains`、`set/remove_todo`、`set/remove_milestone`、`load/evict_background`）。
 - `ActionRecord[]`：`action.call` 在 Phase2 生成 planned record；`loop.phase.started(phase3)` / `action.batch.started` 时将未完成的 planned 记录**预镜像**进 Phase3（运行中即可观测"哪个 action 在跑"）；`action.result` 按 call_id 同时更新镜像与原记录。计划与执行不混淆，normalize 失败的单侧 result 直接追加。
-- `ActivityItem[]`：语义活动 feed。action 条目分**规划/结果两阶段**：phase2 完成建 `stage:"plan"` 条目（planned → phase3 唯一待定翻 running → result 到达翻 executed）；结果到达时追加 `stage:"result"` 条目（succeeded/failed/timeout，带 resultHeadline），规划内容不被覆盖；normalize 失败的单侧 result 直接追加结果条目。文本取自 registry。
-- `ModelTask[]`：按 `llm.*` 事件归组，含 request（完整 message stack）/response。
+- `ActivityItem[]`：语义活动 feed。action 条目分**规划/结果两阶段**：phase2 完成建 `stage:"plan"` 条目（planned → phase3 唯一待定翻 running → result 到达翻 executed）；结果到达时追加 `stage:"result"` 条目（succeeded/failed/timeout，带 resultHeadline），规划内容不被覆盖；normalize 失败的单侧 result 直接追加结果条目。Provider retry 直接形成恢复条目；同一 Model 的失败 Provider 后出现不同 Provider 时，由相邻 lifecycle 事实派生切换条目，不要求后端重复发布 switched 事件。文本取自 registry。
+- `ModelTask[]`：按 `llm.*` 事件归组，含有序轻量 `providerAttempts`、单份 request（完整 message stack）和最终 response；Task 或 Turn 终止时仍未落定的 attempt 收敛为 stopped。
