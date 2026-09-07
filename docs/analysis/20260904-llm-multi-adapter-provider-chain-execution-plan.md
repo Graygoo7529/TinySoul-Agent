@@ -1,8 +1,186 @@
 # LLM 多 Adapter Provider 与 Provider Chain 执行计划
 
-状态：`done`
+状态：`in_progress`
 
 日期：2026-09-04
+
+复核日期：2026-09-07
+
+## 已提交实现复核与修复结论
+
+2026-09-07 对提交 `e6e736e` 按 `AGENTS.md`、现有配置投影、LLM 路由、Observation 和前端设置流程重新核对。多 Adapter Provider、Model Provider Binding、Provider retry/fallback、Model Chain cycle、Adapter-owned API style 和三层失败边界已经落地；执行计划尚不能标记为完成，以下四项仍需修正：
+
+| 项目 | 状态 | 复核结论 |
+| --- | --- | --- |
+| 内置 Model Provider Chain 编辑 | `in_progress` | 编辑器把 `objectOwnedByCreateSource` 错当成写权限，导致标准内置 Model 的可写 Provider Chain 被禁用 |
+| Provider 尝试轨迹 | `in_progress` | 后端已发布 provider lifecycle Observation，前端只消费 retry，并用单一 request 覆盖先前尝试，无法解释 fallback 顺序 |
+| RetryPolicy 有限时长不变量 | `in_progress` | `prefer_successful_*_seconds` 接受 `inf`/`nan`，可能永久停留备用项，与已确认语义冲突 |
+| 测试协议一致性 | `in_progress` | 前端 fixture 把对象数组虚构为索引字段，Provider 页面缺少核心编辑测试；SDK 测试仍保留未消费的 provider api_style 参数 |
+
+本轮修复不改变已经确认的 Adapter/Provider/Model 所有权，不增加兼容读取，不改变 Provider/Model fallback 决策，不增加 Runtime reason。需要修复的是现有协议的完整表达和入口不变量，而不是重新设计路由。
+
+## 修复设计
+
+### 设置页写权限与复合字段所有权
+
+`ConfigStatus.fields` 中 `llm.models.<id>.providers` 是完整对象数组字段；Infra 不会把数组元素展开成 `providers.0.provider` 等可独立写字段。Provider Chain 编辑器必须直接持有这个根字段的 `ConfigSettingField`，并以它的 `path`、`sourceId`、`storedValue` 和 `writable` 作为唯一配置事实。
+
+`objectOwnedByCreateSource` 只用于 Model 的创建来源、删除策略以及当前已经明确的内置 Adapter 固定规则，不能作为其它字段的通用写权限。修复后的权限为：
+
+```text
+Provider Chain 可写
+  = Runtime 当前允许配置写入
+  && providers 根字段存在
+  && providers 根字段 writable
+```
+
+因此，位于可写项目 TOML 中的内置 Model 可以编辑 Provider Chain，但仍不能切换 Adapter、删除整个内置 Model。若 Provider Chain 被只读来源覆盖，编辑器保持可读并禁用提交。提交继续只发送一个完整数组 `set`，由 Endpoint 候选校验保证 Provider 引用、Adapter 兼容、唯一性和非空约束，不在前端复制业务 parser。
+
+`ProviderAdapterEditor` 同样应把 `field.writable` 纳入控件权限，避免复合字段被只读来源覆盖时仍显示为可提交。这里复用现有字段事实，不引入新的前端 owner 或权限状态。
+
+### Provider 尝试的 Observation 投影
+
+后端现有事件已经足以表达事实顺序：
+
+```text
+llm.provider.started
+  -> llm.provider.failed
+  -> optional llm.provider.retry
+  -> next llm.provider.started
+  -> llm.provider.completed
+```
+
+不新增 `llm.provider.switched`。Provider 切换是相邻 provider lifecycle 事实的前端展示投影；再发布一个切换事件会重复同一事实并扩大 Observation 协议。LLM 路由及异常处理保持不变。
+
+前端在现有 `ModelTask` 内增加有序、轻量的 `providerAttempts` 投影。每项只保存展示所需的 JSON 安全元数据：事件 sequence、model id、provider id、provider model、adapter、Provider 内 attempt 序号、状态、稳定失败 kind/scope 和起止时间。`provider.started` 追加一项，`provider.failed/completed` 更新最近的匹配项；Task 终止时把没有终态事件的运行项收敛为 stopped，避免取消场景留下伪运行状态。
+
+Provider Chain 内各次调用共享同一个上层构造的 provider-neutral MessageStack 和 ToolScope。前端继续在 `ModelTask.request/response` 保留一份当前有效的完整模型请求与最终响应，不为每个 Provider 复制相同的大块上下文；Provider 差异由 `providerAttempts` 表达。这样既能解释 fallback，又不建立第二份模型上下文事实。
+
+展示规则为：
+
+- `llm.provider.retry` 继续生成同 Provider 重试 activity。
+- 同一 Model 的失败尝试之后出现不同 Provider 时，生成 `A -> B` 的 Provider switch activity。
+- LLM Task drawer 增加紧凑的 Provider Attempts 列表，展示调用顺序、远端模型名、状态和稳定失败摘要。
+- JSON/Markdown trace export 增加 `provider_attempts`，完整 MessageStack 仍只导出一次。
+- provider lifecycle 事件本身负载很小，继续由现有 event retention 保留；不增加新的持久前端状态或独立保留窗口。
+
+### RetryPolicy 领域不变量
+
+有限时长属于 LLM 路由语义，应由 frozen `RetryPolicy.__post_init__` 校验，而不是把 LLM 限制下沉到通用 Infra number parser。修复时在 `model_chain.py` 内统一校验：
+
+- `max_retries_per_provider` 必须是排除 bool 的非负整数。
+- `max_cycles` 必须是 `None` 或排除 bool 的正整数。
+- retry wait、Provider/Model switch wait 和两个成功偏好时长必须是排除 bool 的有限非负数，并规范化为 float。
+- 违反不变量统一抛出 `LLMContractError`；配置入口继续由现有 `TaskConfigParser` 转换成 `ConfigError`，不进入 Provider fallback 或 Runtime Trap。
+
+其中 `max_cycles = None` 仍是已经明确允许的无限完整 Model Chain cycle；`prefer_successful_*_seconds` 不允许无限值，因为它们必须保证备用位置最终返回链首。
+
+### 测试收敛
+
+测试只覆盖真实契约和本次缺口，不建立错误 kind、Provider 数量和 Model 数量的组合矩阵：
+
+- 把前端 `ConfigStatus` fixture 改为真实的 `llm.models.<id>.providers = [...]` 根数组投影；嵌套 catalog descriptor 只用于编辑器元数据。
+- 增加一个内置 Model 添加备用 Provider 的页面测试，同时断言提交完整数组和正确字段 source；该测试同时覆盖权限与原子 mutation。
+- 增加一个 Providers 页面测试，覆盖 Adapter 列表展示静态 API style，并以完整 `adapters` 数组提交一次核心编辑。
+- 增加一个 provider failed 后切换并成功的 derive/export 测试，断言尝试顺序和 switch activity；现有 retry 测试继续保留。
+- 在现有 RetryPolicy/config 测试中增加一个非有限偏好时长的代表性拒绝用例，不对每个 duration 字段重复同类测试。
+- 删除 SDK 测试 helper 未消费的 `api_style` 参数，把仍表示通用 Chat 的测试名称和 provider fixture 名称改为 `openai_compatible_chat`/`compatible`，不保留已删除 Adapter 的语义影子。
+
+## 修复改动预览
+
+后端预计只修改 RetryPolicy 不变量和相应测试；Provider Chain 执行、ProviderError scope、Runtime bridge 与 Endpoint 均不改动：
+
+```python
+@dataclass(frozen=True)
+class RetryPolicy:
+    ...
+
+    def __post_init__(self) -> None:
+        _require_non_negative_int(
+            self.max_retries_per_provider,
+            name="max_retries_per_provider",
+        )
+        _require_optional_positive_int(self.max_cycles, name="max_cycles")
+        for name in _DURATION_FIELDS:
+            object.__setattr__(
+                self,
+                name,
+                _require_finite_non_negative_number(getattr(self, name), name=name),
+            )
+```
+
+Models 设置页不再从对象创建来源推导 Chain 权限，也不拼接 mutation source：
+
+```tsx
+const providerChainField = current?.fields.find(
+  (field) => field.path === `${collection.root}.${current.id}.providers`,
+);
+
+{providerChainField && (
+  <ProviderChainEditor
+    field={providerChainField}
+    canWrite={canWrite && providerChainField.writable}
+    onCommit={(value) => apply({
+      source_id: providerChainField.sourceId,
+      path: providerChainField.path,
+      op: "set",
+      value,
+    })}
+  />
+)}
+```
+
+前端 trace 在既有 Task 投影中补充尝试元数据，不复制完整 request：
+
+```ts
+interface ProviderAttempt {
+  sequence: number;
+  modelId: string;
+  providerId: string;
+  providerModel?: string;
+  adapter?: string;
+  attempt: number;
+  status: "running" | "failed" | "completed" | "stopped";
+  failureKind?: string;
+  failureScope?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+interface ModelTask {
+  ...
+  providerAttempts: ProviderAttempt[];
+  request?: ModelRequest;   // 一份 provider-neutral 上下文
+  response?: ModelResponse; // 最终可解释响应
+}
+```
+
+预计实现文件：
+
+- `tinysoul/llm/model_chain.py`
+- `tests/llm/test_config.py`
+- `tests/llm/test_task_runner.py`
+- `tests/llm/test_provider_openai_sdk.py`
+- `visualization/src/features/settings/ModelsSettingsPage.tsx`
+- `visualization/src/features/settings/ProvidersSettingsPage.tsx`
+- `visualization/src/features/settings/model.test.ts`
+- `visualization/src/features/settings/ModelsSettingsPage.test.tsx`
+- `visualization/src/features/settings/ProvidersSettingsPage.test.tsx`
+- `visualization/src/derive/model.ts`
+- `visualization/src/derive/chat.ts`
+- `visualization/src/derive/chat.test.ts`
+- `visualization/src/derive/export.ts`
+- `visualization/src/components/trace/LlmTaskDrawer.tsx`
+
+实现完成后同步更新 `docs/design/llm.md`、`visualization/docs/design/settings.md` 和 `visualization/docs/design/chat.md`。不新增 Endpoint 路由或事件字段，因此 `docs/endpoint/` 无协议改动。
+
+## 修复实施顺序
+
+1. 先修正 RetryPolicy 核心不变量及聚焦测试，确认配置错误仍停在 LLM/Infra 边界。
+2. 再修正真实 ConfigStatus 数组 fixture 和复合字段写权限，使内置 Model Chain 与 Provider Adapter 编辑都服从字段事实。
+3. 然后在前端 derive 层消费既有 provider lifecycle 事件，补充 attempt 列表、activity、drawer 和 export。
+4. 同步设计文档，运行后端聚焦测试、前端聚焦测试与 Fast；只增加上述代表性测试，不扩展防御性组合矩阵。
+5. 完成前重新运行 Full、typecheck、前端全量 test/build 和 `git diff --check`；只有修复项全部通过后才恢复 `done`。
 
 ## 本轮复核与决策点
 
@@ -316,19 +494,19 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 
 ### 4. 重试、切换与失败语义
 
-- [x] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置。
+- [ ] 把 RetryPolicy 迁移为 Provider 重试、Provider/Model switch wait、外层 cycle 和双层成功偏好配置。（`in_progress`：字段与执行语义已完成，数字类型及有限性不变量待补齐。）
 - [x] 将 ModelChainState 收敛为 LLMRouteState，并用成功项 id 管理 Model/Provider 两类有时限偏好。
 - [x] 在现有 model-chain 调用内部加入 Provider Chain 执行器，严格实现“重试 Provider -> 换 Provider -> 换 Model -> 下一 cycle”。
 - [x] 增加 ProviderFailureScope 并清理 Adapter 本地校验与 SDK/HTTP 错误的作用域归类。
 - [x] 保持 context pressure、局部 TaskFailure、模型链耗尽和 Runtime bridge 的现有三层边界。
-- [x] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常。
+- [ ] 调整 Observation payload 和前端派生，保证多 Provider 尝试可解释且不泄露原始异常。（`in_progress`：后端 lifecycle payload 已完成，前端 attempt 投影待补齐。）
 
 ### 5. 前端配置体验
 
 - [x] Providers 页面实现 catalog 驱动的 Adapter 集合编辑、静态 API style 展示与摘要。
-- [x] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交。
+- [ ] Models 页面实现兼容 Provider 过滤、有序 Binding 编辑和整数组原子提交。（`in_progress`：编辑和提交已完成，内置 Model 的根字段写权限待修正。）
 - [x] Adapter 变更以单次 mutation 协调 Provider Chain 与 Adapter options。
-- [x] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback。
+- [ ] Task Chains 页面展示新的 recovery 字段；运行轨迹展示 Provider retry/fallback。（`in_progress`：recovery 和 retry 已完成，fallback attempt 展示待补齐。）
 
 ### 6. 聚焦验证
 
@@ -336,8 +514,8 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 - [x] Registry/Factory 测试覆盖一个 Provider 的多个 Adapter 实例与复合键重复保护。
 - [x] Task runner 使用少量行为测试覆盖 transient 重试后换 Provider、Provider 耗尽后换 Model、下一 cycle 回到链首、备用 Provider 成功偏好及到期回首。
 - [x] 保留取消、context pressure 和局部 TaskFailure 的代表性回归测试，不为每个错误 kind 建立组合穷举测试。
-- [x] 前端测试覆盖 Provider Adapter 集合、兼容 Provider Chain 的展示/编辑、Adapter 切换原子 mutation 和 catalog 派生。
-- [x] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。
+- [ ] 前端测试覆盖 Provider Adapter 集合、兼容 Provider Chain 的展示/编辑、Adapter 切换原子 mutation 和 catalog 派生。（`in_progress`：补齐真实数组 fixture、内置 Model 编辑和 Provider 页面代表性测试。）
+- [ ] 运行聚焦测试、Fast、`./scripts/test.ps1 -Suite Full`、`./scripts/typecheck.ps1`、前端 test/build 与 `git diff --check`。（修复完成后重新执行。）
 
 ## 预计改动范围
 
@@ -375,7 +553,9 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 - 前端只能创建后端可接受的 Adapter/Provider 组合，并以一次原子 mutation 保存每个复合变更。
 - 设计文档、Endpoint 文档、catalog、默认项目配置、后端实现、前端页面和测试描述同一事实。
 
-## 最终核对
+## 2026-09-07 复核基线
+
+以下结果只说明提交 `e6e736e` 在既有门禁下通过，不足以证明上述新识别的协议缺口已经关闭；修复完成后必须重新执行并更新为最终核对：
 
 - 后端 Full 门禁：`scripts/test.ps1 -Suite Full` 通过，960 passed、2 skipped、21 deselected；仅有既存的 Starlette/httpx 弃用警告。
 - 类型检查：`scripts/typecheck.ps1` 通过，`ty` 无诊断。
