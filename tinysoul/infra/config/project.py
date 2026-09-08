@@ -46,7 +46,7 @@ class ProjectConfig:
     def to_source(self) -> ConfigSource:
         return ConfigSource(
             name=str(self.main_path),
-            values=flatten_mapping(self._data),
+            values=flatten_mapping(self._data, source=str(self.main_path)),
             kind=ConfigSourceKind.PROJECT_TOML,
             path=self.main_path,
             source_id="project:merged",

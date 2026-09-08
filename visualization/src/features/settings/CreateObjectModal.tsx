@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import type { ConfigCollectionDescriptor } from "../../types";
-import { validObjectId } from "./model";
+import { objectIdValidationMessage, validObjectId } from "./model";
 
 const inputClass =
   "focus-ring h-8 w-full rounded-md border border-line bg-bg-elev px-2.5 font-mono text-[12px] outline-none focus:border-accent";
@@ -32,6 +32,7 @@ export function CreateObjectModal({
     if (!open) setId("");
   }, [open]);
   if (!open) return null;
+  const validationMessage = objectIdValidationMessage(id);
   const available = validObjectId(id) && !existing.includes(id);
   return (
     <Modal title={`New ${collection.title}`} onClose={onClose}>
@@ -46,8 +47,13 @@ export function CreateObjectModal({
             value={id}
             onChange={(event) => setId(event.target.value)}
             className={inputClass}
+            aria-invalid={validationMessage !== null}
           />
-          <span className="mt-1 block text-[10px] text-fg-faint">{collection.identity.description}</span>
+          <span
+            className={`mt-1 block text-[10px] ${validationMessage ? "text-danger" : "text-fg-faint"}`}
+          >
+            {validationMessage ?? collection.identity.description}
+          </span>
         </label>
         {children}
         <div className="flex justify-end gap-2 border-t border-line pt-3">

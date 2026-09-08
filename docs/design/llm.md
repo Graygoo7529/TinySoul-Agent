@@ -198,7 +198,7 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 Adapter 以何种形态回放；具体供应商参数仍由 Adapter 根据该语义和自身协议解释。设置页把 Model 的 Provider Chain 作为一个有序编辑器：每行选择兼容 Provider、填写该端点的 `provider_model`，并可添加、删除和排序；提交时以完整 `llm.models.<id>.providers` 数组原子写入，不把数组索引暴露为独立 mutation。切换 Model Adapter 时同时重建兼容 Provider Chain，并清理不再适用的 Adapter options；`context_window_tokens`、capabilities、request overrides 不随 Provider 切换而复制或改写。LLM parser 只校验最终候选配置能否由当前 Provider Adapter 解释，失败时整个 PATCH 不持久化且当前 Runtime Generation 保持原样。目标 endpoint 是否实际提供配置的 `provider_model` 无法静态确认，由配置者负责。
 
-配置文件属于动态边界。provider 的 `enabled`、`adapters`，模型的 `adapter`、Provider Chain、能力、任务回答格式、工具使用策略、Adapter options、request overrides 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 Adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
+配置文件属于动态边界。Provider、Model 和 Task Chain 的稳定 ID 不得包含点号、外围空白或仅由数字组成；`provider_model` 仍是 endpoint 的不透明值。provider 的 `enabled`、`adapters`，模型的 `adapter`、Provider Chain、能力、任务回答格式、工具使用策略、Adapter options、request overrides 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 Adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
 
 任务配置描述不同任务用途对应的调用设置、候选模型顺序和重试策略。调用设置包含回答格式、工具使用策略、通用调用参数和必备模型能力。配置文件中的键名应使用适合 TOML 的安全写法，并与运行时使用的任务用途名称一致。
 

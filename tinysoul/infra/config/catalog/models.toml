@@ -107,7 +107,7 @@ surface = "providers"
 root = "llm.providers"
 title = "Provider"
 description = "A reusable API endpoint and adapter configuration referenced by models."
-identity = { title = "Provider ID", description = "Stable provider connection identifier referenced by models; dots and outer whitespace are not allowed." }
+identity = { title = "Provider ID", description = "Stable provider connection identifier referenced by models; dots, outer whitespace, and numeric-only IDs are not allowed." }
 create_source = "project:configs/llm/providers.toml"
 create_template = { enabled = false, adapters = ["openai_compatible_chat"], base_url = "https://api.example.com/v1", api_key_envs = ["PROVIDER_API_KEY"] }
 delete_policy = "all"
@@ -118,7 +118,7 @@ surface = "models"
 root = "llm.models"
 title = "Model"
 description = "A provider model with TinySoul-visible capabilities and request options."
-identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots and outer whitespace are not allowed." }
+identity = { title = "Model ID", description = "Stable TinySoul model identifier referenced by task chains; dots, outer whitespace, and numeric-only IDs are not allowed." }
 create_source = "project:configs/llm/models/custom.toml"
 create_template = { adapter = "openai_compatible_chat", providers = [{ provider = "", provider_model = "" }], context_window_tokens = 262144, capabilities = ["text_input"], adapter_options = {}, request_overrides = {} }
 delete_policy = "create_source_only"
@@ -129,7 +129,7 @@ surface = "task_chains"
 root = "llm.tasks"
 title = "Task Chain"
 description = "An ordered model chain and call policy selected by a stable task profile."
-identity = { title = "Task Chain ID", description = "Stable task profile identifier used by framework tasks and Action routes; dots and outer whitespace are not allowed." }
+identity = { title = "Task Chain ID", description = "Stable task profile identifier used by framework tasks and Action routes; dots, outer whitespace, and numeric-only IDs are not allowed." }
 create_source = "project:configs/llm/tasks.toml"
 create_template = { models = [], required_capabilities = ["text_input"], answer_format = "json_object", tool_use = "disabled", temperature = 0.3, max_output_tokens = 2048, max_retries_per_provider = 1, retry_wait_seconds = 1.0, provider_switch_wait_seconds = 0.0, model_switch_wait_seconds = 2.0, max_cycles = 10, prefer_successful_provider_seconds = 600.0, prefer_successful_model_seconds = 600.0 }
 delete_policy = "all"

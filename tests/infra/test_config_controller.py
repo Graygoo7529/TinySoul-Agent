@@ -345,6 +345,27 @@ def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -
     )
 
 
+def test_controller_rejects_purely_numeric_mapping_path_segment(tmp_path: Path) -> None:
+    environment = _project(tmp_path)
+    target = tmp_path / "configs" / "infra.toml"
+    controller = ConfigController(root=tmp_path, environment=environment)
+
+    with pytest.raises(ConfigError, match="must not be purely numeric") as error:
+        controller.patch(
+            (
+                ConfigMutation(
+                    source_id="project:configs/infra.toml",
+                    path="llm.models.1233",
+                    op="set",
+                    value={"adapter": "openai_compatible_chat"},
+                ),
+            )
+        )
+
+    assert error.value.key == "llm.models.1233"
+    assert error.value.source == str(target)
+
+
 def test_controller_deletes_object_subtree_from_each_project_source(tmp_path: Path) -> None:
     config_dir = tmp_path / "configs"
     config_dir.mkdir(parents=True)

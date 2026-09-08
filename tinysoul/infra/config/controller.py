@@ -295,7 +295,7 @@ class ConfigController:
                 candidate_sources.append(
                     ConfigSource(
                         name=source.name,
-                        values=flatten_mapping(document.data),
+                        values=flatten_mapping(document.data, source=source.name),
                         kind=source.kind,
                         path=source.path,
                         source_id=source.source_id,

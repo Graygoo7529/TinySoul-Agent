@@ -35,12 +35,12 @@ from .tools import ToolUse
 
 
 def _validate_object_id(value: str, *, key: str) -> None:
-    if not value or value != value.strip() or "." in value:
+    if not value or value != value.strip() or "." in value or value.isdigit():
         raise ConfigError(
-            "LLM configuration object ID must not contain dots or outer whitespace",
+            "LLM configuration object ID must not contain dots or outer whitespace or be purely numeric",
             key=key,
             value=value,
-            expected="non-empty identifier without '.'",
+            expected="non-empty identifier without '.', outer whitespace, or only digits",
         )
 
 

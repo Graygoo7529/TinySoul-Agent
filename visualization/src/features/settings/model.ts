@@ -479,7 +479,15 @@ export function pathMatches(pattern: string, path: string): boolean {
 }
 
 export function validObjectId(value: string): boolean {
-  return Boolean(value && value === value.trim() && !value.includes("."));
+  return Boolean(value && objectIdValidationMessage(value) === null);
+}
+
+export function objectIdValidationMessage(value: string): string | null {
+  if (!value) return null;
+  if (value !== value.trim()) return "ID cannot have leading or trailing spaces.";
+  if (value.includes(".")) return "ID cannot contain dots.";
+  if (/^\d+$/.test(value)) return "ID cannot consist only of digits.";
+  return null;
 }
 
 export function subtreeDeleteMutations(

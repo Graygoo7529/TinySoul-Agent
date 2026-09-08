@@ -287,6 +287,7 @@ describe("settings catalog projection", () => {
     expect(validObjectId("gpt_5_6")).toBe(true);
     expect(validObjectId("gpt.5")).toBe(false);
     expect(validObjectId(" model ")).toBe(false);
+    expect(validObjectId("1233")).toBe(false);
   });
 
   it("deletes an object subtree from every contributing project source", () => {

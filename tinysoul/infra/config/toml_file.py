@@ -31,19 +31,13 @@ class ConfigFileToml:
     def to_source(self) -> ConfigSource:
         return ConfigSource(
             name=str(self.path),
-            values=flatten_mapping(self._data),
+            values=flatten_mapping(self._data, source=str(self.path)),
             kind=ConfigSourceKind.PROJECT_TOML,
             path=self.path,
         )
 
     def set_value(self, dotted_key: str, value: object) -> None:
-        if not dotted_key:
-            raise ConfigError(
-                "Configuration key must be non-empty",
-                key="config",
-                source=str(self.path),
-                expected="non-empty dotted key",
-            )
+        _validate_mapping_path(dotted_key, source=str(self.path))
         parts = dotted_key.split(".")
         current: dict[str, object] = self._data
         for part in parts[:-1]:
@@ -65,13 +59,7 @@ class ConfigFileToml:
         current[parts[-1]] = value
 
     def delete_value(self, dotted_key: str) -> None:
-        if not dotted_key:
-            raise ConfigError(
-                "Configuration key must be non-empty",
-                key="config",
-                source=str(self.path),
-                expected="non-empty dotted key",
-            )
+        _validate_mapping_path(dotted_key, source=str(self.path))
         parts = dotted_key.split(".")
         current: dict[str, object] = self._data
         parents: list[tuple[dict[str, object], str]] = []
@@ -104,17 +92,50 @@ class ConfigFileToml:
         atomic_write_text(self.path, self.render())
 
 
-def flatten_mapping(data: Mapping[str, object], prefix: str = "") -> dict[str, object]:
+def flatten_mapping(
+    data: Mapping[str, object],
+    prefix: str = "",
+    *,
+    source: str = "",
+) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in data.items():
         dotted = f"{prefix}.{key}" if prefix else str(key)
+        _validate_mapping_segment(str(key), dotted_key=dotted, source=source)
         if isinstance(value, Mapping):
             result.update(
-                flatten_mapping(_string_key_mapping(cast(Mapping[str, object], value)), dotted)
+                flatten_mapping(
+                    _string_key_mapping(cast(Mapping[str, object], value)),
+                    dotted,
+                    source=source,
+                )
             )
         else:
             result[dotted] = value
     return result
+
+
+def _validate_mapping_path(dotted_key: str, *, source: str) -> None:
+    if not dotted_key:
+        raise ConfigError(
+            "Configuration key must be non-empty",
+            key="config",
+            source=source,
+            expected="non-empty dotted key",
+        )
+    for part in dotted_key.split("."):
+        _validate_mapping_segment(part, dotted_key=dotted_key, source=source)
+
+
+def _validate_mapping_segment(value: str, *, dotted_key: str, source: str) -> None:
+    if value.isdigit():
+        raise ConfigError(
+            "Configuration mapping path segments must not be purely numeric",
+            key=dotted_key,
+            source=source,
+            value=value,
+            expected="mapping path segment containing a non-digit character",
+        )
 
 
 def deep_copy_mapping(data: Mapping[str, object]) -> dict[str, object]:

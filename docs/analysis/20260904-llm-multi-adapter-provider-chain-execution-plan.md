@@ -574,3 +574,7 @@ Observation 不携带 SDK 异常、traceback、密钥、绝对路径或完整消
 - 前端验证：`pnpm test` 通过，22 个测试文件、130 项测试；`pnpm build` 通过，仅保留既存 bundle size 建议。
 - 静态协议核对：Settings 测试数据使用 `llm.models.<id>.providers` 根数组；嵌套 `providers.*` 只作为 catalog descriptor；SDK helper 不再接收 API style，也不保留 generic Adapter 语义。
 - 差异检查：`git diff --check` 通过。未新增 Endpoint 路由、Observation 字段或 Runtime reason，`docs/endpoint/` 无需修改。
+
+## 2026-09-08 配置 ID 规则补充
+
+- [x] Provider、Model 与 Task Chain ID 禁止纯数字，Infra 保留纯数字 dotted path 段作为列表索引；设置页同步即时提示，`provider_model` 不受此限制。

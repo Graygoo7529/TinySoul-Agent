@@ -27,6 +27,31 @@ afterEach(() => {
 });
 
 describe("ModelsSettingsPage", () => {
+  it("explains why a numeric-only model ID cannot be created", () => {
+    act(() => {
+      root.render(
+        <ModelsSettingsPage
+          client={{} as TinySoulClient}
+          status={status()}
+          catalog={catalog()}
+        />,
+      );
+    });
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Add Models"]')?.click());
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Model ID"]');
+    if (!input) throw new Error("Missing Model ID input");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        input,
+        "1233",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("ID cannot consist only of digits.");
+    expect(button("Create")?.disabled).toBe(true);
+  });
+
   it("locks built-in adapters and only lists providers for the selected adapter", () => {
     act(() => {
       root.render(

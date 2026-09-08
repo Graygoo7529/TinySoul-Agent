@@ -47,6 +47,7 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 以同根原子替换多个文档，并在后续激活失败时恢复已替换文件。`ConfigController` 只编排 source
 图、候选环境、校验回调和两阶段 activation callback，不解析业务 section。dotenv 原始键值
 单独保留在 `runtime_env`，系统环境仍覆盖 dotenv，进程 `os.environ` 不被写回。
+配置 dotted path 的纯数字段保留为列表索引，因此项目 TOML 的映射键不得为纯数字。
 
 `config.document_sets` 声明不参与 effective tree 合并的受管 TOML 集合。`ProjectConfig` 将 glob
 稳定展开为 `ConfigDocumentSet/ConfigDocument`，为每个文件分配项目相对的稳定 source ID，并拒绝

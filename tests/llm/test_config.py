@@ -106,6 +106,25 @@ def test_task_rejects_unknown_model() -> None:
         LLMConfigParser().parse(tree)
 
 
+@pytest.mark.parametrize("section", ("providers", "models", "tasks"))
+def test_llm_config_rejects_purely_numeric_object_id(section: str) -> None:
+    tree = _tree(
+        providers={"fake": _provider()},
+        model={
+            "adapter": "openai_compatible_chat",
+            "providers": [{"provider": "fake", "provider_model": "1233"}],
+        },
+    )
+    objects = cast(dict[str, object], tree[section])
+    current_id = next(iter(objects))
+    objects["1233"] = objects.pop(current_id)
+
+    with pytest.raises(ConfigError, match="purely numeric") as error:
+        LLMConfigParser().parse(tree)
+
+    assert error.value.key == f"llm.{section}.1233"
+
+
 def test_retry_policy_uses_explicit_defaults() -> None:
     config = LLMConfigParser().parse(
         _tree(
