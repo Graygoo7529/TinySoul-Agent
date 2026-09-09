@@ -83,7 +83,7 @@ LLM 模块拥有凭据引用的解释和就绪状态，Infra 仍只提供合并�
 
 ### 候选校验
 
-`AppConfigPlan` 继续作为一次 Generation 的唯一跨模块已验证配置快照。LLM section 只解析一次；`_build_generation` 将 `plan.llm` 传给 LLM 装配，不再由 `_build_llm` 重复解析同一动态输入。
+`AppConfigPlan` 继续作为一次 Generation 的唯一跨模块已验证配置快照。在一次 Generation 编译内，LLM section 只解析一次；`_build_generation` 将 `plan.llm` 传给 LLM 装配，不再由 `_build_llm` 重复解析同一动态输入。配置 PATCH 的 validator 与 activator 仍分别编译候选配置，这是原子校验/装配边界，不构成一次 Generation 编译内的重复解析。
 
 在真实配置驱动的 LLM Runner 下，App 的计划编译边界调用 LLM-owned enabled Provider credential validation：
 
@@ -184,6 +184,7 @@ my-proxy    -> MY_PROXY_API_KEY
 - `visualization/src/features/settings/model.ts`：增加凭据状态查询、默认 provider model 和默认 Provider env 名称的纯派生 helper。
 - `ProvidersSettingsPage.tsx`、`SettingsPage.tsx`：增加状态展示、enable 前置提示和 Credentials 导航。
 - `ModelsSettingsPage.tsx`：New Model 默认 Blank，替换三处固定 `"model"` 占位值，并向 ProviderChainEditor 传入 Model identity。
+- `visualization/docs/design/settings.md`：同步 Runtime Provider 凭据状态、enable 前置校验、Blank Model 和显式模板创建语义。
 
 不新增 ProviderAdapterBinding，不改变 Adapter/API style、ModelProviderBinding、Provider Chain 或 RetryPolicy 的既有语义；不增加配置兼容别名、前端重复业务状态或通用模板引擎。
 
@@ -266,19 +267,20 @@ cd ..
 
 ### 七：文档、验证与核对
 
-- [x] 更新 LLM 设计、Endpoint 协议和根 README。
+- [x] 更新 LLM 设计、Endpoint 协议、根 README 和 Visualization Settings 设计文档。
 - [x] 运行聚焦测试、Fast、Visualization tests/build、Full 和 typecheck；Visualization 未配置独立 lint script，TypeScript 检查由 build 执行。
 - [x] 核对配置写入、Generation 原子激活、Runtime bridge 与 UI 状态没有重复事实或兼容分支。
 - [x] 记录实际实施位置和验证结果；计划状态和文件名均标记为 `done`。
 
 ## 实施核对
 
-- LLM 配置由 `LLMConfigParser` 一次解析为 `AppConfigPlan.llm`；enabled 凭据不变量在 App 候选计划边界调用 LLM-owned 校验，初始启动映射为既有 LLM configuration startup failure，Endpoint mutation 映射为 `422 config.invalid`。
+- 在一次 Generation 编译中，LLM 配置由 `LLMConfigParser` 一次解析为 `AppConfigPlan.llm`；enabled 凭据不变量在 App 候选计划边界调用 LLM-owned 校验，初始启动映射为既有 LLM configuration startup failure，Endpoint mutation 映射为 `422 config.invalid`。PATCH validator 与 activator 的两次候选编译分别服务校验和原子装配，不共享同一个 Generation 编译过程。
 - Provider 凭据状态由 `ProviderSpec` 投影并固定在 `AppRuntimeGeneration`，Endpoint 只序列化 Provider ID、状态和 env 名称。`enabled` 未被复制为第二份状态，secret 也未进入投影。
 - Task 配置不再按 enabled Provider 改写 Model Chain；`LLMTaskRunner` 对调用和能力查询使用同一可路由链。空有效链复用 `llm.model_chain_exhausted`，Provider/Model 重试、切换、cycle 和偏好状态实现未分叉。
 - standard 模板仍保持所有 LLM Provider disabled；development 模板仍保持维护者 Provider 与 Kimi Search enabled。现有 initializer generation 契约和新增 App 启动测试共同覆盖该边界。
 - Provider 设置页只做基于当前 Generation 状态的提前引导，后端仍为权威校验；拒绝路径不调用 PATCH。写入凭据后的 configured 状态和 enable 成功路径也已验证。
 - Model/Provider 创建默认值全部是前端基于现有 catalog 与当前对象的局部派生，没有引入模板语言、兼容字段或后端重复状态。
+- Visualization Settings 设计文档已同步当前实现：Provider 凭据状态和 enable 引导、Blank Model 默认及显式模板复制均与代码、Endpoint 协议一致。
 
 验证结果：
 

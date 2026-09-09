@@ -33,6 +33,7 @@ Application 未连接时仍可用，其余项目页面禁用。
 `configStore` 同时读取：
 
 - `GET /v1/config` 的 sources/effective fields/activity/Generation；
+- `GET /v1/config` 中 `runtime.llm.providers` 的当前 Generation Provider 凭据就绪状态；
 - `GET /v1/config/catalog` 的 package-owned descriptors；
 - `GET /v1/config/actions` 的 configured User Domains/Actions 与 availability。
 
@@ -54,12 +55,9 @@ JSON editor。reference options 从 catalog collection 与当前 ConfigStatus �
 Provider、Model、Task Chain 不是前端状态实体，只是 catalog collection root 下的动态视图。页面
 使用对象列表加详情编辑器，不显示反向引用或全局 current Provider。
 
-- Provider 支持完整 root 创建、字段编辑和删除；`adapters` 使用整值列表编辑，列表摘要展示 enabled、Adapter 集合和 endpoint。Adapter 的 API style 来自 catalog 中的静态 Adapter 规则，只读展示而不形成 Provider 配置字段。
-- Model 新建必须选择现有 Model 作为模板。模板中的 `adapter_options` 与 `request_overrides` 作为
-  两项独立的模型配置事实一并复制；Provider Chain 编辑器按顺序展示 Provider 与
-  `provider_model`，支持增删排序并以完整数组写回。切换 Model Adapter 会同时选择兼容的
-  Provider Chain，清理不适用的 Adapter options；若 adapter 不兼容，PATCH 失败并保留当前编辑
-  draft 与已激活配置。
+- Provider 支持完整 root 创建、字段编辑和删除；`adapters` 使用整值列表编辑，列表摘要展示 enabled、Adapter 集合和 endpoint。Adapter 的 API style 来自 catalog 中的静态 Adapter 规则，只读展示而不形成 Provider 配置字段。摘要和详情同时展示当前 Generation 的凭据状态：`Credential required`、`Ready to enable` 或 `Enabled`。
+- Provider 从 disabled 切换为 enabled 前，页面先检查 `runtime.llm.providers` 的就绪投影。凭据缺失时不发送 PATCH，提示所需环境变量并提供前往 Credentials 的操作；后端仍执行同一校验并对竞态或外部客户端返回的 `422 config.invalid` 负责。
+- Model 新建默认从 Blank 开始，不复制现有 Model。Blank 创建仍使用 catalog 提供的必需字段、首个兼容 Provider 和其 Adapter，首个 `provider_model` 使用新 Model ID；用户也可以主动选择已有 Model 作为模板，完整复制其 `adapter_options`、`request_overrides` 和 Provider Chain。Provider Chain 编辑器按顺序展示 Provider 与 `provider_model`，支持增删排序并以完整数组写回。切换 Model Adapter 会同时选择兼容的 Provider Chain，清理不适用的 Adapter options；若 adapter 不兼容，PATCH 失败并保留当前编辑 draft 与已激活配置。
 - Provider Adapter 与 Model Provider Chain 编辑器都直接持有对应复合根字段，以该字段的
   `storedValue`、`sourceId`、`path` 和 `writable` 作为唯一配置事实。Model 是否由 create source
   创建只决定删除权限和内置 Adapter 锁定，不决定 Provider Chain 是否可写；数组元素 descriptor
@@ -98,7 +96,8 @@ Generation 校验仍是最终权威。
 
 Credentials 从 catalog 中 `credential_reference=true` 的有效字段值和 dotenv 当前键合并。页面
 只显示、编辑或删除 dotenv stored value；系统进程环境不枚举、不编辑。输入默认遮罩，区分
-Unset、Empty 和 Configured。
+Unset、Empty 和 Configured。Provider 页面使用 Runtime 的 `configured | missing` 投影判断是否
+可以启用；纯空白值与后端一样视为未配置。
 
 ## 写入与激活
 
