@@ -1,6 +1,9 @@
 [llm.models.deepseek_v4]
 adapter = "deepseek"
-providers = [{ provider = "deepseek", provider_model = "deepseek-v4-pro" }]
+providers = [
+  { provider = "orca", provider_model = "deepseek/deepseek-v4-pro" },
+  { provider = "deepseek", provider_model = "deepseek-v4-pro" },
+]
 context_window_tokens = 262144
 capabilities = [
   "text_input",

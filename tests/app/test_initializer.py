@@ -81,8 +81,14 @@ def test_cli_init_copies_editable_project_without_provider_selection(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert models["kimi_k2_7"]["providers"] == [{"provider": "kimi", "provider_model": "kimi-k2.7-code-highspeed"}]
-    assert models["kimi_k3"]["providers"] == [{"provider": "kimi", "provider_model": "kimi-k3"}]
+    assert models["kimi_k2_7"]["providers"] == [
+        {"provider": "orca", "provider_model": "kimi/kimi-k2.7-code"},
+        {"provider": "kimi", "provider_model": "kimi-k2.7-code-highspeed"},
+    ]
+    assert models["kimi_k3"]["providers"] == [
+        {"provider": "orca", "provider_model": "kimi/kimi-k3"},
+        {"provider": "kimi", "provider_model": "kimi-k3"},
+    ]
     openai_models = tomllib.loads(
         (root / "configs" / "llm" / "models" / "openai.toml").read_text(
             encoding="utf-8"
@@ -95,8 +101,8 @@ def test_cli_init_copies_editable_project_without_provider_selection(
         "gpt_5_6_luna": "gpt-5.6-luna",
     }.items():
         assert openai_models[model_id]["providers"] == [
-            {"provider": "openai", "provider_model": provider_model},
             {"provider": "orca", "provider_model": f"openai/{provider_model}"},
+            {"provider": "openai", "provider_model": provider_model},
             {"provider": "wenrugou", "provider_model": provider_model},
             {"provider": "sublyx_proxy", "provider_model": provider_model},
         ]
@@ -158,7 +164,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     }
     assert providers["orca"] == {
         "enabled": True,
-        "adapters": ["deepseek", "openai"],
+        "adapters": ["deepseek", "openai", "kimi", "glm", "minimax"],
         "base_url": "https://api.orcarouter.ai/v1",
         "api_key_envs": ["ORCA_API_KEY"],
     }

@@ -6,7 +6,7 @@ api_key_envs = ["OPENAI_API_KEY"]
 
 [llm.providers.orca]
 enabled = false
-adapters = ["deepseek", "openai"]
+adapters = ["deepseek", "openai", "kimi", "glm", "minimax"]
 base_url = "https://api.orcarouter.ai/v1"
 api_key_envs = ["ORCA_API_KEY"]
 

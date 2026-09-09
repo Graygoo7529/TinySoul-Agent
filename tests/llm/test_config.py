@@ -28,6 +28,9 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert config.provider("orca").adapters == (
         AdapterKind.DEEPSEEK,
         AdapterKind.OPENAI,
+        AdapterKind.KIMI,
+        AdapterKind.GLM,
+        AdapterKind.MINIMAX,
     )
     assert config.provider("wenrugou").adapters == (AdapterKind.OPENAI,)
     assert config.provider("openai").enabled is False
@@ -43,7 +46,8 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
 
     kimi = config.models.get("kimi_k2_7")
-    assert kimi.providers[0].provider_id == "kimi"
+    assert kimi.providers[0].provider_id == "orca"
+    assert kimi.providers[0].provider_model == "kimi/kimi-k2.7-code"
     assert kimi.adapter is AdapterKind.KIMI
     assert kimi.adapter_options.values["protocol"] == "k2"
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
@@ -53,6 +57,35 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert policy.provider_switch_wait_seconds == pytest.approx(0.0)
     assert policy.model_switch_wait_seconds == pytest.approx(2.0)
     assert policy.prefer_successful_provider_seconds == pytest.approx(600.0)
+
+
+@pytest.mark.parametrize("config_profile", tuple(ProjectConfigProfile))
+def test_built_in_models_use_orca_as_primary_provider(
+    tmp_path: Path,
+    config_profile: ProjectConfigProfile,
+) -> None:
+    root = tmp_path / config_profile.value
+    copy_initialized_project(root, config_profile=config_profile)
+    config = LLMConfigParser().parse(
+        ConfigEnvironment.from_project_root(root).section_tree("llm")
+    )
+    expected_remote_models = {
+        "gpt_5_5": "openai/gpt-5.5",
+        "gpt_5_6_sol": "openai/gpt-5.6-sol",
+        "gpt_5_6_terra": "openai/gpt-5.6-terra",
+        "gpt_5_6_luna": "openai/gpt-5.6-luna",
+        "deepseek_v4": "deepseek/deepseek-v4-pro",
+        "kimi_k2_7": "kimi/kimi-k2.7-code",
+        "kimi_k3": "kimi/kimi-k3",
+        "glm_5_1": "z-ai/glm-5.1",
+        "minimax_m3": "minimax/minimax-m3",
+    }
+
+    assert set(config.models.ids()) == set(expected_remote_models)
+    for model_id, remote_model in expected_remote_models.items():
+        primary = config.models.get(model_id).providers[0]
+        assert primary.provider_id == "orca"
+        assert primary.provider_model == remote_model
 
 
 def test_model_provider_chain_accepts_only_declared_adapter() -> None:
