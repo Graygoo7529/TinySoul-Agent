@@ -44,7 +44,7 @@ function status(): ConfigStatus {
       },
     ],
     fields: {},
-    runtime: { generation_id: "generation", activity: "idle", activation: "stable" },
+    runtime: { generation_id: "generation", activity: "idle", activation: "stable", llm: { providers: [] } },
     process_shell: {
       writable: false,
       reason: "process_owned",

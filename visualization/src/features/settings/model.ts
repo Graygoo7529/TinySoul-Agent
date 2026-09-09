@@ -5,6 +5,7 @@ import type {
   ConfigSourceProjection,
   ConfigStatus,
   JsonValue,
+  ProviderCredentialStatus,
 } from "../../types";
 
 export type SettingsPageId =
@@ -85,6 +86,22 @@ export interface CredentialSettingGroup {
   title: string;
   description?: string;
   credentials: CredentialSetting[];
+}
+
+export function providerCredentialStatus(
+  status: ConfigStatus,
+  providerId: string,
+): ProviderCredentialStatus | null {
+  return status.runtime.llm.providers.find((item) => item.id === providerId) ?? null;
+}
+
+export function defaultProviderApiKeyEnv(providerId: string): string {
+  const normalized = providerId
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const stem = normalized || "CUSTOM_PROVIDER";
+  return `${/^\d/.test(stem) ? `PROVIDER_${stem}` : stem}_API_KEY`;
 }
 
 export const pageSurface: Partial<Record<SettingsPageId, string>> = {
@@ -435,7 +452,7 @@ export function deriveCredentials(
         name,
         value: stringValue,
         present,
-        configured: stringValue.length > 0,
+        configured: stringValue.trim().length > 0,
         declaredBy: [...(declarations.get(name) ?? [])].sort(),
       };
     });

@@ -133,6 +133,7 @@ function configStatus(): ConfigStatus {
       generation_id: "generation-1",
       activity: "idle",
       activation: "active",
+      llm: { providers: [] },
     },
     process_shell: {
       writable: false,

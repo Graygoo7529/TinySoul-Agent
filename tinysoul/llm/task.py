@@ -28,6 +28,7 @@ from .messages import ImagePart, ImageUrlPart, MessageStack
 from .model_chain import (
     ChainErrorDisposition,
     Clock,
+    ModelChain,
     ModelChainExhaustedError,
     ModelChainPlanner,
     ModelChainRunner,
@@ -254,6 +255,7 @@ class LLMTaskRunner:
         try:
             _check_cancellation(call)
             task = self._tasks.get(call.profile)
+            chain = self._routable_chain(task)
             attempted_models: set[str] = set()
 
             def run_model(model_id: str) -> TaskResult:
@@ -267,7 +269,7 @@ class LLMTaskRunner:
                 )
 
             return self._chain_runner.run(
-                task.chain,
+                chain,
                 run_model,
                 classify_error=self._classify_chain_error,
             )
@@ -322,7 +324,8 @@ class LLMTaskRunner:
         profile: TaskProfile | str,
     ) -> CurrentModelCapabilities:
         task = self._tasks.get(profile)
-        model_id = self._chain_runner.current_model_id(task.chain)
+        chain = self._routable_chain(task)
+        model_id = self._chain_runner.current_model_id(chain)
         model = self._models.get(model_id)
         bindings = self._available_bindings(model)
         provider_ids = tuple(binding.provider_id for binding in bindings)
@@ -772,6 +775,29 @@ class LLMTaskRunner:
                 f"'{model.adapter.value}'"
             )
         return bindings
+
+    def _routable_chain(self, task: TaskSpec) -> ModelChain:
+        model_ids = tuple(
+            model_id
+            for model_id in task.chain.model_ids
+            if self._model_is_routable(model_id)
+        )
+        if not model_ids:
+            raise ModelChainExhaustedError(
+                f"Task '{task.profile}' has no model with an enabled provider"
+            )
+        return ModelChain(
+            profile=task.chain.profile,
+            model_ids=model_ids,
+            retry_policy=task.chain.retry_policy,
+        )
+
+    def _model_is_routable(self, model_id: str) -> bool:
+        model = self._models.get(model_id)
+        return any(
+            self._providers.has(binding.provider_id, model.adapter)
+            for binding in model.providers
+        )
 
 
 def _provider_error_from(error: Exception) -> ProviderError | None:

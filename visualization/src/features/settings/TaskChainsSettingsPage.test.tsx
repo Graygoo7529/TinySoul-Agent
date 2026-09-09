@@ -215,7 +215,7 @@ function status(): ConfigStatus {
       path,
       { value, source, writable: true },
     ])),
-    runtime: { generation_id: "g1", activity: "idle", activation: "stable" },
+    runtime: { generation_id: "g1", activity: "idle", activation: "stable", llm: { providers: [] } },
     process_shell: {
       writable: false,
       reason: "process_owned",

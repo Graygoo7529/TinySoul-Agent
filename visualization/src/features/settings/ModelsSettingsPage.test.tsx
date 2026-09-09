@@ -125,7 +125,7 @@ describe("ModelsSettingsPage", () => {
           source_id: "project:configs/llm/models/custom.toml",
           path: "llm.models.custom_model.providers",
           op: "set",
-          value: [{ provider: "kimi_proxy", provider_model: "model" }],
+          value: [{ provider: "kimi_proxy", provider_model: "custom_model" }],
         },
         {
           source_id: "project:configs/llm/models/custom.toml",
@@ -174,10 +174,49 @@ describe("ModelsSettingsPage", () => {
         op: "set",
         value: [
           { provider: "openai", provider_model: "gpt-5" },
-          { provider: "openai_proxy", provider_model: "model" },
+          { provider: "openai_proxy", provider_model: "gpt-5" },
         ],
       }],
     });
+  });
+
+  it("creates a blank model by default and uses its ID as the remote model", async () => {
+    const current = status();
+    const patchConfig = vi.fn().mockResolvedValue({
+      state: "active",
+      changed_sources: ["project:configs/llm/models/custom.toml"],
+      changed_fields: ["llm.models.fresh_model"],
+      generation_id: "g2",
+    });
+    const client = {
+      configuration: {
+        patch: patchConfig,
+        status: vi.fn().mockResolvedValue(current),
+        actions: vi.fn().mockResolvedValue({ actions: [] }),
+      },
+    } as unknown as TinySoulClient;
+    act(() => {
+      root.render(<ModelsSettingsPage client={client} status={current} catalog={catalog()} />);
+    });
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Add Models"]')?.click());
+    expect(select("Model template")?.value).toBe("");
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Model ID"]');
+    if (!input) throw new Error("Missing Model ID input");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        input,
+        "fresh_model",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("Create")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const value = patchConfig.mock.calls[0][0].operations[0].value;
+    expect(value.providers[0].provider_model).toBe("fresh_model");
   });
 
   it("renders model option adders in their Advanced groups, including an empty group", () => {
@@ -485,7 +524,7 @@ function status(): ConfigStatus {
       "llm.providers.kimi.adapters": { value: ["kimi"], source: providerSource, writable: true },
       "llm.providers.kimi_proxy.adapters": { value: ["kimi"], source: providerSource, writable: true },
     },
-    runtime: { generation_id: "g1", activity: "idle", activation: "stable" },
+    runtime: { generation_id: "g1", activity: "idle", activation: "stable", llm: { providers: [] } },
     process_shell: {
       writable: false,
       reason: "process_owned",

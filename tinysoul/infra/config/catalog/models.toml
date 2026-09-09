@@ -139,7 +139,7 @@ path = "llm.providers.*.enabled"
 surface = "providers"
 group = "providers.availability"
 title = "Enabled"
-description = "Includes models bound to this provider in effective task chains and builds its runtime adapter."
+description = "Builds this provider's adapters and makes compatible bound models routable; at least one declared credential must be configured."
 value_kind = "boolean"
 
 [[field]]

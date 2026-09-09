@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from tinysoul.action import ActionCatalogLoader, ActionEngine
@@ -48,6 +48,7 @@ from tinysoul.infra import (
     parse_infra_settings,
 )
 from tinysoul.llm.config import LLMConfigParser
+from tinysoul.llm.config_types import LLMConfig
 from tinysoul.llm.adapter import adapter_specs_json
 from tinysoul.llm.provider import ProviderError
 from tinysoul.llm.provider.factory import build_provider_registry
@@ -518,9 +519,10 @@ class TinySoulAppBuilder:
             self._llm
             if self._llm is not None
             else self._build_llm(
-                config,
+                plan.llm,
                 RuntimeLLMBridge(),
                 observations,
+                env=config.runtime_env,
                 context_trigger_ratio=context_settings.compression_trigger_ratio,
             )
         )
@@ -591,6 +593,9 @@ class TinySoulAppBuilder:
         return AppRuntimeGeneration(
             config=config,
             plan=plan,
+            llm_provider_credentials=plan.llm.provider_credential_statuses(
+                config.runtime_env
+            ),
             user_turn=user_turn,
             maintenance=maintenance,
             workspace=workspace,
@@ -665,13 +670,7 @@ class TinySoulAppBuilder:
             ),
             supervised_process_wait=supervised_process_wait,
             context=config.parse_section("context", parse_context_settings),
-            llm=config.parse_section(
-                "llm",
-                lambda tree: LLMConfigParser().parse(
-                    tree,
-                    require_enabled_providers=self._llm is None,
-                ),
-            ),
+            llm=config.parse_section("llm", LLMConfigParser().parse),
             loop=(
                 self._loop_settings
                 if self._loop_settings is not None
@@ -718,6 +717,8 @@ class TinySoulAppBuilder:
             ),
         )
         try:
+            if self._llm is None:
+                plan.llm.validate_enabled_provider_credentials(config.runtime_env)
             validate_cycle_task_profiles(
                 plan.loop.cycle,
                 task_profiles=plan.llm.tasks.profiles(),
@@ -769,29 +770,22 @@ class TinySoulAppBuilder:
 
     def _build_llm(
         self,
-        config: ConfigEnvironment,
+        llm_config: LLMConfig,
         bridge: RuntimeLLMBridge,
         observations: ObservationEmitter,
         *,
+        env: Mapping[str, str],
         context_trigger_ratio: float,
     ) -> LLMTaskRunner:
-        try:
-            llm_config = config.parse_section("llm", LLMConfigParser().parse)
-            providers = build_provider_registry(
-                llm_config.providers,
-                env=config.runtime_env,
-            )
-            return LLMTaskRunner(
-                models=llm_config.models,
-                providers=providers,
-                tasks=llm_config.tasks,
-                runtime_bridge=bridge,
-                observations=observations,
-                context_trigger_ratio=context_trigger_ratio,
-            )
-        except ConfigError as exc:
-            enriched = config.enrich_error(exc)
-            raise bridge.from_config_error(enriched) from exc
+        providers = build_provider_registry(llm_config.providers, env=env)
+        return LLMTaskRunner(
+            models=llm_config.models,
+            providers=providers,
+            tasks=llm_config.tasks,
+            runtime_bridge=bridge,
+            observations=observations,
+            context_trigger_ratio=context_trigger_ratio,
+        )
 
     def _build_loop_settings(
         self,

@@ -30,6 +30,14 @@ export interface ConfigFieldProjection {
   writable: boolean;
 }
 
+export type ProviderCredentialState = "configured" | "missing";
+
+export interface ProviderCredentialStatus {
+  id: string;
+  credential_state: ProviderCredentialState;
+  api_key_envs: string[];
+}
+
 export interface ConfigStatus {
   activity: ConfigActivity;
   sources: ConfigSourceProjection[];
@@ -38,6 +46,9 @@ export interface ConfigStatus {
     generation_id: string;
     activity: string;
     activation: string;
+    llm: {
+      providers: ProviderCredentialStatus[];
+    };
   };
   process_shell: {
     writable: false;

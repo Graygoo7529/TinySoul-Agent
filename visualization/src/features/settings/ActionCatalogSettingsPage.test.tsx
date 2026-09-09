@@ -77,7 +77,7 @@ function status(): ConfigStatus {
     activity: { state: "user_turn", can_write: false, reason: "" },
     sources: [],
     fields: {},
-    runtime: { generation_id: "g1", activity: "user_turn", activation: "stable" },
+    runtime: { generation_id: "g1", activity: "user_turn", activation: "stable", llm: { providers: [] } },
     process_shell: {
       writable: false,
       reason: "process_owned",

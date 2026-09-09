@@ -9,6 +9,7 @@ from tinysoul.infra.config import ConfigMutation
 from tinysoul.infra.json import JsonObject
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop import LoopControlKind
+from tinysoul.llm.config_types import ProviderCredentialStatus
 from tinysoul.maintenance import MaintenanceAvailability, MaintenanceScope
 from tinysoul.runtime import RunScope
 from tinysoul.workspace import WorkspaceEngine, WorkspaceManifest
@@ -73,6 +74,9 @@ class EndpointConfigController(Protocol):
 
 
 class EndpointRuntimeGeneration(Protocol):
+    @property
+    def llm_provider_credentials(self) -> tuple[ProviderCredentialStatus, ...]: ...
+
     @property
     def user_turn(self) -> "EndpointUserTurn": ...
 

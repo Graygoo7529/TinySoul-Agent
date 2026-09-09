@@ -4,12 +4,51 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
+
 from tinysoul.infra.config import ConfigError
 
 from .errors import LLMContractError
 from .adapter_types import AdapterKind
 from .model_chain import TaskSpecTable
 from .models import ModelRegistry
+
+
+class ProviderCredentialState(StrEnum):
+    """Whether a configured provider credential can be resolved."""
+
+    CONFIGURED = "configured"
+    MISSING = "missing"
+
+
+@dataclass(frozen=True)
+class ProviderCredentialStatus:
+    """Secret-free provider credential readiness for one Runtime Generation."""
+
+    provider_id: str
+    state: ProviderCredentialState
+    api_key_envs: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.provider_id, str) or not self.provider_id:
+            raise LLMContractError(
+                "ProviderCredentialStatus.provider_id must be non-empty"
+            )
+        if not isinstance(self.state, ProviderCredentialState):
+            raise LLMContractError(
+                "ProviderCredentialStatus.state must be a ProviderCredentialState"
+            )
+        try:
+            names = tuple(self.api_key_envs)
+        except TypeError as exc:
+            raise LLMContractError(
+                "ProviderCredentialStatus.api_key_envs must be an iterable of strings"
+            ) from exc
+        if not names or any(not isinstance(name, str) or not name for name in names):
+            raise LLMContractError(
+                "ProviderCredentialStatus.api_key_envs must contain non-empty strings"
+            )
+        object.__setattr__(self, "api_key_envs", names)
 
 
 @dataclass(frozen=True)
@@ -59,16 +98,41 @@ class ProviderSpec:
                 )
         object.__setattr__(self, "api_key_envs", api_key_envs)
 
-    def resolve_api_key(self, values: Mapping[str, str]) -> str:
+    def configured_api_key(self, values: Mapping[str, str]) -> str | None:
+        """Return the first configured key without retaining its source name."""
+
         for name in self.api_key_envs:
             value = values.get(name)
-            if value:
-                return value
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def credential_status(
+        self,
+        values: Mapping[str, str],
+    ) -> ProviderCredentialStatus:
+        """Project credential readiness without exposing credential values."""
+
+        return ProviderCredentialStatus(
+            provider_id=self.id,
+            state=(
+                ProviderCredentialState.CONFIGURED
+                if self.configured_api_key(values) is not None
+                else ProviderCredentialState.MISSING
+            ),
+            api_key_envs=self.api_key_envs,
+        )
+
+    def resolve_api_key(self, values: Mapping[str, str]) -> str:
+        value = self.configured_api_key(values)
+        if value is not None:
+            return value
         names = ", ".join(self.api_key_envs)
         raise ConfigError(
-            "Provider API key is not configured",
+            f"Provider '{self.id}' cannot be enabled until one of its credentials "
+            f"is configured: {names}",
             key=f"llm.providers.{self.id}.api_key_envs",
-            value=names,
+            expected="at least one non-empty runtime environment variable",
         )
 
 
@@ -106,4 +170,24 @@ class LLMConfig:
             "Unknown provider",
             key="llm.providers",
             value=provider_id,
+        )
+
+    def validate_enabled_provider_credentials(
+        self,
+        values: Mapping[str, str],
+    ) -> None:
+        """Require every enabled provider to be locally ready for assembly."""
+
+        for provider in self.providers:
+            if provider.enabled:
+                provider.resolve_api_key(values)
+
+    def provider_credential_statuses(
+        self,
+        values: Mapping[str, str],
+    ) -> tuple[ProviderCredentialStatus, ...]:
+        """Return stable, secret-free credential readiness in configuration order."""
+
+        return tuple(
+            provider.credential_status(values) for provider in self.providers
         )

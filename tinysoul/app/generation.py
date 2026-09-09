@@ -13,7 +13,7 @@ from tinysoul.capabilities import CapabilitiesSettings
 from tinysoul.capabilities.supervised_process import SupervisedProcessWaitPolicy
 from tinysoul.context import ContextSettings
 from tinysoul.home import AgentHomeSettings
-from tinysoul.llm.config_types import LLMConfig
+from tinysoul.llm.config_types import LLMConfig, ProviderCredentialStatus
 from tinysoul.loop.config import LoopSettings
 from tinysoul.loop.user import UserTurnEntry
 from tinysoul.maintenance import MaintenanceEngine, MaintenanceSettings
@@ -52,6 +52,7 @@ class AppRuntimeGeneration:
 
     config: ConfigEnvironment
     plan: AppConfigPlan
+    llm_provider_credentials: tuple[ProviderCredentialStatus, ...]
     user_turn: UserTurnEntry
     maintenance: MaintenanceEngine
     workspace: WorkspaceEngine

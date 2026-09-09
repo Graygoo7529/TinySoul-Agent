@@ -8,12 +8,13 @@ from fastapi.testclient import TestClient
 import pytest
 from pypdf import PdfWriter
 
-from tinysoul.app import AppSettings, TinySoulAppBuilder
+from tinysoul.app import AppSettings, ProjectConfigProfile, TinySoulAppBuilder
 from tinysoul.endpoint import EndpointSettings
 from tinysoul.endpoint.http import create_endpoint_app
 from tinysoul.infra.config import ConfigEnvironment, ConfigMutation
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.llm.requests import TaskCall
+from tinysoul.llm.failures import LLMFailureKind
 from tinysoul.llm.responses import JsonAnswer, RawResponse, TaskResult
 from tinysoul.llm.tools import ToolCallRecord, ToolKind
 from tinysoul.loop import (
@@ -117,6 +118,133 @@ def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     assert app.input_sources == ()
     assert len(app.services) == 1
     assert app.observations.mode.value == "model"
+
+
+def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    copy_initialized_project(project_root)
+    app = (
+        TinySoulAppBuilder(root=project_root)
+        .with_config_environment(
+            ConfigEnvironment.from_project_root(project_root, env={})
+        )
+        .with_app_settings(AppSettings(interactive=False))
+        .with_endpoint(EndpointSettings(token="x" * 32))
+        .build()
+    )
+    assert app.endpoint is not None
+    endpoint = app.endpoint
+    client = TestClient(create_endpoint_app(endpoint, endpoint.settings))
+    headers = {"Authorization": f"Bearer {'x' * 32}"}
+
+    runtime_before = _json_object(
+        client.get("/v1/config", headers=headers).json()["runtime"]
+    )
+    llm_status = _json_object(runtime_before["llm"])
+    providers = llm_status["providers"]
+    assert isinstance(providers, list)
+    deepseek = next(
+        item
+        for item in providers
+        if isinstance(item, dict) and item.get("id") == "deepseek"
+    )
+    assert deepseek == {
+        "id": "deepseek",
+        "credential_state": "missing",
+        "api_key_envs": ["DEEPSEEK_API_KEY"],
+    }
+
+    response = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": "project:configs/llm/providers.toml",
+                    "path": "llm.providers.deepseek.enabled",
+                    "op": "set",
+                    "value": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "config.invalid"
+    assert "DEEPSEEK_API_KEY" in error["message"]
+    assert error["details"]["key"] == "llm.providers.deepseek.api_key_envs"
+    runtime_after = client.get("/v1/config", headers=headers).json()["runtime"]
+    assert runtime_after["generation_id"] == runtime_before["generation_id"]
+    providers_path = project_root / "configs" / "llm" / "providers.toml"
+    assert "enabled = true" not in providers_path.read_text(encoding="utf-8")
+
+    credential_response = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": "dotenv",
+                    "path": "DEEPSEEK_API_KEY",
+                    "op": "set",
+                    "value": "configured",
+                }
+            ]
+        },
+    )
+    assert credential_response.status_code == 200
+    configured_runtime = client.get("/v1/config", headers=headers).json()["runtime"]
+    configured_llm = _json_object(configured_runtime["llm"])
+    configured_providers = configured_llm["providers"]
+    assert isinstance(configured_providers, list)
+    assert next(
+        item
+        for item in configured_providers
+        if isinstance(item, dict) and item.get("id") == "deepseek"
+    )["credential_state"] == "configured"
+
+    enabled_response = client.patch(
+        "/v1/config",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "source_id": "project:configs/llm/providers.toml",
+                    "path": "llm.providers.deepseek.enabled",
+                    "op": "set",
+                    "value": True,
+                }
+            ]
+        },
+    )
+    assert enabled_response.status_code == 200
+    assert "enabled = true" in providers_path.read_text(encoding="utf-8")
+
+
+def test_development_project_requires_credentials_for_enabled_providers(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "development-project"
+    copy_initialized_project(
+        project_root,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
+
+    with pytest.raises(RuntimeException) as error:
+        (
+            TinySoulAppBuilder(root=project_root)
+            .with_config_environment(
+                ConfigEnvironment.from_project_root(project_root, env={})
+            )
+            .with_app_settings(AppSettings(interactive=False))
+            .build()
+        )
+
+    assert error.value.reason == RUNTIME_STARTUP_FAILED
+    assert error.value.payload["kind"] == LLMFailureKind.CONFIGURATION_FAILED
 
 
 def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(

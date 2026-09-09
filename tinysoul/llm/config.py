@@ -9,7 +9,12 @@ from tinysoul.infra.config import reject_unknown_keys
 from .config_helpers import required_table
 from .config_sections import ModelConfigParser, ProviderConfigParser, TaskConfigParser
 from .adapter_types import AdapterKind, ProviderApiStyle
-from .config_types import LLMConfig, ProviderSpec
+from .config_types import (
+    LLMConfig,
+    ProviderCredentialState,
+    ProviderCredentialStatus,
+    ProviderSpec,
+)
 
 
 class LLMConfigParser:
@@ -26,12 +31,7 @@ class LLMConfigParser:
         self._models = models or ModelConfigParser()
         self._tasks = tasks or TaskConfigParser()
 
-    def parse(
-        self,
-        llm_tree: Mapping[str, object],
-        *,
-        require_enabled_providers: bool = True,
-    ) -> LLMConfig:
+    def parse(self, llm_tree: Mapping[str, object]) -> LLMConfig:
         reject_unknown_keys(llm_tree, {"providers", "models", "tasks"}, key="llm")
         provider_specs = self._providers.parse(
             required_table(llm_tree, "providers", key="llm")
@@ -44,13 +44,6 @@ class LLMConfigParser:
         task_specs = self._tasks.parse(
             required_table(llm_tree, "tasks", key="llm"),
             models=model_registry,
-            enabled_provider_ids=(
-                frozenset(
-                    provider.id for provider in provider_specs if provider.enabled
-                )
-                if require_enabled_providers
-                else None
-            ),
         )
         return LLMConfig(
             providers=tuple(provider_specs),
@@ -66,6 +59,8 @@ __all__ = [
     "AdapterKind",
     "ProviderApiStyle",
     "ProviderConfigParser",
+    "ProviderCredentialState",
+    "ProviderCredentialStatus",
     "ProviderSpec",
     "TaskConfigParser",
 ]

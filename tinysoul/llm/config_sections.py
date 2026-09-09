@@ -239,7 +239,6 @@ class TaskConfigParser:
         table: Mapping[str, object],
         *,
         models: ModelRegistry,
-        enabled_provider_ids: frozenset[str] | None = None,
     ) -> TaskSpecTable:
         tasks = TaskSpecTable()
         for profile, value in table.items():
@@ -278,20 +277,6 @@ class TaskConfigParser:
                         "Task references unknown model",
                         key=f"llm.tasks.{profile}.models",
                         value=model_id,
-                    )
-            if enabled_provider_ids is not None:
-                model_ids = tuple(
-                    model_id
-                    for model_id in model_ids
-                    if any(
-                        binding.provider_id in enabled_provider_ids
-                        for binding in models.get(model_id).providers
-                    )
-                )
-                if not model_ids:
-                    raise ConfigError(
-                        "Task has no models from enabled providers",
-                        key=f"llm.tasks.{profile}.models",
                     )
             required_capabilities = optional_capability_set(
                 task_table,

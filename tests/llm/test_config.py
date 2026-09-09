@@ -8,7 +8,7 @@ import pytest
 from tinysoul.app import ProjectConfigProfile
 from tinysoul.infra.config import ConfigEnvironment, ConfigError
 from tinysoul.llm.adapter_types import AdapterKind
-from tinysoul.llm.config import LLMConfigParser
+from tinysoul.llm.config import LLMConfigParser, ProviderCredentialState
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.reasoning import ReasoningKeep
@@ -239,11 +239,14 @@ def test_retry_policy_rejects_non_finite_preference_window() -> None:
     assert error.value.key == "llm.tasks.framework"
 
 
-def test_disabled_provider_is_filtered_without_resolving_credential() -> None:
+def test_disabled_provider_stays_in_task_chain_without_requiring_credential() -> None:
     tree = {
         "providers": {
             "disabled": {**_provider(), "enabled": False, "api_key_envs": ["DISABLED_KEY"]},
-            "enabled": {**_provider(), "api_key_envs": ["ENABLED_KEY"]},
+            "enabled": {
+                **_provider(),
+                "api_key_envs": ["PRIMARY_KEY", "ENABLED_KEY"],
+            },
         },
         "models": {
             "disabled_model": {"adapter": "openai_compatible_chat", "providers": [{"provider": "disabled", "provider_model": "disabled"}], "context_window_tokens": 262144, "capabilities": ["text_input"]},
@@ -252,8 +255,27 @@ def test_disabled_provider_is_filtered_without_resolving_credential() -> None:
         "tasks": {"framework": {"models": ["disabled_model", "enabled_model"]}},
     }
     config = LLMConfigParser().parse(tree)
-    assert config.tasks.get("framework").chain.model_ids == ("enabled_model",)
-    registry = build_provider_registry(config.providers, env={"ENABLED_KEY": "configured"})
+    assert config.tasks.get("framework").chain.model_ids == (
+        "disabled_model",
+        "enabled_model",
+    )
+    statuses = config.provider_credential_statuses(
+        {"PRIMARY_KEY": "  ", "ENABLED_KEY": " configured "}
+    )
+    assert statuses[0].state is ProviderCredentialState.MISSING
+    assert statuses[1].state is ProviderCredentialState.CONFIGURED
+
+    with pytest.raises(ConfigError, match="cannot be enabled") as error:
+        config.validate_enabled_provider_credentials({})
+    assert error.value.key == "llm.providers.enabled.api_key_envs"
+
+    config.validate_enabled_provider_credentials(
+        {"PRIMARY_KEY": "  ", "ENABLED_KEY": " configured "}
+    )
+    registry = build_provider_registry(
+        config.providers,
+        env={"ENABLED_KEY": "configured"},
+    )
     assert registry.get("enabled", AdapterKind.OPENAI_COMPATIBLE_CHAT).provider_id == "enabled"
 
 

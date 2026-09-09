@@ -28,6 +28,16 @@ class EndpointConfigurationEngine(Generic[EndpointGenerationT]):
                 "generation_id": snapshot.generation_id,
                 "activity": snapshot.activity.value,
                 "activation": snapshot.activation.value,
+                "llm": {
+                    "providers": [
+                        {
+                            "id": item.provider_id,
+                            "credential_state": item.state.value,
+                            "api_key_envs": list(item.api_key_envs),
+                        }
+                        for item in snapshot.generation.llm_provider_credentials
+                    ]
+                },
             }
         result["process_shell"] = {
             "writable": False,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ConfigCatalog, ConfigStatus } from "../../types";
 import {
   configObjects,
+  defaultProviderApiKeyEnv,
   deriveCredentials,
   descriptorForPath,
   groupSurfaceFields,
@@ -168,6 +169,11 @@ describe("settings catalog projection", () => {
         },
       ],
     }]);
+  });
+
+  it("derives editable provider credential names from provider IDs", () => {
+    expect(defaultProviderApiKeyEnv("my-proxy")).toBe("MY_PROXY_API_KEY");
+    expect(defaultProviderApiKeyEnv("123proxy")).toBe("PROVIDER_123PROXY_API_KEY");
   });
 
   it("groups credentials by their catalog field groups", () => {
@@ -462,7 +468,7 @@ function status(): ConfigStatus {
         writable: true,
       },
     },
-    runtime: { generation_id: "g1", activity: "idle", activation: "stable" },
+    runtime: { generation_id: "g1", activity: "idle", activation: "stable", llm: { providers: [] } },
     process_shell: {
       writable: false,
       reason: "process_owned",

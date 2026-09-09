@@ -672,6 +672,49 @@ def test_runner_reports_chain_head_capabilities_by_default() -> None:
     assert not capabilities.supports(ModelCapability.IMAGE_REMOTE_URL)
 
 
+def test_runner_skips_models_without_a_registered_provider() -> None:
+    unavailable = ModelSpec(
+        id="unavailable",
+        providers=(ModelProviderBinding("disabled", "remote-a"),),
+        context_window_tokens=262_144,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        capabilities=frozenset(
+            {ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT}
+        ),
+    )
+    available = ModelSpec(
+        id="available",
+        providers=(ModelProviderBinding("fake", "remote-b"),),
+        context_window_tokens=262_144,
+        adapter=AdapterKind.OPENAI_COMPATIBLE_CHAT,
+        capabilities=frozenset(
+            {ModelCapability.TEXT_INPUT, ModelCapability.JSON_OBJECT_OUTPUT}
+        ),
+    )
+    provider = FakeProvider(provider_id="fake")
+    runner = LLMTaskRunner(
+        models=ModelRegistry([unavailable, available]),
+        providers=ProviderRegistry([provider]),
+        tasks=_tasks(
+            ModelChain(
+                profile="framework",
+                model_ids=("unavailable", "available"),
+            )
+        ),
+    )
+
+    result = runner.run(
+        TaskCall(
+            profile="framework",
+            messages=MessageStack.of(UserMessage.from_text("hello")),
+        )
+    )
+
+    assert _json_output(result) == {"model": "available"}
+    assert provider.calls == ["available"]
+    assert runner.current_model_capabilities("framework").model_id == "available"
+
+
 def test_runner_reports_successful_fallback_model_during_preference_window() -> None:
     provider = FakeProvider(provider_id="fake", failures={"a": 1})
     clock = FakeClock()
@@ -1387,7 +1430,7 @@ def test_runner_reports_unknown_model_as_contract_violation() -> None:
     assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
-def test_runner_reports_unknown_provider_as_contract_violation() -> None:
+def test_runner_reports_model_chain_exhaustion_without_routable_provider() -> None:
     model = ModelSpec(
         id="model_a",
         providers=(ModelProviderBinding("missing", "model-a"),),
@@ -1415,7 +1458,7 @@ def test_runner_reports_unknown_provider_as_contract_violation() -> None:
         )
 
     assert exc_info.value.reason == RUNTIME_TURN_END
-    assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
+    assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
 
 
 def _models(*ids: str) -> ModelRegistry:

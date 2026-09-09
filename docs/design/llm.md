@@ -142,7 +142,7 @@ Reasoning 的三个字段语义不同：`content` 是可传给支持 Chat 历史
 
 任务配置描述任务用途、调用设置、调用参数、候选模型顺序和异常恢复策略；异常恢复逻辑负责根据策略执行重试、等待、切换和链路状态更新；任务调用本身只负责单次模型请求的能力校验、供应商调用和输出解释。三者应保持分离，避免一次调用流程被异常恢复细节淹没。
 
-模型链采用显式异常分类后的顺序尝试策略。一次调用从当前起点开始沿模型链向后尝试：暂时性 ProviderError 先在同一 Provider 按 `max_retries_per_provider` 重试，仍失败时切换当前 Model 的下一个 Provider；Provider Chain 耗尽后，暂时性失败允许进入后续完整 Model Chain cycle，确定性 Provider 失败则切换下一个 Model。模型能力缺失和 scope 为 model 的配置/契约错误会把该 Model 标记为本次调用不可再尝试；RuntimeException 和未归类的实现异常立即中止模型链，不能伪装成供应商切换。只有至少存在暂时性错误时才循环可重试模型；所有候选均永久失败后立即耗尽。模型链耗尽后进入 Runtime 语义陷入，由运行层决定结束当前 Turn 或执行其他上层处理。
+模型链采用显式异常分类后的顺序尝试策略。Task 配置保留完整候选顺序；每次 Task 开始前，Runner 根据当前不可变 Provider Registry 投影可路由模型，跳过没有已装配 Provider Adapter 的模型。被跳过的模型没有发生调用，不产生伪造尝试，也不消耗切换等待。一次调用从有效链的当前起点开始向后尝试：暂时性 ProviderError 先在同一 Provider 按 `max_retries_per_provider` 重试，仍失败时切换当前 Model 的下一个 Provider；Provider Chain 耗尽后，暂时性失败允许进入后续完整 Model Chain cycle，确定性 Provider 失败则切换下一个 Model。模型能力缺失和 scope 为 model 的配置/契约错误会把该 Model 标记为本次调用不可再尝试；RuntimeException 和未归类的实现异常立即中止模型链，不能伪装成供应商切换。只有至少存在暂时性错误时才循环可重试模型；所有候选均永久失败后立即耗尽。没有可路由模型或模型链尝试耗尽时，均形成既有模型链耗尽失败并进入 Runtime 语义陷入，由运行层决定结束当前 Turn 或执行其他上层处理。
 
 每次候选模型尝试在 provider 调用前执行上下文硬水位预检，但一个 LLM Task 内所有候选始终共享上层已经构造的同一个 MessageStack。预检不会为不同模型维护平行 MessageStack，也不修改 ModelChainRunner 的位置状态；若当前 Task 允许 Context 重建，则容量压力立即中止整个 LLM Task，经 Runtime Trap 压缩 Context 后由上层重新构造一个新的 LLM Task。重放仍从既有 preferred model 开始，可能再次调用先前失败的大窗口模型，这是无容量 checkpoint 设计的明确成本。
 
@@ -170,7 +170,9 @@ LLM 配置属于 LLM 模块。Infra 只负责读取和合并配置文件，LLM �
 
 `LLMConfigParser` 是配置解析公共门面，保持上层输入边界稳定；内部按 provider、model、task 三类 section parser 拆分。provider parser 只解释供应商接入形态，model parser 负责模型能力与供应商引用，task parser 负责任务模型链、调用设置和 retry policy。共享的动态值读取与 enum/list/number 校验由配置 helper 承担，所有配置问题都收敛为 `ConfigError`。
 
-供应商配置把端点/凭据身份和行为适配类型分开描述：provider id 表示一个可独立启停的端点与凭据集合，`adapters` 声明该端点支持的一组 Adapter。一个代理端点可以同时声明 `openai`、`kimi` 和 `openai_compatible_chat`，模型按自身所需的 Adapter 筛选可用 Provider。模型只引用实际提供它的 provider id，而不假定 provider 名称等于适配器名称。同一模型在不同平台具有不同供应商模型名时，配置必须使用目标端点公开的模型 id，不把一个平台的具体模型名发送给另一个端点。`enabled = false` 的 provider 不构建任何 Adapter、不解析凭据，任务模型链会过滤其模型；过滤后为空在加载期报错。密钥本身不写入项目配置文件，应放在本地环境文件或系统环境变量中。
+供应商配置把端点/凭据身份和行为适配类型分开描述：provider id 表示一个可独立启停的端点与凭据集合，`adapters` 声明该端点支持的一组 Adapter。一个代理端点可以同时声明 `openai`、`kimi` 和 `openai_compatible_chat`，模型按自身所需的 Adapter 筛选可用 Provider。模型只引用实际提供它的 provider id，而不假定 provider 名称等于适配器名称。同一模型在不同平台具有不同供应商模型名时，配置必须使用目标端点公开的模型 id，不把一个平台的具体模型名发送给另一个端点。`enabled = false` 的 Provider 不构建 Adapter，也不要求当前环境存在凭据；它仍可长期保留在 Model Binding 和 Task Model Chain 中。`enabled = true` 则要求当前 Generation 能从 `api_key_envs` 中解析到至少一个去除外围空白后非空的值，否则配置在候选校验或进程启动边界严格失败。启用只表达本地装配就绪，不是远端鉴权、网络或模型存在性的健康检查。密钥本身不写入项目配置文件，应放在本地环境文件或系统环境变量中。
+
+LLM 为每个 Runtime Generation 投影只读、无 secret 的 Provider 凭据状态，只包含 Provider identity、声明的环境变量名和 `configured | missing`。Endpoint 可以把该状态提供给设置界面，用于在提交 enable 前给出明确引导；配置中的 `enabled` 仍是唯一启用事实，后端候选校验仍是权威边界。零 enabled Provider 是合法的可配置状态，服务可以启动并接受配置；此时若某项 LLM Task 没有任何可路由模型，则按既有模型链耗尽语义结束该 Turn，而不是终止 Program。
 
 同一模型系列中的性能与成本档位仍是独立 `ModelSpec`，而不是 provider 或 adapter 的子类型。任务 profile 按自身用途静态选择优先档位，模型链继续表达有序失败恢复，不承担运行时复杂度分类或动态成本路由。配置应使用端点公开的具体模型 id；当供应商同时提供会重定向到某个档位的浮动别名时，初始化模板不为该别名复制第二个 TinySoul 模型身份，也不让隐式重定向替代明确档位选择。
 
@@ -196,7 +198,7 @@ MiniMax 采用兼容 OpenAI Chat Completions 的接口形态。其思考模式�
 
 Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 Provider 与 `provider_model`，形成当前 Model 的 Provider Chain；`adapter` 选择整个模型所需的 Adapter；capabilities 表达路由可依赖的能力；`adapter_options` 与 `request_overrides` 是两个同级对象。`AdapterOptions` 只承载由所选 Adapter 解释的模型级选项，例如推理协议、缓存和供应商扩展参数。`RequestOverrides` 只承载模型对通用调用参数的固定覆盖，当前包括 `temperature` 与 `max_output_tokens`，由 TaskRunner 在构造 `ProviderRequest` 前覆盖任务和单次调用设置，Provider Adapter 不解析该配置容器。所有 Provider Binding 必须满足相同的 Model 能力与 Adapter 契约；如果上下文窗口或能力不同，应建立另一个 Model。
 
-推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 Adapter 以何种形态回放；具体供应商参数仍由 Adapter 根据该语义和自身协议解释。设置页把 Model 的 Provider Chain 作为一个有序编辑器：每行选择兼容 Provider、填写该端点的 `provider_model`，并可添加、删除和排序；提交时以完整 `llm.models.<id>.providers` 数组原子写入，不把数组索引暴露为独立 mutation。切换 Model Adapter 时同时重建兼容 Provider Chain，并清理不再适用的 Adapter options；`context_window_tokens`、capabilities、request overrides 不随 Provider 切换而复制或改写。LLM parser 只校验最终候选配置能否由当前 Provider Adapter 解释，失败时整个 PATCH 不持久化且当前 Runtime Generation 保持原样。目标 endpoint 是否实际提供配置的 `provider_model` 无法静态确认，由配置者负责。
+推理轨迹保留方式属于 `adapter_options`，它描述模型历史推理内容可由 Adapter 以何种形态回放；具体供应商参数仍由 Adapter 根据该语义和自身协议解释。设置页把 Model 的 Provider Chain 作为一个有序编辑器：每行选择兼容 Provider、填写该端点的 `provider_model`，并可添加、删除和排序；提交时以完整 `llm.models.<id>.providers` 数组原子写入，不把数组索引暴露为独立 mutation。新建 Model 默认从 Blank 开始，首个远端模型名使用新 Model identity；添加备用 Provider 时优先复用链首远端模型名。切换 Model Adapter 时同时重建兼容 Provider Chain，优先保留目标 Provider 已有的远端模型名，否则使用当前 Model identity，并清理不再适用的 Adapter options；`context_window_tokens`、capabilities、request overrides 不随 Provider 切换而复制或改写。LLM parser 只校验最终候选配置能否由当前 Provider Adapter 解释，失败时整个 PATCH 不持久化且当前 Runtime Generation 保持原样。目标 endpoint 是否实际提供配置的 `provider_model` 无法静态确认，由配置者负责。
 
 配置文件属于动态边界。Provider、Model 和 Task Chain 的稳定 ID 不得包含点号、外围空白或仅由数字组成；`provider_model` 仍是 endpoint 的不透明值。provider 的 `enabled`、`adapters`，模型的 `adapter`、Provider Chain、能力、任务回答格式、工具使用策略、Adapter options、request overrides 和 retry policy 都必须在配置解析阶段转换为明确内部类型或 `ConfigError`。provider/model/task 及 Adapter 专属 options 都拒绝未知键，避免拼写错误、裸 `ValueError`、`TypeError` 或未知字符串进入运行期。
 

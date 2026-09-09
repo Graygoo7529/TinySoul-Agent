@@ -386,7 +386,7 @@ def test_cli_reset_rejects_project_held_by_running_instance(
     assert marker.read_text(encoding="utf-8") == "active"
 
 
-def test_initialized_project_reports_clear_unconfigured_provider_error(
+def test_initialized_project_reports_model_chain_exhaustion_without_enabled_provider(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -397,7 +397,8 @@ def test_initialized_project_reports_clear_unconfigured_provider_error(
 
     captured = capsys.readouterr()
     assert result == 1
-    assert "Task has no models from enabled providers" in captured.err
+    assert "llm.model_chain_exhausted" in captured.err
+    assert "no model with an enabled provider" in captured.err
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:

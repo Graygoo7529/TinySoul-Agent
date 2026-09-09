@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Plus, Trash2 } from "lucide-react";
 
 import type { TinySoulClient } from "../../api/tinysoul";
 import { Badge } from "../../components/ui/Badge";
@@ -16,7 +16,9 @@ import {
   cloneJson,
   collectionFor,
   configObjects,
+  defaultProviderApiKeyEnv,
   objectDeletable,
+  providerCredentialStatus,
   subtreeDeleteMutations,
   type ConfigSettingField,
 } from "./model";
@@ -25,10 +27,12 @@ export function ProvidersSettingsPage({
   client,
   status,
   catalog,
+  onOpenCredentials,
 }: {
   client: TinySoulClient;
   status: ConfigStatus;
   catalog: ConfigCatalog;
+  onOpenCredentials?: () => void;
 }) {
   const collection = collectionFor(catalog, "llm.providers");
   const objects = configObjects(status, catalog, collection.id);
@@ -41,6 +45,9 @@ export function ProvidersSettingsPage({
     if (!objects.some((item) => item.id === selected)) setSelected(objects[0]?.id ?? null);
   }, [objects, selected]);
   const current = objects.find((item) => item.id === selected) ?? null;
+  const currentCredential = current
+    ? providerCredentialStatus(status, current.id)
+    : null;
   const canDelete = objectDeletable(current);
   const canWrite = status.activity.can_write && !savingPath;
 
@@ -54,8 +61,30 @@ export function ProvidersSettingsPage({
       return false;
     }
   };
-  const commit = (field: ConfigSettingField, value: JsonValue) =>
-    apply({ source_id: field.sourceId, path: field.path, op: "set", value: toConfigValue(value) }, "Provider active").then(() => undefined);
+  const commit = async (field: ConfigSettingField, value: JsonValue) => {
+    if (field.path.endsWith(".enabled") && value === true && current) {
+      const credential = providerCredentialStatus(status, current.id);
+      if (credential?.credential_state === "missing") {
+        pushToast(
+          "info",
+          `Configure one of ${credential.api_key_envs.join(", ")} in Credentials before enabling this provider.`,
+          onOpenCredentials
+            ? { label: "Credentials", onClick: onOpenCredentials }
+            : undefined,
+        );
+        return;
+      }
+    }
+    await apply(
+      {
+        source_id: field.sourceId,
+        path: field.path,
+        op: "set",
+        value: toConfigValue(value),
+      },
+      "Provider active",
+    );
+  };
 
   return (
     <>
@@ -77,8 +106,14 @@ export function ProvidersSettingsPage({
             : "adapter";
           const endpoint = item?.value.base_url;
           const enabled = item?.value.enabled === true;
+          const credential = providerCredentialStatus(status, id);
+          const state = enabled
+            ? "Enabled"
+            : credential?.credential_state === "configured"
+              ? "Ready to enable"
+              : "Credential required";
           return [
-            enabled ? "Enabled" : "Disabled",
+            state,
             adapterSummary,
             typeof endpoint === "string" ? endpoint : null,
           ].filter(Boolean).join(" · ");
@@ -92,6 +127,19 @@ export function ProvidersSettingsPage({
       >
         {current && (
           <>
+            {currentCredential?.credential_state === "missing" && (
+              <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-5 py-2.5 text-[12px] text-warning">
+                <AlertCircle size={14} />
+                <span className="min-w-0 flex-1">
+                  Configure {currentCredential.api_key_envs.join(" or ")} before enabling this provider.
+                </span>
+                {onOpenCredentials && (
+                  <Button size="xs" variant="ghost" onClick={onOpenCredentials}>
+                    Credentials
+                  </Button>
+                )}
+              </div>
+            )}
             <ProviderAdapterEditor
               field={current.fields.find((field) => field.path.endsWith(".adapters"))}
               catalog={catalog}
@@ -116,12 +164,14 @@ export function ProvidersSettingsPage({
         open={creating}
         onClose={() => setCreating(false)}
         onCreate={async (id) => {
+          const value = cloneJson(collection.create_template);
+          value.api_key_envs = [defaultProviderApiKeyEnv(id)];
           const applied = await apply(
             {
               source_id: collection.create_source,
               path: `${collection.root}.${id}`,
               op: "set",
-              value: toConfigValue(cloneJson(collection.create_template)),
+              value: toConfigValue(value),
             },
             "Provider created",
           );

@@ -109,7 +109,12 @@ export function SettingsPage({
           ) : page === "credentials" ? (
             <CredentialsSettingsPage client={client} status={status} catalog={catalog} />
           ) : page === "providers" ? (
-            <ProvidersSettingsPage client={client} status={status} catalog={catalog} />
+            <ProvidersSettingsPage
+              client={client}
+              status={status}
+              catalog={catalog}
+              onOpenCredentials={() => setPage("credentials")}
+            />
           ) : page === "models" ? (
             <ModelsSettingsPage client={client} status={status} catalog={catalog} />
           ) : page === "task_chains" ? (

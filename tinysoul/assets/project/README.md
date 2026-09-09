@@ -4,11 +4,13 @@ This is an editable TinySoul project created from a packaged config profile. Its
 
 ## Standard
 
-Enable a provider in `configs/llm/providers.toml` and add its credentials to `.env`, then start the backend:
+The standard profile starts with every LLM provider disabled, so the backend and frontend can run before credentials are configured:
 
 ```powershell
 tinysoul start --root . --mode normal
 ```
+
+Use the frontend settings to add a credential and enable its provider, or edit `.env` and `configs/llm/providers.toml`. Enabling a provider without any non-empty declared credential is invalid and startup or configuration activation will fail with a configuration error.
 
 For one non-interactive turn:
 
@@ -18,7 +20,7 @@ tinysoul start --root . --once "Summarize today's work"
 
 ## Development
 
-The development profile enables the repository maintainer's provider and capability settings, but contains no credentials.
+The development profile enables the repository maintainer's providers and capability settings, including Kimi search, but contains no credentials. Its enabled providers must have their declared credentials before the backend starts.
 
 ### Backend
 

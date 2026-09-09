@@ -53,7 +53,7 @@ export function ModelsSettingsPage({
   const providers = configObjects(status, catalog, "llm.providers");
   const [selected, setSelected] = useState<string | null>(objects[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
-  const [template, setTemplate] = useState(objects[0]?.id ?? "");
+  const [template, setTemplate] = useState("");
   const [addedOptions, setAddedOptions] = useState<Set<string>>(new Set());
   const [adapterChange, setAdapterChange] = useState<AdapterChange | null>(null);
   const patch = useConfigStore((state) => state.patch);
@@ -61,7 +61,7 @@ export function ModelsSettingsPage({
   const pushToast = useAppStore((state) => state.pushToast);
   useEffect(() => {
     if (!objects.some((item) => item.id === selected)) setSelected(objects[0]?.id ?? null);
-    if (template && !objects.some((item) => item.id === template)) setTemplate(objects[0]?.id ?? "");
+    if (template && !objects.some((item) => item.id === template)) setTemplate("");
     if (!objects.some((item) => item.id === selected)) setAddedOptions(new Set());
   }, [objects, selected, template]);
   useEffect(() => {
@@ -100,7 +100,7 @@ export function ModelsSettingsPage({
           op: "set",
           value: [{
             provider: change.providerId,
-            provider_model: existingBinding?.provider_model ?? "model",
+            provider_model: existingBinding?.provider_model ?? current.id,
           }],
         },
         {
@@ -204,7 +204,10 @@ export function ModelsSettingsPage({
         items={objects.map((item) => item.id)}
         selected={selected}
         onSelect={setSelected}
-        onAdd={() => setCreating(true)}
+        onAdd={() => {
+          setTemplate("");
+          setCreating(true);
+        }}
         addDisabled={!canWrite || !collection.allow_create}
         deleteDisabled={!canWrite || !canDelete}
         showDelete={canDelete}
@@ -240,6 +243,7 @@ export function ModelsSettingsPage({
               field={providerChainField}
               providers={providers}
               adapter={current.value.adapter}
+              modelId={current.id}
               canWrite={canWrite && providerChainField.writable}
               saving={Boolean(savingPath)}
               onCommit={(value) => apply(
@@ -307,7 +311,7 @@ export function ModelsSettingsPage({
             : {
                 ...cloneJson(collection.create_template),
                 adapter: (Array.isArray(providers[0]?.value.adapters) ? providers[0]?.value.adapters[0] : undefined) ?? "openai_compatible_chat",
-                providers: [{ provider: providers[0]?.id ?? "", provider_model: "model" }],
+                providers: [{ provider: providers[0]?.id ?? "", provider_model: id }],
               };
           if (!source) {
             const protocol = adapterProtocolOptions(catalog, value.adapter)[0]?.value;
@@ -405,6 +409,7 @@ function ProviderChainEditor({
   field,
   providers,
   adapter,
+  modelId,
   canWrite,
   saving,
   onCommit,
@@ -412,6 +417,7 @@ function ProviderChainEditor({
   field: ConfigSettingField;
   providers: ReturnType<typeof configObjects>;
   adapter: JsonValue;
+  modelId: string;
   canWrite: boolean;
   saving: boolean;
   onCommit: (value: ProviderBindingValue[]) => Promise<void>;
@@ -432,7 +438,13 @@ function ProviderChainEditor({
   const addRow = () => {
     const provider = available.find((item) => !rows.some((row) => row.provider === item.id));
     if (!provider) return;
-    commitRows([...rows, { provider: provider.id, provider_model: "model" }]);
+    commitRows([
+      ...rows,
+      {
+        provider: provider.id,
+        provider_model: rows[0]?.provider_model ?? modelId,
+      },
+    ]);
   };
   const moveRow = (index: number, direction: -1 | 1) => {
     const target = index + direction;
@@ -484,7 +496,7 @@ function ProviderChainEditor({
       <div className="flex justify-end border-t border-line bg-bg-sunken/20 px-5 py-3">
         <Button size="xs" variant="outline" disabled={!canWrite || saving || available.length <= rows.length} onClick={addRow}><Plus size={13} /> Add provider</Button>
       </div>
-      {available.length === 0 && <p className="px-5 py-3 text-[11px] text-danger">No enabled provider declares this adapter.</p>}
+      {available.length === 0 && <p className="px-5 py-3 text-[11px] text-danger">No provider declares this adapter.</p>}
     </SettingsGroupSection>
   );
 }
