@@ -88,9 +88,18 @@ def test_cli_init_copies_editable_project_without_provider_selection(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert openai_models["gpt_5_6_sol"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_sol"]["providers"][0]["provider_model"]}]
-    assert openai_models["gpt_5_6_terra"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_terra"]["providers"][0]["provider_model"]}]
-    assert openai_models["gpt_5_6_luna"]["providers"] == [{"provider": "openai", "provider_model": openai_models["gpt_5_6_luna"]["providers"][0]["provider_model"]}]
+    for model_id, provider_model in {
+        "gpt_5_5": "gpt-5.5",
+        "gpt_5_6_sol": "gpt-5.6-sol",
+        "gpt_5_6_terra": "gpt-5.6-terra",
+        "gpt_5_6_luna": "gpt-5.6-luna",
+    }.items():
+        assert openai_models[model_id]["providers"] == [
+            {"provider": "openai", "provider_model": provider_model},
+            {"provider": "orca", "provider_model": f"openai/{provider_model}"},
+            {"provider": "wenrugou", "provider_model": provider_model},
+            {"provider": "sublyx_proxy", "provider_model": provider_model},
+        ]
     web = tomllib.loads(
         (root / "configs" / "capabilities" / "web.toml").read_text(
             encoding="utf-8"
@@ -147,15 +156,35 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         "base_url": "https://api.sublyx.org/v1",
         "api_key_envs": ["SUBLYX_API_KEY"],
     }
+    assert providers["orca"] == {
+        "enabled": True,
+        "adapters": ["deepseek", "openai"],
+        "base_url": "https://api.orcarouter.ai/v1",
+        "api_key_envs": ["ORCA_API_KEY"],
+    }
+    assert providers["wenrugou"] == {
+        "enabled": True,
+        "adapters": ["openai"],
+        "base_url": "https://api.wenrugouai.com/v1",
+        "api_key_envs": ["WENRUGOU_API_KEY"],
+    }
     assert providers["kimi"]["enabled"] is True
     openai_models = tomllib.loads(
         (root / "configs" / "llm" / "models" / "openai.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert openai_models["gpt_5_6_sol"]["providers"][0]["provider"] == "sublyx_proxy"
-    assert openai_models["gpt_5_6_terra"]["providers"][0]["provider"] == "sublyx_proxy"
-    assert openai_models["gpt_5_6_luna"]["providers"][0]["provider"] == "sublyx_proxy"
+    for model_id, provider_model in {
+        "gpt_5_5": "gpt-5.5",
+        "gpt_5_6_sol": "gpt-5.6-sol",
+        "gpt_5_6_terra": "gpt-5.6-terra",
+        "gpt_5_6_luna": "gpt-5.6-luna",
+    }.items():
+        assert openai_models[model_id]["providers"] == [
+            {"provider": "orca", "provider_model": f"openai/{provider_model}"},
+            {"provider": "wenrugou", "provider_model": provider_model},
+            {"provider": "sublyx_proxy", "provider_model": provider_model},
+        ]
     shell = tomllib.loads(
         (root / "configs" / "capabilities" / "shell.toml").read_text(
             encoding="utf-8"
@@ -173,6 +202,10 @@ def test_cli_init_development_profile_copies_enabled_development_config(
     assert web["discover_pages"]["enabled"] is True
     assert web["fetch_with_defuddle"]["enabled"] is True
     assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    assert "ORCA_API_KEY=" in (root / ".env.example").read_text(encoding="utf-8")
+    assert "WENRUGOU_API_KEY=" in (root / ".env.example").read_text(
         encoding="utf-8"
     )
     user = (root / "home" / "agent" / "user" / "user.md").read_text(

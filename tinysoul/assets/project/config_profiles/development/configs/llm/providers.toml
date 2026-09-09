@@ -4,6 +4,18 @@ adapters = ["openai"]
 base_url = "https://api.openai.com/v1"
 api_key_envs = ["OPENAI_API_KEY"]
 
+[llm.providers.orca]
+enabled = true
+adapters = ["deepseek", "openai"]
+base_url = "https://api.orcarouter.ai/v1"
+api_key_envs = ["ORCA_API_KEY"]
+
+[llm.providers.wenrugou]
+enabled = true
+adapters = ["openai"]
+base_url = "https://api.wenrugouai.com/v1"
+api_key_envs = ["WENRUGOU_API_KEY"]
+
 [llm.providers.sublyx_proxy]
 enabled = true
 adapters = ["openai"]

@@ -1,6 +1,10 @@
 [llm.models.gpt_5_5]
 adapter = "openai"
-providers = [{ provider = "sublyx_proxy", provider_model = "gpt-5.5" }]
+providers = [
+  { provider = "orca", provider_model = "openai/gpt-5.5" },
+  { provider = "wenrugou", provider_model = "gpt-5.5" },
+  { provider = "sublyx_proxy", provider_model = "gpt-5.5" },
+]
 context_window_tokens = 262144
 capabilities = [
   "text_input",
@@ -21,7 +25,11 @@ reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_sol]
 adapter = "openai"
-providers = [{ provider = "sublyx_proxy", provider_model = "gpt-5.6-sol" }]
+providers = [
+  { provider = "orca", provider_model = "openai/gpt-5.6-sol" },
+  { provider = "wenrugou", provider_model = "gpt-5.6-sol" },
+  { provider = "sublyx_proxy", provider_model = "gpt-5.6-sol" },
+]
 context_window_tokens = 262144
 capabilities = [
   "text_input",
@@ -42,7 +50,11 @@ reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_terra]
 adapter = "openai"
-providers = [{ provider = "sublyx_proxy", provider_model = "gpt-5.6-terra" }]
+providers = [
+  { provider = "orca", provider_model = "openai/gpt-5.6-terra" },
+  { provider = "wenrugou", provider_model = "gpt-5.6-terra" },
+  { provider = "sublyx_proxy", provider_model = "gpt-5.6-terra" },
+]
 context_window_tokens = 262144
 capabilities = [
   "text_input",
@@ -63,7 +75,11 @@ reasoning_summary = "auto"
 
 [llm.models.gpt_5_6_luna]
 adapter = "openai"
-providers = [{ provider = "sublyx_proxy", provider_model = "gpt-5.6-luna" }]
+providers = [
+  { provider = "orca", provider_model = "openai/gpt-5.6-luna" },
+  { provider = "wenrugou", provider_model = "gpt-5.6-luna" },
+  { provider = "sublyx_proxy", provider_model = "gpt-5.6-luna" },
+]
 context_window_tokens = 262144
 capabilities = [
   "text_input",

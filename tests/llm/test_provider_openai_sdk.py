@@ -168,6 +168,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                     "reasoning_effort": "high",
                     "reasoning_summary": "auto",
                     "reasoning_keep": "encrypted",
+                    "top_p": 0.8,
                     "verbosity": "medium",
                 },
             ),
@@ -187,6 +188,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 "reasoning_effort": "high",
                 "reasoning_summary": "auto",
                 "reasoning_keep": "encrypted",
+                "top_p": 0.8,
                 "verbosity": "medium",
             },
         )
@@ -194,7 +196,8 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
 
     call = client.calls[0]
     assert call["model"] == "gpt-5.5"
-    assert call["temperature"] == pytest.approx(0.2)
+    assert "temperature" not in call
+    assert "top_p" not in call
     assert call["max_output_tokens"] == 256
     assert call["prompt_cache_key"] == "stable-prefix"
     assert call["prompt_cache_retention"] == "24h"
@@ -229,7 +232,7 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_openai_responses_adapter_applies_resolved_request_settings() -> None:
+def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="ok", output=[], usage={})
     )
@@ -246,11 +249,14 @@ def test_openai_responses_adapter_applies_resolved_request_settings() -> None:
             answer_format=AnswerFormat.TEXT,
             temperature=1.0,
             max_output_tokens=128,
+            adapter_options={"reasoning_effort": "none", "top_p": 0.8},
         )
     )
 
     call = client.calls[0]
     assert call["temperature"] == pytest.approx(1.0)
+    assert call["top_p"] == pytest.approx(0.8)
+    assert call["reasoning"] == {"effort": "none"}
     assert call["max_output_tokens"] == 128
 
 

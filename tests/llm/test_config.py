@@ -25,11 +25,20 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi_provider.adapters == (AdapterKind.KIMI,)
     assert kimi_provider.enabled is True
     assert config.provider("sublyx_proxy").adapters == (AdapterKind.OPENAI,)
+    assert config.provider("orca").adapters == (
+        AdapterKind.DEEPSEEK,
+        AdapterKind.OPENAI,
+    )
+    assert config.provider("wenrugou").adapters == (AdapterKind.OPENAI,)
     assert config.provider("openai").enabled is False
 
     model = config.models.get("gpt_5_5")
-    assert model.providers[0].provider_id == "sublyx_proxy"
-    assert model.providers[0].provider_model == "gpt-5.5"
+    assert tuple(binding.provider_id for binding in model.providers) == (
+        "orca",
+        "wenrugou",
+        "sublyx_proxy",
+    )
+    assert model.providers[0].provider_model == "openai/gpt-5.5"
     assert model.supports(ModelCapability.TOOL_CALLING)
     assert model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
 

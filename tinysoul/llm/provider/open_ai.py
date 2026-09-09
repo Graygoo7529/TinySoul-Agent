@@ -66,12 +66,14 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
     ) -> None:
         if not options:
             return
+        reasoning_effort: str | None = None
         for key, value in options.items():
             if key == "reasoning_effort":
+                reasoning_effort = _string_option(value, key=key)
                 _merge_reasoning_option(
                     kwargs,
                     "effort",
-                    _string_option(value, key=key),
+                    reasoning_effort,
                 )
                 continue
             if key == "reasoning_summary":
@@ -109,6 +111,10 @@ class OpenAIProviderBehavior(OpenAIAdapterBehavior):
                 f"Unsupported OpenAI adapter option: {key}",
                 kind=ProviderErrorKind.CONFIG,
             )
+
+        if reasoning_effort is not None and reasoning_effort != "none":
+            kwargs.pop("temperature", None)
+            kwargs.pop("top_p", None)
 
 
 class OpenAIProviderAdapter(OpenAIResponsesAdapter):
