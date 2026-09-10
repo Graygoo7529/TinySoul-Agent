@@ -23,12 +23,32 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     """DeepSeek-specific option mapping."""
 
     def validate_tools(self, request: ProviderRequest) -> None:
-        for tool in request.tool_scope.visible_tools():
+        tools = request.tool_scope.visible_tools()
+        if len(tools) > 128:
+            raise ProviderError(
+                "DeepSeek supports at most 128 tools",
+                kind=ProviderErrorKind.CONFIG,
+            )
+        for tool in tools:
             if tool.strict:
                 raise ProviderError(
                     "DeepSeek adapter does not support strict tool calling",
                     kind=ProviderErrorKind.CONFIG,
                 )
+        if (
+            request.tool_use is not ToolUse.DISABLED
+            and tools
+            and _deepseek_thinking_enabled(request.model.adapter_options.values)
+            and adapter_reasoning_keep(
+                request.model.adapter_options.values,
+                adapter="DeepSeek",
+            )
+            is not ReasoningKeep.CONTENT
+        ):
+            raise ProviderError(
+                "DeepSeek thinking with tools requires reasoning_keep='content'",
+                kind=ProviderErrorKind.CONFIG,
+            )
 
     def tool_choice_payload(
         self,
@@ -39,8 +59,16 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         if request.tool_use is ToolUse.DISABLED:
             return None
         if _deepseek_thinking_enabled(request.model.adapter_options.values):
-            return "auto"
-        return None
+            return None
+        return super().tool_choice_payload(request, api_style=api_style)
+
+    def validate_chat_finish_reason(self, finish_reason: str | None) -> None:
+        if finish_reason == "insufficient_system_resource":
+            raise ProviderError(
+                "DeepSeek generation was interrupted by insufficient inference resources",
+                kind=ProviderErrorKind.TRANSIENT,
+                scope=ProviderFailureScope.PROVIDER,
+            )
 
     def chat_input_reasoning(
         self,
@@ -61,10 +89,18 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
         request: ProviderRequest,
     ) -> None:
         _rename_max_tokens(kwargs)
+        thinking_enabled = _deepseek_thinking_enabled(options)
+        if thinking_enabled:
+            for ignored_key in (
+                "temperature",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+            ):
+                kwargs.pop(ignored_key, None)
         if not options:
             return
         extra_body: dict[str, object] = {}
-        thinking_enabled = False
 
         for key, value in options.items():
             if key == "reasoning_keep":
@@ -78,7 +114,6 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
             if key == "thinking":
                 thinking = _thinking_option(value)
                 extra_body["thinking"] = thinking
-                thinking_enabled = thinking.get("type") == "enabled"
                 continue
             if key == "reasoning_effort":
                 kwargs["reasoning_effort"] = _reasoning_effort(value)
@@ -88,14 +123,6 @@ class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
                 kind=ProviderErrorKind.CONFIG,
             )
 
-        if thinking_enabled:
-            for ignored_key in (
-                "temperature",
-                "top_p",
-                "presence_penalty",
-                "frequency_penalty",
-            ):
-                kwargs.pop(ignored_key, None)
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -148,9 +175,9 @@ def _thinking_option(value: object) -> dict[str, object]:
 
 
 def _reasoning_effort(value: object) -> str:
-    if value not in {"high", "max"}:
+    if value not in {"low", "high", "max"}:
         raise ProviderError(
-            "DeepSeek reasoning_effort must be 'high' or 'max'",
+            "DeepSeek reasoning_effort must be 'low', 'high', or 'max'",
             kind=ProviderErrorKind.CONFIG,
         )
     return str(value)
@@ -163,11 +190,7 @@ def _rename_max_tokens(kwargs: dict[str, object]) -> None:
 
 
 def _deepseek_thinking_enabled(options: Mapping[str, object] | None) -> bool:
-    if not options:
-        return False
-    value = options.get("thinking")
-    if value == "enabled":
+    if not options or "thinking" not in options:
         return True
-    if isinstance(value, Mapping):
-        return value.get("type") == "enabled"
-    return False
+    value = options.get("thinking")
+    return _thinking_option(value).get("type") == "enabled"

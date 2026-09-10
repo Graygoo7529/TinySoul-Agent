@@ -8,7 +8,7 @@ from tinysoul.infra.json import JsonObject
 from tinysoul.llm.adapter_types import ProviderApiStyle
 from tinysoul.llm.messages import Message
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
-from tinysoul.llm.tools import ToolSpec
+from tinysoul.llm.tools import ToolSpec, ToolUse
 
 from ..base import ProviderError, ProviderErrorKind, ProviderRequest
 from .payloads import to_chat_tool, to_responses_tool
@@ -40,9 +40,6 @@ class OpenAIAdapterBehavior:
     def validate_tools(self, request: ProviderRequest) -> None:
         return
 
-    def validate_tool_choice(self, request: ProviderRequest) -> None:
-        return
-
     def tool_payload(
         self,
         tool: ToolSpec,
@@ -59,7 +56,12 @@ class OpenAIAdapterBehavior:
         *,
         api_style: ProviderApiStyle,
     ) -> object | None:
+        if request.tool_use is ToolUse.REQUIRED:
+            return "required"
         return None
+
+    def validate_chat_finish_reason(self, finish_reason: str | None) -> None:
+        return
 
     def include_chat_tool_result_name(self) -> bool:
         return False

@@ -52,7 +52,24 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi.adapter_options.values["protocol"] == "k2"
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
 
-    policy = config.tasks.get(TaskProfile.FRAMEWORK).chain.retry_policy
+    deepseek_pro = config.models.get("deepseek_v4_pro")
+    assert deepseek_pro.context_window_tokens == 1_000_000
+    assert tuple(binding.provider_id for binding in deepseek_pro.providers) == (
+        "orca",
+        "deepseek",
+    )
+    assert config.models.get("deepseek_v4_flash").providers[0].provider_model == (
+        "deepseek/deepseek-v4-flash"
+    )
+
+    framework = config.tasks.get(TaskProfile.FRAMEWORK).chain
+    assert framework.model_ids == (
+        "gpt_5_6_terra",
+        "gpt_5_5",
+        "kimi_k2_7",
+        "deepseek_v4_pro",
+    )
+    policy = framework.retry_policy
     assert policy.max_retries_per_provider == 1
     assert policy.provider_switch_wait_seconds == pytest.approx(0.0)
     assert policy.model_switch_wait_seconds == pytest.approx(2.0)
@@ -74,7 +91,8 @@ def test_built_in_models_use_orca_as_primary_provider(
         "gpt_5_6_sol": "openai/gpt-5.6-sol",
         "gpt_5_6_terra": "openai/gpt-5.6-terra",
         "gpt_5_6_luna": "openai/gpt-5.6-luna",
-        "deepseek_v4": "deepseek/deepseek-v4-pro",
+        "deepseek_v4_pro": "deepseek/deepseek-v4-pro",
+        "deepseek_v4_flash": "deepseek/deepseek-v4-flash",
         "kimi_k2_7": "kimi/kimi-k2.7-code",
         "kimi_k3": "kimi/kimi-k3",
         "glm_5_1": "z-ai/glm-5.1",
@@ -226,6 +244,23 @@ def test_adapter_options_reject_unknown_nested_key() -> None:
     with pytest.raises(ConfigError) as error:
         LLMConfigParser().parse(tree)
     assert error.value.key.endswith("thinking.clear_thikning")
+
+
+def test_deepseek_adapter_options_accept_low_reasoning_effort() -> None:
+    tree = _tree(
+        providers={"deepseek": {**_provider(), "adapters": ["deepseek"]}},
+        model={
+            "adapter": "deepseek",
+            "providers": [
+                {"provider": "deepseek", "provider_model": "deepseek-v4-flash"}
+            ],
+            "adapter_options": {"reasoning_effort": "low"},
+        },
+    )
+
+    model = LLMConfigParser().parse(tree).models.get("model")
+
+    assert model.adapter_options.values["reasoning_effort"] == "low"
 
 
 def test_llm_config_requires_model_context_window() -> None:

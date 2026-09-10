@@ -27,6 +27,7 @@ from .common import (
 )
 from .payloads import apply_tools_kwargs, to_chat_messages, to_responses_input
 from .response_parsing import (
+    chat_finish_reason,
     chat_stop_reason,
     chat_tool_calls,
     first_choice_message,
@@ -186,6 +187,7 @@ class OpenAICompatibleChatAdapter:
         except Exception as exc:
             raise provider_error(exc) from exc
 
+        self._behavior.validate_chat_finish_reason(chat_finish_reason(response))
         message = first_choice_message(response)
         return RawResponse(
             answer_text=message_text(message),

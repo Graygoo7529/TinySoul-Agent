@@ -106,6 +106,19 @@ def test_cli_init_copies_editable_project_without_provider_selection(
             {"provider": "wenrugou", "provider_model": provider_model},
             {"provider": "sublyx_proxy", "provider_model": provider_model},
         ]
+    deepseek_models = tomllib.loads(
+        (root / "configs" / "llm" / "models" / "deepseek.toml").read_text(
+            encoding="utf-8"
+        )
+    )["llm"]["models"]
+    assert set(deepseek_models) == {"deepseek_v4_pro", "deepseek_v4_flash"}
+    assert deepseek_models["deepseek_v4_pro"]["providers"] == [
+        {"provider": "orca", "provider_model": "deepseek/deepseek-v4-pro"},
+        {"provider": "deepseek", "provider_model": "deepseek-v4-pro"},
+    ]
+    assert (
+        deepseek_models["deepseek_v4_flash"]["context_window_tokens"] == 1_000_000
+    )
     web = tomllib.loads(
         (root / "configs" / "capabilities" / "web.toml").read_text(
             encoding="utf-8"

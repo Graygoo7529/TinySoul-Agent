@@ -145,11 +145,16 @@ def first_choice_message(response: object) -> object:
     return get_attr(choices[0], "message")
 
 
-def chat_stop_reason(response: object) -> ResponseStopReason:
+def chat_finish_reason(response: object) -> str | None:
     choices = get_attr(response, "choices")
     if not isinstance(choices, list) or not choices:
-        return ResponseStopReason.UNKNOWN
+        return None
     reason = get_attr(choices[0], "finish_reason")
+    return reason if isinstance(reason, str) else None
+
+
+def chat_stop_reason(response: object) -> ResponseStopReason:
+    reason = chat_finish_reason(response)
     if reason == "stop":
         return ResponseStopReason.COMPLETE
     if reason in {"tool_calls", "function_call"}:
@@ -263,6 +268,7 @@ def chat_reasoning_content(message: object) -> str | None:
 
 __all__ = [
     "append_text_parts",
+    "chat_finish_reason",
     "chat_reasoning_content",
     "chat_stop_reason",
     "chat_tool_calls",

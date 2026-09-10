@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderSpec
-from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
 from tinysoul.llm.messages import AssistantMessage, Message
 from tinysoul.llm.reasoning import Reasoning, ReasoningKeep
 
@@ -20,6 +20,14 @@ from .openai_sdk import (
 
 class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
     """MiniMax-specific option mapping."""
+
+    def tool_choice_payload(
+        self,
+        request: ProviderRequest,
+        *,
+        api_style: ProviderApiStyle,
+    ) -> object | None:
+        return None
 
     def validate_tools(self, request: ProviderRequest) -> None:
         for tool in request.tool_scope.visible_tools():
@@ -58,7 +66,6 @@ class MiniMaxProviderBehavior(OpenAIAdapterBehavior):
         *,
         request: ProviderRequest,
     ) -> None:
-        kwargs.pop("tool_choice", None)
         if not options:
             return
 

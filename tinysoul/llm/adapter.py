@@ -195,7 +195,7 @@ _ADAPTER_SPECS: tuple[AdapterSpec, ...] = (
         api_style=ProviderApiStyle.OPENAI_CHAT,
         common_options=(
             AdapterOptionSpec("thinking", "object", validator="thinking_deepseek"),
-            AdapterOptionSpec("reasoning_effort", "enum", ("high", "max")),
+            AdapterOptionSpec("reasoning_effort", "enum", ("low", "high", "max")),
             AdapterOptionSpec("reasoning_keep", "enum", ("none", "content")),
         ),
     ),

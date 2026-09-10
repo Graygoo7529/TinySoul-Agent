@@ -24,7 +24,7 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     )
     (model_dir / "deepseek.toml").write_text(
         """
-        [llm.models.deepseek_v4]
+        [llm.models.deepseek_v4_pro]
         provider = "deepseek"
         """,
         encoding="utf-8",
@@ -32,7 +32,7 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     (llm_dir / "tasks.toml").write_text(
         """
         [llm.tasks.framework]
-        models = ["kimi_k2_7", "deepseek_v4"]
+        models = ["kimi_k2_7", "deepseek_v4_pro"]
         """,
         encoding="utf-8",
     )
@@ -42,10 +42,10 @@ def test_project_config_loads_included_toml_files(local_tmp: Path) -> None:
     assert config.data["llm"]
     source = config.to_source()
     assert source.values["llm.models.kimi_k2_7.provider"] == "kimi"
-    assert source.values["llm.models.deepseek_v4.provider"] == "deepseek"
+    assert source.values["llm.models.deepseek_v4_pro.provider"] == "deepseek"
     assert source.values["llm.tasks.framework.models"] == [
         "kimi_k2_7",
-        "deepseek_v4",
+        "deepseek_v4_pro",
     ]
 
 

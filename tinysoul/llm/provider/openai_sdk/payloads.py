@@ -39,9 +39,6 @@ from .tool_names import ProviderToolNameMap
 class OpenAIAdapterBehaviorProtocol(Protocol):
     """Behavior surface needed while mapping SDK request payloads."""
 
-    def validate_tool_choice(self, request: ProviderRequest) -> None:
-        ...
-
     def tool_payload(
         self,
         tool: ToolSpec,
@@ -310,7 +307,6 @@ def apply_tools_kwargs(
     tools = request.tool_scope.visible_tools()
     if not tools:
         return
-    behavior.validate_tool_choice(request)
     kwargs["tools"] = [
         behavior.tool_payload(
             name_map.to_provider_tool(tool),
@@ -321,8 +317,6 @@ def apply_tools_kwargs(
     tool_choice = behavior.tool_choice_payload(request, api_style=api_style)
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
-    elif request.tool_use is ToolUse.REQUIRED:
-        kwargs["tool_choice"] = "required"
 
 
 def function_payload(tool: ToolSpec) -> dict[str, object]:

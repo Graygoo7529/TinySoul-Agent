@@ -1,5 +1,5 @@
 [llm.tasks.framework]
-models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4"]
+models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4_pro"]
 required_capabilities = ["text_input"]
 # Profile defaults only.
 # Loop Phase1/Phase2 override:
@@ -33,7 +33,7 @@ prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
 [llm.tasks.home_search]
-models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4", "minimax_m3"]
+models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_v4_pro", "minimax_m3"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"

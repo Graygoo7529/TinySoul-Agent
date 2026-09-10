@@ -24,6 +24,7 @@ from tinysoul.llm.models import ModelCapability, ModelProviderBinding, ModelSpec
 from tinysoul.llm.provider import (
     ProviderError,
     ProviderErrorKind,
+    ProviderFailureScope,
     ProviderRequest as ProviderRequestModel,
 )
 from tinysoul.llm.provider.deepseek import DeepSeekProviderAdapter
@@ -1543,6 +1544,11 @@ def test_chat_adapters_replay_multiple_complete_tool_turns(
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=tools),
             tool_use=ToolUse.OPTIONAL,
+            adapter_options=(
+                {"reasoning_keep": "content"}
+                if provider_id == "deepseek"
+                else None
+            ),
         )
     )
 
@@ -1760,7 +1766,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             model=_model(
                 provider_id="deepseek",
                 provider_model="deepseek-v4-pro",
-                options={"thinking": "enabled", "reasoning_effort": "high"},
+                options={"thinking": "enabled", "reasoning_effort": "low"},
             ),
             messages=MessageStack.of(
                 UserMessage.from_text("json please"),
@@ -1771,7 +1777,11 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
             answer_format=AnswerFormat.JSON_OBJECT,
             temperature=0.7,
             max_output_tokens=128,
-            adapter_options={"thinking": "enabled", "reasoning_effort": "high", "reasoning_keep": "content"},
+            adapter_options={
+                "thinking": "enabled",
+                "reasoning_effort": "low",
+                "reasoning_keep": "content",
+            },
         )
     )
 
@@ -1781,7 +1791,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     assert messages[1]["reasoning_content"] == "reasoning trace"
     assert call["response_format"] == {"type": "json_object"}
     assert call["extra_body"] == {"thinking": {"type": "enabled"}}
-    assert call["reasoning_effort"] == "high"
+    assert call["reasoning_effort"] == "low"
     assert call["max_tokens"] == 128
     assert "max_completion_tokens" not in call
     assert "temperature" not in call
@@ -1795,7 +1805,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     }
 
 
-def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> None:
     message = SimpleNamespace(content="ok", reasoning_content="reasoning")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1818,16 +1828,18 @@ def test_deepseek_adapter_skips_message_reasoning_without_reasoning_keep() -> No
                 )
             ),
             answer_format=AnswerFormat.TEXT,
-            adapter_options={"thinking": "enabled", "reasoning_effort": "high"},
+            temperature=0.7,
         )
     )
 
     assert client.calls[0]["messages"] == [
         {"role": "assistant", "content": "previous answer"}
     ]
+    assert "temperature" not in client.calls[0]
+    assert "extra_body" not in client.calls[0]
 
 
-def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> None:
+def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
     message = SimpleNamespace(
         content=None,
         tool_calls=[
@@ -1854,11 +1866,76 @@ def test_deepseek_adapter_maps_required_tool_choice_to_auto_with_thinking() -> N
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
-            adapter_options={"thinking": "enabled", "reasoning_effort": "high"},
+            adapter_options={
+                "thinking": "enabled",
+                "reasoning_effort": "high",
+                "reasoning_keep": "content",
+            },
         )
     )
 
-    assert client.calls[0]["tool_choice"] == "auto"
+    assert "tool_choice" not in client.calls[0]
+
+
+def test_deepseek_adapter_requires_reasoning_replay_with_thinking_tools() -> None:
+    client = FakeCreateClient(response=object())
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek"),
+        api_key="key",
+        completions=client,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(
+                    provider_id="deepseek",
+                    provider_model="deepseek-v4-pro",
+                ),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.TEXT,
+                tool_scope=ToolScope(tools=(_tool(),)),
+                tool_use=ToolUse.OPTIONAL,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+    assert exc.value.scope is ProviderFailureScope.MODEL
+    assert client.calls == []
+
+
+def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> None:
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="partial"),
+                    finish_reason="insufficient_system_resource",
+                )
+            ],
+            usage={},
+        )
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek"),
+        api_key="key",
+        completions=client,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(
+                    provider_id="deepseek",
+                    provider_model="deepseek-v4-flash",
+                ),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.TEXT,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.TRANSIENT
+    assert exc.value.scope is ProviderFailureScope.PROVIDER
 
 
 def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
@@ -2472,7 +2549,10 @@ def test_deepseek_adapter_rejects_strict_tools() -> None:
     with pytest.raises(ProviderError) as exc:
         adapter.invoke(
             ProviderRequest(
-                model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
+                model=_model(
+                    provider_id="deepseek",
+                    provider_model="deepseek-v4-pro",
+                ),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 tool_scope=ToolScope(
@@ -2505,7 +2585,10 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
 
     adapter.invoke(
         ProviderRequest(
-            model=_model(provider_id="deepseek", provider_model="deepseek-chat"),
+            model=_model(
+                provider_id="deepseek",
+                provider_model="deepseek-v4-pro",
+            ),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             tool_scope=ToolScope(
@@ -2522,10 +2605,47 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
                 selection=ToolSelection(("read_file",)),
             ),
             tool_use=ToolUse.OPTIONAL,
+            adapter_options={"reasoning_keep": "content"},
         )
     )
 
     assert client.calls[0]["tools"] == [_provider_tool_payload()]
+
+
+def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
+    client = FakeCreateClient(response=object())
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek"),
+        api_key="key",
+        completions=client,
+    )
+    tools = tuple(
+        ToolSpec(
+            name=f"tool_{index}",
+            description="Read",
+            parameters={"type": "object"},
+            kind=ToolKind.ACTION,
+        )
+        for index in range(129)
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(
+                    provider_id="deepseek",
+                    provider_model="deepseek-v4-pro",
+                ),
+                messages=MessageStack.of(UserMessage.from_text("hello")),
+                answer_format=AnswerFormat.TEXT,
+                tool_scope=ToolScope(tools=tools),
+                tool_use=ToolUse.OPTIONAL,
+                adapter_options={"reasoning_keep": "content"},
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CONFIG
+    assert client.calls == []
 
 
 def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
