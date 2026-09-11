@@ -83,6 +83,11 @@ Action scope、preparation 和 cycle budget 仍由各自 Turn builder 管理。P
 单元继续保持固定的框架协议（`answer_format=none`、`tool_use=required`），
 选中的 LLM profile 提供模型链和通用调用默认值。
 
+当前 standard/development 配置和 `CycleSettings` 默认值使用 `frame_stage1` 与
+`frame_stage2` 两条阶段模型链；两条链由 User Turn、Home Maintenance Turn 和
+Memory Maintenance Turn 共同使用。自定义配置可以替换 profile，但跨模块装配时必须
+引用实际存在的 LLM task profile。
+
 每个 Cycle 固定顺序执行三个单元：
 
 1. Phase1 基于完整 Context 调用 `[loop.cycle].phase1_task_profile` 指定的 task profile，消费 Context control tools，并选择一个或多个可见 action domain。可由模型修正的协议失败返回 `PhaseFailure`，当前 Cycle 在 Phase1 边界结束，反馈随下一完整 Cycle 的 Phase1 prompt 重新构造；Phase1 不在同一 Cycle 内重复协议调用。

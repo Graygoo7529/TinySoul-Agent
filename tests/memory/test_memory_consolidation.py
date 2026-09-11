@@ -68,7 +68,7 @@ def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
     assert result.content == "## Events\n\n- Preserved target-day decision."
     assert result.model_calls == 2
     assert all(
-        call.profile is TaskProfile.MEMORY_DAILY_COMPOSITION
+        call.profile is TaskProfile.MEMORY_DAILY
         for call in runner.calls
     )
     rendered = repr(runner.calls[0].messages.messages)

@@ -17,7 +17,7 @@ from tinysoul.runtime import (
 )
 from tinysoul.runtime.bridge import RuntimeLLMBridge
 
-from .errors import LLMContractError, LLMError, TaskCancelled
+from .errors import LLMContractError, LLMError, LLMInvariantError, TaskCancelled
 from .failures import LLMFailureKind
 from .context_window import (
     ModelContextPolicy,
@@ -436,7 +436,9 @@ class LLMTaskRunner:
             return result
 
         if last_error is None:
-            raise LLMTaskError("Provider chain failed without a provider error")
+            raise LLMInvariantError(
+                "Provider chain failed without a provider error"
+            )
         if context_limit_count == len(provider_order):
             raise ModelContextPressureError(
                 self._context_policy.usage(
@@ -627,7 +629,9 @@ class LLMTaskRunner:
                 )
 
         if last_error is None:
-            raise LLMTaskError("Provider retry failed without a provider error")
+            raise LLMInvariantError(
+                "Provider retry failed without a provider error"
+            )
         raise last_error
 
     def _run_model(
@@ -770,7 +774,7 @@ class LLMTaskRunner:
             if self._providers.has(binding.provider_id, model.adapter)
         )
         if not bindings:
-            raise LLMTaskError(
+            raise LLMInvariantError(
                 f"Model '{model.id}' has no enabled provider for adapter "
                 f"'{model.adapter.value}'"
             )

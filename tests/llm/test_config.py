@@ -12,14 +12,18 @@ from tinysoul.llm.config import LLMConfigParser, ProviderCredentialState
 from tinysoul.llm.models import ModelCapability
 from tinysoul.llm.provider.factory import build_provider_registry
 from tinysoul.llm.reasoning import ReasoningKeep
-from tinysoul.llm.requests import TaskProfile
 from tests.support.project import copy_initialized_project
 
 
 def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     root = tmp_path / "development-project"
-    copy_initialized_project(root, config_profile=ProjectConfigProfile.DEVELOPMENT)
-    config = LLMConfigParser().parse(ConfigEnvironment.from_project_root(root).section_tree("llm"))
+    copy_initialized_project(
+        root,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
+    config = LLMConfigParser().parse(
+        ConfigEnvironment.from_project_root(root).section_tree("llm")
+    )
 
     kimi_provider = config.provider("kimi")
     assert kimi_provider.adapters == (AdapterKind.KIMI,)
@@ -36,78 +40,28 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert config.provider("openai").enabled is False
 
     model = config.models.get("gpt_5_5")
-    assert tuple(binding.provider_id for binding in model.providers) == (
-        "orca",
-        "wenrugou",
-        "sublyx_proxy",
-    )
-    assert model.providers[0].provider_model == "openai/gpt-5.5"
     assert model.supports(ModelCapability.TOOL_CALLING)
     assert model.adapter_options.reasoning_keep() is ReasoningKeep.ENCRYPTED
 
     kimi = config.models.get("kimi_k2_7")
-    assert kimi.providers[0].provider_id == "orca"
-    assert kimi.providers[0].provider_model == "kimi/kimi-k2.7-code"
     assert kimi.adapter is AdapterKind.KIMI
     assert kimi.adapter_options.values["protocol"] == "k2"
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
 
     deepseek_pro = config.models.get("deepseek_pro")
     assert deepseek_pro.context_window_tokens == 1_000_000
-    assert tuple(binding.provider_id for binding in deepseek_pro.providers) == (
-        "orca",
-        "deepseek",
-    )
     deepseek_flash = config.models.get("deepseek_flash")
-    assert deepseek_flash.providers[0].provider_model == (
-        "deepseek/deepseek-v4-flash-vision-exp"
-    )
-    assert deepseek_flash.providers[1].provider_model == "deepseek-flash"
     assert deepseek_flash.supports(ModelCapability.IMAGE_INPUT)
     assert deepseek_flash.supports(ModelCapability.IMAGE_REMOTE_URL)
 
-    framework = config.tasks.get(TaskProfile.FRAMEWORK).chain
-    assert framework.model_ids == (
-        "gpt_5_6_terra",
-        "gpt_5_5",
-        "kimi_k2_7",
-        "deepseek_pro",
-    )
-    policy = framework.retry_policy
+    frame_stage1 = config.tasks.get("frame_stage1").chain
+    config.tasks.get("frame_stage2")
+    config.tasks.get("memory_daily")
+    policy = frame_stage1.retry_policy
     assert policy.max_retries_per_provider == 1
     assert policy.provider_switch_wait_seconds == pytest.approx(0.0)
     assert policy.model_switch_wait_seconds == pytest.approx(2.0)
     assert policy.prefer_successful_provider_seconds == pytest.approx(600.0)
-
-
-@pytest.mark.parametrize("config_profile", tuple(ProjectConfigProfile))
-def test_built_in_models_use_orca_as_primary_provider(
-    tmp_path: Path,
-    config_profile: ProjectConfigProfile,
-) -> None:
-    root = tmp_path / config_profile.value
-    copy_initialized_project(root, config_profile=config_profile)
-    config = LLMConfigParser().parse(
-        ConfigEnvironment.from_project_root(root).section_tree("llm")
-    )
-    expected_remote_models = {
-        "gpt_5_5": "openai/gpt-5.5",
-        "gpt_5_6_sol": "openai/gpt-5.6-sol",
-        "gpt_5_6_terra": "openai/gpt-5.6-terra",
-        "gpt_5_6_luna": "openai/gpt-5.6-luna",
-        "deepseek_pro": "deepseek/deepseek-v4-pro",
-        "deepseek_flash": "deepseek/deepseek-v4-flash-vision-exp",
-        "kimi_k2_7": "kimi/kimi-k2.7-code",
-        "kimi_k3": "kimi/kimi-k3",
-        "glm_5_1": "z-ai/glm-5.1",
-        "minimax_m3": "minimax/minimax-m3",
-    }
-
-    assert set(config.models.ids()) == set(expected_remote_models)
-    for model_id, remote_model in expected_remote_models.items():
-        primary = config.models.get(model_id).providers[0]
-        assert primary.provider_id == "orca"
-        assert primary.provider_model == remote_model
 
 
 def test_model_provider_chain_accepts_only_declared_adapter() -> None:

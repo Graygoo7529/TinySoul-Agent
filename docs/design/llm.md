@@ -208,7 +208,7 @@ Model 以四项边界清晰的事实参与调用：`providers` 按顺序保存 P
 
 内置 `home_search` profile 服务于 Home-owned top candidate reranker：禁用工具、要求 JSON object、使用低 temperature 和有界输出。模型只看到确定性候选 metadata，只能返回候选内唯一 Link；Task failure 或任何结构/业务校验失败都由 Home search service 回退到稳定的确定性顺序，不影响只读搜索可用性。
 
-内置 `memory_daily_composition` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Maintenance Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory inspect 的 lexical/grep/references/backlinks 是确定性能力，可选 embedding 通过 Infra adapter 调用，不使用 LLM task。
+内置 `memory_daily` profile 只服务于 Memory-owned daily composer：禁用工具、要求 JSON object、使用较低 temperature，并为目标日 source 的分层 reduce 和最终完整 daily 正文保留明确输出预算。每次输出只接受精确 `content` 字段；validator 负责非空、文档大小和 H1 约束，最终 Link/status/reference 校验仍在 Memory changeset preview。entity/concept/fact/note 的判断与维护发生在 Memory Maintenance Turn 的普通 Phase/Action 循环，不另建专用 task profile。Memory inspect 的 lexical/grep/references/backlinks 是确定性能力，可选 embedding 通过 Infra adapter 调用，不使用 LLM task。
 
 单次调用可以显式覆盖任务配置中的调用设置。模型配置不承担回答格式和工具使用策略，因为输出形态表达的是任务意图，而不是模型身份。通用调用参数通常来自任务或单次调用；当某个具体模型有固定要求时，模型级 `request_overrides` 在最终请求阶段具有更高优先级。
 

@@ -33,8 +33,8 @@ class TurnSettings:
 class CycleSettings:
     """Task-profile routing shared by every reusable Cycle."""
 
-    phase1_task_profile: str = "framework"
-    phase2_task_profile: str = "framework"
+    phase1_task_profile: str = "frame_stage1"
+    phase2_task_profile: str = "frame_stage2"
 
     def __post_init__(self) -> None:
         _validate_task_profile(

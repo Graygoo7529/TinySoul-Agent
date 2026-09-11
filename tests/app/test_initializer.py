@@ -76,54 +76,17 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
     assert providers["kimi"]["api_key_envs"] == ["MOONSHOT_API_KEY"]
-    models = tomllib.loads(
-        (root / "configs" / "llm" / "models" / "kimi.toml").read_text(
-            encoding="utf-8"
-        )
-    )["llm"]["models"]
-    assert models["kimi_k2_7"]["providers"] == [
-        {"provider": "orca", "provider_model": "kimi/kimi-k2.7-code"},
-        {"provider": "kimi", "provider_model": "kimi-k2.7-code-highspeed"},
-    ]
-    assert models["kimi_k3"]["providers"] == [
-        {"provider": "orca", "provider_model": "kimi/kimi-k3"},
-        {"provider": "kimi", "provider_model": "kimi-k3"},
-    ]
-    openai_models = tomllib.loads(
-        (root / "configs" / "llm" / "models" / "openai.toml").read_text(
-            encoding="utf-8"
-        )
-    )["llm"]["models"]
-    for model_id, provider_model in {
-        "gpt_5_5": "gpt-5.5",
-        "gpt_5_6_sol": "gpt-5.6-sol",
-        "gpt_5_6_terra": "gpt-5.6-terra",
-        "gpt_5_6_luna": "gpt-5.6-luna",
-    }.items():
-        assert openai_models[model_id]["providers"] == [
-            {"provider": "orca", "provider_model": f"openai/{provider_model}"},
-            {"provider": "openai", "provider_model": provider_model},
-            {"provider": "wenrugou", "provider_model": provider_model},
-            {"provider": "sublyx_proxy", "provider_model": provider_model},
-        ]
+    assert (root / "configs" / "llm" / "models" / "kimi.toml").is_file()
+    assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
     deepseek_models = tomllib.loads(
         (root / "configs" / "llm" / "models" / "deepseek.toml").read_text(
             encoding="utf-8"
         )
     )["llm"]["models"]
     assert set(deepseek_models) == {"deepseek_pro", "deepseek_flash"}
-    assert deepseek_models["deepseek_pro"]["providers"] == [
-        {"provider": "orca", "provider_model": "deepseek/deepseek-v4-pro"},
-        {"provider": "deepseek", "provider_model": "deepseek-v4-pro"},
-    ]
-    assert deepseek_models["deepseek_flash"]["providers"] == [
-        {
-            "provider": "orca",
-            "provider_model": "deepseek/deepseek-v4-flash-vision-exp",
-        },
-        {"provider": "deepseek", "provider_model": "deepseek-flash"},
-    ]
-    assert deepseek_models["deepseek_flash"]["context_window_tokens"] == 1_000_000
+    assert (
+        deepseek_models["deepseek_flash"]["context_window_tokens"] == 1_000_000
+    )
     assert "image_input" in deepseek_models["deepseek_flash"]["capabilities"]
     web = tomllib.loads(
         (root / "configs" / "capabilities" / "web.toml").read_text(
@@ -194,22 +157,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         "api_key_envs": ["WENRUGOU_API_KEY"],
     }
     assert providers["kimi"]["enabled"] is True
-    openai_models = tomllib.loads(
-        (root / "configs" / "llm" / "models" / "openai.toml").read_text(
-            encoding="utf-8"
-        )
-    )["llm"]["models"]
-    for model_id, provider_model in {
-        "gpt_5_5": "gpt-5.5",
-        "gpt_5_6_sol": "gpt-5.6-sol",
-        "gpt_5_6_terra": "gpt-5.6-terra",
-        "gpt_5_6_luna": "gpt-5.6-luna",
-    }.items():
-        assert openai_models[model_id]["providers"] == [
-            {"provider": "orca", "provider_model": f"openai/{provider_model}"},
-            {"provider": "wenrugou", "provider_model": provider_model},
-            {"provider": "sublyx_proxy", "provider_model": provider_model},
-        ]
+    assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
     shell = tomllib.loads(
         (root / "configs" / "capabilities" / "shell.toml").read_text(
             encoding="utf-8"

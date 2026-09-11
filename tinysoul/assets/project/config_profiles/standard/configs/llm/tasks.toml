@@ -1,5 +1,5 @@
-[llm.tasks.framework]
-models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_pro"]
+[llm.tasks.frame_stage1]
+models = ["gpt_5_6_terra", "deepseek_flash"]
 required_capabilities = ["text_input"]
 # Profile defaults only.
 # Loop Phase1/Phase2 override:
@@ -7,8 +7,23 @@ required_capabilities = ["text_input"]
 #   tool_use = "required"
 answer_format = "json_object"
 tool_use = "disabled"
-temperature = 0.6
-max_output_tokens = 4096
+temperature = 0.3
+max_output_tokens = 2048
+max_retries_per_provider = 1
+retry_wait_seconds = 1.0
+provider_switch_wait_seconds = 0.0
+model_switch_wait_seconds = 2.0
+max_cycles = 10
+prefer_successful_provider_seconds = 600
+prefer_successful_model_seconds = 600
+
+[llm.tasks.frame_stage2]
+models = ["deepseek_flash", "gpt_5_6_terra"]
+required_capabilities = ["text_input"]
+answer_format = "json_object"
+tool_use = "disabled"
+temperature = 0.3
+max_output_tokens = 2048
 max_retries_per_provider = 1
 retry_wait_seconds = 1.0
 provider_switch_wait_seconds = 0.0
@@ -18,7 +33,7 @@ prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
 [llm.tasks.llm_action]
-models = ["gpt_5_6_sol", "gpt_5_5", "kimi_k3", "glm_5_1"]
+models = ["deepseek_pro", "gpt_5_6_sol", "kimi_k3"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -33,7 +48,7 @@ prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
 [llm.tasks.home_search]
-models = ["gpt_5_6_terra", "gpt_5_5", "kimi_k2_7", "deepseek_pro", "minimax_m3"]
+models = ["deepseek_flash", "gpt_5_6_terra"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"
@@ -47,8 +62,8 @@ max_cycles = 10
 prefer_successful_provider_seconds = 600
 prefer_successful_model_seconds = 600
 
-[llm.tasks.memory_daily_composition]
-models = ["gpt_5_6_sol", "gpt_5_5", "kimi_k3", "glm_5_1"]
+[llm.tasks.memory_daily]
+models = ["deepseek_flash", "gpt_5_6_terra"]
 required_capabilities = ["text_input"]
 answer_format = "json_object"
 tool_use = "disabled"

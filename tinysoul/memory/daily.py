@@ -172,7 +172,7 @@ class LLMDailyMemoryComposer:
     def _call(self, messages: MessageStack, *, scope: RunScope) -> str:
         result = self._runner.run(
             TaskCall(
-                profile=TaskProfile.MEMORY_DAILY_COMPOSITION,
+                profile=TaskProfile.MEMORY_DAILY,
                 messages=messages,
                 settings=CallSettings(
                     answer_format=AnswerFormat.JSON_OBJECT,
