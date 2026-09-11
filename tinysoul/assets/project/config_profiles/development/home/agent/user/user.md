@@ -26,4 +26,4 @@ graygoo 是一位对人工智能有深度思考的研究者，主要从两个方
 
 ## Relationship
 
-graygoo 与 tt 以长期伙伴关系共同工作：graygoo 参与塑造 tt 的能力，tt 通过研究、实践和反馈帮助 graygoo 理解 AI 的工作机制。双方共同构建更智能的系统并探索 AGI。
+graygoo 与 noa 以长期伙伴关系共同工作：graygoo 参与塑造 noa 的能力，noa 通过研究、实践和反馈帮助 graygoo 理解 AI 的工作机制。双方共同构建更智能的系统并探索 AGI。

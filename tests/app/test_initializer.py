@@ -45,7 +45,7 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     skill = root / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
     identity = root / "home" / "agent" / "identity"
-    assert "**Name:** tt" in (identity / "identity.md").read_text(encoding="utf-8")
+    assert "**Name:** noa" in (identity / "identity.md").read_text(encoding="utf-8")
     assert "Core Truths" in (identity / "soul.md").read_text(encoding="utf-8")
     user = (root / "home" / "agent" / "user" / "user.md").read_text(
         encoding="utf-8"
@@ -185,7 +185,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         encoding="utf-8"
     )
     assert user.startswith("# graygoo\n")
-    assert "graygoo 与 tt 以长期伙伴关系共同工作" in user
+    assert "graygoo 与 noa 以长期伙伴关系共同工作" in user
     assert not (root / "config_profiles").exists()
 
 
