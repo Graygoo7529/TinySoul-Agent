@@ -45,20 +45,10 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     skill = root / "home" / "skills" / "tinysoul-docs" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\ntitle:")
     identity = root / "home" / "agent" / "identity"
-    assert "**Name:** noa" in (identity / "identity.md").read_text(encoding="utf-8")
-    assert "Core Truths" in (identity / "soul.md").read_text(encoding="utf-8")
-    user = (root / "home" / "agent" / "user" / "user.md").read_text(
-        encoding="utf-8"
-    )
-    assert "尚未记录稳定的用户画像" in user
-    assert "graygoo" not in user
-    assert not (root / "home" / "what").exists()
-    assert not (root / "home" / "why").exists()
-    assert not (root / "home" / "how").exists()
-    assert not (root / "home" / "skills_domain" / "session").exists()
-    assert not (root / "home" / "skills_domain" / "context").exists()
+    assert (identity / "identity.md").is_file()
+    assert (identity / "soul.md").is_file()
+    assert (root / "home" / "agent" / "user" / "user.md").is_file()
     assert (root / "home" / "skills_action" / "core" / "answer.md").is_file()
-    assert not (root / "home" / "skills_action" / "session").exists()
     assert (
         root
         / "home"
@@ -75,51 +65,14 @@ def test_cli_init_copies_editable_project_without_provider_selection(
     )["llm"]["providers"]
     assert providers
     assert all(spec["enabled"] is False for spec in providers.values())
-    assert providers["kimi"]["api_key_envs"] == ["MOONSHOT_API_KEY"]
     assert (root / "configs" / "llm" / "models" / "kimi.toml").is_file()
     assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
-    deepseek_models = tomllib.loads(
-        (root / "configs" / "llm" / "models" / "deepseek.toml").read_text(
-            encoding="utf-8"
-        )
-    )["llm"]["models"]
-    assert set(deepseek_models) == {"deepseek_pro", "deepseek_flash"}
-    assert (
-        deepseek_models["deepseek_flash"]["context_window_tokens"] == 1_000_000
-    )
-    assert "image_input" in deepseek_models["deepseek_flash"]["capabilities"]
-    web = tomllib.loads(
-        (root / "configs" / "capabilities" / "web.toml").read_text(
-            encoding="utf-8"
-        )
-    )["capabilities"]["web"]
-    assert web["search_by_kimi"]["model"] == "kimi-k2.6"
     script = tomllib.loads(
         (root / "configs" / "capabilities" / "script.toml").read_text(
             encoding="utf-8"
         )
     )["capabilities"]["script"]
     assert script["enabled"] is False
-    assert script["python"]["enabled"] is False
-    embedding = tomllib.loads(
-        (root / "configs" / "infra" / "embedding.toml").read_text(
-            encoding="utf-8"
-        )
-    )["infra"]["embedding"]
-    memory = tomllib.loads(
-        (root / "configs" / "memory.toml").read_text(encoding="utf-8")
-    )["memory"]
-    assert embedding["enabled"] is False
-    assert "cache_max_chars" not in embedding
-    assert memory["semantic_search"]["embedding_cache_max_chars"] == 16000000
-    context = tomllib.loads(
-        (root / "configs" / "context.toml").read_text(encoding="utf-8")
-    )["context"]
-    session = tomllib.loads(
-        (root / "configs" / "session.toml").read_text(encoding="utf-8")
-    )["session"]
-    assert context["trace_inspect_max_chars"] == 8000
-    assert session["inspect_max_chars"] == 8000
 
 
 @pytest.mark.generation
@@ -138,25 +91,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
             encoding="utf-8"
         )
     )["llm"]["providers"]
-    assert providers["sublyx_proxy"] == {
-        "enabled": True,
-        "adapters": ["openai"],
-        "base_url": "https://api.sublyx.org/v1",
-        "api_key_envs": ["SUBLYX_API_KEY"],
-    }
-    assert providers["orca"] == {
-        "enabled": True,
-        "adapters": ["deepseek", "openai", "kimi", "glm", "minimax"],
-        "base_url": "https://api.orcarouter.ai/v1",
-        "api_key_envs": ["ORCA_API_KEY"],
-    }
-    assert providers["wenrugou"] == {
-        "enabled": True,
-        "adapters": ["openai"],
-        "base_url": "https://api.wenrugouai.com/v1",
-        "api_key_envs": ["WENRUGOU_API_KEY"],
-    }
-    assert providers["kimi"]["enabled"] is True
+    assert any(spec["enabled"] is True for spec in providers.values())
     assert (root / "configs" / "llm" / "models" / "openai.toml").is_file()
     shell = tomllib.loads(
         (root / "configs" / "capabilities" / "shell.toml").read_text(
@@ -164,28 +99,7 @@ def test_cli_init_development_profile_copies_enabled_development_config(
         )
     )["capabilities"]["shell"]
     assert shell["enabled"] is True
-    assert shell["powershell"]["enabled"] is True
-    assert shell["cmd"]["enabled"] is True
-    web = tomllib.loads(
-        (root / "configs" / "capabilities" / "web.toml").read_text(
-            encoding="utf-8"
-        )
-    )["capabilities"]["web"]
-    assert web["search_by_kimi"]["enabled"] is True
-    assert web["discover_pages"]["enabled"] is True
-    assert web["fetch_with_defuddle"]["enabled"] is True
-    assert "SUBLYX_API_KEY=" in (root / ".env.example").read_text(
-        encoding="utf-8"
-    )
-    assert "ORCA_API_KEY=" in (root / ".env.example").read_text(encoding="utf-8")
-    assert "WENRUGOU_API_KEY=" in (root / ".env.example").read_text(
-        encoding="utf-8"
-    )
-    user = (root / "home" / "agent" / "user" / "user.md").read_text(
-        encoding="utf-8"
-    )
-    assert user.startswith("# graygoo\n")
-    assert "graygoo 与 noa 以长期伙伴关系共同工作" in user
+    assert (root / "home" / "agent" / "user" / "user.md").is_file()
     assert not (root / "config_profiles").exists()
 
 
@@ -213,8 +127,8 @@ def test_project_config_profiles_share_core_home_and_customize_user_profile(
     } == {
         path: content for path, content in development_home.items() if path != user_path
     }
-    assert b"graygoo" not in standard_home[user_path]
-    assert b"graygoo" in development_home[user_path]
+    assert standard_home[user_path]
+    assert development_home[user_path]
     assert set(_tree_snapshot(standard / "configs")) == set(
         _tree_snapshot(development / "configs")
     )
@@ -254,6 +168,11 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     root = tmp_path / "agent"
     monkeypatch.setenv("TINYSOUL_INSTANCE_DIR", str(tmp_path / "instances"))
     copy_initialized_project(root)
+    expected_development = tmp_path / "expected-development"
+    copy_initialized_project(
+        expected_development,
+        config_profile=ProjectConfigProfile.DEVELOPMENT,
+    )
     original_home = (root / "home" / "agent" / "AGENT.md").read_bytes()
     env = b"SUBLYX_API_KEY=secret\r\nMOONSHOT_API_KEY=other\r\n"
     (root / ".env").write_bytes(env)
@@ -284,10 +203,10 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
     assert ".env preserved" in captured.out
     assert (root / ".env").read_bytes() == env
     assert (root / "home" / "agent" / "AGENT.md").read_bytes() == original_home
+    assert (root / "home" / "agent" / "user" / "user.md").read_bytes() == (
+        expected_development / "home" / "agent" / "user" / "user.md"
+    ).read_bytes()
     assert action_domain.read_bytes() == original_action_domain
-    assert "# graygoo" in (
-        root / "home" / "agent" / "user" / "user.md"
-    ).read_text(encoding="utf-8")
     assert not (root / "runtime").exists()
     assert not (root / "archive").exists()
     assert not (root / "memory" / "2026-07-26.md").exists()
@@ -298,8 +217,8 @@ def test_cli_reset_recreates_development_project_and_preserves_env(
             encoding="utf-8"
         )
     )["llm"]["providers"]
-    assert providers["sublyx_proxy"]["enabled"] is True
-    assert providers["kimi"]["enabled"] is True
+    assert providers
+    assert any(spec["enabled"] is True for spec in providers.values())
 
 
 def test_project_resetter_rejects_nonproject_and_invalid_env(

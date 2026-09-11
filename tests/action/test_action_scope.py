@@ -68,17 +68,11 @@ def test_phase2_scope_exposes_selected_domain_actions_only() -> None:
     )
 
     tools = scope.visible_tools()
-    assert [tool.name for tool in tools] == [
-        "core.answer",
-        "core.context.inspect",
-        "core.memory.inspect",
-        "core.memory.memorize",
-        "core.memory.recall",
-        "core.reason",
-        "core.session.inspect",
-    ]
-    assert tools[0].kind is ToolKind.ACTION
-    assert "Use when:" in tools[0].description
+    assert {tool.name for tool in tools} == {
+        action.name for action in catalog.actions_in_domain("core")
+    }
+    assert all(tool.kind is ToolKind.ACTION for tool in tools)
+    assert all(tool.description for tool in tools)
 
 
 def test_phase2_scope_rejects_domain_without_actions() -> None:
@@ -109,10 +103,10 @@ def test_domain_prompt_renderer_lists_actionable_domains() -> None:
 
     text = ActionDomainPromptRenderer().render(catalog)
 
-    assert "workspace:" in text
-    assert "home:" in text
-    assert "execution:" in text
-    assert "Selection hint:" in text
+    for domain in catalog.domains():
+        assert domain.name in text
+        assert domain.description in text
+        assert domain.selection_hint in text
 
 
 def _empty_domain_catalog() -> ActionCatalog:

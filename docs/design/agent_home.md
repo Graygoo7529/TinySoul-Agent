@@ -130,7 +130,7 @@ core 作为简洁的身份、行为规约和前向 Top Link 索引；`agent/cont
 
 默认 Home 的唯一源码位置是 `tinysoul/assets/project/home/`，并由 standard/development 两种初始化共享；仓库根不保留第二份 Home，config profile 也不得包含 Home 副本。新增或调整通用使用说明、domain/action 行为约束时，应在这里同步维护对应 AGENT/skills 文档，并继续遵守本设计的 Link、frontmatter、prompt mount 与渐进资源规则。Action Catalog 增删 domain/action 时必须审查共享默认 Home 中相关 skill 是否仍然真实；缺少可选 guidance 合法，但不得留下宣称不存在 action 的陈旧内容。
 
-package template 与已初始化项目之间没有双向同步。项目运行中的 runtime Home 和 Home Maintenance 只更新该项目的 actual `home/`；它们既不会写回 assets，也不能成为默认内容的事实源。反之，wheel 升级后的模板变化也不会覆盖已有项目。默认 Home 变更必须通过 initializer/Context/Home 集成测试和 clean-source wheel 资源检查，新增更深目录或新文件类型时还要同步审查 setuptools package-data glob。
+package template 与已初始化项目之间没有双向同步。项目运行中的 runtime Home 和 Home Maintenance 只更新该项目的 actual `home/`；它们既不会写回 assets，也不能成为默认内容的事实源。反之，wheel 升级后的模板变化也不会覆盖已有项目。默认 Home 变更由 initializer/Context/Home 集成测试和 clean-source wheel 资源完整性检查保护；测试关注目录结构、Link 引用、装载关系和初始化可用性，不固定可编辑文案或手写资源清单。
 
 ## Actual Home 与 Runtime Home
 

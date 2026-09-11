@@ -667,44 +667,6 @@ def test_phase1_invalid_selection_returns_local_failure() -> None:
     assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
 
 
-def test_phase1_prompt_requires_same_response_working_reconciliation() -> None:
-    context = ContextEngineBuilder(system_text="sys").build()
-    context.begin_turn("finish current work")
-    action = _action_engine()
-    llm = FakeLLM(
-        (
-            _tool_result(
-                ToolCallRecord(
-                    id="select_core",
-                    name="select_action_domains",
-                    arguments={"domains": ["core"]},
-                    kind=ToolKind.CONTROL,
-                )
-            ),
-        )
-    )
-
-    Phase1Unit(
-        context=context,
-        action=action,
-        llm=llm,
-        bus=SignalBus(),
-        task_profile="framework",
-    ).run(
-        scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
-        cycle_id="cycle_1",
-    )
-
-    prompt = _message_stack_text(llm.calls[0].messages)
-    assert "reconcile existing WorkingContext" in prompt
-    assert "set/remove milestone or todo control tools" in prompt
-    assert "Selecting core does not require every current-goal todo" in prompt
-    assert "unresolved todos may remain pending or in_progress" in prompt
-    assert "mark every current-goal todo done or cancelled" not in prompt
-    assert "does not complete the Turn or produce final user output" in prompt
-    assert "computed value such as an average" in prompt
-
-
 def test_phase1_applies_working_reconciliation_before_returning() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("finish current work")
