@@ -22,7 +22,7 @@ from .openai_sdk import (
 class GlmProviderBehavior(OpenAIAdapterBehavior):
     """GLM-specific option mapping."""
 
-    def validate_tools(self, request: ProviderRequest) -> None:
+    def validate_request(self, request: ProviderRequest) -> None:
         for tool in request.tool_scope.visible_tools():
             if tool.parameters.get("type") != "object":
                 raise ProviderError(

@@ -111,14 +111,20 @@ def test_cli_init_copies_editable_project_without_provider_selection(
             encoding="utf-8"
         )
     )["llm"]["models"]
-    assert set(deepseek_models) == {"deepseek_v4_pro", "deepseek_v4_flash"}
-    assert deepseek_models["deepseek_v4_pro"]["providers"] == [
+    assert set(deepseek_models) == {"deepseek_pro", "deepseek_flash"}
+    assert deepseek_models["deepseek_pro"]["providers"] == [
         {"provider": "orca", "provider_model": "deepseek/deepseek-v4-pro"},
         {"provider": "deepseek", "provider_model": "deepseek-v4-pro"},
     ]
-    assert (
-        deepseek_models["deepseek_v4_flash"]["context_window_tokens"] == 1_000_000
-    )
+    assert deepseek_models["deepseek_flash"]["providers"] == [
+        {
+            "provider": "orca",
+            "provider_model": "deepseek/deepseek-v4-flash-vision-exp",
+        },
+        {"provider": "deepseek", "provider_model": "deepseek-flash"},
+    ]
+    assert deepseek_models["deepseek_flash"]["context_window_tokens"] == 1_000_000
+    assert "image_input" in deepseek_models["deepseek_flash"]["capabilities"]
     web = tomllib.loads(
         (root / "configs" / "capabilities" / "web.toml").read_text(
             encoding="utf-8"

@@ -1,4 +1,4 @@
-[llm.models.deepseek_v4_pro]
+[llm.models.deepseek_pro]
 adapter = "deepseek"
 providers = [
   { provider = "orca", provider_model = "deepseek/deepseek-v4-pro" },
@@ -12,26 +12,28 @@ capabilities = [
   "tool_calling",
 ]
 
-[llm.models.deepseek_v4_pro.adapter_options]
+[llm.models.deepseek_pro.adapter_options]
 thinking = "enabled"
 reasoning_effort = "high"
 reasoning_keep = "content"
 
-[llm.models.deepseek_v4_flash]
+[llm.models.deepseek_flash]
 adapter = "deepseek"
 providers = [
-  { provider = "orca", provider_model = "deepseek/deepseek-v4-flash" },
-  { provider = "deepseek", provider_model = "deepseek-v4-flash" },
+  { provider = "orca", provider_model = "deepseek/deepseek-v4-flash-vision-exp" },
+  { provider = "deepseek", provider_model = "deepseek-flash" },
 ]
 context_window_tokens = 1000000
 capabilities = [
   "text_input",
+  "image_input",
+  "image_remote_url",
   "json_object_output",
   "reasoning_output",
   "tool_calling",
 ]
 
-[llm.models.deepseek_v4_flash.adapter_options]
+[llm.models.deepseek_flash.adapter_options]
 thinking = "enabled"
 reasoning_effort = "high"
 reasoning_keep = "content"

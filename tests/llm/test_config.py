@@ -52,22 +52,26 @@ def test_llm_config_parses_development_profile_files(tmp_path: Path) -> None:
     assert kimi.adapter_options.values["protocol"] == "k2"
     assert kimi.request_overrides.temperature == pytest.approx(1.0)
 
-    deepseek_pro = config.models.get("deepseek_v4_pro")
+    deepseek_pro = config.models.get("deepseek_pro")
     assert deepseek_pro.context_window_tokens == 1_000_000
     assert tuple(binding.provider_id for binding in deepseek_pro.providers) == (
         "orca",
         "deepseek",
     )
-    assert config.models.get("deepseek_v4_flash").providers[0].provider_model == (
-        "deepseek/deepseek-v4-flash"
+    deepseek_flash = config.models.get("deepseek_flash")
+    assert deepseek_flash.providers[0].provider_model == (
+        "deepseek/deepseek-v4-flash-vision-exp"
     )
+    assert deepseek_flash.providers[1].provider_model == "deepseek-flash"
+    assert deepseek_flash.supports(ModelCapability.IMAGE_INPUT)
+    assert deepseek_flash.supports(ModelCapability.IMAGE_REMOTE_URL)
 
     framework = config.tasks.get(TaskProfile.FRAMEWORK).chain
     assert framework.model_ids == (
         "gpt_5_6_terra",
         "gpt_5_5",
         "kimi_k2_7",
-        "deepseek_v4_pro",
+        "deepseek_pro",
     )
     policy = framework.retry_policy
     assert policy.max_retries_per_provider == 1
@@ -91,8 +95,8 @@ def test_built_in_models_use_orca_as_primary_provider(
         "gpt_5_6_sol": "openai/gpt-5.6-sol",
         "gpt_5_6_terra": "openai/gpt-5.6-terra",
         "gpt_5_6_luna": "openai/gpt-5.6-luna",
-        "deepseek_v4_pro": "deepseek/deepseek-v4-pro",
-        "deepseek_v4_flash": "deepseek/deepseek-v4-flash",
+        "deepseek_pro": "deepseek/deepseek-v4-pro",
+        "deepseek_flash": "deepseek/deepseek-v4-flash-vision-exp",
         "kimi_k2_7": "kimi/kimi-k2.7-code",
         "kimi_k3": "kimi/kimi-k3",
         "glm_5_1": "z-ai/glm-5.1",

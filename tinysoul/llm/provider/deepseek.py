@@ -6,9 +6,15 @@ from collections.abc import Mapping
 
 from tinysoul.llm.config import ProviderSpec
 from tinysoul.llm.adapter_types import AdapterKind, ProviderApiStyle
-from tinysoul.llm.messages import AssistantMessage, Message
+from tinysoul.llm.messages import (
+    AssistantMessage,
+    ImagePart,
+    ImageUrlPart,
+    Message,
+    UserMessage,
+)
 from tinysoul.llm.reasoning import ReasoningKeep
-from tinysoul.llm.tools import ToolUse
+from tinysoul.llm.tools import ToolSpec, ToolUse
 
 from .base import ProviderError, ProviderErrorKind, ProviderFailureScope, ProviderRequest
 from .openai_sdk import (
@@ -22,33 +28,11 @@ from .openai_sdk import (
 class DeepSeekProviderBehavior(OpenAIAdapterBehavior):
     """DeepSeek-specific option mapping."""
 
-    def validate_tools(self, request: ProviderRequest) -> None:
+    def validate_request(self, request: ProviderRequest) -> None:
+        _validate_image_messages(request)
         tools = request.tool_scope.visible_tools()
-        if len(tools) > 128:
-            raise ProviderError(
-                "DeepSeek supports at most 128 tools",
-                kind=ProviderErrorKind.CONFIG,
-            )
-        for tool in tools:
-            if tool.strict:
-                raise ProviderError(
-                    "DeepSeek adapter does not support strict tool calling",
-                    kind=ProviderErrorKind.CONFIG,
-                )
-        if (
-            request.tool_use is not ToolUse.DISABLED
-            and tools
-            and _deepseek_thinking_enabled(request.model.adapter_options.values)
-            and adapter_reasoning_keep(
-                request.model.adapter_options.values,
-                adapter="DeepSeek",
-            )
-            is not ReasoningKeep.CONTENT
-        ):
-            raise ProviderError(
-                "DeepSeek thinking with tools requires reasoning_keep='content'",
-                kind=ProviderErrorKind.CONFIG,
-            )
+        _validate_deepseek_tools(tools)
+        _validate_thinking_tool_replay(request, has_tools=bool(tools))
 
     def tool_choice_payload(
         self,
@@ -194,3 +178,49 @@ def _deepseek_thinking_enabled(options: Mapping[str, object] | None) -> bool:
         return True
     value = options.get("thinking")
     return _thinking_option(value).get("type") == "enabled"
+
+
+def _validate_image_messages(request: ProviderRequest) -> None:
+    for message in request.messages.messages:
+        if isinstance(message, UserMessage):
+            continue
+        if any(isinstance(part, (ImagePart, ImageUrlPart)) for part in message.parts):
+            raise ProviderError(
+                "DeepSeek image input is only supported in user messages",
+                kind=ProviderErrorKind.CAPABILITY,
+            )
+
+
+def _validate_deepseek_tools(tools: tuple[ToolSpec, ...]) -> None:
+    if len(tools) > 128:
+        raise ProviderError(
+            "DeepSeek supports at most 128 tools",
+            kind=ProviderErrorKind.CONFIG,
+        )
+    for tool in tools:
+        if tool.strict:
+            raise ProviderError(
+                "DeepSeek adapter does not support strict tool calling",
+                kind=ProviderErrorKind.CONFIG,
+            )
+
+
+def _validate_thinking_tool_replay(
+    request: ProviderRequest,
+    *,
+    has_tools: bool,
+) -> None:
+    if (
+        request.tool_use is not ToolUse.DISABLED
+        and has_tools
+        and _deepseek_thinking_enabled(request.model.adapter_options.values)
+        and adapter_reasoning_keep(
+            request.model.adapter_options.values,
+            adapter="DeepSeek",
+        )
+        is not ReasoningKeep.CONTENT
+    ):
+        raise ProviderError(
+            "DeepSeek thinking with tools requires reasoning_keep='content'",
+            kind=ProviderErrorKind.CONFIG,
+        )

@@ -23,7 +23,7 @@ from .openai_sdk import (
 class KimiProviderBehavior(OpenAIAdapterBehavior):
     """Kimi-specific option mapping."""
 
-    def validate_tools(self, request: ProviderRequest) -> None:
+    def validate_request(self, request: ProviderRequest) -> None:
         tools = request.tool_scope.visible_tools()
         if len(tools) > 128:
             raise ProviderError(

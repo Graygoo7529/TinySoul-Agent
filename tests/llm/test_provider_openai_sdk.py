@@ -1805,6 +1805,91 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     }
 
 
+def test_deepseek_adapter_maps_user_images() -> None:
+    message = SimpleNamespace(content="ok", reasoning_content=None)
+    client = FakeCreateClient(
+        response=SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage={},
+        )
+    )
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek"),
+        api_key="key",
+        completions=client,
+    )
+
+    adapter.invoke(
+        ProviderRequest(
+            model=_model(
+                provider_id="deepseek",
+                provider_model="deepseek-flash",
+            ),
+            messages=MessageStack.of(
+                UserMessage.from_parts(
+                    TextPart("Describe the images."),
+                    ImagePart(data=b"abc", mime_type="image/png"),
+                    ImageUrlPart(url="https://example.test/image.png"),
+                )
+            ),
+            answer_format=AnswerFormat.TEXT,
+        )
+    )
+
+    assert client.calls[0]["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe the images."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,YWJj"},
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.test/image.png"},
+                },
+            ],
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        SystemMessage.from_parts(ImagePart(data=b"abc", mime_type="image/png")),
+        AssistantMessage.from_parts(
+            ImageUrlPart(url="https://example.test/image.png")
+        ),
+    ),
+)
+def test_deepseek_adapter_rejects_images_outside_user_messages(
+    message: SystemMessage | AssistantMessage,
+) -> None:
+    client = FakeCreateClient(response=object())
+    adapter = DeepSeekProviderAdapter(
+        provider=_provider("deepseek"),
+        api_key="key",
+        completions=client,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        adapter.invoke(
+            ProviderRequest(
+                model=_model(
+                    provider_id="deepseek",
+                    provider_model="deepseek-flash",
+                ),
+                messages=MessageStack.of(message),
+                answer_format=AnswerFormat.TEXT,
+            )
+        )
+
+    assert exc.value.kind is ProviderErrorKind.CAPABILITY
+    assert exc.value.scope is ProviderFailureScope.MODEL
+    assert client.calls == []
+
+
 def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> None:
     message = SimpleNamespace(content="ok", reasoning_content="reasoning")
     client = FakeCreateClient(
@@ -1927,7 +2012,7 @@ def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> Non
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
-                    provider_model="deepseek-v4-flash",
+                    provider_model="deepseek-flash",
                 ),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,

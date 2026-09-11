@@ -37,7 +37,7 @@ class OpenAIAdapterBehavior:
             kind=ProviderErrorKind.CONFIG,
         )
 
-    def validate_tools(self, request: ProviderRequest) -> None:
+    def validate_request(self, request: ProviderRequest) -> None:
         return
 
     def tool_payload(

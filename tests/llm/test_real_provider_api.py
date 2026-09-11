@@ -56,8 +56,8 @@ PRIMARY_MODEL_IDS = (
     "gpt_5_5",
     "kimi_k3",
     "kimi_k2_7",
-    "deepseek_v4_pro",
-    "deepseek_v4_flash",
+    "deepseek_pro",
+    "deepseek_flash",
     "glm_5_1",
     "minimax_m3",
 )
@@ -69,8 +69,8 @@ TOOL_MODEL_IDS = (
     "gpt_5_5",
     "kimi_k3",
     "kimi_k2_7",
-    "deepseek_v4_pro",
-    "deepseek_v4_flash",
+    "deepseek_pro",
+    "deepseek_flash",
     "glm_5_1",
     "minimax_m3",
 )

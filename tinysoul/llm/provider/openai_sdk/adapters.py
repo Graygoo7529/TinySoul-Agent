@@ -75,10 +75,10 @@ class OpenAIResponsesAdapter:
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
+        self._behavior.validate_request(request)
         configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
-        self._behavior.validate_tools(request)
         self._behavior.apply_prompt_cache(kwargs, request)
         kwargs["input"] = to_responses_input(
             request,
@@ -156,10 +156,10 @@ class OpenAICompatibleChatAdapter:
 
     def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
+        self._behavior.validate_request(request)
         configured_options = request.model.adapter_options.values
         name_map = ProviderToolNameMap.from_request(request)
         kwargs = common_create_kwargs(request)
-        self._behavior.validate_tools(request)
         self._behavior.apply_prompt_cache(kwargs, request)
         kwargs["messages"] = to_chat_messages(
             request,
