@@ -82,17 +82,9 @@ $env:TINYSOUL_PYTHON=(Get-Command python).Source
 Architecture and module contracts are under `docs/design/`; the desktop frontend is documented in `visualization/README.md`.
 
 
+## Provider popularization
 
+https://www.orcarouter.ai/ is now supported as built-in provider.
 
-
-## Cases
-
-![image-20260731221827847](README.assets/image-20260731221827847.png)
-
-
-
-![image-20260731221904965](README.assets/image-20260731221904965.png)
-
-
-
-![image-20260731221918147](README.assets/image-20260731221918147.png)
+orcarouter new user link：
+https://www.orcarouter.ai/ref/ref_5fac47f4440f623d372b
