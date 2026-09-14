@@ -22,7 +22,7 @@
 
 任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载领域 Skill；Action 内部的 LLM Task 可同时挂载领域 Skill 与动作 Skill。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
 
-行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛为成功、失败或超时。需要跨 Cycle 监督的外部任务可以保留 Turn-scoped job，但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
+行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛为成功、失败或超时。需要跨 Cycle 监督的外部任务以 Job 形式由 Agent 监督（Turn 级随 Turn 结束回收，Agent 级可跨 Turn 存续），但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
 
 模型侧工具/Tool Message：用于约束模型生成结构化调用意图，不等于工具已执行。Control Tools 在 Phase1 表达语境和流程控制意图，结果经校验后由对应模块消费；Action Tools 在 Phase2 表达行动参数，结果归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只是 LLM 适配层映射，不进入 TinySoul 的核心身份和业务协议。
 
@@ -69,7 +69,7 @@ Agent Home：Agent 的持久身份规约、用户偏好、通用 Skill 和行动
 
 ### 运行控制
 
-运行层级：从外到内为 Program、Turn、Cycle、Phase、Module。Program 拥有类型化请求队列与进程生命周期；Turn 表达一项完整的 User 或 Maintenance work；Cycle 和 Phase 组织推理与行动；Module 是 LLM、Action、Context 或持久化 owner 的具体执行边界。
+运行层级：从外到内为 Agent（重构前实现中称 Program）、Turn、Cycle、Phase、Module。Agent 拥有类型化请求队列、环境事件路由与进程生命周期；Turn 表达一项完整的 User 或 Maintenance work；Cycle 和 Phase 组织推理与行动；Module 是 LLM、Action、Context 或持久化 owner 的具体执行边界。
 
 Business Day 与每日生命周期：业务日由统一时区规则确定，并在一个 Turn 内保持不变。Session、Session root 内的活动 `Memory.md`、Workspace 和 active Trash 具有强制日生命周期；进入新日工作前必须先完成不依赖 LLM 的确定性日切、恢复、归档和新根初始化。新日 `Memory.md` 初始正文为空。Home 与持久 Memory 跨日保留且不进入归档；关闭日 daily 与知识由独立 Memory Maintenance 维护。
 
@@ -81,7 +81,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 
 行为模式：TinySoul-Agent 是一个面向个人的、允许超长时间后台多步运行的智能体，整体行为先充分探索和思考再进行产出：一步一步落实、把每一步工作都耐心仔细做好。智能体不急于回答和交付，而是精细于每一步工作；总体上秉持先探索思考，再设计规划，再产出执行，最后检查迭代的行动思路；细节上会合理拆分多步任务，不急于一次完成，少量多次地尝试和产出，每次做好局部细节的打磨和提交，最后检查交付完整成果。
 
-人机协作：TinySoul-Agent 是主动的思考与执行伙伴，会提出有依据的观点、假设、替代路线和能够推进理解的问题。可自行调查或有界恢复的问题应先在当前 Turn 内处理；当继续推进依赖人的重大判断、仅由用户掌握的信息、进一步授权或指示、可行路线选择，或者当前证据不足以负责任地继续时，可以通过 `core.answer` 提问、请求确认或申请进一步指示。此类回答正常结束当前 User Turn，但不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。
+人机协作：TinySoul-Agent 是主动的思考与执行伙伴，会提出有依据的观点、假设、替代路线和能够推进理解的问题。可自行调查或有界恢复的问题应先在当前 Turn 内处理；当继续推进依赖人的重大判断、仅由用户掌握的信息、进一步授权或指示、可行路线选择，或者当前证据不足以负责任地继续时，可以通过 `core.answer` 提问、请求确认或申请进一步指示，此类回答正常结束当前 User Turn；也可以通过 `core.ask` 提问并暂停当前 Turn 等待回复，回复到达则在本 Turn 内继续，超时则本 Turn 以等待用户状态结束。两者都不宣告整体多轮目标已经完成，也不要求 WorkingContext todos 全部完成。
 
 
 ## 项目规约
@@ -133,7 +133,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 ### 实现约束
 
 - 所有动态边界（配置、模型输出、外部协议、文件内容）在入口处校验并转换为明确类型；配置显式加载、显式传递，禁止导入时读取配置或创建隐式全局状态。
-- 优先复用既有模块和门面；不预先建设通用插件平台、万能 Gateway、任意文件 API、第二套 Loop/Action 状态机或没有真实消费者的抽象。
+- 优先复用既有模块和门面；不建设动态发现式的通用插件平台、万能 Gateway、任意文件 API、第二套 Loop/Action 状态机或没有真实消费者的抽象。显式注册、每个 SPI 方法在仓库内都有真实消费者的 Plugin 契约不属于此禁令。
 - 文档、代码和测试共同描述当前实现事实。历史设计和旧测试只能帮助理解意图，不能成为保留模糊边界、重复状态或兼容层的理由。
 
 ## 工作方式
@@ -172,7 +172,7 @@ Trap/Runtime 语义异常：只用于需要改变运行位置的控制流，例�
 - 模块内部可以使用普通 Python 异常或模块私有异常表达内部失败；跨出模块边界并交给 Runtime 处理的异常，应在模块边界转换为 Runtime 可理解的语义异常，避免供应商、解析器或具体实现错误类型污染全局运行控制。
 - 表达模块语义失败时，不直接抛出裸 `ValueError`、`TypeError` 等内置异常；应转为局部结果或使用模块私有异常；需要改变运行控制流时，再由模块边界的 bridge 转换为 Runtime 语义异常。
 - 模块稳定失败语义应由模块内部维护；需要交给 Runtime 的失败由专门 bridge 映射为少量通用 Runtime 原因。bridge 应显式构造 message 和 JSON payload；原始异常链用于调试，不作为 payload 协议。
-- 新模块接入 Runtime 时，应优先遵循 LLM、Action 和 Infra 的模式：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由 `tinysoul/runtime/bridge/` 下的专门桥接代码通过映射表转换为 Runtime 语义异常；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
+- 新模块接入 Runtime 时，应优先遵循 LLM、Action 和 Infra 的模式：模块内用 `failures.py` 维护服务于 Runtime bridge 的稳定失败枚举；需要 Runtime 协调控制流的失败由模块自带的 runtime bridge（内核模块位于 `tinysoul/runtime/bridge/`，插件位于插件包内 `runtime_bridge.py`）通过映射表转换为 Runtime 语义异常；Trap 原因常量由定义该原因的 owner 声明并登记处理器，`runtime` 只声明自身的启动失败与结束 Turn/Cycle/Agent 原因；模块内部可自行处理或结构化返回的失败不进入 Runtime，也不必强行纳入 bridge failure 枚举。
 - 模块 failure payload 应保持稳定、精简和 JSON 安全。跨 Runtime 边界时 payload 至少应能表达模块名和模块失败类型，其中 `kind` 使用 `<module>.<failure_name>` 格式的全局稳定标识，`module` 字段继续保留用于筛选和展示；并可按需携带 `error_type`、配置 key、profile、资源句柄等摘要字段；不要放原始异常对象、traceback、大块文件内容、完整消息栈或业务模块内部对象。
 - Runtime 语义异常应通过稳定原因标识进入 Trap，由 Trap 处理器返回运行转移；Runtime 原因应收敛为启动失败、结束 Turn、结束 Cycle、结束 Program 和少量全局恢复原因，不要为恢复、中断、退出和无法处理的错误过早扩展庞大的异常继承树。
 - Runtime 运行转移应以运行位置栈中的 frame 为目标，并收敛为重试 frame 或结束 frame；重试目标必须具备可重放语义，结束 Program frame 表示退出程序。
@@ -238,7 +238,15 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务已从核心模块重构转入 TinySoul-AGENT 整体应用构建与优化，后端构建清晰正确的功能支持、前端提供美观的信息呈现；一方面，需要构造功能强、可用性高、具有智能性的泛用智能体，另一方面，需要通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。当前代码、模块设计文档和已完成执行记录才是实现事实；后续工作不得使用兼容层、重复状态或跨模块捷径。
+当前任务是按 `docs/analysis/20260914-layered-agent-architecture-execution-plan.md` 实施分层 Agent 架构的整体重构：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程、外部 sub-agent 与嵌套 Turn；按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排包布局。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+
+过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
+
+- Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
+- MessageStack 顺序由段槽位决定（identity → inputs → history → background → trace → working → task），Home、Memory、Session、Workspace 各以独立段提供内容。
+- 追加输入、stop/exit、定时唤醒、文件变更、Job 事件统一经事件总线与 `EventRouter` 进入 Turn 收件箱或触发新 Turn。
+- 跨 Cycle 监督的外部任务统一为 Job；`core.ask` 可暂停 Turn 等待用户回复。
+- 业务模块的 runtime bridge 与 Trap 原因随插件包放置。
 
 运行环境假设：后端运行于一台 24h 开启的独立主机，前端连接主机；支持后端运行的主机具有硬隔离性，因此不需要考虑太多的安全性问题。
 
@@ -249,8 +257,8 @@ conda activate TinySoul
 ### 实现纪律
 
 - 保持模块所有权和三层失败语义。新增失败必须先归类为局部结果、模块边界异常或 Runtime 语义异常，不得用裸 `ValueError`、`RuntimeError` 或宽泛异常掩盖归属。
-- 不预先建设通用插件平台、万能 Gateway、任意文件 API 或第二套 Loop/Action 状态机。
-- 每完成一个应用阶段，同步更新 `docs/design/`、`docs/endpoint/`、前端协议文档、对应 `-done-` 执行记录和本节当前状态。
+- 不建设动态发现式的通用插件平台、万能 Gateway、任意文件 API 或第二套 Loop/Action 状态机；显式注册的 Plugin SPI 以仓库内真实消费者为界。
+- 每完成一个重构阶段，同步更新 `docs/design/`、`docs/endpoint/`、前端协议文档、对应阶段子计划的 `-done-` 记录和主执行计划的阶段勾选；`docs/design/` 只描述已落地部分。
 
 ## 工作经验
 
