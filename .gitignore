@@ -46,7 +46,6 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
-docs/chat/
 prompt.txt
 docs/report/
 labs/
