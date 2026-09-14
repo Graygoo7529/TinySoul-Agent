@@ -243,10 +243,13 @@ conda activate TinySoul
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
 - Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
-- MessageStack 顺序由段槽位决定（identity → inputs → history → background → trace → working → task），Home、Memory、Session、Workspace 各以独立段提供内容。
+- MessageStack 按三分区 Background → Trace → Working 渲染，Background 内顺序为 identity → history → inputs → home → memory；Home、Memory、Session、Workspace 各以独立段提供内容。
 - 追加输入、stop/exit、定时唤醒、文件变更、Job 事件统一经事件总线与 `EventRouter` 进入 Turn 收件箱或触发新 Turn。
 - 跨 Cycle 监督的外部任务统一为 Job；`core.ask` 可暂停 Turn 等待用户回复。
 - 业务模块的 runtime bridge 与 Trap 原因随插件包放置。
+- `BusinessDay` → `CalendarDay`；Maintenance → Reflection，且分为 `home_reflection` / `memory_reflection` 两个专属域；User Turn 仍不写持久 Memory、不提交 actual Home。
+- Session history 为语义地图（Map 形状），不是线性 Summary 堆；追溯动作为单一 `core.context.inspect`。
+- Workspace 取消 digest/revision CAS、提交前复验与压力 trash，侧重 list/search/read/write/edit。
 
 运行环境假设：后端运行于一台 24h 开启的独立主机，前端连接主机；支持后端运行的主机具有硬隔离性，因此不需要考虑太多的安全性问题。
 

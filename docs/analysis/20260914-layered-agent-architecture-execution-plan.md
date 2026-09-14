@@ -1,6 +1,6 @@
 # 分层 Agent 架构总体重构方案与执行计划
 
-状态：`in_progress`（方案已定稿，S0 完成；阶段进度见第 10 节，决策记录见第 9 节）
+状态：`in_progress`（方案已定稿，S0 完成；D1–D24 均已关闭，见第 9 节；阶段进度见第 10 节）
 
 本文件同时是设计方案与执行计划。1–8 节阐述重构性质、设计意图、统一语义、架构与契约、与现有模块的联系、可行性和开放问题；9–12 节记录决策、分阶段实施、测试与验收。方案在与维护者的讨论中持续修订，修订点在第 9 节留痕。
 
@@ -37,13 +37,13 @@
 |---|---|---|---|
 | 1 | 层次进一步划分，上下层 agent/sdk api 风格调用，依赖解耦 | 六层单向依赖；`Agent` 门面是 L5 唯一入口；插件经 `PluginRegistry` SPI 注入；三条 import 规则由测试固定 | 本次落地 |
 | 2 | 不同功能范畴插件式注入，内聚、可维护、可替换 | 每个 owner/能力是一个 `Plugin`，声明段、动作、catalog 片段、Trap 处理器、profile、事件源、触发器、Job 种类、服务门面；增删插件只改插件清单 | 本次落地 |
-| 3 | 以 agent 出发，一切是输入、输出与状态改变 | `Agent` API 只暴露输入（TurnRequest、追加输入、控制、配置 patch、环境事件）、输出（TurnOutput、Observation 流、服务读取）与状态（世代、活动、业务日、Job 表） | 本次落地 |
+| 3 | 以 agent 出发，一切是输入、输出与状态改变 | `Agent` API 只暴露输入（TurnRequest、追加输入、控制、配置 patch、环境事件）、输出（TurnOutput、Observation 流、服务读取）与状态（世代、活动、日历日、Job 表） | 本次落地 |
 | 4 | Agent 置于环境中，事件驱动，DDS 式解耦 | 单一 asyncio `EventBus` 以 topic 组织事件；`EnvironmentEvent` 协议、静态/动态事件源、`EventRouter` 路由到收件箱或触发器；三种投递语义对应既有 Signal/Observation/Trap 三分法 | 本次落地 |
 | 5 | 接收追加输入、订阅环境变更、暂停 Turn 与用户对话 | 追加输入进收件箱；段 `subscriptions()` 与 `TurnTrigger` 两级订阅；Workspace 文件监视是首个环境事件源；`core.ask` 暂停 Turn 等待回复 | 本次落地 |
 | 6 | 执行脚本/shell、派遣 sub-agent、按间隔或事件唤醒下一 Cycle | Job 框架统一后台进程、外部 ACP agent 与内部嵌套 Turn；`WaitRequest(until, timeout)` 统一事件唤醒与定时唤醒；agent 级 Job 完成可触发新 Turn | 本次落地 |
-| 7 | 内核仍是 turn-cycle-stage-loop 与语境维护；background 冰山、trace 栈、workspace 最新状态与寄存器式里程碑 | 段形状一等概念：Heap / Stack / State；`plan` 段 milestone 为带状态、值、来源、版本的寄存器；`jobs`、`expand.tools` 段是 State 形状的新成员 | 本次落地 |
+| 7 | 内核仍是 turn-cycle-stage-loop 与语境维护；background 冰山、trace 栈、workspace 最新状态与寄存器式里程碑 | 三分区 Background → Trace → Working；四种形状 Heap / Map / Stack / State；`session.history` 为 Map；`plan` milestone 为寄存器 | 本次落地 |
 | 8 | 依赖反转：外围声明段内容与内核使用方法，内核不知内容 | 段协议 `open`（前）/`stage·commit·on_event·reclaim·inspect`（中）/`seal·close`（后）；内核只知槽位、形状与 ref scheme | 本次落地 |
-| 9 | MCP 通用工具接入（`00 doing something.md`），避免 tool schema 过大 | `expand` 域：MCP 网关服务 + `expand.search/describe/call` + `expand.tools` 钉选段；模型自己策展可见工具集 | 本次落地·后续扩展 |
+| 9 | MCP 通用工具接入（`00 doing something.md`），避免 tool schema 过大 | `expand` 域：MCP 网关 + `expand.search/describe/call/servers`；搜索与描述结果进入 Trace，不设钉选段 | 本次落地·后续扩展 |
 
 ## 3. 统一设计语义
 
@@ -53,7 +53,7 @@ Agent 是进程内唯一的智能体实例。
 
 - 输入：`TurnRequest(profile, input, metadata, source)`、`InputAppended`、`ControlRequested(stop|exit)`、`ConfigPatch`、`EnvironmentEvent`。
 - 输出：`TurnOutput(kind=answer|question, text)`、Observation 流、服务门面读取。
-- 状态：配置世代、活动（`idle | preflight | turn | awaiting_input`）、业务日、Job 表、注册插件与服务状态摘要。
+- 状态：配置世代、活动（`idle | preflight | turn | awaiting_input`）、日历日、Job 表、注册插件与服务状态摘要。
 
 Agent 取代 Program/App。`RunLevel.PROGRAM → AGENT`，`runtime.program_end → runtime.agent_end`。
 
@@ -92,27 +92,34 @@ class EnvironmentEvent:
 
 `TurnInbox` 是活动 Turn 对其命名空间的类型化视图：`drain()`、`wait(filter, timeout)`。收件箱事件种类：`InputAppended`、`ControlRequested`、`EnvironmentEvent`。
 
-topic 分类（当前消费者）：`input.*`（终端/Endpoint）、`control.*`、`schedule.<name>.due`（maintenance 触发器）、`fs.workspace.changed`（`workspace.resources` 段）、`job.<id>.*`（`jobs` 段、`core.job.wait`、agent 级 Job 触发器）、`mcp.<server>.*`（`expand` 网关刷新工具索引与资源订阅）。
+topic 分类（当前消费者）：`input.*`（终端/Endpoint）、`control.*`、`schedule.<name>.due`（reflection 触发器）、`fs.workspace.changed`（`workspace.resources` 段）、`job.<id>.*`（`jobs` 段、`core.job.wait`、agent 级 Job 触发器）、`mcp.<server>.*`（`expand` 网关刷新工具索引与资源订阅）。
 
 ### 3.3 Turn 与 TurnProfile
 
 Turn 是一项完整 work；Cycle 由 Phase1/2/3 组成；骨架不变。
 
-User Turn 与 Maintenance Turn 的差异收敛为 `TurnProfile`：guidance、Action surface、参与段集合、completion detector、completion 到 `TurnOutput` 的映射、Trap 策略追加、预算、是否接受追加输入、等待策略。内建 `user`；maintenance 注册 `home_maintenance`、`memory_maintenance`；`subagent` 插件注册 `subagent` profile（受限 surface，用于内部嵌套 Turn）。
+差异收敛为 `TurnProfile`：guidance、Action surface、参与段集合、completion detector、completion 到 `TurnOutput` 的映射、Trap 策略追加、预算、是否接受追加输入、等待策略。内建 `user`；`plugins/home` 注册 `home_reflection`，`plugins/memory` 注册 `memory_reflection`（专属域只在对应 profile 的 surface 中出现，与常规 User Turn 的 `home` / `core.memory` 域分开）；`subagent` 插件注册 `subagent` profile（受限 surface，用于内部嵌套 Turn）。
 
 Cycle 边界等待是一等语义：`WaitRequest(until: EventFilter, timeout, extend_budget)`，`until` 是事件唤醒，`timeout` 是定时唤醒。
 
+日历日由 `agent/day` 持有：类型名为 `CalendarDay`（取代 `BusinessDay`），时区时钟为 `CalendarClock`。提示词、Observation、CLI 与 Endpoint 使用"今天 / 某日"；代码与持久目录日期字段使用 ISO `YYYY-MM-DD`。确定性日切、归档与新根初始化语义不变，只改名。
+
 ### 3.4 Context：槽位、形状与段
 
-段有槽位、槽内序号、形状、ref scheme。MessageStack 顺序由槽位决定：`identity → inputs → history → background → trace → working → task`。
+段有分区槽位、槽内序号、形状、ref scheme、以及是否可逐出。MessageStack 按三分区渲染：Background → Trace → Working；Working 尾部由 loop 叠加当前 LLM Task 的 TaskPrompt overlay（不是段）。
 
-三种形状定义内核对段的使用方式：
+Background 槽内顺序（D19）：`identity`（system role）→ `session.history` → `inputs` → `home.background` → `memory.background`。Phase1 会 load/evict Home 与 Memory，把会变的段放在固定段之后，避免污染 identity/history/inputs 的前缀。`identity`、`history`、`inputs` 不可逐出；`home.background`、`memory.background` 可渐进 load/evict。
 
-- Heap：线索在顶，条目可 `load/evict/inspect`；压力回收逐出。实例：`home.background`、`memory.background`、`session.history`。
+四种形状定义内核对段的使用方式：
+
+- Heap：线索在顶，条目可 `load/evict/inspect`；压力回收逐出。实例：`home.background`、`memory.background`。
+- Map：关系图骨架始终可见；节点可 `inspect`；压力回收只在本段超过自身水位时有限折叠节点细节，不拆骨架。实例：`session.history`。Thread 是地图上的节点种类，不是第五种形状。
 - Stack：Turn 内追加，旧帧折叠，折叠帧可 `inspect`；压力回收折叠。实例：`trace`。
-- State：最新状态整体替换或 patch；压力回收收缩渲染。实例：`identity`、`inputs`、`plan`、`workspace.resources`、`jobs`、`expand.tools`。
+- State：最新状态整体替换或 patch；压力回收收缩渲染。实例：`identity`、`inputs`、`plan`、`workspace.resources`、`jobs`。
 
-内核统一处理：渲染框架、回收顺序（State 收缩 → Heap 逐出 → Stack 折叠）、`context.load/evict(ref)` 对所有 Heap 有效、`core.context.inspect(ref, cursor)` 对声明 `inspect` 的段有效；ref 按 scheme（`home:`、`memory:`、`session:`、`trace:`）路由。
+内核统一处理：渲染框架、回收顺序（State 收缩 → Heap 逐出 → Stack 折叠 → Map 仅在自身超水位时有限折叠）、`context.load/evict(ref)` 对 Heap 有效、`core.context.inspect(ref, cursor)` 对声明 `inspect` 的段有效、`core.context.organize` 路由到 Map 段；ref 按 scheme（`home:`、`memory:`、`session:`、`trace:`）路由。
+
+Trace 除决策、Action 调用与结果、Phase 反馈外，包含**事件帧**：`trace` 段订阅收件箱（`input.appended`、显著 `job.*`、`fs.workspace.changed`），`on_event` 追加有时序的感知记录（如"收到追加输入 #2，正文见 inputs"）。正文仍由所属段承载。`jobs` 段不自行追加 trace note。
 
 段每 Turn 实例：注册 `ContextSegmentProvider`，Turn 开始 `open(turn)`，结束 `seal()`/`close()`。段即 Turn 参与者，不再有独立的 `TurnParticipant`。
 
@@ -134,14 +141,14 @@ class Job(Protocol):
 
 - Job 事件：`job.<id>.started | output | state | message | permission_request | exited | failed`，payload 有界；Job 启动时注册为动态事件源，结束后注销。
 - `JobRegistry`（kernel 定义、agent 持有一个实例）：按 id 索引；Turn 结束时停止该 Turn 的 `TURN` 级 Job；`AGENT` 级 Job 存续到 `collect` 或 `stop`；不跨进程重启持久化。
-- `jobs` 段（内核 State，`working` 槽）：渲染本 Turn 可见的 Job（本 Turn 的 + 所有 agent 级），订阅 `job.*`，`on_event` 更新状态并对显著事件追加 trace note。
+- `jobs` 段（内核 State，Working 槽）：渲染本 Turn 可见的 Job（本 Turn 的 + 所有 agent 级），订阅 `job.*`，`on_event` 只更新本段状态；显著 Job 事件由 `trace` 段写事件帧。
 - agent 级 Job 完成且无活动 Turn 时，agent 内建 `TurnTrigger` 生成 `TurnRequest(profile=user, input=<Job 完成通告>, metadata={job_id})`，下一 Turn 的 `jobs` 段显示为可回收。
 - 通用控制在 core 域：`core.job.wait(job_id | any, timeout)`（登记 WaitRequest）、`core.job.status(job_id)`、`core.job.stop(job_id)`。启动、发送与回收由种类所属域提供，因为它们的参数与结果语义不同。
 - Job 种类由插件经 `registry.job_kind(kind, factory)` 注册；`ActionExecutionContext.turn.jobs` 提供 `start(kind, spec, scope)` 与查询。
 
 ### 3.6 Plugin 与两阶段装配
 
-Plugin：`configure(env)`、`contribute(registry)`、可选 `finalize(view)`。装配两阶段：declare → resolve（服务表、合并 catalog、按 profile 组装段与 Trap 表、执行延迟 registrar、`finalize`）。插件间只经包根公共门面依赖；当前跨插件消费者是 maintenance（编排）与 subagent/expand（经 `WorkspaceService` 落盘大块输出）。
+Plugin：`configure(env)`、`contribute(registry)`、可选 `finalize(view)`。装配两阶段：declare → resolve（服务表、合并 catalog、按 profile 组装段与 Trap 表、执行延迟 registrar、`finalize`）。插件间只经包根公共门面依赖；当前跨插件消费者是 reflection（编排）与 subagent/expand（经 `WorkspaceService` 落盘大块输出）。
 
 ### 3.7 asyncio 与取消
 
@@ -156,14 +163,14 @@ Plugin：`configure(env)`、`contribute(registry)`、可选 `finalize(view)`。�
 
 ### 3.8 失败三层语义
 
-不变。每个插件自带 `failures.py` 与 `runtime_bridge.py`，复用 `runtime/bridge/_payload.runtime_exception()` 构造 payload（`module` + `kind`）；`runtime/bridge/` 只保留 `_payload` 与内核模块 bridge。Trap 原因的所有权同样分层：`runtime` 只定义 `runtime.startup_failed | turn_end | cycle_end | agent_end`；`kernel/context` 定义 `context.compression_required`；`home.runtime_copy_required`、`workspace.trash_restore_required` 等由所属插件定义并经 `registry.trap_handler` 登记（现 `TrapHandlerRegistry` 已支持 exact/prefix/fallback，无需改动）。现 `runtime/exception.py` 中集中声明业务原因常量的做法取消。ACP/MCP 的协议错误在插件边界归类：工具返回 `is_error` 是局部结果；连接/握手失败是模块边界异常；不进入 Runtime。
+不变。每个插件自带 `failures.py` 与 `runtime_bridge.py`，复用 `runtime/bridge/_payload.runtime_exception()` 构造 payload（`module` + `kind`）；`runtime/bridge/` 只保留 `_payload` 与内核模块 bridge。Trap 原因的所有权同样分层：`runtime` 只定义 `runtime.startup_failed | turn_end | cycle_end | agent_end`；`kernel/context` 定义 `context.compression_required`；`home.runtime_copy_required` 由 home 插件定义并经 `registry.trap_handler` 登记（现 `TrapHandlerRegistry` 已支持 exact/prefix/fallback，无需改动）。现 `runtime/exception.py` 中集中声明业务原因常量的做法取消。`workspace.trash_restore_required` 随 D24 删除。ACP/MCP 的协议错误在插件边界归类：工具返回 `is_error` 是局部结果；连接/握手失败是模块边界异常；不进入 Runtime。
 
 ## 4. 分层架构与包布局
 
 ```text
 L5 gateway      cli · endpoint v2 (http/ws) · project init/reset
 L4 agent        Agent 门面 · assembly · TurnScheduler · EventRouter · JobRegistry 实例 · generation · day · profiles/user · services · status
-L3 plugins      home · memory · session · workspace · maintenance · capabilities/{resource,web,execution,subagent,expand}
+L3 plugins      home · memory · session · workspace · reflection · capabilities/{resource,web,execution,subagent,expand}
 L3 environment  terminal · scheduler · fswatch · console sink
 L2 kernel       spi · context · loop · action · jobs · prompts
 L1 runtime      scope/trap/transfer/exception · events(EventBus/Signal/Observation/EnvironmentEvent/TurnInbox/EventFilter) · generation handle · 内核 bridge
@@ -196,12 +203,12 @@ tinysoul/
       job.py registry.py events.py actions.py      # Job 协议、JobRegistry、事件 payload、core.job.*
     prompts/
   plugins/
-    home/ memory/ session/ workspace/ maintenance/
+    home/ memory/ session/ workspace/ reflection/
     capabilities/
       resource/ web/
       execution/            # script、shell、process Job 种类；域 execution
       subagent/             # ACP 客户端与 tinysoul_turn Job 种类；域 subagent；subagent profile
-      expand/               # MCP 网关、工具索引、expand.tools 段；域 expand
+      expand/               # MCP 网关、工具索引；域 expand
   environment/
     terminal.py scheduler.py fswatch.py console.py
   agent/
@@ -214,7 +221,7 @@ tinysoul/
   assets/
 ```
 
-插件包统一结构：`plugin.py`、`config.py`、`engine.py|service.py`、`segments.py`、`actions.py`、`jobs.py`（Job 种类，按需）、`catalog/<domain>/`（按需）、`participants.py`（DailyParticipant，按需）、`failures.py`、`runtime_bridge.py`、`errors.py`。
+插件包统一结构：`plugin.py`、`config.py`、`engine.py|service.py`、`segments.py`、`actions.py`、`jobs.py`（Job 种类，按需）、`catalog/<domain>/`（按需）、`participants.py`（DayParticipant，按需）、`failures.py`、`runtime_bridge.py`、`errors.py`。
 
 ## 5. 契约设计
 
@@ -230,7 +237,7 @@ tinysoul/
 - `agent.subscribe(filter) -> AsyncIterator[ObservationEvent]`
 - `agent.services.get(FacadeType)`
 
-`TurnScheduler` 串行消费 TurnRequest；每 Turn 前由 `agent/day` 取得业务日 lease；持有活动 Turn 收件箱。`EventRouter` 按 3.2 路由。嵌套 Turn（`tinysoul_turn` Job）不进队列，作为父 Turn 内的 Task 运行，共享 owner 引擎，段实例独立。
+`TurnScheduler` 串行消费 TurnRequest；每 Turn 前由 `agent/day` 取得日历日 lease；持有活动 Turn 收件箱。`EventRouter` 按 3.2 路由。嵌套 Turn（`tinysoul_turn` Job）不进队列，作为父 Turn 内的 Task 运行，共享 owner 引擎，段实例独立。
 
 ### 5.2 PluginRegistry
 
@@ -241,7 +248,7 @@ class PluginRegistry(Protocol):
     def action_catalog_fragment(self, root: Path, *, package_only: bool = False) -> None: ...
     def trap_handler(self, reason: str, handler: TrapHandler, *, profiles: frozenset[str] | None = None) -> None: ...
     def turn_profile(self, profile: TurnProfile) -> None: ...
-    def daily_participant(self, participant: DailyParticipant) -> None: ...
+    def daily_participant(self, participant: DayParticipant) -> None: ...
     def event_source(self, source: EventSource) -> None: ...
     def schedule(self, name: str, spec: ScheduleSpec) -> None: ...
     def turn_trigger(self, trigger: TurnTrigger) -> None: ...
@@ -271,15 +278,19 @@ class ContextSegment(Protocol):
     async def on_event(self, event: TurnEvent) -> SegmentPatch | None: ...
 ```
 
-`ContextEngine`：按 profile 选段并并行 `open`；`compose` 依槽位渲染并叠加 TaskPrompt；边界批次消费段 Signal、Phase1 控制调用与收件箱事件产生的 patch。批次语义沿用现 `consume_signal_batch`：先对全部 patch 做 `stage`（校验 + 投影到批次状态 + 完成惰性加载），单个 patch 校验失败转为该调用的局部 `ControlResult` 并从批次剔除，其余 patch 依序 `commit`；`stage` 阶段不改变任何段状态，因此 Trap 重试同一批次不会观察到半提交。压力 Trap 按形状顺序 `reclaim`；`end_turn` 汇总 `seal()` 为 `TurnCompletion.segments`，再依序 `close`（`history` 最后）。
+`ContextEngine`：按 profile 选段并并行 `open`；`compose` 依分区与槽内序号渲染，identity 用 system role，其余用户态段用 user role，再叠加 TaskPrompt；边界批次消费段 Signal、Phase1 控制调用与收件箱事件产生的 patch。批次语义沿用现 `consume_signal_batch`：先对全部 patch 做 `stage`（校验 + 投影到批次状态 + 完成惰性加载），单个 patch 校验失败转为该调用的局部 `ControlResult` 并从批次剔除，其余 patch 依序 `commit`；`stage` 阶段不改变任何段状态，因此 Trap 重试同一批次不会观察到半提交。压力 Trap 按形状顺序 `reclaim`（Map 额外遵守自身水位）；`end_turn` 汇总 `seal()` 为 `TurnCompletion.segments`，再依序 `close`（`history` 最后，以便写入结构化抽取与地图骨架）。
 
-`TurnInfo`（`open` 的输入）：`turn_id`、`profile`、`business_day`、`request.metadata`（如 `memory_maintenance` 的 `target_day`、Job 完成通告的 `job_id`）、`parent_turn_id`；段据此决定打开当日还是归档日、读写还是只读。
+`TurnInfo`（`open` 的输入）：`turn_id`、`profile`、`calendar_day`、`request.metadata`（如 `memory_reflection` 的 `target_day`、Job 完成通告的 `job_id`）、`parent_turn_id`；段据此决定打开当日还是归档日、读写还是只读。
 
-内核段：`identity`、`inputs`、`plan`（控制工具 `plan.patch`；milestone 字段 status、value、source link、revision/digest、note）、`trace`、`jobs`。插件段：`home.background`、`memory.background`、`session.history`、`workspace.resources`（订阅 `fs.workspace.changed`）、`expand.tools`。
+内核段：`identity`、`inputs`、`plan`（控制工具 `plan.patch`；milestone 字段 status、value、source link、revision/digest、note）、`trace`、`jobs`。插件段：`home.background`（Heap）、`memory.background`（Heap）、`session.history`（Map）、`workspace.resources`（State，订阅 `fs.workspace.changed`）。不设 `expand.tools` 段。
 
-`trace.seal()` 除折叠后的语义节点外，直接给出 `actions` 投影（Phase2 调用与 Phase3 结果按 call_id 配对、含 outcome/failure/references），供 `session.history.close` 原样记录；现由 `session/completion.py` 解析 sealed trace 的做法取消。
+`trace.seal()` 除折叠后的语义节点与事件帧外，直接给出 `actions` 投影（Phase2 调用与 Phase3 结果按 call_id 配对、含 outcome/failure/references）以及供 Session 抽取的结构化材料：问答、追加输入、`core.reason` 结果摘要、动作引用的 links。现由 `session/completion.py` 解析 sealed trace 的做法取消。
 
-压力回收顺序为 State 收缩 → Heap 逐出 → Stack 折叠：State 段收缩（`workspace.resources` trash 临时资源、`expand.tools` 按最近使用 unpin、`jobs` 折叠已结束项）几乎不损失决策信息；Heap 条目是可经 `context.load` 重新加载的线索；Stack 折叠丢失的是模型正在依据的本轮细节，虽可 `inspect` 追溯但代价最高。这与现 `UserContextPressureRecovery` 先折叠 trace 再逐出 background 的顺序不同，属有意调整。每轮回收逐段询问 `reclaim(required_chars)` 直到满足目标或全部段返回 0，无进展则按现有 `ContextPressureTrapHandler` 语义结束 Turn。
+`session.history`（Map）在 `close` 时无模型固定构建：从 completion 写入不可变 `SessionTurnRecord`，并更新当日 `SessionMap`（`runtime/session/map.json`，随 Session 归档）。抽取字段：初始提问、追加/追问输入、回答或 `core.ask` 问题、outcome、`core.reason` 与其它动作摘要、动作与回答中的 `workspace:` / `memory:` / `home:` / 外部 URL / MCP 工具 id、`plan` 中的 milestone。节点 `turn` / `thread` / `resource` / `link` / `decision`；边 `follows` / `continues` / `touches` / `decides`。Turn 结束时 thread 可暂缺，`organized=false`。新 User Turn 开始时 history 渲染地图骨架，并对上一个成功 Turn（`ANSWERED | COMPLETED | AWAITING_USER`）给出待整理标记。`core.context.organize` 由当前 Turn 的模型调用，把 gist、thread 归属与补全关系写回地图；不在 `close` 里跑 LLM。`SessionSummaryRecord` 删除。压力回收：history 不参与 Heap 式逐出；仅当本段渲染超过自身水位时，把较早已整理 thread 的逐 Turn 行折成 gist 一行，骨架与未整理 Turn 不折。
+
+`core.context.inspect(ref, cursor)` 是唯一追溯动作（D20）：`trace:` 折叠帧、`session:` 地图节点或完整 Turn 记录分页、`home:` / `memory:` 背景条目。`context.load/evict` 只面向 Heap。错配 scheme 为局部失败。
+
+压力回收顺序为 State 收缩 → Heap 逐出 → Stack 折叠 → Map 有限折叠：State 收缩（`workspace.resources` 按目录折计数、`jobs` 折叠已结束项）几乎不损失决策信息且不触盘；Heap 条目可经 `context.load` 重新加载；Stack 折叠丢失本轮细节但可 `inspect`；Map 最后动、且只在自身过大时折叠。每轮逐段询问 `reclaim(required_chars)` 直到满足目标或全部返回 0，无进展则按现有 `ContextPressureTrapHandler` 语义结束 Turn。
 
 ### 5.4 TurnProfile 与等待
 
@@ -303,7 +314,7 @@ Turn 内核骨架（`TurnRunner.run` 的准备 → Cycle 循环 → completion �
 
 ### 5.5 Action 框架
 
-`ActionEngine` 门面不变，`run_batch` async。`ActionBatchRunner` 每 execution 一个 Task，`asyncio.wait(FIRST_COMPLETED)` 同时观察 deadline 与 Turn 取消令牌，超时或取消时对 execution `control.request_cancel` 并等待宽限期，仍未收敛者标记 `executor_leaked` 并阻断同批后续 execution（现有 `leaked_timeout` 语义保留）；首个 `RuntimeException`/`RuntimeTransferInterrupt` 出现时取消同组后原样上抛，不用 `TaskGroup`。`ActionExecutor.execute` 为 async；native 同步 executor 经 `to_thread` 承载并继续以 `control.check_cancelled()` 协作；subprocess 后端 `create_subprocess_exec`；`llm_action` async。`ActionExecutionContext` 保留 `control`、`module_runner`（async 版 `RuntimeModuleRunner`），新增 `turn`：`turn_id`、`business_day`、`request_wait`、`jobs`、`publish(EnvironmentEvent)`；`signal_bus` 改为 `bus`（EventBus）。
+`ActionEngine` 门面不变，`run_batch` async。`ActionBatchRunner` 每 execution 一个 Task，`asyncio.wait(FIRST_COMPLETED)` 同时观察 deadline 与 Turn 取消令牌，超时或取消时对 execution `control.request_cancel` 并等待宽限期，仍未收敛者标记 `executor_leaked` 并阻断同批后续 execution（现有 `leaked_timeout` 语义保留）；首个 `RuntimeException`/`RuntimeTransferInterrupt` 出现时取消同组后原样上抛，不用 `TaskGroup`。`ActionExecutor.execute` 为 async；native 同步 executor 经 `to_thread` 承载并继续以 `control.check_cancelled()` 协作；subprocess 后端 `create_subprocess_exec`；`llm_action` async。`ActionExecutionContext` 保留 `control`、`module_runner`（async 版 `RuntimeModuleRunner`），新增 `turn`：`turn_id`、`calendar_day`、`request_wait`、`jobs`、`publish(EnvironmentEvent)`；`signal_bus` 改为 `bus`（EventBus）。
 
 Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type: object` 允许省略 `properties`，`additionalProperties` 默认 `true`），`expand.call.arguments` 可直接声明为 `{ "type": "object" }`，无需扩展校验器。
 
@@ -328,9 +339,9 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 
 - 配置：`[capabilities.expand.servers.<name>]`：`transport = stdio | http`、`command/args` 或 `url/headers`、`enabled`、`tool_allowlist`、`connect = eager | lazy`。
 - `McpGateway` 服务（agent 级）：连接、工具索引（server、name、title、description、input_schema）、`listen` 任务把 `ToolsListChanged/ResourceUpdated` 发布为 `mcp.<server>.tools_changed | resource_updated` 环境事件并刷新索引；每个连接是动态事件源。
-- `expand.tools` 段（State，`working` 槽）：模型钉选的工具集及完整 input schema，有界（默认 ≤ 12）；`reclaim` 按最近使用逐出；Turn 结束 `seal` 记录钉选列表以便 Session 承接。
-- 动作：`expand.search(query, limit)` 在索引上做词法 + 可选语义检索（复用 `infra/embedding`），返回候选并自动钉选前 N；`expand.describe(tool_ids)` 返回完整 schema 并钉选；`expand.call(tool_id, arguments)` 先按钉选 schema 校验参数（未钉选或不合法为局部失败），再 `call_tool`，结果归一化为文本摘要 + `structured_content`，超限内容经 `WorkspaceService` 落盘为 `workspace:` Link；`expand.unpin(tool_ids)`。
-- tool-search 的设计意图：Phase2 只看到 `expand.*` 五个稳定动作与钉选段里的少量 schema，而不是所有 MCP 工具的 schema；搜索是线索、钉选是加载，与冰山语义一致。
+- 不设 `expand.tools` 段。`expand.search` 与 `expand.describe` 的结果（候选 / 完整 schema）作为 foldable Action 结果进入 Trace；schema 被折叠后可 `core.context.inspect` 或重新 `describe`。跨 Turn 用过的工具由 Session 地图的 `link` 节点承接。
+- 动作：`expand.search(query, limit)` 在索引上做词法 + 可选语义检索；`expand.describe(tool_ids)` 返回完整 schema；`expand.call(tool_id, arguments)` 按网关索引中的 schema 校验（不在索引或不合法为局部失败，反馈附 schema 摘要），再 `call_tool`，结果归一化为文本摘要 + `structured_content`，超限内容经 `WorkspaceService` 落盘为 `workspace:` Link；`expand.servers()` 列出已连接服务器与工具计数。
+- tool-search 的设计意图：Phase2 只看到 `expand.*` 四个稳定动作；搜索是线索、描述是加载，调用不依赖钉选。MCP 工具 `inputSchema` 超出本项目 schema 子集时，超出键只透传不校验（S6 子计划锁策略）。
 - 后续扩展：`expand.read_resource`、prompts、长时调用作为 `mcp_call` Job 种类。
 
 ### 5.9 Endpoint v2
@@ -341,7 +352,7 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 - `GET /v2/jobs`、`GET /v2/jobs/{id}`、`POST /v2/jobs/{id}/stop`。
 - `POST /v2/events`（外部环境事件代理）、`GET /v2/events`（replay）、`WS /v2/events`（流）。
 - `GET /v2/config`、`GET /v2/config/catalog`、`GET /v2/config/actions`、`PATCH /v2/config`（只写文件事务，可多次批量修改后统一 reload）。
-- `GET /v2/maintenance`、`POST /v2/maintenance/daily`（经 `MaintenanceService.plan_daily()`）。
+- `GET /v2/reflection`、`POST /v2/reflection/home`、`POST /v2/reflection/memory`（经 `ReflectionService`；取代 `/v2/maintenance`）。
 - `/v2/workspace/*` 经 `WorkspaceService`。
 - 连接描述、实例 lease、事件缓冲与 journal 保留。
 
@@ -349,27 +360,47 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 
 `kernel/prompts/` 集中框架提示词与 `PromptBlock` 构造器；插件动作内部提示词留在插件。
 
+### 5.11 Reflection（Home / Memory 专属域）
+
+`plugins/maintenance` 改为 `plugins/reflection`：只编排触发与完成，不拥有 Home/Memory 存储，也不合并成单一 reflection 域。
+
+- 两个 TurnProfile：`home_reflection`、`memory_reflection`。各自 Action surface 含通用 `core.context.inspect` / `core.memory.inspect|recall`（只读）加上专属域；User Turn 的 catalog 物理上不含这两个域。
+- 关键边界：User Turn 不写持久 Memory、不提交 actual Home。白天 `home.*` 只改 runtime overlay（副本）；`core.memory.memorize` 只 patch 当日 `Memory.md`。持久 `memory/` 与 actual Home 只由对应 Reflection Turn 更新。
+- `home_reflection`：`diff_list`、`diff(path)`、`accept(path|all)`、`reject(path|all)`、`rewrite(path, instruction)`、`done(summary)`。对照 overlay 与 actual；接受后才写入 actual。保留 overlay 与 `home.runtime_copy_required` Trap。不引入 git。
+- `memory_reflection`：轻量单文档写。`write_daily(day, markdown)`、`write(kind, cite, markdown)`、`retire(link, redirect_to, note)`、`done(summary)`。删除 8 步控制器、preview、多文档 journal、CAS digest，以及 frontmatter 中的 `revision` / `activation_count` / `session_revision` / `active_memory_digest`。frontmatter 保留 `kind, cite, status, created_on, updated_on, related, sources, redirect_to, summary|title, confidence?`。目标日可以是今天或任一有 Session 的过去日。
+- 触发：`registry.schedule` + `TurnTrigger`（有 overlay 待审 → home_reflection；有 Session 而无 daily → memory_reflection）；手动 `/reflect home`、`/reflect memory YYYY-MM-DD`。删除 `availability.json`，待办由门面即时计算并经 `agent.status()` 暴露。
+- Context 与 User Turn 同构；history 打开目标日地图；workspace 在 memory_reflection 下为目标日只读视图。
+
+### 5.12 Workspace 动作面
+
+域 `workspace` 去防御化（D24），细节在 S3 子计划锁默认预算：
+
+- 保留：`workspace:` 链接与路径沙箱、轻量 manifest（path、kind、size、mtime、summary、description、tags）、Engine 锁、简单 Trash（原子移动到 `.tinysoul/trash/<ts>/` 并可 restore）、日切归档、read/search 的 foldable trace。
+- 删除：`expected_digest` / `expected_revision` CAS、`WorkspaceEditReadSet` 复验、`described_digest`、`retention` / `owner_turn_id`、压力驱动 trash、Trash prepare/commit marker、`workspace.trash_restore_required` Trap。外部改写由 `fswatch` → manifest 刷新 → trace 事件帧告知模型。
+- 动作：`list`、`search(literal|regex)`、`read`（小文件可整读）、`write`、`edit`（多处精确替换，全部命中才提交）、`append`、`move`、`mkdir`、`delete` / `restore` / `trash_list`、`tag`（`pinned` | `tmp` | `library`）、`describe`、`compose`（合并原 create/rewrite）、`analyze`（预算放宽）。`scan` 改为 Turn 开始与 fswatch 触发的内部操作。
+- `workspace.resources.reclaim` 只按目录折叠渲染，不触盘。
+
 ## 6. 与现有模块的联系与迁移映射
 
 | 现模块 | 新位置 | 保留（搬迁） | 改变（重写） |
 |---|---|---|---|
-| `infra` | `infra` | 全部 | asyncio 并发原语；线程 RW lock 保留给同步引擎 |
+| `infra` | `infra` | 全部 | asyncio 并发原语；`BusinessDay` → `CalendarDay`；线程 RW lock 保留给同步引擎 |
 | `runtime` | `runtime` | scope/trap/transfer/exception/generation 语义；`TrapHandlerRegistry` exact/prefix/fallback；`RuntimeModuleRunner` 重放语义；`_payload` | `signals/` → `events/`；`RuntimeHandle` 由 `Condition(RLock)` 改为 asyncio 读写/活动 lease；`RunLevel.PROGRAM→AGENT`、`runtime.program_end→agent_end`；`exception.py` 只保留四个 runtime 原因，业务原因常量迁回 owner；bridge 收敛 |
 | `llm` | `llm` | 协议、映射、模型链、重试、水位 | provider/task runner async；删除线程轮询 |
 | `loop` | `kernel/loop` + `agent/profiles/user` + plugins | Turn/Cycle/Phase 骨架、cancellation、outcomes、PhaseFailure | async；收件箱与 WaitRequest 取代 `TurnActivityController`；`loop/user/*` 拆到 user profile 与各插件 |
-| `context` | `kernel/context` | trace 堆、Working plan、background 堆算法、compressor、composer、控制工具归一化 | 段协议与三形状；删除 owner 特判；`ContextTurnCompletion` 泛化为 `segments` |
+| `context` | `kernel/context` | trace 堆、Working plan、background 堆算法、compressor、composer、控制工具归一化 | 三分区与四形状；删除 owner 特判；`ContextTurnCompletion` 泛化为 `segments` |
 | `action` | `kernel/action` | catalog 四层、loader、schema、hooks、result、rendering、scope | runner asyncio；catalog 模板拆到插件；`ActionExecutionContext.turn` |
 | `app` | `agent` + `environment` + `gateway/project` | initializer/resetter/instance、调度计时、终端解析；`ProgramRunner.run` 的串行请求循环、preflight、世代活动 lease、Program 级转移消费 | `ProgramRunner` → `TurnScheduler`（`Queue.get(timeout=0.5)` 轮询改为 `asyncio.Queue`）；`ProgramGeneration` → `AgentGeneration`（按 profile 装配的段 provider、Action surface、Trap 表）；`RuntimeActivity` 扩展 `preflight | awaiting_input`；builder（935 行）→ assembly + 各插件 `contribute`；gateway/inputs → EventRouter/Agent API；outputs → Observation 订阅 |
 | `endpoint` | `gateway/endpoint` | auth、lease、事件缓冲、journal、host | v2 路由与 schema |
-| `maintenance` | `agent/day` + `plugins/maintenance` | `day.py` 的 `BusinessClock/IanaBusinessClock`；`archive/engine.py` 的 `DailyLifecycleCoordinator`、`DailyTransitionJournal`（SESSION_ARCHIVED → WORKSPACE_ARCHIVED → ACTIVE_INITIALIZED）、`ActiveDayLease`；`availability.py`、`schedule.py`；Home/Memory 维护任务 | `BusinessClock` 与 `DailyLifecycleCoordinator` 迁 `agent/day`，三个分立的 `SessionDailyLifecycle / WorkspaceDailyLifecycle / ActiveMemoryDailyLifecycle` 协议合并为一个 `DailyParticipant`（`initialize_day / archive_day / reconcile_active`，按注册顺序执行，journal 步骤按参与者名记录）；`MaintenanceEngine.preflight` 拆为 `agent/day.ensure_active_day`（确定性）与 maintenance 插件的 availability reconcile；builder → plugin；两个 profile 与专属段；`MaintenanceSchedule.due` → `registry.schedule` + `TurnTrigger` |
-| `session` | `plugins/session` | 记录图、Summary 堆、inspect、continuation、`memory_facts` | `history` Heap 段（`open` 读 prior turns，`close` 记录；`memory_maintenance` profile 下按 `TurnInfo.metadata.target_day` 打开归档日）；schema v4 → v5：`working` + `background_links` 由通用 `segments`（segment_id → seal JSON）取代，`actions` 改由内核 `trace` 段 `seal()` 直接给出的 `actions` 投影承接（Phase2 调用与 Phase3 结果的配对是 trace 内部知识，不再由 `session/completion.py::project_turn_record` 解析 sealed trace），新增可空 `parent_turn_id`；`SessionMemoryFact` 同步以 `segments` 取代 `working`/`background_links`；inspect 走统一机制 |
-| `workspace` | `plugins/workspace` | engine 存储逻辑 | engine 拆分；`resources` State 段带 `reclaim` 与 `fs` 订阅；`WorkspaceService`；Trash Trap 随插件 |
-| `home` | `plugins/home` | actual/overlay/review/skills | `home.background` Heap 段；prompt mount reconcile 移入 `finalize`；runtime copy Trap 随插件 |
-| `memory` | `plugins/memory` | codec、事务、catalog、backlinks、embedding、Memory.md CAS | `memory.background` Heap 段；动作 registrar 化 |
+| `maintenance` | `agent/day` + `plugins/reflection` | `day.py` 时钟与日切；`archive/engine.py` 的 coordinator、journal（SESSION_ARCHIVED → WORKSPACE_ARCHIVED → ACTIVE_INITIALIZED）、lease；`schedule.py`；Home/Memory 任务编排 | `BusinessClock` → `CalendarClock` 并迁 `agent/day`；三个 owner 日切协议合并为 `DayParticipant`；删除 `availability.json`；builder → plugin；两个 profile `home_reflection` / `memory_reflection` 与专属域；`MaintenanceSchedule.due` → `registry.schedule` + `TurnTrigger` |
+| `session` | `plugins/session` | 记录图、inspect、continuation、`memory_facts` | `history` Map 段：`close` 无模型抽取问答/追问/推理/links 并更新 `SessionMap`；`core.context.organize` 在新 Turn 整理上一成功 Turn；schema v5；删除 `SessionSummaryRecord` 与线性 background；inspect 走 `core.context.inspect` |
+| `workspace` | `plugins/workspace` | 链接沙箱、扫描/分类、Engine 锁、简单 Trash、归档 | 删除 CAS/复验/retention/压力 trash/Trash marker 与 restore Trap；动作面改为 list/search/read/write/edit/append/move/mkdir/tag/compose/analyze；`resources` State 段只收缩渲染；`WorkspaceService` |
+| `home` | `plugins/home` | actual/overlay/review/skills | `home.background` Heap 段；User Turn 只写 overlay；`home_reflection` 域做 diff 审阅；prompt mount reconcile 移入 `finalize`；runtime copy Trap 保留 |
+| `memory` | `plugins/memory` | codec、catalog、backlinks、embedding、Memory.md | `memory.background` Heap 段；User Turn 只 `memorize`；`memory_reflection` 轻量单文档写；删除 8 步控制器、preview、多文档事务与 CAS/revision/activation_count |
 | `capabilities/{script,shell,supervised_process}` | `plugins/capabilities/execution` | handler、进程管理、进程树终止 | 合并为一个域一个插件；supervised 重写为 `process` Job 种类；删除对 loop/context 的 import |
 | `capabilities/{resource,web}` | `plugins/capabilities/{resource,web}` | worker 与协议 | registrar 化 |
 | （新） | `plugins/capabilities/subagent` | — | ACP 客户端、`acp_agent`/`tinysoul_turn` Job 种类、`subagent` profile |
-| （新） | `plugins/capabilities/expand` | — | MCP 网关、工具索引、`expand.tools` 段、五个动作 |
+| （新） | `plugins/capabilities/expand` | — | MCP 网关、工具索引、四个动作；不设钉选段 |
 | （新） | `environment/fswatch.py` | — | Workspace 文件监视事件源（`watchfiles`） |
 
 ## 7. 可行性与风险
@@ -378,7 +409,7 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 
 - Job 框架：现 `supervised_process/manager.py`（770 行）已有进程注册表、输出缓冲、等待、清理的全部算法，改写为 `process` Job 种类是结构内重排；`jobs` 段与 `core.job.*` 是新增但边界清晰。
 - ACP：协议为 stdio NDJSON JSON-RPC，与进程后端同一基础；SDK 为 async。风险在权限请求的策略设计与外部 agent 行为差异；先以一个 agent（如 Codex/Claude Code CLI 的 ACP adapter）验证。
-- MCP：SDK v2 async，`Client` 一行连接；自由形态 object 参数已被现有 schema 子集接受（见 5.5）；剩余风险是远程服务器 300s 读超时与 Action 超时的协调，以及 MCP 工具自身 `inputSchema` 超出本项目 schema 子集时的钉选校验策略（子计划中决定：超出子集的键只透传不校验）。
+- MCP：SDK v2 async，`Client` 一行连接；自由形态 object 参数已被现有 schema 子集接受（见 5.5）；剩余风险是远程服务器 300s 读超时与 Action 超时的协调，以及 MCP 工具自身 `inputSchema` 超出本项目 schema 子集时的透传策略（S6 子计划：超出键只透传不校验）。
 - 文件监视：`watchfiles` 跨平台成熟；Windows 事件噪声用去抖 + manifest digest 比对过滤。
 
 ### 7.1 对照现有代码的复审结论（2026-09-14）
@@ -408,10 +439,10 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 - `loop/turn.py` 的 `TurnPreparationPipeline`/`TurnCompletionPipeline`/`TurnActivityController` 三条 owner 参与通道 → 段 `open/close` 与 `WaitRequest`/Job 一条通道。
 - `app/builder.py` 935 行硬编码组合根 → 插件 `contribute` + 两阶段 assembly。
 - `ActionExecutionContext` 不携带 Turn 身份，executor 只能从 `execution.framework.scope` 反推 → 显式 `turn` 视图。
-- 默认 Background 不经 Signal，而由 `ContextTurnPreparationHandler` 直接调用 `ContextEngine.prepare_default_background(business_day)`，Home/Memory 内容经 Context 持有的 loader/provider 反向注入 → `home.background`/`memory.background` 段在 `open` 内自行准备。
-- 维护日切以三个 owner 专用协议（`SessionDailyLifecycle`、`WorkspaceDailyLifecycle`、`ActiveMemoryDailyLifecycle`）由 `DailyLifecycleCoordinator` 分别调用 → 一个 `DailyParticipant` 协议，参与者按注册顺序执行。
+- 默认 Background 不经 Signal，而由 `ContextTurnPreparationHandler` 直接调用 `ContextEngine.prepare_default_background`，Home/Memory 内容经 Context 持有的 loader/provider 反向注入 → `home.background`/`memory.background` 段在 `open` 内自行准备。
+- 维护日切以三个 owner 专用协议（`SessionDailyLifecycle`、`WorkspaceDailyLifecycle`、`ActiveMemoryDailyLifecycle`）由 `DailyLifecycleCoordinator` 分别调用 → 一个 `DayParticipant` 协议，参与者按注册顺序执行。
 - `SupervisedProcessManager.wait_before_cycle` 用 `SignalWatch.wait_for_matching` 等待同 Turn 的 `input.append` 或 `control.request` → `WaitRequest(until=EventFilter(job.<id>.* | input.* | control.*))`，等待条件由发起方声明而非硬编码在 owner 中。
-- 压力恢复分 `UserContextPressureRecovery` 与 `MaintenanceContextPressureRecovery` 两个 owner 特判实现，`loop/user/pressure.py` 直接 import Workspace 类型 → 内核按形状顺序调用各段 `reclaim`，Workspace trash 逻辑留在 `workspace.resources` 段内部。
+- 压力恢复分 `UserContextPressureRecovery` 与 `MaintenanceContextPressureRecovery` 两个 owner 特判实现，`loop/user/pressure.py` 直接 import Workspace 类型 → 内核按形状顺序调用各段 `reclaim`；Workspace 不再因压力 trash 磁盘。
 
 风险与对策（R1–R9 同前），新增：
 
@@ -432,7 +463,7 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 - 两个动作的好处是 guidance 文案可以分别写明使用场景与返回形态；这在单动作里也能通过描述中枚举 ref scheme 做到。
 - 关键点：这是 catalog 层面的可调项而非架构决策。同一 executor 可以在 TOML 中暴露为一个或两个动作，不改代码。
 
-决策（D11）：一个内核机制（段 `inspect` + `InspectResult` + ref scheme 路由 + cursor），从一开始暴露两个模型侧动作，共用同一 executor：`core.context.inspect(ref, cursor)` 面向本轮 `trace:` 折叠过程与 `home:`/`memory:` 背景条目；`core.session.inspect(ref, cursor)` 面向今日更早 Turn 的 `session:` 条目。两者的 guidance 分别写明意图与返回形态；executor 对 ref scheme 与动作的匹配做校验，错配为局部失败并提示应使用的动作。
+决策（D11，已被 D20 撤销）：曾暴露两个模型侧动作。现行方案只保留 `core.context.inspect`，见 8.7。
 
 ### 8.2 环境订阅（已决，D13）
 
@@ -446,9 +477,33 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 
 `PATCH /v2/config` 只写文件，`POST /v2/agent/reload` 显式激活；允许多次修改后统一 reload。
 
-### 8.5 MCP `expand` 域（已决，D16）
+### 8.5 MCP `expand` 域（已决，D16；钉选段由 D22 修订）
 
-见 5.8。待子计划确认：钉选上限默认值、语义检索是否默认开启、大结果落盘阈值。
+见 5.8。待 S6 子计划确认：语义检索是否默认开启、大结果落盘阈值。
+
+### 8.6 D19 Context 三分区（已决）
+
+`SegmentSlot = BACKGROUND | TRACE | WORKING`；槽内 `order`；`evictable` 为段属性。Background 顺序为 `identity → history → inputs → home → memory`（Phase1 会变更 home/memory，固定段在前）。Trace 含事件帧。Working 为 `plan → workspace.resources → jobs`，TaskPrompt overlay 接在尾部。不设 `expand.tools` 段。完整语义见 3.4。
+
+### 8.7 D20 统一追溯动作（已决，撤销 D11）
+
+只保留 `core.context.inspect(ref, cursor)`，按 scheme 路由。另增 `core.context.organize` 供 Map 段整理上一成功 Turn。`context.load/evict` 仍只面向 Heap。
+
+### 8.8 D21 Session 语义地图（已决）
+
+引入第四形状 **Map**（Thread 是节点种类，不是形状）。Turn 结束用无模型结构化抽取写入 `SessionTurnRecord` 与 `SessionMap`；新 Turn 用 `core.context.organize` 整理上一成功 Turn（gist、thread、补全关系）。压缩时 history 最后动，且仅当本段超过自身水位才有限折叠已整理 thread。不在 `close` 中跑 LLM。详见 5.3。
+
+### 8.9 D22 `expand` 不设钉选段（已决，修订 D16）
+
+取消 `expand.tools`。搜索/描述进入 Trace；`call` 按网关索引校验。动作四个：`search` / `describe` / `call` / `servers`。见 5.8。
+
+### 8.10 D23 Reflection 取代 Maintenance（已决）
+
+`plugins/maintenance` → `plugins/reflection`。**不合并**单一 reflection 域：`home_reflection` 与 `memory_reflection` 两个 profile + 两个专属域，仅在对应 Turn 出现。`BusinessDay` 更名为 `CalendarDay`，内部也不保留 Business Day 一词。User Turn 不写持久 Memory、不提交 actual Home。Home 保留 overlay：白天 `home.*` 改副本，`home_reflection` 做 diff 审阅（list/detail/accept/reject/rewrite），不引入 git。Memory Reflection 删除 8 步控制器、preview、多文档事务与 CAS/revision/activation_count。见 5.11。
+
+### 8.11 D24 Workspace 去防御化（已决）
+
+删除 CAS/复验/retention/压力 trash 及相关 Trap；扩充 list/search(regex)/read/write/edit/move/tag 等动作。见 5.12。
 
 ## 9. 决策记录
 
@@ -462,55 +517,62 @@ Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type:
 - D5 引入 `pytest-asyncio`。
 - D6 milestones/todos 为内核 `plan` 段；Workspace 资源为插件 State 段。
 - D7 撤销"不建立 ask/pause/awaiting 状态"规约。
-- D8 TOML section 名稳定，仅 `[app]→[agent]`；新增 `[capabilities.subagent]`、`[capabilities.expand]`、`[environment.fswatch]`。
-- D9 Session 记录 schema v5（`segments` 通用快照取代 `working`/`background_links`，`actions` 来自 `trace` 段 seal，可空 `parent_turn_id`），不迁移 v4 归档。
+- D8 TOML section 名稳定，仅 `[app]→[agent]`、`[maintenance]→[reflection]`；新增 `[capabilities.subagent]`、`[capabilities.expand]`、`[environment.fswatch]`。
+- D9 Session 记录 schema v5（`segments` 通用快照取代 `working`/`background_links`，`actions` 来自 `trace` 段 seal，可空 `parent_turn_id`），不迁移 v4 归档；另增 `SessionMap`。
 - D10 `core.ask` 纳入，S4 实现。
 - D12 配置显式 reload。
 - D13 环境事件完整协议 + Workspace 文件监视并入 S4。
 - D14 Home/Memory 分立 Heap 段；日切归 `agent/day`；Session 在 `history.close` 记录。
 - D15 sub-agent 作为 `subagent` 域，经 ACP 接入外部 agent，经 `tinysoul_turn` Job 接入内部嵌套 Turn。
-- D16 `expand` 域经 MCP 接入通用工具，`expand.search` 为 tool-search，`expand.tools` 段承载钉选。
-- D11 追溯：一个内核机制，两个模型侧动作 `core.context.inspect` 与 `core.session.inspect`（见 8.1）。
+- D16 `expand` 域经 MCP 接入通用工具；D22 取消钉选段，动作改为 `search/describe/call/servers`。
+- D11 撤销；D20 只保留 `core.context.inspect`，并增 `core.context.organize`。
 - D17 `execution` 域合并 script/shell/supervised_process 为一个插件。
 - D18 `subagent` 首个验证目标为成熟的 ACP agent（Codex 或 Claude Code 的 ACP adapter，子计划中确定）；默认权限策略：读操作 `auto_allow`，写操作 `ask_model`。
 - Job 框架作为内核概念（三种种类、两种作用域、`jobs` 段、`core.job.*` 通用控制 + 域内 start/send/collect）。
+- D19 Context 三分区 Background → Trace → Working；Background 顺序 `identity → history → inputs → home → memory`；trace 事件帧。
+- D21 Session history 为 Map 形状；Turn 结束无模型结构化抽取；新 Turn 用 `core.context.organize` 整理上一成功 Turn；压缩时仅自身超水位才有限折叠。
+- D23 `plugins/maintenance` → `plugins/reflection`；`BusinessDay` → `CalendarDay`；两个专属 profile/域 `home_reflection` / `memory_reflection` 不合并；User Turn 不写持久 Memory、不提交 actual Home；Home 保留 overlay + review，不引入 git；Memory Reflection 轻量化。
+- D24 Workspace 去防御化与动作面扩充。
 
-待决：无。方案进入 S0 定稿，后续阶段的细节在各子计划中展开并回写本文件。
+待决：无。后续细节在各阶段子计划展开并回写本文件。
 
 修订留痕：
 
 - 2026-09-14 初稿曾以"当前无消费者"删除段 `shape`、段级 `inspect`/`on_event`；复审后恢复并升格为统一语义，同时删除 `BackgroundEntryProvider`、`TurnParticipant`、`TurnPreflight`。
 - 2026-09-14 依维护者补充，把后台进程、外部 sub-agent、嵌套 Turn 统一为 Job 框架，环境事件升格为完整协议（`EnvironmentEvent`、静态/动态源、`EventRouter`），新增 `subagent` 与 `expand` 两个域；嵌套 Turn 由"Phase3 内联"改为 Job 种类。
-- 2026-09-14 对照现有代码复审（见 7.1）：修正 3.7 取消模型、3.8 Trap 原因所有权、5.3 批次语义、5.4 outcome 枚举、5.5 执行控制保留；同步微调 `AGENTS.md`（Action/Job 定义、运行层级 Agent 命名、`core.ask`、插件契约与 bridge 放置条款、"当前任务"改为本重构并列出过渡期被替代条款），其余条款保留至 S7 整体重写。
+- 2026-09-14 对照现有代码复审（见 7.1）：修正 3.7 取消模型、3.8 Trap 原因所有权、5.3 批次语义、5.4 outcome 枚举、5.5 执行控制保留；同步微调 `AGENTS.md`。
+- 2026-09-14 维护者确认 D19–D24：Background 固定段在前；Session Map 无模型抽取 + organize 动作；第四形状 Map；Reflection 分两个专属域且保留 Home overlay review；Workspace 去防御化；`CalendarDay` 取代 Business Day。
 
 ## 10. 分阶段实施
 
 每阶段开始前写入子计划 `docs/analysis/2026MMDD-<stage>-execution-plan.md`，完成后归档；本文件只勾选阶段。门禁：聚焦测试 → Fast → Full → typecheck；S2 起 fake-provider CLI E2E 必过。
 
-- [x] S0 方案定稿：全部决策关闭（2026-09-14）；不改代码。`docs/design/architecture.md` 推迟到 S2 内核落地时建立，以遵守设计文档与代码一致的规则；在此之前本文件是唯一设计来源。
-- [ ] S1 基础层：`infra` async 原语；`runtime/events/`（EventBus、Signal、Observation、EnvironmentEvent、TurnInbox、EventFilter）；`RuntimeHandle` asyncio lease；`PROGRAM→AGENT`；bridge 收敛；`llm` 全面 async；`pytest-asyncio`；重写 `tests/{infra,runtime,llm}`。
-- [ ] S2 内核与最小 Agent：`kernel/*`（三形状、段协议、inbox/wait、profile、async action runner、Job 协议与 JobRegistry、`jobs` 段、`core.job.*`、prompts）；`agent/*`（门面、assembly、scheduler、router、generation、day 最小时钟、user profile）；`environment/{terminal,console}`；`gateway/cli`；插件清单只含内核 builtins；删除 `loop/`、`context/`、`action/`、`app/`；新建 `docs/design/architecture.md` 与 `docs/design/kernel/*.md` 描述已落地部分；fake-provider E2E 恢复。
-- [ ] S3 插件迁移（每插件一个子计划）：session → workspace → home → memory → maintenance（含 `agent/day` 完整日切、DailyParticipant、archive、availability、两个 profile、schedule 与 TurnTrigger）→ capabilities（resource、web、`execution` 合并与 `process` Job 种类）。每步删除旧路径与旧 bridge。
+- [x] S0 方案定稿：全部决策关闭（2026-09-14，含 D19–D24）；不改代码。`docs/design/architecture.md` 推迟到 S2 内核落地时建立，以遵守设计文档与代码一致的规则；在此之前本文件是唯一设计来源。
+- [ ] S1 基础层：`infra` async 原语；`BusinessDay` → `CalendarDay`；`runtime/events/`（EventBus、Signal、Observation、EnvironmentEvent、TurnInbox、EventFilter）；`RuntimeHandle` asyncio lease；`PROGRAM→AGENT`；bridge 收敛；`llm` 全面 async；`pytest-asyncio`；重写 `tests/{infra,runtime,llm}`。
+- [ ] S2 内核与最小 Agent：`kernel/*`（三分区、四形状含 Map、段协议、inbox/wait、profile、async action runner、Job 协议与 JobRegistry、`jobs` 段、`core.job.*`、`core.context.inspect/organize`、prompts）；`agent/*`（门面、assembly、scheduler、router、generation、day 最小时钟、user profile）；`environment/{terminal,console}`；`gateway/cli`；插件清单只含内核 builtins；删除 `loop/`、`context/`、`action/`、`app/`；新建 `docs/design/architecture.md` 与 `docs/design/kernel/*.md` 描述已落地部分；fake-provider E2E 恢复。
+- [ ] S3 插件迁移（每插件一个子计划）：session（Map + 无模型抽取）→ workspace（去防御化动作面）→ home（overlay + `home_reflection` 域）→ memory（轻量 `memory_reflection`）→ reflection（`agent/day` 完整日切、`DayParticipant`、archive、两个 profile、schedule 与 TurnTrigger）→ capabilities（resource、web、`execution` 合并与 `process` Job 种类）。每步删除旧路径与旧 bridge。
 - [ ] S4 Agent 与环境完整化：`services`、`status`、`reload_config`、`restart`；`environment/scheduler`、`environment/fswatch` 与 `workspace.resources` 订阅；agent 级 Job 完成触发器；Observation 路由与 console sink；`[agent]` 取代 `[app]`；`core.ask`。
-- [ ] S5 Gateway v2：路由（含 jobs 与外部事件代理）、schema、事件 replay/流、host、auth；`gateway/project`；重写 `docs/endpoint/*` 并附 v1→v2 对照；删除 `endpoint/`。
-- [ ] S6 新能力域：`subagent` 插件（ACP 客户端、`acp_agent` 与 `tinysoul_turn` Job 种类、`subagent` profile、权限策略）；`expand` 插件（MCP 网关、索引、`expand.tools` 段、五个动作）；各一份子计划。
-- [ ] S7 收尾：`docs/design/` 重组（`architecture.md`、`runtime.md`、`llm.md`、`infra.md`、`kernel/{context,loop,action,jobs,prompts}.md`、`plugins/*.md`、`agent.md`、`environment.md`、`gateway.md`）；`AGENTS.md` 重写核心定义（Agent、Environment、EnvironmentEvent、TurnProfile、语境段与形状、Job、WaitRequest、Plugin）、项目规约、运行控制、测试约定与当前任务；`tests/` 镜像新布局；静态 import 规则测试；`pyproject` 依赖与 package-data；本文件标记 `done` 并归档。
+- [ ] S5 Gateway v2：路由（含 jobs、reflection 与外部事件代理）、schema、事件 replay/流、host、auth；`gateway/project`；重写 `docs/endpoint/*` 并附 v1→v2 对照；删除 `endpoint/`。
+- [ ] S6 新能力域：`subagent` 插件（ACP 客户端、`acp_agent` 与 `tinysoul_turn` Job 种类、`subagent` profile、权限策略）；`expand` 插件（MCP 网关、索引、四个动作，无钉选段）；各一份子计划。
+- [ ] S7 收尾：`docs/design/` 重组（`architecture.md`、`runtime.md`、`llm.md`、`infra.md`、`kernel/{context,loop,action,jobs,prompts}.md`、`plugins/*.md`、`agent.md`、`environment.md`、`gateway.md`）；`AGENTS.md` 重写核心定义（Agent、Environment、EnvironmentEvent、TurnProfile、语境段与形状含 Map、Job、WaitRequest、Plugin、CalendarDay、Reflection）；`tests/` 镜像新布局；静态 import 规则测试；`pyproject` 依赖与 package-data；本文件标记 `done` 并归档。
 
 ## 11. 测试策略与验收
 
 测试策略：
 
 - 目录 `tests/<layer>/<module>/test_<切面>.py`；`tests/support/` 提供 fake provider、总线观察器、最小插件与 profile fixture、fake ACP agent 进程、内存 MCP server。
-- 契约优先：段协议两阶段提交与重放、三形状回收与追溯路由、收件箱 drain/wait 与控制进 Trap、`EventRouter` 三步路由与动态源注册注销、Job 生命周期（turn/agent 级、事件、collect、Turn 结束清理）、profile 的 surface 与段装配、批次并发取消与超时、Trap 转移与失败归类、Agent API 生命周期与世代切换、Endpoint v2 请求/响应/事件流、ACP 会话状态机映射、MCP 索引刷新与 `expand.call` 校验。
+- 契约优先：段协议两阶段提交与重放、四形状回收（含 Map 有限折叠）与追溯路由、`core.context.organize`、收件箱 drain/wait 与控制进 Trap、`EventRouter` 三步路由与动态源注册注销、Job 生命周期（turn/agent 级、事件、collect、Turn 结束清理）、profile 的 surface 与段装配、批次并发取消与超时、Trap 转移与失败归类、Agent API 生命周期与世代切换、Endpoint v2 请求/响应/事件流、ACP 会话状态机映射、MCP 索引刷新与 `expand.call` 校验。
 - owner 存储与算法测试保留；不固化提示词文案、默认 Home 内容与 catalog 清单。
-- E2E：fake-provider CLI（S2 起）；旧日 Turn → 日切 → 维护 → 新日 background（S3 后）；wheel 隔离安装与 `init`（S5 后）；fake ACP agent 与内存 MCP server 的能力 E2E（S6）；真实 provider/agent/server smoke 保持 external。
+- E2E：fake-provider CLI（S2 起）；旧日 Turn → 日切 → reflection → 新日 background（S3 后）；wheel 隔离安装与 `init`（S5 后）；fake ACP agent 与内存 MCP server 的能力 E2E（S6）；真实 provider/agent/server smoke 保持 external。
 
 验收：
 
 - `tinysoul start` 在单事件循环内同时运行 Terminal、Endpoint v2、调度器、文件监视与 Job 监督；`start --once`、`status`、`init`、`reset` 可用。
 - 三条 import 规则由测试固定；增删插件只改插件清单与该插件包。
-- `kernel/context` 中不出现任何 owner 类型；MessageStack 顺序由槽位决定。
-- 追加输入、stop/exit、Job 事件、定时唤醒、定时维护、文件变更全部经总线与 `EventRouter`；不存在 `TurnActivityController`、`SignalWatch`、线程版 `SignalBus`。
+- `kernel/context` 中不出现任何 owner 类型；MessageStack 顺序由 Background → Trace → Working 分区与槽内序号决定。
+- User Turn 不能调用 `home_reflection.*` / `memory_reflection.*`；持久 Memory 与 actual Home 只在对应 Reflection Turn 更新。
+- `session.history` 为 Map：`close` 无模型抽取；`core.context.organize` 整理上一成功 Turn；压缩仅在本段超水位时有限折叠。
+- 追加输入、stop/exit、Job 事件、定时唤醒、定时 reflection、文件变更全部经总线与 `EventRouter`；不存在 `TurnActivityController`、`SignalWatch`、线程版 `SignalBus`。
 - 后台脚本、外部 ACP agent、嵌套 Turn 在 `jobs` 段中以同一形态可见，用同一组 `core.job.*` 等待/查询/停止。
 - `expand.search → expand.call` 在不暴露全部 MCP 工具 schema 的前提下可调用任一已连接服务器的工具。
 - 三层失败语义、Trap 转移、bridge payload 约束的既有测试语义保留并通过。
