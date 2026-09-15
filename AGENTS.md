@@ -239,17 +239,21 @@ conda activate TinySoul
 
 ## 当前任务
 
-当前任务是按 `docs/analysis/20260914-layered-agent-architecture-execution-plan.md` 实施分层 Agent 架构的整体重构：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程、外部 sub-agent 与嵌套 Turn；按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排包布局。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
+当前任务是按 `docs/analysis/20260915-agent-architecture-refactor-plan.md` 讨论、完善并分阶段落实分层 Agent 架构重构；当前处于设计确认与计划修订，未进入代码实施：以 `Agent` 门面统一输入、输出与状态；以 asyncio 事件总线与 `EnvironmentEvent` 协议把 Agent 置于环境之中；以段协议把 Context 语境段的内容与维护反转给外围插件，内核只知槽位、形状与 ref scheme；以 Job 框架统一后台进程与 ACP 外部 sub-agent，内部嵌套 Turn 留待实际需求扩展；按 `infra → runtime/llm → kernel → plugins/environment → agent → gateway` 重排包布局。该执行计划在重构期间是唯一设计来源，不向后兼容，不保留兼容层、重复状态或跨模块捷径。重构的长期目标不变：构造功能强、可用性高、具有智能性的泛用智能体，并通过记忆和 Home 维护构造持续长期稳定运行的个性化助手。
 
 过渡期文档约定：本文件"核心定义""项目规约""代码风格""运行环境与验证"中的模块名（`app`、`loop`、`context`、`action`、`endpoint` 等）、按 owner 名固定的 MessageStack 顺序、Context 由 `context` 模块直接拥有四类语义段、`tests/<module>/` 布局等表述描述的是重构前的实现事实；与执行计划冲突处以执行计划为准，并在计划 S7 阶段整体重写本文件。已被执行计划明确替代的条款：
 
 - Program/App → Agent；`runtime.program_end → runtime.agent_end`；`app`、`endpoint` → `agent`、`environment`、`gateway`。
-- MessageStack 按三分区 Background → Trace → Working 渲染，Background 内顺序为 identity → history → inputs → home → memory；Home、Memory、Session、Workspace 各以独立段提供内容。
-- 追加输入、stop/exit、定时唤醒、文件变更、Job 事件统一经事件总线与 `EventRouter` 进入 Turn 收件箱或触发新 Turn。
-- 跨 Cycle 监督的外部任务统一为 Job；`core.ask` 可暂停 Turn 等待用户回复。
-- 业务模块的 runtime bridge 与 Trap 原因随插件包放置。
-- `BusinessDay` → `CalendarDay`；Maintenance → Reflection，且分为 `home_reflection` / `memory_reflection` 两个专属域；User Turn 仍不写持久 Memory、不提交 actual Home。
-- Session history 为语义地图（Map 形状），不是线性 Summary 堆；追溯动作为单一 `core.context.inspect`。
+- MessageStack 按三分区 Background → Trace → Working 渲染，Background 内顺序为 identity → session → inputs → home → memory；Home、Memory、Session、Workspace 各以独立段提供内容。
+- 环境事件由 `EventRouter` 定向或按订阅进入 TurnInbox；独立 Trigger 可排入新根请求，Job 事件不触发新根 Turn。单根 Turn 等待时仍占执行位置。
+- Job 可跨 Cycle，不跨所属 Turn；Turn 结束时回收。受限 `SUSPEND` 表达预算暂停，模型不见 Cycle 余额，用户决定补充或中断；`core.ask` 可暂停等待回复。
+- TurnInbox 在暂停期间持续接收；有界内存保存关键元数据，大输出由 owner 落盘，已接受关键事件在存活进程中不静默丢弃；不承诺崩溃续跑 Turn。
+- 所有模块 bridge 随其 owner 放置，包括 kernel 与 llm；runtime 不 import 上层业务模块。Trap 原因由 owner 声明，通用构造帮助由 runtime 公开。
+- `BusinessDay` → `CalendarDay`；Maintenance → Reflection。通用 action domains 保持可用，再附加 `home_reflection` 或 `memory_reflection` 精简专属域；模型自主少量多步。User Turn 仍不写持久 Memory、不提交 actual Home。
+- ACP 先显式建立连接再委派 Job，连接由插件 Working State 段呈现；允许简单跨 Turn 复用空闲连接，若需要复杂迁移/恢复则 Turn 收尾关闭。Job 仍不跨 Turn，具体 adapter 与释放条件按计划核验。
+- 干净性以架构语义、依赖与内聚为主。取消复用执行生命周期：短 owner 操作完成后退出边界，长执行使用受控进程；不增加线程隔离及自动恢复的平行机制。
+- `session` 段为 Map 形状，承载对话事实、基于事实的发展关系和有来源的模型推导线索；事实与推导性质明确区分，不维护平行线性 Summary。追溯动作为单一 `core.context.inspect`。
+- 当前子智能体以 ACP 外部 agent 为主，不建设内部子额度协调；未来 TinySoul 子 Turn 使用独立配额，由调用 agent 决定。用户根 Turn 的预算暂停及用户补额语义不变。
 - Workspace 取消 digest/revision CAS、提交前复验与压力 trash，侧重 list/search/read/write/edit。
 
 运行环境假设：后端运行于一台 24h 开启的独立主机，前端连接主机；支持后端运行的主机具有硬隔离性，因此不需要考虑太多的安全性问题。
