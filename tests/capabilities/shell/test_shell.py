@@ -513,7 +513,7 @@ def test_shell_effective_catalog_pruning_preserves_action_contract(local_tmp: Pa
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="PowerShell unavailable")
-def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
+async def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
     settings = ShellSettings(
         enabled=True,
         powershell=ShellAdapterSettings(
@@ -544,7 +544,7 @@ def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
         .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
     )
 
-    outcome = Phase3Unit(context=context, action=engine, bus=bus).run(
+    outcome = await Phase3Unit(context=context, action=engine, bus=bus).run(
         normalization=normalization,
         scope=scope,
         cycle_id="cycle_1",
@@ -558,7 +558,7 @@ def test_shell_action_engine_result_enters_turn_trace(local_tmp: Path) -> None:
     assert manager.has_unresolved(turn_id) is False
 
 
-def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) -> None:
+async def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) -> None:
     settings = ShellSettings(
         enabled=True,
         powershell=ShellAdapterSettings(True, sys.executable),
@@ -596,7 +596,7 @@ def test_execution_lifecycle_action_resolves_shell_owner(local_tmp: Path) -> Non
         .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
     )
 
-    outcome = Phase3Unit(context=context, action=engine, bus=bus).run(
+    outcome = await Phase3Unit(context=context, action=engine, bus=bus).run(
         normalization=normalization,
         scope=scope,
         cycle_id="cycle_1",

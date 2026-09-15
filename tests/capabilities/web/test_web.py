@@ -423,7 +423,7 @@ def test_public_https_validation_canonicalizes_public_target() -> None:
     assert result == "https://example.com/docs?q=1"
 
 
-def test_kimi_search_returns_answer_and_results_without_mode(
+async def test_kimi_search_returns_answer_and_results_without_mode(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -437,7 +437,7 @@ def test_kimi_search_returns_answer_and_results_without_mode(
     )
     executor = KimiSearchExecutor(service=service, bus=SignalBus())
 
-    result = executor.execute(
+    result = await executor.execute(
         _search_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),
@@ -452,7 +452,7 @@ def test_kimi_search_returns_answer_and_results_without_mode(
     assert workspace.snapshot().resources == ()
 
 
-def test_kimi_worker_failure_preserves_only_safe_shape_facts(
+async def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     local_tmp: Path,
 ) -> None:
     service = WebCapabilityService(
@@ -483,7 +483,7 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
         "call_index": 0,
     }
 
-    action_result = KimiSearchExecutor(
+    action_result = await KimiSearchExecutor(
         service=service,
         bus=SignalBus(),
     ).execute(
@@ -508,7 +508,7 @@ def test_kimi_worker_failure_preserves_only_safe_shape_facts(
     }
 
 
-def test_kimi_timeout_returns_model_visible_fallback_disposition(
+async def test_kimi_timeout_returns_model_visible_fallback_disposition(
     local_tmp: Path,
 ) -> None:
     service = WebCapabilityService(
@@ -520,7 +520,7 @@ def test_kimi_timeout_returns_model_visible_fallback_disposition(
         process_runner=_SearchTimeoutRunner(),
     )
 
-    result = KimiSearchExecutor(service=service, bus=SignalBus()).execute(
+    result = await KimiSearchExecutor(service=service, bus=SignalBus()).execute(
         _search_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),
@@ -651,7 +651,7 @@ def test_trafilatura_fetch_commits_only_workspace_markdown_and_metadata(
     ).text
 
 
-def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
+async def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -668,7 +668,7 @@ def test_fetch_action_result_omits_source_url_and_emits_workspace_signal(
         bus=bus,
     )
 
-    result = executor.execute(
+    result = await executor.execute(
         _fetch_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),

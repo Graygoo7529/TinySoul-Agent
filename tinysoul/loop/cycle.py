@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+from tinysoul.action.core.executor import ActionExecutionCancelled
 from tinysoul.context import ContextEngine
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonObject
@@ -316,7 +317,7 @@ class CycleRunner:
         while True:
             try:
                 return _PhaseRun(value=(await phase()))
-            except TaskCancelled:
+            except (TaskCancelled, ActionExecutionCancelled):
                 # A Turn-level cancel fired while a phase LLM call was in
                 # flight. The pending control signal is consumed at the
                 # cycle boundary, which stays authoritative for control flow.

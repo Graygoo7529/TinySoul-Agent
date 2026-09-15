@@ -161,7 +161,7 @@ def test_home_provider_reflects_effective_skill_metadata_without_loading_body(
     assert third.items == ()
 
 
-def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
+async def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
     tmp_path: Path,
 ) -> None:
     skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
@@ -176,7 +176,7 @@ def test_home_search_uses_skill_frontmatter_instead_of_body_heading(
     )
     home = _home(tmp_path)
 
-    result = home.search_top("pending home changes", top_k=1)
+    result = await home.search_top("pending home changes", top_k=1)
 
     assert result.items[0].title == "Daily Home Review"
     assert result.items[0].summary == "Review pending Home changes."

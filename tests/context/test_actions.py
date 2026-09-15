@@ -13,7 +13,7 @@ from tinysoul.runtime import RunLevel, RunScope, SignalBus
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
 
 
-def test_context_inspect_continuation_is_visible_only() -> None:
+async def test_context_inspect_continuation_is_visible_only() -> None:
     context = (
         ContextEngineBuilder(system_text="test")
         .with_trace_heap(
@@ -47,7 +47,7 @@ def test_context_inspect_continuation_is_visible_only() -> None:
     action = ActionCatalogLoader().load(Path("tinysoul/action/catalog")).get_action(
         "core.context.inspect"
     )
-    result = ContextInspectExecutor(
+    result = await ContextInspectExecutor(
         context,
         runtime_bridge=RuntimeContextBridge(),
     ).execute(

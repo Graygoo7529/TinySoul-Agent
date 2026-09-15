@@ -213,7 +213,7 @@ def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> N
     assert raised.value.reason is SessionInspectFailureReason.UNKNOWN_REF
 
 
-def test_session_inspect_executor_returns_foldable_origin(
+async def test_session_inspect_executor_returns_foldable_origin(
     tmp_path: Path,
 ) -> None:
     session = _session(tmp_path, inspect_max_chars=1024)
@@ -240,7 +240,7 @@ def test_session_inspect_executor_returns_foldable_origin(
             domain="core",
         ),
     )
-    result = SessionInspectExecutor(
+    result = await SessionInspectExecutor(
         session,
         runtime_bridge=RuntimeSessionBridge(),
     ).execute(execution, ActionExecutionContext())

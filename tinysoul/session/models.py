@@ -14,7 +14,7 @@ from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from .errors import SessionContractError
 
 
-SESSION_RECORD_SCHEMA_VERSION = 4
+SESSION_RECORD_SCHEMA_VERSION = 5
 SESSION_MANIFEST_SCHEMA_VERSION = 2
 _TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
 _SUMMARY_REF = re.compile(r"^session:summary/([a-z0-9_-]+)$")
@@ -29,6 +29,9 @@ class SessionActionOutcome(StrEnum):
     SUCCESS = "success"
     FAILED = "failed"
     TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+    NOT_EXECUTED = "not_executed"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -123,8 +126,13 @@ class SessionActionRecord:
             and self.failure is not None
         ):
             raise SessionContractError("Successful Session Action cannot have failure")
-        if self.outcome is not SessionActionOutcome.SUCCESS and self.failure is None:
+        if self.outcome in {SessionActionOutcome.FAILED, SessionActionOutcome.TIMEOUT} and self.failure is None:
             raise SessionContractError("Failed Session Action requires failure facts")
+        if self.outcome in {
+            SessionActionOutcome.CANCELLED, SessionActionOutcome.NOT_EXECUTED,
+            SessionActionOutcome.UNKNOWN,
+        } and (self.failure is not None or self.result):
+            raise SessionContractError("Interrupted Session Action cannot fabricate a result")
 
     def to_json(self) -> JsonObject:
         value: JsonObject = {

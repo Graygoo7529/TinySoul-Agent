@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from tinysoul.context import ContextEngine, ControlResult
 from tinysoul.context.errors import ContextError
@@ -48,8 +47,8 @@ class ContextSignalConsumer:
 
         if self.module_runner is None:
             return await commit(scope)
-        return cast(tuple[ControlResult, ...], await self.module_runner.run(
+        return await self.module_runner.run(
             scope=scope,
             name="context.consume_signals",
             callback=commit,
-        ))
+        )

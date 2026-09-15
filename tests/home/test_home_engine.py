@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TypeVar
 
 import pytest
+from tinysoul.home.links import parse_home_link
 
 from tinysoul.action.core.call import ActionCall, ActionExecution, ActionExecutionBuilder
 from tinysoul.action.core.catalog import ActionCatalog
@@ -148,7 +149,7 @@ def test_top_files_cannot_be_addressed_as_progressive_resources(
             home.write_resource(alias, "replacement", overwrite=True)
 
 
-def test_home_background_is_copied_only_when_context_loads_it(
+async def test_home_background_is_copied_only_when_context_loads_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -218,7 +219,7 @@ def test_home_background_is_copied_only_when_context_loads_it(
         )
     )
 
-    assert consumer.consume(scope=scope) == ()
+    assert await consumer.consume(scope=scope) == ()
 
     assert runtime_path.read_text(encoding="utf-8") == "project knowledge"
     assert context.background_links() == (link,)
@@ -446,7 +447,7 @@ def test_home_runtime_copy_restores_missing_unmodified_copy(
     assert runtime.read_text(encoding="utf-8") == "rules"
 
 
-def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> None:
+async def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
@@ -462,16 +463,14 @@ def test_home_resource_read_executor_returns_bounded_text(tmp_path: Path) -> Non
     )
 
     executor = HomeResourceReadExecutor(home)
-    with_runtime_copy = _run_copy_trap_after_runtime_exception(
-        lambda: executor.execute(execution, ActionExecutionContext()),
-        home=home,
-    )
+    home.ensure_runtime_copy(parse_home_link("home:skills/refactor/references/checklist.md"))
+    with_runtime_copy = await executor.execute(execution, ActionExecutionContext())
 
     assert with_runtime_copy.status is ActionResultStatus.SUCCESS
     assert with_runtime_copy.payload["text"] == "abc"
     assert with_runtime_copy.payload["truncated"] is True
 
-def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
+async def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
     skills_domain = tmp_path / "home" / "skills_domain" / "workspace"
     skills_action = tmp_path / "home" / "skills_action" / "workspace"
     skills_domain.mkdir(parents=True)
@@ -491,7 +490,7 @@ def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
         "home:skills_domain/workspace/DOMAIN.md",
         "home:skills_action/workspace/rewrite.md",
     ):
-        result = HomeResourceReadExecutor(home).execute(
+        result = await HomeResourceReadExecutor(home).execute(
             _execution("home.resource.read", {"link": link}),
             ActionExecutionContext(),
         )
@@ -500,7 +499,7 @@ def test_home_resource_read_rejects_prompt_mount_spaces(tmp_path: Path) -> None:
         assert result.frame_data["error_type"] == "AgentHomeContractError"
 
 
-def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
+async def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
@@ -511,7 +510,7 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
         )
     ).build()
 
-    result = HomeResourceReadExecutor(home).execute(
+    result = await HomeResourceReadExecutor(home).execute(
         _execution(
             "home.resource.read",
             {"link": "home:skills/refactor/references/checklist.md", "max_chars": 0},
@@ -524,7 +523,7 @@ def test_home_resource_read_rejects_non_positive_limit(tmp_path: Path) -> None:
     assert result.failure.reason == "invalid_max_chars"
 
 
-def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
+async def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     tmp_path: Path,
 ) -> None:
     home_root = tmp_path / "home"
@@ -537,14 +536,14 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
     ).build()
     _bind_workspace_mounts(home)
 
-    missing_kind = HomeTopWriteExecutor(home).execute(
+    missing_kind = await HomeTopWriteExecutor(home).execute(
         _execution(
             "home.top.write",
             {"link": "home:agent@project", "text": "project"},
         ),
         ActionExecutionContext(),
     )
-    created = HomeTopWriteExecutor(home).execute(
+    created = await HomeTopWriteExecutor(home).execute(
         _execution(
             "home.top.write",
             {
@@ -554,7 +553,7 @@ def test_home_top_and_prompt_mount_write_executors_use_home_mutation_boundary(
         ),
         ActionExecutionContext(),
     )
-    prompt = HomePromptMountWriteExecutor(home).execute(
+    prompt = await HomePromptMountWriteExecutor(home).execute(
         _execution(
             "home.prompt_mount.write",
             {
@@ -764,7 +763,7 @@ def test_home_runtime_copy_failure_ends_nearest_turn(tmp_path: Path) -> None:
     assert result.transfer.action is RuntimeTransferAction.END
     assert result.transfer.target == scope.nearest(RunLevel.TURN)
 
-def test_home_runtime_copy_required_payload_contains_only_recovery_identity(tmp_path: Path) -> None:
+async def test_home_runtime_copy_required_payload_contains_only_recovery_identity(tmp_path: Path) -> None:
     ref = tmp_path / "home" / "skills" / "refactor" / "references"
     ref.mkdir(parents=True)
     (ref / "checklist.md").write_text("abcdef", encoding="utf-8")
@@ -777,7 +776,7 @@ def test_home_runtime_copy_required_payload_contains_only_recovery_identity(tmp_
     executor = HomeResourceReadExecutor(home)
 
     try:
-        executor.execute(
+        await executor.execute(
             _execution(
                 "home.resource.read",
                 {"link": "home:skills/refactor/references/checklist.md"},

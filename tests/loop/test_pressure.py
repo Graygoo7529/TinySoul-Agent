@@ -57,6 +57,9 @@ class _CapacityProvider:
     adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
     requests: list[ProviderRequest] = field(default_factory=list)
 
+    async def close(self) -> None:
+        pass
+
     @property
     def api_style(self) -> ProviderApiStyle:
         return adapter_spec(self.adapter_kind).api_style

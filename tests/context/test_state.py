@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import pytest
+
+from tinysoul.action.core.call import ActionCall, ActionFramework, ExecutionFact, ExecutionState
+from tinysoul.action.core.result import ActionResult
 
 from tinysoul.context.background import (
     BackgroundContext,
@@ -10,7 +14,7 @@ from tinysoul.context.background import (
     BackgroundPatch,
     BackgroundSource,
 )
-from tinysoul.context.errors import ContextContractError
+from tinysoul.context.errors import ContextContractError, ContextInvariantError
 from tinysoul.context.trace import PendingInputs, TraceKind, TurnTraceHeap
 from tinysoul.context.working import (
     Milestone,
@@ -22,7 +26,49 @@ from tinysoul.context.working import (
     WorkspaceSnapshot,
 )
 from tinysoul.llm.messages import AssistantMessage, JsonPart, ToolResultMessage, UserMessage
-from tinysoul.runtime import CyclePhase
+from tinysoul.runtime import CyclePhase, RunScope
+
+
+def test_trace_keeps_cycle_order_and_finalizes_unstarted_calls() -> None:
+    trace = TurnTraceHeap(turn_id="turn_1")
+    first = ActionCall(call_id="reused", action_name="test.write", params={}, sequence=2)
+    second = replace(first, action_name="test.read", sequence=1)
+    trace.register_action_calls((first,), cycle_id="cycle_1")
+    trace.register_action_calls((second,), cycle_id="cycle_2")
+    framework = ActionFramework(invoke_id="invoke_1", batch_id="batch_1",
+                                scope=RunScope(), domain="test",
+                                turn_id="turn_1", cycle_id="cycle_1")
+    for state in (ExecutionState.REQUESTED, ExecutionState.STARTED):
+        trace.record_execution(ExecutionFact(call=first, framework=framework, state=state))
+    result = ActionResult.success(call_id=first.call_id, invoke_id="invoke_1",
+                                  batch_id="batch_1", action_name=first.action_name,
+                                  sequence=2, domain="test", payload={"written": True})
+    fact = ExecutionFact(call=first, framework=framework,
+                         state=ExecutionState.SETTLED, result=result)
+    trace.record_execution(fact)
+    trace.record_execution(fact)
+    sealed = trace.seal()
+    assert [item.cycle_id for item in sealed.actions] == ["cycle_1", "cycle_2"]
+    assert [item.state for item in sealed.actions] == [
+        ExecutionState.SETTLED, ExecutionState.NOT_EXECUTED,
+    ]
+    with pytest.raises(ContextInvariantError):
+        trace.record_execution(replace(fact, state=ExecutionState.UNKNOWN, result=None))
+
+
+def test_trace_rejects_identity_changes_and_sealing_live_execution() -> None:
+    trace = TurnTraceHeap(turn_id="turn_1")
+    call = ActionCall(call_id="call_1", action_name="test.write", params={}, sequence=1)
+    trace.register_action_calls((call,), cycle_id="cycle_1")
+    framework = ActionFramework(invoke_id="invoke_1", batch_id="batch_1",
+                                scope=RunScope(), domain="test",
+                                turn_id="turn_1", cycle_id="cycle_1")
+    started = ExecutionFact(call=call, framework=framework, state=ExecutionState.STARTED)
+    trace.record_execution(started)
+    with pytest.raises(ContextInvariantError):
+        trace.seal()
+    with pytest.raises(ContextInvariantError):
+        trace.record_execution(replace(started, framework=replace(framework, invoke_id="other")))
 
 
 def test_background_load_evict_and_render() -> None:

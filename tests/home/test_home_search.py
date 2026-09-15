@@ -54,7 +54,7 @@ class _StubReranker:
     links: tuple[str, ...] | None
     requests: list[HomeSearchRequest] = field(default_factory=list)
 
-    def rerank(
+    async def rerank(
         self,
         request: HomeSearchRequest,
         *,
@@ -69,12 +69,12 @@ class _FakeLLM:
         self._results = deque(results)
         self.calls: list[TaskCall] = []
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self._results.popleft()
 
 
-def test_home_top_search_uses_effective_metadata_without_materializing_actual(
+async def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     tmp_path: Path,
 ) -> None:
     home_root = tmp_path / "home"
@@ -105,7 +105,7 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     )
     home.delete_top("home:skills@hidden")
 
-    result = home.search_top("runtime skill", top_k=10)
+    result = await home.search_top("runtime skill", top_k=10)
 
     links = tuple(item.link for item in result.items)
     assert links[0] == "home:skills@runtime-only"
@@ -122,7 +122,7 @@ def test_home_top_search_uses_effective_metadata_without_materializing_actual(
     assert first.digest
 
 
-def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> None:
+async def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> None:
     service = HomeTopSearchService(
         HomeSearchSettings(
             candidate_limit=2,
@@ -157,19 +157,19 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
         ("home:skills@beta", "home:skills@alpha")
     )
 
-    reranked = service.search(
+    reranked = await service.search(
         query="shared knowledge",
         documents=documents,
         reranker=valid,
         scope=scope,
     )
-    invalid = service.search(
+    invalid = await service.search(
         query="shared knowledge",
         documents=documents,
         reranker=_StubReranker(("home:skills@missing",)),
         scope=scope,
     )
-    empty = service.search(
+    empty = await service.search(
         query="shared knowledge",
         documents=documents,
         reranker=_StubReranker(()),
@@ -192,7 +192,7 @@ def test_home_top_search_validates_rerank_and_falls_back_deterministically() -> 
     assert empty.items == ()
 
 
-def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
+async def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     tmp_path: Path,
 ) -> None:
     home_root = tmp_path / "home"
@@ -205,7 +205,7 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
         reranker=LLMHomeSearchReranker(llm),
     )
 
-    result = executor.execute(
+    result = await executor.execute(
         _execution({"query": "reason", "top_k": 1}),
         ActionExecutionContext(),
     )
@@ -226,7 +226,7 @@ def test_home_top_search_action_uses_llm_profile_and_returns_metadata(
     ).exists()
 
 
-def test_home_top_search_reads_applied_actual_after_home_maintenance(
+async def test_home_top_search_reads_applied_actual_after_home_maintenance(
     tmp_path: Path,
 ) -> None:
     actual = tmp_path / "home" / "skills" / "review" / "SKILL.md"
@@ -237,7 +237,7 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
         _skill("Current Review", "Committed guidance."),
         overwrite=True,
     )
-    before = home.search_top("committed guidance", top_k=1)
+    before = await home.search_top("committed guidance", top_k=1)
 
     change = home.review_snapshot().changes[0]
     outcome = home.resolve_review(
@@ -245,7 +245,7 @@ def test_home_top_search_reads_applied_actual_after_home_maintenance(
         HomeReviewResolution.ACCEPT,
     )
     home.remove_resolved_overlay()
-    after = home.search_top("committed guidance", top_k=1)
+    after = await home.search_top("committed guidance", top_k=1)
 
     assert before.items[0].title == "Current Review"
     assert outcome.resolution is HomeReviewResolution.ACCEPT

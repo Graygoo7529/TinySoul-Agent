@@ -32,7 +32,7 @@ from tinysoul.runtime import (
 DAY = BusinessDay.parse("2026-08-03")
 
 
-def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
+async def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
     queue: Queue[AppRequest] = Queue()
     user = _UserTurn()
     maintenance = _Maintenance()
@@ -53,7 +53,7 @@ def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
     )
     queue.put(ExitRequest(request_id="exit_1"))
 
-    outcome = runner.run()
+    outcome = await runner.run()
 
     assert user.inputs == ["hello"]
     assert [request.scope for request in maintenance.requests] == [
@@ -65,7 +65,7 @@ def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
     assert len(outcome.maintenance) == 1
 
 
-def test_program_startup_reports_complete_maintenance_availability() -> None:
+async def test_program_startup_reports_complete_maintenance_availability() -> None:
     queue: Queue[AppRequest] = Queue()
     queue.put(ExitRequest(request_id="exit_1"))
     maintenance = _Maintenance(
@@ -89,7 +89,7 @@ def test_program_startup_reports_complete_maintenance_availability() -> None:
         observations=observations,
     )
 
-    runner.run()
+    await runner.run()
 
     event = next(
         event
@@ -105,7 +105,7 @@ class _UserTurn:
     def __init__(self) -> None:
         self.inputs: list[str] = []
 
-    def run(self, turn_input, *, business_day, scope, request_id, input_source):
+    async def run(self, turn_input, *, business_day, scope, request_id, input_source):
         del scope, request_id, input_source
         self.inputs.append(turn_input)
         return TurnOutcome(
@@ -131,7 +131,7 @@ class _Maintenance:
     def active_day_lease(self):
         yield DAY
 
-    def run(self, request, *, scope=None):
+    async def run(self, request, *, scope=None):
         del scope
         self.requests.append(request)
         return MaintenanceOutcome(

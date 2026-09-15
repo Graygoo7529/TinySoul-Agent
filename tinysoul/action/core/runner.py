@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from dataclasses import replace
 from time import monotonic
-from typing import cast
 from tinysoul.infra.concurrency import JoinedOperations
 
-from tinysoul.runtime import RunScope, RuntimeException, RuntimeTransferInterrupt, ObservationEmitter
+from tinysoul.runtime import (
+    RunScope, RuntimeException, RuntimeTransferInterrupt, ObservationEmitter,
+    ObservationEvent, ObservationLevel, NullObservationEmitter, emit_observation,
+)
 from tinysoul.action.runtime_bridge import RuntimeActionBridge
 
 from .call import ActionBatch, ActionExecution, ExecutionFact, ExecutionState
@@ -53,29 +54,16 @@ class ActionBatchRunner:
         hooks: ActionExecutionHookPipeline | None = None,
         planner: BatchConcurrencyPlanner | None = None,
         max_workers: int = 8,
-        cooperative_cancel_grace_seconds: float = 0.05,
-        process_cancel_grace_seconds: float = 1.0,
         observations: ObservationEmitter | None = None,
     ) -> None:
-        if isinstance(max_workers, bool) or max_workers <= 0:
-            raise ActionContractError("Action concurrency must be positive")
-        if min(cooperative_cancel_grace_seconds, process_cancel_grace_seconds) < 0:
-            raise ActionContractError("Action cancellation grace cannot be negative")
+        if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers <= 0:
+            raise ActionContractError("max_workers must be positive")
         self._executors = executors
         self._hooks = hooks or ActionExecutionHookPipeline()
         self._planner = planner or BatchConcurrencyPlanner()
         self._max_workers = max_workers
         self._bridge = RuntimeActionBridge()
-
-    def _schedule_group(self, group: tuple[ActionExecution, ...]) -> tuple[ActionExecution, ...]:
-        """Attach deterministic deadlines before scheduling a group."""
-        return tuple(
-            replace(item, framework=replace(
-                item.framework,
-                deadline=monotonic() + item.framework.timeout_seconds
-                if item.framework.timeout_seconds is not None else None,
-            )) for item in group
-        )
+        self._observations = observations or NullObservationEmitter()
 
     async def run(
         self, batch: ActionBatch, context: ActionExecutionContext,
@@ -104,23 +92,39 @@ class ActionBatchRunner:
                             owner_operations=JoinedOperations()) for _ in group]
         tasks = [asyncio.create_task(self._limited(execution, owned, gate))
                  for execution, owned in zip(group, contexts, strict=True)]
+        primary_failure: BaseException | None = None
         try:
             pending = set(tasks)
             while pending:
                 done, pending = await asyncio.wait(
                     pending, timeout=0.05, return_when=asyncio.FIRST_COMPLETED,
                 )
-                for task in done:
-                    task.result()
+                # Submission order makes simultaneous failures deterministic.
+                for task in tasks:
+                    if task in done:
+                        task.result()
                 if context.cancelled is not None and context.cancelled():
                     raise ActionExecutionCancelled("turn_cancelled")
             return tuple(task.result() for task in tasks)
+        except BaseException as exc:
+            primary_failure = exc
+            raise
         finally:
             for task, owned in zip(tasks, contexts, strict=True):
                 if not task.done():
                     owned.control.request_cancel("cancelled")
                     task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            joined = asyncio.gather(*tasks, return_exceptions=True)
+            late_cancellation: asyncio.CancelledError | None = None
+            while not joined.done():
+                try:
+                    await asyncio.shield(joined)
+                except asyncio.CancelledError as exc:
+                    # Repeated cancellation cannot detach already-started work.
+                    late_cancellation = exc
+                    continue
+            if primary_failure is None and late_cancellation is not None:
+                raise late_cancellation
 
     async def _limited(
         self, execution: ActionExecution, context: ActionExecutionContext,
@@ -141,25 +145,47 @@ class ActionBatchRunner:
                 self._record(context, execution, ExecutionState.STARTED)
                 started = True
                 work = asyncio.create_task(self._run_one(execution, context))
+                cancellation: asyncio.CancelledError | None = None
                 try:
-                    while True:
-                        remaining = context.control.remaining_seconds()
-                        if remaining is not None and remaining <= 0:
-                            context.control.request_cancel("timeout")
-                        try:
-                            result = await asyncio.wait_for(asyncio.shield(work), timeout=0.05)
-                            break
-                        except TimeoutError:
-                            if context.control.is_cancelled():
-                                result = await asyncio.shield(work)
-                                break
-                            continue
-                finally:
-                    if not work.done():
+                    done, _ = await asyncio.wait(
+                        (work,), timeout=context.control.remaining_seconds(),
+                    )
+                    if not done:
+                        context.control.request_cancel("timeout")
+                        work.cancel()
+                except asyncio.CancelledError as exc:
+                    cancellation = exc
+                    context.control.request_cancel("cancelled")
+                    work.cancel()
+                # A bounded owner operation may finish after cancellation. Its
+                # actual result must reach Trace before cancellation propagates.
+                while not work.done():
+                    try:
                         await asyncio.shield(work)
+                    except asyncio.CancelledError as exc:
+                        owner = asyncio.current_task()
+                        if owner is not None and owner.cancelling():
+                            cancellation = cancellation or exc
+                            context.control.request_cancel("cancelled")
+                            if not work.done():
+                                work.cancel()
+                    except Exception:
+                        # Retrieve the settled exception below so deadline and
+                        # cooperative cancellation share the same classification.
+                        if not work.done():
+                            raise
+                try:
+                    result = work.result()
+                except (asyncio.CancelledError, ActionExecutionCancelled):
+                    if context.control.cancel_reason != "timeout":
+                        raise
+                    result = self._timeout_result(execution)
                 self._record(context, execution, ExecutionState.SETTLED, result)
                 settled = True
-                context.owner_operations.check_cancelled()
+                if cancellation is not None:
+                    raise cancellation
+                if context.control.cancel_reason != "timeout":
+                    context.owner_operations.check_cancelled()
                 return result
         except (asyncio.CancelledError, ActionExecutionCancelled):
             context.control.request_cancel("cancelled")
@@ -180,16 +206,11 @@ class ActionBatchRunner:
         self, execution: ActionExecution, context: ActionExecutionContext,
     ) -> ActionResult:
         hook_result = self._hooks.run(execution, context=context)
-        if hook_result is not None:
-            return hook_result
-        executor = self._executors.get(execution.action.backend.handler)
-        try:
+        if hook_result is None:
+            executor = self._executors.get(execution.action.backend.handler)
             result = await self._execute(executor, execution, context)
-        except ActionExecutionCancelled as exc:
-            result = self._timeout_result(execution, reason="cancelled")
-            if exc.args:
-                result = replace(result, frame_data={**result.frame_data, "cancel_reason": str(exc.args[0])})
-            return result
+        else:
+            result = hook_result
         if not isinstance(result, ActionResult):
             raise ActionInvariantError("Action executor returned an invalid result object")
         if self._result_mismatch(execution, result):
@@ -204,26 +225,20 @@ class ActionBatchRunner:
         context: ActionExecutionContext,
     ) -> ActionResult:
         if context.module_runner is None:
-            value = executor.execute(execution, context)
-            if inspect.isawaitable(value):
-                return await value
-            return value
+            return await executor.execute(execution, context)
 
         async def invoke(module_scope: RunScope) -> ActionResult:
-            value = executor.execute(replace(execution, framework=replace(
+            return await executor.execute(replace(execution, framework=replace(
                 execution.framework, scope=module_scope,
             )), context)
-            if inspect.isawaitable(value):
-                return await value
-            return value
 
-        return cast(ActionResult, await context.module_runner.run(
+        return await context.module_runner.run(
             scope=execution.framework.scope, name=execution.framework.invoke_id,
             callback=invoke,
-        ))
+        )
 
-    @staticmethod
     def _record(
+        self,
         context: ActionExecutionContext, execution: ActionExecution,
         state: ExecutionState, result: ActionResult | None = None,
     ) -> None:
@@ -231,6 +246,13 @@ class ActionBatchRunner:
             context.record_execution(ExecutionFact(
                 call=execution.call, framework=execution.framework, state=state, result=result,
             ))
+        emit_observation(self._observations, ObservationEvent(
+            name="action.execution", level=ObservationLevel.VERBOSE,
+            source="action.runner", scope=execution.framework.scope,
+            message="Action execution state changed.",
+            payload={"invoke_id": execution.framework.invoke_id,
+                     "call_id": execution.call.call_id, "state": state.value},
+        ))
 
     @staticmethod
     def _timeout_result(execution: ActionExecution, *, reason: str = "execution_timeout") -> ActionResult:

@@ -69,7 +69,7 @@ def test_preflight_projects_home_and_all_memory_backlog(tmp_path: Path) -> None:
     "trigger",
     (MaintenanceTrigger.MANUAL, MaintenanceTrigger.SCHEDULED),
 )
-def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
+async def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
     tmp_path: Path,
     trigger: MaintenanceTrigger,
 ) -> None:
@@ -89,7 +89,7 @@ def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
         )
     )
 
-    outcome = engine.run(
+    outcome = await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.DAILY,
             trigger=trigger,
@@ -106,7 +106,7 @@ def test_daily_maintenance_processes_only_previous_day_and_retains_backlog(
     assert not store.require().home_pending
 
 
-def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
+async def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
     tmp_path: Path,
 ) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,))
@@ -116,7 +116,7 @@ def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
         MaintenanceAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
     )
 
-    outcome = engine.run(
+    outcome = await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.DAILY,
             trigger=MaintenanceTrigger.SCHEDULED,
@@ -132,7 +132,7 @@ def test_daily_maintenance_skips_absent_previous_day_and_retains_backlog(
     assert store.require().memory_days == (DAY_ONE,)
 
 
-def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> None:
+async def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> None:
     archive = _Archive(tmp_path, (DAY_ONE,))
     memory = _Memory(fail_days={DAY_ONE})
     engine, store = _engine(tmp_path, archive=archive, memory=memory)
@@ -140,7 +140,7 @@ def test_failed_memory_day_remains_available_across_restart(tmp_path: Path) -> N
         MaintenanceAvailability(checked_day=TODAY, memory_days=(DAY_ONE,))
     )
 
-    outcome = engine.run(
+    outcome = await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.MEMORY,
             trigger=MaintenanceTrigger.MANUAL,
@@ -163,7 +163,7 @@ def test_memory_request_requires_explicit_target_day() -> None:
         )
 
 
-def test_manual_and_scheduled_home_requests_use_the_same_task_path(
+async def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     tmp_path: Path,
 ) -> None:
     outcomes = []
@@ -179,7 +179,7 @@ def test_manual_and_scheduled_home_requests_use_the_same_task_path(
             home=home,
         )
         outcomes.append(
-            engine.run(
+            await engine.run(
                 MaintenanceRequest(
                     scope=MaintenanceScope.HOME,
                     trigger=trigger,
@@ -194,7 +194,7 @@ def test_manual_and_scheduled_home_requests_use_the_same_task_path(
     ]
 
 
-def test_explicit_memory_maintenance_does_not_require_pending_entry(
+async def test_explicit_memory_maintenance_does_not_require_pending_entry(
     tmp_path: Path,
 ) -> None:
     memory = _Memory(existing={DAY_ONE})
@@ -204,7 +204,7 @@ def test_explicit_memory_maintenance_does_not_require_pending_entry(
         memory=memory,
     )
 
-    engine.run(
+    await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.MEMORY,
             trigger=MaintenanceTrigger.MANUAL,
@@ -216,7 +216,7 @@ def test_explicit_memory_maintenance_does_not_require_pending_entry(
     assert store.require().memory_days == ()
 
 
-def test_started_observation_distinguishes_execution_day_from_memory_target(
+async def test_started_observation_distinguishes_execution_day_from_memory_target(
     tmp_path: Path,
 ) -> None:
     observations = _RecordingObservations()
@@ -226,7 +226,7 @@ def test_started_observation_distinguishes_execution_day_from_memory_target(
         observations=observations,
     )
 
-    engine.run(
+    await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.MEMORY,
             trigger=MaintenanceTrigger.MANUAL,
@@ -263,7 +263,7 @@ def test_archive_outcome_requires_authoritative_catalog_identity(
         engine.preflight()
 
 
-def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
+async def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
     engine, _store = _engine(
         tmp_path,
         archive=_Archive(tmp_path, ()),
@@ -271,7 +271,7 @@ def test_unknown_task_exception_is_not_downgraded(tmp_path: Path) -> None:
     )
 
     with pytest.raises(AttributeError, match="unexpected"):
-        engine.run(
+        await engine.run(
             MaintenanceRequest(
                 scope=MaintenanceScope.HOME,
                 trigger=MaintenanceTrigger.MANUAL,
@@ -387,7 +387,7 @@ class _Home:
     def pending_counts(self) -> tuple[int, int]:
         return (1, 0) if self.pending else (0, 0)
 
-    def run(self, *, business_day, scope, request_id):
+    async def run(self, *, business_day, scope, request_id):
         del business_day, scope, request_id
         if self.unexpected_failure:
             raise AttributeError("unexpected task bug")
@@ -411,7 +411,7 @@ class _Memory:
     def eligible(self, day, *, archive, if_absent):
         return archive is not None and (not if_absent or day not in self.existing)
 
-    def run(
+    async def run(
         self,
         *,
         business_day,

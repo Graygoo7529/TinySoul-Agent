@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import pytest
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -38,6 +40,37 @@ from tinysoul.runtime import (
 
 
 DAY = BusinessDay.parse("2026-07-12")
+
+
+async def test_task_cancellation_seals_context_and_runs_completion_before_propagating() -> None:
+    context = ContextEngineBuilder(system_text="test").build()
+    entered = asyncio.Event()
+    records: list[TurnCompletion] = []
+
+    class WaitingCycle:
+        async def run(self, **kwargs: object) -> CycleOutcome:
+            entered.set()
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+    class Recorder:
+        def handle(self, completion: TurnCompletion) -> None:
+            records.append(completion)
+
+    runner = TurnRunner(
+        context=context, bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, WaitingCycle()), settings=TurnSettings(),
+        completion_pipeline=TurnCompletionPipeline((Recorder(),)),
+    )
+    running = asyncio.create_task(runner.run("question", business_day=DAY, scope=_program_scope()))
+    async with asyncio.timeout(2.0):
+        await entered.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+    assert not context.turn_active
+    assert runner.active_scope is None
+    assert len(records) == 1 and records[0].output is None
 
 
 @dataclass

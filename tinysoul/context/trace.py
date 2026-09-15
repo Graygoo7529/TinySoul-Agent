@@ -7,7 +7,8 @@ from enum import StrEnum
 from time import time
 from uuid import uuid4
 
-from tinysoul.action.core.call import ExecutionFact, ExecutionState
+from tinysoul.action.core.call import ActionCall, ExecutionFact, ExecutionState
+from tinysoul.action.core.result import ActionResult
 
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.llm.messages import (
@@ -135,16 +136,52 @@ class TraceCompactionReport:
 
 
 @dataclass(frozen=True)
+class TraceAction:
+    """One call's canonical facts, keyed by Cycle and call sequence."""
+
+    cycle_id: str
+    call: ActionCall
+    state: ExecutionState = ExecutionState.REQUESTED
+    invoke_id: str | None = None
+    result: ActionResult | None = None
+
+    def __post_init__(self) -> None:
+        if not self.cycle_id or not isinstance(self.call, ActionCall):
+            raise ContextInvariantError("Trace Action requires Cycle and call identity")
+        if not isinstance(self.state, ExecutionState):
+            raise ContextInvariantError("Trace Action requires an execution state")
+        if (self.state is ExecutionState.SETTLED) != (self.result is not None):
+            raise ContextInvariantError("Only settled Trace Actions contain a result")
+        if self.result is not None and not isinstance(self.result, ActionResult):
+            raise ContextInvariantError("Trace Action requires a typed result")
+        if self.result is not None and (
+            self.result.call_id != self.call.call_id
+            or self.result.action_name != self.call.action_name
+            or self.result.sequence != self.call.sequence
+            or self.result.invoke_id != self.invoke_id
+        ):
+            raise ContextInvariantError("Trace Action result identity does not match")
+
+
+@dataclass(frozen=True)
 class SealedTurnTrace:
     """Immutable canonical entries transferred once at Turn completion."""
 
     turn_id: str
     entries: tuple[TraceEntry, ...]
-    executions: tuple[ExecutionFact, ...] = field(default=(), repr=False)
+    actions: tuple[TraceAction, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         if not self.turn_id:
             raise ContextInvariantError("SealedTurnTrace.turn_id must be non-empty")
+        if any(not isinstance(item, TraceAction) for item in self.actions):
+            raise ContextInvariantError("Sealed Trace requires typed Action facts")
+        identities = {(item.cycle_id, item.call.sequence) for item in self.actions}
+        if len(identities) != len(self.actions):
+            raise ContextInvariantError("Sealed Trace contains duplicate Action identities")
+        if any(item.state in {ExecutionState.REQUESTED, ExecutionState.STARTED}
+               for item in self.actions):
+            raise ContextInvariantError("Sealed Trace contains unsettled Actions")
 
 
 class TurnTraceHeap:
@@ -178,21 +215,56 @@ class TurnTraceHeap:
         self._hot_entry_ids: list[str] = []
         self._nodes: dict[str, TraceHeapNode] = {}
         self._root_ids: list[str] = []
-        self._executions: dict[str, ExecutionFact] = {}
+        self._actions: dict[tuple[str, int], TraceAction] = {}
+
+    def register_action_calls(self, calls: tuple[ActionCall, ...], *, cycle_id: str) -> None:
+        for call in calls:
+            key = (cycle_id, call.sequence)
+            previous = self._actions.get(key)
+            if previous is not None:
+                if previous.call != call:
+                    raise ContextInvariantError("Trace Action call identity changed")
+                continue
+            self._actions[key] = TraceAction(cycle_id=cycle_id, call=call)
+
+    def record_action_result(self, result: ActionResult, *, cycle_id: str) -> None:
+        key = (cycle_id, result.sequence)
+        previous = self._actions.get(key)
+        if previous is None:
+            raise ContextInvariantError("Action result has no registered call")
+        if previous.invoke_id is not None and previous.invoke_id != result.invoke_id:
+            raise ContextInvariantError("Action result invocation identity changed")
+        candidate = replace(previous, state=ExecutionState.SETTLED,
+                            invoke_id=result.invoke_id, result=result)
+        if previous == candidate:
+            return
+        if previous.state not in {ExecutionState.REQUESTED, ExecutionState.STARTED}:
+            raise ContextInvariantError("Settled Action facts cannot change")
+        self._actions[key] = candidate
 
     def record_execution(self, fact: ExecutionFact) -> None:
         """Accept execution facts independently of model-view preparation."""
         if fact.framework.turn_id != self._turn_id:
             raise ContextInvariantError("Execution fact belongs to another Turn")
-        previous = self._executions.get(fact.framework.invoke_id)
-        if previous == fact:
+        key = (fact.framework.cycle_id, fact.call.sequence)
+        previous = self._actions.get(key)
+        if previous is None or previous.call != fact.call:
+            raise ContextInvariantError("Execution must reference its registered call")
+        candidate = replace(previous, state=fact.state,
+                            invoke_id=fact.framework.invoke_id, result=fact.result)
+        if previous == candidate:
             return
-        if previous is None:
-            if fact.state is not ExecutionState.REQUESTED:
-                raise ContextInvariantError("Execution must be registered before execution")
-        elif previous.state not in {ExecutionState.REQUESTED, ExecutionState.STARTED}:
+        if previous.invoke_id and previous.invoke_id != candidate.invoke_id:
+            raise ContextInvariantError("Action invocation identity changed")
+        transitions = {
+            ExecutionState.REQUESTED: {ExecutionState.REQUESTED, ExecutionState.STARTED,
+                                      ExecutionState.NOT_EXECUTED},
+            ExecutionState.STARTED: {ExecutionState.SETTLED, ExecutionState.CANCELLED,
+                                    ExecutionState.UNKNOWN},
+        }
+        if fact.state not in transitions.get(previous.state, set()):
             raise ContextInvariantError("Settled execution facts cannot be changed")
-        self._executions[fact.framework.invoke_id] = fact
+        self._actions[key] = candidate
 
     @property
     def turn_id(self) -> str:
@@ -340,7 +412,11 @@ class TurnTraceHeap:
         return SealedTurnTrace(
             turn_id=self._turn_id,
             entries=self.entries(),
-            executions=tuple(self._executions.values()),
+            actions=tuple(
+                replace(item, state=ExecutionState.NOT_EXECUTED)
+                if item.state is ExecutionState.REQUESTED else item
+                for item in self._actions.values()
+            ),
         )
 
     def _append(

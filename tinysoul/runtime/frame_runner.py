@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 import inspect
 from dataclasses import dataclass, field
-from typing import TypeVar, cast
+from typing import TypeVar, cast, overload
 
 from .errors import RuntimeInvariantError
 from .exception import RuntimeException
@@ -39,6 +39,18 @@ class RuntimeModuleRunner:
     trap: RuntimeTrap
     bus: SignalBus
     observations: ObservationEmitter = field(default_factory=NullObservationEmitter)
+
+    @overload
+    async def run(
+        self, *, scope: RunScope, name: str,
+        callback: Callable[[RunScope], Awaitable[T]],
+    ) -> T: ...
+
+    @overload
+    async def run(
+        self, *, scope: RunScope, name: str,
+        callback: Callable[[RunScope], T],
+    ) -> T: ...
 
     async def run(
         self,

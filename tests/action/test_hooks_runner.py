@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from threading import Event
 from time import monotonic, sleep
@@ -8,7 +9,7 @@ from typing import cast
 import pytest
 
 from tests.action_helpers import FunctionActionExecutor
-from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder
+from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuilder, ExecutionFact, ExecutionState
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.errors import ActionContractError, ActionInvariantError
 from tinysoul.action.core.executor import ActionExecutionContext, ExecutorRegistry
@@ -234,14 +235,9 @@ async def test_runner_rejects_missing_foldable_projection() -> None:
         FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    result = (await ActionBatchRunner(executors=executors).run(
-        batch,
-        ActionExecutionContext(),
-    ))[0]
-
-    assert result.status is ActionResultStatus.FAILED
-    assert result.failure is not None
-    assert result.failure.reason == "result_trace_policy_mismatch"
+    with pytest.raises(RuntimeException) as raised:
+        await ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
+    assert raised.value.payload["kind"] == "action.internal_failure"
 
 
 async def test_runner_rejects_projection_for_standard_action() -> None:
@@ -249,14 +245,9 @@ async def test_runner_rejects_projection_for_standard_action() -> None:
     executors = ExecutorRegistry()
     executors.register("test.standard", ProjectionExecutor())
 
-    result = (await ActionBatchRunner(executors=executors).run(
-        batch,
-        ActionExecutionContext(),
-    ))[0]
-
-    assert result.status is ActionResultStatus.FAILED
-    assert result.failure is not None
-    assert result.failure.reason == "result_trace_policy_mismatch"
+    with pytest.raises(RuntimeException) as raised:
+        await ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
+    assert raised.value.payload["kind"] == "action.internal_failure"
 
 
 async def test_runner_allows_runtime_exception_to_reach_trap() -> None:
@@ -346,114 +337,123 @@ async def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
     with pytest.raises(RuntimeException):
         (await ActionBatchRunner(
             executors=executors,
-            cooperative_cancel_grace_seconds=0.2,
         ).run(batch, ActionExecutionContext()))
 
     assert cancel_seen.is_set()
 
 
-async def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> None:
+@pytest.mark.parametrize("peer_timeout", [None, 0.01])
+async def test_runtime_transfer_joins_owner_and_retains_commit(peer_timeout) -> None:
     peer_started = Event()
     release_peer = Event()
-    catalog, batch = _parallel_runtime_batch()
+    committed = Event()
+    _, batch = _parallel_runtime_batch(peer_timeout_seconds=peer_timeout)
     executors = ExecutorRegistry()
+    failure = RuntimeException(reason=HOME_RUNTIME_COPY_REQUIRED, message="copy required")
+    facts: list[ExecutionFact] = []
 
     def interrupting(execution, context):
-        assert peer_started.wait(1.0)
-        raise RuntimeException(
-            reason=HOME_RUNTIME_COPY_REQUIRED,
-            message="copy required",
-        )
+        assert peer_started.wait(2.0)
+        raise failure
 
-    def blocking(execution, context):
+    def writing(execution, context):
         peer_started.set()
-        assert release_peer.wait(1.0)
-        return {}
+        assert release_peer.wait(2.0)
+        committed.set()
+        return {"committed": True}
 
     executors.register("test.interrupt", FunctionActionExecutor(interrupting))
-    executors.register("test.peer", FunctionActionExecutor(blocking))
-    started = monotonic()
+    executors.register("test.peer", FunctionActionExecutor(writing))
+    running = asyncio.create_task(ActionBatchRunner(executors=executors).run(
+        batch, ActionExecutionContext(record_execution=facts.append),
+    ))
     try:
-        with pytest.raises(RuntimeException):
-            (await ActionBatchRunner(
-                executors=executors,
-                cooperative_cancel_grace_seconds=0.01,
-            ).run(batch, ActionExecutionContext()))
-        elapsed = monotonic() - started
+        async with asyncio.timeout(2.0):
+            while not any(fact.state is ExecutionState.UNKNOWN for fact in facts):
+                await asyncio.sleep(0)
+        assert not running.done()
+        release_peer.set()
+        with pytest.raises(RuntimeException) as raised:
+            await running
+        assert raised.value is failure
+        assert committed.is_set()
+        peer = [fact for fact in facts if fact.call.call_id == "call_2"][-1]
+        assert peer.state is ExecutionState.SETTLED
+        assert peer.result is not None and peer.result.payload == {"committed": True}
     finally:
         release_peer.set()
+        await asyncio.gather(running, return_exceptions=True)
 
-    assert elapsed < 0.5
 
+async def test_cancel_interrupts_async_executor_and_preserves_prior_success() -> None:
+    _, batch = _parallel_runtime_batch()
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+    facts: list[ExecutionFact] = []
 
-async def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None:
-    peer_started = Event()
-    release_peer = Event()
-    _, batch = _parallel_runtime_batch(peer_timeout_seconds=0.02)
+    class WaitingExecutor:
+        async def execute(self, execution, context) -> ActionResult:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+            raise AssertionError("unreachable")
+
     executors = ExecutorRegistry()
-
-    def interrupting(execution, context):
-        assert peer_started.wait(1.0)
-        sleep(0.08)
-        raise RuntimeException(
-            reason=HOME_RUNTIME_COPY_REQUIRED,
-            message="copy required",
-        )
-
-    def blocking(execution, context):
-        peer_started.set()
-        assert release_peer.wait(1.0)
-        return {}
-
-    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
-    executors.register("test.peer", FunctionActionExecutor(blocking))
-    started = monotonic()
-    try:
-        with pytest.raises(RuntimeException):
-            (await ActionBatchRunner(
-                executors=executors,
-                cooperative_cancel_grace_seconds=0.005,
-            ).run(batch, ActionExecutionContext()))
-        elapsed = monotonic() - started
-    finally:
-        release_peer.set()
-
-    assert elapsed < 0.5
+    executors.register("test.interrupt", FunctionActionExecutor(
+        lambda execution, context: {"committed": True},
+    ))
+    executors.register("test.peer", WaitingExecutor())
+    running = asyncio.create_task(ActionBatchRunner(executors=executors).run(
+        batch, ActionExecutionContext(record_execution=facts.append),
+    ))
+    async with asyncio.timeout(2.0):
+        await entered.wait()
+        while not any(fact.state is ExecutionState.SETTLED for fact in facts):
+            await asyncio.sleep(0)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+    assert closed.is_set()
+    assert facts[-1].state is ExecutionState.CANCELLED
+    assert any(fact.result is not None and fact.result.payload == {"committed": True}
+               for fact in facts)
 
 
-async def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
-    peer_started = Event()
-    release_peer = Event()
-    _, batch = _parallel_runtime_batch(interrupt_timeout_seconds=0.01)
+async def test_repeated_cancellation_joins_owner_before_propagating() -> None:
+    _, batch = _single_test_batch(_test_action("test.write"))
+    started = Event()
+    release = Event()
+    facts: list[ExecutionFact] = []
+
+    def write(execution, context):
+        started.set()
+        assert release.wait(2.0)
+        return {"committed": True}
+
     executors = ExecutorRegistry()
-
-    def interrupting(execution, context):
-        assert peer_started.wait(1.0)
-        sleep(0.02)
-        raise RuntimeException(
-            reason=HOME_RUNTIME_COPY_REQUIRED,
-            message="copy required",
-        )
-
-    def blocking(execution, context):
-        peer_started.set()
-        assert release_peer.wait(1.0)
-        return {}
-
-    executors.register("test.interrupt", FunctionActionExecutor(interrupting))
-    executors.register("test.peer", FunctionActionExecutor(blocking))
-    started = monotonic()
+    executors.register("test.write", FunctionActionExecutor(write))
+    running = asyncio.create_task(ActionBatchRunner(executors=executors).run(
+        batch, ActionExecutionContext(record_execution=facts.append),
+    ))
     try:
-        with pytest.raises(RuntimeException):
-            (await ActionBatchRunner(
-                executors=executors,
-                cooperative_cancel_grace_seconds=0.05,
-            ).run(batch, ActionExecutionContext()))
-        elapsed = monotonic() - started
+        async with asyncio.timeout(2.0):
+            while not started.is_set():
+                await asyncio.sleep(0)
+            running.cancel()
+            await asyncio.sleep(0)
+            running.cancel()
+            assert not running.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await running
+        assert facts[-1].state is ExecutionState.SETTLED
+        assert facts[-1].result is not None
+        assert facts[-1].result.payload == {"committed": True}
     finally:
-        release_peer.set()
-
-    assert elapsed < 0.5
+        release.set()
+        await asyncio.gather(running, return_exceptions=True)
 
 
 def test_runner_rejects_invalid_max_workers() -> None:
@@ -528,23 +528,14 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         executors.validate_catalog(catalog)
 
 
-async def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
+async def test_runner_rejects_mismatched_executor_result_at_module_boundary() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register("core.answer", MismatchedExecutor())
 
-    results = (await ActionBatchRunner(executors=executors).run(
-        batch,
-        ActionExecutionContext(),
-    ))
-
-    assert results[0].status is ActionResultStatus.FAILED
-    assert results[0].stage is ActionResultStage.EXECUTE
-    assert results[0].failure is not None
-    assert results[0].failure.reason == "executor_result_mismatch"
-    mismatch = results[0].frame_data["mismatch"]
-    assert isinstance(mismatch, dict)
-    assert "call_id" in mismatch
+    with pytest.raises(RuntimeException) as raised:
+        await ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
+    assert raised.value.payload["kind"] == "action.internal_failure"
 
 
 async def test_runner_returns_failed_result_when_hook_rejects() -> None:
@@ -761,7 +752,7 @@ def test_normalizer_propagates_runtime_exception_from_hook() -> None:
         )
 
 
-async def test_runner_returns_timeout_for_blocked_execution() -> None:
+async def test_runner_retains_committed_owner_result_after_deadline() -> None:
     catalog = ActionCatalog(
         domains=(
             ActionDomainSpec(
@@ -823,10 +814,10 @@ async def test_runner_returns_timeout_for_blocked_execution() -> None:
         ActionExecutionContext(),
     ))
 
-    assert results[0].status is ActionResultStatus.TIMEOUT
+    assert results[0].status is ActionResultStatus.SUCCESS
 
 
-async def test_runner_blocks_later_groups_after_timeout_leak() -> None:
+async def test_runner_joins_late_owner_before_starting_next_group() -> None:
     catalog = ActionCatalog(
         domains=(
             ActionDomainSpec(
@@ -920,13 +911,8 @@ async def test_runner_blocks_later_groups_after_timeout_leak() -> None:
         ActionExecutionContext(),
     ))
 
-    assert results[0].status is ActionResultStatus.TIMEOUT
-    assert results[1].status is ActionResultStatus.FAILED
-    assert results[1].failure is not None
-    assert results[1].failure.reason == "previous_action_timeout_leak"
-    assert results[1].frame_data["blocked_by_invoke_ids"] == [
-        results[0].invoke_id
-    ]
+    assert all(result.status is ActionResultStatus.SUCCESS for result in results)
+    assert results[1].payload == {"started": True}
 
 
 def _parallel_runtime_batch(

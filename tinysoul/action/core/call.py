@@ -156,6 +156,8 @@ class ExecutionFact:
             or self.result.call_id != self.call.call_id
             or self.result.batch_id != self.framework.batch_id
             or self.result.action_name != self.call.action_name
+            or self.result.sequence != self.call.sequence
+            or self.result.domain != self.framework.domain
         ):
             raise ActionInvariantError("Execution fact result identity does not match")
 

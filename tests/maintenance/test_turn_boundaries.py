@@ -46,7 +46,7 @@ from tinysoul.workspace import WorkspaceArchiveView, WorkspaceManifest
 DAY = BusinessDay.parse("2026-08-03")
 
 
-def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
+async def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     scope = RunScope().push(RunLevel.PROGRAM, "program")
     program_frame = scope.current()
     assert program_frame is not None
@@ -60,7 +60,7 @@ def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
 
     entry = MaintenanceTurnEntry(_TurnRunner(outcome), kind="home")
     with pytest.raises(RuntimeTransferInterrupt) as captured:
-        entry.run(
+        await entry.run(
             "review home",
             business_day=DAY,
             scope=scope,
@@ -71,7 +71,7 @@ def test_outer_turn_transfer_is_unwound_without_downgrade() -> None:
     assert captured.value.transfer == transfer
 
 
-def test_program_converts_maintenance_error_to_program_transfer() -> None:
+async def test_program_converts_maintenance_error_to_program_transfer() -> None:
     runner = ProgramRunner(
         user_turn=_UserTurn(),
         maintenance=_FailingMaintenance(),
@@ -86,14 +86,14 @@ def test_program_converts_maintenance_error_to_program_transfer() -> None:
         )
     )
 
-    outcome = runner.run()
+    outcome = await runner.run()
 
     assert outcome.transfer is not None
     assert outcome.transfer.target.level is RunLevel.PROGRAM
     assert outcome.maintenance_count == 0
 
 
-def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path) -> None:
+async def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path) -> None:
     scope = RunScope().push(RunLevel.PROGRAM, "program")
     archive = _ScopeArchive()
     home = _ScopeHome()
@@ -105,7 +105,7 @@ def test_maintenance_engine_does_not_add_fake_module_frames(tmp_path: Path) -> N
         clock=_Clock(),
     )
 
-    engine.run(
+    await engine.run(
         MaintenanceRequest(
             scope=MaintenanceScope.HOME,
             trigger=MaintenanceTrigger.MANUAL,
@@ -182,7 +182,7 @@ def test_archived_memory_context_rejects_mismatched_turn_day() -> None:
 
 
 class _UserTurn:
-    def run(self, turn_input, *, business_day, scope, request_id, input_source):
+    async def run(self, turn_input, *, business_day, scope, request_id, input_source):
         del turn_input, scope, request_id, input_source
         return TurnOutcome(
             context_completion=None,
@@ -195,7 +195,7 @@ class _TurnRunner:
     def __init__(self, outcome):
         self._outcome = outcome
 
-    def run(self, turn_input, *, business_day, scope, request_id, input_source):
+    async def run(self, turn_input, *, business_day, scope, request_id, input_source):
         del turn_input, business_day, scope, request_id, input_source
         return self._outcome
 
@@ -212,7 +212,7 @@ class _FailingMaintenance:
     def availability(self):
         return MaintenanceAvailability(checked_day=DAY)
 
-    def run(self, request, *, scope=None):
+    async def run(self, request, *, scope=None):
         del request, scope
         raise MaintenanceInvariantError("maintenance invariant")
 
@@ -253,7 +253,7 @@ class _ScopeHome:
     def pending_counts(self):
         return (0, 0)
 
-    def run(self, *, business_day, scope, request_id):
+    async def run(self, *, business_day, scope, request_id):
         del business_day, request_id
         self.scopes.append(scope)
         return MaintenanceTaskOutcome(
@@ -270,7 +270,7 @@ class _ScopeMemory:
         del day, archive, if_absent
         return False
 
-    def run(self, **kwargs):
+    async def run(self, **kwargs):
         del kwargs
         return MaintenanceTaskOutcome(
             kind=MaintenanceTaskKind.MEMORY,

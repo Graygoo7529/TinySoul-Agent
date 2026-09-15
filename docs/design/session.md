@@ -6,7 +6,7 @@ Session 拥有一个 business day 内已经完成的 prior Turns。它保存不�
 
 ## 持久事实
 
-Turn record 使用 schema v4，显式保存：
+Turn record 使用 schema v5，显式保存：
 
 - ref、day 与 recorded time；
 - 有序输入文本和接收时间；
@@ -14,13 +14,13 @@ Turn record 使用 schema v4，显式保存：
 - 可选最终输出、references 与 exhausted；
 - 按发生顺序排列的 Action 业务记录。
 
-Action record 只保存 Action name、schema request、success/failed/timeout outcome、canonical result、typed failure 与 references。内存记录直接持有 Action 公共 SPI 的 `ActionLocalFailure`；持久 JSON 恢复复用同一类型的严格解析边界，不能将任意非空对象解释为失败事实。不保存 call id、trace location、cycle、phase、stage、backend metadata 或 pairing 审计。
+Action record 保存行动语义、请求、执行 outcome、已知 canonical result、局部失败与 references。success/failed/timeout 之外，cancelled/not_executed/unknown 明确表达中断事实，后者不携带伪造结果。局部失败复用 Action 公共 SPI 的 `ActionLocalFailure`，持久恢复经过同一严格解析边界；Cycle、调用身份和状态迁移校验属于 Trace，不另建 Session 执行审计。
 
-正常完成的 Turn 必须拥有可唯一配对的 Phase2 Action call 与 Phase3 ActionResult。missing、orphan、duplicate、name mismatch 或外层 ToolResult 状态不一致属于 completion invariant failure，不持久化 incomplete 诊断记录。
+Session 直接消费 sealed Trace 的类型化 Action 事实，不从 Phase2/Phase3 消息反推配对。Trace 按 Cycle 与调用顺序登记意图、校验执行身份与状态转移，并保持跨 Cycle 的发生顺序。归一化失败和准备失败同样保留；取消、未执行、结果未知只表达执行状态，不构造工具失败或重试建议。折叠结果使用 canonical payload 与来源 references，模型消息是否已投影不影响完成记录。
 
 Summary record 与 Turn 使用同一 schema version，只保存 deterministic ref、day、recorded time 和至少两个有序 direct child refs。Summary 是索引节点，不复制子节点 Background、Action counts 或正文。
 
-Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v4 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。
+Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v5 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。
 
 ## 唯一验证边界
 
@@ -33,7 +33,7 @@ Reconciliation 验证 day、缺失引用、重复可达引用和 graph cycle，�
 Session Background 在每个 Turn preparation 期间从当前 Manifest root 派生：
 
 - Turn item 包含 kind/ref、`user_ask`、可选 answer/references/exhausted；
-- 存在 Action 时包含一个 `#actions` 集合 ref、Action 数量和按 Action name 聚合的非零 success/failed/timeout counts；
+- 存在 Action 时包含一个 `#actions` 集合 ref、Action 数量和按 Action name 聚合的非零执行 outcome counts；
 - Summary item 只包含 kind/ref、turn count 与 direct child count；
 - 极端预算不足时使用 overflow head，提示调用 `core.session.inspect`。
 

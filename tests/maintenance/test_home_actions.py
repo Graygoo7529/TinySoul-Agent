@@ -29,7 +29,7 @@ Keep the current method.
 """
 
 
-def test_home_actions_require_inspect_before_resolving_skill_review(
+async def test_home_actions_require_inspect_before_resolving_skill_review(
     tmp_path: Path,
 ) -> None:
     skill = tmp_path / "home" / "skills" / "review" / "SKILL.md"
@@ -48,7 +48,7 @@ def test_home_actions_require_inspect_before_resolving_skill_review(
     controller = HomeMaintenanceActionController(home)
     controller.begin()
 
-    listed = _execute(controller, "maintenance.home.list", {})
+    listed = await _execute(controller, "maintenance.home.list", {})
     items = listed.payload["items"]
     assert isinstance(items, list)
     item = items[0]
@@ -58,7 +58,7 @@ def test_home_actions_require_inspect_before_resolving_skill_review(
     token = item["token"]
     assert isinstance(token, str)
 
-    premature = _execute(
+    premature = await _execute(
         controller,
         "maintenance.home.reject",
         {"token": token},
@@ -66,7 +66,7 @@ def test_home_actions_require_inspect_before_resolving_skill_review(
     assert premature.status is ActionResultStatus.FAILED
     assert home.review_pending().skill_memory_count == 1
 
-    inspected = _execute(
+    inspected = await _execute(
         controller,
         "maintenance.home.inspect",
         {"token": token},
@@ -75,7 +75,7 @@ def test_home_actions_require_inspect_before_resolving_skill_review(
     actual = inspected.payload["actual"]
     assert isinstance(actual, dict)
     assert actual["text"] == _SKILL_TEXT
-    resolved = _execute(
+    resolved = await _execute(
         controller,
         "maintenance.home.reject",
         {"token": token},
@@ -83,19 +83,19 @@ def test_home_actions_require_inspect_before_resolving_skill_review(
     assert resolved.status is ActionResultStatus.SUCCESS
     assert resolved.payload["remaining_reviews"] == 0
 
-    completed = _execute(controller, "maintenance.complete", {})
+    completed = await _execute(controller, "maintenance.complete", {})
     assert completed.status is ActionResultStatus.SUCCESS
     assert controller.finish()["runtime_home_removed"] is True
 
 
-def _execute(
+async def _execute(
     controller: HomeMaintenanceActionController,
     action_name: str,
     params: JsonObject,
 ) -> ActionResult:
     with maintenance_action_catalog_root() as root:
         action = ActionCatalogLoader().load(root).get_action(action_name)
-    return controller.execute(
+    return await controller.execute(
         ActionExecution(
             action=action,
             call=ActionCall(

@@ -199,7 +199,7 @@ class FakeLLMRunner:
         self.on_run = on_run
         self.failure = failure
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         if self.on_run is not None:
             self.on_run()
@@ -248,7 +248,7 @@ def test_workspace_link_rejects_unsafe_paths() -> None:
         WorkspaceLink.parse("workspace:C:/secret.md")
 
 
-def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
+async def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "docs").mkdir()
@@ -262,7 +262,7 @@ def test_workspace_scan_updates_manifest_and_emits_workspace_snapshot(
     bus = SignalBus()
     execution = _execution("workspace.scan", {})
 
-    result = WorkspaceScanExecutor(engine, bus).execute(
+    result = await WorkspaceScanExecutor(engine, bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -743,13 +743,13 @@ def test_workspace_read_text_range_normalizes_crlf_unicode_and_reports_eof(
     assert result.page.truncated is False
 
 
-def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path) -> None:
+async def test_workspace_read_action_returns_foldable_text_range(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(root=tmp_path, max_read_chars=7)
     ).build()
 
-    result = WorkspaceReadExecutor(engine).execute(
+    result = await WorkspaceReadExecutor(engine).execute(
         _execution(
             "workspace.read",
             {"link": "workspace:a.md", "start_line": 2, "end_line": 3},
@@ -986,12 +986,12 @@ def test_workspace_search_text_skips_invalid_utf8_with_partial_coverage(
     assert result.coverage.skipped_count == 1
 
 
-def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> None:
+async def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     engine.reconcile()
 
-    result = WorkspaceSearchTextExecutor(engine).execute(
+    result = await WorkspaceSearchTextExecutor(engine).execute(
         _execution(
             "workspace.search_text",
             {
@@ -1020,12 +1020,12 @@ def test_workspace_search_action_returns_foldable_fragments(tmp_path: Path) -> N
     assert "text" not in compact_fragment
 
 
-def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path) -> None:
+async def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("needle\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     engine.reconcile()
 
-    result = WorkspaceSearchTextExecutor(engine).execute(
+    result = await WorkspaceSearchTextExecutor(engine).execute(
         _execution(
             "workspace.search_text",
             {
@@ -1041,7 +1041,7 @@ def test_workspace_search_action_rejects_legacy_scope_shape(tmp_path: Path) -> N
     assert result.failure.reason == "invalid_scope"
 
 
-def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> None:
+async def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("alpha\n", encoding="utf-8")
     (tmp_path / "b.md").write_text("beta\n", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
@@ -1056,7 +1056,7 @@ def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> N
     )
     before = engine.reconcile().manifest
 
-    result = executor.execute(
+    result = await executor.execute(
         _execution(
             "workspace.analyze",
             {
@@ -1086,7 +1086,7 @@ def test_workspace_analyze_returns_grounded_standard_result(tmp_path: Path) -> N
     )
 
 
-def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> None:
+async def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("abcdef", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -1103,7 +1103,7 @@ def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> N
         answer={"answer": "unused", "source_ids": ["source_1"]}
     )
 
-    result = WorkspaceAnalyzeExecutor(
+    result = await WorkspaceAnalyzeExecutor(
         workspace=engine,
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
@@ -1120,7 +1120,7 @@ def test_workspace_analyze_budget_failure_does_not_call_llm(tmp_path: Path) -> N
     assert llm.calls == []
 
 
-def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
+async def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
     engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
     context_engine = ContextEngineBuilder(system_text="system").build()
@@ -1129,7 +1129,7 @@ def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
         answer={"answer": "Invented.", "source_ids": ["source_99"]}
     )
 
-    result = WorkspaceAnalyzeExecutor(
+    result = await WorkspaceAnalyzeExecutor(
         workspace=engine,
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
@@ -1145,7 +1145,7 @@ def test_workspace_analyze_rejects_invented_source_id(tmp_path: Path) -> None:
     assert result.failure.reason == "unknown_analysis_source_ids"
 
 
-def test_workspace_analyze_requires_at_least_one_grounding_source(
+async def test_workspace_analyze_requires_at_least_one_grounding_source(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
@@ -1154,7 +1154,7 @@ def test_workspace_analyze_requires_at_least_one_grounding_source(
     context_engine.begin_turn("analyze files")
     llm = FakeLLMRunner(answer={"answer": "Alpha is present.", "source_ids": []})
 
-    result = WorkspaceAnalyzeExecutor(
+    result = await WorkspaceAnalyzeExecutor(
         workspace=engine,
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine),
     ).execute(
@@ -1694,7 +1694,7 @@ def test_workspace_describe_rejects_internal_manifest(tmp_path: Path) -> None:
         engine.inspect("workspace:workspace_manifest.json")
 
 
-def test_workspace_describe_executor_updates_manifest_and_working_patch(
+async def test_workspace_describe_executor_updates_manifest_and_working_patch(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
@@ -1714,7 +1714,7 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
         {"target_link": "workspace:a.md"},
     )
 
-    result = WorkspaceDescribeExecutor(engine, bus, llm_action).execute(
+    result = await WorkspaceDescribeExecutor(engine, bus, llm_action).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -1734,7 +1734,7 @@ def test_workspace_describe_executor_updates_manifest_and_working_patch(
     )
 
 
-def test_workspace_create_executor_generates_text_inside_action(
+async def test_workspace_create_executor_generates_text_inside_action(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "ref.md").write_text("reference text", encoding="utf-8")
@@ -1759,7 +1759,7 @@ def test_workspace_create_executor_generates_text_inside_action(
     )
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
-    result = WorkspaceCreateExecutor(
+    result = await WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=llm_action,
@@ -1796,7 +1796,7 @@ def test_workspace_create_executor_generates_text_inside_action(
     assert first_resource["link"] == "workspace:a.md"
 
 
-def test_workspace_create_output_limit_does_not_commit_partial_artifact(
+async def test_workspace_create_output_limit_does_not_commit_partial_artifact(
     tmp_path: Path,
 ) -> None:
     engine = WorkspaceEngineBuilder(
@@ -1822,7 +1822,7 @@ def test_workspace_create_output_limit_does_not_commit_partial_artifact(
         },
     )
 
-    result = WorkspaceCreateExecutor(
+    result = await WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(
@@ -1844,7 +1844,7 @@ def test_workspace_create_output_limit_does_not_commit_partial_artifact(
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_create_rejects_absent_target_created_after_prompt(
+async def test_workspace_create_rejects_absent_target_created_after_prompt(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "created-elsewhere.md"
@@ -1868,7 +1868,7 @@ def test_workspace_create_rejects_absent_target_created_after_prompt(
             "instruction": "Create a note.",
         },
     )
-    result = WorkspaceCreateExecutor(
+    result = await WorkspaceCreateExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(
@@ -1884,7 +1884,7 @@ def test_workspace_create_rejects_absent_target_created_after_prompt(
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_append_executor_commits_fragment_without_old_text(
+async def test_workspace_append_executor_commits_fragment_without_old_text(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "a.md"
@@ -1893,7 +1893,7 @@ def test_workspace_append_executor_commits_fragment_without_old_text(
     engine.reconcile()
     bus = SignalBus()
     before = engine.inspect("workspace:a.md")
-    result = WorkspaceAppendExecutor(engine, bus).execute(
+    result = await WorkspaceAppendExecutor(engine, bus).execute(
         _execution(
             "workspace.append",
             {
@@ -1910,7 +1910,7 @@ def test_workspace_append_executor_commits_fragment_without_old_text(
     assert result.payload["appended_chars"] == len("\nadded")
     assert target.read_text(encoding="utf-8") == "existing\nadded"
 
-def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
+async def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -1924,7 +1924,7 @@ def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> Non
         {"target_link": "workspace:a.md", "old_text": "missing", "new_text": "x"},
     )
 
-    result = WorkspacePatchExecutor(engine, bus).execute(
+    result = await WorkspacePatchExecutor(engine, bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -1935,7 +1935,7 @@ def test_workspace_patch_executor_failure_is_local_result(tmp_path: Path) -> Non
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path) -> None:
+async def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
     engine = WorkspaceEngineBuilder(
         WorkspaceSettings(
@@ -1946,7 +1946,7 @@ def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path
     bus = SignalBus()
     execution = _execution("workspace.delete", {"target_link": "workspace:a.md"})
 
-    result = WorkspaceDeleteExecutor(engine, bus).execute(
+    result = await WorkspaceDeleteExecutor(engine, bus).execute(
         execution,
         ActionExecutionContext(signal_bus=bus),
     )
@@ -1959,7 +1959,7 @@ def test_workspace_delete_executor_emits_empty_workspace_snapshot(tmp_path: Path
 
 
 
-def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
+async def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "target.md").write_text("old text", encoding="utf-8")
@@ -1985,7 +1985,7 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     )
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
-    result = WorkspaceRewriteExecutor(
+    result = await WorkspaceRewriteExecutor(
         workspace=engine,
         bus=bus,
         llm_action=llm_action,
@@ -2024,7 +2024,7 @@ def test_workspace_rewrite_executor_loads_target_and_references_inside_action(
     assert first_resource["link"] == "workspace:target.md"
 
 
-def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
+async def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "target.md"
@@ -2048,7 +2048,7 @@ def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
         },
     )
 
-    result = WorkspaceRewriteExecutor(
+    result = await WorkspaceRewriteExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(
@@ -2065,7 +2065,7 @@ def test_workspace_rewrite_rejects_truncated_target_before_llm_call(
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
+async def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "target.md"
@@ -2096,7 +2096,7 @@ def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
     )
 
     llm_action = LLMActionTaskRunner(llm_runner=llm, context=context_engine)
-    result = WorkspaceRewriteExecutor(
+    result = await WorkspaceRewriteExecutor(
         workspace=engine,
         bus=bus,
         llm_action=llm_action,
@@ -2109,7 +2109,7 @@ def test_workspace_rewrite_executor_rejects_target_changed_after_prompt(
     assert bus.consume_namespace("context") == ()
 
 
-def test_workspace_rewrite_rejects_reference_changed_after_prompt(
+async def test_workspace_rewrite_rejects_reference_changed_after_prompt(
     tmp_path: Path,
 ) -> None:
     target = tmp_path / "target.md"
@@ -2137,7 +2137,7 @@ def test_workspace_rewrite_rejects_reference_changed_after_prompt(
             "reference_links": ["workspace:ref.md"],
         },
     )
-    result = WorkspaceRewriteExecutor(
+    result = await WorkspaceRewriteExecutor(
         workspace=engine,
         bus=bus,
         llm_action=LLMActionTaskRunner(

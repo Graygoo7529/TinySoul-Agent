@@ -420,8 +420,6 @@ class ActionEngineBuilder:
         self._executors = ExecutorRegistry()
         self._hooks = ActionHookRegistry()
         self._max_workers = 8
-        self._cooperative_cancel_grace_seconds = 0.05
-        self._process_cancel_grace_seconds = 1.0
         self._observations: ObservationEmitter = NullObservationEmitter()
         self._unsupported_actions: set[str] = set()
         self._included_actions: set[str] | None = None
@@ -491,14 +489,6 @@ class ActionEngineBuilder:
         self._max_workers = max_workers
         return self
 
-    def with_cooperative_cancel_grace(self, seconds: float) -> Self:
-        self._cooperative_cancel_grace_seconds = seconds
-        return self
-
-    def with_process_cancel_grace(self, seconds: float) -> Self:
-        self._process_cancel_grace_seconds = seconds
-        return self
-
     def with_observations(self, observations: ObservationEmitter) -> Self:
         self._observations = observations
         return self
@@ -547,8 +537,6 @@ class ActionEngineBuilder:
                 executors=self._executors,
                 hooks=execution_pipeline,
                 max_workers=self._max_workers,
-                cooperative_cancel_grace_seconds=self._cooperative_cancel_grace_seconds,
-                process_cancel_grace_seconds=self._process_cancel_grace_seconds,
                 observations=self._observations,
             ),
             renderer=ActionResultRenderer(),

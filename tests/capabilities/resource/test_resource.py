@@ -371,7 +371,7 @@ def test_disabled_resource_actions_are_absent_from_effective_catalog(
     assert engine.action_identifiers() == ()
 
 
-def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
+async def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -415,7 +415,7 @@ def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
         ),
     )
 
-    result = executor.execute(
+    result = await executor.execute(
         execution,
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),
@@ -432,7 +432,7 @@ def test_resource_executor_returns_metadata_and_emits_one_workspace_signal(
     assert signals[0].source == RESOURCE_PYPDF_ACTION
 
 
-def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
+async def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -457,7 +457,7 @@ def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
         bus=bus,
     )
 
-    result = executor.execute(
+    result = await executor.execute(
         _resource_execution(),
         ActionExecutionContext(control=control),
     )
@@ -470,7 +470,7 @@ def test_resource_executor_cancellation_after_worker_prevents_commit_and_signal(
     assert bus.consume() == ()
 
 
-def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
+async def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -493,7 +493,7 @@ def test_resource_executor_maps_invalid_worker_manifest_to_local_failure(
         bus=bus,
     )
 
-    result = executor.execute(
+    result = await executor.execute(
         _resource_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),

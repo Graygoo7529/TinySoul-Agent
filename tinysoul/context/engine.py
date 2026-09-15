@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol
 from uuid import uuid4
-from tinysoul.action.core.call import ExecutionFact
+from tinysoul.action.core.call import ActionCall, ExecutionFact
+from tinysoul.action.core.result import ActionResult
 
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
@@ -627,6 +628,14 @@ class ContextEngine:
     def record_execution(self, fact: ExecutionFact) -> None:
         self._require_turn()
         self._trace.record_execution(fact)
+
+    def register_action_calls(self, calls: tuple[ActionCall, ...], *, cycle_id: str) -> None:
+        self._require_turn()
+        self._trace.register_action_calls(calls, cycle_id=cycle_id)
+
+    def record_action_result(self, result: ActionResult, *, cycle_id: str) -> None:
+        self._require_turn()
+        self._trace.record_action_result(result, cycle_id=cycle_id)
 
     def seal_trace(self) -> SealedTurnTrace:
         self._require_turn()

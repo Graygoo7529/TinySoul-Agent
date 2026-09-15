@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from tinysoul.action.core.call import ActionCall
 from tinysoul.action import (
     ActionEngine,
     ActionError,
@@ -393,11 +394,18 @@ class Phase2Unit:
                     feedback=feedback,
                 ),
             )
+        self._context.register_action_calls(tuple(
+            ActionCall(call_id=call.id, action_name=call.name,
+                       params=call.arguments, sequence=index)
+            for index, call in enumerate(result.tool_calls, start=1)
+        ), cycle_id=cycle_id)
         (await self._emit_decision(result, scope=scope, cycle_id=cycle_id))
         try:
             normalization = self._action.normalize(result.tool_calls)
         except ActionError as exc:
             raise self._action_bridge.from_action_error(exc) from exc
+        for local_result in normalization.results:
+            self._context.record_action_result(local_result, cycle_id=cycle_id)
         self._observe_action_calls(normalization, scope=scope)
         return Phase2Outcome(normalization=normalization)
 
@@ -533,12 +541,15 @@ class Phase3Unit:
         cancellation: TurnCancellation | None = None,
     ) -> Phase3Outcome:
         try:
+            self._context.register_action_calls(normalization.calls, cycle_id=cycle_id)
             preparation = self._action.prepare_batch(
                 normalization.calls,
                 scope=scope,
                 turn_id=turn_id,
                 cycle_id=cycle_id,
             )
+            for local_result in preparation.results:
+                self._context.record_action_result(local_result, cycle_id=cycle_id)
             execution_results = (await self._action.run_batch(
                 preparation.batch,
                 context=ActionExecutionContext(

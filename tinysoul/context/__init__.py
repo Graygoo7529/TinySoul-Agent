@@ -63,6 +63,7 @@ from .working import WorkspaceResource, WorkspaceSnapshot
 from .background import SessionBackgroundItem, SessionBackgroundSnapshot
 from .composer import ContextBudgetReport, ContextSection, ContextSectionUsage
 from .compress import ContextPressureReport
+from .segments import ContextSegment, SegmentRegistry
 
 __all__ = [
     "ContextBudgetReport",
@@ -91,6 +92,8 @@ __all__ = [
     "ContextSection",
     "ContextSectionUsage",
     "ContextPressureReport",
+    "ContextSegment",
+    "SegmentRegistry",
     "ContextTurnPreparationHandler",
     "ControlNormalization",
     "ControlResult",

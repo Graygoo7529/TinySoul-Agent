@@ -23,7 +23,7 @@ from tinysoul.session import SessionMemoryFact, SessionMemoryFactsProjection
 DAY = BusinessDay.parse("2026-07-12")
 
 
-def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
+async def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
     runner = _Runner()
     composer = LLMDailyMemoryComposer(runner)
     active = ActiveMemorySnapshot(
@@ -48,7 +48,7 @@ def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
             ),
         ),
     )
-    result = composer.compose(
+    result = await composer.compose(
         DailyCompositionRequest(
             day=DAY,
             session=projection,
@@ -76,7 +76,7 @@ def test_daily_composer_uses_target_sources_and_current_task_profile() -> None:
     assert "Remember the design decision" in rendered
 
 
-def test_daily_composer_enforces_call_budget_before_calling_model() -> None:
+async def test_daily_composer_enforces_call_budget_before_calling_model() -> None:
     runner = _Runner()
     composer = LLMDailyMemoryComposer(runner)
     active = ActiveMemorySnapshot(
@@ -98,7 +98,7 @@ def test_daily_composer_enforces_call_budget_before_calling_model() -> None:
         max_document_chars=32000,
     )
     with pytest.raises(MemoryContractError, match="too many"):
-        composer.compose(request, scope=RunScope())
+        await composer.compose(request, scope=RunScope())
     assert runner.calls == []
 
 
@@ -106,7 +106,7 @@ class _Runner:
     def __init__(self) -> None:
         self.calls: list[TaskCall] = []
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         final = any(
             message.label == "memory_daily_output"

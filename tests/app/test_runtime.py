@@ -26,7 +26,7 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
 
@@ -89,7 +89,7 @@ class _AvailabilityAwareService(_RecordingService):
         self.availability_existed_at_start = self.availability_path.is_file()
 
 
-def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
+async def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
         TinySoulAppBuilder(root=tmp_path)
@@ -101,7 +101,7 @@ def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
         .build()
     )
 
-    outcome = app.run()
+    outcome = await app.run()
 
     assert source.started == 1
     assert source.stopped == 1
@@ -111,7 +111,7 @@ def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
-def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
+async def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     tmp_path: Path,
 ) -> None:
     service = _RecordingService()
@@ -126,7 +126,7 @@ def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     )
     app = replace(built, services=(service,))
 
-    app.run()
+    await app.run()
 
     assert service.started == 1
     assert source.started == 1
@@ -134,7 +134,7 @@ def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     assert service.stopped == 1
 
 
-def test_tinysoul_app_prepares_availability_before_starting_services(
+async def test_tinysoul_app_prepares_availability_before_starting_services(
     tmp_path: Path,
 ) -> None:
     service = _AvailabilityAwareService(
@@ -151,12 +151,12 @@ def test_tinysoul_app_prepares_availability_before_starting_services(
     )
     app = replace(built, services=(service,))
 
-    app.run()
+    await app.run()
 
     assert service.availability_existed_at_start is True
 
 
-def test_tinysoul_app_stops_started_sources_when_later_start_fails(
+async def test_tinysoul_app_stops_started_sources_when_later_start_fails(
     tmp_path: Path,
 ) -> None:
     first = _SubmittingSource(())
@@ -172,14 +172,14 @@ def test_tinysoul_app_stops_started_sources_when_later_start_fails(
     )
 
     with pytest.raises(RuntimeError, match="start failed"):
-        app.run()
+        await app.run()
 
     assert first.started == 1
     assert first.stopped == 1
     assert failing.started == 1
 
 
-def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
+async def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
     tmp_path: Path,
 ) -> None:
     failing = _FailingStopSource((InputEvent("exit", source="unit"),))
@@ -195,13 +195,13 @@ def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
     )
 
     with pytest.raises(AppInvariantError, match="Failed to stop app sources"):
-        app.run()
+        await app.run()
 
     assert failing.stopped == 1
     assert second.stopped == 1
 
 
-def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
+async def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
@@ -211,7 +211,7 @@ def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     )
 
     app.submit_event(InputEvent("exit", source="unit"))
-    outcome = app.run()
+    outcome = await app.run()
 
     assert outcome.transfer is not None
     assert outcome.transfer.action is RuntimeTransferAction.END

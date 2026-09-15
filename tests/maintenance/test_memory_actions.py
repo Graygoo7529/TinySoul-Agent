@@ -43,7 +43,7 @@ from tinysoul.workspace import (
 DAY = BusinessDay.parse("2026-08-05")
 
 
-def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_knowledge(
+async def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_knowledge(
     tmp_path: Path,
 ) -> None:
     memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
@@ -80,7 +80,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
         workspace=None,
     )
 
-    premature = _execute(
+    premature = await _execute(
         controller,
         "maintenance.memory.stage_create",
         {
@@ -92,14 +92,14 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
     )
     assert premature.status is ActionResultStatus.FAILED
 
-    inspected = _execute(
+    inspected = await _execute(
         controller,
         "maintenance.memory.inspect",
         {"query": "agent design", "kinds": ["concept", "note"]},
     )
     inspection_ref = inspected.payload["inspection_ref"]
     assert isinstance(inspection_ref, str)
-    concept = _execute(
+    concept = await _execute(
         controller,
         "maintenance.memory.stage_create",
         {
@@ -110,7 +110,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
         },
     )
     assert concept.status is ActionResultStatus.SUCCESS
-    staged_inspect = _execute(
+    staged_inspect = await _execute(
         controller,
         "maintenance.memory.inspect",
         {"query": "design concepts", "kinds": ["concept"]},
@@ -123,7 +123,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
         for item in inspected_items
     )
     assert len(json.dumps(inspected.payload, ensure_ascii=False, separators=(",", ":"))) <= 8_000
-    staged_recall = _execute(
+    staged_recall = await _execute(
         controller,
         "maintenance.memory.recall",
         {"memory_link": "memory:concept/agent-design"},
@@ -131,7 +131,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
     staged_digest = staged_recall.payload["digest"]
     assert isinstance(staged_digest, str)
     assert staged_digest != "staged"
-    rewritten = _execute(
+    rewritten = await _execute(
         controller,
         "maintenance.memory.stage_rewrite",
         {
@@ -142,7 +142,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
         },
     )
     assert rewritten.status is ActionResultStatus.SUCCESS
-    note = _execute(
+    note = await _execute(
         controller,
         "maintenance.memory.stage_create",
         {
@@ -157,29 +157,29 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
     note_link = note.payload["link"]
     assert isinstance(note_link, str)
 
-    assert _execute(
+    assert (await _execute(
         controller,
         "maintenance.memory.compose_daily",
         {},
-    ).status is ActionResultStatus.SUCCESS
-    assert _execute(
+    )).status is ActionResultStatus.SUCCESS
+    assert (await _execute(
         controller,
         "maintenance.memory.stage_daily",
         {"mode": "create"},
-    ).status is ActionResultStatus.SUCCESS
-    preview = _execute(controller, "maintenance.memory.preview", {})
+    )).status is ActionResultStatus.SUCCESS
+    preview = await _execute(controller, "maintenance.memory.preview", {})
     preview_revision = preview.payload["preview_revision"]
     assert isinstance(preview_revision, int)
-    assert _execute(
+    assert (await _execute(
         controller,
         "maintenance.memory.commit",
         {"preview_revision": preview_revision},
-    ).status is ActionResultStatus.SUCCESS
-    assert _execute(
+    )).status is ActionResultStatus.SUCCESS
+    assert (await _execute(
         controller,
         "maintenance.complete",
         {},
-    ).status is ActionResultStatus.SUCCESS
+    )).status is ActionResultStatus.SUCCESS
     outcome = controller.finish()
 
     assert outcome["target_day"] == str(DAY)
@@ -204,7 +204,7 @@ def test_memory_maintenance_draft_requires_inspection_and_commits_daily_and_know
     assert note_document.activity.activation_count == 1
 
 
-def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independently(
+async def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independently(
     tmp_path: Path,
 ) -> None:
     memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
@@ -260,7 +260,7 @@ def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independ
         workspace=workspace,
     )
 
-    session_page = _execute(
+    session_page = await _execute(
         controller,
         "maintenance.memory.inspect_sources",
         {"source": "session", "offset": 0, "limit": 1},
@@ -274,7 +274,7 @@ def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independ
     assert len(session_facts) == 1
     assert "workspace_resources" not in session_page.payload
 
-    workspace_page = _execute(
+    workspace_page = await _execute(
         controller,
         "maintenance.memory.inspect_sources",
         {"source": "workspace", "offset": 1, "limit": 1},
@@ -289,7 +289,7 @@ def test_memory_maintenance_inspect_sources_pages_session_and_workspace_independ
     assert "facts" not in workspace_page.payload
 
 
-def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
+async def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
     tmp_path: Path,
 ) -> None:
     memory = MemoryEngine(settings=MemorySettings(root=tmp_path / "memory"))
@@ -319,18 +319,18 @@ def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
         workspace=None,
     )
 
-    inspected = _execute(
+    inspected = await _execute(
         controller,
         "maintenance.memory.inspect",
         {"query": "existing concept", "kinds": ["concept"]},
     )
     assert inspected.status is ActionResultStatus.SUCCESS
-    recalled = _execute(
+    recalled = await _execute(
         controller,
         "maintenance.memory.recall",
         {"memory_link": str(existing.link)},
     )
-    first = _execute(
+    first = await _execute(
         controller,
         "maintenance.memory.stage_rewrite",
         {
@@ -341,12 +341,12 @@ def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
         },
     )
     assert first.status is ActionResultStatus.SUCCESS
-    staged_recall = _execute(
+    staged_recall = await _execute(
         controller,
         "maintenance.memory.recall",
         {"memory_link": str(existing.link)},
     )
-    second = _execute(
+    second = await _execute(
         controller,
         "maintenance.memory.stage_rewrite",
         {
@@ -358,20 +358,20 @@ def test_memory_maintenance_rewrite_activation_is_deduplicated_per_turn(
     )
     assert second.status is ActionResultStatus.SUCCESS
 
-    assert _execute(controller, "maintenance.memory.compose_daily", {}).status is ActionResultStatus.SUCCESS
-    assert _execute(
+    assert (await _execute(controller, "maintenance.memory.compose_daily", {})).status is ActionResultStatus.SUCCESS
+    assert (await _execute(
         controller,
         "maintenance.memory.stage_daily",
         {"mode": "create"},
-    ).status is ActionResultStatus.SUCCESS
-    preview = _execute(controller, "maintenance.memory.preview", {})
+    )).status is ActionResultStatus.SUCCESS
+    preview = await _execute(controller, "maintenance.memory.preview", {})
     assert preview.status is ActionResultStatus.SUCCESS
-    assert _execute(
+    assert (await _execute(
         controller,
         "maintenance.memory.commit",
         {"preview_revision": preview.payload["preview_revision"]},
-    ).status is ActionResultStatus.SUCCESS
-    assert _execute(controller, "maintenance.complete", {}).status is ActionResultStatus.SUCCESS
+    )).status is ActionResultStatus.SUCCESS
+    assert (await _execute(controller, "maintenance.complete", {})).status is ActionResultStatus.SUCCESS
     controller.finish()
 
     document = memory.read_document(existing.link).document
@@ -384,7 +384,7 @@ class _Composer(LLMDailyMemoryComposer):
     def __init__(self) -> None:
         pass
 
-    def compose(
+    async def compose(
         self,
         request: DailyCompositionRequest,
         *,
@@ -397,14 +397,14 @@ class _Composer(LLMDailyMemoryComposer):
         )
 
 
-def _execute(
+async def _execute(
     controller: MemoryMaintenanceActionController,
     action_name: str,
     params: JsonObject,
 ) -> ActionResult:
     with maintenance_action_catalog_root() as root:
         action = ActionCatalogLoader().load(root).get_action(action_name)
-    return controller.execute(
+    return await controller.execute(
         ActionExecution(
             action=action,
             call=ActionCall(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
@@ -28,11 +29,12 @@ from tinysoul.action.core.call import ActionCallNormalizer, ActionExecutionBuild
 from tinysoul.action.core.catalog import ActionCatalog
 from tinysoul.action.core.errors import ActionContractError
 from tinysoul.action.core.executor import (
+    ActionExecutionCancelled,
     ActionExecutionContext,
     ActionExecutionControl,
     ExecutorRegistry,
 )
-from tinysoul.action.core.result import ActionResultStatus
+from tinysoul.action.core.result import ActionResult, ActionResultStatus
 from tinysoul.action.core.runner import ActionBatchRunner
 from tinysoul.action.core.specs import (
     ActionBackendKind,
@@ -102,12 +104,11 @@ async def test_native_cooperative_timeout_does_not_block_later_group() -> None:
 
     results = (await ActionBatchRunner(
         executors=executors,
-        cooperative_cancel_grace_seconds=0.1,
     ).run(batch, ActionExecutionContext()))
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[0].failure is not None
-    assert results[0].failure.reason == "cancelled"
+    assert results[0].failure.reason == "execution_timeout"
     assert results[0].failure.scope == "action.timeout"
     assert results[0].frame_data["cancel_reason"] in {"deadline_expired", "timeout"}
     assert isinstance(results[0].frame_data["cancel_requested"], bool)
@@ -118,88 +119,55 @@ async def test_native_cooperative_timeout_does_not_block_later_group() -> None:
     assert results[1].payload == {"started": True}
 
 
-async def test_runner_maps_cooperative_cancellation_to_timeout() -> None:
+async def test_runner_preserves_cooperative_cancellation_identity() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.cancelled",
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.cancelled",
-                ),
-            ),
-        ),
+        actions=(_action(
+            "test.cancelled",
+            backend=ActionBackendSpec(kind=ActionBackendKind.NATIVE, handler="test.cancelled"),
+        ),),
     )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.cancelled", {}, ToolKind.ACTION),),
-    )
+    batch = _batch(catalog, (ToolCallRecord("call_1", "test.cancelled", {}, ToolKind.ACTION),))
+    cancellation = ActionExecutionCancelled("test_cancel")
 
     def cancel(execution, context):
-        context.control.request_cancel("test_cancel")
-        context.control.check_cancelled()
-        raise AssertionError("Cancellation check did not stop execution")
+        raise cancellation
 
     executors = ExecutorRegistry()
     executors.register("test.cancelled", FunctionActionExecutor(cancel))
-
-    result = (await ActionBatchRunner(executors=executors).run(
-        batch,
-        ActionExecutionContext(),
-    ))[0]
-
-    assert result.status is ActionResultStatus.TIMEOUT
-    assert result.failure is not None
-    assert result.failure.reason == "cancelled"
-    assert result.failure.scope == "action.timeout"
-    assert result.frame_data == {
-        "cancel_reason": "test_cancel",
-        "cancel_requested": True,
-        "executor_started": True,
-        "executor_leaked": False,
-        "late_success": False,
-    }
+    with pytest.raises(ActionExecutionCancelled) as raised:
+        await ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
+    assert raised.value is cancellation
 
 
-def test_native_timeout_before_worker_start_uses_stable_frame_data() -> None:
+async def test_action_deadline_cancels_async_io_and_joins_cleanup() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
-        actions=(
-            _action(
-                "test.expired",
-                runtime=ActionRuntimeSpec(timeout_seconds=0.001),
-                backend=ActionBackendSpec(
-                    kind=ActionBackendKind.NATIVE,
-                    handler="test.expired",
-                ),
-            ),
-        ),
+        actions=(_action(
+            "test.expired",
+            runtime=ActionRuntimeSpec(timeout_seconds=0.01),
+            backend=ActionBackendSpec(kind=ActionBackendKind.NATIVE, handler="test.expired"),
+        ),),
     )
-    batch = _batch(
-        catalog,
-        (ToolCallRecord("call_1", "test.expired", {}, ToolKind.ACTION),),
-    )
+    batch = _batch(catalog, (ToolCallRecord("call_1", "test.expired", {}, ToolKind.ACTION),))
+    closed = asyncio.Event()
+
+    class WaitingExecutor:
+        async def execute(self, execution, context) -> ActionResult:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+            raise AssertionError("unreachable")
+
     executors = ExecutorRegistry()
-    executors.register(
-        "test.expired",
-        FunctionActionExecutor(lambda execution, context: {"started": True}),
-    )
-    runner = ActionBatchRunner(executors=executors)
-    scheduled = runner._schedule_group(batch.executions)
-    sleep(0.01)
-
-    results = runner._run_group(scheduled, ActionExecutionContext()).results
-
+    executors.register("test.expired", WaitingExecutor())
+    async with asyncio.timeout(2.0):
+        results = await ActionBatchRunner(executors=executors).run(batch, ActionExecutionContext())
+    assert closed.is_set()
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[0].failure is not None
-    assert results[0].failure.reason == "deadline_before_start"
-    assert results[0].frame_data == {
-        "cancel_requested": False,
-        "executor_started": False,
-        "executor_leaked": False,
-        "late_success": False,
-    }
+    assert results[0].failure.reason == "execution_timeout"
 
 
 def test_controlled_process_runner_returns_success_output() -> None:
@@ -386,7 +354,6 @@ async def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
     with pytest.raises(RuntimeException):
         (await ActionBatchRunner(
             executors=executors,
-            process_cancel_grace_seconds=2.0,
         ).run(batch, ActionExecutionContext()))
 
     assert monotonic() - started < 5.0

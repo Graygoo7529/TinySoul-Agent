@@ -5,10 +5,10 @@ from dataclasses import replace
 import pytest
 
 from tinysoul.action import ActionResultStatus
+from tinysoul.action.core.call import ExecutionState
 from tinysoul.context.trace import SealedTurnTrace
 from tinysoul.infra.time import BusinessDay
 from tinysoul.session.completion import project_turn_record
-from tinysoul.session.errors import SessionInvariantError
 from tinysoul.session.models import SessionActionOutcome, SessionOutputRecord
 
 from .synthetic import SyntheticAction, completion
@@ -54,7 +54,7 @@ def test_completion_projects_typed_action_business_facts() -> None:
     assert record.actions[1].failure.reason == "provider_unavailable"
 
 
-def test_completion_rejects_unpaired_action_evidence() -> None:
+def test_completion_does_not_reconstruct_actions_from_message_pairing() -> None:
     source = completion(
         "turn_unpaired",
         actions=(SyntheticAction("workspace.read"),),
@@ -64,13 +64,24 @@ def test_completion_rejects_unpaired_action_evidence() -> None:
         trace=SealedTurnTrace(
             turn_id=source.turn_id,
             entries=source.trace.entries[:-1],
+            actions=source.trace.actions,
         ),
     )
 
-    with pytest.raises(SessionInvariantError, match="unpaired"):
-        project_turn_record(
-            broken,
-            day=DAY,
-            output=None,
-            exhausted=True,
-        )
+    record = project_turn_record(broken, day=DAY, output=None, exhausted=True)
+    assert len(record.actions) == 1
+    assert record.actions[0].outcome is SessionActionOutcome.SUCCESS
+
+
+@pytest.mark.parametrize("state", [
+    ExecutionState.CANCELLED, ExecutionState.NOT_EXECUTED, ExecutionState.UNKNOWN,
+])
+def test_completion_preserves_interruption_without_fabricated_result(state) -> None:
+    source = completion("turn_interrupted", actions=(SyntheticAction("workspace.create"),))
+    source = replace(source, trace=replace(source.trace, actions=(
+        replace(source.trace.actions[0], state=state, result=None),
+    )))
+    record = project_turn_record(source, day=DAY, output=None, exhausted=False)
+    assert record.actions[0].outcome.value == state.value
+    assert record.actions[0].failure is None
+    assert record.actions[0].result == {}

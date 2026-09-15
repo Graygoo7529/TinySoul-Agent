@@ -38,11 +38,11 @@ class _FakeApp:
         self.run_count = 0
         self.gateway = _FakeGateway()
 
-    def run_once(self, user_input: str):
+    async def run_once(self, user_input: str):
         self.once_inputs.append(user_input)
         return SimpleNamespace(status=self.status)
 
-    def run(self):
+    async def run(self):
         self.run_count += 1
         return SimpleNamespace()
 

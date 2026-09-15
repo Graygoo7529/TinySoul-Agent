@@ -40,7 +40,7 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
 
@@ -777,7 +777,7 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
     assert runtime["generation_id"] == switched_generation
 
 
-def test_agent_workspace_mutation_reaches_endpoint_event_stream(
+async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     tmp_path: Path,
 ) -> None:
     note = tmp_path / "runtime" / "workspace" / "note.md"
@@ -835,7 +835,7 @@ def test_agent_workspace_mutation_reaches_endpoint_event_stream(
         .build()
     )
 
-    outcome = app.run_once("update the note")
+    outcome = await app.run_once("update the note")
 
     assert outcome.answered is True
     assert note.read_text(encoding="utf-8") == "new text"
@@ -856,7 +856,7 @@ def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     assert changes[0].payload["links"] == ["workspace:note.md"]
 
 
-def test_app_builder_run_once_answers_with_real_action_and_context(
+async def test_app_builder_run_once_answers_with_real_action_and_context(
     tmp_path: Path,
 ) -> None:
     recorder = _CompletionRecorder()
@@ -892,7 +892,7 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
         .build()
     )
 
-    outcome = app.run_once("please answer")
+    outcome = await app.run_once("please answer")
 
     assert outcome.answered is True
     assert outcome.context_completion is not None
@@ -903,7 +903,7 @@ def test_app_builder_run_once_answers_with_real_action_and_context(
     assert recorder.completions[0].output.text == "done"
 
 
-def test_app_builder_runs_resource_conversion_through_real_action_chain(
+async def test_app_builder_runs_resource_conversion_through_real_action_chain(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "runtime" / "workspace"
@@ -963,7 +963,7 @@ def test_app_builder_runs_resource_conversion_through_real_action_chain(
         .build()
     )
 
-    outcome = app.run_once("convert the PDF")
+    outcome = await app.run_once("convert the PDF")
 
     assert outcome.answered is True
     markdown = workspace_root / "converted" / "blank.md"
@@ -975,7 +975,7 @@ def test_app_builder_runs_resource_conversion_through_real_action_chain(
     assert page.is_file()
 
 
-def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
+async def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "doc.md").write_text("hello", encoding="utf-8")
@@ -1013,14 +1013,14 @@ def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) -> None:
         .build()
     )
 
-    outcome = app.run_once("scan only")
+    outcome = await app.run_once("scan only")
 
     assert outcome.answered is False
     assert outcome.exhausted is True
     assert outcome.context_completion is not None
 
 
-def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
+async def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
         TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
@@ -1030,7 +1030,7 @@ def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     )
 
     app.submit_input("exit")
-    outcome = app.run()
+    outcome = await app.run()
 
     assert outcome.turns == ()
     assert outcome.transfer is not None
@@ -1038,7 +1038,7 @@ def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     assert outcome.transfer.target.level is RunLevel.PROGRAM
 
 
-def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> None:
+async def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> None:
     bus = SignalBus()
     llm = FakeLLM(
         (
@@ -1078,7 +1078,7 @@ def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Path) -> 
         )
     )
 
-    outcome = app.run_once("please stop")
+    outcome = await app.run_once("please stop")
 
     assert outcome.answered is True
     assert outcome.transfer is None

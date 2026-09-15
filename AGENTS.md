@@ -22,7 +22,7 @@
 
 任务提示/TaskPrompt：只服务当前 LLM Task 的临时提示层，由任务引导、任务输入和期望输出三类 PromptBlock 组成。Phase2 可自动挂载领域 Skill；Action 内部的 LLM Task 可同时挂载领域 Skill 与动作 Skill。目标资源和参考资源只在所属 Action 内局部解析为任务输入，不进入通用 Context。
 
-行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛为成功、失败或超时。需要跨 Cycle 监督的外部任务以 Job 形式由 Agent 监督（Turn 级随 Turn 结束回收，Agent 级可跨 Turn 存续），但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
+行动执行/Action：一次模型可选择的智能体行动。Action 定义同时包含模型可见的调用语义与框架执行语义；每个调用必须在所属批次内收敛；正常执行以成功、失败或超时结果反馈，取消、未执行和结果未知通过类型化执行事实保留，不伪造工具结果。需要跨 Cycle 监督的外部任务以 Job 形式由 Agent 监督（Turn 级随 Turn 结束回收，Agent 级可跨 Turn 存续），但每次启动、等待、检查、提交或停止仍是独立且已收敛的 Action。
 
 模型侧工具/Tool Message：用于约束模型生成结构化调用意图，不等于工具已执行。Control Tools 在 Phase1 表达语境和流程控制意图，结果经校验后由对应模块消费；Action Tools 在 Phase2 表达行动参数，结果归一化为 ActionCall 后交给 Phase3。供应商原生 tool calling 只是 LLM 适配层映射，不进入 TinySoul 的核心身份和业务协议。
 

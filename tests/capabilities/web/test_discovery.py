@@ -210,7 +210,7 @@ def test_discovery_page_budget_is_hard_and_any_followable_reference_can_visit() 
     assert result["stop_reason"] == "page_limit"
 
 
-def test_oversized_discovery_spills_complete_json_and_emits_signal(
+async def test_oversized_discovery_spills_complete_json_and_emits_signal(
     local_tmp: Path,
 ) -> None:
     workspace = _workspace(local_tmp)
@@ -230,7 +230,7 @@ def test_oversized_discovery_spills_complete_json_and_emits_signal(
     )
     executor = WebDiscoveryExecutor(service=service, bus=bus)
 
-    result = executor.execute(
+    result = await executor.execute(
         _discovery_execution(),
         ActionExecutionContext(
             control=ActionExecutionControl(deadline=monotonic() + 30),

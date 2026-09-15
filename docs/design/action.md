@@ -65,13 +65,13 @@ Phase3 负责：
 - 对每个 action 执行输入 hook
 - 按 batch 维度处理并发和超时
 - 将每个 action 的执行结果结构化
-- 等待 action 收敛并整理 `ActionResult` 序列；Runtime transfer 出现时立即中止局部 reduce
+- 等待 Action 收敛并整理 `ActionResult` 序列；Runtime transfer 出现时取消并收回同组工作，保留实际执行事实后原样传播。
 
-Phase3 不保留长期运行或 ongoing action。所有动作都只属于一个批次的成功、失败或超时。
+Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败或超时结果反馈；取消、尚未执行和结果未知由独立的执行事实表达，不伪造模型工具结果。
 
-`native` 后端运行在宿主 Python 进程的 worker 线程中，只能提供协作式停止。runner 到达 deadline 后会先向该 action 的 `ActionExecutionControl` 发出取消请求并等待短暂 grace；如果 native executor 通过 `context.control.check_cancelled()` 等方式协作退出，runner 会统一捕获 `ActionExecutionCancelled` 并将结果收敛为 timeout，后续执行组可以继续。如果 native action 超时后执行体仍在运行，runner 必须阻断后续执行组并在结果中标记泄漏风险。需要硬停止语义的动作应使用 `subprocess` 或 `supervised_process` 进程后端，由后端负责终止执行体；runner 会为这类后端提供更长的 executor 收敛 grace，OS 进程回收等待由 `ManagedProcessOptions` 在进程后端内部统一控制。
+ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。该适配只约束显式接入的调用，现有领域 Action 的同步 owner I/O 仍需完成异步边界迁移。
 
-并行组使用 first-completed 观察执行结果，而不是先等待整组结束。任一 worker 传播 `RuntimeException` 或 `RuntimeTransferInterrupt` 时，无论它是在正常完成收取阶段还是超时取消 grace 的结果收取阶段出现，runner 都立即进入同一个外层 transfer 分支，对同组未完成 action 请求 `runtime_transfer` 取消：进程后端通过 `ActionExecutionControl` 的取消回调终止当前 action 启动或持有的进程树，native action 获得短暂协作退出 grace。原始 Runtime 控制异常随后原样传播；不响应取消的 native 线程可能继续到自身返回，但不得延迟全局运行转移。取消回调只承担执行体清理，清理失败不能替换原始 Runtime transfer。
+并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 
 ## 定义结构
 

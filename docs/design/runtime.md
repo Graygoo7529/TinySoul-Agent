@@ -2,6 +2,8 @@
 
 ## 定位
 
+RuntimeModuleRunner 提供异步调用入口，并支持同步 owner 回调和异步模型/Action 回调；它只负责可重放 frame 的 Trap 与转移，不替 owner 创建工作线程。回调的输入、返回值和控制异常保持原语义。
+
 Runtime 是 TinySoul 的底层运行控制协议模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
 
 Runtime 不负责执行业务动作，不构造模型消息栈，不修改语境状态，不读写 Workspace、Agent Home 或 Memory，也不解释 LLM、Action、Context 的业务结果。具体模块负责完成自身局部处理，并在模块边界通过异常或信号向 Runtime 和其他模块表达需要上层协调的运行事实。

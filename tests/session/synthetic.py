@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from tinysoul.action import (
+    ActionCall,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResultEnvelope,
+    ActionResult,
+    ActionTraceProjection,
     ActionResultStage,
     ActionResultStatus,
 )
@@ -15,7 +18,8 @@ from tinysoul.context import (
     ContextTurnCompletion,
     ContextTurnInput,
 )
-from tinysoul.context.trace import SealedTurnTrace, TraceEntry, TraceKind
+from tinysoul.action.core.call import ExecutionState
+from tinysoul.context.trace import SealedTurnTrace, TraceAction, TraceEntry, TraceKind
 from tinysoul.infra.json import JsonObject
 from tinysoul.llm import AssistantMessage, ToolResultMessage
 from tinysoul.llm.tools import ToolCallRecord, ToolKind, ToolResultStatus
@@ -42,6 +46,7 @@ def completion(
     actions: tuple[SyntheticAction, ...] = (),
 ) -> ContextTurnCompletion:
     entries: list[TraceEntry] = []
+    facts: list[TraceAction] = []
     if actions:
         calls = tuple(
             ToolCallRecord(
@@ -83,6 +88,21 @@ def completion(
                 payload=action.result,
                 failure=failure,
             )
+            facts.append(TraceAction(
+                cycle_id="cycle_1",
+                call=ActionCall(call_id=f"call_{index}", action_name=action.name,
+                                params=action.request, sequence=index + 1),
+                state=ExecutionState.SETTLED,
+                result=ActionResult(
+                    result_id=f"result_{index}",
+                    call_id=f"call_{index}", action_name=action.name,
+                    sequence=index + 1, status=action.status,
+                    stage=envelope.stage, payload=action.result, failure=failure,
+                    trace_projection=ActionTraceProjection(
+                        origin_refs=action.references, canonical_payload=action.result,
+                    ) if action.references else None,
+                ),
+            ))
             entries.append(
                 TraceEntry(
                     entry_id=f"result_{index}",
@@ -103,5 +123,5 @@ def completion(
         inputs=(ContextTurnInput(text=ask, received_at=received_at),),
         working=working or {},
         background_links=background_links,
-        trace=SealedTurnTrace(turn_id=turn_id, entries=tuple(entries)),
+        trace=SealedTurnTrace(turn_id=turn_id, entries=tuple(entries), actions=tuple(facts)),
     )

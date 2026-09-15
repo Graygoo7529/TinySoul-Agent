@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from threading import Lock
 from typing import Callable, Protocol
@@ -182,6 +183,7 @@ class TurnRunner:
         failure: TurnFailure | None = None
         stopped = False
         completion: JsonObject | None = None
+        task_cancellation: asyncio.CancelledError | None = None
         try:
             try:
                 turn_id = self._context.begin_turn(turn_input)
@@ -263,6 +265,10 @@ class TurnRunner:
                     if failure is not None or stopped:
                         break
                     cycle_index += 1
+        except asyncio.CancelledError as exc:
+            task_cancellation = exc
+            stopped = True
+            completion = None
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
             transfer = captured.transfer
@@ -361,6 +367,8 @@ class TurnRunner:
                 "transfer_action": transfer.action.value if transfer is not None else None,
             },
         )
+        if task_cancellation is not None:
+            raise task_cancellation
         return TurnOutcome(
             context_completion=context_completion,
             business_day=business_day,
@@ -552,12 +560,12 @@ class TurnRunner:
         transfer: RuntimeTransfer | None,
         failure: TurnFailure | None,
     ) -> tuple[TurnOutcomeStatus, TurnFailure | None]:
+        if failure is not None:
+            return TurnOutcomeStatus.FAILED, failure
         if output is not None and completion_committed:
             return TurnOutcomeStatus.ANSWERED, None
         if completion is not None and completion_committed:
             return TurnOutcomeStatus.COMPLETED, None
-        if failure is not None:
-            return TurnOutcomeStatus.FAILED, failure
         if exhausted:
             return TurnOutcomeStatus.EXHAUSTED, None
         if stopped or transfer is not None:
