@@ -51,7 +51,7 @@ def build_user_turn_trap(
     registry.register(HOME_RUNTIME_COPY_REQUIRED, AgentHomeRuntimeCopyTrapHandler(home))
     registry.register(
         WORKSPACE_TRASH_RESTORE_REQUIRED,
-        WorkspaceTrashRestoreTrapHandler(workspace=workspace, context=context),
+        WorkspaceTrashRestoreTrapHandler(workspace=workspace),
     )
     registry.register_fallback(EndTurnOrProgramTrapHandler())
     return RuntimeTrap(registry=registry)

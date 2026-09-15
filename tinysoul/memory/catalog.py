@@ -28,7 +28,7 @@ from .store import MemoryStore
 
 
 class MemorySemanticSearch(Protocol):
-    def similarities(
+    async def similarities(
         self,
         query: str,
         documents: Mapping[MemoryLink, str],
@@ -276,7 +276,7 @@ class MemoryCatalog:
                         f"Active Memory relation does not resolve to active entity/concept: {relation}"
                     )
 
-    def inspect(
+    async def inspect(
         self,
         request: MemoryInspectRequest,
         *,
@@ -301,7 +301,7 @@ class MemoryCatalog:
         if page_chars <= 0:
             raise MemoryContractError("Memory inspect page overhead exceeds page budget")
         if request.memory_link is not None:
-            return self._inspect_link(
+            return await self._inspect_link(
                 request.memory_link,
                 snapshot=current,
                 identity=identity,
@@ -311,7 +311,7 @@ class MemoryCatalog:
                 offset=offset,
             )
         assert request.query is not None
-        return self._inspect_query(
+        return await self._inspect_query(
             request.query,
             snapshot=current,
             identity=identity,
@@ -321,7 +321,7 @@ class MemoryCatalog:
             offset=offset,
         )
 
-    def _inspect_query(
+    async def _inspect_query(
         self,
         query: str,
         *,
@@ -341,7 +341,7 @@ class MemoryCatalog:
         }
         semantic: Mapping[MemoryLink, float] = {}
         if self._semantic is not None and active:
-            semantic = self._semantic.similarities(
+            semantic = await self._semantic.similarities(
                 query,
                 {link: _semantic_text(entry) for link, entry in active.items()},
             )
@@ -390,7 +390,7 @@ class MemoryCatalog:
             candidate_count=len(candidates),
         )
 
-    def _inspect_link(
+    async def _inspect_link(
         self,
         link: MemoryLink,
         *,
@@ -424,7 +424,7 @@ class MemoryCatalog:
         }
         semantic: Mapping[MemoryLink, float] = {}
         if self._semantic is not None and related_entries:
-            semantic = self._semantic.similarities(
+            semantic = await self._semantic.similarities(
                 _semantic_text(entry),
                 {candidate: _semantic_text(other) for candidate, other in related_entries.items()},
             )

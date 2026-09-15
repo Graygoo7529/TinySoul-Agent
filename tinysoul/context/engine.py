@@ -9,6 +9,7 @@ from uuid import uuid4
 from tinysoul.action.core.call import ActionCall, ExecutionFact
 from tinysoul.action.core.result import ActionResult
 
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
     ContinuationError,
@@ -215,7 +216,6 @@ class ContextEngine:
         self._loadable_entries = dict(loadable_entries)
         self._background_providers = tuple(background_providers)
         self._provider_by_link: dict[str, BackgroundEntryProvider] = {}
-        self._provider_by_owner: dict[str, BackgroundEntryProvider] = {}
         self._catalog_by_owner: dict[str, BackgroundCatalog] = {}
         self._business_day: date | None = None
         self._trace_inspect_max_chars = trace_inspect_max_chars
@@ -277,25 +277,44 @@ class ContextEngine:
         self._background.reset_session()
         self._background.reset_catalogs()
         self._provider_by_link = {}
-        self._provider_by_owner = {}
         self._catalog_by_owner = {}
         self._business_day = None
         self._preparing_turn = True
         return self._turn_id
 
-    def prepare_default_background(self, business_day: date) -> None:
+    async def prepare_default_background(self, business_day: date) -> None:
         """Load all provider defaults for one captured Business Day."""
 
         self._require_turn()
         if not isinstance(business_day, date):
             raise ContextContractError("Background preparation requires a date")
+        turn_id = self._turn_id
+        operations = JoinedOperations()
+        bindings, entries = await operations.run(
+            lambda: self._prepare_default_background(business_day)
+        )
+        operations.check_cancelled()
+        if self._turn_id != turn_id:
+            raise ContextContractError("Background preparation outlived its Turn")
         self._business_day = business_day
-        catalogs = self._collect_background_catalogs(business_day)
-        self._background.reset_catalogs(catalogs)
+        self._provider_by_link = {
+            link: provider for provider, catalog in bindings for link in catalog.loadable_links
+        }
+        self._catalog_by_owner = {catalog.owner: catalog for _, catalog in bindings}
+        self._background.reset_catalogs(tuple(catalog for _, catalog in bindings))
+        self._background.reset_entries(entries)
+        self._emit_background_observation(
+            name="context.background.snapshot",
+            message="Top-level background context prepared.",
+        )
+
+    def _prepare_default_background(
+        self, business_day: date,
+    ) -> tuple[tuple[tuple[BackgroundEntryProvider, BackgroundCatalog], ...], tuple[BackgroundEntry, ...]]:
+        bindings = self._collect_background_catalogs(business_day)
         entries = list(self._default_entries)
         seen = {entry.link for entry in entries}
-        for catalog in catalogs:
-            provider = self._provider_for_owner(catalog.owner)
+        for provider, catalog in bindings:
             for link in catalog.default_links:
                 if link in seen:
                     raise ContextInvariantError(
@@ -321,11 +340,7 @@ class ContextEngine:
                     )
                 )
                 seen.add(link)
-        self._background.reset_entries(tuple(entries))
-        self._emit_background_observation(
-            name="context.background.snapshot",
-            message="Top-level background context prepared.",
-        )
+        return bindings, tuple(entries)
 
     def complete_preparation(self) -> None:
         self._require_turn()
@@ -371,12 +386,12 @@ class ContextEngine:
             signals=bus.consume_namespace(SIGNAL_NAMESPACE),
         )
 
-    def consume_signals(self, bus: SignalBus) -> tuple[ControlResult, ...]:
-        """Take and synchronously commit one context signal batch."""
+    async def consume_signals(self, bus: SignalBus) -> tuple[ControlResult, ...]:
+        """Capture one batch, await its reads, then install its prepared state."""
 
-        return self.consume_signal_batch(self.take_signal_batch(bus))
+        return await self.consume_signal_batch(self.take_signal_batch(bus))
 
-    def consume_signal_batch(
+    async def consume_signal_batch(
         self,
         batch: ContextSignalBatch,
     ) -> tuple[ControlResult, ...]:
@@ -477,7 +492,15 @@ class ContextEngine:
             background_candidates,
             results=results,
         )
-        prepared_background = self._prepare_background(background_patches)
+        prepared_background: dict[str, str] = {}
+        if background_patches:
+            operations = JoinedOperations()
+            prepared_background = await operations.run(
+                lambda: self._prepare_background(background_patches)
+            )
+            operations.check_cancelled()
+            if self._turn_id != batch.turn_id:
+                raise ContextContractError("Context batch preparation outlived its Turn")
 
         for patch in working_patches:
             self._working.apply_patch(patch)
@@ -670,7 +693,6 @@ class ContextEngine:
         self._background.reset_session()
         self._background.reset_catalogs()
         self._provider_by_link = {}
-        self._provider_by_owner = {}
         self._catalog_by_owner = {}
         self._business_day = None
         self._preparing_turn = False
@@ -796,13 +818,10 @@ class ContextEngine:
     def _collect_background_catalogs(
         self,
         business_day: date,
-    ) -> tuple[BackgroundCatalog, ...]:
-        catalogs: list[BackgroundCatalog] = []
+    ) -> tuple[tuple[BackgroundEntryProvider, BackgroundCatalog], ...]:
+        catalogs: list[tuple[BackgroundEntryProvider, BackgroundCatalog]] = []
         links = set(self._loadable_entries)
         owners: set[str] = set()
-        self._provider_by_link = {}
-        self._provider_by_owner = {}
-        self._catalog_by_owner = {}
         for provider in self._background_providers:
             catalog = provider.catalog(business_day)
             if not isinstance(catalog, BackgroundCatalog):
@@ -820,18 +839,8 @@ class ContextEngine:
                 )
             owners.add(catalog.owner)
             links.update(catalog.loadable_links)
-            self._catalog_by_owner[catalog.owner] = catalog
-            self._provider_by_owner[catalog.owner] = provider
-            for link in catalog.loadable_links:
-                self._provider_by_link[link] = provider
-            catalogs.append(catalog)
+            catalogs.append((provider, catalog))
         return tuple(catalogs)
-
-    def _provider_for_owner(self, owner: str) -> BackgroundEntryProvider:
-        provider = self._provider_by_owner.get(owner)
-        if provider is None:
-            raise ContextInvariantError(f"Unknown Background provider owner: {owner}")
-        return provider
 
     def _all_loadable_links(self) -> tuple[str, ...]:
         return (*self._loadable_entries, *self._provider_by_link)

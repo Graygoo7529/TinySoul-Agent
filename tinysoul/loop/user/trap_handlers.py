@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.context import ContextEngine, ContextSignalBatch
-from tinysoul.context.errors import ContextError
 from tinysoul.runtime import RunLevel, RuntimeTransfer, TrapResult, TrapSnap
 from tinysoul.workspace import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceError
@@ -19,7 +17,6 @@ class WorkspaceTrashRestoreTrapHandler:
     """Restore a staged Workspace resource, synchronize Context, and retry."""
 
     workspace: WorkspaceEngine
-    context: ContextEngine
 
     def handle(self, snap: TrapSnap) -> TrapResult:
         link = snap.payload.get("link")
@@ -45,22 +42,12 @@ class WorkspaceTrashRestoreTrapHandler:
                 scope=snap.scope,
                 source="loop.user.workspace_trash_restore",
             )
-            results = self.context.consume_signal_batch(
-                ContextSignalBatch(turn_id=turn.name, signals=(signal,))
-            )
-            if results:
-                self.workspace.trash_resource(
-                    link,
-                    reason="trash_restore_context_rejected",
-                    source_turn_id=turn.name,
-                )
-                return _end_user_scope(snap)
-        except (ContextError, WorkspaceError):
+        except WorkspaceError:
             return _end_user_scope(snap)
         current = snap.scope.current()
         if current is None:
             return _end_user_scope(snap)
-        return TrapResult(transfer=RuntimeTransfer.retry(current))
+        return TrapResult(transfer=RuntimeTransfer.retry(current), signals=(signal,))
 
 
 def _end_user_scope(snap: TrapSnap) -> TrapResult:

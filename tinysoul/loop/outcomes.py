@@ -59,6 +59,13 @@ class TurnFailure:
     kind: str = ""
     feedback: tuple[str, ...] = ()
 
+    def to_json(self) -> JsonObject:
+        return {
+            "reason": self.reason, "message": self.message,
+            "module": self.module, "kind": self.kind,
+            "feedback": list(self.feedback),
+        }
+
     def __post_init__(self) -> None:
         if not isinstance(self.reason, str) or not self.reason:
             raise LoopContractError("TurnFailure.reason must be non-empty")

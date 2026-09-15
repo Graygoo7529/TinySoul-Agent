@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -33,7 +35,7 @@ DAY = "2026-07-25"
 
 def test_turn_record_round_trips_and_rejects_unknown_fields() -> None:
     record = _turn("turn_roundtrip")
-    assert SESSION_RECORD_SCHEMA_VERSION == 5
+    assert SESSION_RECORD_SCHEMA_VERSION == 6
     assert session_record_from_json(record.to_json()) == record
 
     invalid = {**record.to_json(), "trace": []}
@@ -55,6 +57,22 @@ def test_session_action_failure_is_typed_and_round_trips() -> None:
     assert restored == record
     assert restored.failure is not None
     assert restored.failure.to_json() == failure.to_json()
+
+
+def test_turn_failure_round_trip_preserves_execution_and_finish_distinction() -> None:
+    execution = TurnFailure("runtime.turn_end", "Execution failed.", "llm", "llm.chain_exhausted")
+    finish = TurnFailure("runtime.turn_end", "Finish failed.", "home", "home.io_failed")
+    record = replace(
+        _turn("turn_failed"), status=TurnOutcomeStatus.FAILED,
+        failure=execution, finish_failures=(finish,),
+    )
+    assert session_record_from_json(record.to_json()) == record
+    invalid = record.to_json()
+    invalid["failure"] = {**execution.to_json(), "traceback": "private"}
+    with pytest.raises(SessionContractError, match="fields"):
+        session_record_from_json(invalid)
+    with pytest.raises(SessionContractError, match="failure and status"):
+        replace(record, status=TurnOutcomeStatus.ANSWERED)
 
 
 @pytest.mark.parametrize(
@@ -170,6 +188,7 @@ def _turn(turn_id: str) -> SessionTurnRecord:
         working={},
         background_links=(),
         output=None,
+        status=TurnOutcomeStatus.STOPPED,
         exhausted=False,
         actions=(),
         recorded_at_ns=1,

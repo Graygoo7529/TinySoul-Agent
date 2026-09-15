@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from dataclasses import replace
 
 import pytest
@@ -40,6 +42,7 @@ def test_completion_projects_typed_action_business_facts() -> None:
         source,
         day=DAY,
         output=SessionOutputRecord(text="done"),
+        status=TurnOutcomeStatus.ANSWERED,
         exhausted=False,
     )
 
@@ -68,7 +71,7 @@ def test_completion_does_not_reconstruct_actions_from_message_pairing() -> None:
         ),
     )
 
-    record = project_turn_record(broken, day=DAY, output=None, exhausted=True)
+    record = project_turn_record(broken, day=DAY, output=None, exhausted=True, status=TurnOutcomeStatus.EXHAUSTED)
     assert len(record.actions) == 1
     assert record.actions[0].outcome is SessionActionOutcome.SUCCESS
 
@@ -81,7 +84,7 @@ def test_completion_preserves_interruption_without_fabricated_result(state) -> N
     source = replace(source, trace=replace(source.trace, actions=(
         replace(source.trace.actions[0], state=state, result=None),
     )))
-    record = project_turn_record(source, day=DAY, output=None, exhausted=False)
+    record = project_turn_record(source, day=DAY, output=None, exhausted=False, status=TurnOutcomeStatus.STOPPED)
     assert record.actions[0].outcome.value == state.value
     assert record.actions[0].failure is None
     assert record.actions[0].result == {}

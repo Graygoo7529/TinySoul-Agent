@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -61,7 +62,7 @@ def test_infra_settings_own_embedding_and_reject_unknown_children() -> None:
     assert not_table.value.key == "infra.embedding"
 
 
-def test_openai_compatible_embedding_client_restores_response_order() -> None:
+async def test_openai_compatible_embedding_client_restores_response_order() -> None:
     transport = _EmbeddingTransport()
     client = OpenAICompatibleEmbeddingClient(
         settings=EmbeddingSettings(enabled=True, dimensions=256, batch_size=2),
@@ -69,7 +70,7 @@ def test_openai_compatible_embedding_client_restores_response_order() -> None:
         client=transport,
     )
 
-    result = client.embed(("first", "second"))
+    result = await client.embed(("first", "second"))
 
     assert transport.request == {
         "model": "embedding-3",
@@ -81,15 +82,53 @@ def test_openai_compatible_embedding_client_restores_response_order() -> None:
     assert "environment-secret" not in client.identity
 
 
-def test_embedding_client_converts_provider_failures_to_bounded_errors() -> None:
+async def test_embedding_client_converts_provider_failures_to_bounded_errors() -> None:
     client = OpenAICompatibleEmbeddingClient(
         settings=EmbeddingSettings(enabled=True, dimensions=256),
         api_key="environment-secret",
         client=_FailingEmbeddingTransport(),
     )
     with pytest.raises(EmbeddingError, match="RuntimeError") as captured:
-        client.embed(("text",))
+        await client.embed(("text",))
     assert "private provider detail" not in str(captured.value)
+
+
+@pytest.mark.parametrize("owned", [False, True])
+async def test_embedding_cancellation_reaches_transport_and_respects_ownership(
+    monkeypatch: pytest.MonkeyPatch, owned: bool,
+) -> None:
+    class Transport:
+        def __init__(self) -> None:
+            self.embeddings = self
+            self.started = asyncio.Event()
+            self.cancelled = False
+            self.closed = False
+
+        async def create(self, **kwargs: object) -> object:
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+        async def close(self) -> None:
+            self.closed = True
+
+    transport = Transport()
+    monkeypatch.setattr("tinysoul.infra.embedding.AsyncOpenAI", lambda **_: transport)
+    client = OpenAICompatibleEmbeddingClient(
+        settings=EmbeddingSettings(enabled=True, dimensions=256),
+        api_key="test", client=None if owned else transport,
+    )
+    task = asyncio.create_task(client.embed(("text",)))
+    await asyncio.wait_for(transport.started.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert transport.cancelled
+    await client.close()
+    assert transport.closed is owned
 
 
 @dataclass
@@ -108,7 +147,7 @@ class _EmbeddingTransport:
         self.embeddings = self
         self.request: dict[str, object] = {}
 
-    def create(self, **kwargs: object) -> _EmbeddingResponse:
+    async def create(self, **kwargs: object) -> _EmbeddingResponse:
         self.request = dict(kwargs)
         first = [1.0, *([0.0] * 255)]
         second = [0.0, 1.0, *([0.0] * 254)]
@@ -126,6 +165,6 @@ class _FailingEmbeddingTransport:
     def __init__(self) -> None:
         self.embeddings = self
 
-    def create(self, **kwargs: object) -> object:
+    async def create(self, **kwargs: object) -> object:
         del kwargs
         raise RuntimeError("private provider detail")

@@ -45,7 +45,7 @@ def test_packaged_default_home_is_valid_in_an_isolated_project(
     _assert_home_references_exist(root / "home", home)
 
 
-def test_packaged_default_home_exposes_only_context_visible_load_targets(
+async def test_packaged_default_home_exposes_only_context_visible_load_targets(
     tmp_path: Path,
 ) -> None:
     _, home = _initialized_home(tmp_path)
@@ -66,7 +66,7 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
         .build()
     )
     turn_id = context.begin_turn("Use the referenced TinySoul documentation.")
-    context.prepare_default_background(date(2026, 7, 15))
+    await context.prepare_default_background(date(2026, 7, 15))
 
     assert context.background_links() == catalog.default_links
     initial_labels = {
@@ -103,7 +103,7 @@ def test_packaged_default_home_exposes_only_context_visible_load_targets(
         )
     )
 
-    assert context.consume_signals(bus) == ()
+    assert await context.consume_signals(bus) == ()
     assert context.background_links() == (*catalog.default_links, *targets)
 
 

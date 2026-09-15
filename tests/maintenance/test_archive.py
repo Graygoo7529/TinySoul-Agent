@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
@@ -80,6 +82,7 @@ def test_daily_rollover_archives_session_workspace_and_trash_but_preserves_home(
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
         completion("turn_old"),
+        status=TurnOutcomeStatus.ANSWERED,
         output=SessionOutputRecord(text="old answer"),
         exhausted=False,
         day=OLD_DAY,
@@ -240,6 +243,7 @@ def test_daily_resumes_session_move_when_step_journal_write_failed(
     coordinator.ensure_active_day(OLD_DAY, now=ROLLOVER_TIME)
     session.record_turn(
         completion("turn_session_window"),
+        status=TurnOutcomeStatus.ANSWERED,
         output=SessionOutputRecord(text="saved"),
         exhausted=False,
         day=OLD_DAY,

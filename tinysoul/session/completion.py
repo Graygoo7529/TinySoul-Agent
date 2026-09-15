@@ -5,6 +5,7 @@ from __future__ import annotations
 from tinysoul.action.core.call import ExecutionState
 from tinysoul.context import ContextTurnCompletion
 from tinysoul.infra.time import BusinessDay
+from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .models import (
     SessionActionOutcome,
@@ -21,6 +22,9 @@ def project_turn_record(
     day: BusinessDay,
     output: SessionOutputRecord | None,
     exhausted: bool,
+    status: TurnOutcomeStatus,
+    failure: TurnFailure | None = None,
+    finish_failures: tuple[TurnFailure, ...] = (),
 ) -> SessionTurnRecord:
     """Preserve canonical order without inferring facts from model messages."""
 
@@ -59,5 +63,8 @@ def project_turn_record(
         background_links=completion.background_links,
         output=output,
         exhausted=exhausted,
+        status=status,
+        failure=failure,
+        finish_failures=finish_failures,
         actions=tuple(actions),
     )

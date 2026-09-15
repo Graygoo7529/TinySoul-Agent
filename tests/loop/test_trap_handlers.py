@@ -5,9 +5,11 @@ from pathlib import Path
 from tinysoul.context import (
     ContextEngineBuilder,
     ContextSignalBatch,
+    build_input_append_signal,
     build_trace_phase_note_signal,
 )
 from tinysoul.loop.user.pressure import UserContextPressureRecovery
+from tinysoul.loop.context_signals import ContextSignalConsumer
 from tinysoul.loop.trap_handlers import (
     ContextPressureTrapHandler,
 )
@@ -19,6 +21,10 @@ from tinysoul.runtime import (
     RunLevel,
     RunScope,
     RuntimeTransferAction,
+    RuntimeModuleRunner,
+    RuntimeTrap,
+    RuntimeException,
+    TrapHandlerRegistry,
     SignalBus,
     TrapSnap,
 )
@@ -26,7 +32,7 @@ from tinysoul.workspace import WorkspaceEngineBuilder, WorkspaceSettings
 from tinysoul.workspace.projection import workspace_snapshot_signal
 
 
-def test_context_pressure_trap_retries_current_phase_when_trace_changes(
+async def test_context_pressure_trap_retries_current_phase_when_trace_changes(
     tmp_path: Path,
 ) -> None:
     context = (
@@ -63,7 +69,7 @@ def test_context_pressure_trap_retries_current_phase_when_trace_changes(
                 phase=CyclePhase.PHASE2,
             )
         )
-    context.consume_signals(bus)
+    await context.consume_signals(bus)
 
     result = ContextPressureTrapHandler(
         UserContextPressureRecovery(
@@ -84,7 +90,7 @@ def test_context_pressure_trap_retries_current_phase_when_trace_changes(
     assert result.transfer.target == scope.current()
 
 
-def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
+async def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
     tmp_path: Path,
 ) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
@@ -110,7 +116,7 @@ def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
         scope=scope,
         source="test",
     )
-    assert context.consume_signal_batch(
+    assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
     context.complete_preparation()
@@ -121,27 +127,38 @@ def test_workspace_trash_restore_trap_syncs_context_and_retries_module(
         scope=scope,
         source="test",
     )
-    assert context.consume_signal_batch(
+    assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(removed,))
     ) == ()
 
-    result = WorkspaceTrashRestoreTrapHandler(
-        workspace=workspace,
-        context=context,
-    ).handle(
-        TrapSnap(
-            reason=WORKSPACE_TRASH_RESTORE_REQUIRED,
-            message="restore",
-            scope=scope,
-            payload={
-                "link": "workspace:draft.md",
-                "trash_ref": trash.ref,
-            },
-        )
+    registry = TrapHandlerRegistry()
+    registry.register(
+        WORKSPACE_TRASH_RESTORE_REQUIRED, WorkspaceTrashRestoreTrapHandler(workspace),
     )
+    bus = SignalBus()
+    pending = build_input_append_signal("later input", scope=scope, source="test")
+    bus.emit(pending)
+    consumer = ContextSignalConsumer(context=context, bus=bus)
+    modules = RuntimeModuleRunner(
+        trap=RuntimeTrap(registry=registry), bus=bus,
+        consume_recovery_signals=consumer.consume_recovery,
+    )
+    attempts = 0
 
-    assert result.transfer.action is RuntimeTransferAction.RETRY
-    assert result.transfer.target == scope.current()
+    async def invoke(module_scope: RunScope) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeException(
+                reason=WORKSPACE_TRASH_RESTORE_REQUIRED, message="restore",
+                payload={"link": "workspace:draft.md", "trash_ref": trash.ref},
+            )
+        assert module_scope.current() is not None
+        assert context.working_snapshot()["workspace_resources"]
+        assert bus.peek() == (pending,)
+
+    await modules.run(scope=scope, name="restore", callback=invoke)
+    assert attempts == 2
     assert (tmp_path / "draft.md").read_text(encoding="utf-8") == "draft"
     resources = context.working_snapshot()["workspace_resources"]
     assert isinstance(resources, list)

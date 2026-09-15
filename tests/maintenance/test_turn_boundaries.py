@@ -149,7 +149,7 @@ def test_archived_memory_context_rejects_mismatched_owner_days() -> None:
         )
 
 
-def test_archived_memory_context_rejects_mismatched_turn_day() -> None:
+async def test_archived_memory_context_rejects_mismatched_turn_day() -> None:
     context = ArchivedMemoryMaintenanceContext()
     context.bind(
         target_day=DAY,
@@ -171,7 +171,7 @@ def test_archived_memory_context_rejects_mismatched_turn_day() -> None:
     )
 
     with pytest.raises(MaintenanceInvariantError, match="BusinessDay"):
-        context.prepare(
+        await context.prepare(
             TurnPreparationRequest(
                 turn_id="turn_memory",
                 turn_input="maintain memory",

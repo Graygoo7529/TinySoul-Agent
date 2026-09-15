@@ -105,7 +105,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
                     phase=CyclePhase.PHASE3,
                 )
             )
-        context.consume_signals(bus)
+        await context.consume_signals(bus)
     context.complete_preparation()
     canonical = context.seal_trace()
     workspace = _workspace(tmp_path / "workspace")
@@ -182,7 +182,7 @@ async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_complet
     assert context.seal_trace() == canonical
 
 
-def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
+async def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     tmp_path: Path,
 ) -> None:
     workspace = _workspace(tmp_path)
@@ -201,7 +201,7 @@ def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
         scope=scope,
         source="test",
     )
-    assert context.consume_signal_batch(
+    assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
     context.complete_preparation()
@@ -218,6 +218,9 @@ def test_pressure_recovery_trashes_workspace_resource_and_syncs_context(
     assert result.status is PressureRecoveryStatus.RECOVERED
     assert result.trashed_refs
     assert workspace.snapshot().resources == ()
+    assert await context.consume_signal_batch(
+        ContextSignalBatch(turn_id=turn_id, signals=result.signals)
+    ) == ()
     assert context.working_snapshot()["workspace_resources"] == []
 
 
@@ -265,7 +268,7 @@ def test_image_only_pressure_does_not_delete_workspace_files(tmp_path: Path) -> 
     assert (tmp_path / "temporary.txt").is_file()
 
 
-def test_pressure_recovery_preserves_active_action_resource_links(
+async def test_pressure_recovery_preserves_active_action_resource_links(
     tmp_path: Path,
 ) -> None:
     workspace = _workspace(tmp_path)
@@ -284,7 +287,7 @@ def test_pressure_recovery_preserves_active_action_resource_links(
         scope=scope,
         source="test",
     )
-    assert context.consume_signal_batch(
+    assert await context.consume_signal_batch(
         ContextSignalBatch(turn_id=turn_id, signals=(initial,))
     ) == ()
     context.complete_preparation()

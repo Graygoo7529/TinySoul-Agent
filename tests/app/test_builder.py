@@ -49,7 +49,7 @@ class FakeLLM:
 class _CompletionRecorder:
     completions: list[TurnCompletion] = field(default_factory=list)
 
-    def handle(self, completion: TurnCompletion) -> None:
+    async def handle(self, completion: TurnCompletion) -> None:
         self.completions.append(completion)
 
 

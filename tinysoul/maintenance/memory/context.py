@@ -7,6 +7,7 @@ from datetime import date
 
 from tinysoul.context import build_session_sync_signal
 from tinysoul.infra.json import JsonObject
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.time import BusinessDay
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
@@ -80,7 +81,7 @@ class ArchivedMemoryMaintenanceContext:
                 )
             return target_day.value, self._active_memory
 
-    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         with self._lock:
             target_day, session, workspace = self._require_binding()
         if request.business_day != target_day:
@@ -88,7 +89,9 @@ class ArchivedMemoryMaintenanceContext:
                 "Memory Turn BusinessDay does not match its archived context"
             )
         try:
-            snapshot = session.background_snapshot()
+            operations = JoinedOperations()
+            snapshot = await operations.run(session.background_snapshot)
+            operations.check_cancelled()
         except SessionError as exc:
             raise self._session_bridge.from_session_error(exc) from exc
         signals: list[Signal] = [

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import pytest
 from dataclasses import dataclass, field
+from pathlib import Path
+from threading import Event
 from typing import cast
 
 from tinysoul.context import ContextEngine, ContextEngineBuilder
@@ -21,6 +23,11 @@ from tinysoul.loop.cycle import CycleOutcome, CycleRunner
 from tinysoul.loop.trap_handlers import EndFrameTrapHandler
 from tinysoul.loop.turn import TurnRunner
 from tinysoul.infra.time import BusinessDay
+from tinysoul.session import SessionEngine, SessionSettings
+from tinysoul.session.projection import SessionTurnCompletionHandler
+from tinysoul.session.store import SessionStore
+from tinysoul.session.models import SessionTurnRecord
+from tinysoul.session.errors import SessionIOError
 from tinysoul.runtime import (
     CyclePhase,
     ObservationEvent,
@@ -54,7 +61,7 @@ async def test_task_cancellation_seals_context_and_runs_completion_before_propag
             raise AssertionError("unreachable")
 
     class Recorder:
-        def handle(self, completion: TurnCompletion) -> None:
+        async def handle(self, completion: TurnCompletion) -> None:
             records.append(completion)
 
     runner = TurnRunner(
@@ -71,6 +78,40 @@ async def test_task_cancellation_seals_context_and_runs_completion_before_propag
     assert not context.turn_active
     assert runner.active_scope is None
     assert len(records) == 1 and records[0].output is None
+
+
+@pytest.mark.parametrize("resolved_transfer", [False, True])
+async def test_unwinding_turn_boundary_still_seals_and_records(resolved_transfer: bool) -> None:
+    context = ContextEngineBuilder(system_text="test").build()
+    recorder = _CompletionRecorder([])
+    scope = _program_scope()
+    program = scope.current()
+    assert program is not None
+    transfer = RuntimeTransfer.end(program)
+
+    class BrokenCycle:
+        async def run(self, **kwargs: object) -> CycleOutcome:
+            if resolved_transfer:
+                raise RuntimeTransferInterrupt(transfer)
+            raise RuntimeError("private implementation details")
+
+    runner = TurnRunner(
+        context=context, bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, BrokenCycle()), settings=TurnSettings(),
+        completion_pipeline=TurnCompletionPipeline(recorder=recorder),
+    )
+    result = await runner.run("question", business_day=DAY, scope=scope)
+    assert not context.turn_active
+    assert runner.active_scope is None
+    assert len(recorder.completions) == 1
+    if resolved_transfer:
+        assert result.transfer is transfer
+        assert result.status is TurnOutcomeStatus.STOPPED
+    else:
+        assert result.status is TurnOutcomeStatus.FAILED
+        assert result.failure is not None
+        assert result.failure.kind == "loop.internal_failure"
+        assert "private implementation details" not in result.failure.message
 
 
 @dataclass
@@ -159,7 +200,7 @@ class _CountingCycleRunner:
 class _RetryTurnPreparation:
     calls: int = 0
 
-    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         self.calls += 1
         if self.calls == 1:
             frame = request.scope.nearest(RunLevel.TURN)
@@ -169,7 +210,7 @@ class _RetryTurnPreparation:
 
 
 class _EndProgramPreparation:
-    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         frame = request.scope.nearest(RunLevel.PROGRAM)
         assert frame is not None
         raise RuntimeTransferInterrupt(RuntimeTransfer.end(frame))
@@ -180,7 +221,7 @@ class _CompletionRecorder:
     completions: list[TurnCompletion]
     timeline: list[str] | None = None
 
-    def handle(self, completion: TurnCompletion) -> None:
+    async def handle(self, completion: TurnCompletion) -> None:
         self.completions.append(completion)
         if self.timeline is not None:
             self.timeline.append("completion")
@@ -315,7 +356,7 @@ class _FailingTurnActivity(_TurnActivity):
 
 
 class _FailingCompletion:
-    def handle(self, completion: TurnCompletion) -> None:
+    async def handle(self, completion: TurnCompletion) -> None:
         raise RuntimeException(
             reason=RUNTIME_TURN_END,
             message="Session completion failed.",
@@ -452,6 +493,114 @@ async def test_turn_completion_failure_reports_actual_failure_not_output_control
     failed = next(event for event in observations.events if event.name == "turn.failed")
     assert failed.level is ObservationLevel.NORMAL
     assert failed.payload["module"] == "session"
+
+
+async def test_failed_finish_is_recorded_before_cleanup_diagnostics_are_reported(
+    tmp_path: Path,
+) -> None:
+    session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    session.initialize_day(DAY)
+    observations = _RecordingObservations([], [])
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _: TurnOutput(text="candidate", result_id="answer"),
+        completion_pipeline=TurnCompletionPipeline(
+            handlers=(_FailingCompletion(),),
+            recorder=SessionTurnCompletionHandler(session),
+        ),
+        activity_controller=_FailingTurnActivity(remaining=0),
+        observations=observations,
+    )
+    result = await runner.run("question", business_day=DAY, scope=_program_scope())
+    assert result.context_completion is not None
+    ref = f"session:turn/{result.context_completion.turn_id}"
+    stored = SessionStore(root=session.root).load_record(ref)
+    assert isinstance(stored, SessionTurnRecord)
+    assert stored.status is result.status is TurnOutcomeStatus.FAILED
+    assert stored.output is None
+    assert stored.finish_failures == result.finish_failures
+    assert stored.failure is None  # Execution succeeded; required finish failed.
+    assert result.cleanup_diagnostics[0].resource == "turn.activity"
+    assert "turn.output" not in {event.name for event in observations.events}
+    assert session.background_snapshot(DAY).items[0].content["status"] == "failed"
+
+
+async def test_repeated_cancellation_joins_session_commit_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    session.initialize_day(DAY)
+    entered = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+    original = session.record_turn
+    committed: list[str] = []
+
+    def record(*args, **kwargs) -> None:
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(timeout=5)
+        original(*args, **kwargs)
+        committed.append("session")
+
+    monkeypatch.setattr(session, "record_turn", record)
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _: TurnOutput(text="done", result_id="answer"),
+        completion_pipeline=TurnCompletionPipeline(recorder=SessionTurnCompletionHandler(session)),
+    )
+    running = asyncio.create_task(runner.run("question", business_day=DAY, scope=_program_scope()))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        running.cancel()
+        await asyncio.sleep(0)
+        running.cancel()
+        await asyncio.sleep(0)
+        assert not running.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    assert committed == ["session"]
+    assert session.background_snapshot(DAY).items[0].content["answer"] == "done"
+    assert runner.active_scope is None
+
+
+async def test_session_write_failure_is_reported_without_replaying_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionEngine(SessionSettings(root=tmp_path / "session"))
+    session.initialize_day(DAY)
+    attempted: list[str] = []
+
+    def fail_record(*args, **kwargs) -> None:
+        attempted.append("record")
+        raise SessionIOError("private storage details")
+
+    monkeypatch.setattr(session, "record_turn", fail_record)
+    previous = _CompletionRecorder([])
+    runner = TurnRunner(
+        context=ContextEngineBuilder(system_text="sys").build(),
+        bus=SignalBus(), trap=_trap(),
+        cycle_runner=cast(CycleRunner, _OutputCycleRunner()),
+        settings=TurnSettings(max_cycles=1),
+        completion_to_output=lambda _: TurnOutput(text="candidate", result_id="answer"),
+        completion_pipeline=TurnCompletionPipeline(
+            handlers=(previous,), recorder=SessionTurnCompletionHandler(session),
+        ),
+    )
+    result = await runner.run("question", business_day=DAY, scope=_program_scope())
+    assert result.status is TurnOutcomeStatus.FAILED
+    assert len(previous.completions) == 1
+    assert attempted == ["record"]
+    assert result.finish_failures[0].kind == "session.io_failed"
+    assert "private storage details" not in result.finish_failures[0].message
+    assert session.background_snapshot(DAY).items == ()
 
 
 async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:

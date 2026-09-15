@@ -60,14 +60,21 @@ class ContextPressureTrapHandler:
         if report.changed:
             module = snap.scope.nearest(RunLevel.MODULE)
             if module is not None:
-                return TrapResult(transfer=RuntimeTransfer.retry(module))
+                return TrapResult(
+                    transfer=RuntimeTransfer.retry(module), signals=report.signals,
+                )
             phase = snap.scope.nearest(RunLevel.PHASE)
             if phase is not None:
-                return TrapResult(transfer=RuntimeTransfer.retry(phase))
+                return TrapResult(
+                    transfer=RuntimeTransfer.retry(phase), signals=report.signals,
+                )
         turn = snap.scope.nearest(RunLevel.TURN)
         if turn is not None:
-            return TrapResult(transfer=RuntimeTransfer.end(turn))
-        return TrapResult(transfer=RuntimeTransfer.end(_nearest(snap, RunLevel.PROGRAM)))
+            return TrapResult(transfer=RuntimeTransfer.end(turn), signals=report.signals)
+        return TrapResult(
+            transfer=RuntimeTransfer.end(_nearest(snap, RunLevel.PROGRAM)),
+            signals=report.signals,
+        )
 
 def _nearest(snap: TrapSnap, level: RunLevel) -> RunFrame:
     frame = snap.scope.nearest(level)

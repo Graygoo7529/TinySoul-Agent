@@ -19,6 +19,7 @@ from tinysoul.infra.continuation import (
 )
 from tinysoul.infra.json import JsonObject, dumps_json
 from tinysoul.infra.time import BusinessDay
+from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .background import (
     project_overflow_background,
@@ -258,6 +259,9 @@ class SessionEngine:
         day: BusinessDay,
         output: SessionOutputRecord | None,
         exhausted: bool,
+        status: TurnOutcomeStatus,
+        failure: TurnFailure | None = None,
+        finish_failures: tuple[TurnFailure, ...] = (),
     ) -> None:
         with self._lock:
             self._require_day(day)
@@ -267,6 +271,9 @@ class SessionEngine:
                 day=day,
                 output=output,
                 exhausted=exhausted,
+                status=status,
+                failure=failure,
+                finish_failures=finish_failures,
             )
             validate_turn_record(record)
             stored = validate_turn_record(self._store.save_record_if_absent(record))

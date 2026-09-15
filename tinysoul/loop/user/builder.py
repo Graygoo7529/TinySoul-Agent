@@ -235,13 +235,11 @@ class UserTurnBuilder:
                 )
             ),
             completion_pipeline=TurnCompletionPipeline(
-                (
-                    SessionTurnCompletionHandler(
-                        self._session,
-                        runtime_bridge=session_bridge,
-                    ),
-                    *self._completion_handlers,
-                )
+                handlers=tuple(self._completion_handlers),
+                recorder=SessionTurnCompletionHandler(
+                    self._session,
+                    runtime_bridge=session_bridge,
+                ),
             ),
             activity_controller=process_jobs,
             observations=self._observations,

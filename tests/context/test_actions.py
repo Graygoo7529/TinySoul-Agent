@@ -35,7 +35,7 @@ async def test_context_inspect_continuation_is_visible_only() -> None:
             cycle_id="cycle_1",
         )
     )
-    context.consume_signals(bus)
+    await context.consume_signals(bus)
     context.compress()
     nodes = context.inspect_trace(f"turn:trace@{turn_id}")["nodes"]
     assert isinstance(nodes, list)

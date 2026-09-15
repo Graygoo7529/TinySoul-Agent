@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tinysoul.context import ContextEngine, ControlResult
+from tinysoul.context import ContextEngine, ContextSignalBatch, ControlResult
+from tinysoul.context.signals import SIGNAL_NAMESPACE
 from tinysoul.context.errors import ContextError
-from tinysoul.runtime import RunScope, RuntimeModuleRunner, Signal, SignalBus
+from tinysoul.runtime import RunLevel, RunScope, RuntimeModuleRunner, Signal, SignalBus
 from tinysoul.context.runtime_bridge import RuntimeContextBridge
+from .errors import LoopInvariantError
+from .runtime_bridge import RuntimeLoopBridge
 
 
 @dataclass(frozen=True)
@@ -18,6 +21,32 @@ class ContextSignalConsumer:
     bus: SignalBus
     module_runner: RuntimeModuleRunner | None = None
     runtime_bridge: RuntimeContextBridge = RuntimeContextBridge()
+
+    async def consume_recovery(self, signals: tuple[Signal, ...], scope: RunScope) -> None:
+        """Install the Trap's own updates before retry, without draining new input."""
+        context_signals: list[Signal] = []
+        for signal in signals:
+            if signal.name.startswith(f"{SIGNAL_NAMESPACE}."):
+                context_signals.append(signal)
+            else:
+                self.bus.emit(signal)
+        if not context_signals:
+            return
+        turn = scope.nearest(RunLevel.TURN)
+        if turn is None:
+            raise RuntimeLoopBridge().from_loop_error(
+                LoopInvariantError("Recovery Context updates require a Turn frame")
+            )
+        try:
+            results = await self.context.consume_signal_batch(
+                ContextSignalBatch(turn_id=turn.name, signals=tuple(context_signals))
+            )
+        except ContextError as exc:
+            raise self.runtime_bridge.from_context_error(exc) from exc
+        if results:
+            raise RuntimeLoopBridge().from_loop_error(
+                LoopInvariantError("Context rejected an internal recovery update")
+            )
 
     async def emit_and_consume(
         self,
@@ -41,7 +70,7 @@ class ContextSignalConsumer:
 
         async def commit(_module_scope: RunScope) -> tuple[ControlResult, ...]:
             try:
-                return tuple(self.context.consume_signal_batch(batch))
+                return await self.context.consume_signal_batch(batch)
             except ContextError as exc:
                 raise self.runtime_bridge.from_context_error(exc) from exc
 

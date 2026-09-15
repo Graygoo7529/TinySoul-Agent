@@ -53,10 +53,12 @@ def build_turn_kernel(
     """Compose Context, Action and LLM facades into one TurnRunner."""
 
     emitter = observations or NullObservationEmitter()
+    recovery_consumer = ContextSignalConsumer(context=context, bus=bus)
     module_runner = RuntimeModuleRunner(
         trap=trap,
         bus=bus,
         observations=emitter,
+        consume_recovery_signals=recovery_consumer.consume_recovery,
     )
     signal_consumer = ContextSignalConsumer(
         context=context,

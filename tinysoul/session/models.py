@@ -10,11 +10,13 @@ from time import time_ns
 
 from tinysoul.action import ActionInvariantError, ActionLocalFailure
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
+from tinysoul.loop.errors import LoopContractError
+from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .errors import SessionContractError
 
 
-SESSION_RECORD_SCHEMA_VERSION = 5
+SESSION_RECORD_SCHEMA_VERSION = 6
 SESSION_MANIFEST_SCHEMA_VERSION = 2
 _TURN_REF = re.compile(r"^session:turn/([a-z0-9_-]+)$")
 _SUMMARY_REF = re.compile(r"^session:summary/([a-z0-9_-]+)$")
@@ -179,6 +181,9 @@ class SessionTurnRecord:
     output: SessionOutputRecord | None
     exhausted: bool
     actions: tuple[SessionActionRecord, ...]
+    status: TurnOutcomeStatus
+    failure: TurnFailure | None = None
+    finish_failures: tuple[TurnFailure, ...] = ()
     recorded_at_ns: int = field(default_factory=time_ns)
     kind: SessionRecordKind = field(default=SessionRecordKind.TURN, init=False)
     schema_version: int = field(default=SESSION_RECORD_SCHEMA_VERSION, init=False)
@@ -205,6 +210,16 @@ class SessionTurnRecord:
             raise SessionContractError("Session Turn output is invalid")
         if not isinstance(self.exhausted, bool):
             raise SessionContractError("Session Turn exhausted must be a boolean")
+        if not isinstance(self.status, TurnOutcomeStatus):
+            raise SessionContractError("Session Turn status must be typed")
+        if self.failure is not None and not isinstance(self.failure, TurnFailure):
+            raise SessionContractError("Session Turn failure must be typed")
+        if any(not isinstance(item, TurnFailure) for item in self.finish_failures):
+            raise SessionContractError("Session Turn finish failures must be typed")
+        if (self.status is TurnOutcomeStatus.FAILED) != bool(self.failure or self.finish_failures):
+            raise SessionContractError("Session Turn failure and status disagree")
+        if (self.status is TurnOutcomeStatus.ANSWERED) != (self.output is not None):
+            raise SessionContractError("Only an answered Session Turn has output")
         actions = tuple(self.actions)
         if any(not isinstance(item, SessionActionRecord) for item in actions):
             raise SessionContractError("Session Turn actions must be typed records")
@@ -229,6 +244,9 @@ class SessionTurnRecord:
             "background_links": list(self.background_links),
             "output": self.output.to_json() if self.output is not None else None,
             "exhausted": self.exhausted,
+            "status": self.status.value,
+            "failure": self.failure.to_json() if self.failure is not None else None,
+            "finish_failures": [item.to_json() for item in self.finish_failures],
             "actions": [item.to_json() for item in self.actions],
         }
 
@@ -248,6 +266,9 @@ class SessionTurnRecord:
                 "background_links",
                 "output",
                 "exhausted",
+                "status",
+                "failure",
+                "finish_failures",
                 "actions",
             },
             "Session Turn record",
@@ -270,8 +291,36 @@ class SessionTurnRecord:
                 else None
             ),
             exhausted=_required_bool(value, "exhausted"),
+            status=_turn_status(value),
+            failure=_turn_failure(value["failure"]) if value["failure"] is not None else None,
+            finish_failures=tuple(_turn_failure(item) for item in _required_list(value, "finish_failures")),
             actions=tuple(SessionActionRecord.from_json(item) for item in raw_actions),
         )
+
+
+def _turn_status(value: JsonObject) -> TurnOutcomeStatus:
+    try:
+        return TurnOutcomeStatus(_required_text(value, "status"))
+    except ValueError as exc:
+        raise SessionContractError("Session Turn status is invalid") from exc
+
+
+def _turn_failure(value: object) -> TurnFailure:
+    item = _exact_object(
+        value, {"reason", "message", "module", "kind", "feedback"},
+        "Session Turn failure",
+    )
+    module = item["module"]
+    kind = item["kind"]
+    if not isinstance(module, str) or not isinstance(kind, str):
+        raise SessionContractError("Session Turn failure identity is invalid")
+    try:
+        return TurnFailure(
+            reason=_required_text(item, "reason"), message=_required_text(item, "message"),
+            module=module, kind=kind, feedback=_string_list(item["feedback"], "feedback"),
+        )
+    except LoopContractError as exc:
+        raise SessionContractError("Session Turn failure is invalid") from exc
 
 
 @dataclass(frozen=True)

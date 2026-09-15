@@ -105,6 +105,7 @@ def project_turn(record: SessionTurnRecord) -> JsonObject:
     value: JsonObject = {
         "kind": "session_turn",
         "ref": record.ref,
+        "status": record.status.value,
         "ask": [item.text for item in record.inputs],
     }
     if record.output is not None:
@@ -113,6 +114,10 @@ def project_turn(record: SessionTurnRecord) -> JsonObject:
             value["references"] = list(record.output.references)
     if record.exhausted:
         value["exhausted"] = True
+    if record.failure is not None:
+        value["failure"] = record.failure.to_json()
+    if record.finish_failures:
+        value["finish_failures"] = [item.to_json() for item in record.finish_failures]
     outcomes = action_outcomes(record)
     if outcomes:
         value["actions"] = {

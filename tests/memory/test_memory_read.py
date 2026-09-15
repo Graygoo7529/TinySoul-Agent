@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
@@ -9,7 +10,7 @@ from typing import cast
 
 import pytest
 
-from tinysoul.infra import EmbeddingBatch
+from tinysoul.infra import EmbeddingBatch, EmbeddingError
 from tinysoul.infra.time import BusinessDay
 from tinysoul.memory import (
     ActiveMemoryBackgroundEntryProvider,
@@ -116,7 +117,7 @@ def test_active_memory_and_non_evictable_current_latest_background(
     assert "Daily evidence" in latest
 
 
-def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> None:
+async def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> None:
     memory = _memory(tmp_path)
     daily = memory.write_document(
         _daily(DAY.value, "0" * 64),
@@ -141,10 +142,10 @@ def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> Non
     )
     memory.write_document(note, expected_absent=True)
 
-    query = memory.inspect(MemoryInspectRequest(query="active memory design"))
+    query = await memory.inspect(MemoryInspectRequest(query="active memory design"))
     assert {item.link for item in query.items} >= {str(note.link), str(fact.link)}
 
-    neighborhood = memory.inspect(MemoryInspectRequest(memory_link=concept.link))
+    neighborhood = await memory.inspect(MemoryInspectRequest(memory_link=concept.link))
     assert neighborhood.outgoing_count == 1
     assert neighborhood.backlink_count == 2
     assert {item.link for item in neighborhood.items} >= {
@@ -152,7 +153,7 @@ def test_documents_inspect_backlinks_recall_and_redirects(tmp_path: Path) -> Non
         str(fact.link),
         str(note.link),
     }
-    facts_only = memory.inspect(
+    facts_only = await memory.inspect(
         MemoryInspectRequest(
             memory_link=concept.link,
             kinds=(MemoryKind.FACT,),
@@ -222,14 +223,13 @@ def test_changeset_validates_cross_document_links_and_commits_atomically(
         )
 
 
-def test_semantic_inspect_uses_deletable_embedding_cache(tmp_path: Path) -> None:
+async def test_semantic_inspect_uses_deletable_embedding_cache(tmp_path: Path) -> None:
     client = _EmbeddingClient()
     memory = _memory(tmp_path, embedding_client=client)
     memory.write_document(_entity("semantic-target", content="Unrelated words"), expected_absent=True)
     memory.write_document(_entity("other", content="Another document"), expected_absent=True)
-    memory.refresh_embeddings()
 
-    result = memory.inspect(MemoryInspectRequest(query="orbit"))
+    result = await memory.inspect(MemoryInspectRequest(query="orbit"))
     assert result.items[0].link == "memory:entity/semantic-target"
     assert "semantic" in result.items[0].reasons
     cache = tmp_path / "memory" / ".tinysoul" / "embedding-cache.json"
@@ -237,7 +237,65 @@ def test_semantic_inspect_uses_deletable_embedding_cache(tmp_path: Path) -> None
     assert "secret" not in cache.read_text(encoding="utf-8")
 
 
-def test_link_inspect_uses_semantic_related_with_lexical_fallback_and_kind_filter(
+async def test_cancelled_embedding_refresh_preserves_committed_memory_and_cache(
+    tmp_path: Path,
+) -> None:
+    class BlockingClient(_EmbeddingClient):
+        def __init__(self) -> None:
+            self.block = False
+            self.started = asyncio.Event()
+            self.closed = asyncio.Event()
+
+        async def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+            if self.block:
+                self.started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.closed.set()
+            return await super().embed(texts)
+
+    client = BlockingClient()
+    memory = _memory(tmp_path, embedding_client=client)
+    document = _entity("semantic-target")
+    memory.write_document(document, expected_absent=True)
+    await memory.inspect(MemoryInspectRequest(query="orbit"))
+    cache = tmp_path / "memory" / ".tinysoul" / "embedding-cache.json"
+    previous_cache = cache.read_bytes()
+    stored = memory.read_document(document.link)
+    updated = replace(document, content="New durable knowledge.")
+    client.block = True
+    memory.write_document(updated, expected_digest=stored.digest)
+    task = asyncio.create_task(memory.inspect(MemoryInspectRequest(query="orbit")))
+    await asyncio.wait_for(client.started.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert client.closed.is_set()
+    assert memory.read_document(document.link).document.content == updated.content
+    assert cache.read_bytes() == previous_cache
+    client.block = False
+    await memory.inspect(MemoryInspectRequest(query="orbit"))
+    assert cache.read_bytes() != previous_cache
+
+
+async def test_embedding_failure_falls_back_to_current_lexical_facts(
+    tmp_path: Path,
+) -> None:
+    class FailingClient(_EmbeddingClient):
+        async def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+            raise EmbeddingError("Unavailable")
+
+    memory = _memory(tmp_path, embedding_client=FailingClient())
+    document = _entity("durable", content="Fresh lexical knowledge.")
+    memory.write_document(document, expected_absent=True)
+    result = await memory.inspect(MemoryInspectRequest(query="Fresh lexical"))
+    assert result.items[0].link == str(document.link)
+    assert "semantic" not in result.items[0].reasons
+    assert memory.read_document(document.link).document.content == document.content
+
+
+async def test_link_inspect_uses_semantic_related_with_lexical_fallback_and_kind_filter(
     tmp_path: Path,
 ) -> None:
     memory = MemoryEngine(
@@ -251,7 +309,7 @@ def test_link_inspect_uses_semantic_related_with_lexical_fallback_and_kind_filte
     for document in (source, direct, semantic_target, lexical_target):
         memory.write_document(document, expected_absent=True)
 
-    result = memory.inspect(
+    result = await memory.inspect(
         MemoryInspectRequest(
             memory_link=source.link,
             kinds=(MemoryKind.ENTITY,),
@@ -289,7 +347,7 @@ def test_memory_config_uses_current_sections_and_rejects_old_names(tmp_path: Pat
         parse_memory_settings({"search": {}}, project_root=tmp_path)
 
 
-def test_inspect_enforces_page_budget_and_continues_without_duplicates(
+async def test_inspect_enforces_page_budget_and_continues_without_duplicates(
     tmp_path: Path,
 ) -> None:
     memory = MemoryEngine(
@@ -310,10 +368,10 @@ def test_inspect_enforces_page_budget_and_continues_without_duplicates(
             expected_absent=True,
         )
 
-    first = memory.inspect(MemoryInspectRequest(query="memory", limit=5))
+    first = await memory.inspect(MemoryInspectRequest(query="memory", limit=5))
     assert first.continuation is not None
     assert 0 < len(first.items) < 5
-    second = memory.inspect(
+    second = await memory.inspect(
         MemoryInspectRequest(
             query="memory",
             limit=5,
@@ -325,7 +383,7 @@ def test_inspect_enforces_page_budget_and_continues_without_duplicates(
     )
     assert len(json.dumps(first.to_json(), ensure_ascii=False, separators=(",", ":"))) <= 650
     with pytest.raises(MemoryContractError, match="stale"):
-        memory.inspect(
+        await memory.inspect(
             MemoryInspectRequest(
                 query="different query",
                 limit=5,
@@ -334,7 +392,7 @@ def test_inspect_enforces_page_budget_and_continues_without_duplicates(
         )
 
 
-def test_inspect_tie_breaks_by_persistent_activity(tmp_path: Path) -> None:
+async def test_inspect_tie_breaks_by_persistent_activity(tmp_path: Path) -> None:
     memory = _memory(tmp_path)
     high = replace(
         _entity("ranking-high", content="ranking memory"),
@@ -344,7 +402,7 @@ def test_inspect_tie_breaks_by_persistent_activity(tmp_path: Path) -> None:
     memory.write_document(low, expected_absent=True)
     memory.write_document(high, expected_absent=True)
 
-    result = memory.inspect(MemoryInspectRequest(query="ranking memory", limit=2))
+    result = await memory.inspect(MemoryInspectRequest(query="ranking memory", limit=2))
 
     assert result.items[0].link == str(high.link)
     assert result.items[0].activity["activation_count"] == 9
@@ -495,7 +553,7 @@ class _EmbeddingClient:
     identity = "fake|embedding|2"
     max_batch_size = 2
 
-    def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+    async def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
         vectors = tuple(
             (1.0, 0.0)
             if text == "orbit" or "semantic-target" in text
@@ -506,7 +564,7 @@ class _EmbeddingClient:
 
 
 class _LinkSemanticSearch:
-    def similarities(
+    async def similarities(
         self,
         query: str,
         documents: Mapping[MemoryLink, str],

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from tinysoul.context import WorkspaceResource, WorkspaceSnapshot, build_workspace_sync_signal
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.runtime import RunScope, RuntimeException, Signal
 
 from .engine import WorkspaceEngine
@@ -68,10 +69,12 @@ class WorkspaceTurnPreparationHandler:
     workspace: WorkspaceEngine
     runtime_bridge: WorkspaceRuntimeBridge
 
-    def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
+    async def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         try:
             self.workspace.require_day(request.business_day)
-            result = self.workspace.reconcile()
+            operations = JoinedOperations()
+            result = await operations.run(self.workspace.reconcile)
+            operations.check_cancelled()
         except WorkspaceError as exc:
             raise self.runtime_bridge.from_workspace_error(exc) from exc
         if not result.complete:

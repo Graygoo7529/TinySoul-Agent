@@ -316,6 +316,7 @@ class CycleRunner:
             )
         while True:
             try:
+                await self._signal_consumer.consume(scope=scope)
                 return _PhaseRun(value=(await phase()))
             except (TaskCancelled, ActionExecutionCancelled):
                 # A Turn-level cancel fired while a phase LLM call was in

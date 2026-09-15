@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,6 +40,7 @@ def test_memory_projection_expands_summary_to_chronological_turn_facts(
                 text=f"answer {index} " + "x" * 700,
                 references=("workspace:source.md",),
             ),
+            status=TurnOutcomeStatus.ANSWERED,
             exhausted=False,
             day=DAY,
         )

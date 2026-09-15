@@ -233,7 +233,7 @@ class MemoryMaintenanceActionController:
         if name == "maintenance.memory.read_workspace":
             return self._read_workspace(state, params)
         if name == "maintenance.memory.inspect":
-            return self._inspect(state, params)
+            return await self._inspect(state, params)
         if name == "maintenance.memory.recall":
             return self._recall(state, params)
         if name == "maintenance.memory.stage_create":
@@ -319,10 +319,10 @@ class MemoryMaintenanceActionController:
             "digest": read.digest,
         }
 
-    def _inspect(self, state: _MemoryTaskState, params: JsonObject) -> JsonObject:
+    async def _inspect(self, state: _MemoryTaskState, params: JsonObject) -> JsonObject:
         request = _inspect_request(params)
         documents = self._draft_documents(state)
-        result = self._memory.inspect(
+        result = await self._memory.inspect(
             request,
             documents=documents,
             page_overhead=_inspection_ref_overhead(),

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from tinysoul.context import ContextEngine, ContextSignalBatch
+from tinysoul.context import ContextEngine
 from tinysoul.context.errors import ContextError
 from tinysoul.infra.json import JsonValue
-from tinysoul.runtime import RunLevel, RunScope
+from tinysoul.runtime import RunLevel, RunScope, Signal
 from tinysoul.workspace import WorkspaceEngine
 from tinysoul.workspace.errors import WorkspaceError
 from tinysoul.workspace.pressure import WorkspacePressureReclaimer
@@ -46,6 +46,7 @@ class UserContextPressureRecovery:
                 protected_links=_protected_workspace_links(payload),
                 turn_id=_turn_id(scope),
             )
+            signals: tuple[Signal, ...] = ()
             if workspace_report.changed:
                 signal = workspace_snapshot_signal(
                     self._workspace.snapshot(),
@@ -53,26 +54,7 @@ class UserContextPressureRecovery:
                     scope=scope,
                     source="loop.context_pressure",
                 )
-                results = self._context.consume_signal_batch(
-                    ContextSignalBatch(turn_id=_turn_id(scope), signals=(signal,))
-                )
-                if results:
-                    rollback_error = ""
-                    try:
-                        for trash_ref in reversed(workspace_report.trashed_refs):
-                            self._workspace.restore_resource(trash_ref)
-                    except WorkspaceError as exc:
-                        rollback_error = f"; rollback failed: {exc}"
-                    return PressureRecoveryResult(
-                        status=PressureRecoveryStatus.FAILED,
-                        reclaimed_chars=context_report.reclaimed_chars,
-                        evicted_background_links=context_report.evicted_background_links,
-                        trashed_refs=workspace_report.trashed_refs,
-                        error=(
-                            "Context rejected the pressure-recovery Workspace snapshot"
-                            + rollback_error
-                        ),
-                    )
+                signals = (signal,)
             reclaimed = (
                 context_report.reclaimed_chars + workspace_report.reclaimed_chars
             )
@@ -86,6 +68,7 @@ class UserContextPressureRecovery:
                 reclaimed_chars=reclaimed,
                 evicted_background_links=context_report.evicted_background_links,
                 trashed_refs=workspace_report.trashed_refs,
+                signals=signals,
             )
         except (ContextError, WorkspaceError) as exc:
             return PressureRecoveryResult(

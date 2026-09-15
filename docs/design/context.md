@@ -24,7 +24,7 @@ Session Background 只在 Turn preparation 期间通过版本化全量 signal �
 
 WorkingContext 是原位替换的当前快照，只向模型呈现 milestones、todos 与 Workspace resource Link/summary。Milestone 是少量、可复用的事实寄存器：可以记录有价值的完成、尝试、失败、阻塞、测量值、决定、来源 Link、版本/digest 或局部成果，供后续 Cycle 防止遗忘；它不是 todo 的镜像、进度徽章或对模型的自我确认。失败或仅尝试过的工作必须明确记录其状态，不能登记为完成事实。典型事实包括已计算的平均值、正在编辑的文档 Link/当前范围/digest、权威网址，或某次写入在已知边界失败。只有事实发生变化时才更新。Workspace revision、digest 和 Context 内部同步标识不进入模型投影。
 
-所有 Context 变更先从 SignalBus 捕获当前 Turn 的作用域化批次，再完成解析、资源准备和整体校验，最后一次提交。失败不得留下半提交状态。
+Context 更新从 SignalBus 捕获当前 Turn 的固定批次；解析、候选校验与背景读取全部结束后才安装。准备入口和批次消费均为 async；短背景读取使用 joined owner 操作，取消时等待读取结束且不安装候选。默认背景的 catalog、provider 索引和正文也先完整准备，再一起安装，不在加载失败前暴露部分新目录。恢复信号以独立固定批次由内核提交，不从 Trap handler 直接修改视图。此处仍使用现有 Background/Working owner，尚未实现通用 Segment SPI。
 
 ## TurnTraceHeap
 
@@ -55,9 +55,9 @@ TurnTraceHeap 是当前 Turn 的 append-only 运行事实：
 
 ## Turn Completion
 
-`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、Working 终态、Background links 和 `SealedTurnTrace`。Sealed trace 只含 turn id 与有序 canonical entries，不携带 heap topology。
+`end_turn()` 产生 typed immutable `ContextTurnCompletion`，包含 Turn identity、有序输入文本与接收时间、Working 终态、Background links 和 `SealedTurnTrace`。Sealed trace 保存 turn id、有序 canonical entries 及类型化 Action 执行事实，不携带 heap topology。
 
-该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界验证 Action call/result 一一配对并投影 v4 业务记录；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
+该对象只在 Loop completion pipeline 中传递。Session 在自己的提交边界直接投影类型化 Action 事实及 Turn 终态为 v6 业务记录，不从模型消息猜测 call/result 配对；Context 不生成持久 `TurnSummary`、trace digest 或 JSON canonical trace。Session 提交后也不保留当前 Turn trace。
 
 ## 失败边界
 

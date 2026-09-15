@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from pathlib import Path
 
 import pytest
@@ -61,6 +63,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
             text="report created",
             references=("workspace:report.md",),
         ),
+        status=TurnOutcomeStatus.ANSWERED,
         exhausted=False,
     )
 
@@ -68,6 +71,7 @@ def test_background_is_clean_and_inspect_expands_turn_actions(tmp_path: Path) ->
     assert item == {
         "kind": "session_turn",
         "ref": "session:turn/turn_actions",
+        "status": "answered",
         "user_ask": ["create a report"],
         "answer": "report created",
         "references": ["workspace:report.md"],
@@ -113,6 +117,7 @@ def test_inspect_uses_opaque_continuation_for_oversized_content(
         completion("turn_large", ask="q" * 3000),
         day=DAY,
         output=SessionOutputRecord(text="a" * 3000),
+        status=TurnOutcomeStatus.ANSWERED,
         exhausted=False,
     )
 
@@ -142,6 +147,7 @@ def test_summary_heap_keeps_recent_turn_and_expands_one_level(
             completion(f"turn_{index}", ask=f"question {index}"),
             day=DAY,
             output=SessionOutputRecord(text="x" * 1000),
+            status=TurnOutcomeStatus.ANSWERED,
             exhausted=False,
         )
 
@@ -175,6 +181,7 @@ def test_reconcile_adopts_an_uncommitted_turn_record(tmp_path: Path) -> None:
             record,
             day=DAY,
             output=None,
+            status=TurnOutcomeStatus.EXHAUSTED,
             exhausted=True,
         )
     )
@@ -192,6 +199,7 @@ def test_inspect_rejects_record_outside_authoritative_graph(tmp_path: Path) -> N
             completion(turn_id),
             day=DAY,
             output=None,
+            status=TurnOutcomeStatus.EXHAUSTED,
             exhausted=True,
         )
     children = (
@@ -221,6 +229,7 @@ async def test_session_inspect_executor_returns_foldable_origin(
         completion("turn_executor", ask="q" * 3000),
         day=DAY,
         output=None,
+        status=TurnOutcomeStatus.EXHAUSTED,
         exhausted=True,
     )
     catalog = ActionCatalogLoader().load(Path("tinysoul/action/catalog"))
@@ -259,6 +268,7 @@ def test_archive_snapshot_contains_only_validated_roots(tmp_path: Path) -> None:
         completion("turn_archive"),
         day=DAY,
         output=SessionOutputRecord(text="done"),
+        status=TurnOutcomeStatus.ANSWERED,
         exhausted=False,
     )
     archive = (tmp_path / "archive" / "session").resolve()

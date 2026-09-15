@@ -9,7 +9,8 @@ from pathlib import Path
 import secrets
 
 from tinysoul.infra.time import BusinessDay
-from tinysoul.infra import EmbeddingClient, EmbeddingError
+from tinysoul.infra import EmbeddingClient
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.infra.json import JsonObject, to_json_object
 
 from .active import (
@@ -33,7 +34,7 @@ from .documents import (
     PersistentMemoryDocument,
     StoredMemoryDocument,
 )
-from .errors import MemoryContractError, MemoryError, MemoryInvariantError
+from .errors import MemoryContractError, MemoryInvariantError
 from .embeddings import MemoryEmbeddingIndex
 from .links import MemoryKind, MemoryLink
 from .store import MemoryStore
@@ -191,15 +192,20 @@ class MemoryEngine:
             )
         return tuple(sorted(result, key=str))
 
-    def inspect(
+    async def inspect(
         self,
         request: MemoryInspectRequest,
         *,
         documents: Sequence[PersistentMemoryDocument] = (),
         page_overhead: int = 0,
     ) -> MemoryInspectResult:
-        snapshot = self._catalog.snapshot_for(documents) if documents else None
-        return self._catalog.inspect(
+        operations = JoinedOperations()
+        snapshot = (
+            await operations.run(lambda: self._catalog.snapshot_for(documents))
+            if documents else self._catalog.snapshot
+        )
+        operations.check_cancelled()
+        return await self._catalog.inspect(
             request,
             snapshot=snapshot,
             page_overhead=page_overhead,
@@ -331,29 +337,11 @@ class MemoryEngine:
             current_generation=self._catalog.snapshot.generation,
         )
         self._catalog.rebuild()
-        self.refresh_embeddings(outcome.changed_links)
         return outcome
 
     def recover(self) -> None:
         self._transactions.recover()
         self._catalog.rebuild()
-
-    def refresh_embeddings(self, changed_links: tuple[MemoryLink, ...] = (), scope: object | None = None) -> None:
-        del changed_links, scope
-        if self._embeddings is None:
-            return
-        documents = {
-            link: (
-                entry.digest,
-                _embedding_text(link, entry.display, entry.content),
-            )
-            for link, entry in self._catalog.snapshot.entries.items()
-            if entry.status == "active"
-        }
-        try:
-            self._embeddings.refresh(documents)
-        except (EmbeddingError, MemoryError):
-            return
 
     def _require_active(self) -> ActiveMemoryStore:
         if self._active is None:
@@ -372,13 +360,3 @@ def _date(value: date | BusinessDay) -> date:
 def _metadata_date(document: object, name: str) -> str:
     value = getattr(document, name)
     return value.isoformat()
-
-
-def _embedding_text(link: MemoryLink, display: str, content: str) -> str:
-    prefix = f"{link}\n{display}\n"
-    remaining = max(0, 3_000 - len(prefix))
-    if len(content) <= remaining:
-        return prefix + content
-    head = remaining // 2
-    tail = remaining - head
-    return f"{prefix}{content[:head]}\n...\n{content[-tail:]}"

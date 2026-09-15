@@ -131,7 +131,7 @@ timeout_seconds = 30.0
 embedding_cache_max_chars = 16000000
 ```
 
-密钥只从专用的 `GLM_EMBEDDING_API_KEY` 环境变量读取，不能复用 `GLM_API_KEY`，也不能写入 TOML 或缓存。Maintenance commit 后为 active 文档批量刷新派生向量；User inspect 只对 query 临时请求向量，不写业务 Markdown或派生缓存。缓存按 provider/model/dimensions identity 和文档 digest 复用；缺失、损坏、不匹配、请求失败或维度异常时回退 lexical/relations/backlinks，不影响 exact recall。Embedding-3 的当前端点、批量和维度限制以智谱官方文档为准：<https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入>。
+密钥只从专用的 `GLM_EMBEDDING_API_KEY` 环境变量读取，不能复用 `GLM_API_KEY`，也不能写入 TOML 或缓存。Markdown commit 只提交文档和重建 catalog，不调用 embedding 网络。inspect 捕获固定 catalog 视图，异步补齐或刷新本次候选的向量，再计算 query 向量；它可以更新派生缓存，不写业务 Markdown。缓存按 provider/model/dimensions identity 和实际 embedding 输入文本的 digest 复用，缓存 schema v2 不读取旧缓存格式；缺失、损坏、不匹配、请求失败或维度异常时回退 lexical/relations/backlinks，不影响 exact recall。刷新期间的候选向量全部生成后才原子写入缓存并安装内存视图；网络取消直接传播，不安装半批向量。已经开始的短本地缓存写入先等待结束，再传播取消。并发检索串行访问同一 cache owner，避免候选刷新互相覆盖。Embedding-3 的当前端点、批量和维度限制以智谱官方文档为准：<https://docs.bigmodel.cn/api-reference/模型-api/文本嵌入>。
 
 ## Memory Maintenance
 
@@ -185,7 +185,7 @@ Memory changeset 为每份文档记录 expected digest 或 expected absent，绑
 2. 确认所有知识文档在前、daily 在最后；
 3. 在首个目标写入前验证完整暂存文档集合与最终引用；
 4. 按稳定顺序逐份原子替换，daily 最后写入；
-5. 所有目标达到新 digest 后把 ready journal 原子改名为 completed，再清理 journal、重建 catalog，并 best-effort 刷新 embedding cache。
+5. 所有目标达到新 digest 后把 ready journal 原子改名为 completed，再清理 journal、重建 catalog。派生 embedding cache 由后续异步 inspect 按需刷新，网络失败不会改变文档提交结果。
 
 任何 staged 文档、引用或 CAS 在预检阶段失败时一份目标都不写。进程在 preparing 阶段中断时只清理临时目录；在 ready 的部分替换阶段中断时，下一次 Memory recovery 根据每个目标的 new digest 幂等前滚剩余操作；在 completed 清理阶段中断时只重试清理，不重复业务写入。因此 User Turn 不会在正常 Program 串行边界观察到 Maintenance 的半提交状态。事务只承诺项目现有的进程/文件操作恢复语义，不夸大为 fsync/power-loss durability。
 

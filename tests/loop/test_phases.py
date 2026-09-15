@@ -266,7 +266,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
         .build()
     )
     turn_id = context.begin_turn("review Home")
-    context.prepare_default_background(date(2026, 7, 14))
+    await context.prepare_default_background(date(2026, 7, 14))
     action = _action_engine()
     llm = FakeLLM(
         (
@@ -356,7 +356,7 @@ async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the
     context.complete_preparation()
     context.end_turn()
     context.begin_turn("next turn")
-    context.prepare_default_background(date(2026, 7, 14))
+    await context.prepare_default_background(date(2026, 7, 14))
     assert "home:skills@review" not in context.background_links()
 
 

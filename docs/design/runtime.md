@@ -2,7 +2,7 @@
 
 ## 定位
 
-RuntimeModuleRunner 提供异步调用入口，并支持同步 owner 回调和异步模型/Action 回调；它只负责可重放 frame 的 Trap 与转移，不替 owner 创建工作线程。回调的输入、返回值和控制异常保持原语义。
+RuntimeModuleRunner 提供异步调用入口，并支持同步 owner 回调和异步模型/Action 回调；它只负责可重放 frame 的 Trap 与转移，不替 owner 创建工作线程。回调的输入、返回值和控制异常保持原语义。恢复产生 Signal 时，可由装配方注入异步消费者，在重试前完成本批业务更新；没有消费者时仍交给 SignalBus。Runtime 不解释 Signal payload，也不访问业务 owner。
 
 Runtime 是 TinySoul 的底层运行控制协议模块。它负责描述程序运行位置、异常陷入、运行转移、运行中断、内部信号分发和非控制性观察事件协议。
 

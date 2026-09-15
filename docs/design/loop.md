@@ -36,7 +36,7 @@ tinysoul/loop/
 
 ## 通用 Turn
 
-Turn/Cycle/Phase 与内部 LLM Action 使用同一异步调用链。Action 和 LLM 的协作取消在 Cycle 边界解释为控制意图；普通 asyncio task 取消由 Turn 收尾后原样传播。当前 Program 调度、准备/完成 handler 和多数 owner I/O 仍为同步接口，这些部分不具备完整的异步 SDK 生命周期。
+Turn/Cycle/Phase 与内部 LLM Action 使用同一异步调用链。Action 和 LLM 的协作取消在 Cycle 边界解释为控制意图；普通 asyncio task 取消由 Turn 收尾后原样传播。Program 已使用异步队列与执行锁；完成 handler 统一 async，Session 的本地提交在 joined owner 边界完成。准备 handler 统一 async，Context 背景读取、Session 历史读取、Workspace reconcile 和归档历史读取均等待短 owner 操作收敛；部分 Action、恢复处理器与生命周期 I/O 尚未迁移，完整的异步 SDK 生命周期尚未建成。
 
 `TurnRunner` 接受本轮输入、权威 `BusinessDay`、Program scope 和 request identity。BusinessDay 由调用方捕获；同一 Turn 内不再读取系统日期，因此跨午夜仍属于开始时的业务日。
 
@@ -50,6 +50,8 @@ Turn scope 建立后，Runner 依次：
 
 `TurnOutcomeStatus` 对两类 Turn 统一表达 `completed/exhausted/stopped/failed`。profile 可以把 completion 映射为用户输出，也可以仅保留 owner completion；通用 Runner 不假定每个 Turn 都产生聊天回答。
 
+TurnCompletion 区分执行状态、执行失败与必要 finish 失败；TurnOutcome 保留必要提交失败及活动资源清理诊断。必要 finish 失败阻止回答发布，close 诊断不改变已经成立的业务结果。完成管线进入后由 Turn 持有独立任务，调用方取消或重复取消都等待它结束再传播；已封存并开始提交的回答不会因等待者取消而被改写。当前活动进程回收仍由旧 controller 在 seal 前执行，统一 Job/段 close 顺序尚未落地。
+
 ## User Turn
 
 User Turn preparation 按以下顺序构造情景：
@@ -58,7 +60,7 @@ User Turn preparation 按以下顺序构造情景：
 2. Session 投影当前业务日的跨 Turn 历史；
 3. Workspace reconcile 当前业务日并投影 Manifest。
 
-User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先由 Session 投影 sealed Trace 的类型化 Action 事实并幂等写入 schema v5 User Turn record，再运行其它后处理。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
+User ActionEngine 只加载 `tinysoul.action` 自有 catalog；Maintenance domain 物理上不在该资源根，因此不需要字符串过滤。唯一成功的 `core.answer` 由 `UserAnswerCompletionDetector` 直接转换为 Turn completion，再由 User profile 转换为用户输出；默认 completion pipeline 先按依赖运行必要的完成 handler，再由 Session 投影 sealed Trace 的类型化 Action 事实并幂等写入 schema v6 User Turn record。必要 handler 失败后停止后续依赖 handler，但仍让 Session 记录执行事实和必要提交失败；Session 自身失败通过 TurnOutcome 报告，不宣称记录已经持久化。`core.answer` 可以交付当前成果，也可以在继续推进依赖人的判断、信息、授权、进一步指示或路线选择时提出聚焦问题或请求确认。completion 只表示当前 User Turn 已经产生正式用户响应，不宣告整体多轮目标或 WorkingContext todos 已完成；用户回复后通过普通新 User Turn 和 Session Background 继续，不建立平行的 ask、pause 或 awaiting 状态。
 
 User Turn 可以在 Phase/Cycle 边界消费当前 Turn scope 的 `context.input.append` 和 `loop.control.request`；旧 scope 或无 Turn scope 的信号不得影响后续 Turn。
 
@@ -100,7 +102,9 @@ PhaseFailure 是 Loop 内部的局部恢复结果，不是 Runtime exception。T
 
 Phase1/Phase2 的共用 task prompt 可以叠加 `turn_guidance`。User profile 要求围绕当前用户请求工作并最终调用 `core.answer`；Maintenance profile 说明这是自治维护、应结合 Background/Session/Workspace、不得生成用户回答或等待审批，并要求仅在 owner 后置条件满足后调用 `maintenance.complete`。
 
-`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module/Runtime recovery 不丢信号，也不留下半提交语境。
+`ContextSignalConsumer.emit_and_consume` 把同一逻辑步骤的 decision、action results 或 phase notes 作为可重放批次提交。背景资源读取使用 joined owner 操作，完成后才安装本批候选；读取期间取消不安装候选。Home 缺页或 Context 压缩 Trap 发生在批次提交前时，Module 重试保留同一批次，不混入新输入。
+
+Workspace 压力恢复和 Trash 恢复通过 TrapResult 返回 snapshot Signal；handler 不直接提交 Context，也不因投影拒绝伪回滚已经完成的磁盘操作。ModuleRunner 的恢复信号入口由内核注入，在重试前消费本次恢复信号；队列中新到达的输入保留到正常边界。Phase 重试也先消费待处理更新，再重新构造模型输入。
 
 ## Trap 与失败
 

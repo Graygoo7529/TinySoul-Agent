@@ -6,12 +6,13 @@ Session 拥有一个 business day 内已经完成的 prior Turns。它保存不�
 
 ## 持久事实
 
-Turn record 使用 schema v5，显式保存：
+Turn record 使用 schema v6，显式保存：
 
 - ref、day 与 recorded time；
 - 有序输入文本和接收时间；
 - Working 终态与 Background links；
-- 可选最终输出、references 与 exhausted；
+- 最终状态、可选正式输出、references 与 exhausted；
+- 类型化执行失败与必要 finish 失败，明确区分两者；
 - 按发生顺序排列的 Action 业务记录。
 
 Action record 保存行动语义、请求、执行 outcome、已知 canonical result、局部失败与 references。success/failed/timeout 之外，cancelled/not_executed/unknown 明确表达中断事实，后者不携带伪造结果。局部失败复用 Action 公共 SPI 的 `ActionLocalFailure`，持久恢复经过同一严格解析边界；Cycle、调用身份和状态迁移校验属于 Trace，不另建 Session 执行审计。
@@ -20,7 +21,9 @@ Session 直接消费 sealed Trace 的类型化 Action 事实，不从 Phase2/Pha
 
 Summary record 与 Turn 使用同一 schema version，只保存 deterministic ref、day、recorded time 和至少两个有序 direct child refs。Summary 是索引节点，不复制子节点 Background、Action counts 或正文。
 
-Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v5 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。
+Manifest 使用 schema v2，只保存 day、内部 revision 与有序 root refs。v6 record 和 v2 manifest 严格拒绝未知字段；Session 不读取、不迁移旧 schema。
+
+Session preparation 异步读取历史 snapshot，inspect Action 使用短本地 owner 执行边界；Session completion 位于必要 finish 的最后，异步等待本地 owner 提交完成。执行或前置 finish 失败时仍记录已知事实，但不把回答候选保存为正式输出。Session 自身提交失败由 Turn 报告；资源 close 失败不触发第二次提交或改写已完成记录。
 
 ## 唯一验证边界
 
@@ -32,7 +35,7 @@ Reconciliation 验证 day、缺失引用、重复可达引用和 graph cycle，�
 
 Session Background 在每个 Turn preparation 期间从当前 Manifest root 派生：
 
-- Turn item 包含 kind/ref、`user_ask`、可选 answer/references/exhausted；
+- Turn item 包含 kind/ref、`user_ask`、status、可选 answer/references/exhausted 和有界失败摘要；
 - 存在 Action 时包含一个 `#actions` 集合 ref、Action 数量和按 Action name 聚合的非零执行 outcome counts；
 - Summary item 只包含 kind/ref、turn count 与 direct child count；
 - 极端预算不足时使用 overflow head，提示调用 `core.session.inspect`。
@@ -51,7 +54,7 @@ active head -> Summary -> Turn -> Action collection -> Action leaf
 
 - 无 ref：返回 active root 的直接 headers；
 - Summary ref：返回 direct children headers；
-- Turn ref：返回 ask、answer、references、exhausted、Action outcomes 与 Action collection ref；
+- Turn ref：返回 ask、status、answer、references、exhausted、失败事实、Action outcomes 与 Action collection ref；
 - Action collection ref：按发生顺序返回 compact Action leaf headers，可按已知 Action name 过滤；
 - Action leaf ref：返回该 Action 的 request、outcome、result/references 或 failure。
 
@@ -65,7 +68,7 @@ active head -> Summary -> Turn -> Action collection -> Action leaf
 
 Session root 同时承载 Memory owner 的活动 `Memory.md`，但 Session 不解析或修改该文件。Daily Lifecycle 在 Session 初始化后要求 Memory 创建当日空正文文件，归档前由 Memory 校验，再随整个 Session root 一起移动；因此 Archive 中的 Session facts 与目标日活动记忆具有同一日切身份。
 
-Daily Lifecycle 归档 Session 根后，`archive_available()`/`archive_snapshot()` 用同一 manifest/record validator 区分“归档缺失”和“归档存在但损坏”。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、输出、Actions 与 exhausted；不交付 trace 或执行元数据。
+Daily Lifecycle 归档 Session 根后，`archive_available()`/`archive_snapshot()` 用同一 manifest/record validator 区分“归档缺失”和“归档存在但损坏”。Memory facts 递归展开 Summary，按输入开始时间和 ref 稳定排序，交付输入、Working、Background links、正式输出、Actions、终态和执行/必要提交失败；不交付 trace 或执行元数据。
 
 SessionEngine 只负责自身初始化、提交、reconciliation、archive participant 与只读 projection。Maintenance Archive 决定关闭日与归档位置；Memory Maintenance 只消费 Session 交付的 typed facts/archive view；Context 只消费 Background snapshot；Endpoint 不直接依赖 SessionEngine。
 

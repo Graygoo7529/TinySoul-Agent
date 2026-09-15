@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import BusinessDay
+from tinysoul.loop.outcomes import TurnFailure, TurnOutcomeStatus
 
 from .errors import SessionContractError, SessionInvariantError
 from .models import SessionSummaryRecord, SessionTurnRecord
@@ -22,14 +23,23 @@ class SessionMemoryFact:
     ref: str
     started_at: datetime
     user_inputs: tuple[str, ...]
+    status: TurnOutcomeStatus
     working: JsonObject = field(default_factory=dict)
     background_links: tuple[str, ...] = field(default_factory=tuple)
     answer: str = ""
     references: tuple[str, ...] = field(default_factory=tuple)
     actions: tuple[JsonObject, ...] = field(default_factory=tuple)
     exhausted: bool = False
+    failure: TurnFailure | None = None
+    finish_failures: tuple[TurnFailure, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.status, TurnOutcomeStatus):
+            raise SessionContractError("Session memory fact requires a typed status")
+        if self.failure is not None and not isinstance(self.failure, TurnFailure):
+            raise SessionContractError("Session memory fact failure must be typed")
+        if any(not isinstance(item, TurnFailure) for item in self.finish_failures):
+            raise SessionContractError("Session memory fact finish failures must be typed")
         if not isinstance(self.ref, str) or not self.ref.startswith("session:turn/"):
             raise SessionContractError("Session memory fact requires a Turn ref")
         if not isinstance(self.started_at, datetime) or self.started_at.tzinfo is None:
@@ -68,6 +78,9 @@ class SessionMemoryFact:
             "references": list(self.references),
             "actions": list(self.actions),
             "exhausted": self.exhausted,
+            "status": self.status.value,
+            "failure": self.failure.to_json() if self.failure is not None else None,
+            "finish_failures": [item.to_json() for item in self.finish_failures],
         }
 
 
@@ -149,6 +162,9 @@ def _turn_fact(record: SessionTurnRecord) -> SessionMemoryFact:
         references=output.references if output is not None else (),
         actions=tuple(action.to_json() for action in record.actions),
         exhausted=record.exhausted,
+        status=record.status,
+        failure=record.failure,
+        finish_failures=record.finish_failures,
     )
 
 

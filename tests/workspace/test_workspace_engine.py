@@ -465,7 +465,7 @@ def test_workspace_description_is_cleared_when_content_changes(tmp_path: Path) -
     assert current.described_digest == ""
 
 
-def test_workspace_turn_preparation_projects_manifest_into_context(
+async def test_workspace_turn_preparation_projects_manifest_into_context(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.md").write_text("hello", encoding="utf-8")
@@ -485,7 +485,7 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
         runtime_bridge=RuntimeWorkspaceBridge(),
     )
 
-    for signal in handler.prepare(
+    for signal in await handler.prepare(
         TurnPreparationRequest(
             turn_id=turn_id,
             turn_input="hello",
@@ -494,7 +494,7 @@ def test_workspace_turn_preparation_projects_manifest_into_context(
         )
     ):
         bus.emit(signal)
-    assert context.consume_signals(bus) == ()
+    assert await context.consume_signals(bus) == ()
 
     working = context.working_snapshot()
     assert working["workspace_revision"] == workspace.load_manifest().revision

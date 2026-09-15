@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
 from typing import Protocol
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from tinysoul.infra.config import ConfigError, reject_unknown_keys
 
@@ -127,8 +126,17 @@ class EmbeddingClient(Protocol):
     def max_batch_size(self) -> int:
         ...
 
-    def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+    async def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
         ...
+
+
+class EmbeddingCreateClient(Protocol):
+    async def create(self, *, model: str, input: list[str], dimensions: int) -> object: ...
+
+
+class EmbeddingTransport(Protocol):
+    @property
+    def embeddings(self) -> EmbeddingCreateClient: ...
 
 
 class OpenAICompatibleEmbeddingClient:
@@ -139,7 +147,7 @@ class OpenAICompatibleEmbeddingClient:
         *,
         settings: EmbeddingSettings,
         api_key: str,
-        client: object | None = None,
+        client: EmbeddingTransport | None = None,
     ) -> None:
         if not settings.enabled:
             raise ConfigError(
@@ -152,14 +160,18 @@ class OpenAICompatibleEmbeddingClient:
                 key=f"{_CONFIG_KEY}.api_key_env",
             )
         self._settings = settings
-        self._owned_client = None if client is not None else OpenAI(
-            api_key=api_key, base_url=settings.base_url, timeout=settings.timeout_seconds,
-        )
-        self._client = client if client is not None else self._owned_client
+        self._owned_client: AsyncOpenAI | None = None
+        if client is None:
+            self._owned_client = AsyncOpenAI(
+                api_key=api_key, base_url=settings.base_url, timeout=settings.timeout_seconds,
+            )
+            self._client: EmbeddingTransport = self._owned_client
+        else:
+            self._client = client
 
     async def close(self) -> None:
         if self._owned_client is not None:
-            await asyncio.to_thread(self._owned_client.close)
+            await self._owned_client.close()
 
     @property
     def identity(self) -> str:
@@ -169,16 +181,14 @@ class OpenAICompatibleEmbeddingClient:
     def max_batch_size(self) -> int:
         return self._settings.batch_size
 
-    def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
+    async def embed(self, texts: Sequence[str]) -> EmbeddingBatch:
         values = tuple(texts)
         if not values or len(values) > self._settings.batch_size:
             raise EmbeddingError("Embedding request batch size is invalid")
         if any(not isinstance(item, str) or not item.strip() for item in values):
             raise EmbeddingError("Embedding request texts must be non-empty")
         try:
-            embeddings = getattr(self._client, "embeddings")
-            create = getattr(embeddings, "create")
-            response = create(
+            response = await self._client.embeddings.create(
                 model=self._settings.model,
                 input=list(values),
                 dimensions=self._settings.dimensions,

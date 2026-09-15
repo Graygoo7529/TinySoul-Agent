@@ -19,6 +19,7 @@ def project_turn_background(record: SessionTurnRecord) -> JsonObject:
     value: JsonObject = {
         "kind": "session_turn",
         "ref": record.ref,
+        "status": record.status.value,
         "user_ask": to_json_value(
             _bounded_asks(tuple(item.text for item in record.inputs))
         ),
@@ -29,6 +30,12 @@ def project_turn_background(record: SessionTurnRecord) -> JsonObject:
             value["references"] = list(record.output.references)
     if record.exhausted:
         value["exhausted"] = True
+    failures = (record.failure,) if record.failure is not None else ()
+    failures += record.finish_failures
+    if failures:
+        value["failures"] = [
+            {"kind": item.kind, "message": item.message[:240]} for item in failures
+        ]
     outcomes = action_outcomes(record)
     if outcomes:
         value["actions"] = {

@@ -122,6 +122,8 @@ JSON 值类型、JSON 对象校验和稳定序列化属于 Infra 的公共基础
 
 `InfraSettings` 严格解释完整 `[infra]` 子树，当前只接受 `[infra.embedding]`。`EmbeddingSettings`、`EmbeddingClient`、`EmbeddingBatch` 和 OpenAI-compatible adapter 属于 Infra，因为它们只表达文本到有限浮点向量的外部基础能力，不表达 Memory Link、候选排序或缓存语义。Embedding 配置包含 enabled、base URL、model、环境变量名、dimensions、batch size 和 timeout；API key 只能由 `ConfigEnvironment.runtime_env` 按显式变量名解析，TOML 不接受 `api_key`。派生缓存大小属于 Memory 的 `[memory.semantic_search]`。
 
+EmbeddingClient 使用原生 async 请求，adapter 的自建 AsyncOpenAI client 由 generation 关闭；注入 transport 为借用对象。取消直接传播到网络任务，不转换为 EmbeddingError。
+
 adapter 校验非空批次、批量上限、响应 index、向量数量、维度和有限浮点值，并把 provider 异常压缩成不含响应正文或密钥的 `EmbeddingError`。当前 `embedding-3` 配置只接受官方支持的 256/512/1024/2048 维。Infra 不持久化向量、不执行 cosine、不决定降级；Memory owner 使用该协议维护可删除缓存，并在请求失败时回退自己的 lexical/reference 检索。
 
 ## 使用方式

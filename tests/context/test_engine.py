@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import date
+from threading import Event
 from typing import cast
 
 import pytest
@@ -18,6 +20,7 @@ from tinysoul.context import (
     SIGNAL_BACKGROUND_PATCH,
     SIGNAL_TRACE_APPEND,
     ContextContractError,
+    ContextInvariantError,
     ContextEngineBuilder,
     ContextSignalBatch,
     ContextTurnCompletion,
@@ -86,7 +89,117 @@ def _prompt(text: str = "next") -> TaskPrompt:
     )
 
 
-def test_turn_lifecycle_and_compose() -> None:
+async def test_background_prepare_failure_installs_neither_catalog_nor_entries() -> None:
+    class Provider:
+        def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(
+                owner="home", loadable_links=("home:agent@AGENT",),
+                default_links=("home:agent@AGENT",),
+                items=(BackgroundCatalogItem(link="home:agent@AGENT", title="Rules", description="Rules"),),
+            )
+
+        def load(self, link: str, business_day: date) -> str:
+            return ""  # A broken owner response after the catalog was prepared.
+
+    engine = ContextEngineBuilder(system_text="sys").add_background_provider(Provider()).build()
+    engine.begin_turn("question")
+    before = engine.compose(_prompt())
+    with pytest.raises(ContextInvariantError, match="empty content"):
+        await engine.prepare_default_background(date(2026, 9, 15))
+    assert engine.compose(_prompt()) == before
+    assert engine.background_links() == ()
+
+
+async def test_cancelled_background_prepare_joins_read_without_installing_view() -> None:
+    entered = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    class Provider:
+        def catalog(self, business_day: date) -> BackgroundCatalog:
+            return BackgroundCatalog(
+                owner="home", loadable_links=("home:agent@AGENT",),
+                default_links=("home:agent@AGENT",),
+            )
+
+        def load(self, link: str, business_day: date) -> str:
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(timeout=5)
+            return "Rules"
+
+    engine = ContextEngineBuilder(system_text="sys").add_background_provider(Provider()).build()
+    engine.begin_turn("question")
+    before = engine.compose(_prompt())
+    preparing = asyncio.create_task(engine.prepare_default_background(date(2026, 9, 15)))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        preparing.cancel()
+        await asyncio.sleep(0)
+        assert not preparing.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await preparing
+    assert engine.compose(_prompt()) == before
+
+
+async def test_background_batch_retry_keeps_new_input_outside_prepared_batch() -> None:
+    entered = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    class Loader:
+        calls = 0
+
+        def load(self) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                loop.call_soon_threadsafe(entered.set)
+                assert release.wait(timeout=5)
+                raise ContextInvariantError("Background temporarily unavailable")
+            return "Loaded details"
+
+    loader = Loader()
+    engine = ContextEngineBuilder(system_text="sys").add_lazy_background("home:skills@guide", loader).build()
+    turn_id = engine.begin_turn("question")
+    scope = _scope(turn_id)
+    bus = SignalBus()
+    normalized = engine.normalize_controls((
+        ToolCallRecord(
+            id="milestone", name=CONTROL_SET_MILESTONE,
+            arguments={"key": "m", "content": "Prepared fact"}, kind=ToolKind.CONTROL,
+        ),
+        ToolCallRecord(
+            id="background", name=CONTROL_LOAD_BACKGROUND,
+            arguments={"links": ["home:skills@guide"]}, kind=ToolKind.CONTROL,
+        ),
+    ), scope=scope)
+    assert not normalized.results
+    for signal in normalized.signals:
+        bus.emit(signal)
+    batch = engine.take_signal_batch(bus)
+    before = engine.working_snapshot()
+    consuming = asyncio.create_task(engine.consume_signal_batch(batch))
+    pending = build_input_append_signal("later input", scope=scope, source="test")
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        bus.emit(pending)
+        assert engine.working_snapshot() == before
+    finally:
+        release.set()
+    with pytest.raises(ContextInvariantError):
+        await consuming
+    assert engine.working_snapshot() == before
+    assert await engine.consume_signal_batch(batch) == ()
+    assert engine.working_snapshot()["milestones"]
+    assert engine.background_links() == ("home:skills@guide",)
+    assert bus.peek() == (pending,)
+    assert loader.calls == 2
+    assert await engine.consume_signals(bus) == ()
+    assert [item.text for item in engine.end_turn().inputs] == ["question", "later input"]
+
+
+async def test_turn_lifecycle_and_compose() -> None:
     engine = _engine()
     with pytest.raises(ContextContractError):
         engine.compose(_prompt("g"))
@@ -95,7 +208,7 @@ def test_turn_lifecycle_and_compose() -> None:
     assert turn_id
     with pytest.raises(ContextContractError):
         engine.begin_turn("again")
-    engine.prepare_default_background(date(2026, 7, 14))
+    await engine.prepare_default_background(date(2026, 7, 14))
 
     stack = engine.compose(_prompt("Phase one."))
     labels = [message.label for message in stack.messages]
@@ -110,7 +223,7 @@ def test_turn_lifecycle_and_compose() -> None:
     assert not engine.turn_active
 
 
-def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
+async def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("read workspace"))
     bus = SignalBus()
@@ -138,7 +251,7 @@ def test_foldable_action_result_persists_only_compact_trace_payload() -> None:
         )
     )
 
-    assert engine.consume_signals(bus) == ()
+    assert await engine.consume_signals(bus) == ()
     visible = next(
         message
         for message in engine.compose(_prompt()).messages
@@ -177,7 +290,7 @@ def test_context_batch_and_turn_summary_validate_protocol_fields() -> None:
         )
 
 
-def test_control_scope_tracks_background_state() -> None:
+async def test_control_scope_tracks_background_state() -> None:
     engine = _engine()
     with pytest.raises(ContextContractError):
         engine.control_scope()
@@ -202,12 +315,12 @@ def test_control_scope_tracks_background_state() -> None:
     )
     for signal in normalization.signals:
         bus.emit(signal)
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert results == ()
     assert "home:skills@x" in engine.background_links()
 
 
-def test_consume_signals_commits_feasible_valid_changes() -> None:
+async def test_consume_signals_commits_feasible_valid_changes() -> None:
     engine = _engine()
     turn_id = engine.begin_turn("hi")
     scope = _scope(turn_id)
@@ -234,14 +347,14 @@ def test_consume_signals_commits_feasible_valid_changes() -> None:
     for signal in normalization.signals:
         bus.emit(signal)
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert len(results) == 1
     assert results[0].call_id == "bad"
     assert "Unknown todo key" in results[0].model_feedback
     assert engine.working_snapshot()["milestones"][0]["key"] == "m"
 
 
-def test_consume_signals_validates_working_batch_against_projection() -> None:
+async def test_consume_signals_validates_working_batch_against_projection() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -259,7 +372,7 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
     )
     for signal in setup.signals:
         bus.emit(signal)
-    assert engine.consume_signals(bus) == ()
+    assert await engine.consume_signals(bus) == ()
 
     batch = engine.normalize_controls(
         (
@@ -281,14 +394,14 @@ def test_consume_signals_validates_working_batch_against_projection() -> None:
     for signal in batch.signals:
         bus.emit(signal)
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert len(results) == 1
     assert results[0].call_id == "remove_2"
     assert "Unknown todo key" in results[0].model_feedback
     assert engine.working_snapshot()["todos"] == []
 
 
-def test_consume_signal_results_preserve_signal_order() -> None:
+async def test_consume_signal_results_preserve_signal_order() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -313,14 +426,14 @@ def test_consume_signal_results_preserve_signal_order() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert [result.sequence for result in results] == [1, 2]
     assert results[0].call_id == "background_first"
     assert "Unknown trace append kind" in results[1].model_feedback
 
 
-def test_consume_signals_validates_background_batch_against_projection() -> None:
+async def test_consume_signals_validates_background_batch_against_projection() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -361,14 +474,14 @@ def test_consume_signals_validates_background_batch_against_projection() -> None
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert len(results) == 1
     assert results[0].call_id == "evict_again"
     assert "not loaded" in results[0].model_feedback
     assert "home:skills@x" not in engine.background_links()
 
 
-def test_background_signal_rejects_load_evict_conflict() -> None:
+async def test_background_signal_rejects_load_evict_conflict() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -385,14 +498,14 @@ def test_background_signal_rejects_load_evict_conflict() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert len(results) == 1
     assert results[0].call_id == "conflict"
     assert "cannot load and evict" in results[0].model_feedback
     assert "home:skills@x" not in engine.background_links()
 
 
-def test_background_signal_treats_loaded_link_load_as_noop() -> None:
+async def test_background_signal_treats_loaded_link_load_as_noop() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -409,16 +522,16 @@ def test_background_signal_treats_loaded_link_load_as_noop() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert results == ()
     assert engine.background_links() == ("home:agent@AGENT",)
 
 
-def test_home_background_is_rebuilt_for_each_user_turn() -> None:
+async def test_home_background_is_rebuilt_for_each_user_turn() -> None:
     engine = _engine()
     first_turn = engine.begin_turn("first")
-    engine.prepare_default_background(date(2026, 7, 14))
+    await engine.prepare_default_background(date(2026, 7, 14))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -433,7 +546,7 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
         )
     )
 
-    assert engine.consume_signals(bus) == ()
+    assert await engine.consume_signals(bus) == ()
     assert engine.background_links() == (
         "home:agent@AGENT",
         "home:skills@x",
@@ -443,11 +556,11 @@ def test_home_background_is_rebuilt_for_each_user_turn() -> None:
 
     engine.begin_turn("second")
     assert engine.background_links() == ()
-    engine.prepare_default_background(date(2026, 7, 14))
+    await engine.prepare_default_background(date(2026, 7, 14))
     assert engine.background_links() == ("home:agent@AGENT",)
 
 
-def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
+async def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -468,7 +581,7 @@ def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert results == ()
     assert engine.working_snapshot()["workspace_resources"] == [
@@ -477,7 +590,7 @@ def test_workspace_snapshot_can_be_consumed_from_signal() -> None:
     assert engine.working_snapshot()["workspace_revision"] == 1
 
 
-def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
+async def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
     engine = _engine()
     old_turn = engine.begin_turn("first")
     engine.end_turn()
@@ -500,7 +613,7 @@ def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert len(results) == 1
     assert "another Turn" in results[0].model_feedback
@@ -508,7 +621,7 @@ def test_context_rejects_workspace_snapshot_from_previous_turn() -> None:
     assert engine.working_snapshot()["workspace_revision"] == -1
 
 
-def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
+async def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -528,7 +641,7 @@ def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
             source="workspace.scan",
         )
     )
-    assert engine.consume_signals(bus) == ()
+    assert await engine.consume_signals(bus) == ()
     bus.emit(
         build_workspace_sync_signal(
             conflicting,
@@ -538,7 +651,7 @@ def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert len(results) == 1
     assert "conflicts" in results[0].model_feedback
@@ -547,7 +660,7 @@ def test_context_rejects_conflicting_workspace_snapshot_revision() -> None:
     ]
 
 
-def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
+async def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -563,7 +676,7 @@ def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
                 source="workspace.scan",
             )
         )
-        assert engine.consume_signals(bus) == ()
+        assert await engine.consume_signals(bus) == ()
 
     snapshot = engine.working_snapshot()
     assert snapshot["workspace_revision"] == 2
@@ -572,7 +685,7 @@ def test_context_ignores_stale_workspace_snapshot_without_regression() -> None:
     ]
 
 
-def test_context_observes_committed_background_entries_with_content() -> None:
+async def test_context_observes_committed_background_entries_with_content() -> None:
     observations = RecordingObservations()
     engine = (
         ContextEngineBuilder(system_text="sys")
@@ -582,7 +695,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
         .build()
     )
     scope = _scope(engine.begin_turn("hi"))
-    engine.prepare_default_background(date(2026, 7, 19))
+    await engine.prepare_default_background(date(2026, 7, 19))
     bus = SignalBus()
     bus.emit(
         Signal(
@@ -597,7 +710,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
         )
     )
 
-    assert engine.consume_signals(bus) == ()
+    assert await engine.consume_signals(bus) == ()
 
     background_events = [
         event
@@ -619,7 +732,7 @@ def test_context_observes_committed_background_entries_with_content() -> None:
     }
 
 
-def test_trace_append_rejects_unknown_kind() -> None:
+async def test_trace_append_rejects_unknown_kind() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -632,13 +745,13 @@ def test_trace_append_rejects_unknown_kind() -> None:
         )
     )
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
 
     assert len(results) == 1
     assert "Unknown trace append kind" in results[0].model_feedback
 
 
-def test_consume_trace_and_input_signals() -> None:
+async def test_consume_trace_and_input_signals() -> None:
     engine = _engine()
     scope = _scope(engine.begin_turn("hi"))
     bus = SignalBus()
@@ -685,7 +798,7 @@ def test_consume_trace_and_input_signals() -> None:
     # Non-context signals stay queued for other consumers.
     bus.emit(Signal(name="loop.control.request", source="app.inputs", scope=scope))
 
-    results = engine.consume_signals(bus)
+    results = await engine.consume_signals(bus)
     assert results == ()
     assert engine.trace_kinds() == (
         TraceKind.DECISION,
@@ -712,7 +825,7 @@ def test_consume_trace_and_input_signals() -> None:
     assert engine.merge_pending_inputs() == 0
 
 
-def test_compress_via_engine() -> None:
+async def test_compress_via_engine() -> None:
     engine = (
         ContextEngineBuilder(system_text="sys")
         .with_trace_heap(
@@ -734,7 +847,7 @@ def test_compress_via_engine() -> None:
                 cycle_id="c1",
             )
         )
-    engine.consume_signals(bus)
+    await engine.consume_signals(bus)
 
     report = engine.compress()
     assert report.changed is True
@@ -759,10 +872,10 @@ def test_compress_via_engine() -> None:
     assert "cursor" not in page
 
 
-def test_abort_turn_discards_active_state() -> None:
+async def test_abort_turn_discards_active_state() -> None:
     engine = _engine()
     engine.begin_turn("hi")
-    engine.prepare_default_background(date(2026, 7, 14))
+    await engine.prepare_default_background(date(2026, 7, 14))
     assert engine.turn_active is True
     assert engine.background_links() == ("home:agent@AGENT",)
 
@@ -776,7 +889,7 @@ def test_abort_turn_discards_active_state() -> None:
     assert engine.turn_active is True
 
 
-def test_provider_catalog_metadata_is_automatic_background() -> None:
+async def test_provider_catalog_metadata_is_automatic_background() -> None:
     class _Provider:
         def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
@@ -800,7 +913,7 @@ def test_provider_catalog_metadata_is_automatic_background() -> None:
         .build()
     )
     engine.begin_turn("review changes")
-    engine.prepare_default_background(date(2026, 7, 14))
+    await engine.prepare_default_background(date(2026, 7, 14))
 
     stack = engine.compose(_prompt())
 

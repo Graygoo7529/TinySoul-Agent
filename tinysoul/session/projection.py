@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from tinysoul.context import build_session_sync_signal
+from tinysoul.infra.concurrency import JoinedOperations
 from tinysoul.loop.completion import TurnCompletion
+from tinysoul.loop.outcomes import TurnOutcomeStatus
 from tinysoul.loop.preparation import TurnPreparationRequest
 from tinysoul.runtime import Signal
 from tinysoul.session.runtime_bridge import RuntimeSessionBridge
@@ -23,9 +25,11 @@ class SessionTurnPreparationHandler:
         self._session = session
         self._runtime_bridge = runtime_bridge or RuntimeSessionBridge()
 
-    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         try:
-            snapshot = self._session.background_snapshot(request.business_day)
+            operations = JoinedOperations()
+            snapshot = await operations.run(lambda: self._session.background_snapshot(request.business_day))
+            operations.check_cancelled()
         except SessionError as exc:
             raise self._runtime_bridge.from_session_error(exc) from exc
         return (
@@ -48,19 +52,24 @@ class SessionTurnCompletionHandler:
         self._session = session
         self._runtime_bridge = runtime_bridge or RuntimeSessionBridge()
 
-    def handle(self, completion: TurnCompletion) -> None:
+    async def handle(self, completion: TurnCompletion) -> None:
         output: SessionOutputRecord | None = None
-        if completion.output is not None:
+        if completion.final_status is TurnOutcomeStatus.ANSWERED and completion.output is not None:
             output = SessionOutputRecord(
                 text=completion.output.text,
                 references=completion.output.references,
             )
         try:
-            self._session.record_turn(
+            operations = JoinedOperations()
+            await operations.run(lambda: self._session.record_turn(
                 completion.context_completion,
                 day=completion.business_day,
+                status=completion.final_status,
+                failure=completion.failure,
+                finish_failures=completion.finish_failures,
                 output=output,
                 exhausted=completion.exhausted,
-            )
+            ))
+            operations.check_cancelled()
         except SessionError as exc:
             raise self._runtime_bridge.from_session_error(exc) from exc

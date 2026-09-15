@@ -8,7 +8,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from tinysoul.infra.json import JsonValue
-from tinysoul.runtime import RunScope
+from tinysoul.runtime import RunScope, Signal
+from .errors import LoopContractError
 
 
 class PressureRecoveryStatus(StrEnum):
@@ -24,6 +25,17 @@ class PressureRecoveryResult:
     evicted_background_links: tuple[str, ...] = field(default_factory=tuple)
     trashed_refs: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
+    signals: tuple[Signal, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, PressureRecoveryStatus):
+            raise LoopContractError("Pressure recovery requires a typed status")
+        if isinstance(self.reclaimed_chars, bool) or not isinstance(self.reclaimed_chars, int) or self.reclaimed_chars < 0:
+            raise LoopContractError("Pressure recovery reclaimed size is invalid")
+        signals = tuple(self.signals)
+        if any(not isinstance(signal, Signal) for signal in signals):
+            raise LoopContractError("Pressure recovery requires typed signals")
+        object.__setattr__(self, "signals", signals)
 
     @property
     def changed(self) -> bool:

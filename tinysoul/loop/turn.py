@@ -13,6 +13,7 @@ from tinysoul.context import (
     build_trace_phase_note_signal,
 )
 from tinysoul.context.errors import ContextError
+from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.infra.time import BusinessDay
 from tinysoul.runtime import (
@@ -60,12 +61,20 @@ class TurnOutcome:
     transfer: RuntimeTransfer | None = None
     failure: TurnFailure | None = None
     completion: JsonObject | None = None
+    finish_failures: tuple[TurnFailure, ...] = ()
+    cleanup_diagnostics: tuple[CleanupDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.business_day, BusinessDay):
             raise LoopInvariantError("TurnOutcome requires a BusinessDay")
         if not isinstance(self.status, TurnOutcomeStatus):
             raise LoopInvariantError("TurnOutcome requires a TurnOutcomeStatus")
+        if any(not isinstance(item, TurnFailure) for item in self.finish_failures):
+            raise LoopInvariantError("TurnOutcome requires typed finish failures")
+        if any(not isinstance(item, CleanupDiagnostic) for item in self.cleanup_diagnostics):
+            raise LoopInvariantError("TurnOutcome requires typed cleanup diagnostics")
+        if self.finish_failures and self.status is not TurnOutcomeStatus.FAILED:
+            raise LoopInvariantError("Required finish failure prevents Turn success")
         if self.status is TurnOutcomeStatus.ANSWERED:
             if self.output is None or self.failure is not None or self.exhausted:
                 raise LoopInvariantError("Answered TurnOutcome is inconsistent")
@@ -184,6 +193,8 @@ class TurnRunner:
         stopped = False
         completion: JsonObject | None = None
         task_cancellation: asyncio.CancelledError | None = None
+        cleanup_diagnostics: list[CleanupDiagnostic] = []
+        finish_failures: tuple[TurnFailure, ...] = ()
         try:
             try:
                 turn_id = self._context.begin_turn(turn_input)
@@ -269,8 +280,18 @@ class TurnRunner:
             task_cancellation = exc
             stopped = True
             completion = None
+        except RuntimeTransferInterrupt as interrupt:
+            captured = self._from_interrupt(interrupt)
+            transfer = captured.transfer
+            failure = failure or captured.failure
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
+            transfer = captured.transfer
+            failure = failure or captured.failure
+        except Exception as exc:
+            captured = self._capture(self._loop_bridge.from_exception(
+                LoopFailureKind.INTERNAL_FAILURE, exc,
+            ), turn_scope)
             transfer = captured.transfer
             failure = failure or captured.failure
         finally:
@@ -279,6 +300,9 @@ class TurnRunner:
                 try:
                     controller.cleanup_turn(turn_id)
                 except Exception as exc:
+                    cleanup_diagnostics.append(
+                        CleanupDiagnostic("turn.activity", type(exc).__name__)
+                    )
                     self._emit(
                         turn_scope,
                         "turn.activity_cleanup_failed",
@@ -291,10 +315,23 @@ class TurnRunner:
                     )
         try:
             output = self._completion_to_output(completion)
+            if output is not None and not isinstance(output, TurnOutput):
+                output = None
+                raise LoopInvariantError("Turn output mapper returned an invalid value")
+        except RuntimeTransferInterrupt as interrupt:
+            captured = self._from_interrupt(interrupt)
+            transfer = transfer or captured.transfer
+            failure = failure or captured.failure
         except RuntimeException as exc:
             captured = self._capture(exc, turn_scope)
             if transfer is None:
                 transfer = captured.transfer
+            failure = failure or captured.failure
+        except Exception as exc:
+            captured = self._capture(self._loop_bridge.from_exception(
+                LoopFailureKind.INTERNAL_FAILURE, exc,
+            ), turn_scope)
+            transfer = transfer or captured.transfer
             failure = failure or captured.failure
         if output is not None and self._is_turn_end(transfer, turn_scope):
             transfer = None
@@ -308,22 +345,55 @@ class TurnRunner:
             failure = failure or finish_boundary.failure
         completion_committed = False
         if context_completion is not None:
-            try:
-                self._completion_pipeline.run(
-                    TurnCompletion(
-                        context_completion=context_completion,
-                        business_day=business_day,
-                        output=output,
-                        exhausted=exhausted,
-                        completion=completion,
-                    )
+            execution_status, failure = self._outcome_status(
+                output=output,
+                completion=completion,
+                completion_committed=True,
+                exhausted=exhausted,
+                stopped=stopped,
+                transfer=transfer,
+                failure=failure,
+            )
+
+            def capture_finish_failure(
+                exc: RuntimeException | RuntimeTransferInterrupt,
+            ) -> TurnFailure:
+                nonlocal transfer
+                captured = (
+                    self._from_interrupt(exc)
+                    if isinstance(exc, RuntimeTransferInterrupt)
+                    else self._capture(exc, turn_scope)
                 )
-                completion_committed = True
-            except RuntimeException as exc:
-                captured = self._capture(exc, turn_scope)
                 if transfer is None:
                     transfer = captured.transfer
-                failure = failure or captured.failure
+                return captured.failure or TurnFailure(
+                    reason=RUNTIME_TURN_END,
+                    message="Required Turn completion was interrupted.",
+                    module="loop",
+                    kind=LoopFailureKind.CONTRACT_VIOLATION.value,
+                )
+
+            finalizer = asyncio.create_task(self._completion_pipeline.run(
+                TurnCompletion(
+                    context_completion=context_completion,
+                    business_day=business_day,
+                    status=execution_status,
+                    output=output,
+                    exhausted=exhausted,
+                    completion=completion,
+                    failure=failure,
+                ),
+                capture_failure=capture_finish_failure,
+            ))
+            while not finalizer.done():
+                try:
+                    await asyncio.shield(finalizer)
+                except asyncio.CancelledError as exc:
+                    task_cancellation = task_cancellation or exc
+            finalized = finalizer.result()
+            finish_failures = finalized.finish_failures
+            completion_committed = not finish_failures
+            failure = failure or (finish_failures[0] if finish_failures else None)
         status, failure = self._outcome_status(
             output=output,
             completion=completion,
@@ -378,6 +448,8 @@ class TurnRunner:
             transfer=transfer,
             failure=failure,
             completion=completion,
+            finish_failures=finish_failures,
+            cleanup_diagnostics=tuple(cleanup_diagnostics),
         )
 
     async def _run_preparation(
@@ -395,7 +467,7 @@ class TurnRunner:
             )
         while True:
             try:
-                signals = self._preparation_pipeline.prepare(
+                signals = await self._preparation_pipeline.prepare(
                     TurnPreparationRequest(
                         turn_id=turn_id,
                         turn_input=turn_input,

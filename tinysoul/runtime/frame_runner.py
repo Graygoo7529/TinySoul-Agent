@@ -19,6 +19,7 @@ from .observation import (
 )
 from .scope import RunLevel, RunScope
 from .signals.bus import SignalBus
+from .signals.base import Signal
 from .transfer import RuntimeTransfer, RuntimeTransferAction
 from .trap.trap import RuntimeTrap
 
@@ -39,6 +40,7 @@ class RuntimeModuleRunner:
     trap: RuntimeTrap
     bus: SignalBus
     observations: ObservationEmitter = field(default_factory=NullObservationEmitter)
+    consume_recovery_signals: Callable[[tuple[Signal, ...], RunScope], Awaitable[None]] | None = None
 
     @overload
     async def run(
@@ -90,8 +92,11 @@ class RuntimeModuleRunner:
                             },
                         ),
                     )
-                for signal in result.signals:
-                    self.bus.emit(signal)
+                if result.signals and self.consume_recovery_signals is not None:
+                    await self.consume_recovery_signals(result.signals, module_scope)
+                else:
+                    for signal in result.signals:
+                        self.bus.emit(signal)
                 transfer = result.transfer
                 if transfer.target == module_frame:
                     if transfer.action is RuntimeTransferAction.RETRY:

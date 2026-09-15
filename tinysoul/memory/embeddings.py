@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 import json
 import math
 from pathlib import Path
@@ -14,6 +16,8 @@ from tinysoul.infra import (
     atomic_write_text,
     read_text_prefix,
 )
+
+from tinysoul.infra.concurrency import JoinedOperations
 
 from .errors import MemoryContractError, MemoryIOError
 from .links import MemoryLink
@@ -44,58 +48,60 @@ class MemoryEmbeddingIndex:
             raise MemoryIOError("Memory embedding batch size is invalid")
         self._entries: dict[MemoryLink, _CachedVector] = {}
         self._dimensions = 0
+        self._lock = asyncio.Lock()
         self._load()
 
-    def similarities(
+    async def similarities(
         self,
         query: str,
         documents: Mapping[MemoryLink, str],
     ) -> Mapping[MemoryLink, float]:
-        usable = {
-            link: item
-            for link, item in self._entries.items()
-            if link in documents and len(item.vector) == self._dimensions
-        }
-        if not usable:
-            return {}
-        try:
-            batch = self._client.embed((query,))
-        except EmbeddingError:
-            return {}
-        if batch.dimensions != self._dimensions:
-            return {}
-        query_vector = batch.vectors[0]
-        return {
-            link: _cosine(query_vector, item.vector)
-            for link, item in usable.items()
-        }
+        # One fixed set of embedding inputs and one cache generation per query.
+        # A failed or cancelled refresh cannot install partial vectors.
+        async with self._lock:
+            try:
+                await self._refresh(documents)
+                usable = {
+                    link: item for link, item in self._entries.items()
+                    if link in documents
+                    and item.digest == _text_digest(documents[link])
+                    and len(item.vector) == self._dimensions
+                }
+                if not usable:
+                    return {}
+                batch = await self._client.embed((query,))
+            except (EmbeddingError, MemoryIOError):
+                return {}
+            if batch.dimensions != self._dimensions:
+                return {}
+            return {
+                link: _cosine(batch.vectors[0], item.vector)
+                for link, item in usable.items()
+            }
 
-    def refresh(
-        self,
-        documents: Mapping[MemoryLink, tuple[str, str]],
-    ) -> None:
-        retained = {
-            link: item
-            for link, item in self._entries.items()
-            if link in documents and documents[link][0] == item.digest
-        }
+    async def _refresh(self, documents: Mapping[MemoryLink, str]) -> None:
+        entries = dict(self._entries)
         pending = [
-            (link, digest, text)
-            for link, (digest, text) in documents.items()
-            if link not in retained
+            (link, _text_digest(text), text)
+            for link, text in documents.items()
+            if link not in entries or entries[link].digest != _text_digest(text)
         ]
-        generated: dict[MemoryLink, _CachedVector] = {}
+        if not pending:
+            return
+        dimensions = self._dimensions
         for start in range(0, len(pending), self._batch_size):
             chunk = pending[start : start + self._batch_size]
-            batch = self._client.embed(tuple(text for _, _, text in chunk))
-            if self._dimensions and batch.dimensions != self._dimensions:
-                retained.clear()
-                generated.clear()
-            self._dimensions = batch.dimensions
+            batch = await self._client.embed(tuple(text for _, _, text in chunk))
+            if dimensions and batch.dimensions != dimensions:
+                raise EmbeddingError("Memory embedding dimensions changed")
+            dimensions = batch.dimensions
             for (link, digest, _), vector in zip(chunk, batch.vectors, strict=True):
-                generated[link] = _CachedVector(digest=digest, vector=vector)
-        self._entries = {**retained, **generated}
-        self._write()
+                entries[link] = _CachedVector(digest=digest, vector=vector)
+        operations = JoinedOperations()
+        await operations.run(lambda: self._write(entries, dimensions))
+        self._entries = entries
+        self._dimensions = dimensions
+        operations.check_cancelled()
 
     def _load(self) -> None:
         if not self._path.is_file() or self._path.is_symlink():
@@ -107,7 +113,11 @@ class MemoryEmbeddingIndex:
             value = json.loads(read.text)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return
-        if not isinstance(value, dict) or value.get("identity") != self._client.identity:
+        if (
+            not isinstance(value, dict)
+            or value.get("schema_version") != 2
+            or value.get("identity") != self._client.identity
+        ):
             return
         dimensions = value.get("dimensions")
         entries = value.get("entries")
@@ -129,6 +139,8 @@ class MemoryEmbeddingIndex:
                     or not isinstance(vector, list)
                 ):
                     return
+                if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in vector):
+                    return
                 parsed = tuple(float(item) for item in vector)
                 if len(parsed) != dimensions or any(
                     not math.isfinite(item) for item in parsed
@@ -140,14 +152,14 @@ class MemoryEmbeddingIndex:
         self._dimensions = dimensions
         self._entries = loaded
 
-    def _write(self) -> None:
+    def _write(self, entries: Mapping[MemoryLink, _CachedVector], dimensions: int) -> None:
         value = {
-            "schema_version": 1,
+            "schema_version": 2,
             "identity": self._client.identity,
-            "dimensions": self._dimensions,
+            "dimensions": dimensions,
             "entries": {
                 str(link): {"digest": item.digest, "vector": list(item.vector)}
-                for link, item in sorted(self._entries.items(), key=lambda pair: str(pair[0]))
+                for link, item in sorted(entries.items(), key=lambda pair: str(pair[0]))
             },
         }
         text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -156,7 +168,7 @@ class MemoryEmbeddingIndex:
         try:
             atomic_write_text(self._path, text)
         except OSError as exc:
-            raise MemoryIOError(f"Failed to write Memory embedding cache: {exc}") from exc
+            raise MemoryIOError("Failed to write Memory embedding cache") from exc
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
@@ -166,3 +178,7 @@ def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
     if not left_norm or not right_norm:
         return 0.0
     return dot / (left_norm * right_norm)
+
+
+def _text_digest(text: str) -> str:
+    return sha256(text.encode("utf-8")).hexdigest()

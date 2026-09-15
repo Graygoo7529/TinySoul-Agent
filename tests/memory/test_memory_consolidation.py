@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from datetime import UTC, datetime
 import json
 
@@ -41,6 +43,7 @@ async def test_daily_composer_uses_target_sources_and_current_task_profile() -> 
         revision=3,
         facts=(
             SessionMemoryFact(
+                status=TurnOutcomeStatus.ANSWERED,
                 ref="session:turn/one",
                 started_at=datetime(2026, 7, 12, 9, tzinfo=UTC),
                 user_inputs=("Remember the design decision",),

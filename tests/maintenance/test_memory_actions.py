@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tinysoul.loop.outcomes import TurnOutcomeStatus
+
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -63,6 +65,7 @@ async def test_memory_maintenance_draft_requires_inspection_and_commits_daily_an
         facts=(
             SessionMemoryFact(
                 ref="session:turn/design",
+                status=TurnOutcomeStatus.ANSWERED,
                 started_at=datetime(2026, 8, 5, 10, tzinfo=UTC),
                 user_inputs=("Record the memory design",),
                 answer="Recorded.",
@@ -224,6 +227,7 @@ async def test_memory_maintenance_inspect_sources_pages_session_and_workspace_in
         facts=tuple(
             SessionMemoryFact(
                 ref=f"session:turn/{index}",
+                status=TurnOutcomeStatus.ANSWERED,
                 started_at=datetime(2026, 8, 5, 10 + index, tzinfo=UTC),
                 user_inputs=(f"Input {index}",),
                 answer=f"Answer {index}.",

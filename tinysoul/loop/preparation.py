@@ -14,7 +14,7 @@ from .errors import LoopContractError
 class TurnPreparationHandler(Protocol):
     """Produce context signals before the first Cycle of a Turn."""
 
-    def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
+    async def prepare(self, request: "TurnPreparationRequest") -> tuple[Signal, ...]:
         """Return scoped preparation signals."""
         ...
 
@@ -43,8 +43,8 @@ class TurnPreparationPipeline:
 
     handlers: tuple[TurnPreparationHandler, ...] = field(default_factory=tuple)
 
-    def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
+    async def prepare(self, request: TurnPreparationRequest) -> tuple[Signal, ...]:
         signals: list[Signal] = []
         for handler in self.handlers:
-            signals.extend(handler.prepare(request))
+            signals.extend(await handler.prepare(request))
         return tuple(signals)

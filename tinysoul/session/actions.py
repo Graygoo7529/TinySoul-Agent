@@ -8,7 +8,7 @@ from tinysoul.action import (
     ActionEngineBuilder,
     ActionExecution,
     ActionExecutionContext,
-    ActionExecutor,
+    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -45,7 +45,7 @@ def register_session_actions(
     )
 
 
-class SessionInspectExecutor(ActionExecutor):
+class SessionInspectExecutor(LocalActionExecutor):
     def __init__(
         self,
         session: SessionInspector,
@@ -55,7 +55,7 @@ class SessionInspectExecutor(ActionExecutor):
         self._session = session
         self._runtime_bridge = runtime_bridge
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

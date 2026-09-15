@@ -10,6 +10,7 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -38,12 +39,12 @@ def register_memory_actions(
     return builder
 
 
-class MemoryMemorizeExecutor(ActionExecutor):
+class MemoryMemorizeExecutor(LocalActionExecutor):
     def __init__(self, memory: MemoryEngine, runtime_bridge: RuntimeMemoryBridge) -> None:
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         params = execution.call.params
         expected = params.get("expected_digest")
@@ -91,7 +92,7 @@ class MemoryInspectExecutor(ActionExecutor):
         params = execution.call.params
         try:
             request = _inspect_request(params)
-            result = self._memory.inspect(request)
+            result = await self._memory.inspect(request)
         except MemoryContractError as exc:
             return _failed(execution, str(exc), "invalid_inspect")
         except MemoryError as exc:
@@ -114,12 +115,12 @@ class MemoryInspectExecutor(ActionExecutor):
         )
 
 
-class MemoryRecallExecutor(ActionExecutor):
+class MemoryRecallExecutor(LocalActionExecutor):
     def __init__(self, memory: MemoryEngine, runtime_bridge: RuntimeMemoryBridge) -> None:
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         link = execution.call.params.get("memory_link")
         if not isinstance(link, str) or not link:
