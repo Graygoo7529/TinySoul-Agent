@@ -1,809 +1,458 @@
-# 分层 Agent 架构总体重构方案与执行计划
+# Agent 架构重构：设计语义、契约与执行计划
 
-状态：`in_progress`（D1–D24 与原 S0 定稿记录保留；2026-09-14 新增架构一致性复审，第 13 节提案部分待确认；D25 单根 Turn 与 D26 Segment 职责已确认；S1–S7 尚未完成，本轮不实施代码重构）。
+状态：`in_progress`（设计复审，尚未实施架构重构）。
+修订日期：2026-09-15。审阅代码：`e930c9c444deb0073ab3d7f016057245bad66ca6`；本轮 git ls-remote 确认远端 HEAD 相同。
 
-阅读规则：1–12 节保留上一轮已记录的方案与决策，不等于当前实现。第 13 节给出基于 `e6ee6af` 代码的冲突定位、替换预览与验收补充；涉及旧条款的替换在确认后统一回写，不能同时实现两套接口。进入 S1 前先讨论影响基础协议的 P1–P6；其它实施细节在所属阶段定稿，不要求一次性批准全部远期方案。P9 仅是历史想法参考，不能自动增加本次范围或成为 S1 前置门禁。本轮请求是设计复审，不因原文的“授权范围”或“已定稿”自动进入代码实现。
+本文件描述目标设计，不代表当前实现。用户本轮授权分析、修订计划与讨论，不据历史“全面授权”直接实施代码。已确认语义见第 14 节；Q 编号的细化方案为建议，不标成用户已批准。原“正文 + 替换预览”合并为单一方案，旧版由 Git 保存，不并行保留互相冲突的接口。API 均为契约草图，具体名称与类型在子计划落定。
 
-本文件同时是设计方案与执行计划。1–8 节阐述重构性质、设计意图、统一语义、架构与契约、与现有模块的联系、可行性和开放问题；9–12 节记录决策、分阶段实施、测试与验收；第 13 节记录本轮待确认的进一步修订。方案在与维护者的讨论中持续修订，修订点在第 9 节留痕。
+## 1. 项目理解与重构意图
 
+TinySoul 是长期运行的个人 Agent：在环境中感知与行动，通过多 Cycle 求解，通过 Session 保存对话经验，通过 Memory 与 Home Reflection 沉淀知识、偏好和可复用能力。项目已有资源 owner、构造式 Context、分层失败和可复用 Turn 内核；本次应围绕这些资产重整依赖与生命周期。
 
-## 0. 最初重构思路
-初步思路是，对现有代码的层次进一步划分，上下层次之间提供 agent/sdk api 风格的清爽调用和依赖解耦，不同功能范畴之间提供插件式的通用注入和内聚能力可维护、可替换性。
+设计判断顺序：谁拥有事实 → 谁可以修改 → 何时可观察 → 谁处理失败 → 谁负责结束与回收。“干净”不等于删除合理抽象，也不等于让所有业务都经消息总线绕行。
 
-以 agent 概念出发，将一切定义为输入、输出和 agent 状态的改变；例如，app/gateway 通过接口输入配置启动 agent /重启/查询状态，以及发起一次 turn（用户对话、记忆维护、home 维护）；将 agent 置于运行环境之中，可以看作一个事件驱动的系统（可以考虑 dds 消息的解耦），使得 agent 能够收集感知环境状态、对环境进行操作，也可以接收用户追加输入，订阅环境发生的变更，暂停 agent turn 并于用户交流对话，执行脚本或 shell 指令或派遣 sub-agent，对于后台任务以一定间隔唤醒自己的下一个 cycle，或者等待后台任务发出的事件来激活下一个 cycle。
-
-进一步地，考虑 agent 内部封装，kernel 依然是 turn-cycle-stage-loop 和 context 语境维护；其中，background context 在 before turn 即有所准备，且允许在 turn 期间通过 异常触发（如上下文压缩）或 stage1 tool 变更，background context 呈现堆的形态（冰山理论），堆顶是线索，并可向下按需追溯； interaction trace 以栈的形态，在当前 turn 运行中的追加新的消息；workspace 呈现最新的工作状态（可用的本地资源、待办和里程碑，里程碑类似寄存器一样的备忘数据或真实值）；
-在 agent 内部另一个关键架构设计是，kernel 负责利用 context 中不同的语境段，但 kernel 本身不需要知道和维护 context 不同语境段的内容和含义；依赖反转，外围插件式申明 context 语境段内容和 kernel 的使用方法（turn 前/中/后），并在外围模块内部维护属于这个段的相关内容和结构，内容的维护和管理依靠外围具体的功能模块。
-
-
-
-## 1. 重构性质与授权范围
-
-这是一次全面、彻底、不向后兼容的整体重设计，不是模块内重构，也不是渐进兼容迁移。
-
-授权范围覆盖项目内一切设计：
-
-- `AGENTS.md` 的核心定义、项目规约、运行控制、代码风格与测试约定可以改写；其中与本方案冲突的表述（如"不建立 ask/pause/awaiting 状态"、Program/App 概念、按 owner 名固定的 MessageStack 顺序、`runtime/bridge/` 集中放置业务 bridge、"需要跨 Cycle 监督的外部任务只保留 Turn-scoped job"）直接撤销或替换。
-- `docs/design/` 全部按新架构重组；旧设计文档只作为理解历史意图与保留资产的材料。
-- 包布局、模块名、公共门面签名、Runtime 原因标识、Session 记录 schema、Endpoint 协议、Action 域划分、测试目录与 `pyproject` 打包元数据全部可变。
-- 旧测试不构成保留旧边界的理由；与新架构冲突的测试改写或删除。
-- 唯一有意保持稳定的是用户项目侧的 TOML section 名与持久目录布局（`home/`、`memory/`、`runtime/`、`archive/`），因为它们属于用户数据而非代码结构（D8）。
-
-判断标准只有一个：新架构是否在整体逻辑上干净、清晰，在空间上把现有设计与功能纳入统一语义，在时间上支撑长期迭代与扩展。不以工作量、测试兼容或"当前暂无消费者"为由拒绝合理抽象，也不以"未来可能需要"为由预留没有语义的空壳。
-
-## 2. 设计意图与愿景对照
-
-原始构想拆成八项，逐项给出设计回应与达成状态。`本次落地` 指在本计划阶段内完成；`本次落地·后续扩展` 指机制与首个消费者本次完成、更多消费者按独立计划追加。
-
-| # | 原始构想 | 设计回应 | 状态 |
-|---|---|---|---|
-| 1 | 层次进一步划分，上下层 agent/sdk api 风格调用，依赖解耦 | 六层单向依赖；`Agent` 门面是 L5 唯一入口；插件经 `PluginRegistry` SPI 注入；三条 import 规则由测试固定 | 本次落地 |
-| 2 | 不同功能范畴插件式注入，内聚、可维护、可替换 | 每个 owner/能力是一个 `Plugin`，声明段、动作、catalog 片段、Trap 处理器、profile、事件源、触发器、Job 种类、服务门面；增删插件只改插件清单 | 本次落地 |
-| 3 | 以 agent 出发，一切是输入、输出与状态改变 | `Agent` API 只暴露输入（TurnRequest、追加输入、控制、配置 patch、环境事件）、输出（TurnOutput、Observation 流、服务读取）与状态（世代、活动、日历日、Job 表） | 本次落地 |
-| 4 | Agent 置于环境中，事件驱动，DDS 式解耦 | 单一 asyncio `EventBus` 以 topic 组织事件；`EnvironmentEvent` 协议、静态/动态事件源、`EventRouter` 路由到收件箱或触发器；三种投递语义对应既有 Signal/Observation/Trap 三分法 | 本次落地 |
-| 5 | 接收追加输入、订阅环境变更、暂停 Turn 与用户对话 | 追加输入进收件箱；段 `subscriptions()` 与 `TurnTrigger` 两级订阅；Workspace 文件监视是首个环境事件源；`core.ask` 暂停 Turn 等待回复 | 本次落地 |
-| 6 | 执行脚本/shell、派遣 sub-agent、按间隔或事件唤醒下一 Cycle | Job 框架统一后台进程、外部 ACP agent 与内部嵌套 Turn；`WaitRequest(until, timeout)` 统一事件唤醒与定时唤醒；Job 事件仅唤醒所属 Turn，不触发新根 Turn | 本次落地 |
-| 7 | 内核仍是 turn-cycle-stage-loop 与语境维护；background 冰山、trace 栈、workspace 最新状态与寄存器式里程碑 | 三分区 Background → Trace → Working；四种形状 Heap / Map / Stack / State；`session.history` 为 Map；`plan` milestone 为寄存器 | 本次落地 |
-| 8 | 依赖反转：外围声明段内容与内核使用方法，内核不知内容 | 段协议 `open`（前）/`prepare·install` 与按需事件/回收/检查能力（中）/`seal·finish·close`（后）；内核只知槽位、形状与 ref scheme | 本次落地 |
-| 9 | MCP 通用工具接入（`00 doing something.md`），避免 tool schema 过大 | `expand` 域：MCP 网关 + `expand.search/describe/call/servers`；搜索与描述结果进入 Trace，不设钉选段 | 本次落地·后续扩展 |
-
-## 3. 统一设计语义
-
-### 3.1 Agent：输入、输出与状态
-
-Agent 是进程内唯一的智能体实例。
-
-- 输入：`TurnRequest(profile, input, metadata, source)`、`InputAppended`、`ControlRequested(stop|exit)`、`ConfigPatch`、`EnvironmentEvent`。
-- 输出：`TurnOutput(kind=answer|question, text)`、Observation 流、服务门面读取。
-- 状态：配置世代、活动（`idle | preflight | turn | awaiting_input`）、日历日、Job 表、注册插件与服务状态摘要。
-
-Agent 取代 Program/App。`RunLevel.PROGRAM → AGENT`，`runtime.program_end → runtime.agent_end`。
-
-### 3.2 事件与环境协议
-
-一条 asyncio 总线，事件以 topic 命名。三种投递语义对应既有三分法：
-
-- Signal：命名空间队列，由拥有协议的模块在边界批次消费，参与业务提交。段 patch、收件箱事件是 Signal。
-- Observation：广播、JSON 安全、只面向外部；normal / verbose / model 三级。所有环境事件以 verbose 级镜像为 Observation，供前端与 journal 回放。
-- Trap：不是事件；收件箱中的控制事件在 Phase 边界转 `RuntimeException`。
-
-`EnvironmentEvent` 是 Signal 的一个子类型，表达"环境中发生了什么"：
-
-```python
-@dataclass(frozen=True)
-class EnvironmentEvent:
-    topic: EventTopic          # 分级点分名，如 job.<id>.exited、fs.workspace.changed、schedule.daily.due、mcp.<server>.resource_updated
-    source: SourceId           # 发布者身份
-    occurred_at: datetime
-    payload: JsonObject        # JSON 安全；typed 转换在消费者一侧
-    turn_scope: TurnId | None  # 归属 Turn；None 表示 agent 级
-```
-
-事件源分两类，同一注册接口：
-
-- 静态源：随 Agent 启停，插件在 `contribute` 中经 `registry.event_source` 声明（终端、调度器、Workspace 文件监视、MCP 服务器订阅流）。
-- 动态源：运行期由 owner 注册/注销（每个 Job 是其 `job.<id>.*` 的源；每个 MCP 连接是其 `mcp.<server>.*` 的源）。`EventRouter.register_source(descriptor)` / `unregister_source(id)`。
-
-`EventRouter`（agent）对每个事件按序判定：
-
-1. `turn_scope` 指向活动 Turn → 投递该 Turn 收件箱。
-2. 否则匹配 `TurnTrigger(filter, plan)` → `plan(event) -> TurnRequest...` 进入 TurnScheduler 队列。
-3. 否则仅保留 Observation 镜像。
-
-`EventFilter`：topic 通配 + 可选 `turn_scope` + 可选 payload 谓词；收件箱 `wait`、段 `subscriptions()`、`TurnTrigger` 共用。
-
-`TurnInbox` 是活动 Turn 对其命名空间的类型化视图：`drain()`、`wait(filter, timeout)`。收件箱事件种类：`InputAppended`、`ControlRequested`、`EnvironmentEvent`。
-
-topic 分类（当前消费者）：`input.*`（终端/Endpoint）、`control.*`、`schedule.<name>.due`（reflection 触发器）、`fs.workspace.changed`（`workspace.resources` 段）、`job.<id>.*`（`jobs` 段、`core.job.wait`）、`mcp.<server>.*`（`expand` 网关刷新工具索引与资源订阅）。
-
-### 3.3 Turn 与 TurnProfile
-
-Turn 是一项完整 work；Cycle 由 Phase1/2/3 组成；骨架不变。
-
-根 Turn 调度遵循 D25：同一 Agent 同时至多运行一个根 Turn，等待用户回复或后台任务期间仍占据该执行位置，不启动其它独立 User Turn 或 Reflection。显式新任务与维护请求进入队列，待当前根 Turn 完成收尾后执行；属于当前 Turn 的回复/追加输入进入其收件箱。等待只暂停当前推理推进，不暂停环境 I/O、Job 监督和取消控制。此决定不确认子 Turn 的并发、作用域或世代方案，它们仍按 P5 讨论。
-
-差异收敛为 `TurnProfile`：guidance、Action surface、参与段集合、completion detector、completion 到 `TurnOutput` 的映射、Trap 策略追加、预算、是否接受追加输入、等待策略。内建 `user`；`plugins/home` 注册 `home_reflection`，`plugins/memory` 注册 `memory_reflection`（专属域只在对应 profile 的 surface 中出现，与常规 User Turn 的 `home` / `core.memory` 域分开）；`subagent` 插件注册 `subagent` profile（受限 surface，用于内部嵌套 Turn）。
-
-Cycle 边界等待是一等语义：类型化 WaitRequest，区分 EVENT 与 TIMER；模型不管理 Cycle 额度，预算由内核检查并由用户追加。
-
-日历日由 `agent/day` 持有：类型名为 `CalendarDay`（取代 `BusinessDay`），时区时钟为 `CalendarClock`。提示词、Observation、CLI 与 Endpoint 使用"今天 / 某日"；代码与持久目录日期字段使用 ISO `YYYY-MM-DD`。确定性日切、归档与新根初始化语义不变，只改名。
-
-### 3.4 Context：槽位、形状与段
-
-已确认 D26：Segment 是领域 Engine 为当前 Turn 提供的有状态 Context 段，维护本轮加载、展开和呈现；Engine 拥有领域事实及操作。二者不要求一一对应，无语境贡献的能力插件可以不提供段。Context 组织各段，每次模型调用由 Compose 将各段当前渲染结果与本次 TaskPrompt 构造成 MessageStack，供应商适配层再映射为请求。内核的 inputs/plan/trace 也可作为段；身份内容由 Home/配置提供，内核不解释领域内容。
-
-段有分区槽位、槽内序号、形状、ref scheme、以及是否可逐出。MessageStack 按三分区渲染：Background → Trace → Working；Working 尾部由 loop 叠加当前 LLM Task 的 TaskPrompt overlay（不是段）。
-
-Background 槽内顺序（D19）：`identity`（system role）→ `session.history` → `inputs` → `home.background` → `memory.background`。Phase1 会 load/evict Home 与 Memory，把会变的段放在固定段之后，避免污染 identity/history/inputs 的前缀。`identity`、`history`、`inputs` 不可逐出；`home.background`、`memory.background` 可渐进 load/evict。
-
-四种形状定义内核对段的使用方式：
-
-- Heap：线索在顶，条目可 `load/evict/inspect`；压力回收逐出。实例：`home.background`、`memory.background`。
-- Map：关系图骨架始终可见；节点可 `inspect`；压力回收只在本段超过自身水位时有限折叠节点细节，不拆骨架。实例：`session.history`。Thread 是地图上的节点种类，不是第五种形状。
-- Stack：Turn 内追加，旧帧折叠，折叠帧可 `inspect`；压力回收折叠。实例：`trace`。
-- State：最新状态整体替换或 patch；压力回收收缩渲染。实例：`identity`、`inputs`、`plan`、`workspace.resources`、`jobs`。
-
-内核统一处理：渲染框架、回收顺序（State 收缩 → Heap 逐出 → Stack 折叠 → Map 仅在自身超水位时有限折叠）、`context.load/evict(ref)` 对 Heap 有效、`core.context.inspect(ref, cursor)` 对声明 `inspect` 的段有效、`core.context.organize` 路由到 Map 段；ref 按 scheme（`home:`、`memory:`、`session:`、`trace:`）路由。
-
-Trace 除决策、Action 调用与结果、Phase 反馈外，包含**事件帧**：`trace` 段订阅收件箱（`input.appended`、显著 `job.*`、`fs.workspace.changed`），`on_event` 追加有时序的感知记录（如"收到追加输入 #2，正文见 inputs"）。正文仍由所属段承载。`jobs` 段不自行追加 trace note。
-
-段每 Turn 实例：注册 `ContextSegmentProvider`，Turn 开始 `open(turn)`，结束依次导出快照 `seal()`、完成业务提交 `finish(completion)`、释放资源 `close()`。段即 Turn 参与者，不再有独立的 `TurnParticipant`。语境更新的 prepare/install 只处理内存候选状态，实际领域 Action 经 Engine 门面提交业务事实，不经过 Context 事务。
-
-### 3.5 Job：Turn 内的受监督工作
-
-按最新讨论 D27，Job 只属于启动它的 Turn，可跨 Cycle，不跨 Turn。进程、外部 ACP agent、内部子 Turn 共用这一生命周期；删除 JobScope TURN/AGENT、scope 参数和 Job 完成触发新根 Turn 的机制。
-
-JobRegistry 可由 Agent 统一索引，但每个 Job 必须有 owner_turn_id；注册表所在位置不代表 Job 可以跨 Turn。父 Turn 的子 Turn 本身也是 Job，父收尾递归取消并回收子工作。Job 完成/失败/请求事件投递所属 TurnInbox；父 Turn 通过子 Turn Job 的公开事件与结果了解子任务，不直接消费子收件箱。
-
-正常终结前，Job 应已完成或明确停止；用户取消/失败时框架停止并回收剩余 Job。结果文件和 Session 事实可保留，运行对象不留到下一 Turn。collect 是读取结果，不是停止进程，也不应是释放已结束执行资源的唯一入口。
-
-动作保留种类域内 start/send/collect，以及 core.job.status/stop 和统一等待入口。具体等待工具名待子计划确定；模型可选择匹配 Job 中间/终态事件，或等待一段时间后再运行任意探测动作。
-
-### 3.6 Plugin 与两阶段装配
-
-Plugin：`configure(env)`、`contribute(registry)`、可选 `finalize(view)`。装配两阶段：declare → resolve（服务表、合并 catalog、按 profile 组装段与 Trap 表、执行延迟 registrar、`finalize`）。插件间只经包根公共门面依赖；当前跨插件消费者是 reflection（编排）与 subagent/expand（经 `WorkspaceService` 落盘大块输出）。
-
-### 3.7 asyncio 与取消
-
-单事件循环。Agent API、总线、Turn/Cycle/Phase、LLM、Action 批次、进程后端、事件源、Job、MCP/ACP 客户端、Endpoint 全部 async。持久 owner 存储引擎保持同步，适配层触盘经 `to_thread`，同步引擎不触碰 asyncio 对象。
-
-取消沿用现有"边界权威"模型，不依赖 asyncio 的 Task 取消传播：
-
-- `TurnCancellation` 保留为协作式令牌（底层改为 `asyncio.Event`），stop/exit 请求先置令牌，再在 Phase/Cycle 边界由收件箱控制事件转为 Trap。控制流只在边界改变，与现 `CycleRunner._boundary` 语义一致。
-- Phase 内 in-flight await 与令牌竞争：LLM 调用以 `asyncio.wait({provider_task, cancel_wait}, FIRST_COMPLETED)` 取代现有守护线程轮询，命中令牌时取消 provider task 并抛 `TaskCancelled`，Phase 返回 `cancelled`，由边界收敛；Action 批次 runner 以同样方式观察令牌与 deadline。
-- `ActionExecutionControl`（deadline、cancel_event、cancel callbacks）保留：它是线程内同步 executor 与进程后端唯一能观察到的协作取消手段；批次 runner 改用 asyncio 原语等待，但对 execution 的取消仍经 `control.request_cancel`。
-- asyncio 的硬取消（`Task.cancel()`）只在 `Agent.stop()/exit()` 宽限期后对活动 Turn Task 使用，属于进程收尾而非业务控制流；模块内 `except Exception` 不吞 `CancelledError`。
-
-### 3.8 失败三层语义
-
-不变。每个插件自带 `failures.py` 与 `runtime_bridge.py`，复用 `runtime/bridge/_payload.runtime_exception()` 构造 payload（`module` + `kind`）；`runtime/bridge/` 只保留 `_payload` 与内核模块 bridge。Trap 原因的所有权同样分层：`runtime` 只定义 `runtime.startup_failed | turn_end | cycle_end | agent_end`；`kernel/context` 定义 `context.compression_required`；`home.runtime_copy_required` 由 home 插件定义并经 `registry.trap_handler` 登记（现 `TrapHandlerRegistry` 已支持 exact/prefix/fallback，无需改动）。现 `runtime/exception.py` 中集中声明业务原因常量的做法取消。`workspace.trash_restore_required` 随 D24 删除。ACP/MCP 的协议错误在插件边界归类：工具返回 `is_error` 是局部结果；连接/握手失败是模块边界异常；不进入 Runtime。
-
-## 4. 分层架构与包布局
-
-```text
-L5 gateway      cli · endpoint v2 (http/ws) · project init/reset
-L4 agent        Agent 门面 · assembly · TurnScheduler · EventRouter · JobRegistry 实例 · generation · day · profiles/user · services · status
-L3 plugins      home · memory · session · workspace · reflection · capabilities/{resource,web,execution,subagent,expand}
-L3 environment  terminal · scheduler · fswatch · console sink
-L2 kernel       spi · context · loop · action · jobs · prompts
-L1 runtime      scope/trap/transfer/exception · events(EventBus/Signal/Observation/EnvironmentEvent/TurnInbox/EventFilter) · generation handle · 内核 bridge
-L1 llm          messages · tools · task runner · providers (async)
-L0 infra        config · json · filesystem · time · async concurrency · staging · continuation · embedding
-```
-
-依赖规则（S7 用静态 import 测试固定）：只向下依赖；`kernel` 不 import `plugins/environment/agent/gateway`；`runtime`/`llm` 不 import 业务模块；`gateway` 只经 `Agent` API 与 `agent.services` 访问业务。
-
-```text
-tinysoul/
-  infra/
-  runtime/
-    scope.py transfer.py exception.py errors.py frame_runner.py
-    trap/  events/  generation/
-    bridge/{_payload,context,loop,action,jobs,llm,infra}.py
-  llm/
-  kernel/
-    spi.py
-    context/
-      slots.py shapes.py segments.py
-      identity.py inputs.py plan.py trace.py jobs.py
-      composer.py pressure.py engine.py actions.py
-    loop/
-      turn.py cycle.py phases.py profile.py inbox.py wait.py completion.py outcomes.py cancellation.py config.py
-    action/
-      engine.py core/ backends/ builtins/core/ config.py failures.py
-      catalog/core/
-    jobs/
-      job.py registry.py events.py actions.py      # Job 协议、JobRegistry、事件 payload、core.job.*
-    prompts/
-  plugins/
-    home/ memory/ session/ workspace/ reflection/
-    capabilities/
-      resource/ web/
-      execution/            # script、shell、process Job 种类；域 execution
-      subagent/             # ACP 客户端与 tinysoul_turn Job 种类；域 subagent；subagent profile
-      expand/               # MCP 网关、工具索引；域 expand
-  environment/
-    terminal.py scheduler.py fswatch.py console.py
-  agent/
-    agent.py assembly.py scheduler.py router.py generation.py day.py services.py status.py config.py failures.py runtime_bridge.py
-    profiles/user.py
-  gateway/
-    cli.py
-    endpoint/{auth,schemas,routes,events,host}.py
-    project/{initializer,resetter,instance}.py
-  assets/
-```
-
-插件包统一结构：`plugin.py`、`config.py`、`engine.py|service.py`、`segments.py`、`actions.py`、`jobs.py`（Job 种类，按需）、`catalog/<domain>/`（按需）、`participants.py`（DayParticipant，按需）、`failures.py`、`runtime_bridge.py`、`errors.py`。
-
-## 5. 契约设计
-
-### 5.1 Agent SDK API
-
-- `await Agent.create(project_root, *, overrides) -> Agent`
-- `await agent.start()` / `stop()` / `restart()`
-- `agent.status() -> AgentStatus`（含 Job 表摘要）
-- `await agent.reload_config(patch) -> ConfigReloadResult`
-- `await agent.submit_turn(TurnRequest) -> TurnHandle`
-- `await agent.append_input(turn_id, text)`、`await agent.control(turn_id, kind)`、`await agent.exit()`
-- `await agent.publish(EnvironmentEvent)`（供 gateway 代理外部环境事件）
-- `agent.subscribe(filter) -> AsyncIterator[ObservationEvent]`
-- `agent.services.get(FacadeType)`
-
-`TurnScheduler` 串行消费 TurnRequest；每 Turn 前由 `agent/day` 取得日历日 lease；持有活动 Turn 收件箱。`EventRouter` 按 3.2 路由。嵌套 Turn（`tinysoul_turn` Job）不进队列，作为父 Turn 内的 Task 运行，共享 owner 引擎，段实例独立。
-
-### 5.2 PluginRegistry
-
-```python
-class PluginRegistry(Protocol):
-    def context_segment(self, provider: ContextSegmentProvider, *, profiles: frozenset[str] | None = None) -> None: ...
-    def actions(self, registrar: ActionRegistrar) -> None: ...
-    def action_catalog_fragment(self, root: Path, *, package_only: bool = False) -> None: ...
-    def trap_handler(self, reason: str, handler: TrapHandler, *, profiles: frozenset[str] | None = None) -> None: ...
-    def turn_profile(self, profile: TurnProfile) -> None: ...
-    def daily_participant(self, participant: DayParticipant) -> None: ...
-    def event_source(self, source: EventSource) -> None: ...
-    def schedule(self, name: str, spec: ScheduleSpec) -> None: ...
-    def turn_trigger(self, trigger: TurnTrigger) -> None: ...
-    def job_kind(self, kind: str, factory: JobFactory) -> None: ...
-    def service(self, facade_type: type[T], facade: T) -> None: ...
-```
-
-覆盖规则、resolve 阶段的 `ActionRegistrationContext`（bus、observations、llm_action、staging、resolvers、skill providers、`services`、`jobs`）、catalog 所有权（core 归内核，其它域随插件；`package_only` 域只运行时合并；`init/reset` 合成项目 catalog）同前。
-
-### 5.3 段协议
-
-```python
-class ContextSegmentProvider(Protocol):
-    segment_id: str; slot: SegmentSlot; order: int; shape: SegmentShape; ref_schemes: frozenset[str]
-    async def open(self, turn: TurnInfo) -> ContextSegment: ...
-
-class ContextSegment(Protocol):
-    def render(self) -> tuple[Message, ...]: ...
-    async def prepare(self, updates: tuple[SegmentUpdate, ...]) -> PreparedSegment: ...
-    def install(self, prepared: PreparedSegment) -> None: ...
-    def seal(self) -> SegmentSnapshot: ...
-    async def finish(self, completion: TurnCompletion) -> None: ...
-    async def close(self) -> None: ...
-```
-
-以上是生命周期协议草图，具体类型定义在实施子计划中收敛。load/evict/inspect/organize/reclaim、控制工具与事件订阅按能力声明，不强制每个段实现空方法。
-
-`ContextEngine`：按 profile 选段并打开；`compose` 依分区与槽内序号渲染，保留消息角色和 ToolResult 语义，再叠加 TaskPrompt。边界捕获更新批次，各段 prepare 校验完整有序批次、计算候选状态并完成必要读取；无效模型更新返回局部结果。全部准备完成后，在无 await、无 I/O 的提交边界安装候选内存状态。准备可重放，安装后的批次不可盲目重放；这不提供跨 owner 持久事务。结束时所有段 seal，再完成业务 finish（Session 最后），最后逆序 close 释放资源；细化约束见 13.4。并行 open 的必要性与依赖次序待实施子计划确认，不作为通用保证。
-
-`TurnInfo`（`open` 的输入）：`turn_id`、`profile`、`calendar_day`、`request.metadata`（如 `memory_reflection` 的 `target_day`、Job 完成通告的 `job_id`）、`parent_turn_id`；段据此决定打开当日还是归档日、读写还是只读。
-
-内核段：`identity`、`inputs`、`plan`（控制工具 `plan.patch`；milestone 字段 status、value、source link、revision/digest、note）、`trace`、`jobs`。插件段：`home.background`（Heap）、`memory.background`（Heap）、`session.history`（Map）、`workspace.resources`（State，订阅 `fs.workspace.changed`）。不设 `expand.tools` 段。
-
-`trace.seal()` 除折叠后的语义节点与事件帧外，直接给出 `actions` 投影（Phase2 调用与 Phase3 结果按 call_id 配对、含 outcome/failure/references）以及供 Session 抽取的结构化材料：问答、追加输入、`core.reason` 结果摘要、动作引用的 links。现由 `session/completion.py` 解析 sealed trace 的做法取消。
-
-`session.history`（Map）在 `finish` 时无模型固定构建：从 completion 写入不可变 `SessionTurnRecord`，并更新当日 `SessionMap`（`runtime/session/map.json`，随 Session 归档）。抽取字段：初始提问、追加/追问输入、回答或 `core.ask` 问题、outcome、`core.reason` 与其它动作摘要、动作与回答中的 `workspace:` / `memory:` / `home:` / 外部 URL / MCP 工具 id、`plan` 中的 milestone。节点 `turn` / `thread` / `resource` / `link` / `decision`；边 `follows` / `continues` / `touches` / `decides`。Turn 结束时 thread 可暂缺，`organized=false`。新 User Turn 开始时 history 渲染地图骨架，并对上一个成功 Turn（`ANSWERED | COMPLETED | AWAITING_USER`）给出待整理标记。`core.context.organize` 由当前 Turn 的模型调用，把 gist、thread 归属与补全关系写回地图；不在 `close` 里跑 LLM。`SessionSummaryRecord` 删除。压力回收：history 不参与 Heap 式逐出；仅当本段渲染超过自身水位时，把较早已整理 thread 的逐 Turn 行折成 gist 一行，骨架与未整理 Turn 不折。
-
-`core.context.inspect(ref, cursor)` 是唯一追溯动作（D20）：`trace:` 折叠帧、`session:` 地图节点或完整 Turn 记录分页、`home:` / `memory:` 背景条目。`context.load/evict` 只面向 Heap。错配 scheme 为局部失败。
-
-压力回收顺序为 State 收缩 → Heap 逐出 → Stack 折叠 → Map 有限折叠：State 收缩（`workspace.resources` 按目录折计数、`jobs` 折叠已结束项）几乎不损失决策信息且不触盘；Heap 条目可经 `context.load` 重新加载；Stack 折叠丢失本轮细节但可 `inspect`；Map 最后动、且只在自身过大时折叠。每轮逐段询问 `reclaim(required_chars)` 直到满足目标或全部返回 0，无进展则按现有 `ContextPressureTrapHandler` 语义结束 Turn。
-
-### 5.4 TurnProfile、等待与用户预算决策
-
-TurnProfile 声明 guidance、Action surface、段集合、完成规则、预算配置和等待策略；不把运行时剩余 Cycle 数放进模型语境，不提供模型申请额度工具，不保留 extend_budget。
-
-模型可请求两种等待：EVENT（匹配环境/Job 事件）与 TIMER（指定时间后进入下一 Cycle）。core.ask 产生 INPUT 等待。等待意图由 Action 正常返回后在 Cycle 边界执行，不占用长时 Phase3 executor；等待不消耗 Cycle。定时等待可被哪些终态事件提前打断、输入等待超时策略，见 13.13 待确认项，不把原 30 分钟当成已确认默认值。
-
-Cycle 启动前由确定性代码检查预算；不足触发预算 Runtime 异常，当前 Turn 进入 BUDGET 暂停，用户选择中断或增加 Cycle 后继续。已完成的 Cycle 不重放；新的额度只由 typed 用户控制入口写入。预算提示属于运行时控制交互，不是模型 core.ask，也不把授权文本当作普通用户追加输入。
-
-TurnInbox 在所有等待期间持续接收事件；恢复时先处理控制和待消费事件，再构造下一次 MessageStack。Job 继续受监督，预算暂停不自动暂停外部进程；事件就绪不绕过预算。暂停转移与精确恢复点为 13.13 提案，尚未实现。
-
-### 5.5 Action 框架
-
-`ActionEngine` 门面不变，`run_batch` async。`ActionBatchRunner` 每 execution 一个 Task，`asyncio.wait(FIRST_COMPLETED)` 同时观察 deadline 与 Turn 取消令牌，超时或取消时对 execution `control.request_cancel` 并等待宽限期，仍未收敛者标记 `executor_leaked` 并阻断同批后续 execution（现有 `leaked_timeout` 语义保留）；首个 `RuntimeException`/`RuntimeTransferInterrupt` 出现时取消同组后原样上抛，不用 `TaskGroup`。`ActionExecutor.execute` 为 async；native 同步 executor 经 `to_thread` 承载并继续以 `control.check_cancelled()` 协作；subprocess 后端 `create_subprocess_exec`；`llm_action` async。`ActionExecutionContext` 保留 `control`、`module_runner`（async 版 `RuntimeModuleRunner`），新增 `turn`：`turn_id`、`calendar_day`、`request_wait`、`jobs`、`publish(EnvironmentEvent)`；`signal_bus` 改为 `bus`（EventBus）。
-
-Schema 子集已支持自由形态 `object`（`action/core/schema.py` 中 `type: object` 允许省略 `properties`，`additionalProperties` 默认 `true`），`expand.call.arguments` 可直接声明为 `{ "type": "object" }`，无需扩展校验器。
-
-### 5.6 `execution` 域（进程 Job 种类）
-
-`plugins/capabilities/execution/` 合并现 script、shell、supervised_process：一个域一个插件。`execution.run_script`、`execution.run_shell` 保留前台有界执行；`execution.start(kind=script|shell, source, args) -> job_id` 启动 `process` Job；`execution.stdin(job_id, text)`；`execution.collect(job_id)` 返回 stdout/stderr 摘要与 `workspace:` 落盘 Link。等待/状态/停止用 `core.job.*`。进程树终止逻辑保留。
-
-### 5.7 `subagent` 域（ACP 与嵌套 Turn）
-
-依赖：ACP Python SDK（在子计划中核实包名与版本）。协议要点（ACP v2）：JSON-RPC 2.0 over stdio NDJSON；`initialize → session/new(cwd, mcpServers?) → session/prompt` 立即返回，随后 `session/update` 通知流（`user_message`、`agent_message(_chunk)`、`agent_thought`、`tool_call(_update)`、`plan`、`state_update: running|idle(stopReason)`）；`session/cancel`；agent 反向请求 `session/request_permission`。
-
-- 配置：`[capabilities.subagent.agents.<name>]`：`command`、`args`、`cwd_policy = workspace | project | path`、`permission_policy`（`auto_allow` 列表 + 默认 `ask_model` | `deny`）、`env`。
-- `acp_agent` Job 种类：spawn → initialize → session/new（cwd 按策略解析到 Workspace 目录）→ prompt。`session/update` 映射为 `job.<id>.message | state | output`（tool_call 摘要）；`request_permission` 映射为 `job.<id>.permission_request` 并置 `waiting_input`，按策略自动应答或等待模型；`idle(stopReason)` → `exited`。`send` = 追加 `session/prompt`；`stop` = `session/cancel` + `session/close` + 进程终止。
-- `tinysoul_turn` Job 种类：以 `subagent` profile 在父 Turn 内运行嵌套 Turn；子 Turn 输出映射为 `job.<id>.message`；`send` = 子收件箱追加输入；父 stop 传播为子 stop；Session 记录子 Turn 带 `parent_turn_id`。
-- 动作：`subagent.start(agent, brief, references) -> job_id`、`subagent.prompt(job_id, message)`、`subagent.respond(job_id, request_id, option)`、`subagent.collect(job_id)`（最终消息、stopReason、变更文件摘要）。等待/状态/停止用 `core.job.*`。
-- Workspace 联动：sub-agent 在 Workspace 目录内改动文件，由 `fs.workspace.changed` 事件驱动 `workspace.resources` 段刷新与 manifest reconcile。
-- 不在范围：TinySoul 作为 ACP server 被外部客户端驱动（可作为 gateway 的后续选项）。
-
-### 5.8 `expand` 域（MCP 通用工具）
-
-依赖：MCP Python SDK v2（`mcp`，async；`Client` 支持 stdio 与 Streamable HTTP；`list_tools/call_tool`；`listen(tools_list_changed, resource_subscriptions)` 订阅流）。
-
-- 配置：`[capabilities.expand.servers.<name>]`：`transport = stdio | http`、`command/args` 或 `url/headers`、`enabled`、`tool_allowlist`、`connect = eager | lazy`。
-- `McpGateway` 服务（agent 级）：连接、工具索引（server、name、title、description、input_schema）、`listen` 任务把 `ToolsListChanged/ResourceUpdated` 发布为 `mcp.<server>.tools_changed | resource_updated` 环境事件并刷新索引；每个连接是动态事件源。
-- 不设 `expand.tools` 段。`expand.search` 与 `expand.describe` 的结果（候选 / 完整 schema）作为 foldable Action 结果进入 Trace；schema 被折叠后可 `core.context.inspect` 或重新 `describe`。跨 Turn 用过的工具由 Session 地图的 `link` 节点承接。
-- 动作：`expand.search(query, limit)` 在索引上做词法 + 可选语义检索；`expand.describe(tool_ids)` 返回完整 schema；`expand.call(tool_id, arguments)` 按网关索引中的 schema 校验（不在索引或不合法为局部失败，反馈附 schema 摘要），再 `call_tool`，结果归一化为文本摘要 + `structured_content`，超限内容经 `WorkspaceService` 落盘为 `workspace:` Link；`expand.servers()` 列出已连接服务器与工具计数。
-- tool-search 的设计意图：Phase2 只看到 `expand.*` 四个稳定动作；搜索是线索、描述是加载，调用不依赖钉选。MCP 工具 `inputSchema` 超出本项目 schema 子集时，超出键只透传不校验（S6 子计划锁策略）。
-- 后续扩展：`expand.read_resource`、prompts、长时调用作为 `mcp_call` Job 种类。
-
-### 5.9 Endpoint v2
-
-- `GET /v2/health`；其余 Bearer。
-- `GET /v2/agent`、`POST /v2/agent/restart`、`POST /v2/agent/reload`（显式激活配置）。
-- `POST /v2/turns`、`GET /v2/turns/{id}`（状态含 `awaiting_input`）、`POST /v2/turns/{id}/inputs`、`POST /v2/turns/{id}/control`。
-- `GET /v2/jobs`、`GET /v2/jobs/{id}`、`POST /v2/jobs/{id}/stop`。
-- `POST /v2/events`（外部环境事件代理）、`GET /v2/events`（replay）、`WS /v2/events`（流）。
-- `GET /v2/config`、`GET /v2/config/catalog`、`GET /v2/config/actions`、`PATCH /v2/config`（只写文件事务，可多次批量修改后统一 reload）。
-- `GET /v2/reflection`、`POST /v2/reflection/home`、`POST /v2/reflection/memory`（经 `ReflectionService`；取代 `/v2/maintenance`）。
-- `/v2/workspace/*` 经 `WorkspaceService`。
-- 连接描述、实例 lease、事件缓冲与 journal 保留。
-
-### 5.10 Prompts
-
-`kernel/prompts/` 集中框架提示词与 `PromptBlock` 构造器；插件动作内部提示词留在插件。
-
-### 5.11 Reflection（Home / Memory 专属域）
-
-`plugins/maintenance` 改为 `plugins/reflection`：只编排触发与完成，不拥有 Home/Memory 存储，也不合并成单一 reflection 域。
-
-- 两个 TurnProfile：`home_reflection`、`memory_reflection`。各自 Action surface 含通用 `core.context.inspect` / `core.memory.inspect|recall`（只读）加上专属域；User Turn 的 catalog 物理上不含这两个域。
-- 关键边界：User Turn 不写持久 Memory、不提交 actual Home。白天 `home.*` 只改 runtime overlay（副本）；`core.memory.memorize` 只 patch 当日 `Memory.md`。持久 `memory/` 与 actual Home 只由对应 Reflection Turn 更新。
-- `home_reflection`：`diff_list`、`diff(path)`、`accept(path|all)`、`reject(path|all)`、`rewrite(path, instruction)`、`done(summary)`。对照 overlay 与 actual；接受后才写入 actual。保留 overlay 与 `home.runtime_copy_required` Trap。不引入 git。
-- `memory_reflection`：轻量单文档写。`write_daily(day, markdown)`、`write(kind, cite, markdown)`、`retire(link, redirect_to, note)`、`done(summary)`。删除 8 步控制器、preview、多文档 journal、CAS digest，以及 frontmatter 中的 `revision` / `activation_count` / `session_revision` / `active_memory_digest`。frontmatter 保留 `kind, cite, status, created_on, updated_on, related, sources, redirect_to, summary|title, confidence?`。目标日可以是今天或任一有 Session 的过去日。
-- 触发：`registry.schedule` + `TurnTrigger`（有 overlay 待审 → home_reflection；有 Session 而无 daily → memory_reflection）；手动 `/reflect home`、`/reflect memory YYYY-MM-DD`。删除 `availability.json`，待办由门面即时计算并经 `agent.status()` 暴露。
-- Context 与 User Turn 同构；history 打开目标日地图；workspace 在 memory_reflection 下为目标日只读视图。
-
-### 5.12 Workspace 动作面
-
-域 `workspace` 去防御化（D24），细节在 S3 子计划锁默认预算：
-
-- 保留：`workspace:` 链接与路径沙箱、轻量 manifest（path、kind、size、mtime、summary、description、tags）、Engine 锁、简单 Trash（原子移动到 `.tinysoul/trash/<ts>/` 并可 restore）、日切归档、read/search 的 foldable trace。
-- 删除：`expected_digest` / `expected_revision` CAS、`WorkspaceEditReadSet` 复验、`described_digest`、`retention` / `owner_turn_id`、压力驱动 trash、Trash prepare/commit marker、`workspace.trash_restore_required` Trap。外部改写由 `fswatch` → manifest 刷新 → trace 事件帧告知模型。
-- 动作：`list`、`search(literal|regex)`、`read`（小文件可整读）、`write`、`edit`（多处精确替换，全部命中才提交）、`append`、`move`、`mkdir`、`delete` / `restore` / `trash_list`、`tag`（`pinned` | `tmp` | `library`）、`describe`、`compose`（合并原 create/rewrite）、`analyze`（预算放宽）。`scan` 改为 Turn 开始与 fswatch 触发的内部操作。
-- `workspace.resources.reclaim` 只按目录折叠渲染，不触盘。
-
-## 6. 与现有模块的联系与迁移映射
-
-| 现模块 | 新位置 | 保留（搬迁） | 改变（重写） |
-|---|---|---|---|
-| `infra` | `infra` | 全部 | asyncio 并发原语；`BusinessDay` → `CalendarDay`；线程 RW lock 保留给同步引擎 |
-| `runtime` | `runtime` | scope/trap/transfer/exception/generation 语义；`TrapHandlerRegistry` exact/prefix/fallback；`RuntimeModuleRunner` 重放语义；`_payload` | `signals/` → `events/`；`RuntimeHandle` 由 `Condition(RLock)` 改为 asyncio 读写/活动 lease；`RunLevel.PROGRAM→AGENT`、`runtime.program_end→agent_end`；`exception.py` 只保留四个 runtime 原因，业务原因常量迁回 owner；bridge 收敛 |
-| `llm` | `llm` | 协议、映射、模型链、重试、水位 | provider/task runner async；删除线程轮询 |
-| `loop` | `kernel/loop` + `agent/profiles/user` + plugins | Turn/Cycle/Phase 骨架、cancellation、outcomes、PhaseFailure | async；收件箱与 WaitRequest 取代 `TurnActivityController`；`loop/user/*` 拆到 user profile 与各插件 |
-| `context` | `kernel/context` | trace 堆、Working plan、background 堆算法、compressor、composer、控制工具归一化 | 三分区与四形状；删除 owner 特判；`ContextTurnCompletion` 泛化为 `segments` |
-| `action` | `kernel/action` | catalog 四层、loader、schema、hooks、result、rendering、scope | runner asyncio；catalog 模板拆到插件；`ActionExecutionContext.turn` |
-| `app` | `agent` + `environment` + `gateway/project` | initializer/resetter/instance、调度计时、终端解析；`ProgramRunner.run` 的串行请求循环、preflight、世代活动 lease、Program 级转移消费 | `ProgramRunner` → `TurnScheduler`（`Queue.get(timeout=0.5)` 轮询改为 `asyncio.Queue`）；`ProgramGeneration` → `AgentGeneration`（按 profile 装配的段 provider、Action surface、Trap 表）；`RuntimeActivity` 扩展 `preflight | awaiting_input`；builder（935 行）→ assembly + 各插件 `contribute`；gateway/inputs → EventRouter/Agent API；outputs → Observation 订阅 |
-| `endpoint` | `gateway/endpoint` | auth、lease、事件缓冲、journal、host | v2 路由与 schema |
-| `maintenance` | `agent/day` + `plugins/reflection` | `day.py` 时钟与日切；`archive/engine.py` 的 coordinator、journal（SESSION_ARCHIVED → WORKSPACE_ARCHIVED → ACTIVE_INITIALIZED）、lease；`schedule.py`；Home/Memory 任务编排 | `BusinessClock` → `CalendarClock` 并迁 `agent/day`；三个 owner 日切协议合并为 `DayParticipant`；删除 `availability.json`；builder → plugin；两个 profile `home_reflection` / `memory_reflection` 与专属域；`MaintenanceSchedule.due` → `registry.schedule` + `TurnTrigger` |
-| `session` | `plugins/session` | 记录图、inspect、continuation、`memory_facts` | `history` Map 段：`finish` 无模型抽取问答/追问/推理/links 并更新 `SessionMap`；`core.context.organize` 在新 Turn 整理上一成功 Turn；schema v5；删除 `SessionSummaryRecord` 与线性 background；inspect 走 `core.context.inspect` |
-| `workspace` | `plugins/workspace` | 链接沙箱、扫描/分类、Engine 锁、简单 Trash、归档 | 删除 CAS/复验/retention/压力 trash/Trash marker 与 restore Trap；动作面改为 list/search/read/write/edit/append/move/mkdir/tag/compose/analyze；`resources` State 段只收缩渲染；`WorkspaceService` |
-| `home` | `plugins/home` | actual/overlay/review/skills | `home.background` Heap 段；User Turn 只写 overlay；`home_reflection` 域做 diff 审阅；prompt mount reconcile 移入 `finalize`；runtime copy Trap 保留 |
-| `memory` | `plugins/memory` | codec、catalog、backlinks、embedding、Memory.md | `memory.background` Heap 段；User Turn 只 `memorize`；`memory_reflection` 轻量单文档写；删除 8 步控制器、preview、多文档事务与 CAS/revision/activation_count |
-| `capabilities/{script,shell,supervised_process}` | `plugins/capabilities/execution` | handler、进程管理、进程树终止 | 合并为一个域一个插件；supervised 重写为 `process` Job 种类；删除对 loop/context 的 import |
-| `capabilities/{resource,web}` | `plugins/capabilities/{resource,web}` | worker 与协议 | registrar 化 |
-| （新） | `plugins/capabilities/subagent` | — | ACP 客户端、`acp_agent`/`tinysoul_turn` Job 种类、`subagent` profile |
-| （新） | `plugins/capabilities/expand` | — | MCP 网关、工具索引、四个动作；不设钉选段 |
-| （新） | `environment/fswatch.py` | — | Workspace 文件监视事件源（`watchfiles`） |
-
-## 7. 可行性与风险
-
-规模与分层评估同前一版（内核 13.5k、llm 6.5k、owner 17k、capabilities 8.4k、外层 9.5k；测试 885 例；38 文件用 threading）。新增部分的可行性：
-
-- Job 框架：现 `supervised_process/manager.py`（770 行）已有进程注册表、输出缓冲、等待、清理的全部算法，改写为 `process` Job 种类是结构内重排；`jobs` 段与 `core.job.*` 是新增但边界清晰。
-- ACP：协议为 stdio NDJSON JSON-RPC，与进程后端同一基础；SDK 为 async。风险在权限请求的策略设计与外部 agent 行为差异；先以一个 agent（如 Codex/Claude Code CLI 的 ACP adapter）验证。
-- MCP：SDK v2 async，`Client` 一行连接；自由形态 object 参数已被现有 schema 子集接受（见 5.5）；剩余风险是远程服务器 300s 读超时与 Action 超时的协调，以及 MCP 工具自身 `inputSchema` 超出本项目 schema 子集时的透传策略（S6 子计划：超出键只透传不校验）。
-- 文件监视：`watchfiles` 跨平台成熟；Windows 事件噪声用去抖 + manifest digest 比对过滤。
-
-### 7.1 对照现有代码的复审结论（2026-09-14）
-
-逐文件核对 `runtime`、`loop/turn.py`、`loop/cycle.py`、`action/core/{runner,executor}.py`、`context/engine.py`、`app/program.py`、`llm` 公共面后，方案与现有实现的关系归为三类：
-
-保留并直接迁移（结构内重排）：
-
-- `RunScope/RunFrame/RunLevel`、`RuntimeException(reason, message, payload)`、`RuntimeTransfer(RETRY|END, target)`、`TrapHandlerRegistry`（exact/prefix/fallback）、`RuntimeModuleRunner` 重放语义、`bridge/_payload.runtime_exception()`：全部保留，只改 `PROGRAM→AGENT` 与 async 化。
-- `TurnRunner.run` 骨架（准备 → Cycle 循环含 `phase_feedback` → completion → `_finish_turn` → `_outcome_status`）、`CycleRunner.run` 的三 Phase 与 `_run_phase` 的 RETRY/END 转移消费、`PhaseFailure` 进入下一 Cycle：保留。
-- `ActionBatchRunner` 的分组、deadline、宽限期、`executor_leaked` 阻断与 `RuntimeException` 传播语义：保留，等待原语换为 asyncio。
-- `ContextEngine.consume_signal_batch` 的"校验 → 投影 → 惰性加载 → 依序应用"两阶段与"单条失败为局部结果"语义：升格为段协议 `stage/commit` 的通用语义。
-- `ProgramRunner.run` 的串行请求循环、preflight、活动 lease、Program 级转移消费：改名为 `TurnScheduler`，语义不变。
-
-需要修正的方案表述（已回写至对应小节）：
-
-- 3.7：取消模型改为沿用"协作令牌 + 边界权威"，不以 asyncio Task 取消作为业务控制流（现 `CycleRunner._run_phase` 捕获 `TaskCancelled` 后返回 `cancelled` 交边界收敛的设计是正确的，应保留）。
-- 3.8：Trap 原因常量按 owner 分层，`runtime/exception.py` 不再集中声明 `context.*`、`home.*`、`workspace.*` 原因。
-- 5.3：段批次不是"任一失败丢弃全部"，而是"单条失败局部化、其余提交、stage 不触状态"。
-- 5.4：`TurnOutcomeStatus` 新增 `AWAITING_USER`。
-- 5.5：`ActionExecutionControl` 与 `module_runner` 保留。
-
-现有实现中将被消除的耦合（本方案的直接目标）：
-
-- `context/engine.py` 以 `signal.name` 分派到 owner 专用 parser（`parse_workspace_sync_signal`、`parse_session_sync_signal` 等）并持有 `WorkspaceSnapshot`、`SessionBackgroundSnapshot` 类型 → 段 `stage(SegmentPatch)` 由段自身解释 payload。
-- `runtime/exception.py` 声明业务 Trap 原因；`runtime/bridge/` 下 12 个业务模块 bridge → owner 自带。
-- `loop/turn.py` 的 `TurnPreparationPipeline`/`TurnCompletionPipeline`/`TurnActivityController` 三条 owner 参与通道 → 段 `open/close` 与 `WaitRequest`/Job 一条通道。
-- `app/builder.py` 935 行硬编码组合根 → 插件 `contribute` + 两阶段 assembly。
-- `ActionExecutionContext` 不携带 Turn 身份，executor 只能从 `execution.framework.scope` 反推 → 显式 `turn` 视图。
-- 默认 Background 不经 Signal，而由 `ContextTurnPreparationHandler` 直接调用 `ContextEngine.prepare_default_background`，Home/Memory 内容经 Context 持有的 loader/provider 反向注入 → `home.background`/`memory.background` 段在 `open` 内自行准备。
-- 维护日切以三个 owner 专用协议（`SessionDailyLifecycle`、`WorkspaceDailyLifecycle`、`ActiveMemoryDailyLifecycle`）由 `DailyLifecycleCoordinator` 分别调用 → 一个 `DayParticipant` 协议，参与者按注册顺序执行。
-- `SupervisedProcessManager.wait_before_cycle` 用 `SignalWatch.wait_for_matching` 等待同 Turn 的 `input.append` 或 `control.request` → `WaitRequest(until=EventFilter(job.<id>.* | input.* | control.*))`，等待条件由发起方声明而非硬编码在 owner 中。
-- 压力恢复分 `UserContextPressureRecovery` 与 `MaintenanceContextPressureRecovery` 两个 owner 特判实现，`loop/user/pressure.py` 直接 import Workspace 类型 → 内核按形状顺序调用各段 `reclaim`；Workspace 不再因压力 trash 磁盘。
-
-风险与对策（R1–R9 同前），新增：
-
-- R10 已按 D27 简化：Job 不跨 Turn；风险集中在取消是否真正回收、最后事件是否记录。未完成收尾不能释放日/世代 lease。
-- R11 ACP 权限与安全 → 主机硬隔离前提下默认 `auto_allow` 读操作、写操作 `ask_model`；策略可配置。
-- R12 外部依赖增加（`mcp`、ACP SDK、`watchfiles`）→ 均为轻量、async、基础性依赖，符合规约；在子计划中锁版本。
-
-## 8. 开放设计问题
-
-### 8.1 D11：追溯动作合并的权衡
-
-维护者指出：Session inspect 面向当日更早 Turn 的内容，Context inspect 面向本轮被压缩的内容，语义指向不同。
-
-分析：
-
-- 机制层面两者已经同构：都是"持有一个 ref → 请求有界展开 → 结果进入 trace → 可用 cursor 继续"。段协议的 `inspect` + `InspectResult` + ref scheme 路由把它们统一为一个内核机制，这一点无争议。
-- 模型层面的差异在意图："回看我这轮做过什么"与"查看今天早些时候发生过什么"。但模型持有的 ref（来自 history 堆头的 `session:turn/3` 或 trace 折叠标记的 `trace:node/12`）已经编码了位置，模型无需先判断"该用哪个工具"再找 ref；一个动作降低 Phase2 工具数与选择负担。
-- 两个动作的好处是 guidance 文案可以分别写明使用场景与返回形态；这在单动作里也能通过描述中枚举 ref scheme 做到。
-- 关键点：这是 catalog 层面的可调项而非架构决策。同一 executor 可以在 TOML 中暴露为一个或两个动作，不改代码。
-
-决策（D11，已被 D20 撤销）：曾暴露两个模型侧动作。现行方案只保留 `core.context.inspect`，见 8.7。
-
-### 8.2 环境订阅（已决，D13）
-
-两级机制与首个事件源 Workspace 文件监视并入 S4；完整协议见 3.2。
-
-### 8.3 sub-agent（已决，D15）
-
-作为 `subagent` 域与 Job 框架的一部分，见 5.7。嵌套 Turn 不再是"在 Phase3 内联运行"，而是 `tinysoul_turn` Job 种类，与外部 ACP agent 同一监督界面。
-
-### 8.4 配置激活（已决，D12）
-
-`PATCH /v2/config` 只写文件，`POST /v2/agent/reload` 显式激活；允许多次修改后统一 reload。
-
-### 8.5 MCP `expand` 域（已决，D16；钉选段由 D22 修订）
-
-见 5.8。待 S6 子计划确认：语义检索是否默认开启、大结果落盘阈值。
-
-### 8.6 D19 Context 三分区（已决）
-
-`SegmentSlot = BACKGROUND | TRACE | WORKING`；槽内 `order`；`evictable` 为段属性。Background 顺序为 `identity → history → inputs → home → memory`（Phase1 会变更 home/memory，固定段在前）。Trace 含事件帧。Working 为 `plan → workspace.resources → jobs`，TaskPrompt overlay 接在尾部。不设 `expand.tools` 段。完整语义见 3.4。
-
-### 8.7 D20 统一追溯动作（已决，撤销 D11）
-
-只保留 `core.context.inspect(ref, cursor)`，按 scheme 路由。另增 `core.context.organize` 供 Map 段整理上一成功 Turn。`context.load/evict` 仍只面向 Heap。
-
-### 8.8 D21 Session 语义地图（已决）
-
-引入第四形状 **Map**（Thread 是节点种类，不是形状）。Turn 结束用无模型结构化抽取写入 `SessionTurnRecord` 与 `SessionMap`；新 Turn 用 `core.context.organize` 整理上一成功 Turn（gist、thread、补全关系）。压缩时 history 最后动，且仅当本段超过自身水位才有限折叠已整理 thread。不在 `close` 中跑 LLM。详见 5.3。
-
-### 8.9 D22 `expand` 不设钉选段（已决，修订 D16）
-
-取消 `expand.tools`。搜索/描述进入 Trace；`call` 按网关索引校验。动作四个：`search` / `describe` / `call` / `servers`。见 5.8。
-
-### 8.10 D23 Reflection 取代 Maintenance（已决）
-
-`plugins/maintenance` → `plugins/reflection`。**不合并**单一 reflection 域：`home_reflection` 与 `memory_reflection` 两个 profile + 两个专属域，仅在对应 Turn 出现。`BusinessDay` 更名为 `CalendarDay`，内部也不保留 Business Day 一词。User Turn 不写持久 Memory、不提交 actual Home。Home 保留 overlay：白天 `home.*` 改副本，`home_reflection` 做 diff 审阅（list/detail/accept/reject/rewrite），不引入 git。Memory Reflection 删除 8 步控制器、preview、多文档事务与 CAS/revision/activation_count。见 5.11。
-
-### 8.11 D24 Workspace 去防御化（已决）
-
-删除 CAS/复验/retention/压力 trash 及相关 Trap；扩充 list/search(regex)/read/write/edit/move/tag 等动作。见 5.12。
-
-## 9. 决策记录
-
-最近讨论的有效修订（优先于下方历史条款）：
-
-- D27：Job 归属于 Turn，可跨 Cycle，不跨 Turn；运行工作在 Turn 收尾中回收。依据用户提出限制并继续认可后续统一等待设计，替换旧 AGENT scope。
-- D28：模型可选择事件等待或定时等待；预算不向模型公开，由确定性代码检查，不足触发异常，用户决定中断或补充 Cycle。取消模型申请额度与 extend_budget。
-- D29：TurnInbox 是暂停期间环境事件的接收与待处理记录，覆盖所有相关环境事件，不是独立 Job 缓存；接收生命周期独立于 Cycle 推进。具体容量与暂停转移仍见 13.13 待确认设计。
-
-已确认（2026-09-14）：
-
-- 分层包布局；Endpoint 重设计；内核全面 asyncio。
-- D1 owner 存储引擎保持同步，适配层 `to_thread`。
-- D2 事件唤醒、环境事件协议、Job 框架、Agent 生命周期 API 本次落地。
-- D3 原地迁移 + 行走骨架；主机部署在 gateway 阶段前继续运行旧 checkout。
-- D4 `llm` 保留顶层包。
-- D5 引入 `pytest-asyncio`。
-- D6 milestones/todos 为内核 `plan` 段；Workspace 资源为插件 State 段。
-- D7 撤销"不建立 ask/pause/awaiting 状态"规约。
-- D8 TOML section 名稳定，仅 `[app]→[agent]`、`[maintenance]→[reflection]`；新增 `[capabilities.subagent]`、`[capabilities.expand]`、`[environment.fswatch]`。
-- D9 Session 记录 schema v5（`segments` 通用快照取代 `working`/`background_links`，`actions` 来自 `trace` 段 seal，可空 `parent_turn_id`），不迁移 v4 归档；另增 `SessionMap`。
-- D10 `core.ask` 纳入，S4 实现。
-- D12 配置显式 reload。
-- D13 环境事件完整协议 + Workspace 文件监视并入 S4。
-- D14 Home/Memory 分立 Heap 段；日切归 `agent/day`；Session 原定在 `history.close` 记录，现按 D26 改为 `history.finish`，close 只释放资源。
-- D15 sub-agent 作为 `subagent` 域，经 ACP 接入外部 agent，经 `tinysoul_turn` Job 接入内部嵌套 Turn。
-- D16 `expand` 域经 MCP 接入通用工具；D22 取消钉选段，动作改为 `search/describe/call/servers`。
-- D11 撤销；D20 只保留 `core.context.inspect`，并增 `core.context.organize`。
-- D17 `execution` 域合并 script/shell/supervised_process 为一个插件。
-- D18 `subagent` 首个验证目标为成熟的 ACP agent（Codex 或 Claude Code 的 ACP adapter，子计划中确定）；默认权限策略：读操作 `auto_allow`，写操作 `ask_model`。
-- Job 框架作为内核概念（三种种类、`jobs` 段、通用控制 + 域内 start/send/collect）；原两种作用域按 D27 撤销，统一 owner_turn_id。
-- D19 Context 三分区 Background → Trace → Working；Background 顺序 `identity → history → inputs → home → memory`；trace 事件帧。
-- D21 Session history 为 Map 形状；Turn 结束无模型结构化抽取；新 Turn 用 `core.context.organize` 整理上一成功 Turn；压缩时仅自身超水位才有限折叠。
-- D23 `plugins/maintenance` → `plugins/reflection`；`BusinessDay` → `CalendarDay`；两个专属 profile/域 `home_reflection` / `memory_reflection` 不合并；User Turn 不写持久 Memory、不提交 actual Home；Home 保留 overlay + review，不引入 git；Memory Reflection 轻量化。
-- D24 Workspace 去防御化与动作面扩充。
-- D25 单根 Turn 调度（维护者本轮明确确认）：等待用户回复或后台任务期间，不启动其它独立用户任务或 Reflection；新根请求排队，当前 Turn 的回复/追加输入仍进入当前 Turn。环境事件、Job 监督与取消控制继续运行，不另建多根 Turn 并发调度器。
-- D26 Segment/Engine/Context 关系（维护者讨论认可）：Engine 拥有领域事实与操作，Segment 提供当前 Turn 的有状态语境视图；Context 组织各段并为每次调用构造 MessageStack。实际 Action 走 Engine 门面；内存语境准备/安装分开，结束业务提交/资源清理分开，不建设通用持久事务框架。确认的是这些语义，不是 P3/P5 所有接口、顺序与资源策略。
-
-待决：本轮新增 P1–P9，见第 13 节；其中 P4 的单根 Turn 调度为 D25，P3 的 Segment 职责和生命周期分离为 D26；其余细节仍待讨论。D1–D24 的历史确认状态不变；存在冲突的具体条款按第 13 节列出的替换范围讨论，确认后整体回写。
-
-修订留痕：
-
-- 维护者本轮确认 D25：等待期间无需并发另一项独立用户任务或 Reflection；已回写 3.3 与 P4，子 Turn/Job 生命周期等其它提案不随此决定自动确认。
-
-- 2026-09-14 初稿曾以"当前无消费者"删除段 `shape`、段级 `inspect`/`on_event`；复审后恢复并升格为统一语义，同时删除 `BackgroundEntryProvider`、`TurnParticipant`、`TurnPreflight`。
-- 2026-09-14 依维护者补充，把后台进程、外部 sub-agent、嵌套 Turn 统一为 Job 框架，环境事件升格为完整协议（`EnvironmentEvent`、静态/动态源、`EventRouter`），新增 `subagent` 与 `expand` 两个域；嵌套 Turn 由"Phase3 内联"改为 Job 种类。
-- 2026-09-14 对照现有代码复审（见 7.1）：修正 3.7 取消模型、3.8 Trap 原因所有权、5.3 批次语义、5.4 outcome 枚举、5.5 执行控制保留；同步微调 `AGENTS.md`。
-- 2026-09-14 维护者确认 D19–D24：Background 固定段在前；Session Map 无模型抽取 + organize 动作；第四形状 Map；Reflection 分两个专属域且保留 Home overlay review；Workspace 去防御化；`CalendarDay` 取代 Business Day。
-- 2026-09-14 再次通读 AGENTS 与关键实现：新增第 13 节，明确 bridge 反向依赖、全局事件投递、段提交与收尾、等待竞态、Job 跨日和世代、SDK 生命周期、异常边界及阶段门禁。新增提案均为 pending，未把复审意见登记为维护者已确认。当前 checkout 未包含被 `.gitignore` 忽略的 `docs/chat/00 doing something.md`，不声称已读其内容。
-- 2026-09-14 维护者随后上传 `00 doing something.md`，已全文阅读并追加 P9 需求映射；上条资料缺口已补齐。附件作为未来想法与范围依据，内部互相冲突的旧条目不自动覆盖已确认 D19–D24。
-- 2026-09-14 维护者进一步澄清：`doing something` 有些陈旧，仅供参考，关键是继续讨论架构与执行计划细节。P9 降为候选议题索引，不构成新需求确认；Observation 两级化、多模态协议、Library、引用字段改名等均不据附件直接实施。后续以当前讨论确认的语义为准。
-
-## 10. 分阶段实施
-
-每阶段开始前写入子计划 `docs/analysis/2026MMDD-<stage>-execution-plan.md`，完成后归档；本文件只勾选阶段。门禁：聚焦测试 → Fast → Full → typecheck；S2 起 fake-provider CLI E2E 必过。
-
-- [x] S0 方案定稿：全部决策关闭（2026-09-14，含 D19–D24）；不改代码。`docs/design/architecture.md` 推迟到 S2 内核落地时建立，以遵守设计文档与代码一致的规则；在此之前本文件是唯一设计来源。
-- [ ] S0 复审补充：讨论第 13 节 P1–P9，确认后回写正文、目录与协议预览，移除互相冲突的旧条款；此项不撤销前一条历史完成记录。
-- [ ] S1 基础层：`infra` async 原语；`BusinessDay` → `CalendarDay`；`runtime/events/`（EventBus、Signal、Observation、EnvironmentEvent、TurnInbox、EventFilter）；`RuntimeHandle` asyncio lease；`PROGRAM→AGENT`；bridge 收敛；`llm` 全面 async；`pytest-asyncio`；重写 `tests/{infra,runtime,llm}`。
-- [ ] S2 内核与最小 Agent：`kernel/*`（三分区、四形状含 Map、段协议、inbox/wait、profile、async action runner、Job 协议与 JobRegistry、`jobs` 段、`core.job.*`、`core.context.inspect/organize`、prompts）；`agent/*`（门面、assembly、scheduler、router、generation、day 最小时钟、user profile）；`environment/{terminal,console}`；`gateway/cli`；插件清单只含内核 builtins；删除 `loop/`、`context/`、`action/`、`app/`；新建 `docs/design/architecture.md` 与 `docs/design/kernel/*.md` 描述已落地部分；fake-provider E2E 恢复。
-- [ ] S3 插件迁移（每插件一个子计划）：session（Map + 无模型抽取）→ workspace（去防御化动作面）→ home（overlay + `home_reflection` 域）→ memory（轻量 `memory_reflection`）→ reflection（`agent/day` 完整日切、`DayParticipant`、archive、两个 profile、schedule 与 TurnTrigger）→ capabilities（resource、web、`execution` 合并与 `process` Job 种类）。每步删除旧路径与旧 bridge。
-- [ ] S4 Agent 与环境完整化：`services`、`status`、`reload_config`、`restart`；`environment/scheduler`、`environment/fswatch` 与 `workspace.resources` 订阅；TurnInbox 暂停接收与预算决策入口；Observation 路由与 console sink；`[agent]` 取代 `[app]`；`core.ask`。
-- [ ] S5 Gateway v2：路由（含 jobs、reflection 与外部事件代理）、schema、事件 replay/流、host、auth；`gateway/project`；重写 `docs/endpoint/*` 并附 v1→v2 对照；删除 `endpoint/`。
-- [ ] S6 新能力域：`subagent` 插件（ACP 客户端、`acp_agent` 与 `tinysoul_turn` Job 种类、`subagent` profile、权限策略）；`expand` 插件（MCP 网关、索引、四个动作，无钉选段）；各一份子计划。
-- [ ] S7 收尾：`docs/design/` 重组（`architecture.md`、`runtime.md`、`llm.md`、`infra.md`、`kernel/{context,loop,action,jobs,prompts}.md`、`plugins/*.md`、`agent.md`、`environment.md`、`gateway.md`）；`AGENTS.md` 重写核心定义（Agent、Environment、EnvironmentEvent、TurnProfile、语境段与形状含 Map、Job、WaitRequest、Plugin、CalendarDay、Reflection）；`tests/` 镜像新布局；静态 import 规则测试；`pyproject` 依赖与 package-data；本文件标记 `done` 并归档。
-
-## 11. 测试策略与验收
-
-测试策略：
-
-- 目录 `tests/<layer>/<module>/test_<切面>.py`；`tests/support/` 提供 fake provider、总线观察器、最小插件与 profile fixture、fake ACP agent 进程、内存 MCP server。
-- 契约优先：段协议两阶段提交与重放、四形状回收（含 Map 有限折叠）与追溯路由、`core.context.organize`、收件箱 drain/wait 与控制进 Trap、`EventRouter` 三步路由与动态源注册注销、Job 生命周期（Turn 归属、事件、collect、Turn 结束清理）、profile 的 surface 与段装配、批次并发取消与超时、Trap 转移与失败归类、Agent API 生命周期与世代切换、Endpoint v2 请求/响应/事件流、ACP 会话状态机映射、MCP 索引刷新与 `expand.call` 校验。
-- owner 存储与算法测试保留；不固化提示词文案、默认 Home 内容与 catalog 清单。
-- E2E：fake-provider CLI（S2 起）；旧日 Turn → 日切 → reflection → 新日 background（S3 后）；wheel 隔离安装与 `init`（S5 后）；fake ACP agent 与内存 MCP server 的能力 E2E（S6）；真实 provider/agent/server smoke 保持 external。
-
-验收：
-
-- `tinysoul start` 在单事件循环内同时运行 Terminal、Endpoint v2、调度器、文件监视与 Job 监督；`start --once`、`status`、`init`、`reset` 可用。
-- 三条 import 规则由测试固定；增删插件只改插件清单与该插件包。
-- `kernel/context` 中不出现任何 owner 类型；MessageStack 顺序由 Background → Trace → Working 分区与槽内序号决定。
-- User Turn 不能调用 `home_reflection.*` / `memory_reflection.*`；持久 Memory 与 actual Home 只在对应 Reflection Turn 更新。
-- `session.history` 为 Map：`finish` 无模型抽取；`core.context.organize` 整理上一成功 Turn；压缩仅在本段超水位时有限折叠。
-- 追加输入、stop/exit、Job 事件、定时唤醒、定时 reflection、文件变更全部经总线与 `EventRouter`；不存在 `TurnActivityController`、`SignalWatch`、线程版 `SignalBus`。
-- 后台脚本、外部 ACP agent、嵌套 Turn 在 `jobs` 段中以同一形态可见，用同一组 `core.job.*` 等待/查询/停止。
-- `expand.search → expand.call` 在不暴露全部 MCP 工具 schema 的前提下可调用任一已连接服务器的工具。
-- 三层失败语义、Trap 转移、bridge payload 约束的既有测试语义保留并通过。
-- `kernel/spi.py` 每个协议方法与注册表方法在仓库内至少有一个真实消费者。
-- Full 门禁与 typecheck 通过；`docs/design/`、`docs/endpoint/`、`AGENTS.md` 与代码一致。
-
-## 12. 实施结果
-
-待填写。
-
-## 13. 架构一致性复审与替换预览（2026-09-14）
-
-状态：`pending`。本节是待讨论方案，不代表代码已经具备这些能力。审阅基线：`e6ee6af`。本轮修改仅限本计划；不修改后端、前端、测试或 AGENTS。
-
-### 13.1 判断、证据与范围
-
-总体方向合理可行。应保留 Turn/Cycle/Phase 的语义骨架、构造式 Context、资源 owner、三层失败与显式装配；重构集中解决依赖方向、生命周期和扩展边界。asyncio 是统一 I/O 与等待的执行机制，DDS 只借鉴发布/订阅解耦思想，本次无需引入 DDS 中间件或分布式投递保障。
-
-`docs/chat/00 doing something.md` 不在当前 checkout，且 `docs/chat/` 被 `.gitignore` 忽略；维护者已在本轮上传同名附件，现已全文阅读。P9 按附件核对未来需求与本次范围，不修改附件，也不把整份未来清单自动纳入本次实现。
-
-本次是静态代码与设计审阅，没有运行真实供应商，也没有宣称完整测试通过。第 7 节原有行数、测试数和“风险同前”不能用作当前验收证据；实施子计划需用当时 checkout 的实际结果替换。
-
-| 代码位置 | 观察到的实现 | 重构含义 |
+| 原始意图 | 设计回应 | 边界 |
 |---|---|---|
-| `runtime/bridge/action.py`、`runtime/bridge/context.py` | runtime 内的 bridge import Action/Context 类型 | 原计划保留内核 bridge 于 runtime，仍违反底层不得 import kernel 的规则 |
-| `runtime/bridge/llm.py` | LLM 压力失败映射到 Context 原因 | 把常量移到 kernel 后必须同步解除 LLM 对 Context 的隐含依赖 |
-| `context/engine.py::consume_signal_batch` | 特判 Workspace、Session 等 payload；惰性加载在状态修改之前完成 | 内容解释应归段；可重放准备与已提交状态必须严格分界 |
-| `loop/context_signals.py`、`runtime/frame_runner.py` | 捕获批次后以 Module frame 重放；RuntimeTransferInterrupt 传递已解析转移 | 保留 frame 定向转移，不重跑已发生副作用的 Action |
-| `action/core/runner.py::_run_one/_future_result` | 未分类 Exception 被转为局部失败；反馈拼接原始异常文本 | 有可能掩盖 executor 契约/内部错误；需要重新分类与有界反馈 |
-| `llm/task.py::run/_run_task` | 外层观察后 re-raise；内部归类后 bridge；取消单独传播 | 宽泛捕获并非一律错误，要按边界与传播行为判断 |
-| `runtime/observation.py` | sink 失败被隔离 | 保留；观察失败不得影响业务提交 |
-| `app/generation.py::close`、`loop/turn.py` | 逆序关闭资源；清理失败继续；部分已有清理失败观察 | 保留尽力清理，补充可诊断结果，不能误报资源已全部关闭 |
-| `loop/assembly.py` | 已有 owner-neutral 的内核装配入口 | 扩展既有门面语义，删除 owner 专用管线，不再加平行 Turn runner |
-| `tests/test_architecture.py` | 目前只保护少数依赖边界和源码字符串 | 新依赖规则应在迁移开始时以 import 图检查建立，不能拖到 S7 |
+| SDK 风格分层调用 | Agent/Engine 公共门面、显式依赖注入 | gateway 不访问 owner 私有状态 |
+| 可维护、可替换功能 | Plugin 可贡献段、动作、事件源、服务、profile | 无内容的能力不造假段，不建设动态发现平台 |
+| Agent 处于环境中 | EnvironmentEvent、Router、TurnInbox、Trigger | 借鉴 DDS 发布订阅思想，不引入 DDS 中间件 |
+| 暂停并与用户交流 | question/reply 与 INPUT 等待 | 暂停不结束 Turn，不释放根执行位置 |
+| 监督后台任务 | Turn-owned Job、EVENT/TIMER 等待 | Job 不跨 Turn；等待不消耗 Cycle |
+| 冰山、Trace 栈、工作台 | 三分区与 Heap/Map/Stack/State | 形状不规定领域内容或 Python 容器 |
+| 外围维护语境 | Engine 拥有事实，Segment 拥有本轮视图 | Context 组合段，不理解 Home/Memory 内容 |
+| 历史会话地图 | Session 事实、Map 投影与有来源注释 | 不再平行维护线性 Summary |
+| 自然知识沉淀 | 两个 Reflection profile 与专属域 | User 不写持久 Memory、不提交 actual Home |
+| 灵活工作区 | list/search/read/write/edit/append 等 | 去 CAS 不等于允许半写文件 |
 
-### 13.2 P1：依赖方向、SDK 与 Plugin 边界
+## 2. 代码现状与复用判断
 
-替换范围：第 3.8、4、5.1、5.2 节及 AGENTS 未来重写中的 bridge 放置规则。
+本轮读取 AGENTS.md、原计划、相关模块设计、现有讨论笔记及关键运行路径；不是逐行审计全仓，也没有宣称运行测试通过。旧 `docs/chat/00 doing something.md` 仅供参考，不自动扩大范围。
 
-**建议采用的依赖关系**：gateway → agent → plugins/environment → kernel → llm/runtime → infra。这里箭头表示允许依赖方向，不要求每层必须经过相邻层。允许 `llm → runtime`（通用运行协议）；禁止反向依赖。plugins 与 environment 位于同层，跨插件只 import 对方包根公开的服务契约；运行时对象由组合根注入，不访问私有存储。
-
-- `runtime` 只保留通用 scope、Trap、transfer、事件基础和公开异常构造帮助；不包含 import kernel/llm/plugins 的 bridge。`runtime.failures` 等公开模块承载通用构造器，不要求外围 import `_payload` 私有文件。
-- `kernel/context/runtime_bridge.py`、`kernel/action/runtime_bridge.py`、`kernel/loop/runtime_bridge.py`、`kernel/jobs/runtime_bridge.py` 分别解释本模块失败；`llm/runtime_bridge.py` 解释模型模块失败；插件 bridge 随插件。infra 自身不 import runtime，由使用方的启动/模块边界适配其失败。
-- LLM 为模型容量问题声明自己的 typed failure/reason；Context 的 Trap handler 按该公开原因登记恢复策略，决定回收和重建。LLM 不 import Context，也不声明 Context 如何压缩。
-- `kernel/spi.py` 只汇出具体协议的公开入口，协议定义跟随拥有该语义的模块；不演变为包含所有服务的巨型接口文件。跨模块使用公开门面，不能以 `Any`、字符串服务键或 `getattr` 绕过 import 规则。
-- Plugin 是显式安装的装配单元。注册时声明 id、必要依赖与贡献；resolve 检查缺失依赖、循环依赖、重复段/动作/profile/ref scheme/服务。可替换表示满足相同公开契约后替换清单条目，不承诺两个插件同时抢占同一身份。
-- `configure/contribute/resolve` 只准备配置、对象及注册关系，不启动监听、任务或改写业务文件；Agent 激活阶段才启动资源。启动失败逆序关闭已经启动的部分。
-- `environment` 通过注入的输入/发布端口向 Agent 交付事件；端口协议定义于 runtime/kernel，不能向上 import Agent。文件监视器接收 Workspace 公开提供的监视描述，不自行解释其私有目录。gateway 的 FastAPI/Tauri 协议不进入 Agent SDK。
-
-不是每个 helper 都必须成为类：Engine/Runner/Registry 表达有状态职责与生命周期；解析、格式化和构造可使用纯函数。稳定状态用 StrEnum；内部数据优先 frozen dataclass；JSON 只在外部协议、持久化与段不透明快照边界出现。
-
-### 13.3 P2：事件路由、提交顺序与背压
-
-替换范围：第 3.2 节三步路由、第 5.1 节“持有活动 Turn 收件箱”及第 11 节路由验收。
-
-原路由只把显式 `turn_scope` 的事件交给活动 Turn，导致 `fs.workspace.changed` 与 agent 级 Job 事件无法触达段订阅。建议将定向投递、订阅投递与触发新 Turn 明确区分：
-
-1. owner 先提交自己的事实，再发布事件；文件通知是“可能有变化”的线索，由 Workspace reconcile 后发布资源状态变化。事件本身不替代 owner 状态。
-2. 显式指定 `turn_scope`：只投递该已登记 Turn；未知或已结束 Turn 返回/记录过期事实，不转投当前根 Turn。
-3. 未指定 Turn 的环境事件：匹配所有运行中 Turn 的段订阅与等待过滤器，按 Turn 去重投递。Agent 维护根 Turn 与子 Turn 的 inbox 索引，不只保留一个 active inbox。
-4. `TurnTrigger` 根据自身策略另行产生根 Turn 请求；观察投递与请求入队不是互斥分支。Job 完成只投递所属 Turn，不生成新根请求；独立调度事件仍可排队生成 Reflection 请求。Turn 结束交界处由 Router 串行完成登记/注销与触发判断，避免遗漏或重复通知。
-5. 业务提交与路由之后产生 Observation 镜像；replay 仅用于观察，不重放业务副作用。
-
-总线为内存内、有界的进程协议，不承诺断电可靠投递或 exactly-once。Event envelope 带实例内单调序号，用于 drain/wait 竞态和观察关联，不是第二份业务日志。源内有序；跨源以总线接收顺序为准，不按墙钟时间重排。
-
-控制与用户输入不能被高频日志淹没：stop/exit 入口即时置取消令牌，并保证边界可读取控制意图；用户输入以入队结果明确接受或拒绝。文件变化可按资源合并，Job output 正文由 Job owner 缓冲或落盘，事件只传有界增量/线索；终态、问题和权限请求不得按普通进度事件丢弃。观察订阅者使用独立有界缓冲，慢客户端不会阻塞业务发布。
-
-注册回调不能同步嵌套触发 Cycle；事件只进收件箱/请求队列，业务解释在内核边界执行。先用 typed filters 和显式注册完成需求，不引入任意可执行谓词的远程配置。
-
-### 13.4 P3：段协议的最小公共面与提交生命周期
-
-状态：核心职责与生命周期分离已按 D26 确认；本节具体类型、关闭排序、Session Map 恢复细节仍为实现设计提案。
-
-替换范围：第 3.4、5.3 节。四种形状与三分区保留，但形状是访问/回收约定，不强迫使用某种 Python 数据结构。
-
-**公共面预览**（协议草图；确认后以具体类型落地）：
-
-```python
-class ContextSegmentProvider(Protocol):
-    descriptor: SegmentDescriptor  # id、slot、order、shape、能力、ref scheme
-    async def open(self, turn: TurnInfo) -> ContextSegment: ...
-
-class ContextSegment(Protocol):
-    def render(self) -> tuple[Message, ...]: ...
-    async def prepare(self, updates: tuple[SegmentUpdate, ...]) -> PreparedSegment: ...
-    def install(self, prepared: PreparedSegment) -> None: ...
-    def seal(self) -> SegmentSnapshot: ...
-    async def finish(self, completion: TurnCompletion) -> None: ...
-    async def close(self) -> None: ...
-```
-
-- `render/seal` 为无 I/O、无状态变更的内存投影；纯渲染不能触发背景加载或写文件。
-- `prepare` 接收本段整个有序批次，在候选状态上处理后续更新对先前更新的依赖，完成必要异步读取；返回每条局部结果与候选状态，不变更当前活动段，也不写业务事实。
-- 所有段 prepare 完成后，Context 在不含 await 的临界段依序 install。install 仅替换已校验内存状态，禁止 I/O、外部回调和模型调用。install 若因程序不变量失败，结束该 Turn，禁止声称整体回滚或重放已 install 的批次。
-- 单条模型 patch 无效仍返回局部结果；由内部事件产生的非法 typed patch 是契约缺陷，不能伪装成模型错误。prepare 中发生压力恢复时，只重放捕获的准备批次，不重新 drain 也不重跑 Action。
-- Action/owner 的持久写入在自己的门面完成；成功后段更新是该事实的投影。跨段 install 不提供跨文件分布式事务，不试图撤销已完成的工具副作用。
-- `load/evict/inspect/organize/reclaim` 作为明确声明的可选能力，由 descriptor + typed handler 注册。State 段无需写假的 load/evict；非法能力请求给局部反馈，重复 ref scheme 在装配时拒绝。
-- `on_event` 只解释事件并生成更新，实际读取放在 prepare；多个段看到同一个事件，inputs/jobs/resources 维护正文和现态，trace 仅记录有序感知摘要。
-- `shape` 不自动授予可逐出权限。identity 与 inputs 保留完整语义；Memory 的必要根条目是否可逐出由 owner/profile 声明。State 收缩不能抹去待处理问题、控制意图与未完成 Job。
-
-**收尾顺序**：停止接收新的定向业务更新 → 收敛本 Turn 的 Action 与 TURN Job → 接收并处理已接受的终态事件 → 所有段 seal → 汇总 typed TurnCompletion → 按显式 finish 顺序提交（Session 最后）→ 所有段逆序 close → 释放日/世代 lease → 发布终态。必要的最后控制请求仍由取消通道处理。
-
-finish 是业务提交，close 仅释放资源；close 即使 open 部分失败也必须执行，且不负责 Session 持久写。这样部分 open 失败不会制造不存在的完整 Turn，清理失败也不会触发第二次会话提交。替换原 `history.close` 写记录的说法。
-
-Session 不从任意 JsonObject 猜字段。TurnCompletion 显式携带输入、问题、最终输出、outcome 与 trace 导出的 typed Action 事实；插件快照是按 segment id 标识的不透明内容，内核不解析 Home/Memory 细节。trace 记录所有中途问题，不能只保存最终 answer。
-
-Session Map 必须明确事实性质：不可变 Turn record 是对话事实；自动生成的节点/边是投影；organize 产生的 gist/thread/关系是可修改的语义注释，引用来源 Turn，不能改写原记录。语义注释由 Session 持久保存，不能宣称所有地图内容都可从原记录无损重建。finish 先提交幂等 Turn record，再更新地图；若地图更新失败，下一次由 Session 补齐缺失投影，已有语义注释保留。
-
-### 13.5 P4：等待、提问、取消与预算
-
-替换范围：第 3.3、3.7、5.4 节。
-
-- `core.ask` 与 `core.job.wait` 都先产生正常 ActionResult，然后请求在 Cycle 边界等待。它们不长期占住 Phase3 executor。
-- 等待分为 `input` 与 `event` 原因；Turn 活动为 running/awaiting_input/awaiting_event/finalizing，最终 outcome 是另一组枚举。**已确认 D25**：Agent 在根 Turn 等待时继续处理 I/O、状态查询和 Job 事件，但不得启动第二个根 User/Reflection Turn。独立请求排队至当前 Turn 完成收尾，调度器不因 wait 释放根执行位置；此确认不包含本节其它预算、超时与接口提案。
-- 登记等待时保存收件箱序号，并先检查目标 Job 现态及尚未消费的匹配事件；wait 使用“检查 → 登记 → 再检查”或等价原子机制。Job 在 Action 完成和 wait 建立之间退出，不会错过唤醒。
-- 用户追加输入和 stop/exit 总能打断 Job wait；ask 等待期间后台事件正常更新段，但仅有普通进度事件不自动当成用户回答。问题有 request id，明确回复绑定目标 Turn/问题；未带问题 id 的普通追加输入在边界作为该 Turn 的新指示处理。
-- 同批 Action 出现相互冲突的等待/终结意图时，先由 Action concurrency policy 拒绝不合法组合；`ask`、终结性 `answer` 与互斥 wait 不并行执行，避免已经发问又立即终结。
-- 等待本身不消耗 Cycle 次数；唤醒执行新的 Cycle 才消耗。计时用 monotonic，区分 active execution budget、等待上限与总 wall-time 上限；模型不得通过 `extend_budget=True` 无限续期。移除模型可直接无限增加预算的含糊入口。
-- root stop 取消当前 Turn 及其全部子工作，不保留运行中的 Job。ask 超时以 AWAITING_USER 收束，迟到回复产生新的 Turn，不复活已经释放的旧 Context。
-- Turn 的 asyncio 取消令牌与线程内 `ActionExecutionControl` 分开；to_thread worker 不直接操作 asyncio.Event。协作取消先请求，宽限期后才取消 await 并回收进程。取消 to_thread 的 await 不等于停止线程。
-- 未收敛 executor 必须真实标记 leaked，并阻止共享 owner 被下一工作继续使用直至回收或重启；不能只结束本批次后让后台线程继续写状态。持久写操作应短小且受 owner 锁保护；任意长时可硬停止工作走 subprocess/Job。
-
-### 13.6 P5：Job 与日切、配置（由 D27 收敛）
-
-旧提案中的 AGENT scope、跨 Turn Job 目录、旧世代结果接管和“无活动 Turn 但 Job 仍运行”的重载流程已撤销。
-
-当前方案：Job 全部在所属 Turn 收尾中回收；根 Turn 保持日与世代 lease，等待期间也不释放。跨午夜的同一 Turn 使用开始日的工作区，完成收尾后才做日切并启动下一根请求。不存在活 Job 继续写已经归档的旧日 Workspace 的正常路径。
-
-reload 只在根 Turn 完成收尾且所有执行资源释放后激活；暂停也属于活动 Turn。若 Job/线程未收敛，不能谎报 idle 或启动新世代，需显式记录收尾失败并保持阻塞。结果持久化归 Workspace/Session，不另建跨 Turn Job 业务库。
-
-父子取消、共享 owner 的写入顺序、递归/并发预算和最终输出前 Job 检查仍需细化；这些不因 D27 自动批准。
-
-### 13.7 P6：异常分类与 SDK 生命周期
-
-替换范围：第 3.8、5.1、5.5、5.9 节；确认后同时修订 AGENTS 中桥接位置和失败规则的相关句子。
-
-| 情况 | 拥有者处理 | 外层行为 |
+| 实现证据 | 已有资产或缺口 | 重构处理 |
 |---|---|---|
-| 模型未输出必需工具、Action 参数无效 | TaskFailure/ActionResult/PhaseFailure | 写有界反馈，下一完整 Cycle 修正 |
-| 已知工具业务失败、shell 非零退出、已收敛超时 | capability 返回 typed 局部结果 | 模型决定是否尝试其它路线 |
-| executor 类型错误、catalog 不变量破坏、返回非法结果类型 | Action 边界异常 | bridge 结束所属 Turn，不能一律包装 executor_raised |
-| owner 文件损坏、无法继续的持久写失败 | owner 边界异常 | 活动 Turn 经 bridge/Trap 收束；SDK 查询直接返回 typed 服务失败 |
-| 可恢复 provider 失败 | LLM 内部 retry/provider/model chain | 耗尽后才边界失败；模型输出协议错误不混入供应商重试 |
-| 用户选择的 MCP/ACP 连接不可达 | adapter 先归为连接错误；有界恢复后由启动/调用 Action 显式映射结果 | 服务可用性问题可返回局部 unavailable；装配契约/内部错误仍 bridge，不能笼统“协议异常不进入 Runtime” |
-| Context 容量不足且当前 frame 可重放 | Context handler 回收后定向 RETRY | 无进展则结束 Turn；不重放已执行外部写入 |
-| RuntimeException / RuntimeTransferInterrupt | 不重包装、不转 ActionResult | 原样向合法目标 frame 展开 |
-| TaskCancelled / asyncio.CancelledError | 协作取消或收尾 | 保留取消身份；业务 outcome 由 Turn 边界确定 |
-| Observation sink 失败 | 隔离、必要时本地诊断 | 不回滚或终止业务 |
-| close/cancel callback 失败 | 继续其它清理并汇总诊断 | 不覆盖原始主失败，也不报告完全释放 |
+| `loop/turn.py`、`loop/cycle.py` | owner-neutral TurnRunner、三 Phase、边界取消、PhaseFailure | 保留骨架，改 async，补等待恢复 |
+| `loop/turn.py` 的 max_cycles/activity_controller | 已有预算边界和等待接点，二者耦合 | 内核预算检查 + typed 用户决策 |
+| `runtime/transfer.py` | 只有 RETRY/END | 暂停不能伪装成结束后复活；见 Q1 |
+| `runtime/bridge/action.py`、`context.py` | runtime import 上层模块 | bridge 随 owner 放置 |
+| `runtime/bridge/llm.py` | LLM 失败直接映射 Context 压缩原因 | LLM 声明容量失败，Context 注册恢复策略 |
+| `context/engine.py::consume_signal_batch` | 先准备后改状态，但特判 Workspace/Session | 保留批次语义，解释权交给段 |
+| `loop/context_signals.py`、`runtime/frame_runner.py` | 捕获批次并定向重放 Module frame | 恢复不重新 drain、不重做 Action |
+| `action/core/runner.py::_run_one` | 未知异常、非法返回对象等包装成局部失败，反馈拼接 exc | 内部/契约错误提升为模块失败 |
+| `action/core/runner.py` 的 leaked timeout | 已阻断同批后续 execution | 未释放 owner 时阻止后续 Turn/日切/reload |
+| `runtime/bridge/_payload.py` | 配置原值、异常文本可能进入 payload | owner 显式给出有界诊断 |
+| `session/completion.py` | 从 Phase2/3 消息解析 Action 配对 | Trace 导出 typed 事实，Session 不猜消息布局 |
+| `loop/completion.py` | 有序完成处理管线 | 保留有序提交，区分 finish/close |
+| `workspace/engine.py` | digest/revision/read-set 深入提交逻辑 | 删除对应动作契约与测试，保留原子文件操作 |
+| `home/review.py`、`home/overlay.py` | actual/overlay/review | 保留边界，简化专属域 |
+| `memory/transaction.py`、`maintenance/*` | Memory 多文档流程、维护编排 | 单文档写，编排与存储分离 |
+| `maintenance/archive/engine.py` | active day lease、归档恢复 journal | 保留，不随 Memory 事务删除 |
+| `app/builder.py`、`app/generation.py` | 集中装配、世代与资源关闭 | 拆组合根与插件贡献 |
+| `llm/task.py`、`runtime/observation.py` | 局部恢复与旁路观察 | 保留三层失败，不机械删除宽泛捕获 |
 
-宽泛 `except Exception` 只允许存在于有说明的动态执行边界、观察隔离与最终清理。Action 自定义 executor 不可预知的异常可在隔离边界捕获，但必须归为内部失败并传播，不能让模型以为只是参数不对。`except BaseException` 仅用于必要的任务/线程异常转交，必须原样保留取消和退出，不把它转换为业务失败。
+AGENTS 的“当前任务”仍指向不存在的 20260914 计划，过渡条款夹有旧 Job/bridge 语义。本轮依据用户指定的本文件设计。S0 确认后修正规约指向及已确认目标；后续逐阶段同步已实现事实，不等到 S7 才处理文档矛盾。
 
-模型反馈采用稳定的简短说明，`error_type`、owner、失败 kind 放入有界诊断；原始异常通过 exception chaining 留在本地。清理现有 `feedback=f"...{exc}"`、通用 bridge `message=str(error)` 和配置 payload 原值直传的入口，按 owner 白名单输出必要字段；不建设泛化的日志清洗框架。
+## 3. 分层、所有权与代码组织
 
-SDK 生命周期采用一组无歧义动词：
+| 层 | 模块 | 职责 |
+|---|---|---|
+| L5 | gateway | CLI/HTTP/WS、鉴权、协议映射、项目命令入口 |
+| L4 | agent | 门面、组合根、根队列、Router、实例状态、世代、日切 |
+| L3 | plugins / environment | 领域事实与能力 / 外部 I/O、调度、文件观察 |
+| L2 | kernel | loop/context/action/jobs/profile、插件消费协议 |
+| L1 | llm / runtime | 模型任务与供应商 / 运行位置、Trap、转移与事件基础 |
+| L0 | infra | 配置源、JSON、文件原语、时间值、通用并发 |
 
-- `Agent.create(...)` 只装配；`start()` 启动服务；`shutdown()` 结束实例的运行；`restart()` 完整 shutdown 后重建并启动；活动 Turn 用 `cancel_turn(turn_id)`，避免 `stop()` 同时表示停 Turn 与停 Agent。
-- `submit_turn` 返回 TurnHandle（id、status、await result）；`append_input`、`reply`、`cancel_turn` 都显式指定目标。调用不合法是 SDK typed rejection，不伪造一个 Runtime frame。
-- `patch_config(patch)` 校验并写候选配置文件；`reload_config()` 无 patch 参数，构建候选世代、完整校验、成功才切换；失败保留当前活动世代，磁盘仍是待修正/待激活配置。status 分别报告活动世代和待激活配置状态。
-- `status()` 为内存快照；I/O 查询由明确 async 服务门面提供。配置、实例锁、项目根解析由 Agent/owner 管理，gateway 不直接写配置文件再调用 SDK。
-- `/v2/turns/{id}/control` 映射 Turn 取消；后端 shutdown 属显式 Agent 生命周期接口，不把断开前端连接当成 shutdown。现有 stop/exit 命令可在 CLI 映射，但内核不保留两套生命周期 API。
+允许向下依赖，不要求逐层中转。llm 可依赖 runtime 公共协议；runtime 不 import llm/kernel/plugins，kernel 不 import agent/environment/plugins/gateway。跨插件仅依赖明确公开服务契约，实例由组合根注入。SDK 服务读取是直接门面调用，不用总线模拟 RPC。
 
-### 13.8 P7：外部能力的验证边界
+建议布局：
 
-替换范围：第 5.7、5.8、7 节有关 SDK 精确接口与可行性判断。
+- `runtime/{scope,trap,transfer,exception,events,generation,failures}`：通用协议，无业务 bridge。
+- `llm/`：消息、工具、模型链、provider、自身 runtime_bridge。
+- `kernel/loop/`：Turn/Cycle/Phase、profile、completion、cancellation、wait、budget。
+- `kernel/context/`：段协议、composer、pressure、inputs/identity/plan/trace/jobs 段与控制动作。
+- `kernel/action/`：catalog/schema/hook/批次/executor；`kernel/jobs/`：Job 协议、监督与控制。
+- `kernel/spi.py`：公共协议汇出；定义跟随各 owner，不建设巨型接口文件。
+- `plugins/{home,memory,session,workspace,reflection}/`。
+- `plugins/capabilities/{resource,web,execution,subagent,expand}/`。
+- `environment/{terminal,scheduler,fswatch,console}.py`。
+- `agent/{agent,assembly,scheduler,router,generation,day,services,status,config}.py`。
+- `gateway/{cli,endpoint,project}/`；继续使用项目 assets。
 
-ACP/MCP 接入方向保留，但协议主版本、Python SDK 版本、外部 agent adapter 版本是三个不同对象。不能仅凭协议文档把具体 adapter 的 prompt 结束、取消、close、权限请求语义视作已验证。
+所有业务 bridge 随 owner；公共异常 payload 帮助放 runtime 公开模块，不跨模块 import 私有 `_payload`。infra 不依赖 runtime，由使用边界适配错误。CalendarDay 是通用日期值，CalendarClock/日切协调归 agent/day。
 
-本轮查询了 [ACP 官方入口](https://agentclientprotocol.com/) 和 [MCP Python SDK 官方入口](https://py.sdk.modelcontextprotocol.io/)；返回资料涉及版本迁移，尚未完成目标 adapter 与具体包版本验证。因此原文 ACP v2 的消息顺序、MCP `Client/listen` 调用与依赖“轻量”的断言均视为待 S6 核验的候选，不作为实现验收事实。
+Plugin 是装配单元，Engine 是领域服务，Segment 是当前 Turn 视图，Action 是模型可选择能力，不相互代替。插件按需拥有 plugin/config/engine/segments/actions/failures/runtime_bridge/catalog/jobs 文件，不强制空壳。
 
-S6 子计划先记录实际包/版本、协议版本与目标 adapter，运行最小连通与取消验证，再落实能力实现。验证 prompt 从开始到最终结果、流通知、取消、进程异常退出、权限请求；MCP 验证 tools 分页、列表变更、能力声明、超时、structured content 与错误结果。不要求引入 v1/v2 兼容层，只支持选定目标。
+装配：declare → resolve → activate。先声明贡献与依赖，再校验重复身份/依赖环/profile/ref 路由/服务，再启动连接与监听。失败逆序清理已激活资源。协议只公开真实消费者需要的能力，但允许合理的共同抽象，不以文件数衡量干净性。
 
-TinySoul 的 Action schema 子集只校验 `expand.call` 外壳。外部工具 schema 使用明确选定的 JSON Schema validator/SDK 支持；不支持的 schema 返回“本地无法验证”或依据明确策略交服务器验证，不能声称忽略未知约束后已完整校验。远端写工具超时可能已经产生副作用，不自动重试无法证明可重放的调用。
+注册面保留明确用途：`context_segment(provider)`、`actions(registrar)`、`action_catalog_fragment(...)`、`turn_profile(profile)`、`trap_handler(reason, handler)`、`day_participant(...)`、`event_source(...)`、`schedule(...)`、`turn_trigger(...)`、`job_kind(kind, factory)`、`service(FacadeType, instance)`。可见 profile/surface 在 resolve 阶段确定，运行时不从任意字符串 service key 找私有对象。core catalog 归内核，各领域 fragment 随插件；init/reset 确定性合成用户项目 catalog，运行期 fragment 和项目可编辑配置边界明确。
 
-### 13.9 P8：执行顺序、文档清理与验收补充
+TurnProfile 汇总 guidance、Action surface、段 provider 集合、完成判定与输出映射、Trap 策略、预算和输入/等待策略；它不另建执行器。user、home_reflection、memory_reflection、subagent 均调用同一内核。内核提供 profile 协议，实际组合由 Agent/插件声明；例如 Reflection profile 选择目标日 history、只读历史 Workspace 与专属写域。
 
-替换范围：第 10、11 节。继续分阶段交付，但每阶段必须有可验证的完整路径；不因 S7 才收尾而允许 S1–S6 长期保留错误依赖。
+EventBus/envelope/过滤基础归 runtime；包含 Turn 等待、批次确认与终结语义的 TurnInbox 归 kernel/loop；其登记表与跨 Turn Router 归 agent。这样底层不必理解 profile、Job 内容或当前根任务。
 
-| 阶段 | 补充的实施范围与必要证据 |
+## 4. Agent SDK 与生命周期（Q6）
+
+| 契约草图 | 语义 |
 |---|---|
-| S0 复审 | 讨论并关闭影响基础架构的 P1–P6，回写已确认条款；P7/P8 按所属阶段细化，P9 仅保留参考，不要求预先批准全部未来功能 |
-| S1 基础 | bridge 随 owner 的目标布局、typed 失败、async I/O、总线/取消基础；建立 import 方向检查；验证信号顺序、等待竞态、观察隔离与取消身份 |
-| S2 内核与 Agent | 最小 SDK + fake provider 从 submit 到 outcome；段 prepare/install/finish/close；假 Job 验证取消与收尾；替换 CLI/打包入口同步进行，不能删除 app 后仍引用 `tinysoul.app.cli` |
-| S3 owner 插件 | 每次迁移一个 owner；显式依赖次序；Session 事实与语义注释、Workspace 写入、Home overlay、Memory 单文档写、日切均有代表性路径；日切恢复 journal 与删除 Memory 多文档 journal 区分 |
-| S4 环境与生命周期 | ask/reply、全局文件事件投递、进度背压、Job 完成交界、shutdown/restart/reload busy；跨日 Job 执行目录与导入结果验证 |
-| S5 gateway | 全部经 SDK 与服务；HTTP/WS 鉴权、replay、重连和终态；协议文档同步；wheel/init 验收。前端仅形成对接说明，后端任务不擅自改 visualization 实现 |
-| S6 新能力 | 先锁定协议与 adapter 后验证 ACP/MCP；内部子 Turn 使用相同内核、父子取消与预算；process/ACP 与 Job 通用控制一致 |
-| S7 清理 | 全仓依赖与 public facade 审查，移除兼容 alias、私有跨模块调用、废弃入口、重复状态和无消费者接口；AGENTS/设计/端点/测试/打包全部一致 |
+| `await Agent.create(root, overrides=...)` | 读取、校验与装配；不启动监听 |
+| `await agent.start()` | 激活服务并接受请求 |
+| `await agent.submit_turn(request) -> TurnHandle` | 排入根队列，返回身份和结果句柄 |
+| `await agent.append_input(turn_id, input) -> InputReceipt` | 明确接受/拒绝，不转给其它 Turn |
+| `await agent.reply(turn_id, question_id, response)` | 校验并回答指定问题 |
+| `await agent.cancel_turn(turn_id)` | 取消该 Turn 及子工作 |
+| `await agent.grant_cycles(turn_id, request_id, count)` | typed 预算决定，重复请求不重复加额 |
+| `agent.status() -> AgentStatus` | 无 I/O 的不可变内存快照 |
+| `patch_config(patch)` / `reload_config()` | async 保存候选 / 空闲边界校验激活 |
+| `shutdown()` / `restart()` | async 回收并停实例 / 回收后重装配启动 |
+| `await agent.publish(event) -> PublishReceipt` | 校验后路由外部事件 |
+| `agent.subscribe(filter)` | 只读 Observation 流 |
+| `agent.services.get(FacadeType)` | 注册服务门面；其 I/O 方法为 async |
 
-迁移应在开发 checkout/分支进行，当前可用部署继续使用原 checkout；用户数据不自动 reset。不向后兼容意味着旧 schema 明确拒绝或需要用户另建项目，不意味着代码重构可以删除用户数据。S1/S2 删除旧模块时同时删除或迁移依赖它的旧入口/测试，不加入临时 alias 支撑旧测试。
+TurnRequest 包含 profile、输入、来源与该 profile 的 typed 参数；target_day 不能成为任意请求均可篡改的万能 metadata 开关。外部 JSON 在 gateway 转类型，SDK 同样验证契约。外部发布不能伪造内部 Job 身份/终态。
 
-新增的关键验收场景：
+单根 Turn：等待用户/Job/预算仍占根位置；新任务与 Reflection 排队，当前回复/追加输入进入 Inbox。根队列有界；重复到期 Reflection 按 profile+target_day 合并，用户任务不合并丢弃。
 
-1. 全局 Workspace 变化同时触达根/子 Turn，定向输入不串到另一个 Turn；旧 Turn 迟到事件不激活无关工作。
-2. Job 已结束再调用 wait、注册 wait 的瞬间结束、超时与完成同时到达：不丢唤醒、不重复启动根 Turn。
-3. 第一段 prepare 成功、第二段 prepare 失败：当前活动状态未部分修改；重复消费不重新执行外部 Action。install 失败不进行不安全重试。
-4. open 部分失败、finish 写入失败、close 失败：已开资源都清理，原失败保留，Session 不重复记录；地图可补齐派生节点且不丢语义注释。
-5. ask 后追加输入恢复同 Turn；ask 超时后回复进入新 Turn；stop 打断两种等待；多次 wait 不无限扩大执行预算。
-6. runtime 不 import llm/kernel/plugins；LLM 压力经注册 handler 引起 Context 恢复，没有逆向 import 或重复桥接。
-7. Job 持有资源时 reload 明确 busy；午夜归档不被活进程继续改写；collect 幂等且链接不会错误指向新日同名文件。
-8. 编程错误不变成可修正工具失败；普通非零退出保持局部结果；未知异常消息不直接进入模型反馈；Observation 失败不改变结果。
-9. 父子 Turn 共享 owner 时各有独立状态；根取消传播正确，子 Turn 失败以 Job 结果反馈父 Turn，不直接结束父 frame。
-10. 根 Turn 处于 awaiting_input 或 awaiting_event 时，提交独立用户任务和 Reflection 请求：它们仅排队；当前回复、Job 事件与取消仍可处理；只有当前根 Turn 完成收尾后才启动下一个根请求。
+状态分开建模：Agent 生命周期 created/running/stopping/stopped/faulted；Turn 活动 queued/preparing/running/waiting/finalizing/finished；等待原因 input/event/timer/budget。outcome 表示最终 answered/completed/cancelled/failed 等，不让 awaiting_input 同时表示活动和终态。
 
-测试以行为与契约为主，不固定提示词全文、默认 catalog 列表、文件精确数量或纯实现私有方法。每个阶段开始时明确当阶段有效的本地 Full/类型检查范围与已删除旧契约；不能通过全局 skip 掩盖新架构损坏。最终恢复完整 Full、typecheck、wheel 与端点验收。纯设计文档修改只验证 diff、引用、决策状态与方案一致性，不声称跑过代码门禁。
+TurnHandle 最终结果是完成权威；Observation 是可断档旁路。最终回答先是候选，必要持久记录和收尾成功后再发布完成；问题是中间输出，不结束 Turn。
 
-待讨论的核心取舍：P1 bridge 下沉到各 owner；P3 将业务 finish 与资源 close 分开；P5 跨日 Job 使用独立执行目录、内部子 Turn 限 TURN scope、存在未释放 Job 时 reload 返回 busy；P6 SDK 动词与显式候选配置激活。其余条目是这些选择对应的实现与验收约束，仍需随确认整体回写。
+活动/等待 Turn 持有世代及日 lease，reload 明确 busy。候选失败保留当前世代，磁盘候选状态单独报告。restart 不能杀死 Python 线程：存在不可回收 worker 时保持 faulted，需要实际宿主进程重启，不能谎报成功。
 
-### 13.10 P9：未来清单的覆盖、边界与冲突处理
+## 5. 环境事件与 TurnInbox（Q2）
 
-来源：维护者本轮上传的 `00 doing something.md`（全文）。维护者已明确该文件有些陈旧、仅供参考。本节所有“建议落实”均是供讨论的候选，不是本次范围承诺，不覆盖当前讨论，不作为开始核心重构的前置门禁；没有单独确认的条目不得转成实施任务。
+### 5.1 三种消息语义和路由
 
-| 未来需求 | 本次重构建议落实 | 后续独立工作 |
+EnvironmentEvent 表达事实，Signal 表达 owner 待消费更新，Observation 表达旁路输出；Trap 表达运行位置转移。可复用 envelope/基础组件，不强制共用物理 FIFO。SDK 命令是输入意图，不必假装已发生的环境事实。
+
+envelope 建议包含 event_id/source/source_seq/received_seq/occurred_at、可选 target_turn_id 与 typed topic/payload。实例序号用于排序、去重、等待游标，不是 Memory/Workspace revision。跨源按接收顺序，墙钟仅供展示。
+
+路由规则：
+
+1. 定向事件只送登记中的目标 Turn；过期目标返回 closed/stale，不转成新根请求。
+2. 无目标事件按段订阅和等待过滤器投递，可送根/子 Turn，同一 Turn 去重。
+3. Trigger 独立决定是否创建根请求，与订阅投递不互斥；Job 事件不生成新根 Turn。
+4. owner 先提交事实再发布变化。fswatch 只是变化线索，Workspace reconcile 后给出状态。
+5. Observation 异步镜像，失败不撤销已接受事件，也不阻塞业务。
+
+environment 使用注入 PublishPort/InputPort，不 import Agent。JobRegistry 管监督与状态，Router 管目的地，Inbox 管待消费记录，三者不互相接管状态机。
+
+### 5.2 接收、消费和唤醒
+
+Inbox 从 Turn 注册持续到收尾，与 Cycle 是否运行无关。推荐暂停期间更新 owner 状态、Inbox 与就绪条件，不并发修改 Segment；恢复边界批次同步段。前端直接取 Job/Agent 状态，仍实时可见。
+
+take_batch 捕获有序批次，prepare/install 成功后 ack；准备失败重试同一批次，不重新 drain、不重新执行 Action。inputs 保存正文，Trace 记录 input id 和收到的时序，避免重复全文。
+
+wait 只观察就绪，不与边界消费者竞争删除事件。登记和入队由同一事件循环协调：先查待处理事件/Job 状态 → 登记过滤器与游标 → 原子复查。禁止 drain 清空后才开始等待。EVENT 使用 after_seq，防止同一旧进度反复唤醒；已终结 Job 通过状态谓词立即满足。
+
+### 5.3 容量与落盘
+
+同时限制总条数、总字节、单条大小和活 Job/请求数。精确默认值通过假源压力验证后写配置，不虚构生产依据。
+
+| 类别 | 保存策略 | 满载处理 |
 |---|---|---|
-| Agent/SDK、事件、三阶段、段依赖反转 | P1–P6；统一调用与生命周期 | 根据真实轨迹继续优化模型决策 |
-| Session Map、追问/补充/推理/links | typed completion 保存问答与 Action 事实；Map 注释可整理；有限折叠 | 前端地图布局与交互 |
-| Home/Memory Reflection | 保留两个专属域；User 不直接写长期基线；Home overlay review；Memory 轻量单文档写；支持今天与过去日 | 调整主动积累与 review 提示词的效果 |
-| Reflection Action 的配置与模型链 | 与普通 Action 使用同一配置解析、任务 profile 和模型路由机制；只按 TurnProfile 改可见 surface，不再硬编码 home_search/memory_daily 调用链 | 设置页的任务分类交互 |
-| milestones 如寄存器 | plan 保存有状态的事实、值、来源和失败尝试，不等同 todo 完成 | 对行为提示词进行轨迹评估 |
-| 输入图片、文件夹及 PDF/PPT/Word/Excel/二进制 | 输入协议用 typed 文本/资源引用，不能固定为 text-only；持久 owner 与局部读取边界明确；模型能力适配见下文 | 各格式抽取、渲染与编辑能力；拖拽上传 UI |
-| Workspace 宽松写入、references | 去 CAS；资源链接校验与文件操作归 owner；区分成果引用与证据链接 | 更丰富的项目类型与操作体验 |
-| pinned/tmp/to-library 标记 | manifest 保留有类型的标记扩展入口；本次不默认基于 tmp 自动删除 | 标记 UI、清理策略和长期收藏工作流 |
-| Library 独立于 Home | 明确未来 Library 是长期文件 owner，非 Home prompt、非 Memory 知识文档、非当日 Workspace；通过 Workspace 导入/导出服务集成 | 独立 `plugins/library`、索引、收藏、检索与 `library:` 身份；本次不造空实现 |
-| ask 选项 + 自由输入 | TurnOutput question 支持 question_id、可选 choices；reply 保留选项身份与自由文本；trace/completion 保存 ask→reply→reason→answer | 前端选择控件与丰富交互 |
-| core idle | 在统一 WaitRequest 上表达有界定时/事件等待；无完成语义的循环不得零延时空转 | 是否单独暴露 `core.idle` 动作及命名，按轨迹需要决定 |
-| coding 组合能力 | execution/workspace/subagent 与 Skill 挂载，不新建第二套 coding loop | 元能力、项目权限模型与专项 coding Skills |
-| prompts 管理与行为风格 | kernel 集中框架提示构造；插件拥有自己的领域提示，公共构造器复用 | 意图标签、创造性、主动提问等文案优化；不作为代码协议硬编码 |
-| MCP、图像生成、数学、搜索、邮件、字体图标 | 统一 expand 或显式能力插件入口与结果引用 | 分项选服务和真实任务验证，不在重构中一次性接完 |
-| Markdown 代码块插件、字体、本地配置、侧栏/桌面机器人 | gateway 提供 typed 输出与资源服务；后端不依赖前端渲染插件 | 独立前端实现计划 |
-| 备份 zip、reset 保留备份、部署更新 | SDK 生命周期和项目 owner 边界不阻碍扩展；不把重构等同 reset | 备份导出、版本更新与部署回滚计划；执行更新须有具体授权 |
-| 远程笔记本直连主机 | gateway 主机/端口显式配置、鉴权、重连与只读状态；SDK 不依赖 loopback | 选定私人网络接入方式后验证，默认不自行开放公网 |
+| cancel/shutdown | 独立幂等控制状态，立即置令牌 | 不排在进度 FIFO 后，不静默丢弃 |
+| 输入/reply/预算决定 | 不可丢记录 + 明确 receipt | 接受前背压/拒绝；接受后保留至消费 |
+| Job 终态、权限/问题 | owner 权威现态 + Inbox 唯一 pending 身份 | 按活 Job/请求预留容量；拒绝新建或明确源失败 |
+| 进度、文件变化 | 按 Job/资源合并最新值，保留区间/合并计数 | 可折叠，不让每行日志变成 Trace |
+| stdout/stderr/大输出 | owner 落盘，事件只传 link/cursor/摘要 | 配额或写失败变成 Job 失败并收敛生产者 |
+| Observation | 独立订阅缓冲 | gap/断开/重新取状态，不背压业务 |
 
-**需要在本次协议中明确的补充**：
+推荐默认：Inbox 元数据内存有界，大输出 owner 落盘，不默认独立 Inbox WAL。保证进程存活期间暂停不丢已接受关键事件，不保证崩溃后续跑 Turn。无限暂停、无限不可丢输入、有限容量不能同时成立，拒绝与背压是协议的一部分。
 
-1. **两级 Observation 与模型轨迹分开建模。** 建议按附件简化 level 为 `normal | verbose`；原 `model` 表示内容类别，改为 `category=model` 的 verbose 事件，可选订阅模型输入/输出内容，避免为 level 增加第三档。完整模型消息是观察投影，不进入 Session 事实。此项需同步 runtime、CLI、Endpoint 与前端协议；不保留 level=model 兼容别名。
-2. **资源链接按字段语义校验。** 附件要求 Workspace references（包括回答的成果 references）只含 `workspace:`；Session Map 的相关 links 又需要外部 URL/Home/Memory。建议区分 `artifact_references: WorkspaceLink[]` 与 `evidence_links: ResourceLink[]`，由所属字段验证；原 `references` 含混字段清理。回答文本可含网页链接，不能把网页 URL 塞进 Workspace 成果列表。未来 Library 的引用经专门引用字段或显式导入 Workspace，不偷换已有字段含义。
-3. **图片按当前模型能力构造消息。** 输入文件先由 Workspace 物化，inputs 保存文字与资源身份；当前 task 模型支持图片时可发送有界图像内容，不支持时使用链接/已有文本抽取，不回放 base64，也不伪装模型看过图片。若必须识图，通过显式图像理解能力调用可用模型；无可用能力返回明确局部失败。模型切换后重新构造匹配能力的 MessageStack，此适配由 kernel 的模型调用协调入口结合 owner 提供的内容完成，LLM provider 不读取文件。
-4. **跨日历史的资源身份。** 不把当日 `workspace:path` 裸字符串用作永久资源唯一身份；Session/Job 的来源记录绑定 day 与 owner 身份，归档解析由 owner 完成。后续 Library 收藏生成自己的长期 Link，不能靠保留旧 Workspace 路径模拟持久收藏。
-5. **技能信息的作用域。** Home 的 Skill 元信息/可发现线索可以进入 Background；DOMAIN/action Skill 在所属 TaskPrompt 挂载；reference 正文在实际使用时局部读取。S3 用一条 top→reference→局部任务路径验证，不以重复粘贴所有 Skill 内容实现“可用”。
+如果需要崩溃后恢复已接受输入，需确认持久 receipt/checkpoint 与外部执行对账；仅写 JSONL 不能恢复 Cycle/线程/外部副作用。Session、Job 输出、Observation journal 和 Inbox 各有用途，不互相冒充。
+
+### 5.4 结束交界
+
+正常完成先检查无活 Job/待处理关键请求，再关闭普通受理并处理已接受批次；若有新输入或必须处理事件，撤回完成候选并继续，预算不足仍先等用户。
+
+取消/失败时停止接受外部新输入，但内部 Job 清理终态仍能进入收尾通道；回收后处理已接受终态、seal，再注销 Inbox。不得先注销后等待 Job 上报退出。cancel 不等普通缓冲腾空。
+
+## 6. Kernel、暂停、预算与取消（Q1、Q3）
+
+保留 Phase1 语境控制/选域 → Phase2 生成 ActionCall → Phase3 执行有界批次。Phase1/2 协议失败为 PhaseFailure，进入下一完整 Cycle，Phase2 失败不以空批次继续。
+
+启动 Job、ask、wait 都先返回已收敛 ActionResult；等待在 Cycle 边界。互斥 ask/answer/wait 不同批并行。模型看不见剩余 Cycle，不提供模型扩额工具。
+
+建议 RuntimeTransferAction 增加 SUSPEND（Q1），只允许合法 Turn 调度边界；不序列化任意 Python 栈，不从 Action 副作用中途暂停后重跑整个 Phase：
+
+1. Cycle 完成，消费待处理输入与结果，检查完成/等待意图。
+2. 正常 INPUT/EVENT/TIMER 等待由 TurnRunner 处理，不强制抛异常。
+3. 下一 Cycle 启动前预算不足，Loop 原因经 Trap 返回 SUSPEND(BUDGET)。
+4. TurnRunner 保存 next_cycle_index、预算请求身份和尚未满足的等待条件，维持原 Context。
+5. I/O、Job、Router 继续；事件就绪不绕过预算。
+6. 有效 grant 后检查其它等待条件，从尚未启动的 Cycle 继续；cancel 进入收尾。
+
+恢复是在同一 coroutine 安全边界继续，不是 RETRY 已完成 Cycle。Runtime 只负责转移合法性，loop 负责等待/预算内容。不扩展任意 continuation 框架。实施前以预算暂停切片核验 Q1。
+
+| 等待 | 满足条件 | 普通 Job 进度 | 用户输入/控制 |
+|---|---|---|---|
+| INPUT | 对应 question_id 的 reply | 缓存，不当作回答 | 普通追加可作为新指示恢复，并标明原问题未答；cancel 中断 |
+| EVENT | after_seq 后匹配事件或目标状态 | 匹配才唤醒 | 追加输入可恢复，cancel 中断 |
+| TIMER | monotonic deadline | 推荐不提前唤醒 | 输入/cancel 可打断；终态提前唤醒须显式组合条件 |
+| BUDGET | grant_cycles/cancel | 缓存，不启动模型 | 普通文本不等同额度授权 |
+
+推荐 ask 无默认超时，profile 可配上限（Q3）。配置超时则以 awaiting_user 等明确终态收尾并回收 Job；旧 question 的迟到 reply 返回 closed，由 gateway 明确转新 Turn，不自动复活。等待不耗 Cycle，但零延时空转需拒绝或节流。计时区分 active execution、等待上限与总 wall-time，不默认用一个期限混算。
+
+取消保留现有“边界权威”：入口置令牌，运行边界进 Trap；in-flight await 与令牌/deadline 竞争。同步 owner 经 to_thread，线程用线程安全控制对象，不操作 asyncio.Event。取消 await 不等于停止线程。
+
+清理有宽限期；进程树可硬停止，线程不可假杀。未释放工作令 Agent blocked/faulted，阻止下一 Turn、归档、世代切换复用 owner。清理失败不覆盖主失败。
+
+## 7. Context：领域事实、Turn 视图、模型投影
+
+### 7.1 内容与顺序
+
+Engine 拥有领域事实与动作；Segment 维护当前 Turn 的加载/展开/呈现；Context 组合公共协议。领域段不反向拥有整个 Context。每次 LLM Task 重新构造 MessageStack，不维护另一份任意追加的完整 prompt。
+
+| 分区/顺序 | 段 | 形状和语义 |
+|---|---|---|
+| Background 1 | identity | State，system role，内容来自 Home/配置 |
+| Background 2 | session.history | Map，prior-turn 关系骨架 |
+| Background 3 | inputs | State，初始和已接受追加输入，不逐出 |
+| Background 4 | home.background | Heap，目录/线索及渐进内容 |
+| Background 5 | memory.background | Heap，必要根与召回知识；保护由 profile 声明 |
+| Trace | trace | Stack，决策/请求/结果/问答/环境感知 |
+| Working 1 | plan | State，todo 与 milestone 寄存器 |
+| Working 2 | workspace.resources | State，资源链接/摘要，不自动内联正文 |
+| Working 3 | jobs | State，活任务、待答请求、有界终态 |
+| Task overlay | TaskPrompt | 当前 LLM Task 临时层，非段 |
+
+history 准备时读取 prior-turn 集合，不把本 Turn 提前写入；organize 可明确修改注释并刷新视图。inputs 追加会改变前缀，因此只能说“尽量稳定”，不能保证全 Turn 字节不变或必然缓存命中。
+
+milestone 表达 status/value/note/source links，可记失败、阻塞、尝试、决定，不等同 todo 完成。不强制 revision/digest；真实任务需要的版本信息可作为具体事实。
+
+形状是访问/回收约定，不强迫容器实现。能力独立声明 load/evict/inspect/organize/reclaim/订阅。ref scheme/namespace 路由装配时校验无歧义；kernel 不写 owner 特判。ToolResult 保留内部调用关联，环境通知不是伪造 tool result；provider 映射归 llm。
+
+### 7.2 段生命周期与批次
+
+必需能力为 descriptor/open/render/seal/close；更新能力 prepare/install、完成提交 finish 按需提供，避免纯只读段写空方法。段实例就是 Turn 参与者，不新增平行 TurnParticipant；DayParticipant 处理独立日生命周期，可以保留。
+
+- open：依 profile/day/parent 创建视图，必要依赖确定性按序打开。
+- render/seal：纯内存投影，不 I/O、不改事实。
+- prepare：处理本段完整有序批次，异步读取和候选计算，不改当前状态、不持久写。
+- install：同步替换已校验候选，无 await/I/O/外部回调。
+- finish：owner 的完成副作用。
+- close：只释放资源，部分 open 失败也关闭已打开对象。
+
+全部 prepare 成功后才 install。无效模型控制为局部结果，非法内部 typed 更新是契约缺陷。install 程序失败结束 Turn，不承诺跨段回滚；已安装批次不盲目重放。
+
+协议草图为 `provider.open(TurnInfo) -> Segment`；`segment.prepare(tuple[SegmentUpdate, ...]) -> PreparedSegment`；`install(PreparedSegment) -> None`；`seal() -> SegmentSnapshot`；`finish(TurnCompletion)` 与 `close()` 为异步边界。TurnInfo 携带 turn/profile/day/parent 的明确身份；TurnCompletion 显式携带输入、问题、输出、执行 outcome 和 typed Action 事实，插件快照按 segment id 标识，内核不解析其内容。插件内部专用更新类型由自己的 handler 消费，公共路由不把 payload 全部退化成任意 JSON。
+
+跨段通过同一边界批次及事实引用协作，不读取另一段未提交私有候选。Action 先经 Engine 提交业务事实再通知，Context 失败不撤销已完成 shell/文件副作用。
+
+收尾：关闭新业务受理 → 收敛 Action/Job → 消费已接受终态 → seal → typed TurnCompletion → finish → close → 释放 lease → 发布终态。提交顺序显式声明，Session 最后记录；必要 finish 失败不发布成功。总会 close，持久结果与资源清理状态分别报告。
+
+### 7.3 压力与追溯
+
+默认 State 收缩 → Heap 逐出 → Stack 折叠 → Map 有限折叠。保护 identity/inputs 必需语义、待处理问题、活 Job、关键 milestone；每段声明最低可用投影。
+
+history 仅自身超水位时有限折叠旧已整理节点；其它段过大不优先牺牲历史。完整图无限增长不能保证永久整图入模：推荐完整持久图 + 稳定 thread 聚合节点和有界详情（Q4）。仍超容量则明确失败，不静默截断问答事实。
+
+容量结合当前模型估计，字符数只是近似，不当硬 token 保证。无回收进展即结束恢复，不无限 RETRY。LLM 声明容量失败，Context handler 回收并重建当前任务消息，已执行 Action 不重放。
+
+core.context.inspect(ref,cursor) 统一追溯；load/evict 仅有 Heap 能力的段；organize 由 Session 提供实现，以 core 名称注册，kernel 不实现图业务。inspect 不取代 workspace.read 或一切资源 API。
+
+## 8. Session：唯一历史体系（Q4）
+
+SessionTurnRecord 保存不可变问答/行动事实；Map 是确定性图投影和有来源语义注释。删除平行 SessionSummaryRecord 线性历史，history 就是 Session 地图视图。
+
+无模型抽取：初始问题、追加输入、ask/reply、最终回答、outcome、显式 core.reason 摘要、Action 请求/结果、milestone、资源引用/URL。“推理”指可保存显式 Action 或摘要，不指供应商私有推理原文。
+
+Trace 执行时维护 typed Action 事实，折叠只改变模型渲染，不从压缩文本重新猜调用配对。中断时每个已产生调用有结果或明确 cancelled/not_executed/unknown，不能伪造成功，也不能因一对缺失导致全部问答无法保存。
+
+地图可有 turn/thread/resource/decision 节点及 follows/continues/touches/decides 边；resource 已承载链接时不强制再建重复 link 节点。跨日引用附 owner/day，旧 workspace:path 不得解析成今日同名文件。
+
+finish 先按 turn_id 幂等写 record，再补确定性图。organize 修改 gist/thread/关系并引用原 Turn，不改原话；注释是需持久保存的知识，不宣称都能从原事实无损重建。地图更新失败可补投影且保留注释；record 写失败是必要持久化失败。
+
+新 User Turn 提供上一成功用户 Turn 待整理标记；失败/取消也保留事实，但不称成功。AWAITING_USER 代表仍待后续回复，不自动等同成功回答；是否允许一起整理见 Q4。
+
+User 根 Turn 进入用户 Session，Reflection 不进入。推荐子 Turn 作为可追溯子记录并关联 parent_turn_id，不重复成为根历史条目；由同一个 Session owner 保存，不另造日志。
+
+## 9. Home、Memory、Reflection 与 CalendarDay
+
+两个独立 profile 和专属 domain：home_reflection、memory_reflection。共用内核、动作配置、模型链、TaskPrompt/Skill 挂载，不保留维护专用第二套 Loop。
+
+| 工作类型 | 可写事实 | 动作与完成 |
+|---|---|---|
+| User Turn | 活动 Memory.md、Workspace、Home overlay | 正常回答或其它终态 |
+| Home Reflection | 审核后 actual Home | diff_list/detail/accept/reject/rewrite/done |
+| Memory Reflection | target daily、entity/concept/fact/note | write_daily/write/retire/done |
+
+User 的实际 Action surface 不含专属域，注入的服务也限制写权限，不只靠提示词。子 profile 不继承超出父 profile 的长期写能力。
+
+Home rewrite 默认改待审副本，accept 明确提交 actual，reject 清待审项；批量返回逐项结果，不假称多文档原子事务。review 是 Agent Reflection 审阅，不默认逐项向人审批；不引入 Git。Skill top 线索进 Background，domain/action Skill 只挂对应 Task，正文局部读取。
+
+Memory 删除 8 步控制器、preview、多文档 CAS/journal、revision/activation_count/session_revision/active_memory_digest。活动 Memory.md 同样使用轻量 owner 操作，不暗留 CAS。保留类型、身份、来源、关系、摘要和必要状态；具体字段由 codec 统一，不在计划增设关系同义字段。
+
+单文档原子替换；catalog/backlinks/embedding 为可重建派生数据。retire 保留迁移说明，redirect 存在、类型合法且不成环；先写目标再退休旧项。Reflection 失败不撤销已完成单文档写入，准确报告进度。
+
+Reflection 插件编排触发/去重/完成，Home/Memory 管存储，日切归 agent/day。有 Session 无 daily 可触发补记；已有 daily 仍允许手动重整今天/历史日。失败调度有界，不即时无限重入。不保留 availability.json 平行事实。
+
+CalendarDay 取代 BusinessDay；面向用户说“今天、总结、整理”。根开始锁定 day/世代，跨午夜继续原日；根及子工作完全收尾后归档再开新根。Reflection target/source_day 与运行 active_day 分开，历史 Workspace 只读。
+
+保留 home/memory/runtime/archive 布局、确定性日切恢复 journal；删除 Memory 事务不等于删除归档恢复。TOML 原则稳定，仅已确认 app→agent、maintenance→reflection 及新增能力配置。新 Session schema 不隐式兼容 v4，不自动 reset 用户数据。
+
+## 10. Workspace 与 execution
+
+磁盘是内容事实，manifest 是轻量索引，State 段是投影。动作提供 list/search(literal|regex)/read/write/edit/append/move/mkdir/delete/restore/trash_list/tag/describe/compose/analyze；小文件整读、大结果有界分页。
+
+删除 expected_digest/revision、read-set 复验、described_digest、retention、压力 trash、Trash marker 和恢复 Trap。保留路径解析、owner 锁、原子文件替换、简单 Trash。单文件 edit 全部匹配后一次提交，无匹配/歧义局部失败，不能改半份文件。
+
+tag 可支持 pinned/tmp/library；library 标记不代表实现了独立长期 Library。scan/reconcile 用于 Turn 准备/文件事件/必要查询，不把 manifest 当比磁盘更权威的内容。
+
+Engine 锁只能协调 Engine 调用，锁不住 ACP/shell 直接写。推荐并发子工作独立输出目录，交接后合并；显式共写则承认覆盖风险，不宣称 fswatch 防止 lost update，不因此恢复全局 CAS（Q5）。
+
+execution 合并 script/shell/supervised_process：有界 run_script/run_shell；后台 start/stdin/collect。collect 是读结果，不是释放资源唯一入口；进程结束即回收执行句柄，结果按 Turn 保留。
+
+## 11. Job、ACP 与 MCP（Q5、Q7）
+
+### 11.1 Job
+
+Job 属启动 Turn，可跨 Cycle，不跨 Turn；Registry 在 Agent 索引不改变所有权。公共 status/stop/wait，种类域 start/send/collect。状态区分 starting/running/waiting_input/stopping/succeeded/failed/cancelled，适配器私有状态不直接充当公共状态。
+
+必要事实为 owner_turn_id/job_id/kind/state/result refs/pending requests。backend 拥有执行资源，Registry 监督生命周期。终态单调且发布一次，stop/collect 幂等；执行完成与资源释放分开。
+
+正常 answer 时有活 Job：推荐局部 completion_blocked，模型选择 wait/stop，框架不静默杀任务后给成功回答。取消/失败才自动递归回收。输出归 Workspace，不另建跨 Turn Job 数据库。
+
+### 11.2 内部子 Turn
+
+tinysoul_turn Job 使用同一 TurnRunner，独立 Context/Inbox/Action scope，不进根队列。父取消传播，子 RuntimeTransfer 不能指向父 frame；子失败成为父 Job 结果。
+
+建议有限并发/递归、profile 能力不超委派集合、独立 plan/trace，共享 Engine 而不共享 Segment。只接父显式 brief/references，不隐式复制父全部语境。
+
+子预算不足不得自动扩额。推荐经同一用户控制入口呈现 root/child 路径，父见 budget_blocked，可继续其它允许工作。全树预算还是每子独立预算待 Q5，不能先实现两套。
+
+当前倾向每个内部子 Turn 使用独立 Cycle 预算，并由根树的并发/递归上限约束总体规模；这样子任务不会因另一个子任务消耗共享计数而突然停止。所有额外 Cycle 仍由用户授予，父模型不能代批。ACP 外部 agent 的内部 Cycle 通常不受 TinySoul kernel 计数控制，需用 Job 的时间/输出/资源上限表达，不能宣称本地 Cycle 预算覆盖外部推理费用。
+
+### 11.3 ACP
+
+ACP 客户端归 subagent 插件；TinySoul ACP server 不在本次范围。先锁真实 agent adapter、SDK 和协议版本，再映射初始化/session/prompt/流更新/权限/取消/退出。
+
+旧草图“ACP v2”“prompt 立即返回”“idle 就是完成”“session/close 必存在”未验证，本版删除这些实现假设。本轮未完成目标 adapter 连通验证，S6 先以官方文档和 fake adapter 核验。
+
+Job 表示一次有终点的委派，连接/session 是可复用资源；终结 Job 不回 running。推荐 send 只在适配器支持的活任务追加机制中使用；最终任务结束后新委派建新 Job，可以复用 session。无中途追加能力则明确局部失败，不强发第二个 prompt。
+
+权限问题以 request_id 进入 Job 待答，父经 subagent.respond 回应。历史“读 auto_allow、写 ask_model”须映射真实选项；任意 shell 不能凭模糊描述可靠分类，未知请求待答/拒绝。父 INPUT/BUDGET 暂停时不启动隐藏模型代答，可由明确用户控制入口处理。
+
+取消须收敛未决反向请求与协议任务，不响应则终止受控进程树。最终结果信号按选定协议确定，不从流文本猜测终态。
+
+### 11.4 MCP expand
+
+expand 持连接、工具索引、能力协商；Phase2 只见 search/describe/call/servers。搜索和完整 schema 描述进 foldable Trace，无 expand.tools 段。
+
+TinySoul schema 只校验外壳；远端 inputSchema 由选定 JSON Schema validator/SDK 校验，不能忽略未知约束后宣称通过。支持 tools 分页/列表变更/能力声明、错误和结构化结果归一化；旧工具失效返回明确局部说明。
+
+大输出落 Workspace，Trace 留摘要/link。工具业务错误局部反馈，连接不可用可由 Action 返回 unavailable；内部错误仍模块失败。远端写超时可能已有副作用，不自动重试无法证明可重放调用。
+
+MCP 连接可常驻 Agent，不代表调用 Job 跨 Turn；首批 call 有界执行。取消不保证远端系统撤销副作用。长任务、resource/prompts 按后续明确范围扩展。
+
+S6 核验入口：[ACP 官方文档](https://agentclientprotocol.com/)、[MCP 规范](https://modelcontextprotocol.io/specification)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。它们是后续入口，不是本轮已验证版本证据。
+
+## 12. 失败语义与 Gateway
+
+### 12.1 三层失败
+
+| 情况 | 归类 | 外层行为 |
+|---|---|---|
+| 模型协议失败、参数无效、已知工具失败 | typed 局部结果 | 有界反馈，下一完整 Cycle |
+| executor 非法对象/身份、owner 损坏、catalog 契约错误 | 模块边界异常 | owner bridge → Runtime 收束 |
+| provider 短暂失败 | LLM 局部恢复 | 耗尽后才跨模块 |
+| 模型容量不足 | LLM 原因、Context 策略 | 仅重试可重放 frame |
+| 预算不足 | Loop 原因 | Trap → SUSPEND，用户决定 |
+| RuntimeException/TransferInterrupt | 已归类控制 | 原样传播至合法 frame |
+| cancel | 独立取消身份 | 回收后边界决定 outcome |
+| Observation 失败 | 旁路失败 | 隔离，不影响业务 |
+| close 失败 | 清理诊断 | 继续其它清理，保留主失败 |
+| SDK 对已结束 Turn 回复 | typed rejection | 不伪造 Runtime frame |
+
+宽泛捕获限有说明的动态边界、观察、清理；未知异常不能全部变 executor_raised 普通反馈。BaseException 必要转交时保留取消/退出。payload 保留 module/kind/error_type/必要身份与有界说明，不直传 str(exc)、配置原值、完整资源。
+
+### 12.2 Gateway
+
+Endpoint v2 经 SDK 提供 agent 状态/restart/reload、turn submit/status/inputs/reply/cancel/budget、Job 查询/停止/回应、Reflection、配置候选、Workspace、replay/WS。精确路由/schema/错误码在 S5 固定，避免本计划维护另一套易漂移协议表。
+
+WS 断开不取消 Turn；问题可由状态查询恢复，Observation gap 不等于业务丢失。配置保存成功不等于激活成功。gateway/project 复用 init/reset/lease；删 app 时同步 pyproject console script/package data。后端仅更新前端对接文档，不擅改 visualization。
+
+### 12.3 可行性
+
+既有 TurnRunner/ActionEngine/Context 批次/Session 图/overlay/day lease 是可复用基础，主要工作不是改函数 async，而是生命周期、事实接口与失败归属。最高风险为暂停位置、背压、线程取消、收尾事实、午夜资源和外部终态，必须用完整协作切片验证。
+
+## 13. 执行计划与验收
+
+所有实施阶段未完成。历史 S0 定稿不代表本轮复审关闭。子计划只有实现/文档/必要验证全部通过才 done 并归档；docs/design 只写已落地部分。
+
+| 阶段 | 范围 | 必需证据 |
+|---|---|---|
+| S0 | 确认 Q1/Q2/Q6 和子任务边界，修 AGENTS 指向，冻结单一契约 | 无冲突目标、待决有状态 |
+| S1 | bridge 归 owner、async LLM、事件/取消原语、import 检查 | frame 重放、取消身份、旁路隔离 |
+| S2 | 三 Phase、段批次、最小 SDK/CLI、fake Job、Inbox/wait/budget、打包入口 | submit→wait→resume→finish；预算/取消/竞态 E2E |
+| S3 | Session→Workspace→Home→Memory→Reflection→execution/resource/web | 各 owner 正反路径；完整日切；删旧 CAS 契约 |
+| S4 | fswatch/scheduler、ask/reply、容量、reload/restart、完整监督 | 暂停收事件、午夜、泄漏阻断 |
+| S5 | Gateway v2、项目命令、HTTP/WS/replay、协议文档 | SDK 映射、重连、wheel/init |
+| S6 | 锁 ACP/MCP adapter/协议/SDK，内部子 Turn | fake 故障矩阵，真实 external smoke 单独声明 |
+| S7 | 全仓文档/AGENTS/测试/打包一致，删旧入口/死抽象 | Full/typecheck/import 图/完整 E2E |
+
+S1–S2 为相邻基础迁移单元，不宣称迁移中间提交可部署。S2 删除 app/loop/context/action 时同步所有入口依赖；未迁 owner 若仍依赖旧内核，扩大该原子切片，不能用 alias 掩盖。现部署继续旧 checkout，不 reset 用户数据。
+
+核心验收：
+
+1. 全局 Workspace 事件送匹配根/子，过期定向事件不激活其它 Turn。
+2. wait 前/登记期间/超时同时完成 Job，不丢唤醒、不重复消费。
+3. 高频进度不阻塞 cancel/reply；容量不足接受前明确拒绝，已接受输入保留。
+4. 等待不耗 Cycle，事件不绕预算，重复 grant 不重复加额。
+5. 后段 prepare 失败不部分安装；重试不做 Action；install 缺陷不虚假回滚。
+6. 部分 open/finish/close 失败清理，主失败保留，Session 幂等、Map 可补。
+7. ask/reply/追加/reason/answer 可追溯，Trace 折叠不破坏事实配对。
+8. User/子 profile 无越权持久写，Reflection 准确保留单文档已提交事实。
+9. 跨午夜同 Turn 保持旧日，收尾前不归档，旧资源不指向今日同名文件。
+10. 泄漏阻断下一 Turn/reload，async 取消不伪称撤销远端副作用。
+11. 父取消递归回收，子失败只成 Job 结果，默认并发目录不覆盖。
+12. ACP final/权限/取消/断流；MCP schema/分页/错误/未知写结果有明确映射。
+13. runtime 不 import 上层，kernel 不识别领域内容，每个 SPI 有真实消费者。
+14. SDK 结果与 Observation 分离，重连能查询待答问题及终态。
+
+验证遵循 AGENTS：聚焦 → Fast → Full → typecheck，generation/wheel/external 分别执行；不全局 skip 掩盖损坏。测试保护协议和失败，不固定提示词全文/文件数/私有实现。本轮仅文档修改，核验 diff、路径、状态与交叉引用，没有运行代码门禁或外部能力测试。
+
+## 14. 决策状态与修订记录
+
+### 14.1 沿用已确认语义
+
+保留历史 D1–D29 有效决定，不因重组重新申请批准：
+
+- D1/D4/D5：同步 owner + async 适配；llm 顶层；pytest-asyncio。
+- D2/D3/D7/D10/D12/D13：Agent/环境/Job/ask、行走骨架、显式 reload、文件监视。
+- D6/D14/D19/D20/D21/D22/D26：plan 内核段、独立领域段、三分区、统一 inspect、Session Map、MCP 结果进 Trace；Engine/Segment/Context 及 prepare/install、finish/close 分离。D11 旧拆分撤销。
+- D8/D9：配置 section 例外改名范围、Session 新 schema，不隐式迁移 v4。
+- D15/D16/D17/D18：subagent、expand、execution 合并，adapter/权限需真实协议核验。
+- D23/D24：两个 Reflection 域、User 持久写边界、CalendarDay、Memory 轻量化、Workspace 去 CAS。
+- D25：单根 Turn，等待不并发独立 User/Reflection。
+- D27：Job 跨 Cycle 不跨 Turn，撤销 AGENT scope。
+- D28：EVENT/TIMER，预算确定性检查，由用户决定，模型不见额度。
+- D29：TurnInbox 持续接收相关环境事件，不是 Job 专属缓存。
+
+确认语义不等于 API 已批准或已实现。新建议统一收敛为 Q；旧 P1–P9 和悬空 13.13 引用不再是另一套目标。
+
+### 14.2 待讨论
+
+| 编号/状态 | 推荐 | 需要确定的行为 |
+|---|---|---|
+| Q1 pending | Turn 边界 SUSPEND；正常 wait 由 TurnRunner，预算经 Trap | 不用 END/RETRY 模拟暂停 |
+| Q2 pending | Inbox 内存有界、大输出 owner 落盘、关键事件预留/背压 | 只保进程存活暂停，还是要求崩溃后恢复已接受输入 |
+| Q3 pending | ask 默认无超时；TIMER 默认不被普通 Job 终态打断 | 自动超时及提前唤醒默认策略 |
+| Q4 pending | 不可变事实+可改注释，大图 thread 有界投影 | 是否整理未回答/失败 Turn，不把它们称成功 |
+| Q5 pending | 子任务独立目录、有限并发/递归、回答前显式收敛 Job | 子预算独立还是全树共享；同文件并写默认 |
+| Q6 pending | SDK 生命周期分义、候选与激活分离、bridge 归 owner | 确认依赖和生命周期契约 |
+| Q7 pending | Job 为一次有终点委派，ACP session 可复用 | 是否要求延续同 session；首个 adapter |
+
+优先 Q1/Q2/Q5/Q6，决定基础协议；其它在所属阶段细化，不要求现在批准全部远期细节。数字容量、SDK 版本、精确路由通过测量/协议验证确定。
+
+### 14.3 本轮修订
+
+- 核验当前 checkout 与远端 HEAD；重新检查关键运行、异常、Context 和 owner 边界。
+- 合并旧正文/替换预览，保留确认状态，建议不伪装为已决。
+- 删除旧 AGENT-scope Job、冲突 API、未经验证 SDK 假定、悬空引用。
+- 补暂停恢复、Inbox 容量/消费/唤醒/落盘、收尾交界、线程泄漏。
+- 明确 Session 事实/投影/注释、压力边界、Reflection 部分提交、跨日身份。
+- 明确 ACP 会话与 Job 区别、MCP 验证、子任务共享写限制。
+- 重排完整切片和验证门禁；未改后端或前端实现。
+
+建议 commit：`docs: consolidate agent refactor semantics and execution plan`。
