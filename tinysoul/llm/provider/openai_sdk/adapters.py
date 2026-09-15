@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from tinysoul.infra.json import to_json_object
 from tinysoul.llm.adapter import adapter_spec
@@ -57,13 +57,14 @@ class OpenAIResponsesAdapter:
         self._api_style = adapter_spec(adapter_kind).api_style
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
+        self._owned_client: AsyncOpenAI | None = None
         if responses is None:
+            self._owned_client = AsyncOpenAI(
+                api_key=api_key, base_url=provider.base_url,
+            )
             self._client: OpenAIResponsesClient = cast(
                 OpenAIResponsesClient,
-                OpenAI(
-                    api_key=api_key,
-                    base_url=provider.base_url,
-                ).responses,
+                self._owned_client.responses,
             )
         else:
             self._client = responses
@@ -73,7 +74,11 @@ class OpenAIResponsesAdapter:
     def api_style(self) -> ProviderApiStyle:
         return self._api_style
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def close(self) -> None:
+        if self._owned_client is not None:
+            await self._owned_client.close()
+
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
         self._behavior.validate_request(request)
         configured_options = request.model.adapter_options.values
@@ -99,7 +104,7 @@ class OpenAIResponsesAdapter:
         self._behavior.apply_options(kwargs, configured_options, request=request)
 
         try:
-            response = self._client.create(**kwargs)
+            response = await self._client.create(**kwargs)
         except Exception as exc:
             raise provider_error(exc) from exc
 
@@ -138,13 +143,14 @@ class OpenAICompatibleChatAdapter:
         self._api_style = adapter_spec(adapter_kind).api_style
         self._behavior = behavior or OpenAIAdapterBehavior()
         self._id_mapper = id_mapper or DefaultToolCallIdMapper()
+        self._owned_client: AsyncOpenAI | None = None
         if completions is None:
+            self._owned_client = AsyncOpenAI(
+                api_key=api_key, base_url=provider.base_url,
+            )
             self._client: OpenAIChatCompletionsClient = cast(
                 OpenAIChatCompletionsClient,
-                OpenAI(
-                    api_key=api_key,
-                    base_url=provider.base_url,
-                ).chat.completions,
+                self._owned_client.chat.completions,
             )
         else:
             self._client = completions
@@ -154,7 +160,11 @@ class OpenAICompatibleChatAdapter:
     def api_style(self) -> ProviderApiStyle:
         return self._api_style
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def close(self) -> None:
+        if self._owned_client is not None:
+            await self._owned_client.close()
+
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         _validate_adapter_identity(self, request)
         self._behavior.validate_request(request)
         configured_options = request.model.adapter_options.values
@@ -183,7 +193,7 @@ class OpenAICompatibleChatAdapter:
         self._behavior.apply_options(kwargs, configured_options, request=request)
 
         try:
-            response = self._client.create(**kwargs)
+            response = await self._client.create(**kwargs)
         except Exception as exc:
             raise provider_error(exc) from exc
 

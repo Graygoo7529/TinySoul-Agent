@@ -58,7 +58,7 @@ class MemoryMaintenanceTask:
         active = self._memory.validate_archived_active(day, archive.session_root)
         return bool(projection.facts or active.content.strip())
 
-    def run(
+    async def run(
         self,
         *,
         business_day: BusinessDay,
@@ -98,7 +98,7 @@ class MemoryMaintenanceTask:
                 active_memory=active,
                 workspace=workspace,
             )
-            outcome = self._turn.run(
+            outcome = (await self._turn.run(
                 (
                     "Maintain daily, entity, concept, fact, and note Memory for the "
                     f"closed Business Day {target_day}. Inspect and reuse existing "
@@ -109,7 +109,7 @@ class MemoryMaintenanceTask:
                 scope=scope,
                 request_id=request_id,
                 input_source="maintenance.memory",
-            )
+            ))
             if not outcome.completed:
                 self._controller.abort()
                 completed = True

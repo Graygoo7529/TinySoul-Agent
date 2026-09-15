@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from threading import Event, Lock
 from time import monotonic
 from typing import Protocol
+from tinysoul.infra.concurrency import JoinedOperations
 
 from tinysoul.runtime import RuntimeModuleRunner, SignalBus
 
-from .call import ActionExecution
+from .call import ActionExecution, ExecutionFact
 from .catalog import ActionCatalog
 from .errors import ActionContractError
 from .result import ActionResult
@@ -94,12 +95,14 @@ class ActionExecutionContext:
     # Owner-provided cooperative cancel poll (e.g. a Turn cancel token).
     # The batch runner converts it into per-execution cancel requests.
     cancelled: Callable[[], bool] | None = None
+    record_execution: Callable[[ExecutionFact], None] | None = None
+    owner_operations: JoinedOperations = field(default_factory=JoinedOperations)
 
 
 class ActionExecutor(Protocol):
     """Protocol for concrete action executors."""
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

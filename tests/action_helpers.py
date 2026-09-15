@@ -29,12 +29,14 @@ class FunctionActionExecutor:
     def __init__(self, function: ActionFunction) -> None:
         self._function = function
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        payload = to_json_object(self._function(execution, context))
+        payload = to_json_object(await context.owner_operations.run(
+            lambda: self._function(execution, context)
+        ))
         return ActionResult.success(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,

@@ -58,7 +58,7 @@ from tests.action_helpers import (
 from tests.support.process import PYTHON_WAIT_FOREVER
 
 
-def test_native_cooperative_timeout_does_not_block_later_group() -> None:
+async def test_native_cooperative_timeout_does_not_block_later_group() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
         actions=(
@@ -100,10 +100,10 @@ def test_native_cooperative_timeout_does_not_block_later_group() -> None:
         FunctionActionExecutor(lambda execution, context: {"started": True}),
     )
 
-    results = ActionBatchRunner(
+    results = (await ActionBatchRunner(
         executors=executors,
         cooperative_cancel_grace_seconds=0.1,
-    ).run(batch, ActionExecutionContext())
+    ).run(batch, ActionExecutionContext()))
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[0].failure is not None
@@ -118,7 +118,7 @@ def test_native_cooperative_timeout_does_not_block_later_group() -> None:
     assert results[1].payload == {"started": True}
 
 
-def test_runner_maps_cooperative_cancellation_to_timeout() -> None:
+async def test_runner_maps_cooperative_cancellation_to_timeout() -> None:
     catalog = ActionCatalog(
         domains=(ActionDomainSpec(name="test", description="Test actions."),),
         actions=(
@@ -144,10 +144,10 @@ def test_runner_maps_cooperative_cancellation_to_timeout() -> None:
     executors = ExecutorRegistry()
     executors.register("test.cancelled", FunctionActionExecutor(cancel))
 
-    result = ActionBatchRunner(executors=executors).run(
+    result = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.status is ActionResultStatus.TIMEOUT
     assert result.failure is not None
@@ -326,7 +326,7 @@ def test_controlled_process_runner_kills_timed_out_process() -> None:
     assert outcome.status is ProcessStatus.TIMED_OUT
 
 
-def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
+async def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
     tmp_path: Path,
 ) -> None:
     marker = tmp_path / "started.txt"
@@ -384,15 +384,15 @@ def test_runtime_transfer_terminates_parallel_subprocess_without_deadline(
     started = monotonic()
 
     with pytest.raises(RuntimeException):
-        ActionBatchRunner(
+        (await ActionBatchRunner(
             executors=executors,
             process_cancel_grace_seconds=2.0,
-        ).run(batch, ActionExecutionContext())
+        ).run(batch, ActionExecutionContext()))
 
     assert monotonic() - started < 5.0
 
 
-def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
+async def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
     engine = (
         FunctionActionEngineBuilder(load_action_catalog(Path("tinysoul/action/catalog")))
         .register_function("core.answer", lambda execution, context: {"text": "done"})
@@ -456,7 +456,7 @@ def test_action_engine_assembles_catalog_hooks_and_runner() -> None:
         scope=RunScope(),
         batch_id="batch_1",
     )
-    results = engine.run_batch(batch_preparation.batch)
+    results = (await engine.run_batch(batch_preparation.batch))
 
     assert scope_preparation.tool_scope is not None
     assert normalization.results == ()

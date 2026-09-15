@@ -62,7 +62,7 @@ class SupervisedProcessJobExecutor(ActionExecutor):
         self._bus = bus
         self._workspace_bridge = workspace_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

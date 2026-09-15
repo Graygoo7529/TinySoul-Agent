@@ -21,7 +21,7 @@ class MaintenanceTurnResult:
 
 
 class MaintenanceTurnRunner(Protocol):
-    def run(
+    async def run(
         self,
         turn_input: str,
         *,
@@ -41,7 +41,7 @@ class MaintenanceTurnEntry:
         self._runner = runner
         self._kind = kind
 
-    def run(
+    async def run(
         self,
         turn_input: str,
         *,
@@ -50,13 +50,13 @@ class MaintenanceTurnEntry:
         request_id: str,
         input_source: str,
     ) -> MaintenanceTurnResult:
-        outcome = self._runner.run(
+        outcome = (await self._runner.run(
             turn_input,
             business_day=business_day,
             scope=scope,
             request_id=request_id,
             input_source=input_source,
-        )
+        ))
         self._propagate_outer_transfer(outcome)
         completed = (
             outcome.status is TurnOutcomeStatus.COMPLETED

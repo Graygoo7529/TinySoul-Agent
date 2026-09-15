@@ -83,7 +83,7 @@ class HomeMaintenanceActionController:
         with self._lock:
             self._state = None
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -180,12 +180,12 @@ class HomeMaintenanceActionExecutor(ActionExecutor):
     def __init__(self, controller: HomeMaintenanceActionController) -> None:
         self._controller = controller
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
     ) -> ActionResult:
-        return self._controller.execute(execution, context)
+        return (await self._controller.execute(execution, context))
 
 
 def register_home_maintenance_actions(

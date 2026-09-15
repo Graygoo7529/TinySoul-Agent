@@ -51,7 +51,7 @@ from .requests import AppRequest, ExitRequest, UserTurnRequest
 class UserTurnExecutor(Protocol):
     """Narrow Program dependency for dispatching one User Turn."""
 
-    def run(
+    async def run(
         self,
         turn_input: str,
         *,
@@ -71,7 +71,7 @@ class ProgramMaintenanceEngine(Protocol):
 
     def availability(self) -> MaintenanceAvailability: ...
 
-    def run(
+    async def run(
         self,
         request: MaintenanceRequest,
         *,
@@ -165,7 +165,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
             self._prepared_transition = transition
             return transition
 
-    def run_once(
+    async def run_once(
         self,
         user_input: str,
         *,
@@ -180,9 +180,9 @@ class ProgramRunner(Generic[ProgramGenerationT]):
         with self._request_lock:
             with self._generation_activity(RuntimeActivity.USER_TURN):
                 transition = self._maintenance_engine().preflight(scope=self._scope)
-                return self._run_user_request(request, transition=transition)
+                return (await self._run_user_request(request, transition=transition))
 
-    def run(self) -> ProgramOutcome:
+    async def run(self) -> ProgramOutcome:
         turns: deque[TurnOutcome] = deque(maxlen=self._retained_outcomes)
         maintenance: deque[MaintenanceOutcome] = deque(
             maxlen=self._retained_outcomes
@@ -226,10 +226,10 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                             transition = self._maintenance_engine().preflight(
                                 scope=self._scope
                             )
-                            outcome = self._run_user_request(
+                            outcome = (await self._run_user_request(
                                 request,
                                 transition=transition,
-                            )
+                            ))
                 except MaintenanceError as exc:
                     transfer = self._capture_maintenance_failure(
                         exc,
@@ -259,7 +259,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
             if isinstance(request, MaintenanceRequest):
                 try:
                     with self._request_lock:
-                        outcome = self._run_maintenance(request)
+                        outcome = (await self._run_maintenance(request))
                 except RuntimeTransferInterrupt as interrupt:
                     transfer = self._consume_program_transfer(interrupt.transfer)
                     return self._outcome(
@@ -312,7 +312,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 payload={"stage": "daily_rollover", "error_type": type(exc).__name__},
             ) from exc
 
-    def _run_user_request(
+    async def _run_user_request(
         self,
         request: UserTurnRequest,
         *,
@@ -322,17 +322,17 @@ class ProgramRunner(Generic[ProgramGenerationT]):
             with generation.maintenance.active_day_lease() as leased_day:
                 if leased_day != transition.active_day:
                     raise AppContractError("Active Business Day changed before User Turn")
-                return generation.user_turn.run(
+                return (await generation.user_turn.run(
                     request.text,
                     business_day=leased_day,
                     scope=self._scope,
                     request_id=request.request_id,
                     input_source=request.source,
-                )
+                ))
 
-    def _run_maintenance(self, request: MaintenanceRequest) -> MaintenanceOutcome:
+    async def _run_maintenance(self, request: MaintenanceRequest) -> MaintenanceOutcome:
         with self._generation_activity(RuntimeActivity.MAINTENANCE_TURN) as generation:
-            return generation.maintenance.run(request, scope=self._scope)
+            return (await generation.maintenance.run(request, scope=self._scope))
 
     @contextmanager
     def _generation_lease(self):

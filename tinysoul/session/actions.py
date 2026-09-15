@@ -55,7 +55,7 @@ class SessionInspectExecutor(ActionExecutor):
         self._session = session
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

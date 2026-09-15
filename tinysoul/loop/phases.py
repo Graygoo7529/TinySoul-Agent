@@ -60,7 +60,7 @@ from .signals import LoopTraceNoteKind
 class LLMRunner(Protocol):
     """The LLM runner surface needed by loop phases."""
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         """Run one LLM task call."""
         ...
 
@@ -153,7 +153,7 @@ class Phase1Unit:
         self._signal_consumer = signal_consumer or ContextSignalConsumer(context, bus)
         self._turn_guidance = tuple(turn_guidance)
 
-    def run(
+    async def run(
         self,
         *,
         scope: RunScope,
@@ -182,7 +182,7 @@ class Phase1Unit:
         except LoopError as exc:
             raise self._loop_bridge.from_loop_error(exc) from exc
 
-        result = self._llm.run(
+        result = await self._llm.run(
             TaskCall(
                 profile=self._task_profile,
                 messages=messages,
@@ -194,12 +194,12 @@ class Phase1Unit:
             )
         )
         if result.status is TaskResultStatus.FAILURE:
-            return self._failed(
+            return (await self._failed(
                 scope=scope,
                 cycle_id=cycle_id,
                 reason="framework_task_failure",
                 feedback=(_task_result_feedback(result),),
-            )
+            ))
 
         selection = self._action.normalize_domain_selection(result.tool_calls)
         control_calls = tuple(
@@ -212,15 +212,15 @@ class Phase1Unit:
                 control_calls,
                 scope=scope,
             )
-            consume_results = self._signal_consumer.emit_and_consume(
+            consume_results = (await self._signal_consumer.emit_and_consume(
                 normalization.signals,
                 scope=scope,
-            )
+            ))
         except ContextError as exc:
             raise self._context_bridge.from_context_error(exc) from exc
         control_results = (*normalization.results, *consume_results)
         if control_results:
-            self._emit_phase_note(
+            (await self._emit_phase_note(
                 {
                     "kind": LoopTraceNoteKind.PHASE1_CONTROL_FEEDBACK.value,
                     "results": [
@@ -230,26 +230,26 @@ class Phase1Unit:
                 },
                 scope=scope,
                 cycle_id=cycle_id,
-            )
+            ))
         feedback = selection.feedback or (
             ("Phase1 did not select any action domain.",)
             if not selection.selected_domains
             else ()
         )
         if feedback:
-            return self._failed(
+            return (await self._failed(
                 scope=scope,
                 cycle_id=cycle_id,
                 reason="invalid_domain_selection",
                 feedback=tuple(feedback),
                 control_results=control_results,
-            )
+            ))
         return Phase1Outcome(
             selected_domains=selection.selected_domains,
             control_results=control_results,
         )
 
-    def _failed(
+    async def _failed(
         self,
         *,
         scope: RunScope,
@@ -258,7 +258,7 @@ class Phase1Unit:
         feedback: tuple[str, ...],
         control_results: tuple[ControlResult, ...] = (),
     ) -> Phase1Outcome:
-        self._emit_phase_note(
+        (await self._emit_phase_note(
             {
                 "kind": LoopTraceNoteKind.PHASE1_TASK_FAILED.value,
                 "reason": reason,
@@ -266,7 +266,7 @@ class Phase1Unit:
             },
             scope=scope,
             cycle_id=cycle_id,
-        )
+        ))
         return Phase1Outcome(
             selected_domains=(),
             control_results=control_results,
@@ -277,14 +277,14 @@ class Phase1Unit:
             ),
         )
 
-    def _emit_phase_note(
+    async def _emit_phase_note(
         self,
         note: JsonObject,
         *,
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        self._signal_consumer.emit_and_consume(
+        (await self._signal_consumer.emit_and_consume(
             (
                 build_trace_phase_note_signal(
                     note,
@@ -295,7 +295,7 @@ class Phase1Unit:
                 ),
             ),
             scope=scope,
-        )
+        ))
 
 
 class Phase2Unit:
@@ -328,7 +328,7 @@ class Phase2Unit:
         self._observations = observations or NullObservationEmitter()
         self._turn_guidance = tuple(turn_guidance)
 
-    def run(
+    async def run(
         self,
         *,
         selected_domains: tuple[str, ...],
@@ -346,7 +346,7 @@ class Phase2Unit:
         except ActionError as exc:
             raise self._action_bridge.from_action_error(exc) from exc
         if preparation.tool_scope is None:
-            self._emit_phase_results(preparation.phase_results, scope=scope, cycle_id=cycle_id)
+            (await self._emit_phase_results(preparation.phase_results, scope=scope, cycle_id=cycle_id))
             return Phase2Outcome(
                 normalization=ActionNormalization(),
                 phase_results=preparation.phase_results,
@@ -363,7 +363,7 @@ class Phase2Unit:
             )
         except ContextError as exc:
             raise self._context_bridge.from_context_error(exc) from exc
-        result = self._llm.run(
+        result = await self._llm.run(
             TaskCall(
                 profile=self._task_profile,
                 messages=messages,
@@ -376,7 +376,7 @@ class Phase2Unit:
         )
         if result.status is TaskResultStatus.FAILURE:
             feedback = (_task_result_feedback(result),)
-            self._emit_note(
+            (await self._emit_note(
                 {
                     "kind": LoopTraceNoteKind.PHASE2_TASK_FAILED.value,
                     "reason": "framework_task_failure",
@@ -384,7 +384,7 @@ class Phase2Unit:
                 },
                 scope=scope,
                 cycle_id=cycle_id,
-            )
+            ))
             return Phase2Outcome(
                 normalization=ActionNormalization(),
                 failure=PhaseFailure(
@@ -393,7 +393,7 @@ class Phase2Unit:
                     feedback=feedback,
                 ),
             )
-        self._emit_decision(result, scope=scope, cycle_id=cycle_id)
+        (await self._emit_decision(result, scope=scope, cycle_id=cycle_id))
         try:
             normalization = self._action.normalize(result.tool_calls)
         except ActionError as exc:
@@ -422,7 +422,7 @@ class Phase2Unit:
                 ),
             )
 
-    def _emit_decision(
+    async def _emit_decision(
         self,
         result: TaskResult,
         *,
@@ -438,7 +438,7 @@ class Phase2Unit:
             tool_calls=result.tool_calls,
             label="decision",
         )
-        self._signal_consumer.emit_and_consume(
+        (await self._signal_consumer.emit_and_consume(
             (
                 build_trace_decision_signal(
                     message,
@@ -449,9 +449,9 @@ class Phase2Unit:
                 ),
             ),
             scope=scope,
-        )
+        ))
 
-    def _emit_phase_results(
+    async def _emit_phase_results(
         self,
         results: tuple[ActionPhaseResult, ...],
         *,
@@ -472,16 +472,16 @@ class Phase2Unit:
             for result in results
         )
         if signals:
-            self._signal_consumer.emit_and_consume(signals, scope=scope)
+            (await self._signal_consumer.emit_and_consume(signals, scope=scope))
 
-    def _emit_note(
+    async def _emit_note(
         self,
         note: JsonObject,
         *,
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        self._signal_consumer.emit_and_consume(
+        (await self._signal_consumer.emit_and_consume(
             (
                 build_trace_phase_note_signal(
                     note,
@@ -492,7 +492,7 @@ class Phase2Unit:
                 ),
             ),
             scope=scope,
-        )
+        ))
 
 
 class Phase3Unit:
@@ -523,7 +523,7 @@ class Phase3Unit:
         self._observations = observations or NullObservationEmitter()
         self._completion_detector = completion_detector or NoTurnCompletionDetector()
 
-    def run(
+    async def run(
         self,
         *,
         normalization: ActionNormalization,
@@ -539,9 +539,10 @@ class Phase3Unit:
                 turn_id=turn_id,
                 cycle_id=cycle_id,
             )
-            execution_results = self._action.run_batch(
+            execution_results = (await self._action.run_batch(
                 preparation.batch,
                 context=ActionExecutionContext(
+                    record_execution=self._context.record_execution,
                     signal_bus=self._bus,
                     module_runner=self._module_runner,
                     cancelled=(
@@ -550,7 +551,7 @@ class Phase3Unit:
                         else None
                     ),
                 ),
-            )
+            ))
         except ActionError as exc:
             raise self._action_bridge.from_action_error(exc) from exc
 
@@ -563,18 +564,18 @@ class Phase3Unit:
             if result.domain == "workspace"
             and result.status is ActionResultStatus.SUCCESS
         )
-        self._consume_action_effects(
+        (await self._consume_action_effects(
             scope=scope,
             expected_workspace_call_ids=expected_workspace_call_ids,
-        )
+        ))
         self._observe_action_results(results, scope=scope)
-        self._emit_action_results(results, scope=scope, cycle_id=cycle_id)
+        (await self._emit_action_results(results, scope=scope, cycle_id=cycle_id))
         phase_results = preparation.phase_results
-        self._emit_phase_results(
+        (await self._emit_phase_results(
             phase_results,
             scope=scope,
             cycle_id=cycle_id,
-        )
+        ))
         try:
             completion = self._completion_detector.detect(results)
         except LoopError as exc:
@@ -609,13 +610,13 @@ class Phase3Unit:
                 ),
             )
 
-    def _consume_action_effects(
+    async def _consume_action_effects(
         self,
         *,
         scope: RunScope,
         expected_workspace_call_ids: frozenset[str],
     ) -> None:
-        consume_results = self._signal_consumer.consume(scope=scope)
+        consume_results = (await self._signal_consumer.consume(scope=scope))
         workspace_failures = tuple(
             result
             for result in consume_results
@@ -635,7 +636,7 @@ class Phase3Unit:
                 },
             )
 
-    def _emit_action_results(
+    async def _emit_action_results(
         self,
         results: tuple[ActionResult, ...],
         *,
@@ -659,9 +660,9 @@ class Phase3Unit:
                     ),
                 )
             )
-        self._signal_consumer.emit_and_consume(tuple(signals), scope=scope)
+        (await self._signal_consumer.emit_and_consume(tuple(signals), scope=scope))
 
-    def _emit_phase_results(
+    async def _emit_phase_results(
         self,
         results: tuple[ActionPhaseResult, ...],
         *,
@@ -682,16 +683,16 @@ class Phase3Unit:
             for result in results
         )
         if signals:
-            self._signal_consumer.emit_and_consume(signals, scope=scope)
+            (await self._signal_consumer.emit_and_consume(signals, scope=scope))
 
-    def _emit_note(
+    async def _emit_note(
         self,
         note: JsonObject,
         *,
         scope: RunScope,
         cycle_id: str,
     ) -> None:
-        self._signal_consumer.emit_and_consume(
+        (await self._signal_consumer.emit_and_consume(
             (
                 build_trace_phase_note_signal(
                     note,
@@ -702,7 +703,7 @@ class Phase3Unit:
                 ),
             ),
             scope=scope,
-        )
+        ))
 
 
 def _merge_tool_scopes(

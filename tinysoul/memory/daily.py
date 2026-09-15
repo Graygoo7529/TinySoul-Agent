@@ -89,7 +89,7 @@ class DailyCompositionResult:
 
 
 class DailyCompositionModelRunner(Protocol):
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         ...
 
 
@@ -97,7 +97,7 @@ class LLMDailyMemoryComposer:
     def __init__(self, runner: DailyCompositionModelRunner) -> None:
         self._runner = runner
 
-    def compose(
+    async def compose(
         self,
         request: DailyCompositionRequest,
         *,
@@ -116,7 +116,7 @@ class LLMDailyMemoryComposer:
         for chunk in chunks:
             calls += 1
             summaries.append(
-                self._call(
+                await self._call(
                     MessageStack.of(
                         SystemMessage.from_text(
                             "Summarize only events, decisions, actions, results, context changes, and open items from the supplied target-day sources. Preserve chronology and canonical Memory links; do not invent facts.",
@@ -162,15 +162,15 @@ class LLMDailyMemoryComposer:
                     label="memory_daily_output",
                 )
             )
-            content = self._call(MessageStack(tuple(messages)), scope=scope)
+            content = await self._call(MessageStack(tuple(messages)), scope=scope)
             error = _validate(content, max_chars=request.max_document_chars)
             if error is None:
                 return DailyCompositionResult(content=content, model_calls=calls)
             feedback = (error,)
         raise MemoryContractError("Daily composition did not produce valid Markdown")
 
-    def _call(self, messages: MessageStack, *, scope: RunScope) -> str:
-        result = self._runner.run(
+    async def _call(self, messages: MessageStack, *, scope: RunScope) -> str:
+        result = await self._runner.run(
             TaskCall(
                 profile=TaskProfile.MEMORY_DAILY,
                 messages=messages,

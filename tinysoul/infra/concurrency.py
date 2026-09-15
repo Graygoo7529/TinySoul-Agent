@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
+from typing import TypeVar
 from threading import Condition, get_ident
 from types import TracebackType
 
@@ -118,3 +121,38 @@ class _WriteSide:
         traceback: TracebackType | None,
     ) -> None:
         self._lock.release_write()
+
+
+T = TypeVar("T")
+
+
+class JoinedOperations:
+    """Defer cancellation until the caller has recorded a completed owner result.
+
+    This boundary is for bounded local I/O. Network calls and arbitrary programs
+    must supply their own cancellable async or process implementation.
+    """
+
+    def __init__(self) -> None:
+        self._cancelled = False
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    async def run(self, operation: Callable[[], T]) -> T:
+        if self._cancelled:
+            raise asyncio.CancelledError
+        worker = asyncio.create_task(asyncio.to_thread(operation))
+        while True:
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                self._cancelled = True
+                if worker.done():
+                    return worker.result()
+
+    def check_cancelled(self) -> None:
+        """Called only after the completed result has reached its fact owner."""
+        if self._cancelled:
+            raise asyncio.CancelledError

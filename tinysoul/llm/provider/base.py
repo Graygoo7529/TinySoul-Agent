@@ -130,6 +130,10 @@ class ProviderAdapter(Protocol):
         """Wire style fixed by the adapter kind."""
         ...
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         """Invoke a model through this provider."""
+        ...
+
+    async def close(self) -> None:
+        """Release resources owned by this adapter; leave borrowed clients open."""
         ...

@@ -76,11 +76,14 @@ class FakeProvider:
     calls: list[str] = field(default_factory=list)
     requests: list[ProviderRequest] = field(default_factory=list)
 
+    async def close(self) -> None:
+        pass
+
     @property
     def api_style(self):
         return adapter_spec(self.adapter_kind).api_style
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         model_id = request.model.id
         self.calls.append(model_id)
         self.requests.append(request)
@@ -114,7 +117,7 @@ class RecordingObservations:
         self.events.append(event)
 
 
-def test_runner_observations_share_stable_task_id() -> None:
+async def test_runner_observations_share_stable_task_id() -> None:
     provider = FakeProvider(provider_id="fake")
     observations = RecordingObservations()
     runner = LLMTaskRunner(
@@ -129,7 +132,7 @@ def test_runner_observations_share_stable_task_id() -> None:
         task_id="task_visible",
     )
 
-    runner.run(call)
+    (await runner.run(call))
 
     names = [event.name for event in observations.events]
     assert names[0] == "llm.task.started"
@@ -141,7 +144,7 @@ def test_runner_observations_share_stable_task_id() -> None:
     )
 
 
-def test_runner_retries_provider_before_switching_to_next_provider() -> None:
+async def test_runner_retries_provider_before_switching_to_next_provider() -> None:
     primary = FakeProvider(provider_id="primary", failures={"shared": 2})
     backup = FakeProvider(provider_id="backup")
     model = ModelSpec(
@@ -166,12 +169,12 @@ def test_runner_retries_provider_before_switching_to_next_provider() -> None:
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "shared"}
     assert primary.calls == ["shared", "shared"]
@@ -179,7 +182,7 @@ def test_runner_retries_provider_before_switching_to_next_provider() -> None:
     assert backup.requests[0].binding.provider_model == "backup-model"
 
 
-def test_backup_provider_preference_expires_back_to_chain_head() -> None:
+async def test_backup_provider_preference_expires_back_to_chain_head() -> None:
     primary = FakeProvider(provider_id="primary", failures={"shared": 1})
     backup = FakeProvider(provider_id="backup")
     model = ModelSpec(
@@ -211,26 +214,26 @@ def test_backup_provider_preference_expires_back_to_chain_head() -> None:
         messages=MessageStack.of(UserMessage.from_text("hello")),
     )
 
-    runner.run(call)
+    (await runner.run(call))
     assert [request.binding.provider_id for request in backup.requests] == ["backup"]
 
     clock.current = 1
-    runner.run(call)
+    (await runner.run(call))
     assert [request.binding.provider_id for request in backup.requests] == ["backup", "backup"]
 
     clock.current = 11
-    runner.run(call)
+    (await runner.run(call))
     assert primary.requests[-1].binding.provider_id == "primary"
 
 
-def test_runner_passes_action_remaining_timeout_to_provider_request() -> None:
+async def test_runner_passes_action_remaining_timeout_to_provider_request() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
         providers=ProviderRegistry([provider]),
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
-    runner.run(
+    (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -240,17 +243,17 @@ def test_runner_passes_action_remaining_timeout_to_provider_request() -> None:
                 reason=lambda: "",
             ),
         )
-    )
+    ))
 
     assert provider.requests[0].timeout_seconds == pytest.approx(12.5)
 
 
-def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
+async def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
     state = {"cancelled": False}
 
     @dataclass
     class CancellingProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             state["cancelled"] = True
             raise ProviderError("temporary failure", kind=ProviderErrorKind.TRANSIENT)
@@ -272,7 +275,7 @@ def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
     )
 
     with pytest.raises(TaskCancelled, match="timeout"):
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -282,7 +285,7 @@ def test_runner_stops_retry_chain_after_owner_cancellation() -> None:
                     reason=lambda: "timeout",
                 ),
             )
-        )
+        ))
 
     assert provider.calls == ["a"]
 
@@ -301,7 +304,7 @@ class FixedTokenEstimator:
         )
 
 
-def test_context_hard_water_requests_runtime_recomposition_before_provider() -> None:
+async def test_context_hard_water_requests_runtime_recomposition_before_provider() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_window_models(("small", 100)),
@@ -319,7 +322,7 @@ def test_context_hard_water_requests_runtime_recomposition_before_provider() -> 
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -327,7 +330,7 @@ def test_context_hard_water_requests_runtime_recomposition_before_provider() -> 
                     ModelContextOverflowPolicy.REQUEST_RECOVERY
                 ),
             )
-        )
+        ))
 
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert (
@@ -339,7 +342,7 @@ def test_context_hard_water_requests_runtime_recomposition_before_provider() -> 
     assert provider.calls == []
 
 
-def test_context_hard_water_ends_non_context_task() -> None:
+async def test_context_hard_water_ends_non_context_task() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_window_models(("small", 100)),
@@ -357,19 +360,19 @@ def test_context_hard_water_ends_non_context_task() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="home_search",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CONTEXT_LIMIT_REACHED
     assert provider.calls == []
 
 
-def test_hard_water_allows_usage_equal_to_trigger() -> None:
+async def test_hard_water_allows_usage_equal_to_trigger() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_window_models(("small", 100)),
@@ -382,21 +385,21 @@ def test_hard_water_allows_usage_equal_to_trigger() -> None:
         token_estimator=FixedTokenEstimator(message_tokens=70),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "small"}
     assert provider.calls == ["small"]
 
 
-def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> None:
+async def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> None:
     @dataclass
     class LargeFailingProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             if request.model.id == "large":
                 raise ProviderError("unavailable", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
@@ -429,23 +432,23 @@ def test_smaller_fallback_requests_recomposition_without_chain_checkpoint() -> N
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(call)
+        (await runner.run(call))
 
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["model_id"] == "small"
     assert provider.calls == ["large"]
 
     estimator.message_tokens = 20
-    result = runner.run(call)
+    result = (await runner.run(call))
 
     assert _json_output(result) == {"model": "small"}
     assert provider.calls == ["large", "large", "small"]
 
 
-def test_provider_context_limit_uses_same_recomposition_path() -> None:
+async def test_provider_context_limit_uses_same_recomposition_path() -> None:
     @dataclass
     class ContextRejectingProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             raise ProviderError(
                 "provider context limit",
@@ -461,7 +464,7 @@ def test_provider_context_limit_uses_same_recomposition_path() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -469,14 +472,14 @@ def test_provider_context_limit_uses_same_recomposition_path() -> None:
                     ModelContextOverflowPolicy.REQUEST_RECOVERY
                 ),
             )
-        )
+        ))
 
     assert exc_info.value.reason == LLM_CONTEXT_CAPACITY_EXCEEDED
     assert exc_info.value.payload["provider_reported_limit"] is True
     assert provider.calls == ["model"]
 
 
-def test_runner_uses_current_model_then_continues_forward_after_failure() -> None:
+async def test_runner_uses_current_model_then_continues_forward_after_failure() -> None:
     provider = FakeProvider(provider_id="fake", failures={"b": 1})
     chain = ModelChain(
         profile="framework",
@@ -500,13 +503,13 @@ def test_runner_uses_current_model_then_continues_forward_after_failure() -> Non
         messages=MessageStack.of(UserMessage.from_text("hello")),
     )
 
-    result = runner.run(call)
+    result = (await runner.run(call))
 
     assert _json_output(result) == {"model": "c"}
     assert provider.calls == ["b", "c"]
 
 
-def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
+async def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     provider = FakeProvider(
         provider_id="fake",
         failures={"a": 99, "b": 99, "c": 99},
@@ -527,12 +530,12 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
@@ -541,7 +544,7 @@ def test_runner_exhausts_after_configured_full_chain_cycles() -> None:
     assert provider.calls == ["a", "a", "b", "b", "c", "c", "a", "a", "b", "b", "c", "c"]
 
 
-def test_runner_returns_to_chain_head_after_success_preference_expires() -> None:
+async def test_runner_returns_to_chain_head_after_success_preference_expires() -> None:
     provider = FakeProvider(provider_id="fake", failures={"a": 1, "b": 1})
     clock = FakeClock()
     chain = ModelChain(
@@ -564,11 +567,11 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
         messages=MessageStack.of(UserMessage.from_text("hello")),
     )
 
-    first = runner.run(call)
+    first = (await runner.run(call))
     clock.current = 4.0
-    second = runner.run(call)
+    second = (await runner.run(call))
     clock.current = 6.0
-    third = runner.run(call)
+    third = (await runner.run(call))
 
     assert _json_output(first) == {"model": "c"}
     assert _json_output(second) == {"model": "c"}
@@ -576,7 +579,7 @@ def test_runner_returns_to_chain_head_after_success_preference_expires() -> None
     assert provider.calls == ["a", "b", "c", "c", "a"]
 
 
-def test_runner_retries_transient_error_on_same_model() -> None:
+async def test_runner_retries_transient_error_on_same_model() -> None:
     provider = FakeProvider(provider_id="fake", failures={"a": 1})
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -590,21 +593,21 @@ def test_runner_retries_transient_error_on_same_model() -> None:
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "a"}
     assert provider.calls == ["a", "a"]
 
 
-def test_runner_switches_model_without_retry_for_non_transient_provider_error() -> None:
+async def test_runner_switches_model_without_retry_for_non_transient_provider_error() -> None:
     @dataclass
     class ConfigFailingProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             if request.model.id == "a":
                 raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
@@ -627,12 +630,12 @@ def test_runner_switches_model_without_retry_for_non_transient_provider_error() 
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "b"}
     assert provider.calls == ["a", "b"]
@@ -676,7 +679,7 @@ def test_runner_reports_chain_head_capabilities_by_default() -> None:
     assert not capabilities.supports(ModelCapability.IMAGE_REMOTE_URL)
 
 
-def test_runner_skips_models_without_a_registered_provider() -> None:
+async def test_runner_skips_models_without_a_registered_provider() -> None:
     unavailable = ModelSpec(
         id="unavailable",
         providers=(ModelProviderBinding("disabled", "remote-a"),),
@@ -707,19 +710,19 @@ def test_runner_skips_models_without_a_registered_provider() -> None:
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "available"}
     assert provider.calls == ["available"]
     assert runner.current_model_capabilities("framework").model_id == "available"
 
 
-def test_runner_reports_successful_fallback_model_during_preference_window() -> None:
+async def test_runner_reports_successful_fallback_model_during_preference_window() -> None:
     provider = FakeProvider(provider_id="fake", failures={"a": 1})
     clock = FakeClock()
     chain = ModelChain(
@@ -738,17 +741,17 @@ def test_runner_reports_successful_fallback_model_during_preference_window() -> 
         clock=clock,
     )
 
-    runner.run(
+    (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert runner.current_model_capabilities("framework").model_id == "b"
 
 
-def test_runner_capability_query_returns_to_head_after_preference_expires() -> None:
+async def test_runner_capability_query_returns_to_head_after_preference_expires() -> None:
     provider = FakeProvider(provider_id="fake", failures={"a": 1})
     clock = FakeClock()
     chain = ModelChain(
@@ -767,18 +770,18 @@ def test_runner_capability_query_returns_to_head_after_preference_expires() -> N
         clock=clock,
     )
 
-    runner.run(
+    (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
     clock.current = 6.0
 
     assert runner.current_model_capabilities("framework").model_id == "a"
 
 
-def test_prompt_cache_intent_does_not_require_model_capability() -> None:
+async def test_prompt_cache_intent_does_not_require_model_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -786,18 +789,18 @@ def test_prompt_cache_intent_does_not_require_model_capability() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
             prompt_cache=PromptCache(key="framework:test"),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "a"}
 
 
-def test_json_object_contract_does_not_require_native_json_capability() -> None:
+async def test_json_object_contract_does_not_require_native_json_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
@@ -812,17 +815,17 @@ def test_json_object_contract_does_not_require_native_json_capability() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert _json_output(result) == {"model": "a"}
 
 
-def test_runner_rejects_missing_image_capability() -> None:
+async def test_runner_rejects_missing_image_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -834,7 +837,7 @@ def test_runner_rejects_missing_image_capability() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(TaskCall(profile="framework", messages=stack))
+        (await runner.run(TaskCall(profile="framework", messages=stack)))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
@@ -842,7 +845,7 @@ def test_runner_rejects_missing_image_capability() -> None:
     assert exc_info.value.payload["missing_capabilities"] == ["image_input"]
 
 
-def test_runner_skips_model_missing_call_capability() -> None:
+async def test_runner_skips_model_missing_call_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     text_model = ModelSpec(
         id="text",
@@ -873,13 +876,13 @@ def test_runner_skips_model_missing_call_capability() -> None:
         UserMessage.from_parts(ImagePart(data=b"abc", mime_type="image/png"))
     )
 
-    result = runner.run(TaskCall(profile="framework", messages=stack))
+    result = (await runner.run(TaskCall(profile="framework", messages=stack)))
 
     assert _json_output(result) == {"model": "vision"}
     assert provider.calls == ["vision"]
 
 
-def test_runner_rejects_missing_remote_image_url_capability() -> None:
+async def test_runner_rejects_missing_remote_image_url_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -891,12 +894,12 @@ def test_runner_rejects_missing_remote_image_url_capability() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(TaskCall(profile="framework", messages=stack))
+        (await runner.run(TaskCall(profile="framework", messages=stack)))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_call_settings_can_add_required_capabilities() -> None:
+async def test_call_settings_can_add_required_capabilities() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -905,7 +908,7 @@ def test_call_settings_can_add_required_capabilities() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -915,12 +918,12 @@ def test_call_settings_can_add_required_capabilities() -> None:
                     )
                 ),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_runner_resolves_task_settings_and_call_overrides() -> None:
+async def test_runner_resolves_task_settings_and_call_overrides() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
@@ -954,13 +957,13 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
         ),
     )
 
-    runner.run(
+    (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
             settings=CallSettings(max_output_tokens=1024),
         )
-    )
+    ))
 
     request = provider.requests[0]
     assert request.temperature == pytest.approx(0.6)
@@ -968,7 +971,7 @@ def test_runner_resolves_task_settings_and_call_overrides() -> None:
     assert request.model.adapter_options.values == {"thinking": "enabled"}
 
 
-def test_runner_applies_model_request_overrides_after_call_settings() -> None:
+async def test_runner_applies_model_request_overrides_after_call_settings() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="a",
@@ -1005,20 +1008,20 @@ def test_runner_applies_model_request_overrides_after_call_settings() -> None:
         ),
     )
 
-    runner.run(
+    (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
             settings=CallSettings(temperature=0.2, max_output_tokens=1024),
         )
-    )
+    ))
 
     request = provider.requests[0]
     assert request.temperature == pytest.approx(1.0)
     assert request.max_output_tokens == 128
 
 
-def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
+async def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -1027,7 +1030,7 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1037,12 +1040,12 @@ def test_runner_rejects_tool_task_without_tool_calling_capability() -> None:
                     tool_use=ToolUse.REQUIRED,
                 ),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
+async def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
@@ -1063,18 +1066,18 @@ def test_runner_rejects_tool_scope_when_tool_use_is_disabled() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 tool_scope=ToolScope(tools=(_tool(),)),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
+async def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
@@ -1106,17 +1109,17 @@ def test_runner_rejects_enabled_tool_use_without_visible_tools() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
+async def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> None:
     provider = FakeProvider(provider_id="fake")
     model = ModelSpec(
         id="tool_model",
@@ -1148,7 +1151,7 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1157,12 +1160,12 @@ def test_runner_rejects_forced_tool_selection_without_required_tool_use() -> Non
                     selection=ToolSelection(forced_name="read_file"),
                 ),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
 
 
-def test_runner_interprets_tool_call_output() -> None:
+async def test_runner_interprets_tool_call_output() -> None:
     tool_call = ToolCallRecord(
         id="call_1",
         name="read_file",
@@ -1172,7 +1175,7 @@ def test_runner_interprets_tool_call_output() -> None:
 
     @dataclass
     class ToolProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.requests.append(request)
             return RawResponse(
                 answer_text="",
@@ -1211,22 +1214,22 @@ def test_runner_interprets_tool_call_output() -> None:
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
             tool_scope=ToolScope(tools=(_tool(),)),
         )
-    )
+    ))
 
     assert result.answer is None
     assert result.tool_calls == (tool_call,)
     assert provider.requests[0].tool_scope.tools == (_tool(),)
 
 
-def test_runner_returns_failure_result_for_json_parse_error() -> None:
+async def test_runner_returns_failure_result_for_json_parse_error() -> None:
     class BadJsonProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.requests.append(request)
             return RawResponse(
                 answer_text="{bad json",
@@ -1241,12 +1244,12 @@ def test_runner_returns_failure_result_for_json_parse_error() -> None:
         tasks=_tasks(ModelChain(profile="framework", model_ids=("a",))),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("hello")),
         )
-    )
+    ))
 
     assert result.status is TaskResultStatus.FAILURE
     assert result.failure is not None
@@ -1254,9 +1257,9 @@ def test_runner_returns_failure_result_for_json_parse_error() -> None:
     assert "Failed to parse model response as JSON object" in result.failure.model_feedback
 
 
-def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
+async def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
     class TruncatedProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.requests.append(request)
             return RawResponse(
                 answer_text='{"text":"partial',
@@ -1275,12 +1278,12 @@ def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
         ),
     )
 
-    result = runner.run(
+    result = (await runner.run(
         TaskCall(
             profile="framework",
             messages=MessageStack.of(UserMessage.from_text("write")),
         )
-    )
+    ))
 
     assert result.status is TaskResultStatus.FAILURE
     assert result.failure is not None
@@ -1290,7 +1293,7 @@ def test_runner_reports_output_limit_before_interpreting_partial_json() -> None:
     assert result.failure.frame_data == {}
 
 
-def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
+async def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
     provider = FakeProvider(
         provider_id="fake",
         failures={"a": 2, "b": 2},
@@ -1311,12 +1314,12 @@ def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
@@ -1324,10 +1327,10 @@ def test_model_chain_exhaustion_becomes_runtime_reason() -> None:
     assert exc_info.value.payload["provider_error_kind"] == "transient"
 
 
-def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -> None:
+async def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -> None:
     @dataclass
     class ConfigFailingProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             raise ProviderError("bad provider config", kind=ProviderErrorKind.CONFIG, scope=ProviderFailureScope.PROVIDER)
 
@@ -1348,12 +1351,12 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED
@@ -1371,9 +1374,9 @@ def test_model_chain_exhaustion_payload_reports_non_transient_provider_error() -
     ),
     ids=("runtime_exception", "resolved_transfer", "task_cancelled"),
 )
-def test_classified_control_preserves_identity_without_retry(control: Exception) -> None:
+async def test_classified_control_preserves_identity_without_retry(control: Exception) -> None:
     class ControlledProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             raise control
 
@@ -1385,18 +1388,18 @@ def test_classified_control_preserves_identity_without_retry(control: Exception)
     )
 
     with pytest.raises(type(control)) as raised:
-        runner.run(TaskCall(
+        (await runner.run(TaskCall(
             profile="framework", messages=MessageStack.of(UserMessage.from_text("hello")),
-        ))
+        )))
 
     assert raised.value is control
     assert provider.calls == ["a"]
 
 
-def test_programming_error_aborts_chain_without_switching_models() -> None:
+async def test_programming_error_aborts_chain_without_switching_models() -> None:
     @dataclass
     class BuggyProvider(FakeProvider):
-        def invoke(self, request: ProviderRequest) -> RawResponse:
+        async def invoke(self, request: ProviderRequest) -> RawResponse:
             self.calls.append(request.model.id)
             raise RuntimeError("programming error")
 
@@ -1414,18 +1417,18 @@ def test_programming_error_aborts_chain_without_switching_models() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.payload["kind"] == LLMFailureKind.INTERNAL_FAILURE
     assert provider.calls == ["a"]
 
 
-def test_contract_failure_maps_to_runtime_turn_end() -> None:
+async def test_contract_failure_maps_to_runtime_turn_end() -> None:
     provider = FakeProvider(provider_id="fake")
     runner = LLMTaskRunner(
         models=_models("a"),
@@ -1434,19 +1437,19 @@ def test_contract_failure_maps_to_runtime_turn_end() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 tool_scope=ToolScope(tools=(_tool(),)),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
-def test_runner_reports_unknown_model_as_contract_violation() -> None:
+async def test_runner_reports_unknown_model_as_contract_violation() -> None:
     runner = LLMTaskRunner(
         models=ModelRegistry([]),
         providers=ProviderRegistry([FakeProvider(provider_id="fake")]),
@@ -1454,18 +1457,18 @@ def test_runner_reports_unknown_model_as_contract_violation() -> None:
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.CONTRACT_VIOLATION
 
 
-def test_runner_reports_model_chain_exhaustion_without_routable_provider() -> None:
+async def test_runner_reports_model_chain_exhaustion_without_routable_provider() -> None:
     model = ModelSpec(
         id="model_a",
         providers=(ModelProviderBinding("missing", "model-a"),),
@@ -1485,12 +1488,12 @@ def test_runner_reports_model_chain_exhaustion_without_routable_provider() -> No
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run(
+        (await runner.run(
             TaskCall(
                 profile="framework",
                 messages=MessageStack.of(UserMessage.from_text("hello")),
             )
-        )
+        ))
 
     assert exc_info.value.reason == RUNTIME_TURN_END
     assert exc_info.value.payload["kind"] == LLMFailureKind.MODEL_CHAIN_EXHAUSTED

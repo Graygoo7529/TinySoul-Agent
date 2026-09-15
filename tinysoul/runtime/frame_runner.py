@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+import inspect
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from .errors import RuntimeInvariantError
 from .exception import RuntimeException
@@ -39,12 +40,12 @@ class RuntimeModuleRunner:
     bus: SignalBus
     observations: ObservationEmitter = field(default_factory=NullObservationEmitter)
 
-    def run(
+    async def run(
         self,
         *,
         scope: RunScope,
         name: str,
-        callback: Callable[[RunScope], T],
+        callback: Callable[[RunScope], T | Awaitable[T]],
     ) -> T:
         module_scope = scope.push(RunLevel.MODULE, name)
         module_frame = module_scope.current()
@@ -52,7 +53,10 @@ class RuntimeModuleRunner:
             raise RuntimeInvariantError("Module runner created an empty runtime scope")
         while True:
             try:
-                return callback(module_scope)
+                value = callback(module_scope)
+                if inspect.isawaitable(value):
+                    return cast(T, await value)
+                return cast(T, value)
             except RuntimeException as exc:
                 result = self.trap.capture(exc, module_scope)
                 if observation_enabled(

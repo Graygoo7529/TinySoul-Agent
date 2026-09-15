@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol
 from uuid import uuid4
+from tinysoul.action.core.call import ExecutionFact
 
 from tinysoul.infra.continuation import (
     MIN_CONTINUATION_PAGE_CHARS,
@@ -622,6 +623,10 @@ class ContextEngine:
             )
         except ContinuationError as exc:
             raise _context_continuation_error(exc, ref=ref) from exc
+
+    def record_execution(self, fact: ExecutionFact) -> None:
+        self._require_turn()
+        self._trace.record_execution(fact)
 
     def seal_trace(self) -> SealedTurnTrace:
         self._require_turn()

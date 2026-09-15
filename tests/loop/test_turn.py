@@ -68,7 +68,7 @@ class _EndFailingContext:
 
 
 class _AnsweredCycleRunner:
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -85,7 +85,7 @@ class _AnsweredCycleRunner:
 
 
 class _ProgramEndCycleRunner:
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -105,7 +105,7 @@ class _ProgramEndCycleRunner:
 class _CountingCycleRunner:
     calls: int = 0
 
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -167,7 +167,7 @@ class _RecordingObservations:
 
 
 class _OutputCycleRunner:
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -182,7 +182,7 @@ class _OutputCycleRunner:
 
 
 class _EmptyCycleRunner:
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -198,7 +198,7 @@ class _Phase1FailureCycleRunner:
     calls: int = 0
     feedbacks: list[tuple[str, ...]] = field(default_factory=list)
 
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -220,7 +220,7 @@ class _Phase1FailureCycleRunner:
 
 
 class _CompletionCycleRunner:
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -242,7 +242,7 @@ class _CompletionCycleRunner:
 class _CountingEmptyCycleRunner:
     calls: int = 0
 
-    def run(
+    async def run(
         self,
         *,
         turn_id: str,
@@ -290,7 +290,7 @@ class _FailingCompletion:
         )
 
 
-def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
+async def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
     context = _EndFailingContext()
     runner = TurnRunner(
         context=cast(ContextEngine, context),
@@ -300,7 +300,7 @@ def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.context_completion is None
     assert context.turn_active is False
@@ -313,7 +313,7 @@ def test_turn_runner_captures_end_turn_failure_and_aborts_context() -> None:
     assert outcome.failure.module == "context"
 
 
-def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> None:
+async def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> None:
     context = _EndFailingContext()
     runner = TurnRunner(
         context=cast(ContextEngine, context),
@@ -323,7 +323,7 @@ def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> No
         settings=TurnSettings(max_cycles=1),
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert context.turn_active is False
     assert outcome.transfer is not None
@@ -331,7 +331,7 @@ def test_turn_runner_keeps_existing_program_transfer_when_end_turn_fails() -> No
     assert outcome.status is TurnOutcomeStatus.FAILED
 
 
-def test_turn_completion_pipeline_receives_summary_and_output() -> None:
+async def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     bus = SignalBus()
     timeline: list[str] = []
@@ -351,7 +351,7 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
         observations=observations,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.answered is True
     assert outcome.transfer is None
@@ -369,7 +369,7 @@ def test_turn_completion_pipeline_receives_summary_and_output() -> None:
     assert timeline.index("completion") < timeline.index("turn.output")
 
 
-def test_turn_preparation_retry_replays_only_preparation() -> None:
+async def test_turn_preparation_retry_replays_only_preparation() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     preparation = _RetryTurnPreparation()
     cycles = _CountingCycleRunner()
@@ -382,7 +382,7 @@ def test_turn_preparation_retry_replays_only_preparation() -> None:
         preparation_pipeline=TurnPreparationPipeline((preparation,)),
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert preparation.calls == 2
     assert cycles.calls == 1
@@ -391,7 +391,7 @@ def test_turn_preparation_retry_replays_only_preparation() -> None:
     assert outcome.transfer.target.level is RunLevel.TURN
 
 
-def test_turn_completion_failure_reports_actual_failure_not_output_control() -> None:
+async def test_turn_completion_failure_reports_actual_failure_not_output_control() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     bus = SignalBus()
     observations = _RecordingObservations([], [])
@@ -409,7 +409,7 @@ def test_turn_completion_failure_reports_actual_failure_not_output_control() -> 
         observations=observations,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.FAILED
     assert outcome.failure is not None
@@ -421,7 +421,7 @@ def test_turn_completion_failure_reports_actual_failure_not_output_control() -> 
     assert failed.payload["module"] == "session"
 
 
-def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
+async def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     observations = _RecordingObservations([], [])
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
@@ -432,7 +432,7 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
         observations=observations,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     exhausted = next(
@@ -441,7 +441,7 @@ def test_turn_cycle_limit_reports_exhausted_at_normal_level() -> None:
     assert exhausted.level is ObservationLevel.NORMAL
 
 
-def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> None:
+async def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit() -> None:
     observations = _RecordingObservations([], [])
     cycle_runner = _Phase1FailureCycleRunner()
     runner = TurnRunner(
@@ -453,7 +453,7 @@ def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit()
         observations=observations,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert outcome.failure is None
@@ -485,7 +485,7 @@ def test_repeated_phase_failure_carries_accumulated_feedback_until_cycle_limit()
     assert cycle_runner.calls == 5
 
 
-def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None:
+async def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None:
     observations = _RecordingObservations([], [])
     runner = TurnRunner(
         context=ContextEngineBuilder(system_text="sys").build(),
@@ -497,7 +497,7 @@ def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None
         observations=observations,
     )
 
-    outcome = runner.run("maintain home", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("maintain home", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.COMPLETED
     completed = [
@@ -509,7 +509,7 @@ def test_turn_completion_uses_one_lifecycle_event_without_output_event() -> None
     assert "turn.output" not in {event.name for event in observations.events}
 
 
-def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
+async def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
     activity = _TurnActivity(remaining=2)
     cycles = _CountingEmptyCycleRunner()
     runner = TurnRunner(
@@ -521,14 +521,14 @@ def test_turn_activity_grants_bounded_extra_cycles_and_is_cleaned() -> None:
         activity_controller=activity,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert cycles.calls == 3
     assert activity.cleanup_calls == 1
 
 
-def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
+async def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
     observations = _RecordingObservations([], [])
     activity = _FailingTurnActivity(remaining=0)
     runner = TurnRunner(
@@ -541,7 +541,7 @@ def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
         observations=observations,
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert outcome.status is TurnOutcomeStatus.EXHAUSTED
     assert activity.cleanup_calls == 1
@@ -553,7 +553,7 @@ def test_turn_activity_cleanup_failure_does_not_replace_turn_outcome() -> None:
     assert cleanup.payload["error_type"] == "RuntimeError"
 
 
-def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:
+async def test_turn_preparation_propagates_program_transfer_without_running_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     cycles = _CountingCycleRunner()
     runner = TurnRunner(
@@ -565,7 +565,7 @@ def test_turn_preparation_propagates_program_transfer_without_running_cycle() ->
         preparation_pipeline=TurnPreparationPipeline((_EndProgramPreparation(),)),
     )
 
-    outcome = runner.run("hello", business_day=DAY, scope=_program_scope())
+    outcome = (await runner.run("hello", business_day=DAY, scope=_program_scope()))
 
     assert cycles.calls == 0
     assert outcome.context_completion is not None

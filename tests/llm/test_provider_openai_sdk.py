@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -93,12 +93,12 @@ class FakeCreateClient:
     response: object
     calls: list[dict[str, object]] = field(default_factory=list)
 
-    def create(self, **kwargs: object) -> object:
+    async def create(self, **kwargs: object) -> object:
         self.calls.append(kwargs)
         return self.response
 
 
-def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
+async def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
     responses = OpenAIResponsesAdapter(
         provider=_provider("openai"),
         api_key="key",
@@ -133,16 +133,16 @@ def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
         answer_format=AnswerFormat.TEXT,
     )
 
-    assert responses.invoke(request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
+    assert (await responses.invoke(request)).stop_reason is ResponseStopReason.OUTPUT_LIMIT
     chat_request = ProviderRequest(
         model=_model(provider_id="compatible", provider_model="test"),
         messages=request.messages,
         answer_format=AnswerFormat.TEXT,
     )
-    assert chat.invoke(chat_request).stop_reason is ResponseStopReason.OUTPUT_LIMIT
+    assert (await chat.invoke(chat_request)).stop_reason is ResponseStopReason.OUTPUT_LIMIT
 
 
-def test_openai_responses_adapter_maps_request_payload() -> None:
+async def test_openai_responses_adapter_maps_request_payload() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text='{"ok": true}',
@@ -159,7 +159,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
         responses=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="openai",
@@ -193,7 +193,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
                 "verbosity": "medium",
             },
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "gpt-5.5"
@@ -213,7 +213,7 @@ def test_openai_responses_adapter_maps_request_payload() -> None:
     assert response.usage == {"input_tokens": 10, "output_tokens": 3}
 
 
-def test_openai_provider_rejects_raw_reasoning_table() -> None:
+async def test_openai_provider_rejects_raw_reasoning_table() -> None:
     adapter = OpenAIProviderAdapter(
         provider=_provider("openai"),
         api_key="key",
@@ -221,19 +221,19 @@ def test_openai_provider_rejects_raw_reasoning_table() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"reasoning": {"effort": "high"}},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> None:
+async def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="ok", output=[], usage={})
     )
@@ -243,7 +243,7 @@ def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> N
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -252,7 +252,7 @@ def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> N
             max_output_tokens=128,
             adapter_options={"reasoning_effort": "none", "top_p": 0.8},
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["temperature"] == pytest.approx(1.0)
@@ -261,7 +261,7 @@ def test_openai_responses_adapter_keeps_sampling_without_active_reasoning() -> N
     assert call["max_output_tokens"] == 128
 
 
-def test_openai_responses_adapter_extracts_reasoning_content() -> None:
+async def test_openai_responses_adapter_extracts_reasoning_content() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="done",
@@ -281,19 +281,19 @@ def test_openai_responses_adapter_extracts_reasoning_content() -> None:
         responses=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert response.reasoning is not None
     assert response.reasoning.summary == "summary\ndetail"
 
 
-def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
+async def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
     provider_item: JsonObject = {
         "id": "rs_1",
         "type": "reasoning",
@@ -322,13 +322,13 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
         responses=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert response.reasoning is not None
     assert response.reasoning.summary == "summary"
@@ -336,7 +336,7 @@ def test_openai_responses_adapter_extracts_encrypted_reasoning_items() -> None:
     assert response.reasoning.encrypted_items == (replayable_item,)
 
 
-def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
+async def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
     encrypted_item: JsonObject = {
         "id": "rs_1",
         "type": "reasoning",
@@ -356,7 +356,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -368,7 +368,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
             answer_format=AnswerFormat.TEXT,
             adapter_options={"reasoning_keep": "encrypted"},
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         encrypted_item,
@@ -384,7 +384,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_items() -> None:
     assert client.calls[0]["include"] == ["reasoning.encrypted_content"]
 
 
-def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> None:
+async def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> None:
     encrypted_item: JsonObject = {
         "type": "reasoning",
         "encrypted_content": "encrypted-state",
@@ -402,7 +402,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -412,7 +412,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -423,7 +423,7 @@ def test_openai_responses_adapter_skips_encrypted_reasoning_without_keep() -> No
     assert "include" not in client.calls[0]
 
 
-def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_exists() -> None:
+async def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_exists() -> None:
     encrypted_item: JsonObject = {
         "type": "reasoning",
         "encrypted_content": "encrypted-state",
@@ -441,7 +441,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -456,7 +456,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
             answer_format=AnswerFormat.TEXT,
             adapter_options={"reasoning_keep": "encrypted"},
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         encrypted_item,
@@ -468,7 +468,7 @@ def test_openai_responses_adapter_replays_encrypted_reasoning_when_text_content_
     assert client.calls[0]["include"] == ["reasoning.encrypted_content"]
 
 
-def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
+async def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
     adapter = OpenAIProviderAdapter(
         provider=_provider("openai"),
         api_key="key",
@@ -476,19 +476,19 @@ def test_openai_responses_adapter_rejects_text_reasoning_keep() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"reasoning_keep": "content"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
+async def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
     adapter = OpenAIProviderAdapter(
         provider=_provider("openai"),
         api_key="key",
@@ -496,19 +496,19 @@ def test_openai_adapter_rejects_invalid_reasoning_summary() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"reasoning_summary": "full"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
+async def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="ok",
@@ -522,7 +522,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -533,7 +533,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -551,7 +551,7 @@ def test_openai_responses_adapter_maps_text_and_json_as_input_text() -> None:
     ]
 
 
-def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
+async def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="",
@@ -577,7 +577,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
         arguments={"path": "workspace:doc.md"},
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -592,7 +592,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["tools"] == [_responses_tool_payload()]
@@ -613,7 +613,7 @@ def test_openai_responses_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
-def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
+async def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="",
@@ -640,7 +640,7 @@ def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
         kind=ToolKind.ACTION,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("scan")),
@@ -648,7 +648,7 @@ def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
             tool_scope=ToolScope(tools=(tool,)),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tools"] == [
         {
@@ -661,7 +661,7 @@ def test_openai_responses_adapter_maps_dotted_tool_names_round_trip() -> None:
     assert response.tool_calls[0].name == "workspace.scan"
 
 
-def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> None:
+async def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
@@ -676,7 +676,7 @@ def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> No
         arguments={},
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -686,7 +686,7 @@ def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> No
             answer_format=AnswerFormat.JSON_OBJECT,
             tool_use=ToolUse.DISABLED,
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -699,7 +699,7 @@ def test_openai_responses_adapter_omits_incomplete_tool_exchange_history() -> No
     assert "tools" not in client.calls[0]
 
 
-def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> None:
+async def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
@@ -714,7 +714,7 @@ def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> N
         arguments={},
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -729,7 +729,7 @@ def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> N
             answer_format=AnswerFormat.JSON_OBJECT,
             tool_use=ToolUse.DISABLED,
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -754,7 +754,7 @@ def test_openai_responses_adapter_renders_tool_result_as_disabled_context() -> N
     assert "tools" not in client.calls[0]
 
 
-def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() -> None:
+async def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() -> None:
     encrypted_item: JsonObject = {
         "id": "rs_tool_turn",
         "type": "reasoning",
@@ -775,7 +775,7 @@ def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() ->
         arguments={},
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -789,7 +789,7 @@ def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() ->
             tool_use=ToolUse.DISABLED,
             adapter_options={"reasoning_keep": "encrypted"},
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -799,7 +799,7 @@ def test_openai_responses_adapter_drops_reasoning_with_suppressed_tool_turn() ->
     ]
 
 
-def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
+async def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text='{"text":"hello"}', output=[], usage={})
     )
@@ -811,7 +811,7 @@ def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
     first_call = ToolCallRecord(id="call_first", name="workspace.scan", arguments={})
     second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -843,7 +843,7 @@ def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
                 )
             ),
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -857,7 +857,7 @@ def test_openai_responses_adapter_replays_only_complete_tool_turns() -> None:
     ]
 
 
-def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
+async def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
     message = SimpleNamespace(content="done", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -870,7 +870,7 @@ def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
     first_call = ToolCallRecord(id="call_first", name="workspace.scan", arguments={})
     second_call = ToolCallRecord(id="call_second", name="workspace.read", arguments={})
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -904,14 +904,14 @@ def test_chat_adapter_rejects_partial_or_mismatched_native_tool_turn() -> None:
                 )
             ),
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "user", "content": "continue"},
     ]
 
 
-def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
+async def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="",
@@ -932,7 +932,7 @@ def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="openai", provider_model="gpt-5.5"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -940,12 +940,12 @@ def test_openai_responses_adapter_rejects_malformed_tool_call() -> None:
                 tool_scope=ToolScope(tools=(_tool(),)),
                 tool_use=ToolUse.REQUIRED,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.PARSE
 
 
-def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
+async def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(output_text="", output=[], usage={})
     )
@@ -955,7 +955,7 @@ def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -966,12 +966,12 @@ def test_openai_responses_adapter_maps_forced_tool_choice() -> None:
             ),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tool_choice"] == "required"
 
 
-def test_openai_responses_adapter_maps_only_visible_tools() -> None:
+async def test_openai_responses_adapter_maps_only_visible_tools() -> None:
     hidden_tool = ToolSpec(
         name="write_file",
         description="Write a workspace file",
@@ -987,7 +987,7 @@ def test_openai_responses_adapter_maps_only_visible_tools() -> None:
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -998,12 +998,12 @@ def test_openai_responses_adapter_maps_only_visible_tools() -> None:
             ),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tools"] == [_responses_tool_payload()]
 
 
-def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
+async def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="thinking")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1019,7 +1019,7 @@ def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -1041,7 +1041,7 @@ def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "kimi-for-coding-highspeed"
@@ -1065,7 +1065,7 @@ def test_kimi_k2_7_adapter_maps_coding_plan_request_payload() -> None:
     assert response.reasoning.summary == "thinking"
 
 
-def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
+async def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="thinking")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1081,7 +1081,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -1105,7 +1105,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
                 "reasoning_effort": "max",
             },
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "k3"
@@ -1128,7 +1128,7 @@ def test_kimi_k3_adapter_maps_reasoning_without_k2_thinking() -> None:
     assert response.reasoning.content == "thinking"
 
 
-def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
+async def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -1139,7 +1139,7 @@ def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -1149,12 +1149,12 @@ def test_chat_adapter_forwards_request_timeout_to_sdk() -> None:
             answer_format=AnswerFormat.TEXT,
             timeout_seconds=3.5,
         )
-    )
+    ))
 
     assert client.calls[0]["timeout"] == pytest.approx(3.5)
 
 
-def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
+async def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
     adapter = KimiProviderAdapter(
         provider=_provider("kimi_coding"),
         api_key="key",
@@ -1162,19 +1162,19 @@ def test_kimi_k3_adapter_rejects_k2_thinking_option() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi_coding", provider_model="k3", options={"protocol": "k3"}),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"protocol": "k3", "thinking": "enabled"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_chat_adapter_maps_tools_and_tool_results() -> None:
+async def test_chat_adapter_maps_tools_and_tool_results() -> None:
     message = SimpleNamespace(
         content=None,
         tool_calls=[
@@ -1205,7 +1205,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
         arguments={"path": "workspace:doc.md"},
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
@@ -1220,7 +1220,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["tools"] == [_provider_tool_payload()]
@@ -1249,7 +1249,7 @@ def test_chat_adapter_maps_tools_and_tool_results() -> None:
     assert response.tool_calls[0].arguments == {"path": "workspace:next.md"}
 
 
-def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
+async def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
     message = SimpleNamespace(
         content="",
         tool_calls=[SimpleNamespace(type="custom", id="call_1")],
@@ -1264,7 +1264,7 @@ def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="compatible", provider_model="compatible-model"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1272,12 +1272,12 @@ def test_chat_adapter_rejects_unsupported_tool_call_type() -> None:
                 tool_scope=ToolScope(tools=(_tool(),)),
                 tool_use=ToolUse.REQUIRED,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.PARSE
 
 
-def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None:
+async def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -1299,7 +1299,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
         kind=ToolKind.ACTION,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="kimi_coding", provider_model="k3", options={"protocol": "k3"}),
             messages=MessageStack.of(
@@ -1322,7 +1322,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
                 "reasoning_effort": "max",
             },
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {
@@ -1360,7 +1360,7 @@ def test_kimi_k3_adapter_replays_reasoning_with_tool_calls_and_results() -> None
     assert client.calls[0]["reasoning_effort"] == "max"
 
 
-def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
+async def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
     message = SimpleNamespace(
         content='{"text":"\u4f60\u597d"}',
         reasoning_content="answer reasoning",
@@ -1380,7 +1380,7 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
         arguments={"guide_blocks": [{"text": "Answer the user."}]},
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -1400,7 +1400,7 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "user", "content": "Return the final answer as JSON."},
@@ -1408,7 +1408,7 @@ def test_kimi_adapter_omits_unresolved_tool_call_but_keeps_reasoning() -> None:
     assert "tools" not in client.calls[0]
 
 
-def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
+async def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
     message = SimpleNamespace(
         content='{"text":"\u4f60\u597d"}',
         reasoning_content="answer reasoning",
@@ -1428,7 +1428,7 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
         arguments={"guide_blocks": [{"text": "Answer the user."}]},
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="kimi_coding",
@@ -1447,7 +1447,7 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
             tool_use=ToolUse.DISABLED,
             adapter_options={"thinking": "enabled"},
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {
@@ -1471,7 +1471,7 @@ def test_kimi_adapter_renders_tool_result_as_disabled_context() -> None:
         (KimiProviderAdapter, "kimi_coding", "kimi-for-coding-highspeed"),
     ),
 )
-def test_chat_adapters_replay_multiple_complete_tool_turns(
+async def test_chat_adapters_replay_multiple_complete_tool_turns(
     adapter_type: Callable[..., OpenAICompatibleChatAdapter],
     provider_id: str,
     provider_model: str,
@@ -1515,7 +1515,7 @@ def test_chat_adapters_replay_multiple_complete_tool_turns(
         ),
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id=provider_id, provider_model=provider_model),
             messages=MessageStack.of(
@@ -1550,7 +1550,7 @@ def test_chat_adapters_replay_multiple_complete_tool_turns(
                 else None
             ),
         )
-    )
+    ))
 
     messages = _message_payloads(client.calls[0]["messages"])
     first_tool_calls = _message_payloads(messages[1]["tool_calls"])
@@ -1584,7 +1584,7 @@ def test_chat_adapters_replay_multiple_complete_tool_turns(
         (KimiProviderAdapter, "kimi_coding", "kimi-for-coding-highspeed"),
     ),
 )
-def test_chat_adapters_project_disabled_tool_history(
+async def test_chat_adapters_project_disabled_tool_history(
     adapter_type: Callable[..., OpenAICompatibleChatAdapter],
     provider_id: str,
     provider_model: str,
@@ -1600,7 +1600,7 @@ def test_chat_adapters_project_disabled_tool_history(
     )
     call = ToolCallRecord(id="call_disabled", name="workspace.scan", arguments={})
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id=provider_id, provider_model=provider_model),
             messages=MessageStack.of(
@@ -1615,7 +1615,7 @@ def test_chat_adapters_project_disabled_tool_history(
             answer_format=AnswerFormat.TEXT,
             tool_use=ToolUse.DISABLED,
         )
-    )
+    ))
 
     messages = _message_payloads(client.calls[0]["messages"])
     assert messages == [
@@ -1628,7 +1628,7 @@ def test_chat_adapters_project_disabled_tool_history(
     assert "tools" not in client.calls[0]
 
 
-def test_chat_adapter_maps_forced_tool_choice() -> None:
+async def test_chat_adapter_maps_forced_tool_choice() -> None:
     message = SimpleNamespace(content=None, tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -1639,7 +1639,7 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1650,7 +1650,7 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
             ),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tool_choice"] == "required"
 
@@ -1659,7 +1659,7 @@ def test_chat_adapter_maps_forced_tool_choice() -> None:
     ("provider_model", "expected_tool_choice"),
     (("kimi-for-coding-highspeed", "auto"), ("k3", "required")),
 )
-def test_kimi_adapter_maps_model_specific_required_tool_choice(
+async def test_kimi_adapter_maps_model_specific_required_tool_choice(
     provider_model: str,
     expected_tool_choice: str,
 ) -> None:
@@ -1682,7 +1682,7 @@ def test_kimi_adapter_maps_model_specific_required_tool_choice(
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
                 model=_model(
                     provider_id="kimi_coding",
@@ -1694,12 +1694,12 @@ def test_kimi_adapter_maps_model_specific_required_tool_choice(
             tool_scope=ToolScope(tools=(_tool(),)),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tool_choice"] == expected_tool_choice
 
 
-def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
+async def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
     write_tool = ToolSpec(
         name="write_file",
         description="Write a workspace file",
@@ -1725,7 +1725,7 @@ def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1736,7 +1736,7 @@ def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
             ),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tool_choice"] == "auto"
     assert client.calls[0]["tools"] == [
@@ -1745,7 +1745,7 @@ def test_kimi_adapter_keeps_all_visible_tools_for_forced_tool_choice() -> None:
     ]
 
 
-def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
+async def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1761,7 +1761,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="deepseek",
@@ -1783,7 +1783,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "deepseek-v4-pro"
@@ -1805,7 +1805,7 @@ def test_deepseek_adapter_maps_thinking_and_reasoning_effort() -> None:
     }
 
 
-def test_deepseek_adapter_maps_user_images() -> None:
+async def test_deepseek_adapter_maps_user_images() -> None:
     message = SimpleNamespace(content="ok", reasoning_content=None)
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1819,7 +1819,7 @@ def test_deepseek_adapter_maps_user_images() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="deepseek",
@@ -1834,7 +1834,7 @@ def test_deepseek_adapter_maps_user_images() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {
@@ -1863,7 +1863,7 @@ def test_deepseek_adapter_maps_user_images() -> None:
         ),
     ),
 )
-def test_deepseek_adapter_rejects_images_outside_user_messages(
+async def test_deepseek_adapter_rejects_images_outside_user_messages(
     message: SystemMessage | AssistantMessage,
 ) -> None:
     client = FakeCreateClient(response=object())
@@ -1874,7 +1874,7 @@ def test_deepseek_adapter_rejects_images_outside_user_messages(
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
@@ -1883,14 +1883,14 @@ def test_deepseek_adapter_rejects_images_outside_user_messages(
                 messages=MessageStack.of(message),
                 answer_format=AnswerFormat.TEXT,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CAPABILITY
     assert exc.value.scope is ProviderFailureScope.MODEL
     assert client.calls == []
 
 
-def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> None:
+async def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> None:
     message = SimpleNamespace(content="ok", reasoning_content="reasoning")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -1904,7 +1904,7 @@ def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> No
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="deepseek", provider_model="deepseek-v4-pro"),
             messages=MessageStack.of(
@@ -1915,7 +1915,7 @@ def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> No
             answer_format=AnswerFormat.TEXT,
             temperature=0.7,
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "assistant", "content": "previous answer"}
@@ -1924,7 +1924,7 @@ def test_deepseek_adapter_uses_default_thinking_without_reasoning_replay() -> No
     assert "extra_body" not in client.calls[0]
 
 
-def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
+async def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
     message = SimpleNamespace(
         content=None,
         tool_calls=[
@@ -1944,7 +1944,7 @@ def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="deepseek", provider_model="deepseek-v4-pro"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -1957,12 +1957,12 @@ def test_deepseek_adapter_omits_tool_choice_with_thinking() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     assert "tool_choice" not in client.calls[0]
 
 
-def test_deepseek_adapter_requires_reasoning_replay_with_thinking_tools() -> None:
+async def test_deepseek_adapter_requires_reasoning_replay_with_thinking_tools() -> None:
     client = FakeCreateClient(response=object())
     adapter = DeepSeekProviderAdapter(
         provider=_provider("deepseek"),
@@ -1971,7 +1971,7 @@ def test_deepseek_adapter_requires_reasoning_replay_with_thinking_tools() -> Non
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
@@ -1982,14 +1982,14 @@ def test_deepseek_adapter_requires_reasoning_replay_with_thinking_tools() -> Non
                 tool_scope=ToolScope(tools=(_tool(),)),
                 tool_use=ToolUse.OPTIONAL,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
     assert exc.value.scope is ProviderFailureScope.MODEL
     assert client.calls == []
 
 
-def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> None:
+async def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             choices=[
@@ -2008,7 +2008,7 @@ def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> Non
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
@@ -2017,13 +2017,13 @@ def test_deepseek_adapter_maps_resource_interruption_to_transient_error() -> Non
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.TRANSIENT
     assert exc.value.scope is ProviderFailureScope.PROVIDER
 
 
-def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
+async def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
     write_tool = ToolSpec(
         name="write_file",
         description="Write a workspace file",
@@ -2049,7 +2049,7 @@ def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.1"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2061,7 +2061,7 @@ def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
             tool_use=ToolUse.REQUIRED,
             adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
-    )
+    ))
 
     assert client.calls[0]["tool_choice"] == "auto"
     assert client.calls[0]["tools"] == [
@@ -2070,7 +2070,7 @@ def test_glm_adapter_maps_required_tool_choice_to_auto() -> None:
     ]
 
 
-def test_glm_adapter_rejects_strict_tool_calling() -> None:
+async def test_glm_adapter_rejects_strict_tool_calling() -> None:
     strict_tool = ToolSpec(
         name="read_file",
         description="Read a workspace file",
@@ -2085,7 +2085,7 @@ def test_glm_adapter_rejects_strict_tool_calling() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="glm", provider_model="glm-5.1"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2094,12 +2094,12 @@ def test_glm_adapter_rejects_strict_tool_calling() -> None:
                 tool_use=ToolUse.REQUIRED,
                 adapter_options={"thinking": "enabled"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
+async def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     message = SimpleNamespace(content='{"ok": true}', reasoning_content="reasoning")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2115,7 +2115,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="glm",
@@ -2132,7 +2132,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
             max_output_tokens=128,
             adapter_options={"thinking": "enabled", "reasoning_keep": "content"},
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "glm-5.1"
@@ -2150,7 +2150,7 @@ def test_glm_adapter_maps_thinking_and_max_tokens() -> None:
     assert response.usage == {"prompt_tokens": 10, "completion_tokens": 4}
 
 
-def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+async def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2164,7 +2164,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
             messages=MessageStack.of(
@@ -2175,7 +2175,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
             answer_format=AnswerFormat.TEXT,
             adapter_options={"thinking": "enabled"},
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "assistant", "content": "previous answer"}
@@ -2183,7 +2183,7 @@ def test_kimi_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
     assert client.calls[0]["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
-def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
+async def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2197,7 +2197,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.1"),
             messages=MessageStack.of(
@@ -2208,7 +2208,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
             answer_format=AnswerFormat.TEXT,
             adapter_options={"thinking": "enabled"},
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "assistant", "content": "previous answer"}
@@ -2218,7 +2218,7 @@ def test_glm_adapter_skips_message_reasoning_without_reasoning_keep() -> None:
     }
 
 
-def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
+async def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2232,19 +2232,19 @@ def test_glm_adapter_maps_reasoning_effort_provider_option() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="glm", provider_model="glm-5.2"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             adapter_options={"reasoning_effort": "max"},
         )
-    )
+    ))
 
     assert client.calls[0]["reasoning_effort"] == "max"
 
 
-def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
+async def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
     message = SimpleNamespace(
         content='{"ok": true}',
         reasoning_content="reasoning",
@@ -2263,7 +2263,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=ModelSpec(
                 id="minimax_m3",
@@ -2293,7 +2293,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     call = client.calls[0]
     assert call["model"] == "MiniMax-M3"
@@ -2311,7 +2311,7 @@ def test_minimax_adapter_maps_thinking_and_reasoning_split() -> None:
     assert response.reasoning.summary == "reasoning"
 
 
-def test_minimax_adapter_removes_required_tool_choice() -> None:
+async def test_minimax_adapter_removes_required_tool_choice() -> None:
     write_tool = ToolSpec(
         name="write_file",
         description="Write a workspace file",
@@ -2337,7 +2337,7 @@ def test_minimax_adapter_removes_required_tool_choice() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2353,7 +2353,7 @@ def test_minimax_adapter_removes_required_tool_choice() -> None:
                 "reasoning_keep": "content",
             },
         )
-    )
+    ))
 
     assert "tool_choice" not in client.calls[0]
     assert client.calls[0]["tools"] == [
@@ -2362,7 +2362,7 @@ def test_minimax_adapter_removes_required_tool_choice() -> None:
     ]
 
 
-def test_minimax_adapter_rejects_strict_tool_calling() -> None:
+async def test_minimax_adapter_rejects_strict_tool_calling() -> None:
     strict_tool = ToolSpec(
         name="read_file",
         description="Read a workspace file",
@@ -2377,7 +2377,7 @@ def test_minimax_adapter_rejects_strict_tool_calling() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2386,12 +2386,12 @@ def test_minimax_adapter_rejects_strict_tool_calling() -> None:
                 tool_use=ToolUse.REQUIRED,
                 adapter_options={"thinking": "adaptive"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_minimax_adapter_extracts_reasoning_details() -> None:
+async def test_minimax_adapter_extracts_reasoning_details() -> None:
     message = SimpleNamespace(
         content="ok",
         reasoning_details=[
@@ -2411,7 +2411,7 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="minimax", provider_model="MiniMax-M3"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2421,14 +2421,14 @@ def test_minimax_adapter_extracts_reasoning_details() -> None:
                 "reasoning_split": True,
             },
         )
-    )
+    ))
 
     assert response.reasoning is not None
     assert response.reasoning.content == "step 1\nstep 2"
     assert response.reasoning.summary == "step 1\nstep 2"
 
 
-def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> None:
+async def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> None:
     for adapter, provider_id, provider_model in (
         (
             KimiProviderAdapter(
@@ -2468,7 +2468,7 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
         ),
     ):
         with pytest.raises(ProviderError) as exc:
-            adapter.invoke(
+            (await adapter.invoke(
                 ProviderRequest(
                     model=_model(
                         provider_id=provider_id,
@@ -2482,12 +2482,12 @@ def test_chat_providers_report_invalid_reasoning_keep_as_provider_error() -> Non
                     answer_format=AnswerFormat.TEXT,
                     adapter_options={"reasoning_keep": "forever"},
                 )
-            )
+            ))
 
         assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_kimi_adapter_rejects_partial_provider_option() -> None:
+async def test_kimi_adapter_rejects_partial_provider_option() -> None:
     adapter = KimiProviderAdapter(
         provider=_provider("kimi"),
         api_key="key",
@@ -2495,19 +2495,19 @@ def test_kimi_adapter_rejects_partial_provider_option() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"partial": True},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
+async def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
     message = SimpleNamespace(
         content="",
         tool_calls=[
@@ -2527,7 +2527,7 @@ def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
         completions=client,
     )
 
-    response = adapter.invoke(
+    response = (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
             messages=MessageStack.of(UserMessage.from_text("answer")),
@@ -2544,7 +2544,7 @@ def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
             ),
             tool_use=ToolUse.REQUIRED,
         )
-    )
+    ))
 
     assert client.calls[0]["tools"] == [
         {
@@ -2559,7 +2559,7 @@ def test_kimi_adapter_maps_dotted_tool_name_and_decodes_response() -> None:
     assert response.tool_calls[0].name == "core.answer"
 
 
-def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
+async def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
     adapter = KimiProviderAdapter(
         provider=_provider("kimi"),
         api_key="key",
@@ -2576,7 +2576,7 @@ def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2584,12 +2584,12 @@ def test_kimi_adapter_rejects_more_than_128_visible_tools() -> None:
                 tool_scope=ToolScope(tools=tools),
                 tool_use=ToolUse.OPTIONAL,
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_kimi_adapter_validates_only_visible_tools() -> None:
+async def test_kimi_adapter_validates_only_visible_tools() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -2600,7 +2600,7 @@ def test_kimi_adapter_validates_only_visible_tools() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
@@ -2619,12 +2619,12 @@ def test_kimi_adapter_validates_only_visible_tools() -> None:
             ),
             tool_use=ToolUse.OPTIONAL,
         )
-    )
+    ))
 
     assert client.calls[0]["tools"] == [_provider_tool_payload()]
 
 
-def test_deepseek_adapter_rejects_strict_tools() -> None:
+async def test_deepseek_adapter_rejects_strict_tools() -> None:
     adapter = DeepSeekProviderAdapter(
         provider=_provider("deepseek"),
         api_key="key",
@@ -2632,7 +2632,7 @@ def test_deepseek_adapter_rejects_strict_tools() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
@@ -2652,12 +2652,12 @@ def test_deepseek_adapter_rejects_strict_tools() -> None:
                     ),
                 ),
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_deepseek_adapter_validates_only_visible_tools() -> None:
+async def test_deepseek_adapter_validates_only_visible_tools() -> None:
     message = SimpleNamespace(content="ok", tool_calls=[])
     client = FakeCreateClient(
         response=SimpleNamespace(choices=[SimpleNamespace(message=message)], usage={})
@@ -2668,7 +2668,7 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(
                 provider_id="deepseek",
@@ -2692,12 +2692,12 @@ def test_deepseek_adapter_validates_only_visible_tools() -> None:
             tool_use=ToolUse.OPTIONAL,
             adapter_options={"reasoning_keep": "content"},
         )
-    )
+    ))
 
     assert client.calls[0]["tools"] == [_provider_tool_payload()]
 
 
-def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
+async def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
     client = FakeCreateClient(response=object())
     adapter = DeepSeekProviderAdapter(
         provider=_provider("deepseek"),
@@ -2715,7 +2715,7 @@ def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(
                     provider_id="deepseek",
@@ -2727,13 +2727,13 @@ def test_deepseek_adapter_rejects_more_than_128_tools() -> None:
                 tool_use=ToolUse.OPTIONAL,
                 adapter_options={"reasoning_keep": "content"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
     assert client.calls == []
 
 
-def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
+async def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> None:
     message = SimpleNamespace(content='{"ok": true}')
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2747,7 +2747,7 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=ModelSpec(
                 id="text_model",
@@ -2760,14 +2760,14 @@ def test_adapter_skips_native_json_and_cache_when_model_lacks_capability() -> No
             answer_format=AnswerFormat.JSON_OBJECT,
             prompt_cache=PromptCache("prefix"),
         )
-    )
+    ))
 
     call = client.calls[0]
     assert "response_format" not in call
     assert "prompt_cache_key" not in call
 
 
-def test_compatible_chat_adapter_does_not_map_prompt_cache_key() -> None:
+async def test_compatible_chat_adapter_does_not_map_prompt_cache_key() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2781,19 +2781,19 @@ def test_compatible_chat_adapter_does_not_map_prompt_cache_key() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(UserMessage.from_text("hello")),
             answer_format=AnswerFormat.TEXT,
             prompt_cache=PromptCache("stable-prefix"),
         )
-    )
+    ))
 
     assert "prompt_cache_key" not in client.calls[0]
 
 
-def test_adapter_maps_remote_image_url_part() -> None:
+async def test_adapter_maps_remote_image_url_part() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2807,7 +2807,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
                 model=_model(provider_id="compatible", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -2817,7 +2817,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {
@@ -2832,7 +2832,7 @@ def test_adapter_maps_remote_image_url_part() -> None:
     ]
 
 
-def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
+async def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2846,7 +2846,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
@@ -2862,7 +2862,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {
@@ -2875,7 +2875,7 @@ def test_chat_adapter_maps_text_and_json_parts_as_visible_text() -> None:
     ]
 
 
-def test_compatible_chat_adapter_does_not_map_message_reasoning() -> None:
+async def test_compatible_chat_adapter_does_not_map_message_reasoning() -> None:
     message = SimpleNamespace(content="ok")
     client = FakeCreateClient(
         response=SimpleNamespace(
@@ -2889,7 +2889,7 @@ def test_compatible_chat_adapter_does_not_map_message_reasoning() -> None:
         completions=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="compatible", provider_model="compatible-model"),
             messages=MessageStack.of(
@@ -2899,14 +2899,14 @@ def test_compatible_chat_adapter_does_not_map_message_reasoning() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["messages"] == [
         {"role": "assistant", "content": "previous answer"}
     ]
 
 
-def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
+async def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
     client = FakeCreateClient(
         response=SimpleNamespace(
             output_text="ok",
@@ -2920,7 +2920,7 @@ def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
         responses=client,
     )
 
-    adapter.invoke(
+    (await adapter.invoke(
         ProviderRequest(
             model=_model(provider_id="openai", provider_model="gpt-5.5"),
             messages=MessageStack.of(
@@ -2931,7 +2931,7 @@ def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
             ),
             answer_format=AnswerFormat.TEXT,
         )
-    )
+    ))
 
     assert client.calls[0]["input"] == [
         {
@@ -2941,7 +2941,7 @@ def test_openai_responses_adapter_skips_text_reasoning_without_keep() -> None:
     ]
 
 
-def test_provider_option_rejects_unknown_key() -> None:
+async def test_provider_option_rejects_unknown_key() -> None:
     adapter = OpenAICompatibleChatAdapter(
         provider=_provider("kimi"),
         api_key="key",
@@ -2949,14 +2949,14 @@ def test_provider_option_rejects_unknown_key() -> None:
     )
 
     with pytest.raises(ProviderError) as exc:
-        adapter.invoke(
+        (await adapter.invoke(
             ProviderRequest(
                 model=_model(provider_id="kimi", provider_model="kimi-k2.7-code"),
                 messages=MessageStack.of(UserMessage.from_text("hello")),
                 answer_format=AnswerFormat.TEXT,
                 adapter_options={"unknown": "value"},
             )
-        )
+        ))
 
     assert exc.value.kind is ProviderErrorKind.CONFIG
 

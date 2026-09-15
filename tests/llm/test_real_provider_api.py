@@ -77,7 +77,7 @@ TOOL_MODEL_IDS = (
 
 
 @pytest.mark.parametrize("model_id", PRIMARY_MODEL_IDS)
-def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
+async def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     model, provider, adapter = _load_model_adapter(model_id)
     messages = MessageStack.of(
         SystemMessage.from_text(
@@ -91,7 +91,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
     max_output_tokens = _test_max_output_tokens(model)
     _print_run_header(model, provider)
 
-    first_response = _invoke_real_provider(
+    first_response = (await _invoke_real_provider(
         adapter,
         ProviderRequest(
             model=model,
@@ -105,7 +105,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         provider_id=provider.id,
         model_id=model.id,
         label="primary round 1",
-    )
+    ))
     _assert_provider_returned(
         first_response.answer_text,
         provider_id=provider.id,
@@ -139,7 +139,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         )
     )
 
-    second_response = _invoke_real_provider(
+    second_response = (await _invoke_real_provider(
         adapter,
         ProviderRequest(
             model=model,
@@ -153,7 +153,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
         provider_id=provider.id,
         model_id=model.id,
         label="primary round 2",
-    )
+    ))
     _assert_provider_returned(
         second_response.answer_text,
         provider_id=provider.id,
@@ -164,7 +164,7 @@ def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
 
 
 @pytest.mark.parametrize("model_id", TOOL_MODEL_IDS)
-def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
+async def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
     model, provider, adapter = _load_model_adapter(model_id)
     if not model.supports(ModelCapability.TOOL_CALLING):
         pytest.skip(f"{model.id} does not declare tool calling capability")
@@ -188,7 +188,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
     )
     _print_run_header(model, provider)
 
-    first_response = _invoke_real_provider(
+    first_response = (await _invoke_real_provider(
         adapter,
         ProviderRequest(
             model=model,
@@ -204,7 +204,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         provider_id=provider.id,
         model_id=model.id,
         label="tool round 1",
-    )
+    ))
     _assert_tool_call_returned(
         first_response.tool_calls,
         expected_name="lookup_workspace_note",
@@ -253,7 +253,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         )
     )
 
-    second_response = _invoke_real_provider(
+    second_response = (await _invoke_real_provider(
         adapter,
         ProviderRequest(
             model=model,
@@ -272,7 +272,7 @@ def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
         provider_id=provider.id,
         model_id=model.id,
         label="tool round 2",
-    )
+    ))
     _assert_tool_call_returned(
         second_response.tool_calls,
         expected_name="summarize_workspace_note",
@@ -307,7 +307,7 @@ def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, Provide
     return model, provider, registry.get(provider.id, model.adapter)
 
 
-def _invoke_real_provider(
+async def _invoke_real_provider(
     adapter: ProviderAdapter,
     request: ProviderRequest,
     *,
@@ -316,7 +316,7 @@ def _invoke_real_provider(
     label: str,
 ) -> RawResponse:
     try:
-        return adapter.invoke(request)
+        return (await adapter.invoke(request))
     except ProviderError as exc:
         if exc.kind is ProviderErrorKind.TRANSIENT:
             pytest.skip(

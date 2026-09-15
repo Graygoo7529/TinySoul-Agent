@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from threading import RLock
@@ -61,7 +61,7 @@ class HomeMaintenanceRunner(Protocol):
 
     def pending_counts(self) -> tuple[int, int]: ...
 
-    def run(
+    async def run(
         self,
         *,
         business_day: BusinessDay,
@@ -83,7 +83,7 @@ class MemoryMaintenanceRunner(Protocol):
         if_absent: bool,
     ) -> bool: ...
 
-    def run(
+    async def run(
         self,
         *,
         business_day: BusinessDay,
@@ -142,7 +142,7 @@ class MaintenanceEngine:
         # otherwise block the Endpoint availability endpoint for minutes.
         return self._availability_store.require()
 
-    def run(
+    async def run(
         self,
         request: MaintenanceRequest,
         *,
@@ -172,14 +172,14 @@ class MaintenanceEngine:
 
             if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.HOME}:
                 outcomes.append(
-                    self._run_task(
+                    (await self._run_task(
                         MaintenanceTaskKind.HOME,
                         lambda: self._home.run(
                             business_day=business_day,
                             scope=run_scope,
                             request_id=request.request_id,
                         ),
-                    )
+                    ))
                 )
 
             if request.scope in {MaintenanceScope.DAILY, MaintenanceScope.MEMORY}:
@@ -208,7 +208,7 @@ class MaintenanceEngine:
                     )
                 for target in targets:
                     outcomes.append(
-                        self._run_task(
+                        (await self._run_task(
                             MaintenanceTaskKind.MEMORY,
                             lambda target=target: self._memory.run(
                                 business_day=business_day,
@@ -218,7 +218,7 @@ class MaintenanceEngine:
                                 request_id=request.request_id,
                             ),
                             target_day=target,
-                        )
+                        ))
                     )
 
             self._reconcile_availability(
@@ -359,14 +359,14 @@ class MaintenanceEngine:
         )
 
     @staticmethod
-    def _run_task(
+    async def _run_task(
         kind: MaintenanceTaskKind,
-        run: Callable[[], MaintenanceTaskOutcome],
+        run: Callable[[], Awaitable[MaintenanceTaskOutcome]],
         *,
         target_day: BusinessDay | None = None,
     ) -> MaintenanceTaskOutcome:
         try:
-            return run()
+            return (await run())
         except (
             MaintenanceTaskExecutionError,
             AgentHomeIOError,

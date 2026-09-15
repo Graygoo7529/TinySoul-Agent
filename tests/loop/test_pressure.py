@@ -61,7 +61,7 @@ class _CapacityProvider:
     def api_style(self) -> ProviderApiStyle:
         return adapter_spec(self.adapter_kind).api_style
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
             raise ProviderError("private provider detail", kind=ProviderErrorKind.CONTEXT_LIMIT)
@@ -74,7 +74,7 @@ class _CapacityProvider:
 
 @pytest.mark.parametrize("maintenance", [False, True], ids=["user", "maintenance"])
 @pytest.mark.parametrize("reclaimable", [False, True], ids=["no_progress", "recompose"])
-def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_work(
+async def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_work(
     tmp_path: Path,
     maintenance: bool,
     reclaimable: bool,
@@ -125,7 +125,7 @@ def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_wor
         writes.append("committed")
         workspace.write_text("workspace:committed.txt", "committed")
 
-    modules.run(scope=scope, name="workspace.write", callback=write_resource)
+    (await modules.run(scope=scope, name="workspace.write", callback=write_resource))
     provider = _CapacityProvider()
     runner = LLMTaskRunner(
         models=ModelRegistry([
@@ -151,8 +151,8 @@ def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_wor
         ]),
     )
 
-    def invoke(module_scope: RunScope) -> TaskResult:
-        return runner.run(
+    async def invoke(module_scope: RunScope) -> TaskResult:
+        return (await runner.run(
             TaskCall(
                 profile="test",
                 messages=context.compose(
@@ -161,16 +161,16 @@ def test_capacity_recovery_rebuilds_task_or_ends_without_replaying_completed_wor
                 scope=module_scope,
                 context_overflow_policy=ModelContextOverflowPolicy.REQUEST_RECOVERY,
             )
-        )
+        ))
 
     if reclaimable:
-        result = modules.run(scope=scope, name="llm.task", callback=invoke)
+        result = (await modules.run(scope=scope, name="llm.task", callback=invoke))
         assert result.status is TaskResultStatus.SUCCESS
         assert len(provider.requests) == 2
         assert provider.requests[0].messages != provider.requests[1].messages
     else:
         with pytest.raises(RuntimeTransferInterrupt) as raised:
-            modules.run(scope=scope, name="llm.task", callback=invoke)
+            (await modules.run(scope=scope, name="llm.task", callback=invoke))
         assert raised.value.transfer.action is RuntimeTransferAction.END
         assert raised.value.transfer.target == scope.nearest(RunLevel.TURN)
         assert len(provider.requests) == 1

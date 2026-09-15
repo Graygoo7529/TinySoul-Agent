@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from threading import Event, Thread
+import asyncio
 
 from tinysoul.infra.json import JsonObject, to_json_object
 from tinysoul.runtime import (
@@ -218,7 +218,7 @@ class LLMTaskRunner:
         )
         self._route_state = self._chain_runner.state
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self._emit(
             call,
             "llm.task.started",
@@ -227,7 +227,7 @@ class LLMTaskRunner:
             {"profile": call.profile},
         )
         try:
-            result = self._run_task(call)
+            result = await self._run_task(call)
         except Exception as exc:
             self._emit(
                 call,
@@ -252,24 +252,24 @@ class LLMTaskRunner:
         )
         return result
 
-    def _run_task(self, call: TaskCall) -> TaskResult:
+    async def _run_task(self, call: TaskCall) -> TaskResult:
         try:
             _check_cancellation(call)
             task = self._tasks.get(call.profile)
             chain = self._routable_chain(task)
             attempted_models: set[str] = set()
 
-            def run_model(model_id: str) -> TaskResult:
+            async def run_model(model_id: str) -> TaskResult:
                 use_provider_preference = model_id not in attempted_models
                 attempted_models.add(model_id)
-                return self._run_model(
+                return await self._run_model(
                     call,
                     task,
                     model_id,
                     use_provider_preference=use_provider_preference,
                 )
 
-            return self._chain_runner.run(
+            return await self._chain_runner.run(
                 chain,
                 run_model,
                 classify_error=self._classify_chain_error,
@@ -317,6 +317,9 @@ class LLMTaskRunner:
                 payload={"profile": call.profile},
             ) from exc
 
+    async def close(self) -> None:
+        await self._providers.close()
+
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
         self._chain_runner.reset(profile)
 
@@ -349,7 +352,7 @@ class LLMTaskRunner:
             capabilities=model.capabilities,
         )
 
-    def _try_model(
+    async def _try_model(
         self,
         call: TaskCall,
         task: TaskSpec,
@@ -400,14 +403,14 @@ class LLMTaskRunner:
 
         for provider_index, provider_id in enumerate(provider_order):
             if provider_index > 0:
-                self._sleeper.sleep(
+                await self._sleeper.sleep(
                     task.chain.retry_policy.provider_switch_wait_seconds
                 )
                 _check_cancellation(call)
             binding = bindings[provider_id]
             provider = self._providers.get(provider_id, model.adapter)
             try:
-                result = self._try_provider(
+                result = await self._try_provider(
                     call,
                     task,
                     model,
@@ -455,7 +458,7 @@ class LLMTaskRunner:
             had_transient_failure=had_transient_failure,
         ) from last_error
 
-    def _try_provider(
+    async def _try_provider(
         self,
         call: TaskCall,
         task: TaskSpec,
@@ -485,7 +488,7 @@ class LLMTaskRunner:
                         "attempt": attempt + 1,
                     },
                 )
-                self._sleeper.sleep(task.chain.retry_policy.retry_wait_seconds)
+                await self._sleeper.sleep(task.chain.retry_policy.retry_wait_seconds)
                 _check_cancellation(call)
             if observation_enabled(self._observations, ObservationLevel.MODEL):
                 request_payload = task_request_observation(
@@ -525,7 +528,7 @@ class LLMTaskRunner:
             )
             try:
                 _check_cancellation(call)
-                response = _invoke_provider(
+                response = await _invoke_provider(
                     provider,
                     ProviderRequest(
                         model=model,
@@ -635,7 +638,7 @@ class LLMTaskRunner:
             )
         raise last_error
 
-    def _run_model(
+    async def _run_model(
         self,
         call: TaskCall,
         task: TaskSpec,
@@ -656,7 +659,7 @@ class LLMTaskRunner:
             payload,
         )
         try:
-            result = self._try_model(
+            result = await self._try_model(
                 call,
                 task,
                 model_id,
@@ -868,52 +871,27 @@ def _check_cancellation(call: TaskCall) -> None:
         call.cancellation.check()
 
 
-_PROVIDER_CANCEL_POLL_SECONDS = 0.1
-
-
-def _invoke_provider(
+async def _invoke_provider(
     provider: ProviderAdapter,
     request: ProviderRequest,
     call: TaskCall,
 ) -> RawResponse:
-    """Invoke the provider, abandoning the wait when the task is cancelled.
-
-    Without a cancellation contract the provider call runs inline. With
-    one, the blocking call runs on a daemon worker thread while this
-    thread waits in short slices and re-checks the cancel/deadline hooks.
-    On cancellation the in-flight request is orphaned: it completes or
-    times out in the background and its result is discarded without
-    touching any task state.
-    """
+    """Join the native async provider before cancellation leaves the module."""
 
     cancellation = call.cancellation
     if cancellation is None:
-        return provider.invoke(request)
-    responses: list[RawResponse] = []
-    errors: list[BaseException] = []
-    done = Event()
-
-    def _worker() -> None:
-        try:
-            responses.append(provider.invoke(request))
-        except BaseException as exc:
-            errors.append(exc)
-        finally:
-            done.set()
-
-    Thread(
-        target=_worker,
-        name="tinysoul-llm-provider",
-        daemon=True,
-    ).start()
-    while not done.wait(_PROVIDER_CANCEL_POLL_SECONDS):
+        return await provider.invoke(request)
+    attempt = asyncio.create_task(provider.invoke(request))
+    try:
+        while not attempt.done():
+            await asyncio.wait({attempt}, timeout=0.05)
+            cancellation.check()
         cancellation.check()
-    # The provider may finish in the same polling interval as cancellation.
-    # Re-check before publishing either success or an error from the worker.
-    cancellation.check()
-    if errors:
-        raise errors[0]
-    return responses[0]
+        return attempt.result()
+    finally:
+        if not attempt.done():
+            attempt.cancel()
+        await asyncio.gather(attempt, return_exceptions=True)
 
 
 def _remaining_seconds(call: TaskCall) -> float | None:

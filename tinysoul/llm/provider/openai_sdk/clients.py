@@ -8,14 +8,14 @@ from typing import Protocol
 class OpenAIResponsesClient(Protocol):
     """Narrow SDK surface used by the Responses adapter."""
 
-    def create(self, **kwargs: object) -> object:
+    async def create(self, **kwargs: object) -> object:
         ...
 
 
 class OpenAIChatCompletionsClient(Protocol):
     """Narrow SDK surface used by the Chat Completions adapter."""
 
-    def create(self, **kwargs: object) -> object:
+    async def create(self, **kwargs: object) -> object:
         ...
 
 

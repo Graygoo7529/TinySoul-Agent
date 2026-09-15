@@ -58,7 +58,7 @@ class WorkspaceScanExecutor(ActionExecutor):
         self._workspace = workspace
         self._bus = bus
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -201,7 +201,7 @@ class WorkspaceReadExecutor(ActionExecutor):
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -300,7 +300,7 @@ class WorkspaceSearchTextExecutor(ActionExecutor):
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -392,7 +392,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
         self._runtime_bridge = runtime_bridge
         self._prompt_builder = WorkspaceAnalysisPromptBuilder()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -463,12 +463,12 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             analysis_input=analysis_input,
             max_answer_chars=settings.max_answer_chars,
         )
-        value = self._llm_action.run_json(
+        value = (await self._llm_action.run_json(
             execution=execution,
             prompt=prompt,
             subject="Workspace analyze LLM task",
             control=context.control,
-        )
+        ))
         if isinstance(value, ActionResult):
             return value
         if set(value) != {"answer", "source_ids"}:
@@ -565,7 +565,7 @@ class WorkspaceDescribeExecutor(ActionExecutor):
             runtime_bridge=self._runtime_bridge,
         )
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -601,12 +601,12 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 f"Workspace describe failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        payload = self._llm_action.run_json(
+        payload = (await self._llm_action.run_json(
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace describe LLM task",
             control=context.control,
-        )
+        ))
         if isinstance(payload, ActionResult):
             return payload
         description = payload.get("description")
@@ -665,7 +665,7 @@ class WorkspaceCreateExecutor(ActionExecutor):
             runtime_bridge=self._runtime_bridge,
         )
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -729,13 +729,13 @@ class WorkspaceCreateExecutor(ActionExecutor):
                 f"Workspace create failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        text = self._llm_action.run_text(
+        text = (await self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace create LLM task",
             control=context.control,
             max_output_chars=self._workspace.settings.max_write_chars,
-        )
+        ))
         if isinstance(text, ActionResult):
             return text
         try:
@@ -801,7 +801,7 @@ class WorkspaceAppendExecutor(ActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -873,7 +873,7 @@ class WorkspacePatchExecutor(ActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -943,7 +943,7 @@ class WorkspaceDeleteExecutor(ActionExecutor):
         self._workspace = workspace
         self._bus = bus
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -988,7 +988,7 @@ class WorkspaceRestoreExecutor(ActionExecutor):
         self._workspace = workspace
         self._bus = bus
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -1027,7 +1027,7 @@ class WorkspaceTrashListExecutor(ActionExecutor):
     def __init__(self, workspace: WorkspaceEngine) -> None:
         self._workspace = workspace
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -1078,7 +1078,7 @@ class WorkspaceRewriteExecutor(ActionExecutor):
             runtime_bridge=self._runtime_bridge,
         )
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -1137,13 +1137,13 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 f"Workspace rewrite failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
-        text = self._llm_action.run_text(
+        text = (await self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
             subject="Workspace rewrite LLM task",
             control=context.control,
             max_output_chars=self._workspace.settings.max_write_chars,
-        )
+        ))
         if isinstance(text, ActionResult):
             return text
         try:

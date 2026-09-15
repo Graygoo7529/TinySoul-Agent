@@ -7,6 +7,8 @@ from enum import StrEnum
 from time import time
 from uuid import uuid4
 
+from tinysoul.action.core.call import ExecutionFact, ExecutionState
+
 from tinysoul.infra.json import JsonObject, dumps_json, to_json_object
 from tinysoul.llm.messages import (
     AssistantMessage,
@@ -138,6 +140,7 @@ class SealedTurnTrace:
 
     turn_id: str
     entries: tuple[TraceEntry, ...]
+    executions: tuple[ExecutionFact, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         if not self.turn_id:
@@ -175,6 +178,21 @@ class TurnTraceHeap:
         self._hot_entry_ids: list[str] = []
         self._nodes: dict[str, TraceHeapNode] = {}
         self._root_ids: list[str] = []
+        self._executions: dict[str, ExecutionFact] = {}
+
+    def record_execution(self, fact: ExecutionFact) -> None:
+        """Accept execution facts independently of model-view preparation."""
+        if fact.framework.turn_id != self._turn_id:
+            raise ContextInvariantError("Execution fact belongs to another Turn")
+        previous = self._executions.get(fact.framework.invoke_id)
+        if previous == fact:
+            return
+        if previous is None:
+            if fact.state is not ExecutionState.REQUESTED:
+                raise ContextInvariantError("Execution must be registered before execution")
+        elif previous.state not in {ExecutionState.REQUESTED, ExecutionState.STARTED}:
+            raise ContextInvariantError("Settled execution facts cannot be changed")
+        self._executions[fact.framework.invoke_id] = fact
 
     @property
     def turn_id(self) -> str:
@@ -322,6 +340,7 @@ class TurnTraceHeap:
         return SealedTurnTrace(
             turn_id=self._turn_id,
             entries=self.entries(),
+            executions=tuple(self._executions.values()),
         )
 
     def _append(

@@ -50,7 +50,7 @@ def test_consume_control_requests_leaves_non_loop_signals() -> None:
     )
 
 
-def test_context_signal_consumer_emits_and_commits_one_group() -> None:
+async def test_context_signal_consumer_emits_and_commits_one_group() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("initial")
     scope = (
@@ -61,13 +61,13 @@ def test_context_signal_consumer_emits_and_commits_one_group() -> None:
     bus = SignalBus()
     consumer = ContextSignalConsumer(context=context, bus=bus)
 
-    results = consumer.emit_and_consume(
+    results = (await consumer.emit_and_consume(
         (
             build_input_append_signal("first", scope=scope, source="test"),
             build_input_append_signal("second", scope=scope, source="test"),
         ),
         scope=scope,
-    )
+    ))
 
     assert results == ()
     assert len(bus) == 0

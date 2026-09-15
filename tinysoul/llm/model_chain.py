@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 from .errors import LLMContractError, LLMInvariantError
 from .requests import CallSettings, TaskProfile
@@ -263,9 +265,9 @@ class ModelChainPlanner:
 class Sleeper:
     """Sleep boundary for retry tests."""
 
-    def sleep(self, seconds: float) -> None:
+    async def sleep(self, seconds: float) -> None:
         if seconds > 0:
-            time.sleep(seconds)
+            await asyncio.sleep(seconds)
 
 
 class Clock:
@@ -295,10 +297,10 @@ class ModelChainRunner:
     def state(self) -> LLMRouteState:
         return self._state
 
-    def run(
+    async def run(
         self,
         chain: ModelChain,
-        attempt: Callable[[str], T],
+        attempt: Callable[[str], Awaitable[T]],
         *,
         classify_error: Callable[[Exception], ChainErrorDisposition],
     ) -> T:
@@ -317,7 +319,7 @@ class ModelChainRunner:
                     continue
                 attempted_models.add(model_id)
                 try:
-                    result = attempt(model_id)
+                    result = await attempt(model_id)
                 except Exception as exc:
                     disposition = classify_error(exc)
                     if disposition is ChainErrorDisposition.ABORT:
@@ -327,7 +329,7 @@ class ModelChainRunner:
                         blocked_models.add(model_id)
                     else:
                         retry_next_cycle = True
-                    self._sleeper.sleep(chain.retry_policy.model_switch_wait_seconds)
+                    await self._sleeper.sleep(chain.retry_policy.model_switch_wait_seconds)
                     continue
 
                 self._state.mark_success(chain, model_id, now=self._clock.now())

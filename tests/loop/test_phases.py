@@ -72,7 +72,7 @@ class FakeLLM:
         self.results = deque(results)
         self.calls: list[TaskCall] = []
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         return self.results.popleft()
 
@@ -88,7 +88,7 @@ class RecordingObservations:
         self.events.append(event)
 
 
-def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
+async def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -124,14 +124,14 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     phase2_scope = base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value)
     phase3_scope = base_scope.push(RunLevel.PHASE, CyclePhase.PHASE3.value)
 
-    phase1 = Phase1Unit(
+    phase1 = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
         bus=bus,
         task_profile="framework",
-    ).run(scope=phase1_scope, cycle_id="cycle_1")
-    phase2 = Phase2Unit(
+    ).run(scope=phase1_scope, cycle_id="cycle_1"))
+    phase2 = (await Phase2Unit(
         context=context,
         action=action,
         llm=llm,
@@ -143,8 +143,8 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         scope=phase2_scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
-    phase3 = Phase3Unit(
+    ))
+    phase3 = (await Phase3Unit(
         context=context,
         action=action,
         bus=bus,
@@ -155,7 +155,7 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
         scope=phase3_scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     assert phase1.selected_domains == ("core",)
     assert phase2.normalization.calls[0].action_name == "core.answer"
@@ -180,7 +180,7 @@ def test_phase_units_select_normalize_execute_and_trace_answer() -> None:
     assert action_events[1].payload["call_id"] == "answer_1"
 
 
-def test_phase_units_use_independent_task_profiles() -> None:
+async def test_phase_units_use_independent_task_profiles() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -212,7 +212,7 @@ def test_phase_units_use_independent_task_profiles() -> None:
         .push(RunLevel.CYCLE, "cycle_1")
     )
 
-    phase1 = Phase1Unit(
+    phase1 = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
@@ -221,8 +221,8 @@ def test_phase_units_use_independent_task_profiles() -> None:
     ).run(
         scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
-    )
-    Phase2Unit(
+    ))
+    (await Phase2Unit(
         context=context,
         action=action,
         llm=llm,
@@ -233,7 +233,7 @@ def test_phase_units_use_independent_task_profiles() -> None:
         scope=scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     assert [call.profile for call in llm.calls] == [
         "cycle_planner",
@@ -241,7 +241,7 @@ def test_phase_units_use_independent_task_profiles() -> None:
     ]
 
 
-def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
+async def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn() -> None:
     class _SkillProvider:
         def catalog(self, business_day: date) -> BackgroundCatalog:
             return BackgroundCatalog(
@@ -305,7 +305,7 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         .push(RunLevel.CYCLE, "cycle_1")
     )
 
-    phase1 = Phase1Unit(
+    phase1 = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
@@ -314,8 +314,8 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
     ).run(
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
-    )
-    Phase2Unit(
+    ))
+    (await Phase2Unit(
         context=context,
         action=action,
         llm=llm,
@@ -326,7 +326,7 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
         scope=base_scope.push(RunLevel.PHASE, CyclePhase.PHASE2.value),
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     phase1_stack = llm.calls[0].messages
     catalog = next(
@@ -360,7 +360,7 @@ def test_phase1_skill_catalog_and_load_background_feed_phase2_only_for_the_turn(
     assert "home:skills@review" not in context.background_links()
 
 
-def test_real_memory_actions_record_turn_trace_without_background_mutation(
+async def test_real_memory_actions_record_turn_trace_without_background_mutation(
     tmp_path: Path,
 ) -> None:
     memory_root = tmp_path / "memory"
@@ -406,7 +406,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
         .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
     )
 
-    outcome = Phase3Unit(
+    outcome = (await Phase3Unit(
         context=context,
         action=action,
         bus=SignalBus(),
@@ -415,7 +415,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
         scope=scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     results = {result.action_name: result for result in outcome.results}
     assert all(result.failure is None for result in results.values()), repr(results)
@@ -435,7 +435,7 @@ def test_real_memory_actions_record_turn_trace_without_background_mutation(
     assert context.background_links() == ()
 
 
-def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
+async def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -504,12 +504,12 @@ def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
         .push(RunLevel.PHASE, CyclePhase.PHASE3.value)
     )
 
-    outcome = Phase3Unit(context=context, action=action, bus=bus).run(
+    outcome = (await Phase3Unit(context=context, action=action, bus=bus).run(
         normalization=normalization,
         scope=scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     assert [result.status.value for result in outcome.results] == [
         "success",
@@ -540,7 +540,7 @@ def test_real_workspace_inspection_actions_preserve_trace_lifecycle(
     assert "Alpha and beta are present." in str(summary.trace)
 
 
-def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
+async def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
     action = _action_engine()
@@ -567,13 +567,13 @@ def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     )
     scope = RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value)
 
-    outcome = Phase1Unit(
+    outcome = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
         bus=bus,
         task_profile="framework",
-    ).run(scope=scope, cycle_id="cycle_1")
+    ).run(scope=scope, cycle_id="cycle_1"))
 
     assert outcome.selected_domains == ()
     assert outcome.attempts == 1
@@ -582,7 +582,7 @@ def test_phase1_returns_invalid_domain_selection_for_next_cycle() -> None:
     assert len(llm.calls) == 1
 
 
-def test_phase1_returns_provider_failure_for_next_cycle() -> None:
+async def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("answer now")
     action = _action_engine()
@@ -600,7 +600,7 @@ def test_phase1_returns_provider_failure_for_next_cycle() -> None:
         )
     )
 
-    outcome = Phase1Unit(
+    outcome = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
@@ -609,7 +609,7 @@ def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     ).run(
         scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
         cycle_id="cycle_1",
-    )
+    ))
 
     assert outcome.selected_domains == ()
     assert outcome.failure is not None
@@ -617,7 +617,7 @@ def test_phase1_returns_provider_failure_for_next_cycle() -> None:
     assert len(llm.calls) == 1
 
 
-def test_phase1_invalid_selection_returns_local_failure() -> None:
+async def test_phase1_invalid_selection_returns_local_failure() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -650,13 +650,13 @@ def test_phase1_invalid_selection_returns_local_failure() -> None:
         .push(RunLevel.PHASE, CyclePhase.PHASE1.value)
     )
 
-    outcome = Phase1Unit(
+    outcome = (await Phase1Unit(
         context=context,
         action=action,
         llm=llm,
         bus=bus,
         task_profile="framework",
-    ).run(scope=scope, cycle_id="cycle_1")
+    ).run(scope=scope, cycle_id="cycle_1"))
 
     assert outcome.selected_domains == ()
     assert outcome.failure is not None
@@ -667,7 +667,7 @@ def test_phase1_invalid_selection_returns_local_failure() -> None:
     assert context.trace_kinds() == (TraceKind.PHASE_NOTE,)
 
 
-def test_phase1_applies_working_reconciliation_before_returning() -> None:
+async def test_phase1_applies_working_reconciliation_before_returning() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("finish current work")
     action = _action_engine()
@@ -725,18 +725,18 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
         task_profile="framework",
     )
 
-    outcome_1 = unit.run(
+    outcome_1 = (await unit.run(
         scope=turn_scope.push(RunLevel.CYCLE, "cycle_1").push(
             RunLevel.PHASE, CyclePhase.PHASE1.value
         ),
         cycle_id="cycle_1",
-    )
-    outcome = unit.run(
+    ))
+    outcome = (await unit.run(
         scope=turn_scope.push(RunLevel.CYCLE, "cycle_2").push(
             RunLevel.PHASE, CyclePhase.PHASE1.value
         ),
         cycle_id="cycle_2",
-    )
+    ))
 
     assert outcome_1.selected_domains == ("workspace",)
     assert outcome.selected_domains == ("core",)
@@ -745,7 +745,7 @@ def test_phase1_applies_working_reconciliation_before_returning() -> None:
     ]
 
 
-def test_phase1_maps_loop_scope_failure_to_runtime(
+async def test_phase1_maps_loop_scope_failure_to_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = ContextEngineBuilder(system_text="sys").build()
@@ -759,7 +759,7 @@ def test_phase1_maps_loop_scope_failure_to_runtime(
     )
 
     with pytest.raises(RuntimeException) as raised:
-        Phase1Unit(
+        (await Phase1Unit(
             context=context,
             action=action,
             llm=FakeLLM(()),
@@ -768,13 +768,13 @@ def test_phase1_maps_loop_scope_failure_to_runtime(
         ).run(
             scope=RunScope().push(RunLevel.PHASE, CyclePhase.PHASE1.value),
             cycle_id="cycle_1",
-        )
+        ))
 
     assert raised.value.reason == RUNTIME_TURN_END
     assert raised.value.payload["kind"] == "loop.contract_violation"
 
 
-def test_phase2_returns_framework_failure_for_next_cycle() -> None:
+async def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -793,7 +793,7 @@ def test_phase2_returns_framework_failure_for_next_cycle() -> None:
         .push(RunLevel.PHASE, CyclePhase.PHASE2.value)
     )
 
-    outcome = Phase2Unit(
+    outcome = (await Phase2Unit(
         context=context,
         action=action,
         llm=llm,
@@ -804,7 +804,7 @@ def test_phase2_returns_framework_failure_for_next_cycle() -> None:
         scope=scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     assert outcome.normalization.calls == ()
     assert outcome.attempts == 1
@@ -816,18 +816,18 @@ def test_phase2_returns_framework_failure_for_next_cycle() -> None:
     )
 
 
-def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
+async def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("write a report")
     action = _action_engine()
     bus = SignalBus()
 
     class _Phase1:
-        def run(self, **_kwargs: object) -> Phase1Outcome:
+        async def run(self, **_kwargs: object) -> Phase1Outcome:
             return Phase1Outcome(selected_domains=("core",))
 
     class _Phase2:
-        def run(self, **_kwargs: object) -> Phase2Outcome:
+        async def run(self, **_kwargs: object) -> Phase2Outcome:
             return Phase2Outcome(
                 normalization=ActionNormalization(),
                 failure=PhaseFailure(
@@ -840,7 +840,7 @@ def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
     class _Phase3:
         calls = 0
 
-        def run(self, **_kwargs: object) -> Phase3Outcome:
+        async def run(self, **_kwargs: object) -> Phase3Outcome:
             self.calls += 1
             return Phase3Outcome()
 
@@ -859,18 +859,18 @@ def test_cycle_stops_after_phase2_failure_without_running_phase3() -> None:
         .push(RunLevel.TURN, turn_id)
     )
 
-    outcome = runner.run(
+    outcome = (await runner.run(
         turn_id=turn_id,
         cycle_index=1,
         scope=scope,
-    )
+    ))
 
     assert outcome.phase_failure is not None
     assert outcome.phase_failure.phase is CyclePhase.PHASE2
     assert phase3.calls == 0
 
 
-def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
+async def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("answer now")
     action = _action_engine()
@@ -900,7 +900,7 @@ def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
     )
 
     with pytest.raises(RuntimeException) as raised:
-        Phase3Unit(
+        (await Phase3Unit(
             context=context,
             action=action,
             bus=bus,
@@ -910,13 +910,13 @@ def test_phase3_maps_multiple_answer_completion_contract_error() -> None:
             scope=scope,
             cycle_id="cycle_1",
             turn_id=turn_id,
-        )
+        ))
 
     assert raised.value.payload["kind"] == "loop.contract_violation"
     assert context.turn_active is True
 
 
-def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -> None:
+async def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("reason now")
     action = _action_engine()
@@ -955,17 +955,17 @@ def test_phase3_ignores_stale_workspace_sync_failure_from_another_call() -> None
         )
     )
 
-    outcome = Phase3Unit(context=context, action=action, bus=bus).run(
+    outcome = (await Phase3Unit(context=context, action=action, bus=bus).run(
         normalization=normalization,
         scope=scope,
         cycle_id="cycle_1",
         turn_id=turn_id,
-    )
+    ))
 
     assert outcome.results[0].status.value == "success"
 
 
-def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
+async def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     turn_id = context.begin_turn("scan now")
     bus = SignalBus()
@@ -1051,12 +1051,12 @@ def test_phase3_rejects_failed_sync_for_current_workspace_action() -> None:
     )
 
     with pytest.raises(RuntimeException) as raised:
-        Phase3Unit(context=context, action=action, bus=bus).run(
+        (await Phase3Unit(context=context, action=action, bus=bus).run(
             normalization=normalization,
             scope=scope,
             cycle_id="cycle_1",
             turn_id=turn_id,
-        )
+        ))
 
     assert raised.value.payload["kind"] == "loop.internal_failure"
 

@@ -39,3 +39,15 @@ class ProviderRegistry:
 
     def has(self, provider_id: str, adapter_kind: AdapterKind) -> bool:
         return (provider_id, adapter_kind) in self._adapters
+
+    async def close(self) -> None:
+        """Close every adapter even when one client's cleanup fails."""
+        failure: Exception | None = None
+        for adapter in reversed(tuple(self._adapters.values())):
+            try:
+                await adapter.close()
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise LLMInvariantError("Provider client cleanup failed") from failure

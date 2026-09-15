@@ -30,7 +30,7 @@ class UserTurnEntry:
 
         return self._action.catalog_json()
 
-    def run(
+    async def run(
         self,
         turn_input: str,
         *,
@@ -39,10 +39,10 @@ class UserTurnEntry:
         request_id: str = "",
         input_source: str = "",
     ) -> TurnOutcome:
-        return self._runner.run(
+        return (await self._runner.run(
             turn_input,
             business_day=business_day,
             scope=scope,
             request_id=request_id,
             input_source=input_source,
-        )
+        ))

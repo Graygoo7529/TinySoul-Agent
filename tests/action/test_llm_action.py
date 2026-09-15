@@ -59,7 +59,7 @@ class FakeLLMRunner:
         self.runtime_error = runtime_error
         self.failure = failure
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         self.calls.append(call)
         if self.runtime_error is not None:
             raise self.runtime_error
@@ -109,8 +109,8 @@ class ReturningAfterReserveLLMRunner(FakeLLMRunner):
         super().__init__({"text": "done"}, failure=failure)
         self._control = control
 
-    def run(self, call: TaskCall) -> TaskResult:
-        result = super().run(call)
+    async def run(self, call: TaskCall) -> TaskResult:
+        result = (await super().run(call))
         self._control.set_remaining(4.0)
         return result
 
@@ -138,7 +138,7 @@ class TestActionSkillProvider:
         )
 
 
-def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
+async def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -156,7 +156,7 @@ def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
         },
     )
 
-    result = executor.execute(execution, ActionExecutionContext())
+    result = (await executor.execute(execution, ActionExecutionContext()))
 
     assert result.status is ActionResultStatus.SUCCESS
     assert result.payload == {"ok": True}
@@ -167,7 +167,7 @@ def test_llm_action_uses_splittable_prompt_blocks_and_reference_links() -> None:
     assert "literal input" in text
 
 
-def test_llm_action_reports_unsupported_reference_link() -> None:
+async def test_llm_action_reports_unsupported_reference_link() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -183,7 +183,7 @@ def test_llm_action_reports_unsupported_reference_link() -> None:
         },
     )
 
-    result = executor.execute(execution, ActionExecutionContext())
+    result = (await executor.execute(execution, ActionExecutionContext()))
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
@@ -191,7 +191,7 @@ def test_llm_action_reports_unsupported_reference_link() -> None:
     assert llm.calls == []
 
 
-def test_llm_action_cancellation_stops_before_nested_task() -> None:
+async def test_llm_action_cancellation_stops_before_nested_task() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -201,14 +201,14 @@ def test_llm_action_cancellation_stops_before_nested_task() -> None:
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
     )
 
-    result = executor.execute(
+    result = (await executor.execute(
         _execution(
             "core.answer",
             {"guide_blocks": [{"text": "answer"}]},
             handler="core.answer",
         ),
         ActionExecutionContext(control=control),
-    )
+    ))
 
     assert result.status is ActionResultStatus.TIMEOUT
     assert result.failure is not None
@@ -216,7 +216,7 @@ def test_llm_action_cancellation_stops_before_nested_task() -> None:
     assert llm.calls == []
 
 
-def test_llm_action_reserves_owner_time_for_completion() -> None:
+async def test_llm_action_reserves_owner_time_for_completion() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -225,14 +225,14 @@ def test_llm_action_reserves_owner_time_for_completion() -> None:
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
     )
 
-    result = executor.execute(
+    result = (await executor.execute(
         _execution(
             "core.answer",
             {"guide_blocks": [{"text": "answer"}]},
             handler="core.answer",
         ),
         ActionExecutionContext(control=control),
-    )
+    ))
 
     assert result.status is ActionResultStatus.SUCCESS
     cancellation = llm.calls[0].cancellation
@@ -240,7 +240,7 @@ def test_llm_action_reserves_owner_time_for_completion() -> None:
     assert cancellation.remaining_seconds() == 7.0
 
 
-def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
+async def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -249,14 +249,14 @@ def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
     )
 
-    result = executor.execute(
+    result = (await executor.execute(
         _execution(
             "core.answer",
             {"guide_blocks": [{"text": "answer"}]},
             handler="core.answer",
         ),
         ActionExecutionContext(control=control),
-    )
+    ))
 
     assert result.status is ActionResultStatus.TIMEOUT
     assert result.failure is not None
@@ -269,7 +269,7 @@ def test_llm_action_reserved_deadline_returns_ordinary_action_timeout() -> None:
     assert llm.calls == []
 
 
-def test_llm_action_rechecks_completion_reserve_after_successful_return() -> None:
+async def test_llm_action_rechecks_completion_reserve_after_successful_return() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     control = FixedRemainingControl(12.0)
@@ -278,14 +278,14 @@ def test_llm_action_rechecks_completion_reserve_after_successful_return() -> Non
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
     )
 
-    result = executor.execute(
+    result = (await executor.execute(
         _execution(
             "core.answer",
             {"guide_blocks": [{"text": "answer"}]},
             handler="core.answer",
         ),
         ActionExecutionContext(control=control),
-    )
+    ))
 
     assert result.status is ActionResultStatus.TIMEOUT
     assert result.failure is not None
@@ -293,7 +293,7 @@ def test_llm_action_rechecks_completion_reserve_after_successful_return() -> Non
     assert len(llm.calls) == 1
 
 
-def test_llm_action_preserves_failure_returned_after_completion_reserve() -> None:
+async def test_llm_action_preserves_failure_returned_after_completion_reserve() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     control = FixedRemainingControl(12.0)
@@ -308,14 +308,14 @@ def test_llm_action_preserves_failure_returned_after_completion_reserve() -> Non
         llm_action=LLMActionTaskRunner(llm_runner=llm, context=context)
     )
 
-    result = executor.execute(
+    result = (await executor.execute(
         _execution(
             "core.answer",
             {"guide_blocks": [{"text": "answer"}]},
             handler="core.answer",
         ),
         ActionExecutionContext(control=control),
-    )
+    ))
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
@@ -323,7 +323,7 @@ def test_llm_action_preserves_failure_returned_after_completion_reserve() -> Non
     assert len(llm.calls) == 1
 
 
-def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
+async def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner()
@@ -342,7 +342,7 @@ def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
         },
     )
 
-    result = executor.execute(execution, ActionExecutionContext())
+    result = (await executor.execute(execution, ActionExecutionContext()))
 
     assert result.status is ActionResultStatus.SUCCESS
     labels = tuple(message.label for message in llm.calls[0].messages.messages)
@@ -356,7 +356,7 @@ def test_llm_action_injects_domain_and_action_skills_as_guide_blocks() -> None:
     assert "Use the project rewrite style." in action_text
 
 
-def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> None:
+async def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> None:
     context = ContextEngineBuilder(system_text="sys").build()
     context.begin_turn("user asks")
     llm = FakeLLMRunner({"text": "done"})
@@ -373,7 +373,7 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
         handler="core.answer",
     )
 
-    result = executor.execute(execution, ActionExecutionContext())
+    result = (await executor.execute(execution, ActionExecutionContext()))
 
     assert result.status is ActionResultStatus.SUCCESS
     assert result.payload == {"text": "done", "references": ["workspace:a.md"]}
@@ -382,7 +382,7 @@ def test_answer_executor_uses_reference_links_and_returns_answer_payload() -> No
 
 
 @pytest.mark.parametrize("reason", [CONTEXT_COMPRESSION_REQUIRED, LLM_CONTEXT_CAPACITY_EXCEEDED])
-def test_llm_action_context_pressure_carries_active_resource_links(reason: str) -> None:
+async def test_llm_action_context_pressure_carries_active_resource_links(reason: str) -> None:
     context = ContextEngineBuilder(system_text="system").build()
     pressure = RuntimeException(
         reason=reason,
@@ -403,13 +403,13 @@ def test_llm_action_context_pressure_carries_active_resource_links(reason: str) 
     )
 
     with pytest.raises(RuntimeException) as exc_info:
-        runner.run_json(
+        (await runner.run_json(
             execution=execution,
             prompt=TaskPrompt(
                 guide_blocks=(PromptBlock.from_text("guide", "reason"),),
             ),
             subject="test",
-        )
+        ))
 
     assert exc_info.value.reason == reason
     assert exc_info.value.payload["protected_resource_links"] == [
@@ -419,7 +419,7 @@ def test_llm_action_context_pressure_carries_active_resource_links(reason: str) 
     ]
 
 
-def test_llm_action_text_artifact_uses_action_limits() -> None:
+async def test_llm_action_text_artifact_uses_action_limits() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
     llm = FakeLLMRunner({"text": "complete artifact"})
@@ -430,20 +430,20 @@ def test_llm_action_text_artifact_uses_action_limits() -> None:
         options={"max_output_tokens": 16384, "max_output_chars": 100},
     )
 
-    result = runner.run_text(
+    result = (await runner.run_text(
         execution=execution,
         prompt=TaskPrompt(
             guide_blocks=(PromptBlock.from_text("guide", "write"),),
         ),
         subject="Artifact task",
-    )
+    ))
 
     assert result == "complete artifact"
     assert llm.calls[0].settings.answer_format is AnswerFormat.TEXT
     assert llm.calls[0].settings.max_output_tokens == 16384
 
 
-def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
+async def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
     runner = LLMActionTaskRunner(
@@ -456,13 +456,13 @@ def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
         options={"max_output_chars": 4},
     )
 
-    result = runner.run_text(
+    result = (await runner.run_text(
         execution=execution,
         prompt=TaskPrompt(
             guide_blocks=(PromptBlock.from_text("guide", "write"),),
         ),
         subject="Artifact task",
-    )
+    ))
 
     assert isinstance(result, ActionResult)
     assert result.payload == {}
@@ -477,7 +477,7 @@ def test_llm_action_text_artifact_limit_returns_bounded_failure() -> None:
     assert result.frame_data["observed_chars"] == 8
 
 
-def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> None:
+async def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
     runner = LLMActionTaskRunner(
@@ -490,19 +490,19 @@ def test_llm_action_owner_artifact_limit_overrides_catalog_default() -> None:
         options={"max_output_chars": 4},
     )
 
-    result = runner.run_text(
+    result = (await runner.run_text(
         execution=execution,
         prompt=TaskPrompt(
             guide_blocks=(PromptBlock.from_text("guide", "write"),),
         ),
         subject="Artifact task",
         max_output_chars=100,
-    )
+    ))
 
     assert result == "123456"
 
 
-def test_llm_action_output_limit_preserves_recovery_scope() -> None:
+async def test_llm_action_output_limit_preserves_recovery_scope() -> None:
     context = ContextEngineBuilder(system_text="system").build()
     context.begin_turn("write a document")
     failure = TaskFailure(
@@ -516,13 +516,13 @@ def test_llm_action_output_limit_preserves_recovery_scope() -> None:
         context=context,
     )
 
-    result = runner.run_text(
+    result = (await runner.run_text(
         execution=_execution("core.reason", {}),
         prompt=TaskPrompt(
             guide_blocks=(PromptBlock.from_text("guide", "write"),),
         ),
         subject="Artifact task",
-    )
+    ))
 
     assert isinstance(result, ActionResult)
     assert result.failure is not None

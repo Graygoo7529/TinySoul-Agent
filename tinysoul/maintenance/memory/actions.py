@@ -208,11 +208,11 @@ class MemoryMaintenanceActionController:
         with self._lock:
             self._state = None
 
-    def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         try:
             with self._lock:
-                payload = self._execute(self._require_state(), execution)
+                payload = (await self._execute(self._require_state(), execution))
             return _success(execution, payload)
         except (MaintenanceContractError, MaintenanceInvariantError, MemoryContractError) as exc:
             return _failed(execution, str(exc), reason="memory_request_invalid")
@@ -223,7 +223,7 @@ class MemoryMaintenanceActionController:
         except WorkspaceError as exc:
             raise self._workspace_bridge.from_workspace_error(exc) from exc
 
-    def _execute(self, state: _MemoryTaskState, execution: ActionExecution) -> JsonObject:
+    async def _execute(self, state: _MemoryTaskState, execution: ActionExecution) -> JsonObject:
         name = execution.call.action_name
         params = execution.call.params
         if state.committed and name != "maintenance.complete":
@@ -243,7 +243,7 @@ class MemoryMaintenanceActionController:
         if name == "maintenance.memory.stage_redirect":
             return self._stage_redirect(state, params)
         if name == "maintenance.memory.compose_daily":
-            return self._compose_daily(state, execution)
+            return (await self._compose_daily(state, execution))
         if name == "maintenance.memory.stage_daily":
             return self._stage_daily(state, params)
         if name == "maintenance.memory.preview":
@@ -464,8 +464,8 @@ class MemoryMaintenanceActionController:
         state.draft.changed()
         return {"staged": True, "link": str(source), "redirect_to": str(target), "draft_revision": state.draft.revision}
 
-    def _compose_daily(self, state: _MemoryTaskState, execution: ActionExecution) -> JsonObject:
-        result = self._composer.compose(
+    async def _compose_daily(self, state: _MemoryTaskState, execution: ActionExecution) -> JsonObject:
+        result = (await self._composer.compose(
             DailyCompositionRequest(
                 day=state.target_day,
                 session=state.projection,
@@ -476,7 +476,7 @@ class MemoryMaintenanceActionController:
                 max_document_chars=self._memory.settings.documents.daily_max_chars,
             ),
             scope=execution.framework.scope,
-        )
+        ))
         state.draft.daily_candidate = result.content
         state.draft.daily_mode = None
         state.draft.daily_document = None
@@ -631,8 +631,8 @@ class MemoryMaintenanceActionExecutor(ActionExecutor):
     def __init__(self, controller: MemoryMaintenanceActionController) -> None:
         self._controller = controller
 
-    def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
-        return self._controller.execute(execution, context)
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        return (await self._controller.execute(execution, context))
 
 
 def register_memory_maintenance_actions(

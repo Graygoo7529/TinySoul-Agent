@@ -346,13 +346,13 @@ class ActionEngine:
             phase=CyclePhase.PHASE3,
         )
 
-    def run_batch(
+    async def run_batch(
         self,
         batch: ActionBatch,
         *,
         context: ActionExecutionContext | None = None,
     ) -> tuple[ActionResult, ...]:
-        return self._runner.run(batch, context or ActionExecutionContext())
+        return (await self._runner.run(batch, context or ActionExecutionContext()))
 
     def render_result_model_payload(self, result: ActionResult) -> JsonObject:
         """Render one action result for model feedback."""

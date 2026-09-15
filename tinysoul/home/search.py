@@ -97,7 +97,7 @@ class HomeSearchRequest:
 class HomeSearchReranker(Protocol):
     """Optional semantic reranker for deterministic Home candidates."""
 
-    def rerank(
+    async def rerank(
         self,
         request: HomeSearchRequest,
         *,
@@ -150,7 +150,7 @@ class HomeTopSearchService:
     def prefix_max_chars(self) -> int:
         return self._settings.prefix_max_chars
 
-    def search(
+    async def search(
         self,
         *,
         query: str,
@@ -194,14 +194,14 @@ class HomeTopSearchService:
                 raise AgentHomeContractError(
                     "Home top search reranking requires a runtime scope"
                 )
-            links = reranker.rerank(
+            links = (await reranker.rerank(
                 HomeSearchRequest(
                     query=query.strip(),
                     top_k=limit,
                     candidates=candidates,
                 ),
                 scope=scope,
-            )
+            ))
             validated = _validated_rerank(links, candidates=candidates, top_k=limit)
             if validated is not None:
                 by_link = {candidate.entry.link: candidate for candidate in candidates}
@@ -243,7 +243,7 @@ class HomeTopSearchService:
 
 
 class HomeSearchModelRunner(Protocol):
-    def run(self, call: TaskCall) -> TaskResult: ...
+    async def run(self, call: TaskCall) -> TaskResult: ...
 
 
 class LLMHomeSearchReranker:
@@ -252,13 +252,13 @@ class LLMHomeSearchReranker:
     def __init__(self, runner: HomeSearchModelRunner) -> None:
         self._runner = runner
 
-    def rerank(
+    async def rerank(
         self,
         request: HomeSearchRequest,
         *,
         scope: RunScope,
     ) -> tuple[str, ...] | None:
-        result = self._runner.run(
+        result = await self._runner.run(
             TaskCall(
                 profile=TaskProfile.HOME_SEARCH,
                 messages=MessageStack.of(

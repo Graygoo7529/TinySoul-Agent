@@ -43,7 +43,7 @@ class MemoryMemorizeExecutor(ActionExecutor):
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         params = execution.call.params
         expected = params.get("expected_digest")
@@ -86,7 +86,7 @@ class MemoryInspectExecutor(ActionExecutor):
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         params = execution.call.params
         try:
@@ -119,7 +119,7 @@ class MemoryRecallExecutor(ActionExecutor):
         self._memory = memory
         self._runtime_bridge = runtime_bridge
 
-    def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
         del context
         link = execution.call.params.get("memory_link")
         if not isinstance(link, str) or not link:

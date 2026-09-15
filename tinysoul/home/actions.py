@@ -94,7 +94,7 @@ class HomeTopSearchExecutor(ActionExecutor):
         self._reranker = reranker
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -116,12 +116,12 @@ class HomeTopSearchExecutor(ActionExecutor):
                 reason="invalid_top_k",
             )
         try:
-            result = self._home.search_top(
+            result = (await self._home.search_top(
                 query,
                 top_k=top_k if isinstance(top_k, int) else None,
                 reranker=self._reranker,
                 scope=execution.framework.scope,
-            )
+            ))
         except AgentHomeInvariantError as exc:
             raise self._runtime_bridge.from_home_error(exc) from exc
         except AgentHomeError as exc:
@@ -159,7 +159,7 @@ class HomeResourceReadExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -251,7 +251,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -302,7 +302,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -354,7 +354,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -395,7 +395,7 @@ class HomeTopWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -449,7 +449,7 @@ class HomeTopPatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -501,7 +501,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -539,7 +539,7 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -590,7 +590,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

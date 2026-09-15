@@ -42,7 +42,7 @@ class TinySoulApp:
             tuple(self.program_request_sources),
         )
 
-    def run(self) -> ProgramOutcome:
+    async def run(self) -> ProgramOutcome:
         started: list[InputSource | ProgramRequestSource | AppService] = []
         self.program_runner.prepare()
         for source in self.program_request_sources:
@@ -67,7 +67,7 @@ class TinySoulApp:
                 raise
             started.append(source)
         try:
-            outcome = self.program_runner.run()
+            outcome = (await self.program_runner.run())
         except BaseException:
             self._stop_sources(started, suppress_errors=True)
             raise
@@ -75,8 +75,8 @@ class TinySoulApp:
         self.observations.raise_if_failed()
         return outcome
 
-    def run_once(self, user_input: str) -> TurnOutcome:
-        outcome = self.program_runner.run_once(user_input)
+    async def run_once(self, user_input: str) -> TurnOutcome:
+        outcome = (await self.program_runner.run_once(user_input))
         self.observations.raise_if_failed()
         return outcome
 

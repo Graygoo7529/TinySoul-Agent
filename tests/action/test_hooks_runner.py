@@ -113,7 +113,7 @@ class RuntimeNormalizeHook:
 
 
 class MismatchedExecutor:
-    def execute(self, execution, context) -> ActionResult:
+    async def execute(self, execution, context) -> ActionResult:
         return ActionResult.success(
             call_id="other_call",
             invoke_id=execution.framework.invoke_id,
@@ -125,7 +125,7 @@ class MismatchedExecutor:
 
 
 class RuntimeExceptionExecutor:
-    def execute(self, execution, context) -> ActionResult:
+    async def execute(self, execution, context) -> ActionResult:
         raise RuntimeException(
             reason=HOME_RUNTIME_COPY_REQUIRED,
             message="copy required",
@@ -134,7 +134,7 @@ class RuntimeExceptionExecutor:
 
 
 class ProjectionExecutor:
-    def execute(self, execution, context) -> ActionResult:
+    async def execute(self, execution, context) -> ActionResult:
         return ActionResult.success(
             call_id=execution.call.call_id,
             invoke_id=execution.framework.invoke_id,
@@ -185,7 +185,7 @@ def _batch_for(action_name: str, arguments: JsonObject):
     return catalog, batch
 
 
-def test_runner_returns_action_result_from_executor() -> None:
+async def test_runner_returns_action_result_from_executor() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -193,10 +193,10 @@ def test_runner_returns_action_result_from_executor() -> None:
         FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    results = ActionBatchRunner(executors=executors).run(
+    results = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )
+    ))
 
     assert len(results) == 1
     assert results[0].status is ActionResultStatus.SUCCESS
@@ -204,17 +204,17 @@ def test_runner_returns_action_result_from_executor() -> None:
     assert results[0].payload == {"ok": True}
 
 
-def test_runner_accepts_projection_for_foldable_action() -> None:
+async def test_runner_accepts_projection_for_foldable_action() -> None:
     catalog, batch = _single_test_batch(
         _test_action("test.foldable", trace_mode=ActionTraceMode.FOLDABLE)
     )
     executors = ExecutorRegistry()
     executors.register("test.foldable", ProjectionExecutor())
 
-    result = ActionBatchRunner(executors=executors).run(
+    result = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.status is ActionResultStatus.SUCCESS
     assert result.trace_projection is not None
@@ -224,7 +224,7 @@ def test_runner_accepts_projection_for_foldable_action() -> None:
     )
 
 
-def test_runner_rejects_missing_foldable_projection() -> None:
+async def test_runner_rejects_missing_foldable_projection() -> None:
     catalog, batch = _single_test_batch(
         _test_action("test.foldable", trace_mode=ActionTraceMode.FOLDABLE)
     )
@@ -234,47 +234,47 @@ def test_runner_rejects_missing_foldable_projection() -> None:
         FunctionActionExecutor(lambda execution, context: {"ok": True}),
     )
 
-    result = ActionBatchRunner(executors=executors).run(
+    result = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
     assert result.failure.reason == "result_trace_policy_mismatch"
 
 
-def test_runner_rejects_projection_for_standard_action() -> None:
+async def test_runner_rejects_projection_for_standard_action() -> None:
     catalog, batch = _single_test_batch(_test_action("test.standard"))
     executors = ExecutorRegistry()
     executors.register("test.standard", ProjectionExecutor())
 
-    result = ActionBatchRunner(executors=executors).run(
+    result = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.status is ActionResultStatus.FAILED
     assert result.failure is not None
     assert result.failure.reason == "result_trace_policy_mismatch"
 
 
-def test_runner_allows_runtime_exception_to_reach_trap() -> None:
+async def test_runner_allows_runtime_exception_to_reach_trap() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register("core.answer", RuntimeExceptionExecutor())
 
     with pytest.raises(RuntimeException) as raised:
-        ActionBatchRunner(executors=executors).run(
+        (await ActionBatchRunner(executors=executors).run(
             batch,
             ActionExecutionContext(),
-        )
+        ))
 
     assert raised.value.reason == HOME_RUNTIME_COPY_REQUIRED
     assert raised.value.payload["link"] == "home:skills/test/ref.md"
 
 
-def test_capacity_retry_replays_only_interrupted_action() -> None:
+async def test_capacity_retry_replays_only_interrupted_action() -> None:
     peer_committed = Event()
     _, batch = _parallel_runtime_batch()
     attempts: list[str] = []
@@ -306,12 +306,12 @@ def test_capacity_retry_replays_only_interrupted_action() -> None:
     executors = ExecutorRegistry()
     executors.register("test.interrupt", FunctionActionExecutor(recovering))
     executors.register("test.peer", FunctionActionExecutor(committing))
-    results = ActionBatchRunner(executors=executors).run(
+    results = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(module_runner=RuntimeModuleRunner(
             trap=RuntimeTrap(registry=registry), bus=SignalBus(),
         )),
-    )
+    ))
 
     assert len(attempts) == 2 and attempts[0] == attempts[1]
     assert commits == ["call_2"]
@@ -319,7 +319,7 @@ def test_capacity_retry_replays_only_interrupted_action() -> None:
     assert all(result.status is ActionResultStatus.SUCCESS for result in results)
 
 
-def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
+async def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
     peer_started = Event()
     cancel_seen = Event()
     catalog, batch = _parallel_runtime_batch()
@@ -344,15 +344,15 @@ def test_runtime_transfer_cancels_parallel_cooperative_action() -> None:
     executors.register("test.peer", FunctionActionExecutor(cooperative))
 
     with pytest.raises(RuntimeException):
-        ActionBatchRunner(
+        (await ActionBatchRunner(
             executors=executors,
             cooperative_cancel_grace_seconds=0.2,
-        ).run(batch, ActionExecutionContext())
+        ).run(batch, ActionExecutionContext()))
 
     assert cancel_seen.is_set()
 
 
-def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> None:
+async def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> None:
     peer_started = Event()
     release_peer = Event()
     catalog, batch = _parallel_runtime_batch()
@@ -375,10 +375,10 @@ def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> N
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
-            ActionBatchRunner(
+            (await ActionBatchRunner(
                 executors=executors,
                 cooperative_cancel_grace_seconds=0.01,
-            ).run(batch, ActionExecutionContext())
+            ).run(batch, ActionExecutionContext()))
         elapsed = monotonic() - started
     finally:
         release_peer.set()
@@ -386,7 +386,7 @@ def test_runtime_transfer_does_not_wait_for_non_cooperative_native_action() -> N
     assert elapsed < 0.5
 
 
-def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None:
+async def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None:
     peer_started = Event()
     release_peer = Event()
     _, batch = _parallel_runtime_batch(peer_timeout_seconds=0.02)
@@ -410,10 +410,10 @@ def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
-            ActionBatchRunner(
+            (await ActionBatchRunner(
                 executors=executors,
                 cooperative_cancel_grace_seconds=0.005,
-            ).run(batch, ActionExecutionContext())
+            ).run(batch, ActionExecutionContext()))
         elapsed = monotonic() - started
     finally:
         release_peer.set()
@@ -421,7 +421,7 @@ def test_runtime_transfer_preserves_prior_timeout_leak_shutdown_policy() -> None
     assert elapsed < 0.5
 
 
-def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
+async def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
     peer_started = Event()
     release_peer = Event()
     _, batch = _parallel_runtime_batch(interrupt_timeout_seconds=0.01)
@@ -445,10 +445,10 @@ def test_runtime_transfer_during_timeout_grace_does_not_wait_for_peer() -> None:
     started = monotonic()
     try:
         with pytest.raises(RuntimeException):
-            ActionBatchRunner(
+            (await ActionBatchRunner(
                 executors=executors,
                 cooperative_cancel_grace_seconds=0.05,
-            ).run(batch, ActionExecutionContext())
+            ).run(batch, ActionExecutionContext()))
         elapsed = monotonic() - started
     finally:
         release_peer.set()
@@ -528,15 +528,15 @@ def test_executor_registry_validates_catalog_handlers() -> None:
         executors.validate_catalog(catalog)
 
 
-def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
+async def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register("core.answer", MismatchedExecutor())
 
-    results = ActionBatchRunner(executors=executors).run(
+    results = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )
+    ))
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].stage is ActionResultStage.EXECUTE
@@ -547,7 +547,7 @@ def test_runner_returns_failed_result_for_mismatched_executor_result() -> None:
     assert "call_id" in mismatch
 
 
-def test_runner_returns_failed_result_when_hook_rejects() -> None:
+async def test_runner_returns_failed_result_when_hook_rejects() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -558,10 +558,10 @@ def test_runner_returns_failed_result_when_hook_rejects() -> None:
     hooks.registry.register_execution_hook("reject", RejectHook())
     hooks.registry.register_global_execution("reject")
 
-    results = ActionBatchRunner(
+    results = (await ActionBatchRunner(
         executors=executors,
         hooks=hooks,
-    ).run(batch, ActionExecutionContext())
+    ).run(batch, ActionExecutionContext()))
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].failure is not None
@@ -626,7 +626,7 @@ def test_hook_outcome_rejects_failure_inside_business_payload() -> None:
         )
 
 
-def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
+async def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -637,10 +637,10 @@ def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
     hooks.registry.register_execution_hook("invalid", InvalidOutcomeHook())
     hooks.registry.register_global_execution("invalid")
 
-    result = ActionBatchRunner(executors=executors, hooks=hooks).run(
+    result = (await ActionBatchRunner(executors=executors, hooks=hooks).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.failure is not None
     assert result.failure.reason == "execution_hook_failed"
@@ -650,7 +650,7 @@ def test_runner_returns_local_failure_for_invalid_hook_outcome() -> None:
     }
 
 
-def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
+async def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -661,10 +661,10 @@ def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
     hooks.registry.register_execution_hook("reserved", ReservedFrameHook())
     hooks.registry.register_global_execution("reserved")
 
-    result = ActionBatchRunner(executors=executors, hooks=hooks).run(
+    result = (await ActionBatchRunner(executors=executors, hooks=hooks).run(
         batch,
         ActionExecutionContext(),
-    )[0]
+    ))[0]
 
     assert result.failure is not None
     assert result.failure.reason == "execution_hook_failed"
@@ -672,7 +672,7 @@ def test_runner_preserves_pipeline_identity_for_reserved_hook_frame() -> None:
     assert result.frame_data["error_type"] == "ActionInvariantError"
 
 
-def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
+async def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -682,17 +682,17 @@ def test_runner_returns_failed_result_when_hook_is_unknown() -> None:
     hooks = ActionExecutionHookPipeline()
     hooks.registry.register_global_execution("missing")
 
-    results = ActionBatchRunner(
+    results = (await ActionBatchRunner(
         executors=executors,
         hooks=hooks,
-    ).run(batch, ActionExecutionContext())
+    ).run(batch, ActionExecutionContext()))
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].stage is ActionResultStage.HOOK
     assert results[0].frame_data["hook"] == "missing"
 
 
-def test_runner_returns_failed_result_when_hook_raises() -> None:
+async def test_runner_returns_failed_result_when_hook_raises() -> None:
     catalog, batch = _batch_for("core.answer", ANSWER_ARGS)
     executors = ExecutorRegistry()
     executors.register(
@@ -703,10 +703,10 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
     hooks.registry.register_execution_hook("explode", ExplodingHook())
     hooks.registry.register_global_execution("explode")
 
-    results = ActionBatchRunner(
+    results = (await ActionBatchRunner(
         executors=executors,
         hooks=hooks,
-    ).run(batch, ActionExecutionContext())
+    ).run(batch, ActionExecutionContext()))
 
     assert results[0].status is ActionResultStatus.FAILED
     assert results[0].stage is ActionResultStage.HOOK
@@ -720,7 +720,7 @@ def test_runner_returns_failed_result_when_hook_raises() -> None:
         (RuntimeTransferHook(), RuntimeTransferInterrupt),
     ),
 )
-def test_runner_propagates_runtime_control_from_execution_hook(
+async def test_runner_propagates_runtime_control_from_execution_hook(
     hook,
     error_type,
 ) -> None:
@@ -735,10 +735,10 @@ def test_runner_propagates_runtime_control_from_execution_hook(
     hooks.registry.register_global_execution("runtime")
 
     with pytest.raises(error_type):
-        ActionBatchRunner(
+        (await ActionBatchRunner(
             executors=executors,
             hooks=hooks,
-        ).run(batch, ActionExecutionContext())
+        ).run(batch, ActionExecutionContext()))
 
 
 def test_normalizer_propagates_runtime_exception_from_hook() -> None:
@@ -761,7 +761,7 @@ def test_normalizer_propagates_runtime_exception_from_hook() -> None:
         )
 
 
-def test_runner_returns_timeout_for_blocked_execution() -> None:
+async def test_runner_returns_timeout_for_blocked_execution() -> None:
     catalog = ActionCatalog(
         domains=(
             ActionDomainSpec(
@@ -818,15 +818,15 @@ def test_runner_returns_timeout_for_blocked_execution() -> None:
         FunctionActionExecutor(lambda execution, context: sleep(0.2) or {}),
     )
 
-    results = ActionBatchRunner(executors=executors).run(
+    results = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )
+    ))
 
     assert results[0].status is ActionResultStatus.TIMEOUT
 
 
-def test_runner_blocks_later_groups_after_timeout_leak() -> None:
+async def test_runner_blocks_later_groups_after_timeout_leak() -> None:
     catalog = ActionCatalog(
         domains=(
             ActionDomainSpec(
@@ -915,10 +915,10 @@ def test_runner_blocks_later_groups_after_timeout_leak() -> None:
         FunctionActionExecutor(lambda execution, context: {"started": True}),
     )
 
-    results = ActionBatchRunner(executors=executors).run(
+    results = (await ActionBatchRunner(executors=executors).run(
         batch,
         ActionExecutionContext(),
-    )
+    ))
 
     assert results[0].status is ActionResultStatus.TIMEOUT
     assert results[1].status is ActionResultStatus.FAILED

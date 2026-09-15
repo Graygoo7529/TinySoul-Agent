@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from time import monotonic
 from uuid import uuid4
 
@@ -123,6 +124,40 @@ class ActionBatch:
             seen_call_ids.add(execution.call.call_id)
             seen_invoke_ids.add(execution.framework.invoke_id)
             seen_sequences.add(execution.call.sequence)
+
+
+class ExecutionState(StrEnum):
+    REQUESTED = "requested"
+    STARTED = "started"
+    SETTLED = "settled"
+    CANCELLED = "cancelled"
+    NOT_EXECUTED = "not_executed"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ExecutionFact:
+    """Typed execution fact; interrupted work need not have a tool result."""
+
+    call: ActionCall
+    framework: ActionFramework
+    state: ExecutionState
+    result: ActionResult | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.call, ActionCall) or not isinstance(self.framework, ActionFramework):
+            raise ActionInvariantError("Execution fact requires typed call identity")
+        if not isinstance(self.state, ExecutionState):
+            raise ActionInvariantError("Execution fact requires a typed state")
+        if (self.state is ExecutionState.SETTLED) != (self.result is not None):
+            raise ActionInvariantError("Only settled execution facts contain a result")
+        if self.result is not None and (
+            self.result.invoke_id != self.framework.invoke_id
+            or self.result.call_id != self.call.call_id
+            or self.result.batch_id != self.framework.batch_id
+            or self.result.action_name != self.call.action_name
+        ):
+            raise ActionInvariantError("Execution fact result identity does not match")
 
 
 @dataclass(frozen=True)

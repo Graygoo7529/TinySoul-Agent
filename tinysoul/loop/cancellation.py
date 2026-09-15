@@ -13,8 +13,8 @@ class TurnCancellation:
     Boundary consumption of control signals stays the authoritative source
     of Turn control flow. The token only accelerates convergence of work
     that is already in flight when the control request arrives: an LLM
-    provider call abandons its wait, and an action batch requests
-    cooperative cancellation of its executions. The next cycle boundary
+    provider call observes cancellation while the owning task remains joined,
+    and an action batch requests cooperative cancellation of its executions. The next cycle boundary
     then consumes the pending control signal as usual.
     """
 

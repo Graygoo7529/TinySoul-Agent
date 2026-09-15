@@ -1,6 +1,7 @@
 """TinySoul command-line entry points."""
 
 from __future__ import annotations
+import asyncio
 
 import argparse
 from pathlib import Path
@@ -176,7 +177,7 @@ def _start(argv: Sequence[str]) -> int:
                 )
             app = builder.build()
             if args.once is not None:
-                outcome = app.run_once(args.once)
+                outcome = asyncio.run(app.run_once(args.once))
                 return 0 if outcome.status.value == "answered" else 1
             escalation = _SigintEscalation(app.gateway)
             previous_handler = signal_module.signal(
@@ -184,7 +185,7 @@ def _start(argv: Sequence[str]) -> int:
                 escalation.handle,
             )
             try:
-                app.run()
+                asyncio.run(app.run())
             finally:
                 signal_module.signal(signal_module.SIGINT, previous_handler)
             return 0

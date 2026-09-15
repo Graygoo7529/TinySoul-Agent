@@ -31,6 +31,7 @@ tinysoul = "tinysoul.app.cli:main"
 dev = [
     "crawlee>=1.8,<2",
     "pytest",
+    "pytest-asyncio>=1.0,<2",
     "setuptools>=70.1",
     "ty>=0.0.57",
 ]
@@ -78,6 +79,7 @@ include = ["tinysoul*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+anyio_mode = "auto"
 cache_dir = ".local-test/pytest-cache"
 markers = [
     "external: requires a real provider or network service",

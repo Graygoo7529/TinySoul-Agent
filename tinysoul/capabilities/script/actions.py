@@ -122,7 +122,7 @@ class ScriptAuthoringExecutor(ActionExecutor):
         self._home_bridge = home_bridge
         self._workspace_bridge = workspace_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -168,12 +168,12 @@ class ScriptAuthoringExecutor(ActionExecutor):
             if mapped is not None:
                 return mapped
             raise
-        text = self._llm_action.run_text(
+        text = (await self._llm_action.run_text(
             execution=execution,
             prompt=prompt,
             subject=f"Script {self._mode} LLM task",
             control=context.control,
-        )
+        ))
         if isinstance(text, ActionResult):
             return text
         try:
@@ -254,7 +254,7 @@ class ScriptPatchExecutor(ActionExecutor):
         self._home_bridge = home_bridge
         self._workspace_bridge = workspace_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -345,7 +345,7 @@ class ScriptPromoteExecutor(ActionExecutor):
         self._home_bridge = home_bridge
         self._workspace_bridge = workspace_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -431,7 +431,7 @@ class ScriptRunExecutor(ActionExecutor):
         self._home_bridge = home_bridge
         self._workspace_bridge = workspace_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from tinysoul.context import ContextEngine, ControlResult
 from tinysoul.context.errors import ContextError
@@ -19,7 +20,7 @@ class ContextSignalConsumer:
     module_runner: RuntimeModuleRunner | None = None
     runtime_bridge: RuntimeContextBridge = RuntimeContextBridge()
 
-    def emit_and_consume(
+    async def emit_and_consume(
         self,
         signals: tuple[Signal, ...],
         *,
@@ -29,9 +30,9 @@ class ContextSignalConsumer:
 
         for signal in signals:
             self.bus.emit(signal)
-        return self.consume(scope=scope)
+        return await self.consume(scope=scope)
 
-    def consume(self, *, scope: RunScope) -> tuple[ControlResult, ...]:
+    async def consume(self, *, scope: RunScope) -> tuple[ControlResult, ...]:
         try:
             batch = self.context.take_signal_batch(self.bus)
         except ContextError as exc:
@@ -39,16 +40,16 @@ class ContextSignalConsumer:
         if not batch.signals:
             return ()
 
-        def commit() -> tuple[ControlResult, ...]:
+        async def commit(_module_scope: RunScope) -> tuple[ControlResult, ...]:
             try:
-                return self.context.consume_signal_batch(batch)
+                return tuple(self.context.consume_signal_batch(batch))
             except ContextError as exc:
                 raise self.runtime_bridge.from_context_error(exc) from exc
 
         if self.module_runner is None:
-            return commit()
-        return self.module_runner.run(
+            return await commit(scope)
+        return cast(tuple[ControlResult, ...], await self.module_runner.run(
             scope=scope,
             name="context.consume_signals",
-            callback=lambda _module_scope: commit(),
-        )
+            callback=commit,
+        ))

@@ -47,7 +47,7 @@ from tinysoul.action.config import LLMActionProfileResolver
 class LLMActionModelRunner(Protocol):
     """LLM runner surface required by action-internal LLM tasks."""
 
-    def run(self, call: TaskCall) -> TaskResult:
+    async def run(self, call: TaskCall) -> TaskResult:
         """Run one LLM task."""
         ...
 
@@ -127,7 +127,7 @@ class LLMActionTaskRunner:
             ),
         )
 
-    def run_json(
+    async def run_json(
         self,
         *,
         execution: ActionExecution,
@@ -137,13 +137,13 @@ class LLMActionTaskRunner:
     ) -> JsonObject | ActionResult:
         """Run one JSON-object LLM action task and normalize local failures."""
 
-        result = self._run(
+        result = (await self._run(
             execution=execution,
             prompt=prompt,
             answer_format=AnswerFormat.JSON_OBJECT,
             subject=subject,
             control=control,
-        )
+        ))
         if isinstance(result, ActionResult):
             return result
         if not isinstance(result.answer, JsonAnswer):
@@ -156,7 +156,7 @@ class LLMActionTaskRunner:
             )
         return result.answer.value
 
-    def run_text(
+    async def run_text(
         self,
         *,
         execution: ActionExecution,
@@ -167,14 +167,14 @@ class LLMActionTaskRunner:
     ) -> str | ActionResult:
         """Run one complete text-artifact task without returning it to Context."""
 
-        result = self._run(
+        result = (await self._run(
             execution=execution,
             prompt=prompt,
             answer_format=AnswerFormat.TEXT,
             subject=subject,
             control=control,
             max_output_chars=max_output_chars,
-        )
+        ))
         if isinstance(result, ActionResult):
             return result
         if not isinstance(result.answer, TextAnswer):
@@ -216,7 +216,7 @@ class LLMActionTaskRunner:
             )
         return text
 
-    def _run(
+    async def _run(
         self,
         *,
         execution: ActionExecution,
@@ -242,7 +242,7 @@ class LLMActionTaskRunner:
         try:
             if cancellation is not None:
                 cancellation.check()
-            result = self._llm_runner.run(
+            result = (await self._llm_runner.run(
                 TaskCall(
                     profile=self._profile_resolver.profile_for(
                         execution.call.action_name
@@ -262,7 +262,7 @@ class LLMActionTaskRunner:
                     ),
                     cancellation=cancellation,
                 )
-            )
+            ))
             if (
                 cancellation is not None
                 and result.status is TaskResultStatus.SUCCESS

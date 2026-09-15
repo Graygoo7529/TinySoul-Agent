@@ -269,7 +269,7 @@ class AgentHomeEngine:
         self._validate_skill_catalog_budget(result)
         return result
 
-    def search_top(
+    async def search_top(
         self,
         query: str,
         *,
@@ -285,13 +285,13 @@ class AgentHomeEngine:
             if link.space not in SEARCHABLE_HOME_SPACES:
                 continue
             documents.append(self._search_document(link))
-        return self._search.search(
+        return (await self._search.search(
             query=query,
             documents=tuple(documents),
             top_k=top_k,
             reranker=reranker,
             scope=scope,
-        )
+        ))
 
     def read_top(self, link: HomeTopLink | str) -> str:
         parsed = HomeTopLink.parse(link) if isinstance(link, str) else link

@@ -86,7 +86,7 @@ class KimiSearchExecutor(ActionExecutor):
         self._service = service
         self._bus = bus
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -149,7 +149,7 @@ class WebFetchExecutor(ActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -213,7 +213,7 @@ class WebDiscoveryExecutor(ActionExecutor):
         self._service = service
         self._bus = bus
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

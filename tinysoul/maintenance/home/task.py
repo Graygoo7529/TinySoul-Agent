@@ -37,7 +37,7 @@ class HomeMaintenanceTask:
         pending = self._home.review_pending()
         return pending.change_count, pending.skill_memory_count
 
-    def run(
+    async def run(
         self,
         *,
         business_day: BusinessDay,
@@ -62,13 +62,13 @@ class HomeMaintenanceTask:
         completed = False
         try:
             self._controller.begin()
-            outcome = self._turn.run(
+            outcome = (await self._turn.run(
                 "Review and resolve every current runtime Home difference.",
                 business_day=business_day,
                 scope=scope,
                 request_id=request_id,
                 input_source="maintenance.home",
-            )
+            ))
             if not outcome.completed:
                 self._controller.abort()
                 completed = True

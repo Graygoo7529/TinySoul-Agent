@@ -161,7 +161,7 @@ class TurnRunner:
         cancellation.request(kind)
         return True
 
-    def run(
+    async def run(
         self,
         turn_input: str,
         *,
@@ -202,12 +202,12 @@ class TurnRunner:
                     "business_day": str(business_day),
                 },
             )
-            preparation = self._run_preparation(
+            preparation = (await self._run_preparation(
                 turn_id=turn_id,
                 turn_input=turn_input,
                 business_day=business_day,
                 scope=turn_scope,
-            )
+            ))
             if preparation is not None:
                 transfer = preparation.transfer
                 failure = preparation.failure
@@ -222,20 +222,20 @@ class TurnRunner:
                             turn_id
                         ):
                             exhausted = True
-                            self._record_cycle_limit(turn_scope)
+                            (await self._record_cycle_limit(turn_scope))
                             break
                     if self._activity_controller is not None:
                         self._activity_controller.wait_before_cycle(
                             turn_id,
                             bus=self._bus,
                         )
-                    cycle = self._cycle_runner.run(
+                    cycle = (await self._cycle_runner.run(
                         turn_id=turn_id,
                         cycle_index=cycle_index,
                         scope=turn_scope,
                         cancellation=cancellation,
                         phase_feedback=tuple(phase_feedback),
-                    )
+                    ))
                     if failure is None:
                         failure = cycle.failure
                     stopped = stopped or cycle.stopped
@@ -372,7 +372,7 @@ class TurnRunner:
             completion=completion,
         )
 
-    def _run_preparation(
+    async def _run_preparation(
         self,
         *,
         turn_id: str,
@@ -395,7 +395,7 @@ class TurnRunner:
                         scope=scope,
                     )
                 )
-                self._commit_preparation_signals(signals, scope=scope)
+                (await self._commit_preparation_signals(signals, scope=scope))
                 self._context.complete_preparation()
                 return None
             except RuntimeTransferInterrupt as interrupt:
@@ -417,7 +417,7 @@ class TurnRunner:
                 )
             )
 
-    def _commit_preparation_signals(
+    async def _commit_preparation_signals(
         self,
         signals: tuple[Signal, ...],
         *,
@@ -425,10 +425,10 @@ class TurnRunner:
     ) -> None:
         if not signals:
             return
-        preparation_results = self._signal_consumer.emit_and_consume(
+        preparation_results = (await self._signal_consumer.emit_and_consume(
             signals,
             scope=scope,
-        )
+        ))
         preparation_call_ids = {
             call_id
             for signal in signals
@@ -478,8 +478,8 @@ class TurnRunner:
             return None
         return transfer
 
-    def _record_cycle_limit(self, scope: RunScope) -> None:
-        self._signal_consumer.emit_and_consume(
+    async def _record_cycle_limit(self, scope: RunScope) -> None:
+        (await self._signal_consumer.emit_and_consume(
             (
                 build_trace_phase_note_signal(
                     {
@@ -491,7 +491,7 @@ class TurnRunner:
                 ),
             ),
             scope=scope,
-        )
+        ))
 
     def _end_turn(self) -> ContextTurnCompletion | None:
         if not self._context.turn_active:

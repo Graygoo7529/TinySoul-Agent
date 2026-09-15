@@ -48,7 +48,7 @@ class ContextInspectExecutor(ActionExecutor):
         self._context = context
         self._runtime_bridge = runtime_bridge
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

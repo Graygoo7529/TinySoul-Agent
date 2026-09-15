@@ -60,7 +60,7 @@ class CoreReasonActionExecutor:
             reference_resolvers=reference_resolvers,
         )
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -73,12 +73,12 @@ class CoreReasonActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = self._llm_action.run_json(
+        payload = (await self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
             subject="Core reason LLM task",
             control=context.control,
-        )
+        ))
         if isinstance(payload, ActionResult):
             return payload
         return _success(execution, payload)
@@ -98,7 +98,7 @@ class CoreAnswerActionExecutor:
             reference_resolvers=reference_resolvers,
         )
 
-    def execute(
+    async def execute(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -111,12 +111,12 @@ class CoreAnswerActionExecutor:
                 reason=parse.failure_reason,
                 frame_data=parse.frame_data,
             )
-        payload = self._llm_action.run_json(
+        payload = (await self._llm_action.run_json(
             execution=execution,
             prompt=parse.prompt,
             subject="Answer LLM task",
             control=context.control,
-        )
+        ))
         if isinstance(payload, ActionResult):
             return payload
         payload_failure = _answer_payload_failure(payload)

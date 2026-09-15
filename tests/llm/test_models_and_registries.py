@@ -90,11 +90,14 @@ class FakeProvider:
     provider_id: str
     adapter_kind: AdapterKind = AdapterKind.OPENAI_COMPATIBLE_CHAT
 
+    async def close(self) -> None:
+        pass
+
     @property
     def api_style(self):
         return adapter_spec(self.adapter_kind).api_style
 
-    def invoke(self, request: ProviderRequest) -> RawResponse:
+    async def invoke(self, request: ProviderRequest) -> RawResponse:
         return RawResponse(answer_text="ok", model_id=request.model.id, provider_id=self.provider_id)
 
 
