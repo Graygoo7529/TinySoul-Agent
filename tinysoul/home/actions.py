@@ -7,6 +7,7 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -148,7 +149,7 @@ class HomeTopSearchExecutor(ActionExecutor):
         )
 
 
-class HomeResourceReadExecutor(ActionExecutor):
+class HomeResourceReadExecutor(LocalActionExecutor):
     """Read a bounded Agent Home progressive resource."""
 
     def __init__(
@@ -159,7 +160,7 @@ class HomeResourceReadExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -240,7 +241,7 @@ class HomeResourceReadExecutor(ActionExecutor):
         )
 
 
-class HomeResourceWriteExecutor(ActionExecutor):
+class HomeResourceWriteExecutor(LocalActionExecutor):
     """Create or replace a progressive resource in the active Home overlay."""
 
     def __init__(
@@ -251,7 +252,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -291,7 +292,7 @@ class HomeResourceWriteExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeResourcePatchExecutor(ActionExecutor):
+class HomeResourcePatchExecutor(LocalActionExecutor):
     """Apply one deterministic exact replacement to the active Home overlay."""
 
     def __init__(
@@ -302,7 +303,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -343,7 +344,7 @@ class HomeResourcePatchExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeResourceDeleteExecutor(ActionExecutor):
+class HomeResourceDeleteExecutor(LocalActionExecutor):
     """Tombstone a progressive resource in the active Home overlay."""
 
     def __init__(
@@ -354,7 +355,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -384,7 +385,7 @@ class HomeResourceDeleteExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopWriteExecutor(ActionExecutor):
+class HomeTopWriteExecutor(LocalActionExecutor):
     """Create or replace a non-MEMORY top entry in the active overlay."""
 
     def __init__(
@@ -395,7 +396,7 @@ class HomeTopWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -438,7 +439,7 @@ class HomeTopWriteExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopPatchExecutor(ActionExecutor):
+class HomeTopPatchExecutor(LocalActionExecutor):
     """Patch one non-MEMORY top entry in the active overlay."""
 
     def __init__(
@@ -449,7 +450,7 @@ class HomeTopPatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -490,7 +491,7 @@ class HomeTopPatchExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomeTopDeleteExecutor(ActionExecutor):
+class HomeTopDeleteExecutor(LocalActionExecutor):
     """Tombstone one non-MEMORY top entry in the active overlay."""
 
     def __init__(
@@ -501,7 +502,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -528,7 +529,7 @@ class HomeTopDeleteExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomePromptMountWriteExecutor(ActionExecutor):
+class HomePromptMountWriteExecutor(LocalActionExecutor):
     """Create or replace one catalog-defined prompt mount."""
 
     def __init__(
@@ -539,7 +540,7 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -579,7 +580,7 @@ class HomePromptMountWriteExecutor(ActionExecutor):
         return _mutation_success(execution, result)
 
 
-class HomePromptMountPatchExecutor(ActionExecutor):
+class HomePromptMountPatchExecutor(LocalActionExecutor):
     """Patch one catalog-defined prompt mount."""
 
     def __init__(
@@ -590,7 +591,7 @@ class HomePromptMountPatchExecutor(ActionExecutor):
         self._home = home
         self._runtime_bridge = runtime_bridge or RuntimeAgentHomeBridge()
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,

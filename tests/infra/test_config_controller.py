@@ -51,7 +51,7 @@ def _project_with_document(root: Path) -> ConfigEnvironment:
     return ConfigEnvironment.from_project_root(root, env={})
 
 
-def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: Path) -> None:
+async def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: Path) -> None:
     environment = _project(tmp_path)
     (tmp_path / ".env").write_text("API_KEY=old\n", encoding="utf-8")
     environment = ConfigEnvironment.from_project_root(tmp_path, env={})
@@ -68,7 +68,7 @@ def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: P
         for source in status["sources"]
     )
 
-    result = controller.patch(
+    result = await controller.patch(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
@@ -94,7 +94,7 @@ def test_config_controller_reads_sources_and_patches_toml_and_dotenv(tmp_path: P
     )
 
 
-def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> None:
+async def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> None:
     environment = _project_with_document(tmp_path)
     target = tmp_path / "configs" / "documents" / "item.toml"
     original = target.read_text(encoding="utf-8")
@@ -128,7 +128,7 @@ def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> No
     assert source_status["values"] == {}
     assert "settings.enabled" not in fields
 
-    controller.patch(
+    await controller.patch(
         (
             ConfigMutation(
                 source_id=source_id,
@@ -146,7 +146,7 @@ def test_document_mutation_is_candidate_local_until_commit(tmp_path: Path) -> No
     ] == {"enabled": True}
 
 
-def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
+async def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
     environment = _project_with_document(tmp_path)
     merged = tmp_path / "configs" / "infra.toml"
     document = tmp_path / "configs" / "documents" / "item.toml"
@@ -157,7 +157,7 @@ def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
         dotenv.read_text(encoding="utf-8"),
     )
 
-    def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
+    async def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
         return PreparedConfigActivation(commit=lambda: (_ for _ in ()).throw(RuntimeError("fail")))
 
     controller = ConfigController(
@@ -168,7 +168,7 @@ def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
     source_id = environment.document_set("test.documents").documents[0].source_id
 
     with pytest.raises(RuntimeError, match="fail"):
-        controller.patch(
+        await controller.patch(
             (
                 ConfigMutation(
                     source_id="project:configs/infra.toml",
@@ -197,7 +197,50 @@ def test_document_and_merged_source_roll_back_together(tmp_path: Path) -> None:
     assert controller.environment is environment
 
 
-def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:
+async def test_retirement_failure_does_not_roll_back_committed_activation(tmp_path: Path) -> None:
+    environment = _project(tmp_path)
+    activated: list[ConfigEnvironment] = []
+
+    async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        async def retire():
+            raise RuntimeError("private retired client failure")
+
+        return PreparedConfigActivation(commit=lambda: activated.append(candidate), retire=retire)
+
+    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
+    result = await controller.patch((ConfigMutation(
+        source_id="project:configs/infra.toml", path="infra.embedding.enabled", op="set", value=True,
+    ),))
+    assert result["state"] == "active"
+    assert result["cleanup_diagnostics"] == [{"resource": "config.retirement", "error_type": "RuntimeError"}]
+    assert controller.environment is activated[0]
+    assert "enabled = true" in (tmp_path / "configs" / "infra.toml").read_text(encoding="utf-8")
+
+
+async def test_abort_failure_preserves_activation_failure_and_disk_rollback(tmp_path: Path) -> None:
+    environment = _project(tmp_path)
+    primary = RuntimeError("activation failed")
+
+    async def prepare(candidate: ConfigEnvironment) -> PreparedConfigActivation:
+        def commit() -> None:
+            raise primary
+
+        async def abort():
+            raise OSError("private cleanup failure")
+
+        return PreparedConfigActivation(commit=commit, abort=abort)
+
+    controller = ConfigController(root=tmp_path, environment=environment, activator=prepare)
+    with pytest.raises(RuntimeError) as caught:
+        await controller.patch((ConfigMutation(
+            source_id="project:configs/infra.toml", path="infra.embedding.enabled", op="set", value=True,
+        ),))
+    assert caught.value is primary
+    assert controller.environment is environment
+    assert "enabled = false" in (tmp_path / "configs" / "infra.toml").read_text(encoding="utf-8")
+
+
+async def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:
     controller = ConfigController(
         root=tmp_path,
         environment=_project(tmp_path),
@@ -205,7 +248,7 @@ def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError) as raised:
-        controller.patch(
+        await controller.patch(
             (
                 ConfigMutation(
                     source_id="project:configs/infra.toml",
@@ -222,12 +265,12 @@ def test_patch_rejected_while_runtime_is_active(tmp_path: Path) -> None:
     ).read_text(encoding="utf-8")
 
 
-def test_activation_failure_rolls_back_documents(tmp_path: Path) -> None:
+async def test_activation_failure_rolls_back_documents(tmp_path: Path) -> None:
     environment = _project(tmp_path)
     target = tmp_path / "configs" / "infra.toml"
     original = target.read_text(encoding="utf-8")
 
-    def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
+    async def prepare(_candidate: ConfigEnvironment) -> PreparedConfigActivation:
         def fail() -> None:
             raise RuntimeError("activation failed")
 
@@ -240,7 +283,7 @@ def test_activation_failure_rolls_back_documents(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="activation failed"):
-        controller.patch(
+        await controller.patch(
             (
                 ConfigMutation(
                     source_id="project:configs/infra.toml",
@@ -255,7 +298,7 @@ def test_activation_failure_rolls_back_documents(tmp_path: Path) -> None:
     assert controller.environment is environment
 
 
-def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
+async def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
     events: list[str] = []
     controller = ConfigController(
         root=tmp_path,
@@ -263,7 +306,7 @@ def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
         activation_observer=lambda state, _payload: events.append(state),
     )
 
-    controller.patch(
+    await controller.patch(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
@@ -277,7 +320,7 @@ def test_activation_observer_receives_lifecycle_events(tmp_path: Path) -> None:
     assert events == ["started", "completed"]
 
 
-def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
+async def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
     controller = ConfigController(root=tmp_path, environment=_project(tmp_path))
 
     status = controller.status()
@@ -300,15 +343,15 @@ def test_process_owned_configuration_is_read_only(tmp_path: Path) -> None:
         ),
     ):
         with pytest.raises(ConfigError, match="read-only"):
-            controller.patch((mutation,))
+            await controller.patch((mutation,))
 
 
-def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -> None:
+async def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -> None:
     environment = _project(tmp_path)
     target = tmp_path / "configs" / "infra.toml"
     controller = ConfigController(root=tmp_path, environment=environment)
 
-    controller.patch(
+    await controller.patch(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
@@ -329,7 +372,7 @@ def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -
         encoding="utf-8"
     )
 
-    controller.patch(
+    await controller.patch(
         (
             ConfigMutation(
                 source_id="project:configs/infra.toml",
@@ -345,13 +388,13 @@ def test_controller_creates_and_deletes_complete_config_object(tmp_path: Path) -
     )
 
 
-def test_controller_rejects_purely_numeric_mapping_path_segment(tmp_path: Path) -> None:
+async def test_controller_rejects_purely_numeric_mapping_path_segment(tmp_path: Path) -> None:
     environment = _project(tmp_path)
     target = tmp_path / "configs" / "infra.toml"
     controller = ConfigController(root=tmp_path, environment=environment)
 
     with pytest.raises(ConfigError, match="must not be purely numeric") as error:
-        controller.patch(
+        await controller.patch(
             (
                 ConfigMutation(
                     source_id="project:configs/infra.toml",
@@ -366,7 +409,7 @@ def test_controller_rejects_purely_numeric_mapping_path_segment(tmp_path: Path) 
     assert error.value.source == str(target)
 
 
-def test_controller_deletes_object_subtree_from_each_project_source(tmp_path: Path) -> None:
+async def test_controller_deletes_object_subtree_from_each_project_source(tmp_path: Path) -> None:
     config_dir = tmp_path / "configs"
     config_dir.mkdir(parents=True)
     (tmp_path / "tinysoul.toml").write_text(
@@ -386,7 +429,7 @@ def test_controller_deletes_object_subtree_from_each_project_source(tmp_path: Pa
     environment = ConfigEnvironment.from_project_root(tmp_path, env={})
     controller = ConfigController(root=tmp_path, environment=environment)
 
-    controller.patch(
+    await controller.patch(
         (
             ConfigMutation(
                 source_id="project:configs/base.toml",

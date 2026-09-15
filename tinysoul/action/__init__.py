@@ -10,7 +10,7 @@ from .core.call import (
 )
 from .core.catalog import ActionCatalog
 from .core.errors import ActionContractError, ActionError, ActionInvariantError
-from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor
+from .core.executor import ActionExecutionContext, ActionExecutionControl, ActionExecutor, LocalActionExecutor
 from .core.hooks import HookOutcome
 from .core.loader import (
     ActionCatalogDocumentIndex,
@@ -75,6 +75,7 @@ __all__ = [
     "ActionExecutionContext",
     "ActionExecutionControl",
     "ActionExecutor",
+    "LocalActionExecutor",
     "ActionFramework",
     "ActionHookSpec",
     "ActionLocalFailure",

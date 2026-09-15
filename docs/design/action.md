@@ -69,7 +69,9 @@ Phase3 负责：
 
 Phase3 不保留长期运行或 ongoing Action。正常完成以成功、失败或超时结果反馈；取消、尚未执行和结果未知由独立的执行事实表达，不伪造模型工具结果。
 
-ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。该适配只约束显式接入的调用，现有领域 Action 的同步 owner I/O 仍需完成异步边界迁移。
+ActionExecutor 统一提供异步执行入口。runner 拥有已启动任务直到其收敛：Action deadline 取消异步 I/O 并生成 timeout；Turn 取消保持取消身份。短本地 owner 调用通过 JoinedOperations 保留并等待 worker 结果，结果先交付 Trace，再传播取消；迟到的真实成功不改写为超时。
+
+LocalActionExecutor 是明确的有界本地执行协议，由 Home、Workspace 的纯本地动作消费，不是同步 executor 兼容回退。它把 owner 操作、结果构造和通知一起完成后返回。Workspace 的混合动作分为有界读取、异步 LLM、owner 提交；提交包含 Workspace snapshot 通知。Home 搜索只把文档读取放入短操作，rerank 仍为原生异步 LLM。Memory、Maintenance 与进程能力的剩余同步边界继续按重构计划迁移，不能把含网络或长期进程工作的整个 executor 投入该适配。
 
 并行组按完成就绪处理任务；同一批同时失败按提交顺序选择主失败。未知 executor 异常、非法结果身份和 trace policy 错配由 Action bridge 转为模块失败；已知业务拒绝保持局部结果。RuntimeException 与 RuntimeTransferInterrupt 保持原身份，同批工作回收后传播。执行事实独立于模型视图提交，因此部分批次失败不抹去已提交结果。runner 不保留失联线程 grace 或“泄漏后继续”策略；受控进程的停止仍由进程 owner 负责。
 

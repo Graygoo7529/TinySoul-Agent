@@ -64,9 +64,9 @@ class EndpointConfigurationEngine(Generic[EndpointGenerationT]):
         with runtime_handle.read() as generation:
             return generation.user_turn.action_catalog()
 
-    def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+    async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
         try:
-            return self._context.config_controller().patch(mutations)
+            return await self._context.config_controller().patch(mutations)
         except ConfigError as exc:
             raise _config_error(exc) from exc
         except RuntimeException as exc:

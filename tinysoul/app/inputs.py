@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from queue import Queue
+from tinysoul.infra.concurrency import AsyncMailbox
 from time import time
 from typing import Protocol
 from uuid import uuid4
@@ -233,7 +233,7 @@ class InputDispatcher:
         *,
         parser: InputCommandParser,
         bus: SignalBus,
-        program_inputs: Queue[AppRequest],
+        program_inputs: AsyncMailbox[AppRequest],
         active_turn_scope: Callable[[], RunScope | None],
         observations: ObservationEmitter | None = None,
         program_scope: RunScope | None = None,

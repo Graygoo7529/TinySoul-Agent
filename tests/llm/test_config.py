@@ -274,7 +274,7 @@ def test_retry_policy_rejects_non_finite_preference_window() -> None:
     assert error.value.key == "llm.tasks.framework"
 
 
-def test_disabled_provider_stays_in_task_chain_without_requiring_credential() -> None:
+async def test_disabled_provider_stays_in_task_chain_without_requiring_credential() -> None:
     tree = {
         "providers": {
             "disabled": {**_provider(), "enabled": False, "api_key_envs": ["DISABLED_KEY"]},
@@ -307,7 +307,7 @@ def test_disabled_provider_stays_in_task_chain_without_requiring_credential() ->
     config.validate_enabled_provider_credentials(
         {"PRIMARY_KEY": "  ", "ENABLED_KEY": " configured "}
     )
-    registry = build_provider_registry(
+    registry = await build_provider_registry(
         config.providers,
         env={"ENABLED_KEY": "configured"},
     )

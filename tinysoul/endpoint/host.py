@@ -18,9 +18,9 @@ class EndpointServer(Protocol):
     @property
     def port(self) -> int: ...
 
-    def start(self) -> None: ...
+    async def start(self) -> None: ...
 
-    def stop(self) -> None: ...
+    async def stop(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ class EndpointHost:
         self._runtime_bridge = runtime_bridge or RuntimeEndpointBridge()
         self._server: EndpointServer | None = None
 
-    def start(self) -> None:
+    async def start(self) -> None:
         if self._server is not None:
             raise EndpointServerError("Endpoint server is already started")
         try:
@@ -71,7 +71,7 @@ class EndpointHost:
                 engine=self._engine,
                 settings=self._settings,
             )
-            server.start()
+            await server.start()
         except ImportError as exc:
             error = EndpointServerError(
                 "Endpoint desktop dependencies are not installed"
@@ -94,15 +94,15 @@ class EndpointHost:
         except Exception as exc:
             self._server = None
             try:
-                server.stop()
+                await server.stop()
             except EndpointServerError:
                 pass
             error = EndpointServerError("Endpoint ready handshake failed")
             raise self._runtime_bridge.from_endpoint_error(error) from exc
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         server = self._server
         if server is None:
             return
         self._server = None
-        server.stop()
+        await server.stop()

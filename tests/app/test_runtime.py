@@ -72,10 +72,10 @@ class _RecordingService:
     started: int = 0
     stopped: int = 0
 
-    def start(self) -> None:
+    async def start(self) -> None:
         self.started += 1
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         self.stopped += 1
 
 
@@ -84,15 +84,15 @@ class _AvailabilityAwareService(_RecordingService):
     availability_path: Path = Path()
     availability_existed_at_start: bool = False
 
-    def start(self) -> None:
-        super().start()
+    async def start(self) -> None:
+        await super().start()
         self.availability_existed_at_start = self.availability_path.is_file()
 
 
 async def test_tinysoul_app_starts_and_stops_input_sources(tmp_path: Path) -> None:
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
@@ -117,7 +117,7 @@ async def test_tinysoul_app_starts_services_before_inputs_and_stops_them(
     service = _RecordingService()
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     built = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -142,7 +142,7 @@ async def test_tinysoul_app_prepares_availability_before_starting_services(
     )
     source = _SubmittingSource((InputEvent("exit", source="unit"),))
     built = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -162,7 +162,7 @@ async def test_tinysoul_app_stops_started_sources_when_later_start_fails(
     first = _SubmittingSource(())
     failing = _FailingStartSource()
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -185,7 +185,7 @@ async def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
     failing = _FailingStopSource((InputEvent("exit", source="unit"),))
     second = _SubmittingSource(())
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -203,7 +203,7 @@ async def test_tinysoul_app_attempts_all_source_stops_and_reports_failure(
 
 async def test_tinysoul_app_submit_event_uses_dispatcher(tmp_path: Path) -> None:
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))

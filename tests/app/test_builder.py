@@ -71,7 +71,7 @@ def test_app_test_config_isolates_all_mutable_roots(tmp_path: Path) -> None:
     assert maintenance["runtime_root"] == str(tmp_path / "runtime" / "maintenance")
 
 
-def test_app_builder_cleans_project_capability_staging_on_startup(
+async def test_app_builder_cleans_project_capability_staging_on_startup(
     tmp_path: Path,
 ) -> None:
     stale = tmp_path / "runtime" / ".staging" / "web-interrupted" / "source.html"
@@ -90,7 +90,7 @@ def test_app_builder_cleans_project_capability_staging_on_startup(
     )
 
     (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(config)
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -102,11 +102,11 @@ def test_app_builder_cleans_project_capability_staging_on_startup(
     assert tuple(staging.iterdir()) == ()
 
 
-def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
+async def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     tmp_path: Path,
 ) -> None:
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=True))
         .with_llm_runner(FakeLLM(()))
@@ -120,13 +120,13 @@ def test_app_builder_mounts_endpoint_as_service_and_model_output_source(
     assert app.observations.mode.value == "model"
 
 
-def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
+async def test_standard_project_starts_without_credentials_and_rejects_provider_enable(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        TinySoulAppBuilder(root=project_root)
+        await TinySoulAppBuilder(root=project_root)
         .with_config_environment(
             ConfigEnvironment.from_project_root(project_root, env={})
         )
@@ -224,7 +224,7 @@ def test_standard_project_starts_without_credentials_and_rejects_provider_enable
     assert "enabled = true" in providers_path.read_text(encoding="utf-8")
 
 
-def test_development_project_requires_credentials_for_enabled_providers(
+async def test_development_project_requires_credentials_for_enabled_providers(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "development-project"
@@ -235,7 +235,7 @@ def test_development_project_requires_credentials_for_enabled_providers(
 
     with pytest.raises(RuntimeException) as error:
         (
-            TinySoulAppBuilder(root=project_root)
+            await TinySoulAppBuilder(root=project_root)
             .with_config_environment(
                 ConfigEnvironment.from_project_root(project_root, env={})
             )
@@ -247,13 +247,13 @@ def test_development_project_requires_credentials_for_enabled_providers(
     assert error.value.payload["kind"] == LLMFailureKind.CONFIGURATION_FAILED
 
 
-def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
+async def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        TinySoulAppBuilder(root=project_root)
+        await TinySoulAppBuilder(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -494,13 +494,13 @@ def test_endpoint_config_patch_rebuilds_generation_and_keeps_event_buffer(
     assert websocket_completed_names == ("config.activation.completed",)
 
 
-def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
+async def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
     copy_initialized_project(project_root)
     app = (
-        TinySoulAppBuilder(root=project_root)
+        await TinySoulAppBuilder(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -686,7 +686,7 @@ def test_endpoint_action_activation_inherits_and_restores_runtime_policy(
     assert disabled_answer["available"] is False
 
 
-def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
+async def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompatible_adapter(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
@@ -701,7 +701,7 @@ def test_endpoint_provider_switch_preserves_model_options_and_rolls_back_incompa
             'api_key_envs = ["OPENAI_PROXY_API_KEY"]\n'
         )
     app = (
-        TinySoulAppBuilder(root=project_root)
+        await TinySoulAppBuilder(root=project_root)
         .with_config_environment(ConfigEnvironment.from_project_root(project_root))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -784,7 +784,7 @@ async def test_agent_workspace_mutation_reaches_endpoint_event_stream(
     note.parent.mkdir(parents=True)
     note.write_text("old text", encoding="utf-8")
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -861,7 +861,7 @@ async def test_app_builder_run_once_answers_with_real_action_and_context(
 ) -> None:
     recorder = _CompletionRecorder()
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -914,7 +914,7 @@ async def test_app_builder_runs_resource_conversion_through_real_action_chain(
     with source.open("wb") as handle:
         writer.write(handle)
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=2)))
@@ -984,7 +984,7 @@ async def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) ->
         {"workspace.root": str(workspace_root)},
     )
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(config)
         .with_app_settings(AppSettings(interactive=False))
         .with_loop_settings(LoopSettings(user=TurnSettings(max_cycles=1)))
@@ -1022,7 +1022,7 @@ async def test_app_builder_cycle_limit_returns_exhausted_turn(tmp_path: Path) ->
 
 async def test_program_runner_idle_exit_ends_program(tmp_path: Path) -> None:
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_llm_runner(FakeLLM(()))
@@ -1062,7 +1062,7 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Pat
         )
     )
     app = (
-        TinySoulAppBuilder(root=tmp_path)
+        await TinySoulAppBuilder(root=tmp_path)
         .with_config_environment(_test_config(tmp_path))
         .with_app_settings(AppSettings(interactive=False))
         .with_signal_bus(bus)
@@ -1086,7 +1086,7 @@ async def test_turn_runner_ignores_stop_control_without_turn_scope(tmp_path: Pat
     assert len(llm.calls) == 3
 
 
-def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:
+async def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) -> None:
     config = _test_config(
         tmp_path,
         {"home.root": str(tmp_path / "missing_home")},
@@ -1094,7 +1094,7 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder(root=tmp_path)
+            await TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -1183,7 +1183,7 @@ def test_app_builder_missing_agent_is_context_startup_failure(tmp_path: Path) ->
         "loop-task-profile",
     ),
 )
-def test_app_builder_maps_owned_startup_failure(
+async def test_app_builder_maps_owned_startup_failure(
     tmp_path: Path,
     overrides: dict[str, object],
     module: str,
@@ -1194,7 +1194,7 @@ def test_app_builder_maps_owned_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder(root=tmp_path)
+            await TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -1209,7 +1209,7 @@ def test_app_builder_maps_owned_startup_failure(
         assert exc.payload["kind"] == kind
 
 
-def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
+async def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -1223,7 +1223,7 @@ def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder(root=tmp_path)
+            await TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_llm_runner(FakeLLM(()))
@@ -1234,7 +1234,7 @@ def test_app_builder_corrupt_manifest_is_workspace_startup_failure(
     assert raised.value.payload["module"] == "workspace"
 
 
-def test_app_builder_does_not_map_programming_errors_to_startup_failure(
+async def test_app_builder_does_not_map_programming_errors_to_startup_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1251,15 +1251,15 @@ def test_app_builder_does_not_map_programming_errors_to_startup_failure(
     monkeypatch.setattr(builder, "_build_workspace", explode)
 
     with pytest.raises(RuntimeError, match="programming error"):
-        builder.build()
+        await builder.build()
 
 
-def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> None:
+async def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> None:
     config = _test_config(tmp_path, {"app.interactive": "bad"})
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder(root=tmp_path)
+            await TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_loop_settings(LoopSettings())
             .with_llm_runner(FakeLLM(()))
@@ -1272,12 +1272,12 @@ def test_app_builder_app_config_error_is_app_startup_failure(tmp_path: Path) -> 
     assert exc.payload["key"] == "app.interactive"
 
 
-def test_app_builder_llm_config_error_is_llm_startup_failure(tmp_path: Path) -> None:
+async def test_app_builder_llm_config_error_is_llm_startup_failure(tmp_path: Path) -> None:
     config = _test_config(tmp_path, {"llm.tasks.framework.models": ["missing_model"]})
 
     with pytest.raises(RuntimeException) as raised:
         (
-            TinySoulAppBuilder(root=tmp_path)
+            await TinySoulAppBuilder(root=tmp_path)
             .with_config_environment(config)
             .with_app_settings(AppSettings(interactive=False))
             .with_loop_settings(LoopSettings())
@@ -1305,6 +1305,39 @@ def _action_catalog_item(
         if isinstance(item, dict) and item.get("id") == action_id:
             return to_json_object(item)
     raise AssertionError(f"Missing Action catalog entry: {action_id}")
+
+
+async def test_generation_closes_owned_llm_on_build_failure_and_never_closes_borrowed(tmp_path: Path, monkeypatch) -> None:
+    closed: list[str] = []
+
+    class OwnedLLM(FakeLLM):
+        async def close(self):
+            closed.append("owned")
+            return ()
+
+    owned = OwnedLLM(())
+
+    async def build_llm(*args, **kwargs):
+        return owned
+
+    failure = RuntimeError("home construction failed")
+
+    def build_home(*args, **kwargs):
+        raise failure
+
+    config = _test_config(tmp_path)
+    builder = TinySoulAppBuilder(tmp_path).with_config_environment(config)
+    monkeypatch.setattr(builder, "_build_llm", build_llm)
+    monkeypatch.setattr(builder, "_build_home", build_home)
+    with pytest.raises(RuntimeError) as caught:
+        await builder.build()
+    assert caught.value is failure
+    assert closed == ["owned"]
+
+    borrowed = OwnedLLM(())
+    app = await TinySoulAppBuilder(tmp_path).with_config_environment(config).with_llm_runner(borrowed).build()
+    assert await app.close() == ()
+    assert closed == ["owned"]
 
 
 def _json_object(value: object) -> JsonObject:

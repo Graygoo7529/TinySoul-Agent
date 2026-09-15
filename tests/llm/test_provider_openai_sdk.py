@@ -98,6 +98,34 @@ class FakeCreateClient:
         return self.response
 
 
+async def test_adapter_registry_closes_owned_clients_but_not_borrowed_children(monkeypatch) -> None:
+    from tinysoul.llm.provider.registry import ProviderRegistry
+
+    clients: list[object] = []
+    closed: list[object] = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.responses = FakeCreateClient(response=object())
+            self.chat = SimpleNamespace(completions=FakeCreateClient(response=object()))
+            clients.append(self)
+
+        async def close(self):
+            closed.append(self)
+
+    monkeypatch.setattr("tinysoul.llm.provider.openai_sdk.adapters.AsyncOpenAI", Client)
+    borrowed = FakeCreateClient(response=object())
+    registry = ProviderRegistry([
+        OpenAIResponsesAdapter(provider=_provider("openai"), api_key="test"),
+        OpenAICompatibleChatAdapter(provider=_provider("compatible"), api_key="test"),
+        OpenAIResponsesAdapter(provider=_provider("borrowed"), api_key="test", responses=borrowed),
+    ])
+    assert len(clients) == 2
+    assert await registry.close() == ()
+    assert await registry.close() == ()
+    assert closed == list(reversed(clients))
+
+
 async def test_openai_sdk_adapters_normalize_output_limit_stop_reason() -> None:
     responses = OpenAIResponsesAdapter(
         provider=_provider("openai"),
@@ -2961,8 +2989,8 @@ async def test_provider_option_rejects_unknown_key() -> None:
     assert exc.value.kind is ProviderErrorKind.CONFIG
 
 
-def test_build_provider_registry_uses_first_configured_api_key() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_uses_first_configured_api_key() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="kimi",
@@ -2977,8 +3005,8 @@ def test_build_provider_registry_uses_first_configured_api_key() -> None:
     assert registry.get("kimi", AdapterKind.KIMI).provider_id == "kimi"
 
 
-def test_build_provider_registry_supports_multiple_adapters_per_endpoint() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_supports_multiple_adapters_per_endpoint() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="proxy",
@@ -2997,8 +3025,8 @@ def test_build_provider_registry_supports_multiple_adapters_per_endpoint() -> No
     assert registry.get("proxy", AdapterKind.OPENAI).provider_id == "proxy"
 
 
-def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="kimi",
@@ -3023,8 +3051,8 @@ def test_build_provider_registry_supports_distinct_kimi_endpoints() -> None:
     assert registry.get("kimi_coding", AdapterKind.KIMI).provider_id == "kimi_coding"
 
 
-def test_build_provider_registry_uses_deepseek_adapter() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_uses_deepseek_adapter() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="deepseek",
@@ -3039,8 +3067,8 @@ def test_build_provider_registry_uses_deepseek_adapter() -> None:
     assert registry.get("deepseek", AdapterKind.DEEPSEEK).provider_id == "deepseek"
 
 
-def test_build_provider_registry_uses_glm_adapter() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_uses_glm_adapter() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="glm",
@@ -3055,8 +3083,8 @@ def test_build_provider_registry_uses_glm_adapter() -> None:
     assert registry.get("glm", AdapterKind.GLM).provider_id == "glm"
 
 
-def test_build_provider_registry_uses_minimax_adapter() -> None:
-    registry = build_provider_registry(
+async def test_build_provider_registry_uses_minimax_adapter() -> None:
+    registry = await build_provider_registry(
         (
             ProviderSpec(
                 id="minimax",

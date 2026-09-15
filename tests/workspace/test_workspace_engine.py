@@ -1,11 +1,12 @@
 from __future__ import annotations
+import asyncio
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 import os
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event, get_ident
 from typing import cast
 
 import pytest
@@ -1732,6 +1733,48 @@ async def test_workspace_describe_executor_updates_manifest_and_working_patch(
     assert resource["summary"] == (
         "Markdown text, 5 bytes. A small greeting document."
     )
+
+
+async def test_workspace_create_keeps_committed_result_and_snapshot_when_cancelled(tmp_path: Path, monkeypatch) -> None:
+    engine = WorkspaceEngineBuilder(WorkspaceSettings(root=tmp_path)).build()
+    context_engine = ContextEngineBuilder(system_text="system").build()
+    context_engine.begin_turn("write a note")
+    bus = SignalBus()
+    llm = FakeLLMRunner({"text": "committed note"})
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+    loop_thread = get_ident()
+    commit = engine.commit_edit_text
+
+    def delayed_commit(*args, **kwargs):
+        assert get_ident() != loop_thread
+        record = commit(*args, **kwargs)
+        loop.call_soon_threadsafe(started.set)
+        assert release.wait(3)
+        return record
+
+    monkeypatch.setattr(engine, "commit_edit_text", delayed_commit)
+    execution_context = ActionExecutionContext(signal_bus=bus)
+    executor = WorkspaceCreateExecutor(workspace=engine, bus=bus,
+        llm_action=LLMActionTaskRunner(llm_runner=llm, context=context_engine))
+    work = asyncio.create_task(executor.execute(_execution("workspace.create", {
+        "target_link": "workspace:note.md", "instruction": "Write a note.", "reference_links": [],
+    }), execution_context))
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        work.cancel()
+        await asyncio.sleep(0)
+        assert not work.done()
+    finally:
+        release.set()
+    result = await work
+    assert result.status.value == "success"
+    assert (tmp_path / "note.md").read_text(encoding="utf-8") == "committed note"
+    assert _workspace_snapshot_payload(bus)["resources"]
+    # The runner records the returned fact, then propagates deferred cancellation.
+    with pytest.raises(asyncio.CancelledError):
+        execution_context.owner_operations.check_cancelled()
 
 
 async def test_workspace_create_executor_generates_text_inside_action(

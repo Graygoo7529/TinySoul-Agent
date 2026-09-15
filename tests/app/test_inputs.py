@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from queue import Queue
+from tinysoul.infra.concurrency import AsyncMailbox
 
 from tinysoul.app.inputs import (
     InputCommandParser,
@@ -84,7 +84,7 @@ def test_input_parser_supports_all_maintenance_scopes() -> None:
 
 def test_dispatcher_routes_user_input_to_queue_or_active_turn_signal() -> None:
     bus = SignalBus()
-    queue: Queue[AppRequest] = Queue()
+    queue: AsyncMailbox[AppRequest] = AsyncMailbox()
     active_scope: RunScope | None = None
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
@@ -107,7 +107,7 @@ def test_accepted_user_input_observation_carries_recoverable_text() -> None:
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
         bus=SignalBus(),
-        program_inputs=Queue(),
+        program_inputs=AsyncMailbox(),
         active_turn_scope=lambda: None,
         observations=observations,
     )
@@ -123,7 +123,7 @@ def test_accepted_user_input_observation_carries_recoverable_text() -> None:
 
 def test_dispatcher_queues_manual_maintenance_even_during_user_turn() -> None:
     bus = SignalBus()
-    queue: Queue[AppRequest] = Queue()
+    queue: AsyncMailbox[AppRequest] = AsyncMailbox()
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),
         bus=bus,
@@ -144,7 +144,7 @@ def test_dispatcher_queues_manual_maintenance_even_during_user_turn() -> None:
 
 def test_dispatcher_routes_active_controls_and_idle_exit() -> None:
     bus = SignalBus()
-    queue: Queue[AppRequest] = Queue()
+    queue: AsyncMailbox[AppRequest] = AsyncMailbox()
     active: RunScope | None = _turn_scope()
     dispatcher = InputDispatcher(
         parser=InputCommandParser(),

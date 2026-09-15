@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
@@ -151,11 +152,14 @@ class OpenAICompatibleEmbeddingClient:
                 key=f"{_CONFIG_KEY}.api_key_env",
             )
         self._settings = settings
-        self._client = client or OpenAI(
-            api_key=api_key,
-            base_url=settings.base_url,
-            timeout=settings.timeout_seconds,
+        self._owned_client = None if client is not None else OpenAI(
+            api_key=api_key, base_url=settings.base_url, timeout=settings.timeout_seconds,
         )
+        self._client = client if client is not None else self._owned_client
+
+    async def close(self) -> None:
+        if self._owned_client is not None:
+            await asyncio.to_thread(self._owned_client.close)
 
     @property
     def identity(self) -> str:
@@ -238,7 +242,7 @@ def build_embedding_client(
     settings: EmbeddingSettings,
     *,
     env: Mapping[str, str],
-) -> EmbeddingClient | None:
+) -> OpenAICompatibleEmbeddingClient | None:
     if not settings.enabled:
         return None
     return OpenAICompatibleEmbeddingClient(

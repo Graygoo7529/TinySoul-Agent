@@ -6,6 +6,8 @@ App 模块负责 TinySoul 的进程级装配、生命周期、外部输入边界
 
 App 拥有 Program request queue、Program frame 和顶层分派，但不实现 Turn/Cycle/Phase 内核，不维护 Context 状态，不执行 Action，也不适配模型供应商。Program 只把 typed request 分派给 User Turn 或 MaintenanceEngine；可复用 Turn 运行语义仍由 loop 模块负责。
 
+装配与运行入口均为异步调用。Generation 明确拥有由装配创建的 LLM 和 embedding 客户端；注入的服务是借用对象。装配中途失败会等待已创建资源关闭，CLI 在退出事件循环前关闭当前 Generation。资源按逆序关闭且只关闭一次，重复取消不遗留清理任务；失败以资源标识与错误类型保留，不包含异常正文，也不覆盖执行失败。
+
 ## 目录组织
 
 ```text
@@ -56,7 +58,7 @@ Maintenance 命令无论 User Turn 是否活跃都进入 Program queue，不解�
 
 ProgramRunner 等待的是 `AppRequest = UserTurnRequest | MaintenanceRequest | ExitRequest`，而不是原始字符串或带 kind 字符串的平行事件模型。
 
-空闲状态下的普通输入变成 UserTurnRequest，维护指令变成 MaintenanceRequest，退出命令变成 ExitRequest。这样 ProgramRunner 阻塞等待时总能被顶层 request 唤醒，不依赖 SignalBus 唤醒外部输入。
+空闲状态下的普通输入变成 UserTurnRequest，维护指令变成 MaintenanceRequest，退出命令变成 ExitRequest。请求由支持线程投递的异步 mailbox 接收，Program 等待会让出事件循环，不使用阻塞 Queue.get 或读队列线程。根 work 的串行执行使用异步锁；SignalBus 不承担队列唤醒。
 
 Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，而是由 InputDispatcher 转换为内部信号，由 loop 在 Phase/Cycle 边界消费。Maintenance 是 Program work，即使在 Turn 活跃时也始终排入 Program 队列，不形成 `context.input.append`；它会在当前 Turn 收束后执行。
 
@@ -71,7 +73,9 @@ Turn 活跃期间的普通输入和 Turn 控制命令不进入 Program 队列，
 
 外部框架只应出现在 source adapter 内部，不应进入 loop、context、action 或 llm 的核心语义。
 
-`TinySoulApp.run()` 依次启动 Program request source、AppService 和外部 input source，并在程序退出或启动失败时按逆序停止全部已启动组件。`run_once()` 不启动这些长运行组件，因此不会创建 scheduler 或 Endpoint 线程，但 ProgramRunner 仍执行 Daily preflight。停止过程采用 best-effort。
+`TinySoulApp.run()` 依次启动 Program request source、AppService 和外部 input source，并在程序退出或启动失败时等待全部已启动组件逆序停止。AppService 使用异步启动与停止；HTTP 与 Program 共用事件循环。`run_once()` 不启动这些长运行组件，但仍执行 Daily preflight。源的同步停止由资源作用域等待完成，失败不会阻止其余关闭，诊断保留在 App 资源关闭结果中。
+
+配置候选准备失败或激活提交失败时关闭候选 Generation，并保留原活动世代。激活提交与旧世代退休分开：RuntimeHandle 和配置文件成功切换后，退休只回收旧资源，失败作为 cleanup diagnostics 返回，不能把已可见的新世代伪回滚。候选保存与显式激活分离、完整 Agent SDK 生命周期仍按重构执行计划实施，当前配置 PATCH 仍是空闲时准备并激活。
 
 ## 输出与观察事件
 

@@ -6,8 +6,8 @@ from collections import deque
 from contextlib import AbstractContextManager
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from queue import Empty, Queue
-from threading import RLock
+from tinysoul.infra.concurrency import AsyncMailbox
+import asyncio
 from types import SimpleNamespace
 from typing import Generic, Protocol, TypeVar
 from uuid import uuid4
@@ -119,7 +119,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
         maintenance: ProgramMaintenanceEngine,
         bus: SignalBus,
         trap: RuntimeTrap,
-        input_queue: Queue[AppRequest] | None = None,
+        input_queue: AsyncMailbox[AppRequest] | None = None,
         retained_outcomes: int = 32,
         maintenance_bridge: MaintenanceRuntimeBridge | None = None,
         observations: ObservationEmitter | None = None,
@@ -136,12 +136,12 @@ class ProgramRunner(Generic[ProgramGenerationT]):
         self._generation_handle = generation_handle
         self._bus = bus
         self._trap = trap
-        self._input_queue: Queue[AppRequest] = input_queue or Queue()
+        self._input_queue: AsyncMailbox[AppRequest] = input_queue or AsyncMailbox()
         self._scope = RunScope().push(RunLevel.PROGRAM, "program")
         self._retained_outcomes = retained_outcomes
         self._maintenance_bridge = maintenance_bridge or MaintenanceRuntimeBridge()
         self._observations = observations or NullObservationEmitter()
-        self._request_lock = RLock()
+        self._request_lock = asyncio.Lock()
         self._prepared_transition: DailyTransitionOutcome | None = None
 
     @property
@@ -149,7 +149,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
         return self._scope
 
     @property
-    def input_queue(self) -> Queue[AppRequest]:
+    def input_queue(self) -> AsyncMailbox[AppRequest]:
         return self._input_queue
 
     def submit_request(self, request: AppRequest) -> None:
@@ -157,10 +157,10 @@ class ProgramRunner(Generic[ProgramGenerationT]):
             raise AppContractError("Program received an invalid request")
         self._input_queue.put(request)
 
-    def prepare(self) -> DailyTransitionOutcome:
+    async def prepare(self) -> DailyTransitionOutcome:
         """Finish startup rollover and availability before services become ready."""
 
-        with self._request_lock:
+        async with self._request_lock:
             transition = self._preflight()
             self._prepared_transition = transition
             return transition
@@ -177,7 +177,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
             source=source,
             request_id=request_id or f"request_{uuid4().hex}",
         )
-        with self._request_lock:
+        async with self._request_lock:
             with self._generation_activity(RuntimeActivity.USER_TURN):
                 transition = self._maintenance_engine().preflight(scope=self._scope)
                 return (await self._run_user_request(request, transition=transition))
@@ -189,7 +189,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
         )
         turn_count = 0
         maintenance_count = 0
-        with self._request_lock:
+        async with self._request_lock:
             if self._prepared_transition is None:
                 self._preflight()
             self._prepared_transition = None
@@ -209,7 +209,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 transfer,
             )
         while True:
-            request = self._next_request()
+            request = await self._input_queue.get()
             if isinstance(request, ExitRequest):
                 transfer = self._request_program_end(request)
                 return self._outcome(
@@ -221,7 +221,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 )
             if isinstance(request, UserTurnRequest):
                 try:
-                    with self._request_lock:
+                    async with self._request_lock:
                         with self._generation_activity(RuntimeActivity.USER_TURN):
                             transition = self._maintenance_engine().preflight(
                                 scope=self._scope
@@ -258,7 +258,7 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 continue
             if isinstance(request, MaintenanceRequest):
                 try:
-                    with self._request_lock:
+                    async with self._request_lock:
                         outcome = (await self._run_maintenance(request))
                 except RuntimeTransferInterrupt as interrupt:
                     transfer = self._consume_program_transfer(interrupt.transfer)
@@ -286,21 +286,6 @@ class ProgramRunner(Generic[ProgramGenerationT]):
                 maintenance_count += 1
                 continue
             raise AppContractError("Program queue contained an unknown request")
-
-    def _next_request(self) -> AppRequest:
-        """Wait for the next request in slices so signal handlers can run.
-
-        An unbounded ``Queue.get()`` on Windows blocks in a native wait
-        that never yields to the interpreter, so a Ctrl-C handler would
-        not run until the next request arrives. Sliced waits keep the
-        main thread responsive to SIGINT while idle.
-        """
-
-        while True:
-            try:
-                return self._input_queue.get(timeout=0.5)
-            except Empty:
-                continue
 
     def _preflight(self) -> DailyTransitionOutcome:
         try:

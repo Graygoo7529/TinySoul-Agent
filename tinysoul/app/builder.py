@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -47,6 +48,7 @@ from tinysoul.infra import (
     build_embedding_client,
     parse_infra_settings,
 )
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 from tinysoul.llm.config import LLMConfigParser
 from tinysoul.llm.config_types import LLMConfig
 from tinysoul.llm.adapter import adapter_specs_json
@@ -225,7 +227,18 @@ class TinySoulAppBuilder:
         self._endpoint_ready = ready
         return self
 
-    def build(self) -> TinySoulApp:
+    async def build(self) -> TinySoulApp:
+        resources = AsyncResourceScope()
+        try:
+            return await self._build(resources)
+        except BaseException:
+            try:
+                await resources.close()
+            except asyncio.CancelledError:
+                pass
+            raise
+
+    async def _build(self, resources: AsyncResourceScope) -> TinySoulApp:
         app_bridge = RuntimeAppBridge()
         llm_bridge = RuntimeLLMBridge()
         maintenance_bridge = MaintenanceRuntimeBridge()
@@ -315,7 +328,7 @@ class TinySoulAppBuilder:
                 routes=output_routes,
             )
             bus = self._bus if self._bus is not None else SignalBus()
-            generation = self._build_generation(
+            generation = await self._build_generation(
                 config,
                 observations=observations,
                 bus=bus,
@@ -326,6 +339,9 @@ class TinySoulAppBuilder:
             workspace = generation.workspace
             parser = generation.input_parser
             generation_handle = RuntimeHandle(generation)
+            resources.register(
+                "generation", lambda: generation_handle.snapshot().generation.close()
+            )
             program_trap = build_program_trap()
             program_runner = ProgramRunner(
                 user_turn=user_turn,
@@ -436,6 +452,7 @@ class TinySoulAppBuilder:
                 services=services,
                 observations=observations,
                 endpoint=endpoint,
+                resources=resources,
             )
         except ConfigCatalogError as exc:
             raise app_bridge.startup_failure(
@@ -454,7 +471,7 @@ class TinySoulAppBuilder:
         except RuntimeException:
             raise
 
-    def _prepare_generation_activation(
+    async def _prepare_generation_activation(
         self,
         handle: RuntimeHandle[AppRuntimeGeneration],
         candidate: ConfigEnvironment,
@@ -471,7 +488,7 @@ class TinySoulAppBuilder:
                 key="config.activation_unavailable",
             ) from exc
         try:
-            generation = self._build_generation(
+            generation = await self._build_generation(
                 candidate,
                 observations=observations,
                 bus=bus,
@@ -480,17 +497,30 @@ class TinySoulAppBuilder:
             handle.fail_activation()
             raise
 
+        previous = handle.snapshot().generation
+
         def commit() -> None:
-            previous = handle.snapshot().generation
             with handle.write():
                 handle.activate(generation)
-            previous.close()
+
+        async def abort() -> tuple[CleanupDiagnostic, ...]:
+            try:
+                return await generation.close()
+            finally:
+                handle.fail_activation()
+
+        async def retire() -> tuple[CleanupDiagnostic, ...]:
+            diagnostics: tuple[CleanupDiagnostic, ...] = ()
             if after_commit is not None:
-                after_commit()
+                try:
+                    after_commit()
+                except Exception as exc:
+                    diagnostics = (CleanupDiagnostic("scheduler.refresh", type(exc).__name__),)
+            return (*diagnostics, *await previous.close())
 
-        return PreparedConfigActivation(commit=commit, abort=handle.fail_activation)
+        return PreparedConfigActivation(commit=commit, abort=abort, retire=retire)
 
-    def _build_generation(
+    async def _build_generation(
         self,
         config: ConfigEnvironment,
         *,
@@ -511,98 +541,107 @@ class TinySoulAppBuilder:
         action_settings = plan.action
         capabilities_settings = plan.capabilities
         app_settings = plan.app
-        llm = (
-            self._llm
-            if self._llm is not None
-            else self._build_llm(
-                plan.llm,
-                RuntimeLLMBridge(),
-                observations,
-                env=config.runtime_env,
-                context_trigger_ratio=context_settings.compression_trigger_ratio,
-            )
-        )
-        home = self._build_home(config, RuntimeAgentHomeBridge())
-        session = (
-            self._session
-            if self._session is not None
-            else self._build_session(config, RuntimeSessionBridge())
-        )
-        memory = self._memory
-        if memory is None:
-            memory = self._build_memory(
-                config,
-                RuntimeMemoryBridge(),
-                session_root=session.root,
-                embedding_client=build_embedding_client(
-                    infra_settings.embedding,
+        resources = AsyncResourceScope()
+        try:
+            llm = self._llm
+            if llm is None:
+                owned_llm = await self._build_llm(
+                    plan.llm,
+                    RuntimeLLMBridge(),
+                    observations,
                     env=config.runtime_env,
-                ),
+                    context_trigger_ratio=context_settings.compression_trigger_ratio,
+                )
+                resources.register("llm", owned_llm.close)
+                llm = owned_llm
+            home = self._build_home(config, RuntimeAgentHomeBridge())
+            session = (
+                self._session
+                if self._session is not None
+                else self._build_session(config, RuntimeSessionBridge())
             )
-        if memory.active_session_root is None:
-            memory.bind_active_session_root(session.root)
-        workspace = self._build_workspace(
-            config,
-            RuntimeWorkspaceBridge(),
-            observations,
-        )
-        user_builder = UserTurnBuilder(
-            root=self._root,
-            context_settings=context_settings,
-            loop_settings=loop_settings,
-            capabilities_settings=capabilities_settings,
-            supervised_process_wait=plan.supervised_process_wait,
-            runtime_env=config.runtime_env,
-            llm=llm,
-            home=home,
-            memory=memory,
-            session=session,
-            workspace=workspace,
-            bus=bus,
-            observations=observations,
-            action_settings=action_settings,
-            action_catalog=plan.action_catalog,
-        )
-        if self._user_context is not None:
-            user_builder.with_context(self._user_context)
-        if self._user_action is not None:
-            user_builder.with_action(self._user_action)
-        if self._user_domain_skills is not None:
-            user_builder.with_domain_skills(self._user_domain_skills)
-        for handler in self._user_turn_completion_handlers:
-            user_builder.add_completion_handler(handler)
-        user_turn = user_builder.build()
-        maintenance = MaintenanceBuilder(
-            context_settings=context_settings,
-            loop_settings=loop_settings,
-            settings=maintenance_settings,
-            llm=llm,
-            home=home,
-            memory=memory,
-            session=session,
-            workspace=workspace,
-            bus=bus,
-            observations=observations,
-            clock=self._business_clock,
-            action_catalog=plan.action_catalog,
-        ).build()
-        return AppRuntimeGeneration(
-            config=config,
-            plan=plan,
-            llm_provider_credentials=plan.llm.provider_credential_statuses(
-                config.runtime_env
-            ),
-            user_turn=user_turn,
-            maintenance=maintenance,
-            workspace=workspace,
-            input_parser=(
-                self._input_parser
-                if self._input_parser is not None
-                else InputCommandParser(app_settings.input_commands)
-            ),
-            app_settings=app_settings,
-            maintenance_settings=maintenance_settings,
-        )
+            memory = self._memory
+            if memory is None:
+                embedding = build_embedding_client(infra_settings.embedding, env=config.runtime_env)
+                if embedding is not None:
+                    resources.register("embedding", embedding.close)
+                memory = self._build_memory(
+                    config,
+                    RuntimeMemoryBridge(),
+                    session_root=session.root,
+                    embedding_client=embedding,
+                )
+            if memory.active_session_root is None:
+                memory.bind_active_session_root(session.root)
+            workspace = self._build_workspace(
+                config,
+                RuntimeWorkspaceBridge(),
+                observations,
+            )
+            user_builder = UserTurnBuilder(
+                root=self._root,
+                context_settings=context_settings,
+                loop_settings=loop_settings,
+                capabilities_settings=capabilities_settings,
+                supervised_process_wait=plan.supervised_process_wait,
+                runtime_env=config.runtime_env,
+                llm=llm,
+                home=home,
+                memory=memory,
+                session=session,
+                workspace=workspace,
+                bus=bus,
+                observations=observations,
+                action_settings=action_settings,
+                action_catalog=plan.action_catalog,
+            )
+            if self._user_context is not None:
+                user_builder.with_context(self._user_context)
+            if self._user_action is not None:
+                user_builder.with_action(self._user_action)
+            if self._user_domain_skills is not None:
+                user_builder.with_domain_skills(self._user_domain_skills)
+            for handler in self._user_turn_completion_handlers:
+                user_builder.add_completion_handler(handler)
+            user_turn = user_builder.build()
+            maintenance = MaintenanceBuilder(
+                context_settings=context_settings,
+                loop_settings=loop_settings,
+                settings=maintenance_settings,
+                llm=llm,
+                home=home,
+                memory=memory,
+                session=session,
+                workspace=workspace,
+                bus=bus,
+                observations=observations,
+                clock=self._business_clock,
+                action_catalog=plan.action_catalog,
+            ).build()
+            return AppRuntimeGeneration(
+                config=config,
+                plan=plan,
+                llm_provider_credentials=plan.llm.provider_credential_statuses(
+                    config.runtime_env
+                ),
+                user_turn=user_turn,
+                maintenance=maintenance,
+                workspace=workspace,
+                input_parser=(
+                    self._input_parser
+                    if self._input_parser is not None
+                    else InputCommandParser(app_settings.input_commands)
+                ),
+                app_settings=app_settings,
+                maintenance_settings=maintenance_settings,
+                resources=resources,
+            )
+        except BaseException:
+            try:
+                await resources.close()
+            except asyncio.CancelledError:
+                pass
+            raise
 
     def _validate_config_candidate(self, config: ConfigEnvironment) -> None:
         self._compile_config_plan(config)
@@ -763,7 +802,7 @@ class TinySoulAppBuilder:
         bridge = bridges.get(key, RuntimeAppBridge())
         return bridge.from_config_error(error)
 
-    def _build_llm(
+    async def _build_llm(
         self,
         llm_config: LLMConfig,
         bridge: RuntimeLLMBridge,
@@ -772,15 +811,19 @@ class TinySoulAppBuilder:
         env: Mapping[str, str],
         context_trigger_ratio: float,
     ) -> LLMTaskRunner:
-        providers = build_provider_registry(llm_config.providers, env=env)
-        return LLMTaskRunner(
-            models=llm_config.models,
-            providers=providers,
-            tasks=llm_config.tasks,
-            runtime_bridge=bridge,
-            observations=observations,
-            context_trigger_ratio=context_trigger_ratio,
-        )
+        providers = await build_provider_registry(llm_config.providers, env=env)
+        try:
+            return LLMTaskRunner(
+                models=llm_config.models,
+                providers=providers,
+                tasks=llm_config.tasks,
+                runtime_bridge=bridge,
+                observations=observations,
+                context_trigger_ratio=context_trigger_ratio,
+            )
+        except BaseException:
+            await providers.close()
+            raise
 
     def _build_loop_settings(
         self,

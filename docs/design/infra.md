@@ -54,11 +54,13 @@ project TOML 执行 source-aware mutation。Custom Model 因此不增加重复�
 同一文件同时属于 merged include 或多个 document set。`ConfigEnvironment` 在当前与候选快照中
 携带这些文档；document mutation 的 path 是文件内局部 path。`ConfigController` 先在内存中构造
 完整候选环境并调用 owner validator/Generation activator，成功后才与普通 TOML、dotenv 一起提交，
-任一激活失败则统一回滚。document 内容不进入 `effective_values()` 或普通 section parser。
+激活提交失败则统一回滚。旧资源退休在激活成功后独立执行，退休失败不回滚文件或已生效世代。document 内容不进入 `effective_values()` 或普通 section parser。
 
-配置写入由 `ConfigController` 的进程内锁串行化；事务在替换前保存原文，并在候选激活失败时
+配置写入由 `ConfigController` 的异步锁串行化；事务在替换前保存原文，并在候选激活失败时
 回滚已替换文件。当前不计算或暴露 source fingerprint/revision，也不提供基于 revision 的并发
 提交协议；单次写入的一致性由候选校验、串行化、原子替换和回滚保证。
+
+通用并发设施提供 JoinedOperations、AsyncResourceScope 与 AsyncMailbox。JoinedOperations 只承载有界本地工作：调用开始后，即使调用方取消也等待真实结果，由业务 owner 记录后再传播取消。AsyncResourceScope 按注册逆序回收资源，嵌套作用域保留有限清理诊断，并发或重复关闭共用同一任务。AsyncMailbox 接受线程来源的投递，在一个事件循环上异步取出；它只提供唤醒与队列基础，不解释业务输入、事件路由、预算或 Turn 受理。
 
 配置应支持多种来源，并保持明确优先级：
 

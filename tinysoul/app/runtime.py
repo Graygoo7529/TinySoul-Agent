@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tinysoul.endpoint import EndpointEngine
 
 from tinysoul.loop import TurnOutcome
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from .errors import AppInvariantError
 from .program import ProgramOutcome, ProgramRunner
@@ -32,6 +34,7 @@ class TinySoulApp:
     services: tuple[AppService, ...] = field(default_factory=tuple)
     observations: ObservationRouter = field(default_factory=ObservationRouter)
     endpoint: EndpointEngine | None = None
+    resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "input_sources", tuple(self.input_sources))
@@ -43,35 +46,29 @@ class TinySoulApp:
         )
 
     async def run(self) -> ProgramOutcome:
-        started: list[InputSource | ProgramRequestSource | AppService] = []
-        self.program_runner.prepare()
-        for source in self.program_request_sources:
-            try:
-                source.start(self.program_runner)
-            except BaseException:
-                self._stop_sources(started, suppress_errors=True)
-                raise
-            started.append(source)
-        for service in self.services:
-            try:
-                service.start()
-            except BaseException:
-                self._stop_sources(started, suppress_errors=True)
-                raise
-            started.append(service)
-        for source in self.input_sources:
-            try:
-                source.start(self.gateway)
-            except BaseException:
-                self._stop_sources(started, suppress_errors=True)
-                raise
-            started.append(source)
+        started = AsyncResourceScope()
+        self.resources.register("sources", started.close)
         try:
-            outcome = (await self.program_runner.run())
+            await self.program_runner.prepare()
+            for index, source in enumerate(self.program_request_sources):
+                source.start(self.program_runner)
+                started.register(f"request_source.{index}", partial(_stop_source, source))
+            for index, service in enumerate(self.services):
+                await service.start()
+                started.register(f"service.{index}", service.stop)
+            for index, source in enumerate(self.input_sources):
+                source.start(self.gateway)
+                started.register(f"input_source.{index}", partial(_stop_source, source))
+            outcome = await self.program_runner.run()
         except BaseException:
-            self._stop_sources(started, suppress_errors=True)
+            try:
+                await started.close()
+            except asyncio.CancelledError:
+                pass
             raise
-        self._stop_sources(started, suppress_errors=False)
+        diagnostics = await started.close()
+        if diagnostics:
+            raise AppInvariantError("Failed to stop app sources")
         self.observations.raise_if_failed()
         return outcome
 
@@ -93,23 +90,12 @@ class TinySoulApp:
     def submit_user_input(self, text: str, *, source: str = "api") -> None:
         self.gateway.submit_user_input(text, source=source, metadata={})
 
-    def stop_input_sources(self) -> None:
-        self._stop_sources(self.input_sources, suppress_errors=False)
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        """Release owned generations after all running work has returned."""
+        return await self.resources.close()
 
-    def _stop_sources(
-        self,
-        sources: Sequence[InputSource | ProgramRequestSource | AppService],
-        *,
-        suppress_errors: bool,
-    ) -> None:
-        errors: list[Exception] = []
-        for source in reversed(tuple(sources)):
-            try:
-                source.stop()
-            except Exception as exc:
-                errors.append(exc)
-        if errors and not suppress_errors:
-            detail = "; ".join(
-                f"{type(error).__name__}: {error}" for error in errors
-            )
-            raise AppInvariantError(f"Failed to stop app sources: {detail}")
+
+async def _stop_source(source: InputSource | ProgramRequestSource) -> None:
+    # Source adapters may join an input/scheduler thread. The resource scope
+    # shields and joins this callback before returning to its cancelled caller.
+    await asyncio.to_thread(source.stop)

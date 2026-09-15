@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
+
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from tinysoul.infra.config import ConfigEnvironment
 from tinysoul.infra import InfraSettings
@@ -59,13 +60,9 @@ class AppRuntimeGeneration:
     input_parser: InputCommandParser
     app_settings: AppSettings
     maintenance_settings: MaintenanceSettings
-    close_callbacks: tuple[Callable[[], None], ...] = field(default_factory=tuple)
+    resources: AsyncResourceScope = field(default_factory=AsyncResourceScope)
 
-    def close(self) -> None:
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Release explicitly registered generation-owned resources once retired."""
 
-        for callback in reversed(self.close_callbacks):
-            try:
-                callback()
-            except Exception:
-                continue
+        return await self.resources.close()

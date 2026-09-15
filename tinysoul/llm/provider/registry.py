@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tinysoul.llm.errors import LLMContractError, LLMInvariantError
 from tinysoul.llm.adapter_types import AdapterKind
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from .base import ProviderAdapter
 
@@ -13,6 +14,7 @@ class ProviderRegistry:
 
     def __init__(self, adapters: list[ProviderAdapter] | None = None) -> None:
         self._adapters: dict[tuple[str, AdapterKind], ProviderAdapter] = {}
+        self._resources = AsyncResourceScope()
         for adapter in adapters or []:
             self.register(adapter)
 
@@ -23,6 +25,7 @@ class ProviderRegistry:
                 "Provider adapter already registered: "
                 f"{adapter.provider_id}/{adapter.adapter_kind.value}"
             )
+        self._resources.register(f"llm.{adapter.provider_id}.{adapter.adapter_kind.value}", adapter.close)
         self._adapters[key] = adapter
 
     def get(
@@ -40,14 +43,6 @@ class ProviderRegistry:
     def has(self, provider_id: str, adapter_kind: AdapterKind) -> bool:
         return (provider_id, adapter_kind) in self._adapters
 
-    async def close(self) -> None:
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
         """Close every adapter even when one client's cleanup fails."""
-        failure: Exception | None = None
-        for adapter in reversed(tuple(self._adapters.values())):
-            try:
-                await adapter.close()
-            except Exception as exc:
-                if failure is None:
-                    failure = exc
-        if failure is not None:
-            raise LLMInvariantError("Provider client cleanup failed") from failure
+        return await self._resources.close()

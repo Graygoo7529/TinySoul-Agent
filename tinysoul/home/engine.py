@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tinysoul.infra.concurrency import JoinedOperations
+
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -279,12 +281,9 @@ class AgentHomeEngine:
     ) -> HomeSearchResult:
         """Search effective general skill metadata without runtime copying."""
 
-        self._validate_overlay_semantics()
-        documents: list[HomeSearchDocument] = []
-        for link in self._effective_top_links():
-            if link.space not in SEARCHABLE_HOME_SPACES:
-                continue
-            documents.append(self._search_document(link))
+        operations = JoinedOperations()
+        documents = await operations.run(self._search_documents)
+        operations.check_cancelled()
         return (await self._search.search(
             query=query,
             documents=tuple(documents),
@@ -292,6 +291,14 @@ class AgentHomeEngine:
             reranker=reranker,
             scope=scope,
         ))
+
+    def _search_documents(self) -> tuple[HomeSearchDocument, ...]:
+        self._validate_overlay_semantics()
+        return tuple(
+            self._search_document(link)
+            for link in self._effective_top_links()
+            if link.space in SEARCHABLE_HOME_SPACES
+        )
 
     def read_top(self, link: HomeTopLink | str) -> str:
         parsed = HomeTopLink.parse(link) if isinstance(link, str) else link

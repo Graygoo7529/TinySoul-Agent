@@ -10,6 +10,7 @@ from tinysoul.action import (
     ActionExecution,
     ActionExecutionContext,
     ActionExecutor,
+    LocalActionExecutor,
     ActionFailureDisposition,
     ActionLocalFailure,
     ActionResult,
@@ -51,14 +52,14 @@ class WorkspaceActionRuntimeBridge(Protocol):
     def trash_restore_required(self, *, link: str, trash_ref: str) -> RuntimeException:
         ...
 
-class WorkspaceScanExecutor(ActionExecutor):
+class WorkspaceScanExecutor(LocalActionExecutor):
     """Scan workspace resources and sync their summaries into WorkingContext."""
 
     def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -189,7 +190,7 @@ def register_workspace_actions(
     )
 
 
-class WorkspaceReadExecutor(ActionExecutor):
+class WorkspaceReadExecutor(LocalActionExecutor):
     """Return one bounded, digest-bound Workspace text range."""
 
     def __init__(
@@ -201,7 +202,7 @@ class WorkspaceReadExecutor(ActionExecutor):
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -288,7 +289,7 @@ class WorkspaceReadExecutor(ActionExecutor):
         )
 
 
-class WorkspaceSearchTextExecutor(ActionExecutor):
+class WorkspaceSearchTextExecutor(LocalActionExecutor):
     """Search an explicit Workspace text scope for one literal query."""
 
     def __init__(
@@ -300,7 +301,7 @@ class WorkspaceSearchTextExecutor(ActionExecutor):
         self._workspace = workspace
         self._runtime_bridge = runtime_bridge
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -426,7 +427,7 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             )
         links = tuple(link for link in links_value if isinstance(link, str))
         try:
-            preparation = self._workspace.prepare_analysis_references(links)
+            preparation = await context.owner_operations.run(lambda: self._workspace.prepare_analysis_references(links))
         except WorkspaceTrashRestoreRequired as exc:
             if self._runtime_bridge is None:
                 raise
@@ -463,6 +464,8 @@ class WorkspaceAnalyzeExecutor(ActionExecutor):
             analysis_input=analysis_input,
             max_answer_chars=settings.max_answer_chars,
         )
+        context.owner_operations.check_cancelled()
+        context.control.check_cancelled()
         value = (await self._llm_action.run_json(
             execution=execution,
             prompt=prompt,
@@ -585,10 +588,10 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 {"reason": "invalid_instruction"},
             )
         try:
-            prompt_build = self._prompt_builder.build_describe(
+            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_describe(
                 target_link=target_link,
                 instruction=instruction,
-            )
+            ))
         except PromptReferenceError as exc:
             return _failed(
                 execution,
@@ -601,6 +604,8 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 f"Workspace describe failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
+        context.owner_operations.check_cancelled()
+        context.control.check_cancelled()
         payload = (await self._llm_action.run_json(
             execution=execution,
             prompt=prompt_build.prompt,
@@ -616,33 +621,38 @@ class WorkspaceDescribeExecutor(ActionExecutor):
                 "Workspace describe LLM task must return a non-empty description.",
                 {"reason": "invalid_description"},
             )
-        try:
-            record = self._workspace.set_description(
-                target_link,
-                description,
-                expected_digest=prompt_build.target_digest,
+        context.control.check_cancelled()
+
+        def commit() -> ActionResult:
+            try:
+                record = self._workspace.set_description(
+                    target_link,
+                    description,
+                    expected_digest=prompt_build.target_digest,
+                )
+            except WorkspaceTrashRestoreRequired as exc:
+                if self._runtime_bridge is None:
+                    raise
+                raise self._runtime_bridge.trash_restore_required(
+                    link=exc.link,
+                    trash_ref=exc.trash_ref,
+                ) from exc
+            except WorkspaceError as exc:
+                return _failed(
+                    execution,
+                    f"Workspace describe failed: {exc}",
+                    {"error_type": type(exc).__name__},
+                )
+            _emit_workspace_snapshot(
+                self._workspace,
+                execution=execution,
+                context=context,
+                bus=self._bus,
+                source="workspace.describe",
             )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
-        except WorkspaceError as exc:
-            return _failed(
-                execution,
-                f"Workspace describe failed: {exc}",
-                {"error_type": type(exc).__name__},
-            )
-        _emit_workspace_snapshot(
-            self._workspace,
-            execution=execution,
-            context=context,
-            bus=self._bus,
-            source="workspace.describe",
-        )
-        return _success(execution, _record_payload(record))
+            return _success(execution, _record_payload(record))
+
+        return await context.owner_operations.run(commit)
 
 
 class WorkspaceCreateExecutor(ActionExecutor):
@@ -705,11 +715,11 @@ class WorkspaceCreateExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt_build = self._prompt_builder.build_create(
+            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_create(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
-            )
+            ))
             target_version = prompt_build.read_set.target
             if target_version.state is WorkspaceResourceState.PRESENT:
                 return _failed(
@@ -729,6 +739,8 @@ class WorkspaceCreateExecutor(ActionExecutor):
                 f"Workspace create failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
+        context.owner_operations.check_cancelled()
+        context.control.check_cancelled()
         text = (await self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
@@ -738,56 +750,61 @@ class WorkspaceCreateExecutor(ActionExecutor):
         ))
         if isinstance(text, ActionResult):
             return text
-        try:
-            record = self._workspace.commit_edit_text(
-                target_link,
-                text,
-                read_set=prompt_build.read_set,
-                overwrite=False,
-                retention=retention,
-                owner_turn_id=execution.framework.turn_id,
+        context.control.check_cancelled()
+
+        def commit() -> ActionResult:
+            try:
+                record = self._workspace.commit_edit_text(
+                    target_link,
+                    text,
+                    read_set=prompt_build.read_set,
+                    overwrite=False,
+                    retention=retention,
+                    owner_turn_id=execution.framework.turn_id,
+                )
+            except WorkspaceTrashRestoreRequired as exc:
+                if self._runtime_bridge is None:
+                    raise
+                raise self._runtime_bridge.trash_restore_required(
+                    link=exc.link,
+                    trash_ref=exc.trash_ref,
+                ) from exc
+            except WorkspaceSourceChanged as exc:
+                return _failed(
+                    execution,
+                    f"Workspace create source changed before commit: {exc.link}",
+                    {
+                        "reason": "source_changed",
+                        "link": exc.link,
+                        "expected_state": exc.expected_state,
+                        "actual_state": exc.actual_state,
+                        "expected_digest": exc.expected_digest,
+                        "actual_digest": exc.actual_digest,
+                    },
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                )
+            except WorkspaceError as exc:
+                return _failed(
+                    execution,
+                    f"Workspace create failed: {exc}",
+                    {"error_type": type(exc).__name__},
+                )
+            _emit_workspace_snapshot(
+                self._workspace,
+                execution=execution,
+                context=context,
+                bus=self._bus,
+                source="workspace.create",
             )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
-        except WorkspaceSourceChanged as exc:
-            return _failed(
-                execution,
-                f"Workspace create source changed before commit: {exc.link}",
-                {
-                    "reason": "source_changed",
-                    "link": exc.link,
-                    "expected_state": exc.expected_state,
-                    "actual_state": exc.actual_state,
-                    "expected_digest": exc.expected_digest,
-                    "actual_digest": exc.actual_digest,
-                },
-                disposition=ActionFailureDisposition.RETRY_SAME,
-            )
-        except WorkspaceError as exc:
-            return _failed(
-                execution,
-                f"Workspace create failed: {exc}",
-                {"error_type": type(exc).__name__},
-            )
-        _emit_workspace_snapshot(
-            self._workspace,
-            execution=execution,
-            context=context,
-            bus=self._bus,
-            source="workspace.create",
-        )
-        result_payload = _record_payload(record)
-        result_payload["created"] = True
-        result_payload["prompt_sources"] = prompt_build.read_set.to_json()
-        return _success(execution, result_payload)
+            result_payload = _record_payload(record)
+            result_payload["created"] = True
+            result_payload["prompt_sources"] = prompt_build.read_set.to_json()
+            return _success(execution, result_payload)
+
+        return await context.owner_operations.run(commit)
 
 
-class WorkspaceAppendExecutor(ActionExecutor):
+class WorkspaceAppendExecutor(LocalActionExecutor):
     """Append an exact text fragment to one existing Workspace text resource."""
 
     def __init__(
@@ -801,7 +818,7 @@ class WorkspaceAppendExecutor(ActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -859,7 +876,7 @@ class WorkspaceAppendExecutor(ActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspacePatchExecutor(ActionExecutor):
+class WorkspacePatchExecutor(LocalActionExecutor):
     """Apply an exact text replacement to one workspace resource."""
 
     def __init__(
@@ -873,7 +890,7 @@ class WorkspacePatchExecutor(ActionExecutor):
         self._bus = bus
         self._runtime_bridge = runtime_bridge
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -936,14 +953,14 @@ class WorkspacePatchExecutor(ActionExecutor):
         return _success(execution, _record_payload(record))
 
 
-class WorkspaceDeleteExecutor(ActionExecutor):
+class WorkspaceDeleteExecutor(LocalActionExecutor):
     """Move one resource to recoverable Trash and remove its active summary."""
 
     def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -981,14 +998,14 @@ class WorkspaceDeleteExecutor(ActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspaceRestoreExecutor(ActionExecutor):
+class WorkspaceRestoreExecutor(LocalActionExecutor):
     """Restore one logically deleted resource from Workspace Trash."""
 
     def __init__(self, workspace: WorkspaceEngine, bus: SignalBus) -> None:
         self._workspace = workspace
         self._bus = bus
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -1021,13 +1038,13 @@ class WorkspaceRestoreExecutor(ActionExecutor):
         return _success(execution, payload)
 
 
-class WorkspaceTrashListExecutor(ActionExecutor):
+class WorkspaceTrashListExecutor(LocalActionExecutor):
     """List recoverable Workspace Trash items without exposing file content."""
 
     def __init__(self, workspace: WorkspaceEngine) -> None:
         self._workspace = workspace
 
-    async def execute(
+    def execute_local(
         self,
         execution: ActionExecution,
         context: ActionExecutionContext,
@@ -1114,11 +1131,11 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 {"reason": "invalid_reference_links"},
             )
         try:
-            prompt_build = self._prompt_builder.build_rewrite(
+            prompt_build = await context.owner_operations.run(lambda: self._prompt_builder.build_rewrite(
                 target_link=target_link,
                 instruction=instruction,
                 reference_links=reference_links,
-            )
+            ))
             if expected_digest and prompt_build.target_digest != expected_digest:
                 return _failed(
                     execution,
@@ -1137,6 +1154,8 @@ class WorkspaceRewriteExecutor(ActionExecutor):
                 f"Workspace rewrite failed: {exc}",
                 {"error_type": type(exc).__name__},
             )
+        context.owner_operations.check_cancelled()
+        context.control.check_cancelled()
         text = (await self._llm_action.run_text(
             execution=execution,
             prompt=prompt_build.prompt,
@@ -1146,51 +1165,57 @@ class WorkspaceRewriteExecutor(ActionExecutor):
         ))
         if isinstance(text, ActionResult):
             return text
-        try:
-            record = self._workspace.commit_edit_text(
-                target_link,
-                text,
-                read_set=prompt_build.read_set,
-                overwrite=True,
+        context.control.check_cancelled()
+
+        def commit() -> ActionResult:
+            try:
+                record = self._workspace.commit_edit_text(
+                    target_link,
+                    text,
+                    read_set=prompt_build.read_set,
+                    overwrite=True,
+                )
+            except WorkspaceTrashRestoreRequired as exc:
+                if self._runtime_bridge is None:
+                    raise
+                raise self._runtime_bridge.trash_restore_required(
+                    link=exc.link,
+                    trash_ref=exc.trash_ref,
+                ) from exc
+            except WorkspaceSourceChanged as exc:
+                return _failed(
+                    execution,
+                    f"Workspace rewrite source changed before commit: {exc.link}",
+                    {
+                        "reason": "source_changed",
+                        "link": exc.link,
+                        "expected_state": exc.expected_state,
+                        "actual_state": exc.actual_state,
+                        "expected_digest": exc.expected_digest,
+                        "actual_digest": exc.actual_digest,
+                    },
+                    disposition=ActionFailureDisposition.RETRY_SAME,
+                )
+            except WorkspaceError as exc:
+                return _failed(
+                    execution,
+                    f"Workspace rewrite failed: {exc}",
+                    {"error_type": type(exc).__name__},
+                )
+            _emit_workspace_snapshot(
+                self._workspace,
+                execution=execution,
+                context=context,
+                bus=self._bus,
+                source="workspace.rewrite",
             )
-        except WorkspaceTrashRestoreRequired as exc:
-            if self._runtime_bridge is None:
-                raise
-            raise self._runtime_bridge.trash_restore_required(
-                link=exc.link,
-                trash_ref=exc.trash_ref,
-            ) from exc
-        except WorkspaceSourceChanged as exc:
-            return _failed(
-                execution,
-                f"Workspace rewrite source changed before commit: {exc.link}",
-                {
-                    "reason": "source_changed",
-                    "link": exc.link,
-                    "expected_state": exc.expected_state,
-                    "actual_state": exc.actual_state,
-                    "expected_digest": exc.expected_digest,
-                    "actual_digest": exc.actual_digest,
-                },
-                disposition=ActionFailureDisposition.RETRY_SAME,
-            )
-        except WorkspaceError as exc:
-            return _failed(
-                execution,
-                f"Workspace rewrite failed: {exc}",
-                {"error_type": type(exc).__name__},
-            )
-        _emit_workspace_snapshot(
-            self._workspace,
-            execution=execution,
-            context=context,
-            bus=self._bus,
-            source="workspace.rewrite",
-        )
-        result_payload = _record_payload(record)
-        result_payload["rewritten"] = True
-        result_payload["prompt_sources"] = prompt_build.read_set.to_json()
-        return _success(execution, result_payload)
+            result_payload = _record_payload(record)
+            result_payload["rewritten"] = True
+            result_payload["prompt_sources"] = prompt_build.read_set.to_json()
+            return _success(execution, result_payload)
+
+        return await context.owner_operations.run(commit)
+
 
 def _required_link(execution: ActionExecution) -> str | None:
     link = execution.call.params.get("target_link")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from queue import Queue
+from tinysoul.infra.concurrency import AsyncMailbox
 from pathlib import Path
 from typing import cast
 
@@ -77,7 +77,7 @@ async def test_program_converts_maintenance_error_to_program_transfer() -> None:
         maintenance=_FailingMaintenance(),
         bus=SignalBus(),
         trap=_program_trap(),
-        input_queue=Queue(),
+        input_queue=AsyncMailbox(),
     )
     runner.input_queue.put(
         MaintenanceRequest(

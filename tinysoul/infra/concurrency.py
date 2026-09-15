@@ -1,11 +1,13 @@
-"""Reentrant reader-writer lock for shared-read, exclusive-write owners."""
+"""Explicit concurrency boundaries for local operations, resources and queues."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TypeVar
-from threading import Condition, get_ident
+from threading import Condition, Lock, get_ident
 from types import TracebackType
 
 
@@ -156,3 +158,103 @@ class JoinedOperations:
         """Called only after the completed result has reached its fact owner."""
         if self._cancelled:
             raise asyncio.CancelledError
+
+
+@dataclass(frozen=True)
+class CleanupDiagnostic:
+    """Bounded cleanup evidence; never include exception text or resource data."""
+
+    resource: str
+    error_type: str
+
+    def __post_init__(self) -> None:
+        if not self.resource or not self.error_type:
+            raise ConcurrencyContractError("Cleanup diagnostic identity is required")
+
+
+type AsyncCloser = Callable[[], Awaitable[tuple[CleanupDiagnostic, ...] | None]]
+
+
+class AsyncResourceScope:
+    """Own asynchronous resources and join reverse-order cleanup exactly once.
+
+    Cancellation of a caller never abandons cleanup. Concurrent close callers
+    join the same task; callback failures remain diagnostics, not a replacement
+    for an execution or commit failure. Nested scopes retain their diagnostics.
+    """
+
+    def __init__(self) -> None:
+        self._callbacks: dict[str, AsyncCloser] = {}
+        self._closing: asyncio.Task[tuple[CleanupDiagnostic, ...]] | None = None
+        self._diagnostics: tuple[CleanupDiagnostic, ...] = ()
+
+    @property
+    def diagnostics(self) -> tuple[CleanupDiagnostic, ...]:
+        return self._diagnostics
+
+    def register(self, resource: str, close: AsyncCloser) -> None:
+        if not resource or resource in self._callbacks or self._closing is not None:
+            raise ConcurrencyContractError("Resource registration is invalid")
+        self._callbacks[resource] = close
+
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        if self._closing is None:
+            self._closing = asyncio.create_task(self._close_all())
+        cancelled = False
+        while not self._closing.done():
+            try:
+                await asyncio.shield(self._closing)
+            except asyncio.CancelledError:
+                cancelled = True
+        result = self._closing.result()
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    async def _close_all(self) -> tuple[CleanupDiagnostic, ...]:
+        diagnostics: list[CleanupDiagnostic] = []
+        for resource, callback in reversed(tuple(self._callbacks.items())):
+            try:
+                nested = await callback()
+                if nested:
+                    diagnostics.extend(nested)
+            except (Exception, asyncio.CancelledError) as exc:
+                diagnostics.append(CleanupDiagnostic(resource, type(exc).__name__))
+        self._diagnostics = tuple(diagnostics)
+        return self._diagnostics
+
+
+class AsyncMailbox[T]:
+    """Thread-safe producers, one event-loop consumer, no blocked reader thread."""
+
+    def __init__(self) -> None:
+        self._items: deque[T] = deque()
+        self._lock = Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._ready = asyncio.Event()
+
+    def put(self, item: T) -> None:
+        with self._lock:
+            if self._loop is not None and self._loop.is_closed():
+                raise ConcurrencyContractError("Mailbox event loop is closed")
+            self._items.append(item)
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(self._ready.set)
+
+    def get_nowait(self) -> T:
+        with self._lock:
+            if not self._items:
+                raise asyncio.QueueEmpty
+            return self._items.popleft()
+
+    async def get(self) -> T:
+        loop = asyncio.get_running_loop()
+        while True:
+            with self._lock:
+                if self._loop is not None and self._loop is not loop:
+                    raise ConcurrencyContractError("Mailbox belongs to another event loop")
+                self._loop = loop
+                if self._items:
+                    return self._items.popleft()
+                self._ready.clear()
+            await self._ready.wait()

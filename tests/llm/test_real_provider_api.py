@@ -78,7 +78,7 @@ TOOL_MODEL_IDS = (
 
 @pytest.mark.parametrize("model_id", PRIMARY_MODEL_IDS)
 async def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
-    model, provider, adapter = _load_model_adapter(model_id)
+    model, provider, adapter = await _load_model_adapter(model_id)
     messages = MessageStack.of(
         SystemMessage.from_text(
             "Return only a compact JSON object. Do not include markdown. "
@@ -165,7 +165,7 @@ async def test_real_provider_primary_model_two_rounds(model_id: str) -> None:
 
 @pytest.mark.parametrize("model_id", TOOL_MODEL_IDS)
 async def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
-    model, provider, adapter = _load_model_adapter(model_id)
+    model, provider, adapter = await _load_model_adapter(model_id)
     if not model.supports(ModelCapability.TOOL_CALLING):
         pytest.skip(f"{model.id} does not declare tool calling capability")
     prompt_cache = PromptCache(key=f"real-api:{model.id}:tool-context")
@@ -287,7 +287,7 @@ async def test_real_provider_model_two_tool_rounds(model_id: str) -> None:
     )
 
 
-def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, ProviderAdapter]:
+async def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, ProviderAdapter]:
     configured_root = os.environ.get("TINYSOUL_REAL_PROJECT_ROOT", "")
     if not configured_root:
         pytest.fail(
@@ -301,7 +301,7 @@ def _load_model_adapter(model_id: str) -> tuple[ModelSpec, ProviderSpec, Provide
     binding = model.providers[0]
     provider = config.provider(binding.provider_id)
     try:
-        registry = build_provider_registry((provider,), env=environment.runtime_env)
+        registry = await build_provider_registry((provider,), env=environment.runtime_env)
     except ConfigError as exc:
         pytest.skip(f"{provider.id} API key is not configured: {exc}")
     return model, provider, registry.get(provider.id, model.adapter)

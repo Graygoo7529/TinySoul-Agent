@@ -342,19 +342,20 @@ def test_endpoint_event_replay_filter_and_websocket_auth(tmp_path: Path) -> None
         ]
 
 
-def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
+async def test_endpoint_asgi_server_uses_prebound_random_port(tmp_path: Path) -> None:
     engine, _gateway, _events = _engine(tmp_path)
     server = EndpointASGIServer(engine=engine, settings=engine.settings)
-    server.start()
+    await server.start()
     try:
-        response = httpx.get(
-            f"http://{engine.settings.host}:{server.port}/v1/health",
-            timeout=5.0,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"http://{engine.settings.host}:{server.port}/v1/health",
+                timeout=5.0,
+            )
         assert response.status_code == 200
         assert response.json() == {"ok": True}
     finally:
-        server.stop()
+        await server.stop()
 
 
 def test_config_routes_read_and_patch_project_source(tmp_path: Path) -> None:

@@ -31,8 +31,8 @@ def register_configuration_routes(app: FastAPI, engine: EndpointEngine) -> None:
         return engine.configuration.actions()
 
     @app.patch("/v1/config")
-    def patch_config(body: ConfigPatchRequest) -> JsonObject:
-        return engine.configuration.patch(_config_mutations(body.operations))
+    async def patch_config(body: ConfigPatchRequest) -> JsonObject:
+        return await engine.configuration.patch(_config_mutations(body.operations))
 
 
 def _config_mutations(

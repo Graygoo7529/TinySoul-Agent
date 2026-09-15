@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from threading import Event, Lock
 from time import monotonic
@@ -108,6 +109,23 @@ class ActionExecutor(Protocol):
         context: ActionExecutionContext,
     ) -> ActionResult:
         """Execute one action."""
+        ...
+
+
+class LocalActionExecutor(ABC):
+    """Adapt bounded local owner work, including its result and notifications.
+
+    This is an explicit execution contract, not a synchronous fallback. LLM,
+    network and process work must use the asynchronous executor protocol.
+    """
+
+    async def execute(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        context.control.check_cancelled()
+        return await context.owner_operations.run(lambda: self.execute_local(execution, context))
+
+    @abstractmethod
+    def execute_local(self, execution: ActionExecution, context: ActionExecutionContext) -> ActionResult:
+        """Complete one bounded owner operation before returning its real result."""
         ...
 
 

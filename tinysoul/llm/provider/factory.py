@@ -17,25 +17,29 @@ from .openai_sdk import OpenAICompatibleChatAdapter
 from .registry import ProviderRegistry
 
 
-def build_provider_registry(
+async def build_provider_registry(
     providers: tuple[ProviderSpec, ...],
     *,
     env: Mapping[str, str],
 ) -> ProviderRegistry:
-    adapters: list[ProviderAdapter] = []
-    for provider in providers:
-        if not provider.enabled:
-            continue
-        api_key = provider.resolve_api_key(env)
-        for adapter_kind in provider.adapters:
-            adapters.append(
-                _build_provider_adapter(
-                    provider,
-                    adapter_kind=adapter_kind,
-                    api_key=api_key,
+    registry = ProviderRegistry()
+    try:
+        for provider in providers:
+            if not provider.enabled:
+                continue
+            api_key = provider.resolve_api_key(env)
+            for adapter_kind in provider.adapters:
+                registry.register(
+                    _build_provider_adapter(
+                        provider,
+                        adapter_kind=adapter_kind,
+                        api_key=api_key,
+                    )
                 )
-            )
-    return ProviderRegistry(adapters)
+        return registry
+    except BaseException:
+        await registry.close()
+        raise
 
 
 def _build_provider_adapter(

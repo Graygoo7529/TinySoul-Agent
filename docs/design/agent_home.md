@@ -12,6 +12,8 @@ Stage 6.1 已将长期日期 Memory 整体移交给独立 `tinysoul.memory`。`t
 
 Agent Home 模块负责 TinySoul 的持久化身份规约、用户偏好、通用技能和领域/动作技能。它是 `home:` 链接的唯一语义归属方，不是 `memory:` 链接或长期日期记忆的归属方。
 
+纯本地 Home Action 通过 LocalActionExecutor 等待有界 owner 操作与结果构造；取消不丢弃已启动的修改。Home 搜索在 JoinedOperations 中读取固定候选文档，之后才异步执行 rerank；不在线程中执行模型调用，也不在读取已取消后继续调用模型。
+
 Agent Home 不维护 Turn 内 Context 状态，不驱动 Loop，也不管理 workspace 或 Memory 文件。它向 User Context 提供 effective Home，向 Loop 提供领域 skill，向 Action 内部 LLM task 提供领域/动作 skill，并向 Action 提供普通 runtime mutation；Maintenance-owned actual Home provider 不属于 Home 主线。Home owner 只公开中性的 `HomeReviewService` 与 review/resolve/remove overlay 门面，不拥有 Maintenance task、reviewer、时钟、scheduler 或 Maintenance Turn。
 
 ## 设计目标

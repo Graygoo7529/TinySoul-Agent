@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from threading import RLock
 from typing import cast
 
 from tinysoul.infra.json import JsonObject, JsonValue, to_json_object, to_json_value
+from tinysoul.infra.concurrency import AsyncResourceScope, CleanupDiagnostic
 
 from .dotenv import DotenvDocument, DotenvSource, _env_mapping_to_dotted
 from .documents import ConfigDocument, ConfigDocumentSet
@@ -61,11 +62,12 @@ ConfigCandidateValidator = Callable[[ConfigEnvironment], None]
 @dataclass(frozen=True)
 class PreparedConfigActivation:
     commit: Callable[[], None]
-    abort: Callable[[], None] = lambda: None
+    abort: Callable[[], Awaitable[tuple[CleanupDiagnostic, ...]]] | None = None
+    retire: Callable[[], Awaitable[tuple[CleanupDiagnostic, ...]]] | None = None
 
 
 ConfigCandidateActivator = Callable[
-    [ConfigEnvironment], PreparedConfigActivation | None
+    [ConfigEnvironment], Awaitable[PreparedConfigActivation]
 ]
 
 
@@ -89,7 +91,7 @@ class ConfigController:
         self._validator = validator
         self._activator = activator
         self._activity = activity or (lambda: "idle")
-        self._lock = RLock()
+        self._lock = asyncio.Lock()
         self._activation_observer = activation_observer
         self._generation_id_provider = generation_id
         self._catalog = catalog or load_config_catalog()
@@ -134,8 +136,8 @@ class ConfigController:
 
         return self._catalog.to_json()
 
-    def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
-        with self._lock:
+    async def patch(self, mutations: tuple[ConfigMutation, ...]) -> JsonObject:
+        async with self._lock:
             if not mutations:
                 raise ConfigError(
                     "Configuration patch must contain operations",
@@ -155,7 +157,7 @@ class ConfigController:
                 if self._validator is not None:
                     self._validator(candidate)
                 prepared = (
-                    self._activator(candidate) if self._activator is not None else None
+                    await self._activator(candidate) if self._activator is not None else None
                 )
             except BaseException as exc:
                 self._observe("failed", {"error_type": type(exc).__name__})
@@ -163,8 +165,7 @@ class ConfigController:
             try:
                 receipt = ConfigFileTransaction(self.root).commit(tuple(writes))
             except BaseException as exc:
-                if prepared is not None:
-                    prepared.abort()
+                await self._abort(prepared)
                 self._observe("failed", {"error_type": type(exc).__name__})
                 raise
             try:
@@ -172,8 +173,7 @@ class ConfigController:
                     prepared.commit()
             except BaseException as exc:
                 receipt.rollback()
-                if prepared is not None:
-                    prepared.abort()
+                await self._abort(prepared)
                 self._observe("failed", {"error_type": type(exc).__name__})
                 raise
             receipt.complete()
@@ -192,7 +192,33 @@ class ConfigController:
             generation_id = self._generation_id()
             if generation_id:
                 result["generation_id"] = generation_id
+            # Activation is committed. Retirement is not part of the file
+            # transaction and cannot roll back the now-visible generation.
+            if prepared is not None and prepared.retire is not None:
+                retirement = AsyncResourceScope()
+                retirement.register("config.retirement", prepared.retire)
+                diagnostics = await retirement.close()
+                if diagnostics:
+                    result["cleanup_diagnostics"] = [
+                        {"resource": item.resource, "error_type": item.error_type}
+                        for item in diagnostics
+                    ]
             return result
+
+    async def _abort(self, prepared: PreparedConfigActivation | None) -> None:
+        if prepared is None or prepared.abort is None:
+            return
+        cleanup = AsyncResourceScope()
+        cleanup.register("config.candidate", prepared.abort)
+        try:
+            await cleanup.close()
+        except asyncio.CancelledError:
+            # The transaction's primary failure remains authoritative.
+            pass
+        for diagnostic in cleanup.diagnostics:
+            self._observe("cleanup.failed", {
+                "resource": diagnostic.resource, "error_type": diagnostic.error_type,
+            })
 
     def _observe(self, state: str, payload: JsonObject) -> None:
         if self._activation_observer is None:

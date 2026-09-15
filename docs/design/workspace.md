@@ -12,6 +12,8 @@ Workspace 模块负责 TinySoul 当日工作区的资源管理，是 `workspace:
 
 Workspace 不维护语境状态，不解释外部输入命令，也不读取 Agent Home。`WorkspaceEngine` 不直接执行模型调用；需要 LLM 的 workspace action executor 在 ActionExecutor 语义内构造 `TaskPrompt`，并通过 action 层共享 `LLMActionTaskRunner` 调用模型。Workspace 通过 context 信号同步资源摘要，并通过自身门面处理 workspace 链接解析、路径边界、资源扫描、manifest 更新和文件读写。
 
+Action 侧的有界本地读取和写入通过 JoinedOperations 执行。纯本地动作使用 LocalActionExecutor；混合动作在读取后异步调用 LLM，再进入独立的 owner 提交。提交和 Workspace snapshot 通知一同完成后返回真实结果，已提交的成功不会因调用方随后取消而丢失；取消传播仍由 Action runner 在记录执行事实后负责。
+
 ## 设计目标
 
 1. `workspace:` 链接有唯一解析和校验入口，避免路径规则散落在 app、action 或具体工具函数中。

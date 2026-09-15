@@ -175,25 +175,33 @@ def _start(argv: Sequence[str]) -> int:
                         )
                     )
                 )
-            app = builder.build()
-            if args.once is not None:
-                outcome = asyncio.run(app.run_once(args.once))
-                return 0 if outcome.status.value == "answered" else 1
-            escalation = _SigintEscalation(app.gateway)
-            previous_handler = signal_module.signal(
-                signal_module.SIGINT,
-                escalation.handle,
-            )
-            try:
-                asyncio.run(app.run())
-            finally:
-                signal_module.signal(signal_module.SIGINT, previous_handler)
-            return 0
+            return asyncio.run(_run_application(builder, args.once))
     except KeyboardInterrupt:
         return 130
     except (ConfigError, EndpointError, RuntimeException, AppError) as exc:
         print(f"tinysoul: {exc}", file=sys.stderr)
         return 1
+
+
+async def _run_application(builder: TinySoulAppBuilder, once: str | None) -> int:
+    app = await builder.build()
+    try:
+        if once is not None:
+            outcome = await app.run_once(once)
+            code = 0 if outcome.status.value == "answered" else 1
+        else:
+            escalation = _SigintEscalation(app.gateway)
+            previous_handler = signal_module.signal(signal_module.SIGINT, escalation.handle)
+            try:
+                await app.run()
+                code = 0
+            finally:
+                signal_module.signal(signal_module.SIGINT, previous_handler)
+    finally:
+        diagnostics = await app.close()
+        for item in diagnostics:
+            print(f"tinysoul: cleanup failed: {item.resource} ({item.error_type})", file=sys.stderr)
+    return 1 if diagnostics else code
 
 
 class _SigintEscalation:

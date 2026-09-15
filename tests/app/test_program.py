@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from queue import Queue
+from tinysoul.infra.concurrency import AsyncMailbox
 
 from tinysoul.app.program import ProgramRunner
 from tinysoul.app.requests import AppRequest, ExitRequest, UserTurnRequest
@@ -33,7 +33,7 @@ DAY = BusinessDay.parse("2026-08-03")
 
 
 async def test_program_dispatches_typed_requests_to_user_or_maintenance() -> None:
-    queue: Queue[AppRequest] = Queue()
+    queue: AsyncMailbox[AppRequest] = AsyncMailbox()
     user = _UserTurn()
     maintenance = _Maintenance()
     runner = ProgramRunner(
@@ -66,7 +66,7 @@ async def test_program_dispatches_typed_requests_to_user_or_maintenance() -> Non
 
 
 async def test_program_startup_reports_complete_maintenance_availability() -> None:
-    queue: Queue[AppRequest] = Queue()
+    queue: AsyncMailbox[AppRequest] = AsyncMailbox()
     queue.put(ExitRequest(request_id="exit_1"))
     maintenance = _Maintenance(
         availability=MaintenanceAvailability(

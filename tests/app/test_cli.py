@@ -46,6 +46,9 @@ class _FakeApp:
         self.run_count += 1
         return SimpleNamespace()
 
+    async def close(self):
+        return ()
+
 
 class _FakeLease:
     def __init__(self, root: Path) -> None:
@@ -92,7 +95,7 @@ class _FakeBuilder:
         self.input_sources.append(source)
         return self
 
-    def build(self) -> _FakeApp:
+    async def build(self) -> _FakeApp:
         return self.app
 
 

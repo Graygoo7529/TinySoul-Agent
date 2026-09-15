@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import asyncio
 
 from tinysoul.infra.json import JsonObject, to_json_object
+from tinysoul.infra.concurrency import CleanupDiagnostic
 from tinysoul.runtime import (
     NullObservationEmitter,
     ObservationEmitter,
@@ -227,7 +228,7 @@ class LLMTaskRunner:
             {"profile": call.profile},
         )
         try:
-            result = await self._run_task(call)
+            result = await self._run_cancellable_task(call)
         except Exception as exc:
             self._emit(
                 call,
@@ -251,6 +252,32 @@ class LLMTaskRunner:
             },
         )
         return result
+
+    async def _run_cancellable_task(self, call: TaskCall) -> TaskResult:
+        """One cancellation boundary covers provider I/O and every backoff."""
+        _check_cancellation(call)
+        task = asyncio.create_task(self._run_task(call))
+        try:
+            while not task.done():
+                if call.cancellation is None:
+                    await asyncio.shield(task)
+                else:
+                    await asyncio.wait((task,), timeout=0.05)
+                    _check_cancellation(call)
+            _check_cancellation(call)
+            return task.result()
+        except BaseException:
+            if not task.done():
+                task.cancel()
+            settled = asyncio.gather(task, return_exceptions=True)
+            while not settled.done():
+                try:
+                    await asyncio.shield(settled)
+                except asyncio.CancelledError:
+                    # Caller cancellation must not interrupt provider cleanup
+                    # or replace the original control exception.
+                    continue
+            raise
 
     async def _run_task(self, call: TaskCall) -> TaskResult:
         try:
@@ -317,8 +344,8 @@ class LLMTaskRunner:
                 payload={"profile": call.profile},
             ) from exc
 
-    async def close(self) -> None:
-        await self._providers.close()
+    async def close(self) -> tuple[CleanupDiagnostic, ...]:
+        return await self._providers.close()
 
     def reset_route(self, profile: TaskProfile | str | None = None) -> None:
         self._chain_runner.reset(profile)
@@ -528,8 +555,7 @@ class LLMTaskRunner:
             )
             try:
                 _check_cancellation(call)
-                response = await _invoke_provider(
-                    provider,
+                response = await provider.invoke(
                     ProviderRequest(
                         model=model,
                         binding=binding,
@@ -542,7 +568,6 @@ class LLMTaskRunner:
                         max_output_tokens=max_output_tokens,
                         timeout_seconds=_remaining_seconds(call),
                     ),
-                    call,
                 )
             except ProviderError as exc:
                 self._emit(
@@ -869,29 +894,6 @@ def _effective_temperature(
 def _check_cancellation(call: TaskCall) -> None:
     if call.cancellation is not None:
         call.cancellation.check()
-
-
-async def _invoke_provider(
-    provider: ProviderAdapter,
-    request: ProviderRequest,
-    call: TaskCall,
-) -> RawResponse:
-    """Join the native async provider before cancellation leaves the module."""
-
-    cancellation = call.cancellation
-    if cancellation is None:
-        return await provider.invoke(request)
-    attempt = asyncio.create_task(provider.invoke(request))
-    try:
-        while not attempt.done():
-            await asyncio.wait({attempt}, timeout=0.05)
-            cancellation.check()
-        cancellation.check()
-        return attempt.result()
-    finally:
-        if not attempt.done():
-            attempt.cancel()
-        await asyncio.gather(attempt, return_exceptions=True)
 
 
 def _remaining_seconds(call: TaskCall) -> float | None:
